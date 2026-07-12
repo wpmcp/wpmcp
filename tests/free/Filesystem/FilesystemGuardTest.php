@@ -44,4 +44,11 @@ class FilesystemGuardTest extends \WP_UnitTestCase
         $this->assertInstanceOf(\WP_Error::class, $out);
         $this->assertSame('outside_root', $out->get_error_code());
     }
+
+    public function test_rejects_absolute_path_outside_root(): void
+    {
+        $out = Filesystem_Guard::resolve_path(dirname($this->root) . '/wpmcp-outside.txt', $this->root);
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('outside_root', $out->get_error_code());
+    }
 }

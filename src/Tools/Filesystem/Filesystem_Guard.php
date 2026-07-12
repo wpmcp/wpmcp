@@ -27,7 +27,14 @@ class Filesystem_Guard
     {
         $root = $root ?? ABSPATH;
 
-        $candidate = rtrim($root, '/\\') . DIRECTORY_SEPARATOR . ltrim($path, '/\\');
+        $is_absolute = ('' !== $path) && (
+            '/' === $path[0]
+            || '\\' === $path[0]
+            || 1 === preg_match('#^[A-Za-z]:[\\\\/]#', $path)
+        );
+        $candidate = $is_absolute
+            ? $path
+            : rtrim($root, '/\\') . DIRECTORY_SEPARATOR . ltrim($path, '/\\');
 
         $real = realpath($candidate);
         if (false === $real) {
