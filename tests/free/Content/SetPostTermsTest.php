@@ -57,4 +57,10 @@ class SetPostTermsTest extends \WP_UnitTestCase
         sort($expected);
         $this->assertSame($expected, $assigned);
     }
+
+    public function test_not_found_throws(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new Set_Post_Terms())->handle(['post_id' => 999999, 'taxonomy' => 'category', 'terms' => [1]]);
+    }
 }
