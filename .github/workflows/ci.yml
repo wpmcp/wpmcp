@@ -17,5 +17,7 @@ jobs:
         with: { php-version: '${{ matrix.php }}' }
       - run: composer install --no-interaction
       - run: composer lint
+      - name: Install subversion (required by install-wp-tests.sh)
+        run: sudo apt-get update && sudo apt-get install -y subversion
       - run: bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 6.9
       - run: composer test
