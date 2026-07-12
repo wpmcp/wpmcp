@@ -17,6 +17,8 @@ class Database_Guard
 {
     public const MAX_ROWS = 1000;
     public const BEFORE_IMAGE_CAP = 500;
+    public const AUDIT_OPTION = 'wpmcp_db_write_audit_log';
+    public const AUDIT_MAX = 100;
 
     /**
      * Normalize SQL for safe keyword scanning: replace every comment with a
@@ -222,5 +224,35 @@ class Database_Guard
         $rows = $wpdb->get_results($wpdb->prepare($sql, $values), ARRAY_A);
 
         return is_array($rows) ? $rows : [];
+    }
+
+    /**
+     * Append a structured write to the capped audit log. This is the
+     * recoverability record for Update_Rows/Delete_Rows: since a generic
+     * arbitrary-table rollback is not offered (see those tools' docblocks),
+     * the before-image captured here is the only trail a human has to
+     * manually reconstruct a change if needed.
+     */
+    public static function audit(string $operation, string $table, int $affected, array $before = []): void
+    {
+        $log = get_option(self::AUDIT_OPTION, []);
+        if (! is_array($log)) {
+            $log = [];
+        }
+
+        $log[] = [
+            'op'       => $operation,
+            'table'    => $table,
+            'affected' => $affected,
+            'before'   => $before,
+            'user'     => get_current_user_id(),
+            'time'     => time(),
+        ];
+
+        if (count($log) > self::AUDIT_MAX) {
+            $log = array_slice($log, -self::AUDIT_MAX);
+        }
+
+        update_option(self::AUDIT_OPTION, $log, false);
     }
 }
