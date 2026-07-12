@@ -1229,7 +1229,9 @@ final class Plugin
                 ],
             ],
             [$list_products, 'handle'],
-            'manage_woocommerce'
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/get-product',
@@ -1243,7 +1245,9 @@ final class Plugin
                 'required'   => [ 'id' ],
             ],
             [$get_product, 'handle'],
-            'manage_woocommerce'
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/create-product',
@@ -1265,7 +1269,9 @@ final class Plugin
                 'required'   => [ 'name' ],
             ],
             [$create_product, 'handle'],
-            'manage_woocommerce'
+            'manage_woocommerce',
+            'woocommerce',
+            'create'
         ));
         $registrar->register(new Ability(
             'wpmcp/update-product',
@@ -1289,7 +1295,9 @@ final class Plugin
                 'required'   => [ 'id' ],
             ],
             [$update_product, 'handle'],
-            'manage_woocommerce'
+            'manage_woocommerce',
+            'woocommerce',
+            'update'
         ));
         $registrar->register(new Ability(
             'wpmcp/delete-product',
@@ -1306,7 +1314,9 @@ final class Plugin
                 'required'   => [ 'id', 'confirm' ],
             ],
             [$delete_product, 'handle'],
-            'manage_woocommerce'
+            'manage_woocommerce',
+            'woocommerce',
+            'delete'
         ));
         $registrar->register(new Ability(
             'wpmcp/list-product-categories',
@@ -1319,7 +1329,9 @@ final class Plugin
                 ],
             ],
             [$list_product_categories, 'handle'],
-            'manage_woocommerce'
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/list-orders',
@@ -1335,7 +1347,9 @@ final class Plugin
                 ],
             ],
             [$list_orders, 'handle'],
-            'edit_shop_orders'
+            'edit_shop_orders',
+            'woocommerce',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/get-order',
@@ -1349,7 +1363,9 @@ final class Plugin
                 'required'   => [ 'id' ],
             ],
             [$get_order, 'handle'],
-            'edit_shop_orders'
+            'edit_shop_orders',
+            'woocommerce',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/update-order-status',
@@ -1365,7 +1381,9 @@ final class Plugin
                 'required'   => [ 'id', 'status' ],
             ],
             [$update_order_status, 'handle'],
-            'edit_shop_orders'
+            'edit_shop_orders',
+            'woocommerce',
+            'update'
         ));
         $registrar->register(new Ability(
             'wpmcp/add-order-note',
@@ -1381,7 +1399,9 @@ final class Plugin
                 'required'   => [ 'id', 'note' ],
             ],
             [$add_order_note, 'handle'],
-            'edit_shop_orders'
+            'edit_shop_orders',
+            'woocommerce',
+            'create'
         ));
         $registrar->register(new Ability(
             'wpmcp/get-sales-report',
@@ -1395,7 +1415,9 @@ final class Plugin
                 ],
             ],
             [$get_sales_report, 'handle'],
-            'manage_woocommerce'
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
         ));
     }
 

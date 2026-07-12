@@ -183,6 +183,20 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertSame('read', $abilities['wpmcp/scan-security']->operation);
     }
 
+    public function test_woocommerce_abilities_are_tagged_woocommerce_domain(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        $this->assertSame('woocommerce', $abilities['wpmcp/list-products']->domain);
+        $this->assertSame('read', $abilities['wpmcp/list-products']->operation);
+        $this->assertSame('woocommerce', $abilities['wpmcp/create-product']->domain);
+        $this->assertSame('create', $abilities['wpmcp/create-product']->operation);
+        $this->assertSame('woocommerce', $abilities['wpmcp/update-order-status']->domain);
+        $this->assertSame('update', $abilities['wpmcp/update-order-status']->operation);
+        $this->assertSame('woocommerce', $abilities['wpmcp/delete-product']->domain);
+        $this->assertSame('delete', $abilities['wpmcp/delete-product']->operation);
+    }
+
     /** @param Ability[] $abilities @return array<string, Ability> */
     private function index(array $abilities): array
     {
