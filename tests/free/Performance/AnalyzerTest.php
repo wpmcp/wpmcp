@@ -161,4 +161,51 @@ class AnalyzerTest extends \WP_UnitTestCase
         $this->assertTrue($result['page_fetch']['ok']);
         $this->assertSame([], $result['top_recommendations']);
     }
+
+    public function test_analyze_rejects_an_off_host_url(): void
+    {
+        $analyzer = new Analyzer(new Server_Audit(), new Page_Audit());
+
+        $result = $analyzer->analyze(['url' => 'https://evil.test/page']);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_target', $result->get_error_code());
+    }
+
+    public function test_analyze_skips_the_page_fetch_when_include_page_fetch_is_false(): void
+    {
+        $server = $this->createMock(Server_Audit::class);
+        $server->method('run')->willReturn([$this->finding('pass')]);
+
+        $page = $this->createMock(Page_Audit::class);
+        $page->expects($this->never())->method('fetch');
+        $page->expects($this->never())->method('analyze');
+
+        $analyzer = new Analyzer($server, $page);
+        $result   = $analyzer->analyze(['include_page_fetch' => false]);
+
+        $this->assertSame('not_requested', $result['page_fetch']['error']);
+        $this->assertSame([], $result['sections']['page']);
+    }
+
+    public function test_analyze_resolves_a_post_id_target(): void
+    {
+        $post_id = self::factory()->post->create(['post_status' => 'publish']);
+
+        $server = $this->createMock(Server_Audit::class);
+        $server->method('run')->willReturn([$this->finding('pass')]);
+
+        $page = $this->createMock(Page_Audit::class);
+        $page->method('fetch')->willReturn(['ok' => false, 'status_code' => 0, 'response_ms' => 0, 'total_bytes' => 0, 'headers' => [], 'body' => '', 'error' => 'not_requested', 'host' => '']);
+        $page->method('analyze')->willReturn([
+            'findings'   => [],
+            'page_fetch' => ['ok' => false, 'status_code' => 0, 'response_ms' => 0, 'total_bytes' => 0, 'error' => 'not_requested'],
+        ]);
+
+        $analyzer = new Analyzer($server, $page);
+        $result   = $analyzer->analyze(['post_id' => $post_id]);
+
+        $this->assertSame($post_id, $result['target']['post_id']);
+        $this->assertFalse($result['target']['is_front_page']);
+    }
 }
