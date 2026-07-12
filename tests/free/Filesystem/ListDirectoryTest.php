@@ -33,4 +33,18 @@ class ListDirectoryTest extends \WP_UnitTestCase
         $this->assertContains('a.txt', $names);
         $this->assertContains('sub', $names);
     }
+
+    public function test_recursive_listing_includes_nested_files(): void
+    {
+        $result = (new List_Directory())->handle(['path' => $this->rel_dir, 'recursive' => true]);
+
+        $names = array_column($result['entries'], 'name');
+        $this->assertContains('b.txt', $names);
+    }
+
+    public function test_rejects_a_path_that_is_not_a_directory(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        (new List_Directory())->handle(['path' => $this->rel_dir . '/a.txt']);
+    }
 }
