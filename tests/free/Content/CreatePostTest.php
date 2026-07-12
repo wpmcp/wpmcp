@@ -46,4 +46,20 @@ class CreatePostTest extends \WP_UnitTestCase
             'meta'      => ['_elementor_data' => '[]'],
         ]);
     }
+
+    public function test_applies_terms_and_meta(): void
+    {
+        $term = self::factory()->category->create(['name' => 'News']);
+
+        $out = (new Create_Post())->handle([
+            'post_type' => 'post',
+            'title'     => 'x',
+            'terms'     => ['category' => [$term]],
+            'meta'      => ['my_field' => 'v'],
+        ]);
+
+        $assigned = wp_get_post_terms($out['post_id'], 'category', ['fields' => 'ids']);
+        $this->assertContains($term, $assigned);
+        $this->assertSame('v', get_post_meta($out['post_id'], 'my_field', true));
+    }
 }
