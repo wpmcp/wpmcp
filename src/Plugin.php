@@ -69,6 +69,7 @@ use WPMCP\Tools\Cache\Get_Cache_Status;
 use WPMCP\Tools\Cache\Clear_Cache;
 use WPMCP\Tools\Elementor\List_Widgets;
 use WPMCP\Tools\Elementor\Get_Widget_Schema;
+use WPMCP\Tools\Elementor\Get_Elementor_Data;
 use WPMCP\Tools\WooCommerce\List_Products;
 use WPMCP\Tools\WooCommerce\Get_Product;
 use WPMCP\Tools\WooCommerce\Create_Product;
@@ -1339,6 +1340,42 @@ final class Plugin
                 'required'   => [ 'widget_name' ],
             ],
             [$get_widget_schema, 'handle'],
+            'edit_posts',
+            'elementor',
+            'read'
+        ));
+
+        $this->register_elementor_pro_abilities($registrar);
+    }
+
+    /**
+     * Register the Elementor deep-editing tools as pro-tier abilities.
+     *
+     * These read and write a page's `_elementor_data` element tree (id,
+     * elType, widgetType, settings, and nested elements). Because Registrar
+     * skips 'pro' tier abilities unless Gate::is_pro() is true, these tools
+     * are only registered on Pro-tier sites. Writes go through
+     * Safe_Mutation::run() with object_type='post': `_elementor_data` is
+     * ordinary postmeta on the page, so the existing post snapshot already
+     * captures and restores it, and every write here is undoable with no
+     * change to the safety core.
+     */
+    private function register_elementor_pro_abilities(Registrar $registrar): void
+    {
+        $get_elementor_data = new Get_Elementor_Data();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-elementor-data',
+            'pro',
+            'Return a page\'s parsed Elementor element tree (id, elType, widgetType, settings, and nested elements for every node), read directly from its _elementor_data postmeta. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$get_elementor_data, 'handle'],
             'edit_posts',
             'elementor',
             'read'
