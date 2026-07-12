@@ -18,7 +18,12 @@ class UpdateRowsTest extends \WP_UnitTestCase
         ]);
     }
 
-    public function test_requires_non_empty_where_when_enabled(): void
+    /**
+     * update-rows self-reports recoverable:false (no generic-table rollback),
+     * so it must confirm like delete-rows: without confirm:true it is refused
+     * even when the write filter is enabled.
+     */
+    public function test_requires_confirm_when_enabled(): void
     {
         global $wpdb;
         add_filter('wpmcp_enable_db_writes', '__return_true');
@@ -27,7 +32,21 @@ class UpdateRowsTest extends \WP_UnitTestCase
         (new Update_Rows())->handle([
             'table' => $wpdb->options,
             'data'  => ['option_value' => '2'],
-            'where' => [],
+            'where' => ['option_name' => 'x'],
+        ]);
+    }
+
+    public function test_requires_non_empty_where_when_enabled(): void
+    {
+        global $wpdb;
+        add_filter('wpmcp_enable_db_writes', '__return_true');
+
+        $this->expectException(\InvalidArgumentException::class);
+        (new Update_Rows())->handle([
+            'table'   => $wpdb->options,
+            'data'    => ['option_value' => '2'],
+            'where'   => [],
+            'confirm' => true,
         ]);
     }
 
@@ -38,9 +57,10 @@ class UpdateRowsTest extends \WP_UnitTestCase
 
         $this->expectException(\InvalidArgumentException::class);
         (new Update_Rows())->handle([
-            'table' => $wpdb->options,
-            'data'  => [],
-            'where' => ['option_name' => 'x'],
+            'table'   => $wpdb->options,
+            'data'    => [],
+            'where'   => ['option_name' => 'x'],
+            'confirm' => true,
         ]);
     }
 
@@ -51,9 +71,10 @@ class UpdateRowsTest extends \WP_UnitTestCase
 
         $this->expectException(\RuntimeException::class);
         (new Update_Rows())->handle([
-            'table' => $wpdb->users,
-            'data'  => ['user_email' => 'x@example.com'],
-            'where' => ['ID' => 1],
+            'table'   => $wpdb->users,
+            'data'    => ['user_email' => 'x@example.com'],
+            'where'   => ['ID' => 1],
+            'confirm' => true,
         ]);
     }
 
@@ -64,9 +85,10 @@ class UpdateRowsTest extends \WP_UnitTestCase
         add_option('wpmcp_update_rows_test', 'before');
 
         $result = (new Update_Rows())->handle([
-            'table' => $wpdb->options,
-            'data'  => ['option_value' => 'after'],
-            'where' => ['option_name' => 'wpmcp_update_rows_test'],
+            'table'   => $wpdb->options,
+            'data'    => ['option_value' => 'after'],
+            'where'   => ['option_name' => 'wpmcp_update_rows_test'],
+            'confirm' => true,
         ]);
 
         $this->assertSame($wpdb->options, $result['table']);
@@ -86,9 +108,10 @@ class UpdateRowsTest extends \WP_UnitTestCase
 
         $this->expectException(\RuntimeException::class);
         (new Update_Rows())->handle([
-            'table' => 'wp_this_table_does_not_exist',
-            'data'  => ['a' => 1],
-            'where' => ['b' => 1],
+            'table'   => 'wp_this_table_does_not_exist',
+            'data'    => ['a' => 1],
+            'where'   => ['b' => 1],
+            'confirm' => true,
         ]);
     }
 }

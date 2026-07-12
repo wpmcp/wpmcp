@@ -9,7 +9,9 @@ if (! defined('ABSPATH')) {
 /**
  * Update rows matching an equality WHERE via $wpdb->update() (parameterized;
  * never raw write SQL). Disabled by default: sites must opt in via the
- * wpmcp_enable_db_writes filter. A non-empty WHERE is mandatory, which
+ * wpmcp_enable_db_writes filter. Always requires confirm:true (it reports
+ * recoverable:false, so it confirms like Delete_Rows). A non-empty WHERE is
+ * mandatory, which
  * prevents an unqualified/unbounded update (a bare, WHERE-less write that
  * would touch every row in a table); it does not limit how many rows a
  * broad but valid WHERE can still match. Refuses protected tables
@@ -39,6 +41,10 @@ class Update_Rows
     {
         if (! self::is_enabled()) {
             throw new \RuntimeException('Database write tools are disabled. Enable them with the wpmcp_enable_db_writes filter.');
+        }
+
+        if (true !== ($args['confirm'] ?? null)) {
+            throw new \InvalidArgumentException('Updating rows is not recoverable via generic-table rollback. Pass confirm:true to proceed.');
         }
 
         $data = (array) ($args['data'] ?? []);

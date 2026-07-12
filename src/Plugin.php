@@ -857,13 +857,14 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-rows',
             'free',
-            'Update rows matching a mandatory equality WHERE via $wpdb->update() (parameterized). Refuses protected tables. Disabled by default (wpmcp_enable_db_writes filter). Captures a before-image to the write audit log and honestly reports recoverable:false (no generic-table rollback)',
+            'Update rows matching a mandatory equality WHERE via $wpdb->update() (parameterized). Requires confirm:true. Refuses protected tables. Disabled by default (wpmcp_enable_db_writes filter). Captures a before-image to the write audit log and honestly reports recoverable:false (no generic-table rollback)',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'table' => [ 'type' => 'string' ],
-                    'data'  => [ 'type' => 'object' ],
-                    'where' => [ 'type' => 'object' ],
+                    'table'   => [ 'type' => 'string' ],
+                    'data'    => [ 'type' => 'object' ],
+                    'where'   => [ 'type' => 'object' ],
+                    'confirm' => [ 'type' => 'boolean' ],
                 ],
                 'required'   => [ 'table', 'data', 'where' ],
             ],
