@@ -1454,7 +1454,9 @@ final class Plugin
                 'properties' => [],
             ],
             [$list_menus, 'handle'],
-            'edit_theme_options'
+            'edit_theme_options',
+            'menus',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/get-menu',
@@ -1468,7 +1470,9 @@ final class Plugin
                 'required'   => [ 'id' ],
             ],
             [$get_menu, 'handle'],
-            'edit_theme_options'
+            'edit_theme_options',
+            'menus',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/list-menu-locations',
@@ -1479,7 +1483,9 @@ final class Plugin
                 'properties' => [],
             ],
             [$list_menu_locations, 'handle'],
-            'edit_theme_options'
+            'edit_theme_options',
+            'menus',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/create-menu',
@@ -1493,7 +1499,9 @@ final class Plugin
                 'required'   => [ 'name' ],
             ],
             [$create_menu, 'handle'],
-            'edit_theme_options'
+            'edit_theme_options',
+            'menus',
+            'create'
         ));
         $registrar->register(new Ability(
             'wpmcp/add-menu-item',
@@ -1514,7 +1522,9 @@ final class Plugin
                 'required'   => [ 'menu_id' ],
             ],
             [$add_menu_item, 'handle'],
-            'edit_theme_options'
+            'edit_theme_options',
+            'menus',
+            'create'
         ));
         $registrar->register(new Ability(
             'wpmcp/update-menu-item',
@@ -1533,7 +1543,9 @@ final class Plugin
                 'required'   => [ 'item_id' ],
             ],
             [$update_menu_item, 'handle'],
-            'edit_theme_options'
+            'edit_theme_options',
+            'menus',
+            'update'
         ));
         $registrar->register(new Ability(
             'wpmcp/remove-menu-item',
@@ -1548,7 +1560,9 @@ final class Plugin
                 'required'   => [ 'item_id' ],
             ],
             [$remove_menu_item, 'handle'],
-            'edit_theme_options'
+            'edit_theme_options',
+            'menus',
+            'delete'
         ));
         $registrar->register(new Ability(
             'wpmcp/assign-menu-to-location',
@@ -1564,7 +1578,9 @@ final class Plugin
                 'required'   => [ 'menu_id', 'location' ],
             ],
             [$assign_menu_to_location, 'handle'],
-            'edit_theme_options'
+            'edit_theme_options',
+            'menus',
+            'update'
         ));
         $registrar->register(new Ability(
             'wpmcp/delete-menu',
@@ -1579,7 +1595,9 @@ final class Plugin
                 'required'   => [ 'id', 'confirm' ],
             ],
             [$delete_menu, 'handle'],
-            'edit_theme_options'
+            'edit_theme_options',
+            'menus',
+            'delete'
         ));
     }
 }

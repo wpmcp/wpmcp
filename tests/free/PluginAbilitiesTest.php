@@ -197,6 +197,20 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertSame('delete', $abilities['wpmcp/delete-product']->operation);
     }
 
+    public function test_menus_abilities_are_tagged_menus_domain(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        $this->assertSame('menus', $abilities['wpmcp/list-menus']->domain);
+        $this->assertSame('read', $abilities['wpmcp/list-menus']->operation);
+        $this->assertSame('menus', $abilities['wpmcp/create-menu']->domain);
+        $this->assertSame('create', $abilities['wpmcp/create-menu']->operation);
+        $this->assertSame('menus', $abilities['wpmcp/update-menu-item']->domain);
+        $this->assertSame('update', $abilities['wpmcp/update-menu-item']->operation);
+        $this->assertSame('menus', $abilities['wpmcp/delete-menu']->domain);
+        $this->assertSame('delete', $abilities['wpmcp/delete-menu']->operation);
+    }
+
     /** @param Ability[] $abilities @return array<string, Ability> */
     private function index(array $abilities): array
     {
