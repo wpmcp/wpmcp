@@ -107,6 +107,14 @@ The same endpoint works with Cursor, Claude Desktop, and any MCP-compatible clie
 | `list-operations` | safety | List recent agent operations (no snapshot payload leaked) |
 | `rollback-operation` | safety | Undo a single operation by id |
 | `rollback-session` | safety | Unwind an entire agent session to its pre-session state |
+| `list-post-types` | read | List registered post types (posts, pages, custom post types) |
+| `list-taxonomies` | read | List registered taxonomies (categories, tags, custom taxonomies) |
+| `create-post` | write | Create a post, page, or custom post type, with terms and meta |
+| `get-post` | read | Read a post's full content, status, terms, meta, and featured image |
+| `update-post` | write (safe) | Partially update a post's fields, terms, meta, or featured image |
+| `delete-post` | write (safe on force) | Trash a post by default, or permanently delete with `force: true` |
+| `list-posts` | read | Search/list posts by type, status, search text, author, or parent |
+| `set-post-terms` | write (safe) | Assign taxonomy terms to a post: replace, append, or remove |
 
 Every write tool is wrapped in the safety engine. Reads and rollbacks are gated by the `edit_posts` capability.
 
@@ -123,14 +131,14 @@ Freemius is opt-in only at the integration level: `anonymous_mode` is enabled by
 - [ ] Elementor deep editing (Pro)
 - [ ] `preview-change` dry-run diffs before applying
 - [ ] Session-aware retention so large agent sessions stay fully reversible on the free tier
-- [ ] Broader snapshot capture (excerpt, parent, taxonomy terms)
+- [ ] Broader snapshot capture (excerpt, parent)
 - [ ] Visual before / after regression on edited pages
 - [ ] Multi-site fleet management
 - [ ] wp.org listing
 
 ## Known limitations
 
-Free-tier history keeps the last 20 operations, which can bound how far `rollback-session` reaches on very large agent runs. Snapshot capture currently covers post content, title, status, and meta, but not every post field. Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
+Free-tier history keeps the last 20 operations, which can bound how far `rollback-session` reaches on very large agent runs. Snapshot capture currently covers post content, title, status, meta, and taxonomy terms, but not every post field (e.g. excerpt, parent). Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
 
 ## Development
 
