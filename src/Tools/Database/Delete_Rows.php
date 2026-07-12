@@ -14,7 +14,7 @@ if (! defined('ABSPATH')) {
  * delete of every row in a table. Refuses protected tables (users/usermeta
  * by default).
  *
- * Recoverability: same stance as Update_Rows (see its docblock) — this is
+ * Recoverability: same stance as Update_Rows (see its docblock). This is
  * NOT routed through Safe_Mutation/Snapshot, whose apply_snapshot() only
  * knows how to restore a small fixed set of object types. The rows about to
  * be deleted are captured as a before-image and written to Database_Guard's
