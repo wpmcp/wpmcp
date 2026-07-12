@@ -40,4 +40,31 @@ class WriteFileTest extends \WP_UnitTestCase
         $this->assertFalse($result['recoverable']);
         $this->assertSame('hello world', file_get_contents(ABSPATH . $this->rel_dir . '/new.txt'));
     }
+
+    public function test_overwriting_backs_up_the_original_and_is_restorable(): void
+    {
+        add_filter('wpmcp_enable_fs_writes', '__return_true');
+        $admin = self::factory()->user->create(['role' => 'administrator']);
+        wp_set_current_user($admin);
+
+        file_put_contents(ABSPATH . $this->rel_dir . '/new.txt', 'original content');
+
+        $result = (new Write_File())->handle(['path' => $this->rel_dir . '/new.txt', 'content' => 'new content']);
+
+        $this->assertSame('overwritten', $result['action']);
+        $this->assertNotNull($result['backup']);
+        $this->assertTrue($result['recoverable']);
+        $this->assertSame('new content', file_get_contents(ABSPATH . $this->rel_dir . '/new.txt'));
+
+        $this->assertStringStartsNotWith('/', $result['backup']);
+        $backup_abs = ABSPATH . $result['backup'];
+        $this->assertFileExists($backup_abs);
+        $this->assertSame('original content', file_get_contents($backup_abs));
+
+        $restored = \WPMCP\Tools\Filesystem\Filesystem_Guard::restore($backup_abs, ABSPATH . $this->rel_dir . '/new.txt');
+        $this->assertTrue($restored);
+        $this->assertSame('original content', file_get_contents(ABSPATH . $this->rel_dir . '/new.txt'));
+
+        @unlink($backup_abs);
+    }
 }

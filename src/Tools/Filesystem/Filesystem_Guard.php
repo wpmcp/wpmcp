@@ -138,15 +138,28 @@ class Filesystem_Guard
     /**
      * Path relative to $root (defaults to ABSPATH), for display/log/output.
      * $root is a parameter only so tests can point it at a fixture root.
+     *
+     * Tries the raw (un-canonicalized) root first, then falls back to its
+     * realpath() form. Paths built from WP_CONTENT_DIR/wp_upload_dir() are
+     * derived from the raw ABSPATH constant, not its realpath(); when
+     * ABSPATH's directory is itself reached via a symlink (e.g. macOS'
+     * /tmp -> /private/tmp), realpath(ABSPATH) resolves through the
+     * symlink while $abs typically does not, so comparing only the
+     * canonical form would fail to strip a prefix that is, in fact, the
+     * same install root.
      */
     public static function to_relative(string $abs, ?string $root = null): string
     {
         $root  = $root ?? ABSPATH;
-        $root  = rtrim((string) realpath($root), '/\\');
         $abs_n = $abs;
-        if ('' !== $root && 0 === strpos($abs_n, $root)) {
-            $abs_n = ltrim(substr($abs_n, strlen($root)), '/\\');
+
+        foreach ([rtrim($root, '/\\'), rtrim((string) realpath($root), '/\\')] as $candidate) {
+            if ('' !== $candidate && 0 === strpos($abs_n, $candidate)) {
+                $abs_n = ltrim(substr($abs_n, strlen($candidate)), '/\\');
+                break;
+            }
         }
+
         return str_replace('\\', '/', $abs_n);
     }
 

@@ -125,6 +125,24 @@ class FilesystemGuardTest extends \WP_UnitTestCase
         );
     }
 
+    /**
+     * Regression: when $root is itself reached via a symlink (e.g. macOS'
+     * /tmp -> /private/tmp), realpath($root) resolves through the symlink
+     * while a path built from the raw, un-canonicalized root (as
+     * WP_CONTENT_DIR/wp_upload_dir() are) does not. to_relative() must
+     * still strip the prefix in that case instead of silently returning
+     * the untouched absolute path (which would leak a real server path to
+     * a caller expecting a root-relative one).
+     */
+    public function test_to_relative_strips_a_raw_non_realpathed_root_prefix(): void
+    {
+        $raw_abs = rtrim($this->root, '/\\') . '/wp-content/themes/x/style.css';
+        $this->assertSame(
+            'wp-content/themes/x/style.css',
+            Filesystem_Guard::to_relative($raw_abs, $this->root)
+        );
+    }
+
     public function test_backup_to_dir_copies_the_file_and_returns_the_backup_path(): void
     {
         $target     = realpath($this->root . '/wp-content/themes/x/style.css');
