@@ -48,4 +48,25 @@ class RateLimiterTest extends \WP_UnitTestCase
         $this->assertGreaterThan(0, $denied['retry_after']);
         $this->assertLessThanOrEqual(60, $denied['retry_after']);
     }
+
+    public function test_counter_resets_after_the_window_elapses(): void
+    {
+        add_filter('wpmcp_rate_limit', fn() => 1);
+        add_filter('wpmcp_rate_limit_window', fn() => 60);
+
+        $now = 1000;
+        Rate_Limiter::set_clock_override(function () use (&$now) {
+            return $now;
+        });
+
+        $this->assertTrue(Rate_Limiter::check('user:1')['allowed']);
+        $this->assertFalse(Rate_Limiter::check('user:1')['allowed']);
+
+        // Advance past the window boundary into the next bucket.
+        $now += 60;
+
+        $reset = Rate_Limiter::check('user:1');
+        $this->assertTrue($reset['allowed']);
+        $this->assertSame(0, $reset['remaining']);
+    }
 }
