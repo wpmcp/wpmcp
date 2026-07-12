@@ -88,4 +88,39 @@ class DeletePostTest extends \WP_UnitTestCase
 
         unregister_post_type('wpmcp_test_cpt');
     }
+
+    /**
+     * A force-delete via wp_delete_post($id, true) destroys the post's
+     * comments and commentmeta with no equivalent captured anywhere else.
+     * Snapshot::capture() now records them, and rollback must recreate them
+     * (content, author, and their commentmeta) so discussion isn't lost
+     * along with the post.
+     */
+    public function test_force_delete_rollback_restores_comment_and_its_meta(): void
+    {
+        $id = self::factory()->post->create(['post_title' => 'has comments', 'post_status' => 'publish']);
+        $comment_id = self::factory()->comment->create([
+            'comment_post_ID'      => $id,
+            'comment_author'       => 'Jane Reader',
+            'comment_author_email' => 'jane@example.com',
+            'comment_content'      => 'Great read!',
+            'comment_approved'     => '1',
+        ]);
+        add_comment_meta($comment_id, 'helpful_votes', '3');
+
+        $out = (new Delete_Post())->handle(['post_id' => $id, 'force' => true, 'session_id' => 's1']);
+        $this->assertNull(get_post($id));
+        $this->assertCount(0, get_comments(['post_id' => $id]));
+
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+
+        $restored_comments = get_comments(['post_id' => $id]);
+        $this->assertCount(1, $restored_comments);
+
+        $restored_comment = $restored_comments[0];
+        $this->assertSame('Jane Reader', $restored_comment->comment_author);
+        $this->assertSame('jane@example.com', $restored_comment->comment_author_email);
+        $this->assertSame('Great read!', $restored_comment->comment_content);
+        $this->assertSame('3', get_comment_meta((int) $restored_comment->comment_ID, 'helpful_votes', true));
+    }
 }
