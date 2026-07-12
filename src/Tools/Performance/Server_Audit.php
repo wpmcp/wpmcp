@@ -231,6 +231,18 @@ class Server_Audit
         return Finding::make('autoload_size', 'database', 'Autoloaded options', 'pass', $value, sprintf('Autoloaded options total %s.', $human));
     }
 
+    public function evaluate_database_size(int $bytes, array $top_tables): array
+    {
+        return Finding::make(
+            'database_size',
+            'database',
+            'Database size',
+            'info',
+            ['bytes' => $bytes, 'top_tables' => $top_tables],
+            sprintf('Database is %s; %d largest tables listed.', $this->human_bytes($bytes), count($top_tables))
+        );
+    }
+
     private function human_bytes(int $bytes): string
     {
         if ($bytes >= 1048576) {

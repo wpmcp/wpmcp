@@ -98,4 +98,14 @@ class ServerAuditTest extends \WP_UnitTestCase
         $this->assertSame(900, $result['value']['bytes']);
         $this->assertSame($top, $result['value']['top']);
     }
+
+    public function test_database_size_is_always_info_and_includes_top_tables(): void
+    {
+        $top    = [['table' => 'wp_options', 'bytes' => 5000]];
+        $result = $this->audit->evaluate_database_size(50000, $top);
+
+        $this->assertSame('info', $result['status']);
+        $this->assertSame(50000, $result['value']['bytes']);
+        $this->assertSame($top, $result['value']['top_tables']);
+    }
 }
