@@ -58,4 +58,53 @@ class EditFileTest extends \WP_UnitTestCase
 
         @unlink($backup_abs);
     }
+
+    public function test_rejects_ambiguous_match_without_replace_all(): void
+    {
+        add_filter('wpmcp_enable_fs_writes', '__return_true');
+        $admin = self::factory()->user->create(['role' => 'administrator']);
+        wp_set_current_user($admin);
+
+        file_put_contents(ABSPATH . $this->rel_dir . '/edit.txt', "repeat repeat\n");
+
+        $this->expectException(\RuntimeException::class);
+        (new Edit_File())->handle([
+            'path'       => $this->rel_dir . '/edit.txt',
+            'old_string' => 'repeat',
+            'new_string' => 'once',
+        ]);
+    }
+
+    public function test_replace_all_replaces_every_match(): void
+    {
+        add_filter('wpmcp_enable_fs_writes', '__return_true');
+        $admin = self::factory()->user->create(['role' => 'administrator']);
+        wp_set_current_user($admin);
+
+        file_put_contents(ABSPATH . $this->rel_dir . '/edit.txt', "repeat repeat\n");
+
+        $result = (new Edit_File())->handle([
+            'path'        => $this->rel_dir . '/edit.txt',
+            'old_string'  => 'repeat',
+            'new_string'  => 'once',
+            'replace_all' => true,
+        ]);
+
+        $this->assertSame(2, $result['replacements']);
+        $this->assertSame("once once\n", file_get_contents(ABSPATH . $this->rel_dir . '/edit.txt'));
+    }
+
+    public function test_rejects_when_old_string_not_found(): void
+    {
+        add_filter('wpmcp_enable_fs_writes', '__return_true');
+        $admin = self::factory()->user->create(['role' => 'administrator']);
+        wp_set_current_user($admin);
+
+        $this->expectException(\RuntimeException::class);
+        (new Edit_File())->handle([
+            'path'       => $this->rel_dir . '/edit.txt',
+            'old_string' => 'not-in-the-file',
+            'new_string' => 'x',
+        ]);
+    }
 }
