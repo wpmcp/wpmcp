@@ -2,7 +2,7 @@
 
 namespace WPMCP\Tests\Free\Safety;
 
-use WPMCP\Safety\{Mutation_Failed, Rollback_Service, Safe_Mutation, Snapshot_Store};
+use WPMCP\Safety\{Mutation_Failed, Rollback_Service, Safe_Mutation, Snapshot, Snapshot_Store};
 use WPMCP\Tools\Content\Delete_Post;
 
 class RollbackServiceTest extends \WP_UnitTestCase
@@ -119,5 +119,29 @@ class RollbackServiceTest extends \WP_UnitTestCase
             // overwritten or joined with the resurrection attempt.
             $this->assertSame('someone else now owns this id', get_post($id)->post_title);
         }
+    }
+
+    public function test_apply_snapshot_restores_previous_option_value(): void
+    {
+        update_option('blogname', 'Original Name');
+        $snapshot = Snapshot::capture('option', 'blogname');
+
+        update_option('blogname', 'Changed Name');
+        $this->assertSame('Changed Name', get_option('blogname'));
+
+        Rollback_Service::apply_snapshot($snapshot);
+        $this->assertSame('Original Name', get_option('blogname'));
+    }
+
+    public function test_apply_snapshot_deletes_option_that_did_not_exist_before(): void
+    {
+        delete_option('wpmcp_test_new_option');
+        $snapshot = Snapshot::capture('option', 'wpmcp_test_new_option');
+
+        update_option('wpmcp_test_new_option', 'added by mutation');
+        $this->assertSame('added by mutation', get_option('wpmcp_test_new_option'));
+
+        Rollback_Service::apply_snapshot($snapshot);
+        $this->assertFalse(get_option('wpmcp_test_new_option'));
     }
 }

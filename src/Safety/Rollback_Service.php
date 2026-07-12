@@ -44,6 +44,24 @@ class Rollback_Service
     }
 
     /**
+     * Restore a WordPress option to its pre-mutation state. Unlike a post,
+     * an option has no trash/soft-delete; the only two prior states a
+     * mutation could have started from are "existed with this value" (put
+     * it back with update_option()) or "didn't exist yet" (the mutation
+     * introduced it, so delete_option() removes it entirely rather than
+     * leaving a value behind that was never there before).
+     */
+    private static function apply_option_snapshot(array $snapshot): void
+    {
+        $name = (string) $snapshot['data']['name'];
+        if ($snapshot['data']['existed']) {
+            update_option($name, $snapshot['data']['value']);
+        } else {
+            delete_option($name);
+        }
+    }
+
+    /**
      * Columns from a full get_post($id, ARRAY_A) row that are safe to feed
      * back into wp_update_post()/wp_insert_post(). Excluded:
      *  - 'ID' is merged in separately by the caller.
@@ -122,6 +140,11 @@ class Rollback_Service
      */
     public static function apply_snapshot(array $snapshot): void
     {
+        if ('option' === $snapshot['object_type']) {
+            self::apply_option_snapshot($snapshot);
+            return;
+        }
+
         if ('post' !== $snapshot['object_type']) {
             return;
         }
