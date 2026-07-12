@@ -22,6 +22,90 @@ class Security_Scanner
 
     private const ALL_CHECKS = ['malware', 'integrity', 'hardening', 'software'];
 
+    private Malware_Audit $malware;
+    private Integrity_Audit $integrity;
+    private Hardening_Audit $hardening;
+    private Software_Audit $software;
+
+    public function __construct(
+        ?Malware_Audit $malware = null,
+        ?Integrity_Audit $integrity = null,
+        ?Hardening_Audit $hardening = null,
+        ?Software_Audit $software = null
+    ) {
+        $this->malware   = $malware ?: new Malware_Audit();
+        $this->integrity = $integrity ?: new Integrity_Audit();
+        $this->hardening = $hardening ?: new Hardening_Audit();
+        $this->software  = $software ?: new Software_Audit();
+    }
+
+    /**
+     * Live: run the requested audits and assemble the scored report.
+     *
+     * @param array $input { checks?, deep?, max_files?, max_seconds? }
+     * @return array { summary, sections, scan_meta, top_recommendations }
+     */
+    public function scan(array $input): array
+    {
+        $checks = $this->resolve_checks(
+            isset($input['checks']) && is_array($input['checks']) ? $input['checks'] : null
+        );
+        $deep = ! empty($input['deep']);
+
+        $max_files   = $this->clamp((int) ($input['max_files'] ?? Malware_Audit::MAX_FILES), 1, Malware_Audit::MAX_FILES_CEILING);
+        $max_seconds = $this->clamp((int) ($input['max_seconds'] ?? Malware_Audit::TIME_BUDGET), 1, Malware_Audit::TIME_BUDGET_CEILING);
+
+        $started   = microtime(true);
+        $findings  = [];
+        $scan_meta = [
+            'files_scanned'      => 0,
+            'files_skipped_size' => 0,
+            'truncated'          => false,
+            'truncated_reason'   => null,
+            'deep'               => $deep,
+            'checks_run'         => $checks,
+            'integrity_api'      => ['ok' => false, 'error' => 'not_run'],
+            'headers_fetch'      => ['ok' => false, 'error' => 'not_run'],
+            'elapsed_ms'         => 0,
+        ];
+
+        if (in_array('malware', $checks, true)) {
+            $malware                         = $this->malware->run($deep, $max_files, $max_seconds);
+            $findings                        = array_merge($findings, $malware['findings']);
+            $scan_meta['files_scanned']      = (int) $malware['stats']['files_scanned'];
+            $scan_meta['files_skipped_size'] = (int) $malware['stats']['files_skipped_size'];
+            $scan_meta['truncated']          = (bool) $malware['stats']['truncated'];
+            $scan_meta['truncated_reason']   = $malware['stats']['truncated_reason'];
+        }
+        if (in_array('integrity', $checks, true)) {
+            $integrity                  = $this->integrity->run();
+            $findings                   = array_merge($findings, $integrity['findings']);
+            $scan_meta['integrity_api'] = $integrity['api'];
+        }
+        if (in_array('hardening', $checks, true)) {
+            $hardening                  = $this->hardening->run();
+            $findings                   = array_merge($findings, $hardening['findings']);
+            $scan_meta['headers_fetch'] = $hardening['headers_fetch'];
+        }
+        if (in_array('software', $checks, true)) {
+            $findings = array_merge($findings, $this->software->run());
+        }
+
+        $summary                 = $this->summarize($findings);
+        $scan_meta['elapsed_ms'] = (int) round((microtime(true) - $started) * 1000);
+
+        return [
+            'summary'             => [
+                'score'  => $summary['score'],
+                'grade'  => $summary['grade'],
+                'counts' => $summary['counts'],
+            ],
+            'sections'            => $this->group_by_category($findings),
+            'scan_meta'           => $scan_meta,
+            'top_recommendations' => $summary['top_recommendations'],
+        ];
+    }
+
     /**
      * Pure: normalize the requested checks to a canonical-ordered valid subset.
      *
@@ -133,5 +217,10 @@ class Security_Scanner
             }
         }
         return array_slice(array_merge($critical, $warning), 0, self::TOP_RECS);
+    }
+
+    private function clamp(int $value, int $min, int $max): int
+    {
+        return max($min, min($max, $value));
     }
 }
