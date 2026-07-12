@@ -10,9 +10,10 @@ if (! defined('ABSPATH')) {
  * Delete rows matching an equality WHERE via $wpdb->delete() (parameterized;
  * never raw write SQL). Disabled by default: sites must opt in via the
  * wpmcp_enable_db_writes filter. Always requires confirm:true, and a
- * non-empty WHERE is mandatory, so this can never turn into an unbounded
- * delete of every row in a table. Refuses protected tables (users/usermeta
- * by default).
+ * non-empty WHERE is mandatory, which prevents an unqualified/unbounded
+ * delete (a bare, WHERE-less write that would touch every row in a table);
+ * it does not limit how many rows a broad but valid WHERE can still match.
+ * Refuses protected tables (users/usermeta by default).
  *
  * Recoverability: same stance as Update_Rows (see its docblock). This is
  * NOT routed through Safe_Mutation/Snapshot, whose apply_snapshot() only

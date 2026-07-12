@@ -9,9 +9,11 @@ if (! defined('ABSPATH')) {
 /**
  * Update rows matching an equality WHERE via $wpdb->update() (parameterized;
  * never raw write SQL). Disabled by default: sites must opt in via the
- * wpmcp_enable_db_writes filter. A non-empty WHERE is mandatory, so this can
- * never turn into an unbounded update of every row in a table. Refuses
- * protected tables (users/usermeta by default).
+ * wpmcp_enable_db_writes filter. A non-empty WHERE is mandatory, which
+ * prevents an unqualified/unbounded update (a bare, WHERE-less write that
+ * would touch every row in a table); it does not limit how many rows a
+ * broad but valid WHERE can still match. Refuses protected tables
+ * (users/usermeta by default).
  *
  * Recoverability: this is NOT routed through Safe_Mutation/Snapshot, because
  * that safety core's apply_snapshot() dispatches on a small, fixed set of
