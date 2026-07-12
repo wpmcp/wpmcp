@@ -162,4 +162,73 @@ class DatabaseGuardTest extends \WP_UnitTestCase
             $this->code("SELECT 'a\\' , load_file('/etc/passwd') , 'b")
         );
     }
+
+    protected function tearDown(): void
+    {
+        Database_Guard::set_no_backslash_escapes_override(null);
+        parent::tearDown();
+    }
+
+    /**
+     * Under NO_BACKSLASH_ESCAPES, MySQL treats `\` as an ordinary character,
+     * so a literal like 'a\' ends at that quote, not two characters later.
+     * normalize_sql() must match that semantics when the mode is active: the
+     * injectable override lets tests force the mode without a live sql_mode
+     * that actually has it set.
+     */
+    public function test_normalize_sql_treats_backslash_as_literal_when_no_backslash_escapes_active(): void
+    {
+        Database_Guard::set_no_backslash_escapes_override(true);
+
+        // Under NO_BACKSLASH_ESCAPES, 'a\' is a complete, closed string
+        // literal (the backslash is just a character in it); load_file(...)
+        // that follows is live SQL, not string content, so it must survive
+        // normalization as a real token.
+        $normalized = Database_Guard::normalize_sql("SELECT 'a\\' , load_file('/etc/passwd') , 'b");
+        $this->assertStringContainsString('load_file', $normalized);
+
+        Database_Guard::set_no_backslash_escapes_override(null);
+    }
+
+    /** Default (non-NO_BACKSLASH_ESCAPES) behavior must be unchanged. */
+    public function test_normalize_sql_still_treats_backslash_as_escape_by_default(): void
+    {
+        Database_Guard::set_no_backslash_escapes_override(false);
+
+        $normalized = Database_Guard::normalize_sql("SELECT 'a\\' , load_file('/etc/passwd') , 'b");
+        $this->assertStringNotContainsString('load_file', $normalized);
+
+        Database_Guard::set_no_backslash_escapes_override(null);
+    }
+
+    /** A benign read that legitimately ends in a normal string still passes under either mode. */
+    public function test_benign_trailing_string_literal_still_allowed_under_both_modes(): void
+    {
+        Database_Guard::set_no_backslash_escapes_override(true);
+        $this->assertTrue($this->ok("SELECT * FROM wp_posts WHERE post_title = 'Hello World'"));
+        Database_Guard::set_no_backslash_escapes_override(false);
+        $this->assertTrue($this->ok("SELECT * FROM wp_posts WHERE post_title = 'Hello World'"));
+        Database_Guard::set_no_backslash_escapes_override(null);
+    }
+
+    /**
+     * With the seam forcing NO_BACKSLASH_ESCAPES, the two confirmed bypass
+     * payloads are rejected for the general desync reason too (belt and
+     * suspenders alongside the raw pre-scan already covering them).
+     */
+    public function test_rejects_confirmed_bypasses_with_no_backslash_escapes_forced(): void
+    {
+        Database_Guard::set_no_backslash_escapes_override(true);
+
+        $this->assertSame(
+            'file_access_blocked',
+            $this->code("SELECT * FROM wp_users WHERE 'a\\'='a' INTO OUTFILE '/tmp/o' -- x")
+        );
+        $this->assertSame(
+            'file_access_blocked',
+            $this->code("SELECT 'a\\' , load_file('/etc/passwd') , 'b")
+        );
+
+        Database_Guard::set_no_backslash_escapes_override(null);
+    }
 }

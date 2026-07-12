@@ -20,15 +20,63 @@ class Database_Guard
     public const AUDIT_OPTION = 'wpmcp_db_write_audit_log';
     public const AUDIT_MAX = 100;
 
+    /** Per-request cache of the detected NO_BACKSLASH_ESCAPES state. Null = not yet detected. */
+    private static ?bool $no_backslash_escapes_cache = null;
+
+    /** Test seam: whether an override for NO_BACKSLASH_ESCAPES is active. */
+    private static bool $no_backslash_escapes_override_set = false;
+
+    /** Test seam: the forced NO_BACKSLASH_ESCAPES value, when overridden. */
+    private static ?bool $no_backslash_escapes_override = null;
+
+    /** Test seam: force no_backslash_escapes_active() to a fixed value. Pass null to clear the override and resume live detection. */
+    public static function set_no_backslash_escapes_override(?bool $value): void
+    {
+        self::$no_backslash_escapes_override     = $value;
+        self::$no_backslash_escapes_override_set = null !== $value;
+    }
+
+    /**
+     * Whether the active MySQL sql_mode contains NO_BACKSLASH_ESCAPES, which
+     * changes how string literals end (backslash stops being an escape
+     * character). Detected once per request via $wpdb and cached; a test
+     * override seam lets pure-unit tests force either state without a live
+     * server actually running in that mode. Defaults to false (the ordinary,
+     * backslash-escapes-quotes MySQL default) if $wpdb is unavailable.
+     */
+    public static function no_backslash_escapes_active(): bool
+    {
+        if (self::$no_backslash_escapes_override_set) {
+            return (bool) self::$no_backslash_escapes_override;
+        }
+
+        if (null !== self::$no_backslash_escapes_cache) {
+            return self::$no_backslash_escapes_cache;
+        }
+
+        global $wpdb;
+        $mode = '';
+        if (isset($wpdb) && is_object($wpdb) && method_exists($wpdb, 'get_var')) {
+            $mode = (string) $wpdb->get_var('SELECT @@SESSION.sql_mode');
+        }
+
+        self::$no_backslash_escapes_cache = false !== stripos($mode, 'NO_BACKSLASH_ESCAPES');
+        return self::$no_backslash_escapes_cache;
+    }
+
     /**
      * Normalize SQL for safe keyword scanning: replace every comment with a
      * space and every string/backtick-identifier literal with an empty
      * placeholder, so keywords cannot hide inside comments, strings, or
-     * quoted identifiers. Pure (no DB). Does NOT special-case /*! executable
-     * comments; the caller rejects those before normalizing.
+     * quoted identifiers. Pure (no DB) when $no_backslash_escapes is passed
+     * explicitly; otherwise resolves it via no_backslash_escapes_active(),
+     * which may query $wpdb once per request. Does NOT special-case /*!
+     * executable comments; the caller rejects those before normalizing.
      */
-    public static function normalize_sql(string $sql): string
+    public static function normalize_sql(string $sql, ?bool $no_backslash_escapes = null): string
     {
+        $no_backslash_escapes ??= self::no_backslash_escapes_active();
+
         $out = '';
         $len = strlen($sql);
         $i   = 0;
@@ -55,7 +103,7 @@ class Database_Guard
                 $quote = $c;
                 $i++;
                 while ($i < $len) {
-                    if ('\\' === $sql[ $i ]) {
+                    if (! $no_backslash_escapes && '\\' === $sql[ $i ]) {
                         $i += 2;
                         continue;
                     }
