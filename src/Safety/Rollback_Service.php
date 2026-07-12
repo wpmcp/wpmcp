@@ -52,6 +52,11 @@ class Rollback_Service
      * deleted. Otherwise a rollback can leave orphan meta behind, violating
      * the safety invariant that a restored object matches its pre-mutation
      * state exactly.
+     *
+     * A force-deleted post's row is gone entirely (unlike trash, which only
+     * changes post_status), so wp_update_post() would silently no-op here.
+     * When the post no longer exists, re-insert it at the same ID via
+     * wp_insert_post()'s import_id instead of updating it.
      */
     public static function apply_snapshot(array $snapshot): void
     {
@@ -60,7 +65,11 @@ class Rollback_Service
         }
 
         if ($snapshot['data']['post']) {
-            wp_update_post(array_merge(['ID' => $snapshot['object_id']], $snapshot['data']['post']));
+            if (get_post($snapshot['object_id'])) {
+                wp_update_post(array_merge(['ID' => $snapshot['object_id']], $snapshot['data']['post']));
+            } else {
+                wp_insert_post(array_merge(['import_id' => $snapshot['object_id']], $snapshot['data']['post']));
+            }
         }
 
         $snapshotted_meta = (array) $snapshot['data']['meta'];
