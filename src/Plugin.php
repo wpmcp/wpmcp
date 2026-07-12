@@ -4,6 +4,7 @@
 
 namespace WPMCP;
 
+use WPMCP\Admin\Audit_Log_Page;
 use WPMCP\Admin\History_Page;
 use WPMCP\Admin\Restore_Controller;
 use WPMCP\MCP\Ability;
@@ -149,6 +150,18 @@ final class Plugin
             'manage_options',
             'wpmcp',
             [new History_Page(), 'render']
+        );
+
+        // Same manage_options gate as the top-level page and Restore_Controller's
+        // ajax handler: this screen shows and can roll back every user's
+        // site-wide agent mutations, so it needs the same trust level.
+        add_submenu_page(
+            'wpmcp',
+            'wpmcp: Audit Log',
+            'Audit Log',
+            'manage_options',
+            'wpmcp-audit-log',
+            [new Audit_Log_Page(), 'render']
         );
     }
 
