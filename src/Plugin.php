@@ -67,6 +67,8 @@ use WPMCP\Tools\Performance\Analyze_Performance;
 use WPMCP\Tools\Security\Scan_Security;
 use WPMCP\Tools\Cache\Get_Cache_Status;
 use WPMCP\Tools\Cache\Clear_Cache;
+use WPMCP\Tools\Elementor\List_Widgets;
+use WPMCP\Tools\Elementor\Get_Widget_Schema;
 use WPMCP\Tools\WooCommerce\List_Products;
 use WPMCP\Tools\WooCommerce\Get_Product;
 use WPMCP\Tools\WooCommerce\Create_Product;
@@ -1289,6 +1291,58 @@ final class Plugin
 
         $this->register_woocommerce_abilities($registrar);
         $this->register_menu_abilities($registrar);
+        $this->register_elementor_abilities($registrar);
+    }
+
+    /**
+     * Register the Elementor widget catalog tools as free-tier abilities.
+     *
+     * Registered unconditionally, matching every other tool group: a caller
+     * only reaches a handler by invoking the ability, and each handler
+     * degrades gracefully with a WP_Error when Elementor is not loaded. Both
+     * tools are read-only (list-widgets and get-widget-schema inspect
+     * Elementor's own widgets manager and never touch post content), so
+     * neither is routed through the safety core.
+     */
+    private function register_elementor_abilities(Registrar $registrar): void
+    {
+        $list_widgets      = new List_Widgets();
+        $get_widget_schema = new Get_Widget_Schema();
+
+        $registrar->register(new Ability(
+            'wpmcp/list-widgets',
+            'free',
+            'List Elementor registered widget types (name, title, categories, icon, tier), optionally filtered by tier (free/pro), category, or a case-insensitive search over name/title. Read-only; reads this site\'s Elementor widgets manager only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'tier'     => [ 'type' => 'string' ],
+                    'category' => [ 'type' => 'string' ],
+                    'search'   => [ 'type' => 'string' ],
+                ],
+            ],
+            [$list_widgets, 'handle'],
+            'edit_posts',
+            'elementor',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/get-widget-schema',
+            'free',
+            'Return the full control schema (control name, type, label, default, section grouping) for a single Elementor widget type, read directly from the widget\'s own control stack. Read-only; reads this site\'s Elementor widgets manager only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'widget_name' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'widget_name' ],
+            ],
+            [$get_widget_schema, 'handle'],
+            'edit_posts',
+            'elementor',
+            'read'
+        ));
     }
 
     /**
