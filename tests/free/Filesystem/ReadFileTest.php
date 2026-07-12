@@ -29,4 +29,10 @@ class ReadFileTest extends \WP_UnitTestCase
         $this->assertSame($this->rel_dir . '/hello.txt', $result['path']);
         $this->assertSame("line one\nline two\nline three\n", $result['content']);
     }
+
+    public function test_rejects_a_path_escaping_the_root(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        (new Read_File())->handle(['path' => '../../../../etc/hosts']);
+    }
 }
