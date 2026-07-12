@@ -52,7 +52,7 @@ class Delete_Media
 
         if ($covered_by_native_trash) {
             wp_delete_attachment($media_id, false);
-            return ['media_id' => $media_id, 'deleted' => 'trashed'];
+            return ['media_id' => $media_id, 'deleted' => 'trashed', 'files_recoverable' => true];
         }
 
         $out = Safe_Mutation::run(
@@ -69,6 +69,15 @@ class Delete_Media
             }
         );
 
-        return ['operation_id' => $out['operation_id'], 'media_id' => $media_id, 'deleted' => 'deleted'];
+        // This path is irreversible for the physical file: Safe_Mutation's
+        // rollback restores the DB record (post, meta, terms) but cannot
+        // restore bytes already unlinked from disk. See issue #24.
+        return [
+            'operation_id'      => $out['operation_id'],
+            'media_id'          => $media_id,
+            'deleted'           => 'deleted',
+            'files_recoverable' => false,
+            'warning'           => 'Rollback restores the media record but not the physical file(s); the file is permanently deleted (see issue #24).',
+        ];
     }
 }

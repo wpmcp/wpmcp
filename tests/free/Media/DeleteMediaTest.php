@@ -75,6 +75,12 @@ class DeleteMediaTest extends \WP_UnitTestCase
         $this->assertNull(get_post($id));
         $this->assertNotNull(Snapshot_Store::get_by_operation($out['operation_id']));
 
+        $this->assertFalse($out['files_recoverable']);
+        $this->assertSame(
+            'Rollback restores the media record but not the physical file(s); the file is permanently deleted (see issue #24).',
+            $out['warning']
+        );
+
         $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
         $this->assertNotNull(get_post($id));
     }
@@ -93,6 +99,12 @@ class DeleteMediaTest extends \WP_UnitTestCase
         $this->assertSame('deleted', $out['deleted']);
         $this->assertNull(get_post($id));
         $this->assertNotNull(Snapshot_Store::get_by_operation($out['operation_id']));
+
+        $this->assertFalse($out['files_recoverable']);
+        $this->assertSame(
+            'Rollback restores the media record but not the physical file(s); the file is permanently deleted (see issue #24).',
+            $out['warning']
+        );
 
         $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
 

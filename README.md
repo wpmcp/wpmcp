@@ -142,7 +142,7 @@ Freemius is opt-in only at the integration level: `anonymous_mode` is enabled by
 
 ## Known limitations
 
-Free-tier history keeps the last 20 operations, which can bound how far `rollback-session` reaches on very large agent runs. Snapshot capture currently covers post content, title, status, meta, and taxonomy terms, but not every post field (e.g. excerpt, parent). Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
+Free-tier history keeps the last 20 operations, which can bound how far `rollback-session` reaches on very large agent runs. Snapshot capture currently covers post content, title, status, meta, and taxonomy terms, but not every post field (e.g. excerpt, parent). Force-deleting media (or deleting without `MEDIA_TRASH` enabled) restores the media record on rollback but not the physical file bytes, until issue #24 lands; media force-delete is disabled by default. Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
 
 ## Development
 
