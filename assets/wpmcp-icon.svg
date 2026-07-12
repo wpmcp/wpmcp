@@ -1,0 +1,17 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="wpmcp">
+  <defs>
+    <linearGradient id="wpmcpBg" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Tile -->
+  <rect width="256" height="256" rx="56" fill="url(#wpmcpBg)"/>
+
+  <!-- Undo / rollback arrow: a ring open at the top with a left-pointing head. -->
+  <g stroke="#FFFFFF" stroke-width="22" stroke-linecap="round" fill="none">
+    <path d="M151.2 70.5 A62 62 0 1 1 104.8 70.5"/>
+  </g>
+  <path d="M80 70.5 L110 52 L110 89 Z" fill="#FFFFFF"/>
+</svg>

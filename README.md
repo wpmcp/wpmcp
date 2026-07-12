@@ -1,42 +1,153 @@
+<div align="center">
+
+<img src="assets/wpmcp-icon.svg" width="112" alt="wpmcp logo">
+
 # wpmcp
 
-AI builds and edits your WordPress site — and physically can't wreck it.
+### The AI agent that builds and edits your WordPress site, and physically cannot wreck it.
+
+An MCP server for WordPress with snapshot-before-every-write and one-click rollback baked into the core.
+
+[![CI](https://github.com/fahdi/wpmcp/actions/workflows/ci.yml/badge.svg)](https://github.com/fahdi/wpmcp/actions/workflows/ci.yml)
+[![License: GPL v2+](https://img.shields.io/badge/License-GPL%20v2%2B-blue.svg)](LICENSE)
+[![PHP](https://img.shields.io/badge/PHP-%3E%3D8.1-8892BF.svg)](https://php.net)
+[![WordPress](https://img.shields.io/badge/WordPress-%3E%3D6.9-21759B.svg)](https://wordpress.org)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+</div>
+
+---
+
+Give an AI agent (Claude, Cursor, or any MCP client) the keys to your WordPress site and one thing becomes terrifying: a bad edit on a live client site that you cannot take back. Every other WordPress AI tool asks you to trust the model. **wpmcp does the opposite: it assumes the agent will get something wrong, and makes sure nothing it does is permanent.**
+
+Every write is snapshotted before it happens. If a change breaks the page, it rolls back automatically. If you do not like what the agent did, you undo one operation, or the agent's entire session, with one click. That is the whole product: an AI site builder you can actually let near a live site.
+
+> **Status:** early MVP. The safety engine and the first tools are shipped and tested. See the [Roadmap](#roadmap) for what is next.
+
+## Why wpmcp
+
+- **Recoverable by design.** No mutating tool can touch the database except through a wrapper that snapshots first. This is enforced in code, not by convention.
+- **Builder-agnostic safety.** Snapshots are taken at the WordPress data layer (post content, meta, options), so rollback works for any page builder without parsing its format.
+- **Runs inside WordPress.** A single plugin on the official [WordPress Abilities API](https://developer.wordpress.org/), not a separate local proxy process. One install, works with any MCP client.
+- **Free and open.** GPL-2.0. The whole safety engine and the Gutenberg tooling are free.
+
+## How it works
+
+Every mutating tool routes through one orchestrator, `Safe_Mutation::run()`:
+
+```
+snapshot (before)  ->  apply the change  ->  verify  ->  ok?
+     |                                          |         |
+ stored in                              on failure:    return
+ wp_wpmcp_snapshots                     auto-rollback   operation id
+ (keyed by operation + session)         + raise error
+```
+
+1. **Snapshot.** Before any write, wpmcp captures the target's before-image (post content, title, status, and all meta) and stores it, compressed, in a dedicated table keyed by an operation id and an agent session id.
+2. **Apply.** The tool performs its edit.
+3. **Verify.** A lightweight check runs (for Gutenberg, the block markup must still parse). If it fails, the change is rolled back immediately and an error is raised.
+4. **Rollback, on demand.** Undo a single operation, or unwind an agent's entire session back to its pre-session state, including purging any meta the agent added.
+
+You can drive rollback from the AI (the `rollback-operation` and `rollback-session` tools) or from the **wpmcp** screen in wp-admin, where every agent operation is listed with a one-click Restore button.
 
 ## Requirements
 
-- PHP 8.1+
-- WordPress 6.9+
-- [Composer](https://getcomposer.org/)
+| Dependency | Version |
+| --- | --- |
+| WordPress | >= 6.9 (bundles the Abilities API) |
+| PHP | >= 8.1 |
+| Composer | for installing from source |
 
 ## Installation
 
-1. Clone or copy this plugin into `wp-content/plugins/wpmcp`.
-2. Install PHP dependencies:
-
-   ```bash
-   composer install
-   ```
-
-3. Activate **wpmcp** from the WordPress Plugins screen.
-
-## Development
-
-Run the test suite:
+wpmcp is not yet on the wp.org plugin directory (planned). For now, install from source:
 
 ```bash
-composer test
+git clone https://github.com/fahdi/wpmcp.git wp-content/plugins/wpmcp
+cd wp-content/plugins/wpmcp
+composer install --no-dev
 ```
 
-Run the linter (PSR-12):
+Then activate **wpmcp** from the Plugins screen in wp-admin.
+
+## Connect your AI client
+
+wpmcp exposes its tools over the Model Context Protocol. Authenticate with a WordPress [Application Password](https://make.wordpress.org/core/2020/11/05/application-passwords-integration-guide/) (Users -> Profile -> Application Passwords).
+
+Example for Claude Code, in your project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "wpmcp": {
+      "type": "http",
+      "url": "https://your-site.com/wp-json/mcp/wpmcp-server",
+      "headers": {
+        "Authorization": "Basic BASE64_OF_username:application-password"
+      }
+    }
+  }
+}
+```
+
+Generate the credential with:
 
 ```bash
-composer lint
+echo -n "your-username:xxxx xxxx xxxx xxxx xxxx xxxx" | base64
 ```
+
+The same endpoint works with Cursor, Claude Desktop, and any MCP-compatible client.
+
+## Available tools
+
+| Tool | Type | What it does |
+| --- | --- | --- |
+| `get-page` | read | Read a page's title, content, and whether it is an Elementor page |
+| `update-blocks` | write (safe) | Replace a page's Gutenberg block markup, snapshotted and verified |
+| `list-operations` | safety | List recent agent operations (no snapshot payload leaked) |
+| `rollback-operation` | safety | Undo a single operation by id |
+| `rollback-session` | safety | Unwind an entire agent session to its pre-session state |
+
+Every write tool is wrapped in the safety engine. Reads and rollbacks are gated by the `edit_posts` capability.
+
+## Free vs Pro
+
+The free plugin (this repo) is fully functional: the safety engine, Gutenberg editing, one-click rollback, and the last 20 operations of history.
+
+Pro (planned, via [Freemius](https://freemius.com/)) will add unlimited history and session rollback, Elementor deep editing, change previews, and priority support. The Pro gate (`WPMCP\Pro\Gate`) and Freemius bootstrap are wired from day one; the plugin degrades gracefully when the Pro SDK is absent.
+
+## Roadmap
+
+- [ ] Elementor deep editing (Pro)
+- [ ] `preview-change` dry-run diffs before applying
+- [ ] Session-aware retention so large agent sessions stay fully reversible on the free tier
+- [ ] Broader snapshot capture (excerpt, parent, taxonomy terms)
+- [ ] Visual before / after regression on edited pages
+- [ ] Multi-site fleet management
+- [ ] wp.org listing
 
 ## Known limitations
 
-Free-tier history retention (last 20 operations) can bound how far `rollback-session` reaches back, and snapshot capture doesn't cover every post field (e.g. taxonomy terms). See [`docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md`](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp) for details.
+Free-tier history keeps the last 20 operations, which can bound how far `rollback-session` reaches on very large agent runs. Snapshot capture currently covers post content, title, status, and meta, but not every post field. Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
+
+## Development
+
+```bash
+composer install       # install dev dependencies
+composer test          # run the PHPUnit + WordPress integration suite
+composer lint          # PSR-12 with WordPress-idiomatic naming
+```
+
+The test suite needs a MySQL or MariaDB database for the WordPress integration harness. See `.github/workflows/ci.yml` for the exact setup CI uses.
+
+## Contributing
+
+Issues and pull requests are welcome. Please keep the safety invariant intact: no tool may write to the database except through `Safe_Mutation::run()`, and every change ships with a test. See [CONTRIBUTING.md](CONTRIBUTING.md) if present, or open an issue to discuss larger changes first.
+
+## Security
+
+wpmcp edits live sites and executes agent instructions, so security is a first-class concern: admin actions are capability-checked and nonce-protected, all output is escaped, and all database access is parameterized. If you find a vulnerability, please open a private security advisory rather than a public issue.
 
 ## License
 
-GPL-2.0-or-later. See [LICENSE](LICENSE).
+[GPL-2.0-or-later](LICENSE). Study it, fork it, ship it.
