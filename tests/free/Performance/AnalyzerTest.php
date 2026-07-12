@@ -50,4 +50,12 @@ class AnalyzerTest extends \WP_UnitTestCase
         $this->assertSame(0, $summary['score']);
         $this->assertSame('F', $summary['grade']);
     }
+
+    public function test_perfect_score_is_grade_a(): void
+    {
+        $summary = $this->analyzer->summarize([$this->finding('pass'), $this->finding('info')]);
+
+        $this->assertSame(100, $summary['score']);
+        $this->assertSame('A', $summary['grade']);
+    }
 }
