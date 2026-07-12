@@ -21,4 +21,12 @@ class BootstrapTest extends \WP_UnitTestCase
         $this->assertTrue($config['anonymous_mode']);
         $this->assertSame('wpmcp', $config['menu']['slug']);
     }
+
+    public function test_config_id_and_public_key_come_from_constants(): void
+    {
+        $config = Bootstrap::config();
+
+        $this->assertSame(WPMCP_FS_ID, $config['id']);
+        $this->assertSame(WPMCP_FS_PUBLIC_KEY, $config['public_key']);
+    }
 }
