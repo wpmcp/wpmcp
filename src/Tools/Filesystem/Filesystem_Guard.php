@@ -42,7 +42,11 @@ class Filesystem_Guard
 
         $real = realpath($candidate);
         if (false === $real) {
-            $real = $candidate;
+            $parent = realpath(dirname($candidate));
+            if (false === $parent) {
+                return new \WP_Error('parent_missing', 'The target directory does not exist.');
+            }
+            $real = rtrim($parent, '/\\') . DIRECTORY_SEPARATOR . basename($candidate);
         }
 
         $root_real = realpath($root);

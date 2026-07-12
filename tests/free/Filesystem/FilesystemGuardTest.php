@@ -64,4 +64,13 @@ class FilesystemGuardTest extends \WP_UnitTestCase
         $out = Filesystem_Guard::resolve_path('', $this->root);
         $this->assertInstanceOf(\WP_Error::class, $out);
     }
+
+    public function test_resolves_a_new_file_when_parent_exists(): void
+    {
+        $out = Filesystem_Guard::resolve_path('wp-content/themes/x/new.txt', $this->root);
+        $this->assertSame(
+            realpath($this->root . '/wp-content/themes/x') . DIRECTORY_SEPARATOR . 'new.txt',
+            $out
+        );
+    }
 }
