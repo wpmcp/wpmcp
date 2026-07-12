@@ -119,8 +119,10 @@ The same endpoint works with Cursor, Claude Desktop, and any MCP-compatible clie
 | `update-media` | write (safe) | Update an attachment's title, alt text, caption, and/or description |
 | `delete-media` | write (safe) | Delete a Media Library attachment. Disabled by default, requires `confirm: true` |
 | `sideload-image` | write | Download an image from a URL into the Media Library as a new attachment |
+| `get-settings` | read | Read site settings (general, reading, writing, discussion, media, permalinks) with group/type/writable metadata |
+| `update-settings` | write (safe) | Update allowlisted site settings; validates/coerces each value and applies the valid subset even if some keys fail |
 
-Every write tool is wrapped in the safety engine, except `create-post` and `sideload-image`: both only ever create brand new objects, so there is nothing pre-existing to snapshot or roll back. Reads and rollbacks are gated by the `edit_posts` capability. `delete-media` additionally requires a site to opt in via the `wpmcp_enable_delete_media` filter before it will run at all.
+Every write tool is wrapped in the safety engine, except `create-post` and `sideload-image`: both only ever create brand new objects, so there is nothing pre-existing to snapshot or roll back. Reads and rollbacks are gated by the `edit_posts` capability. `delete-media` additionally requires a site to opt in via the `wpmcp_enable_delete_media` filter before it will run at all. `update-settings` snapshots each changed option individually (the safety engine's snapshot/rollback now supports WordPress options as well as posts), so any subset of a batch write can be undone via `rollback-operation`.
 
 ## Free vs Pro
 
