@@ -35,4 +35,22 @@ class ReadFileTest extends \WP_UnitTestCase
         $this->expectException(\RuntimeException::class);
         (new Read_File())->handle(['path' => '../../../../etc/hosts']);
     }
+
+    public function test_errors_when_file_not_found(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        (new Read_File())->handle(['path' => $this->rel_dir . '/does-not-exist.txt']);
+    }
+
+    public function test_flags_binary_content_instead_of_returning_it_as_text(): void
+    {
+        file_put_contents(ABSPATH . $this->rel_dir . '/binary.dat', "\xff\xfe\x00\x01binary");
+
+        $result = (new Read_File())->handle(['path' => $this->rel_dir . '/binary.dat']);
+
+        $this->assertTrue($result['binary']);
+        $this->assertArrayNotHasKey('content', $result);
+
+        @unlink(ABSPATH . $this->rel_dir . '/binary.dat');
+    }
 }
