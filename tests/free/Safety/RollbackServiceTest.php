@@ -124,8 +124,9 @@ class RollbackServiceTest extends \WP_UnitTestCase
     {
         global $wpdb;
 
+        add_filter('wpmcp_enable_delete_post', '__return_true');
         $id  = self::factory()->post->create(['post_title' => 'keep me', 'post_status' => 'publish']);
-        $out = (new Delete_Post())->handle(['post_id' => $id, 'force' => true, 'session_id' => 's1']);
+        $out = (new Delete_Post())->handle(['post_id' => $id, 'force' => true, 'confirm' => true, 'session_id' => 's1']);
         $this->assertNull(get_post($id));
 
         // Reclaim the freed ID with an unrelated post, simulating the
