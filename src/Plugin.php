@@ -89,12 +89,24 @@ if (! defined('ABSPATH') && ! defined('WPMCP_TESTING')) {
 final class Plugin
 {
     private static ?Plugin $instance = null;
+    private ?Registrar $registrar = null;
     public static function instance(): Plugin
     {
         return self::$instance ??= new self();
     }
     private function __construct()
     {
+    }
+
+    /**
+     * The shared Registrar instance every ability is registered into. Exposed
+     * so admin screens (e.g. the audit log's tool_name filter) and tests can
+     * enumerate the abilities that are actually registered, without each
+     * caller building its own throwaway Registrar.
+     */
+    public function registrar(): Registrar
+    {
+        return $this->registrar ??= new Registrar();
     }
     public function boot(): void
     {
@@ -142,7 +154,7 @@ final class Plugin
 
     public function register_abilities(): void
     {
-        $registrar          = new Registrar();
+        $registrar          = $this->registrar();
         $get_page           = new Get_Page();
         $update_blocks      = new Update_Blocks();
         $list_operations    = new List_Operations();
@@ -159,7 +171,10 @@ final class Plugin
                 ],
                 'required'   => [ 'id' ],
             ],
-            [$get_page, 'handle']
+            [$get_page, 'handle'],
+            'edit_posts',
+            'core',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/update-blocks',
@@ -174,7 +189,10 @@ final class Plugin
                 ],
                 'required'   => [ 'id', 'blocks' ],
             ],
-            [$update_blocks, 'handle']
+            [$update_blocks, 'handle'],
+            'edit_posts',
+            'core',
+            'update'
         ));
         $registrar->register(new Ability(
             'wpmcp/list-operations',
@@ -186,7 +204,10 @@ final class Plugin
                     'limit' => [ 'type' => 'integer' ],
                 ],
             ],
-            [$list_operations, 'handle']
+            [$list_operations, 'handle'],
+            'edit_posts',
+            'core',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/rollback-operation',
@@ -199,7 +220,10 @@ final class Plugin
                 ],
                 'required'   => [ 'operation_id' ],
             ],
-            [$rollback_operation, 'handle']
+            [$rollback_operation, 'handle'],
+            'edit_posts',
+            'core',
+            'update'
         ));
         $registrar->register(new Ability(
             'wpmcp/rollback-session',
@@ -212,7 +236,10 @@ final class Plugin
                 ],
                 'required'   => [ 'session_id' ],
             ],
-            [$rollback_session, 'handle']
+            [$rollback_session, 'handle'],
+            'edit_posts',
+            'core',
+            'update'
         ));
 
         $list_post_types = new List_Post_Types();
@@ -234,7 +261,10 @@ final class Plugin
                     'public_only' => [ 'type' => 'boolean' ],
                 ],
             ],
-            [$list_post_types, 'handle']
+            [$list_post_types, 'handle'],
+            'edit_posts',
+            'content',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/list-taxonomies',
@@ -246,7 +276,10 @@ final class Plugin
                     'post_type' => [ 'type' => 'string' ],
                 ],
             ],
-            [$list_taxonomies, 'handle']
+            [$list_taxonomies, 'handle'],
+            'edit_posts',
+            'content',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/create-post',
@@ -266,7 +299,10 @@ final class Plugin
                     'meta'      => [ 'type' => 'object' ],
                 ],
             ],
-            [$create_post, 'handle']
+            [$create_post, 'handle'],
+            'edit_posts',
+            'content',
+            'create'
         ));
         $registrar->register(new Ability(
             'wpmcp/get-post',
@@ -279,7 +315,10 @@ final class Plugin
                 ],
                 'required'   => [ 'post_id' ],
             ],
-            [$get_post, 'handle']
+            [$get_post, 'handle'],
+            'edit_posts',
+            'content',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/update-post',
@@ -303,7 +342,10 @@ final class Plugin
                 ],
                 'required'   => [ 'post_id' ],
             ],
-            [$update_post, 'handle']
+            [$update_post, 'handle'],
+            'edit_posts',
+            'content',
+            'update'
         ));
         $registrar->register(new Ability(
             'wpmcp/delete-post',
@@ -319,7 +361,10 @@ final class Plugin
                 ],
                 'required'   => [ 'post_id' ],
             ],
-            [$delete_post, 'handle']
+            [$delete_post, 'handle'],
+            'edit_posts',
+            'content',
+            'delete'
         ));
         $registrar->register(new Ability(
             'wpmcp/list-posts',
@@ -339,7 +384,10 @@ final class Plugin
                     'order'     => [ 'type' => 'string' ],
                 ],
             ],
-            [$list_posts, 'handle']
+            [$list_posts, 'handle'],
+            'edit_posts',
+            'content',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/set-post-terms',
@@ -356,7 +404,10 @@ final class Plugin
                 ],
                 'required'   => [ 'post_id', 'taxonomy', 'terms' ],
             ],
-            [$set_post_terms, 'handle']
+            [$set_post_terms, 'handle'],
+            'edit_posts',
+            'content',
+            'update'
         ));
 
         $get_media      = new Get_Media();
