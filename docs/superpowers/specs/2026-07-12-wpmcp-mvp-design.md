@@ -103,3 +103,9 @@ Multi-site fleet management, human-approval queue UI, visual-regression diffing,
 - **Phase 1 (MVP / free tier):** safe-write engine + snapshot store + Gutenberg edit tools + history/restore UI + rollback tools. Ship to wp.org.
 - **Phase 2 (paid):** Elementor deep editing + Freemius + session rollback + preview/diff. Turn on monetization.
 - **Phase 3 (moat):** visual-regression diff, multi-site, approval queue.
+
+## Known limitations (MVP)
+
+1. **Free-tier retention bounds session rollback.** Free tier keeps only the last 20 snapshot operations (`Gate::history_limit()`), pruned after every write. An agent session performing >20 operations can lose its earliest snapshots, so `rollback-session` on free tier restores to the earliest *surviving* snapshot, not necessarily the true pre-session state. Pro (unlimited history) is not affected. TOP fast-follow backlog item: make pruning session-aware (never prune snapshots of a session still within the retention window).
+2. **Snapshot capture scope.** `Snapshot::capture()` records `post_content`, `post_title`, `post_status`, and all post meta. It does NOT capture excerpt, parent, menu_order, or taxonomy terms — mutations to those are not rolled back. Free-tier `update-blocks` only edits content, so no live gap today.
+3. **`rollback-session` return value** counts snapshot operations processed, not distinct objects restored.

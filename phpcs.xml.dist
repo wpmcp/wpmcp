@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<ruleset name="wpmcp">
+    <description>PSR-12, adapted for WordPress-idiomatic code: snake_case class/method names and intentional plugin-bootstrap side effects (ABSPATH guards) are allowed.</description>
+
+    <file>src</file>
+    <arg name="extensions" value="php"/>
+    <arg value="np"/>
+
+    <rule ref="PSR12">
+        <!-- WordPress convention: Snake_Case class names (e.g. Snapshot_Store). -->
+        <exclude name="Squiz.Classes.ValidClassName.NotCamelCaps"/>
+        <!-- WordPress convention: snake_case method names (e.g. table_name()). -->
+        <exclude name="PSR1.Methods.CamelCapsMethodName.NotCamelCaps"/>
+        <!-- Plugin bootstrap files legitimately mix an ABSPATH-guard side effect with symbol declaration. -->
+        <exclude name="PSR1.Files.SideEffects.FoundWithSymbols"/>
+    </rule>
+</ruleset>
