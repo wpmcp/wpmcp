@@ -71,6 +71,15 @@ use WPMCP\Tools\WooCommerce\Get_Order;
 use WPMCP\Tools\WooCommerce\Update_Order_Status;
 use WPMCP\Tools\WooCommerce\Add_Order_Note;
 use WPMCP\Tools\WooCommerce\Get_Sales_Report;
+use WPMCP\Tools\Menus\List_Menus;
+use WPMCP\Tools\Menus\Get_Menu;
+use WPMCP\Tools\Menus\List_Menu_Locations;
+use WPMCP\Tools\Menus\Create_Menu;
+use WPMCP\Tools\Menus\Add_Menu_Item;
+use WPMCP\Tools\Menus\Update_Menu_Item;
+use WPMCP\Tools\Menus\Remove_Menu_Item;
+use WPMCP\Tools\Menus\Assign_Menu_To_Location;
+use WPMCP\Tools\Menus\Delete_Menu;
 
 if (! defined('ABSPATH') && ! defined('WPMCP_TESTING')) {
     exit;
@@ -993,6 +1002,7 @@ final class Plugin
         ));
 
         $this->register_woocommerce_abilities($registrar);
+        $this->register_menu_abilities($registrar);
     }
 
     /**
@@ -1202,6 +1212,168 @@ final class Plugin
             ],
             [$get_sales_report, 'handle'],
             'manage_woocommerce'
+        ));
+    }
+
+    /**
+     * Register the navigation menu management tools as free-tier abilities.
+     *
+     * All require the edit_theme_options capability, WordPress's own gate for
+     * managing menus. Reads (list/get menus, list locations) have no side
+     * effects. Menu-item edits act on nav_menu_item posts and are undoable via
+     * the existing 'post' snapshot type; assign-menu-to-location changes the
+     * nav_menu_locations theme_mod and is undoable via the existing 'option'
+     * type. delete-menu removes a nav_menu term: it is disabled by default
+     * behind the wpmcp_enable_delete_menu filter, needs confirm, and is honest
+     * that it cannot be rolled back automatically.
+     */
+    private function register_menu_abilities(Registrar $registrar): void
+    {
+        $list_menus              = new List_Menus();
+        $get_menu                = new Get_Menu();
+        $list_menu_locations     = new List_Menu_Locations();
+        $create_menu             = new Create_Menu();
+        $add_menu_item           = new Add_Menu_Item();
+        $update_menu_item        = new Update_Menu_Item();
+        $remove_menu_item        = new Remove_Menu_Item();
+        $assign_menu_to_location = new Assign_Menu_To_Location();
+        $delete_menu             = new Delete_Menu();
+
+        $registrar->register(new Ability(
+            'wpmcp/list-menus',
+            'free',
+            'List the site\'s navigation menus as safe summary rows (id, name, slug, item count)',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$list_menus, 'handle'],
+            'edit_theme_options'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-menu',
+            'free',
+            'Read one navigation menu with its ordered items (id, title, url, type, parent, order)',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [$get_menu, 'handle'],
+            'edit_theme_options'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/list-menu-locations',
+            'free',
+            'List the theme\'s registered menu locations and the menu (if any) assigned to each',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$list_menu_locations, 'handle'],
+            'edit_theme_options'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/create-menu',
+            'free',
+            'Create a new navigation menu (a nav_menu term). Creation has no prior state to snapshot; a mistaken menu can be removed with delete-menu',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'name' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'name' ],
+            ],
+            [$create_menu, 'handle'],
+            'edit_theme_options'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/add-menu-item',
+            'free',
+            'Add an item to a navigation menu (custom link by title and url, or an object link via type, object, object_id). Additive; a mistaken item can be removed with remove-menu-item',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'menu_id'   => [ 'type' => 'integer' ],
+                    'title'     => [ 'type' => 'string' ],
+                    'url'       => [ 'type' => 'string' ],
+                    'parent'    => [ 'type' => 'integer' ],
+                    'position'  => [ 'type' => 'integer' ],
+                    'type'      => [ 'type' => 'string' ],
+                    'object'    => [ 'type' => 'string' ],
+                    'object_id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'menu_id' ],
+            ],
+            [$add_menu_item, 'handle'],
+            'edit_theme_options'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-menu-item',
+            'free',
+            'Update a navigation menu item\'s title, url, parent, or position. A menu item is a post, so this is snapshotted via object_type post and rollback-operation restores the prior values exactly',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'item_id'    => [ 'type' => 'integer' ],
+                    'title'      => [ 'type' => 'string' ],
+                    'url'        => [ 'type' => 'string' ],
+                    'parent'     => [ 'type' => 'integer' ],
+                    'position'   => [ 'type' => 'integer' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'item_id' ],
+            ],
+            [$update_menu_item, 'handle'],
+            'edit_theme_options'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/remove-menu-item',
+            'free',
+            'Remove an item from a navigation menu. The item is a post, so this is snapshotted via object_type post and rollback-operation resurrects it at its original id, re-attached to its menu',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'item_id'    => [ 'type' => 'integer' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'item_id' ],
+            ],
+            [$remove_menu_item, 'handle'],
+            'edit_theme_options'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/assign-menu-to-location',
+            'free',
+            'Assign a navigation menu to a registered theme location. The assignment lives in the nav_menu_locations theme_mod, so this is snapshotted via object_type option and rollback-operation restores the prior assignment',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'menu_id'    => [ 'type' => 'integer' ],
+                    'location'   => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'menu_id', 'location' ],
+            ],
+            [$assign_menu_to_location, 'handle'],
+            'edit_theme_options'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/delete-menu',
+            'free',
+            'Delete a navigation menu (a nav_menu term). Disabled by default (site must opt in via the wpmcp_enable_delete_menu filter) and requires confirm:true. This is not automatically reversible: the menu name and its items are returned so it can be rebuilt manually',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'      => [ 'type' => 'integer' ],
+                    'confirm' => [ 'type' => 'boolean' ],
+                ],
+                'required'   => [ 'id', 'confirm' ],
+            ],
+            [$delete_menu, 'handle'],
+            'edit_theme_options'
         ));
     }
 }
