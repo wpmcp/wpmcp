@@ -152,4 +152,20 @@ class FilesystemGuardTest extends \WP_UnitTestCase
 
         $this->assertSame('', $backup);
     }
+
+    public function test_restore_copies_the_backup_back_over_the_target(): void
+    {
+        $target     = realpath($this->root . '/wp-content/themes/x/style.css');
+        $backup_dir = $this->root . '/backups';
+        mkdir($backup_dir, 0777, true);
+
+        $backup = Filesystem_Guard::backup_to_dir($target, $backup_dir, $this->root, '20260627-120000');
+        file_put_contents($target, 'mutated content');
+        $this->assertSame('mutated content', file_get_contents($target));
+
+        $restored = Filesystem_Guard::restore($backup, $target);
+
+        $this->assertTrue($restored);
+        $this->assertSame("a\nb\nc\n", file_get_contents($target));
+    }
 }

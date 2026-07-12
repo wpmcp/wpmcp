@@ -154,4 +154,16 @@ class Filesystem_Guard
         }
         return $dest;
     }
+
+    /**
+     * Restore a backup over its original target, making a write/edit/delete
+     * recoverable. Returns whether the copy succeeded.
+     */
+    public static function restore(string $backup_abs, string $target_abs): bool
+    {
+        if (! is_file($backup_abs)) {
+            return false;
+        }
+        return copy($backup_abs, $target_abs);
+    }
 }
