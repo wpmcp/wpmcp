@@ -61,4 +61,27 @@ class UpdateMediaTest extends \WP_UnitTestCase
         $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
         $this->assertSame('original alt', get_post_meta($id, '_wp_attachment_image_alt', true));
     }
+
+    /**
+     * Snapshot::capture() records ALL post meta, which includes
+     * _wp_attachment_metadata (dimensions, sizes, file path). A rollback must
+     * not disturb it even though update-media never touches that key itself.
+     */
+    public function test_rollback_leaves_attachment_metadata_untouched(): void
+    {
+        $id = self::factory()->attachment->create_object(['post_title' => 'Sunset']);
+        $original_metadata = [
+            'width'  => 1200,
+            'height' => 800,
+            'file'   => 'sunset.jpg',
+        ];
+        update_post_meta($id, '_wp_attachment_metadata', $original_metadata);
+
+        $out = (new Update_Media())->handle(['media_id' => $id, 'title' => 'changed title', 'session_id' => 's1']);
+
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+
+        $this->assertSame('Sunset', get_post($id)->post_title);
+        $this->assertSame($original_metadata, get_post_meta($id, '_wp_attachment_metadata', true));
+    }
 }
