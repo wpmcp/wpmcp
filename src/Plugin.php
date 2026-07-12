@@ -60,6 +60,7 @@ use WPMCP\Tools\Filesystem\Write_File;
 use WPMCP\Tools\Filesystem\Edit_File;
 use WPMCP\Tools\Filesystem\Delete_File;
 use WPMCP\Tools\Performance\Analyze_Performance;
+use WPMCP\Tools\Security\Scan_Security;
 use WPMCP\Tools\WooCommerce\List_Products;
 use WPMCP\Tools\WooCommerce\Get_Product;
 use WPMCP\Tools\WooCommerce\Create_Product;
@@ -998,6 +999,31 @@ final class Plugin
                 ],
             ],
             [$analyze_performance, 'handle'],
+            'manage_options'
+        ));
+
+        $scan_security = new Scan_Security();
+
+        $registrar->register(new Ability(
+            'wpmcp/scan-security',
+            'free',
+            'Scan this site for security and malware problems across four areas: PHP malware heuristics (uploads plus active plugins/themes; pass deep=true for the whole tree), WordPress core file integrity (against official wordpress.org checksums), configuration hardening (file editor, debug output, admin username, XML-RPC, version disclosure, HTTPS, security headers), and outdated/abandoned software. Returns a scored report (0-100 plus A-F grade) with severities and ranked, actionable recommendations. Read-only; self-contained; scans this site only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'checks'      => [
+                        'type'  => 'array',
+                        'items' => [
+                            'type' => 'string',
+                            'enum' => ['malware', 'integrity', 'hardening', 'software'],
+                        ],
+                    ],
+                    'deep'        => [ 'type' => 'boolean' ],
+                    'max_files'   => [ 'type' => 'integer' ],
+                    'max_seconds' => [ 'type' => 'integer' ],
+                ],
+            ],
+            [$scan_security, 'handle'],
             'manage_options'
         ));
 
