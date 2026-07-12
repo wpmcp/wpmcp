@@ -27,7 +27,7 @@ class Filesystem_Guard
     {
         $root = $root ?? ABSPATH;
 
-        if (false !== strpos($path, "\0")) {
+        if ('' === $path || false !== strpos($path, "\0")) {
             return new \WP_Error('invalid_path', 'Invalid file path.');
         }
 

@@ -58,4 +58,10 @@ class FilesystemGuardTest extends \WP_UnitTestCase
         $this->assertInstanceOf(\WP_Error::class, $out);
         $this->assertSame('invalid_path', $out->get_error_code());
     }
+
+    public function test_rejects_empty_path(): void
+    {
+        $out = Filesystem_Guard::resolve_path('', $this->root);
+        $this->assertInstanceOf(\WP_Error::class, $out);
+    }
 }
