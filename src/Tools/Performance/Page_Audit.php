@@ -36,8 +36,9 @@ class Page_Audit
 
         $start = microtime(true);
         $response = wp_safe_remote_get($url, [
-            'timeout'    => $timeout,
-            'user-agent' => 'WPMCP-Performance-Analyzer/1.0',
+            'timeout'     => $timeout,
+            'redirection' => 0,
+            'user-agent'  => 'WPMCP-Performance-Analyzer/1.0',
         ]);
         $elapsed = (int) round((microtime(true) - $start) * 1000);
 
@@ -180,6 +181,21 @@ class Page_Audit
                 sprintf('Page returned HTTP %d.', $status),
                 'A non-200 status means the analyzed URL is redirecting or erroring; verify the target.'
             );
+
+        if ($status >= 300 && $status < 400) {
+            $location   = (string) (((array) ($fetched['headers'] ?? []))['location'] ?? '');
+            $findings[] = Finding::make(
+                'redirect',
+                'page',
+                'Redirect',
+                'warning',
+                $status,
+                '' !== $location
+                    ? sprintf('The page returned an HTTP %d redirect to %s (not followed).', $status, $location)
+                    : sprintf('The page returned an HTTP %d redirect (not followed).', $status),
+                'The analyzer does not follow redirects; audit the final URL directly, or fix the redirect so the page serves its content at this address.'
+            );
+        }
 
         $ms         = (int) ($fetched['response_ms'] ?? 0);
         $findings[] = ($ms > self::RESPONSE_WARN_MS)

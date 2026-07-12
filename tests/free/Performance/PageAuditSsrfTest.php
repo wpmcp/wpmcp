@@ -8,12 +8,14 @@ class PageAuditSsrfTest extends \WP_UnitTestCase
 {
     private Page_Audit $audit;
     private bool $http_request_fired = false;
+    private int $http_request_count  = 0;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->audit               = new Page_Audit();
         $this->http_request_fired  = false;
+        $this->http_request_count  = 0;
         add_filter('pre_http_request', [$this, 'record_and_fail'], 10, 3);
     }
 
@@ -84,6 +86,45 @@ class PageAuditSsrfTest extends \WP_UnitTestCase
             'headers'  => [],
             'body'     => '<html>ok</html>',
             'response' => ['code' => 200, 'message' => 'OK'],
+            'cookies'  => [],
+        ];
+    }
+
+    public function test_fetch_does_not_follow_a_redirect_and_surfaces_it_as_a_finding(): void
+    {
+        // The target answers with a 3xx pointing at an internal host. We must
+        // not chase it: exactly one request fires (no off-target second hop),
+        // and analyze() surfaces the redirect as its own finding.
+        remove_filter('pre_http_request', [$this, 'record_and_fail'], 10);
+        add_filter('pre_http_request', [$this, 'serve_redirect'], 10, 3);
+
+        $result   = $this->audit->fetch('http://93.184.216.34/');
+        $analysis = $this->audit->analyze($result, false);
+
+        remove_filter('pre_http_request', [$this, 'serve_redirect'], 10);
+
+        $this->assertSame(1, $this->http_request_count, 'fetch() must not follow the redirect to a second target');
+        $this->assertSame(302, $result['status_code']);
+
+        $redirect = null;
+        foreach ($analysis['findings'] as $finding) {
+            if ('redirect' === $finding['id']) {
+                $redirect = $finding;
+                break;
+            }
+        }
+        $this->assertNotNull($redirect, 'a redirect finding must be present');
+        $this->assertSame('warning', $redirect['status']);
+    }
+
+    public function serve_redirect($preempt, $parsed_args, $url)
+    {
+        $this->http_request_count++;
+        $this->assertSame(0, $parsed_args['redirection'], 'fetch() must request no redirect following');
+        return [
+            'headers'  => ['location' => 'http://127.0.0.1/internal'],
+            'body'     => '',
+            'response' => ['code' => 302, 'message' => 'Found'],
             'cookies'  => [],
         ];
     }
