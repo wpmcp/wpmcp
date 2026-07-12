@@ -162,4 +162,45 @@ class UpdateSettingsTest extends \WP_UnitTestCase
         $this->assertTrue($rolled_back['restored']);
         $this->assertSame('Original Name', get_option('blogname'));
     }
+
+    /**
+     * Regression test: apply_one() routed every valid key through
+     * Safe_Mutation::run() unconditionally, even when the requested value
+     * was identical to the option's current value. That wastes a snapshot
+     * row (and a free-tier retention slot) on a write that changes nothing,
+     * contradicting the class docblock's promise that "every option that is
+     * actually changed is routed individually." Re-sending the current value
+     * must not create a new snapshot row, but must still report the key as
+     * applied.
+     */
+    public function test_resending_current_value_does_not_snapshot(): void
+    {
+        update_option('blogname', 'Same Name');
+
+        $before_count = count(Snapshot_Store::recent(50));
+
+        $out = (new Update_Settings())->handle(['settings' => ['blogname' => 'Same Name']]);
+
+        $after_count = count(Snapshot_Store::recent(50));
+
+        $this->assertSame($before_count, $after_count);
+        $this->assertSame('Same Name', $out['updated']['blogname']);
+        $this->assertSame('Same Name', get_option('blogname'));
+    }
+
+    /** A real change must still snapshot, so it stays rollback-able. */
+    public function test_actual_change_still_snapshots(): void
+    {
+        update_option('blogname', 'Old Name');
+
+        $before_count = count(Snapshot_Store::recent(50));
+
+        $out = (new Update_Settings())->handle(['settings' => ['blogname' => 'New Name']]);
+
+        $after_count = count(Snapshot_Store::recent(50));
+
+        $this->assertSame($before_count + 1, $after_count);
+        $this->assertNotEmpty($out['operation_ids']);
+        $this->assertSame('New Name', get_option('blogname'));
+    }
 }

@@ -85,6 +85,15 @@ class Update_Settings
 
         $value = $coerced['value'];
 
+        // Skip the write (and its snapshot) when the coerced value is
+        // identical to what's already stored: nothing would actually
+        // change, so routing it through Safe_Mutation::run() would only
+        // waste a snapshot row (and a free-tier retention slot) undoing a
+        // no-op. The key is still reported back as applied/unchanged.
+        if ($value === get_option($key)) {
+            return ['value' => $value];
+        }
+
         $out = Safe_Mutation::run(
             [
                 'object_type' => 'option',
