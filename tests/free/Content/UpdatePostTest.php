@@ -3,7 +3,7 @@
 namespace WPMCP\Tests\Free\Content;
 
 use WPMCP\Tools\Content\Update_Post;
-use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Safety\{Snapshot_Store, Rollback_Service};
 
 class UpdatePostTest extends \WP_UnitTestCase
 {
@@ -43,5 +43,17 @@ class UpdatePostTest extends \WP_UnitTestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         (new Update_Post())->handle(['post_id' => 999999, 'title' => 'x']);
+    }
+
+    public function test_write_is_safe_wrapped_and_rollback_restores_original(): void
+    {
+        $id  = self::factory()->post->create(['post_title' => 'original']);
+        $out = (new Update_Post())->handle(['post_id' => $id, 'title' => 'changed', 'session_id' => 's1']);
+
+        $this->assertNotNull(Snapshot_Store::get_by_operation($out['operation_id']));
+        $this->assertSame('changed', get_post($id)->post_title);
+
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assertSame('original', get_post($id)->post_title);
     }
 }
