@@ -20,6 +20,10 @@ class Read_File
             throw new \RuntimeException($abs->get_error_message());
         }
 
+        if (Filesystem_Guard::is_protected($abs)) {
+            throw new \RuntimeException('This file is protected from reads.');
+        }
+
         if (! is_file($abs)) {
             throw new \RuntimeException('File not found.');
         }

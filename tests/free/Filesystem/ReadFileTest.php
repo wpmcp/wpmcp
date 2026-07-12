@@ -20,6 +20,7 @@ class ReadFileTest extends \WP_UnitTestCase
         @unlink(ABSPATH . $this->rel_dir . '/hello.txt');
         @unlink(ABSPATH . $this->rel_dir . '/leak.txt');
         @rmdir(ABSPATH . $this->rel_dir);
+        @unlink(ABSPATH . 'wp-config.php');
         parent::tearDown();
     }
 
@@ -81,5 +82,18 @@ class ReadFileTest extends \WP_UnitTestCase
             @unlink($link);
             @unlink($outside);
         }
+    }
+
+    /**
+     * Escape 3 (CRITICAL): is_protected() was write-only. Read_File never
+     * called it, so read-file path: "wp-config.php" returned DB
+     * credentials/salts.
+     */
+    public function test_refuses_to_read_a_protected_file(): void
+    {
+        file_put_contents(ABSPATH . 'wp-config.php', "<?php\ndefine('DB_PASSWORD', 'super-secret');\n");
+
+        $this->expectException(\RuntimeException::class);
+        (new Read_File())->handle(['path' => 'wp-config.php']);
     }
 }

@@ -23,6 +23,7 @@ class ListDirectoryTest extends \WP_UnitTestCase
         @unlink(ABSPATH . $this->rel_dir . '/a.txt');
         @unlink(ABSPATH . $this->rel_dir . '/leak.txt');
         @rmdir(ABSPATH . $this->rel_dir);
+        @unlink(ABSPATH . 'wp-config.php');
         parent::tearDown();
     }
 
@@ -78,6 +79,25 @@ class ListDirectoryTest extends \WP_UnitTestCase
         } finally {
             @unlink($link);
             @unlink($outside);
+        }
+    }
+
+    /**
+     * Escape 3 (CRITICAL): is_protected() was write-only. List_Directory
+     * never called it, so a protected basename like wp-config.php was
+     * listed like any other file.
+     */
+    public function test_does_not_list_a_protected_file(): void
+    {
+        file_put_contents(ABSPATH . 'wp-config.php', "<?php // secrets\n");
+
+        try {
+            $result = (new List_Directory())->handle(['path' => '.']);
+
+            $names = array_column($result['entries'], 'name');
+            $this->assertNotContains('wp-config.php', $names);
+        } finally {
+            @unlink(ABSPATH . 'wp-config.php');
         }
     }
 }

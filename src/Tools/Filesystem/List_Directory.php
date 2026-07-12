@@ -45,6 +45,9 @@ class List_Directory
                 if ($f->isLink() || ! $this->is_contained($f->getPathname(), $root_real)) {
                     continue;
                 }
+                if (Filesystem_Guard::is_protected($f->getPathname())) {
+                    continue;
+                }
                 $entries[] = $this->entry($f->getPathname());
                 if (count($entries) >= self::MAX_ENTRIES) {
                     break;
@@ -57,6 +60,9 @@ class List_Directory
                 }
                 $child = $abs . DIRECTORY_SEPARATOR . $name;
                 if (is_link($child) || ! $this->is_contained($child, $root_real)) {
+                    continue;
+                }
+                if (Filesystem_Guard::is_protected($child)) {
                     continue;
                 }
                 $entries[] = $this->entry($child);

@@ -22,6 +22,7 @@ class SearchFilesTest extends \WP_UnitTestCase
         @unlink(ABSPATH . $this->rel_dir . '/b.txt');
         @unlink(ABSPATH . $this->rel_dir . '/leak.txt');
         @rmdir(ABSPATH . $this->rel_dir);
+        @unlink(ABSPATH . 'wp-config.php');
         parent::tearDown();
     }
 
@@ -84,6 +85,25 @@ class SearchFilesTest extends \WP_UnitTestCase
         } finally {
             @unlink($link);
             @unlink($outside);
+        }
+    }
+
+    /**
+     * Escape 3 (CRITICAL): is_protected() was write-only. Search_Files
+     * never called it, so a search could match and return the contents of
+     * wp-config.php.
+     */
+    public function test_does_not_search_the_contents_of_a_protected_file(): void
+    {
+        file_put_contents(ABSPATH . 'wp-config.php', "<?php\ndefine('DB_PASSWORD', 'super-secret-needle');\n");
+
+        try {
+            $result = (new Search_Files())->handle(['query' => 'super-secret-needle', 'path' => '.']);
+
+            $files = array_column($result['matches'], 'file');
+            $this->assertNotContains('wp-config.php', $files);
+        } finally {
+            @unlink(ABSPATH . 'wp-config.php');
         }
     }
 }

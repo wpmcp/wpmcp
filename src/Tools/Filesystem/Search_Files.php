@@ -84,6 +84,10 @@ class Search_Files
                 continue;
             }
 
+            if (Filesystem_Guard::is_protected($real)) {
+                continue;
+            }
+
             $content = (string) file_get_contents($f->getPathname());
             if (! Filesystem_Guard::is_utf8($content)) {
                 continue;
