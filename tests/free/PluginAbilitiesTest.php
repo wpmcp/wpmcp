@@ -141,6 +141,38 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertFalse($abilities['wpmcp/update-theme']->idempotent_hint);
     }
 
+    public function test_database_abilities_are_tagged_database_domain(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        $this->assertSame('database', $abilities['wpmcp/query']->domain);
+        $this->assertSame('read', $abilities['wpmcp/query']->operation);
+        $this->assertSame('database', $abilities['wpmcp/insert-row']->domain);
+        $this->assertSame('create', $abilities['wpmcp/insert-row']->operation);
+        $this->assertSame('database', $abilities['wpmcp/delete-rows']->domain);
+        $this->assertSame('delete', $abilities['wpmcp/delete-rows']->operation);
+    }
+
+    public function test_update_rows_keeps_destructive_irreversible_hint(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        $this->assertTrue($abilities['wpmcp/update-rows']->destructive_hint);
+        $this->assertFalse($abilities['wpmcp/update-rows']->idempotent_hint);
+    }
+
+    public function test_filesystem_abilities_are_tagged_filesystem_domain(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        $this->assertSame('filesystem', $abilities['wpmcp/read-file']->domain);
+        $this->assertSame('read', $abilities['wpmcp/read-file']->operation);
+        $this->assertSame('filesystem', $abilities['wpmcp/write-file']->domain);
+        $this->assertSame('update', $abilities['wpmcp/write-file']->operation);
+        $this->assertSame('filesystem', $abilities['wpmcp/delete-file']->domain);
+        $this->assertSame('delete', $abilities['wpmcp/delete-file']->operation);
+    }
+
     /** @param Ability[] $abilities @return array<string, Ability> */
     private function index(array $abilities): array
     {

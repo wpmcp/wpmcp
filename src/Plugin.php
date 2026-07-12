@@ -927,7 +927,9 @@ final class Plugin
                 'properties' => [],
             ],
             [$list_tables, 'handle'],
-            'manage_options'
+            'manage_options',
+            'database',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/describe-table',
@@ -941,7 +943,9 @@ final class Plugin
                 'required'   => [ 'table' ],
             ],
             [$describe_table, 'handle'],
-            'manage_options'
+            'manage_options',
+            'database',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/query',
@@ -956,7 +960,9 @@ final class Plugin
                 'required'   => [ 'sql' ],
             ],
             [$query, 'handle'],
-            'manage_options'
+            'manage_options',
+            'database',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/insert-row',
@@ -971,7 +977,9 @@ final class Plugin
                 'required'   => [ 'table', 'data' ],
             ],
             [$insert_row, 'handle'],
-            'manage_options'
+            'manage_options',
+            'database',
+            'create'
         ));
         $registrar->register(new Ability(
             'wpmcp/update-rows',
@@ -988,7 +996,12 @@ final class Plugin
                 'required'   => [ 'table', 'data', 'where' ],
             ],
             [$update_rows, 'handle'],
-            'manage_options'
+            'manage_options',
+            'database',
+            'update',
+            false,
+            true,
+            false
         ));
         $registrar->register(new Ability(
             'wpmcp/delete-rows',
@@ -1004,7 +1017,9 @@ final class Plugin
                 'required'   => [ 'table', 'where' ],
             ],
             [$delete_rows, 'handle'],
-            'manage_options'
+            'manage_options',
+            'database',
+            'delete'
         ));
 
         $read_file      = new Read_File();
@@ -1026,7 +1041,9 @@ final class Plugin
                 'required'   => [ 'path' ],
             ],
             [$read_file, 'handle'],
-            'manage_options'
+            'manage_options',
+            'filesystem',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/list-directory',
@@ -1040,7 +1057,9 @@ final class Plugin
                 ],
             ],
             [$list_directory, 'handle'],
-            'manage_options'
+            'manage_options',
+            'filesystem',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/search-files',
@@ -1057,7 +1076,9 @@ final class Plugin
                 'required'   => [ 'query' ],
             ],
             [$search_files, 'handle'],
-            'manage_options'
+            'manage_options',
+            'filesystem',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/write-file',
@@ -1072,7 +1093,9 @@ final class Plugin
                 'required'   => [ 'path', 'content' ],
             ],
             [$write_file, 'handle'],
-            'manage_options'
+            'manage_options',
+            'filesystem',
+            'update'
         ));
         $registrar->register(new Ability(
             'wpmcp/edit-file',
@@ -1089,7 +1112,9 @@ final class Plugin
                 'required'   => [ 'path', 'old_string', 'new_string' ],
             ],
             [$edit_file, 'handle'],
-            'manage_options'
+            'manage_options',
+            'filesystem',
+            'update'
         ));
         $registrar->register(new Ability(
             'wpmcp/delete-file',
@@ -1104,7 +1129,9 @@ final class Plugin
                 'required'   => [ 'path' ],
             ],
             [$delete_file, 'handle'],
-            'manage_options'
+            'manage_options',
+            'filesystem',
+            'delete'
         ));
 
         $analyze_performance = new Analyze_Performance();
