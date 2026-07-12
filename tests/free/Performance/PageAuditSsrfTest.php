@@ -60,4 +60,31 @@ class PageAuditSsrfTest extends \WP_UnitTestCase
         $this->assertFalse($result['ok']);
         $this->assertSame('refused_private_target', $result['error']);
     }
+
+    public function test_fetch_allows_a_public_ip_and_dispatches_via_wp_safe_remote_get(): void
+    {
+        // A literal public IP needs no DNS lookup, keeping this test off the
+        // real network entirely while still proving the guard does not
+        // block a legitimate public target and that dispatch happens.
+        remove_filter('pre_http_request', [$this, 'record_and_fail'], 10);
+        add_filter('pre_http_request', [$this, 'serve_canned_response'], 10, 3);
+
+        $result = $this->audit->fetch('http://93.184.216.34/');
+
+        remove_filter('pre_http_request', [$this, 'serve_canned_response'], 10);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame(200, $result['status_code']);
+        $this->assertSame('<html>ok</html>', $result['body']);
+    }
+
+    public function serve_canned_response($preempt, $parsed_args, $url)
+    {
+        return [
+            'headers'  => [],
+            'body'     => '<html>ok</html>',
+            'response' => ['code' => 200, 'message' => 'OK'],
+            'cookies'  => [],
+        ];
+    }
 }
