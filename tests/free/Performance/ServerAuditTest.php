@@ -72,4 +72,11 @@ class ServerAuditTest extends \WP_UnitTestCase
         $this->assertSame('warning', $this->audit->evaluate_revisions(1001)['status']);
         $this->assertSame('warning', $this->audit->evaluate_revisions(5000)['status']);
     }
+
+    public function test_cron_backlog_warns_when_overdue(): void
+    {
+        $this->assertSame('pass', $this->audit->evaluate_cron_backlog(0)['status']);
+        $this->assertSame('warning', $this->audit->evaluate_cron_backlog(1)['status']);
+        $this->assertSame('warning', $this->audit->evaluate_cron_backlog(7)['status']);
+    }
 }

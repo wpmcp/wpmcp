@@ -184,6 +184,22 @@ class Server_Audit
         return Finding::make('post_revisions', 'database', 'Post revisions', 'info', $count, sprintf('%d post revisions stored.', $count));
     }
 
+    public function evaluate_cron_backlog(int $overdue): array
+    {
+        if ($overdue > 0) {
+            return Finding::make(
+                'cron_backlog',
+                'config',
+                'WP-Cron backlog',
+                'warning',
+                $overdue,
+                sprintf('%d overdue cron events.', $overdue),
+                'A backlog means cron is not firing (low traffic, or DISABLE_WP_CRON without a real cron job). Add a server cron hitting wp-cron.php.'
+            );
+        }
+        return Finding::make('cron_backlog', 'config', 'WP-Cron backlog', 'pass', 0, 'No overdue cron events.');
+    }
+
     private function to_bytes(string $value): int
     {
         $value = trim($value);
