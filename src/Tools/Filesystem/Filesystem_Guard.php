@@ -132,4 +132,26 @@ class Filesystem_Guard
         }
         return str_replace('\\', '/', $abs_n);
     }
+
+    /**
+     * Copy $abs to a timestamped backup file inside $backup_dir. Returns the
+     * backup's absolute path, or '' if $abs does not exist yet (a create,
+     * not an overwrite, has nothing to back up). $root is used only to
+     * compute the relative name via backup_name()/to_relative().
+     *
+     * @return string|\WP_Error
+     */
+    public static function backup_to_dir(string $abs, string $backup_dir, string $root, string $timestamp)
+    {
+        if (! is_file($abs)) {
+            return '';
+        }
+        $rel  = self::to_relative($abs, $root);
+        $name = self::backup_name($rel, $timestamp);
+        $dest = rtrim($backup_dir, '/\\') . DIRECTORY_SEPARATOR . $name;
+        if (! copy($abs, $dest)) {
+            return new \WP_Error('backup_failed', 'Could not back up the file before writing.');
+        }
+        return $dest;
+    }
 }

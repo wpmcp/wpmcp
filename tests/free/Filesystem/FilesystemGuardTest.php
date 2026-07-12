@@ -124,4 +124,22 @@ class FilesystemGuardTest extends \WP_UnitTestCase
             Filesystem_Guard::to_relative($abs, $this->root)
         );
     }
+
+    public function test_backup_to_dir_copies_the_file_and_returns_the_backup_path(): void
+    {
+        $target     = realpath($this->root . '/wp-content/themes/x/style.css');
+        $backup_dir = $this->root . '/backups';
+        mkdir($backup_dir, 0777, true);
+
+        $backup = Filesystem_Guard::backup_to_dir($target, $backup_dir, $this->root, '20260627-120000');
+
+        $this->assertIsString($backup);
+        $this->assertFileExists($backup);
+        $this->assertSame(file_get_contents($target), file_get_contents($backup));
+        $this->assertSame(
+            '20260627-120000-wp-content-themes-x-style.css',
+            basename($backup)
+        );
+    }
+
 }
