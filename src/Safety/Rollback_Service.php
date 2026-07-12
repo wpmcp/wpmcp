@@ -87,5 +87,12 @@ class Rollback_Service
                 add_post_meta($snapshot['object_id'], $key, maybe_unserialize($v));
             }
         }
+
+        // Restore taxonomy term assignments captured at snapshot time. Older
+        // snapshots predating term capture simply have no 'terms' key, so
+        // this is a no-op for them (backward compatible).
+        foreach ((array) ($snapshot['data']['terms'] ?? []) as $taxonomy => $term_ids) {
+            wp_set_object_terms($snapshot['object_id'], array_map('intval', (array) $term_ids), (string) $taxonomy, false);
+        }
     }
 }

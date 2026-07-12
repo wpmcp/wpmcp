@@ -3,7 +3,7 @@
 namespace WPMCP\Tests\Free\Content;
 
 use WPMCP\Tools\Content\Set_Post_Terms;
-use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Safety\{Snapshot_Store, Rollback_Service};
 
 class SetPostTermsTest extends \WP_UnitTestCase
 {
@@ -62,5 +62,27 @@ class SetPostTermsTest extends \WP_UnitTestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         (new Set_Post_Terms())->handle(['post_id' => 999999, 'taxonomy' => 'category', 'terms' => [1]]);
+    }
+
+    public function test_write_is_safe_wrapped_and_rollback_restores_original_terms(): void
+    {
+        $id       = self::factory()->post->create();
+        $original = self::factory()->category->create();
+        $new_term = self::factory()->category->create();
+        wp_set_object_terms($id, [$original], 'category');
+
+        $out = (new Set_Post_Terms())->handle([
+            'post_id'    => $id,
+            'taxonomy'   => 'category',
+            'terms'      => [$new_term],
+            'mode'       => 'replace',
+            'session_id' => 's1',
+        ]);
+
+        $this->assertNotNull(Snapshot_Store::get_by_operation($out['operation_id']));
+        $this->assertSame([$new_term], wp_get_post_terms($id, 'category', ['fields' => 'ids']));
+
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assertSame([$original], wp_get_post_terms($id, 'category', ['fields' => 'ids']));
     }
 }
