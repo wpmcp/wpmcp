@@ -27,4 +27,18 @@ class DeleteFileTest extends \WP_UnitTestCase
         $this->expectException(\RuntimeException::class);
         (new Delete_File())->handle(['path' => $this->rel_dir . '/gone.txt', 'confirm' => true]);
     }
+
+    public function test_requires_confirm_when_enabled(): void
+    {
+        add_filter('wpmcp_enable_fs_writes', '__return_true');
+        $admin = self::factory()->user->create(['role' => 'administrator']);
+        wp_set_current_user($admin);
+
+        $this->expectException(\InvalidArgumentException::class);
+        try {
+            (new Delete_File())->handle(['path' => $this->rel_dir . '/gone.txt']);
+        } finally {
+            $this->assertFileExists(ABSPATH . $this->rel_dir . '/gone.txt');
+        }
+    }
 }
