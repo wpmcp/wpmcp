@@ -27,11 +27,20 @@ class Page_Audit
     }
 
     /**
-     * Perform the HTTP fetch and normalize the response. SSRF-safe: the
-     * target host must resolve to a public IP (no loopback, private, link-
-     * local, or reserved range) before wp_safe_remote_get() is even called;
-     * wp_safe_remote_get() then applies WordPress's own SSRF protections as
-     * a second layer of defense.
+     * Perform the HTTP fetch and normalize the response.
+     *
+     * SSRF model. The load-bearing controls are (a) the caller's same-host
+     * gate, which only ever asks to audit the site's own URL, and (b)
+     * wp_safe_remote_get(), which re-resolves and revalidates the target on
+     * every hop against WordPress's own allow/deny rules. We also pass
+     * redirection => 0, so a 3xx is surfaced as a finding rather than chased
+     * into internal space.
+     *
+     * The resolves_to_private_ip() pre-check below is advisory
+     * defense-in-depth only: it does NOT gate the actual connection (that
+     * request re-resolves independently), and a TOCTOU gap remains between
+     * the pre-check and the real lookup. Closing that with IP pinning is
+     * tracked as a follow-up (#12).
      *
      * @return array { ok, status_code, response_ms, total_bytes, headers, body, error, host }
      */
@@ -86,7 +95,13 @@ class Page_Audit
      * private/loopback/link-local/reserved range. Uses PHP's built-in
      * FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE, which covers
      * 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16,
-     * ::1, and IPv6 unique-local (fc00::/7), plus other reserved ranges.
+     * ::1, and IPv6 unique-local (fc00::/7), plus other reserved ranges, and
+     * additionally normalizes IPv4-mapped IPv6 addresses.
+     *
+     * This is an advisory pre-check, not the connection gate: the actual
+     * request in fetch() re-resolves the host independently via
+     * wp_safe_remote_get(), so a host that resolves differently at connect
+     * time is caught there, not here. Treat this as belt-and-suspenders.
      */
     private function resolves_to_private_ip(string $host): bool
     {
