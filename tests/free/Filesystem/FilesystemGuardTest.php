@@ -51,4 +51,11 @@ class FilesystemGuardTest extends \WP_UnitTestCase
         $this->assertInstanceOf(\WP_Error::class, $out);
         $this->assertSame('outside_root', $out->get_error_code());
     }
+
+    public function test_rejects_null_byte(): void
+    {
+        $out = Filesystem_Guard::resolve_path("wp-config.php\0.txt", $this->root);
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('invalid_path', $out->get_error_code());
+    }
 }
