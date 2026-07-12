@@ -305,12 +305,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-post',
             'free',
-            'Delete a post, page, or custom post type (trash by default, force for permanent)',
+            'Delete a post, page, or custom post type. Trash by default (reversible). force:true permanently deletes: that path is disabled by default (site must opt in via the wpmcp_enable_delete_post filter) and requires confirm:true. Force-delete is snapshotted so the record can be rolled back',
             [
                 'type'       => 'object',
                 'properties' => [
                     'post_id'    => [ 'type' => 'integer' ],
                     'force'      => [ 'type' => 'boolean' ],
+                    'confirm'    => [ 'type' => 'boolean' ],
                     'session_id' => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'post_id' ],
