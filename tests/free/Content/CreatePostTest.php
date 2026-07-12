@@ -36,4 +36,14 @@ class CreatePostTest extends \WP_UnitTestCase
         $this->expectException(\InvalidArgumentException::class);
         (new Create_Post())->handle(['post_type' => 'no_such_type', 'title' => 'x']);
     }
+
+    public function test_rejects_protected_meta(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new Create_Post())->handle([
+            'post_type' => 'post',
+            'title'     => 'x',
+            'meta'      => ['_elementor_data' => '[]'],
+        ]);
+    }
 }
