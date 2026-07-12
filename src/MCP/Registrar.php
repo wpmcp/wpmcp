@@ -2,6 +2,7 @@
 
 namespace WPMCP\MCP;
 
+use WPMCP\Governance\Governance;
 use WPMCP\Pro\Gate;
 
 if (! defined('ABSPATH')) {
@@ -18,6 +19,9 @@ class Registrar
         if ('pro' === $a->tier && ! Gate::is_pro()) {
             return;
         }
+        if (! Governance::is_ability_enabled($a)) {
+            return;
+        }
         $this->abilities[ $a->name ] = $a;
         if (function_exists('wp_register_ability') && doing_action('wp_abilities_api_init')) {
             wp_register_ability($a->name, [
@@ -26,7 +30,7 @@ class Registrar
                 'category'            => 'wpmcp',
                 'input_schema'        => $a->input_schema,
                 'execute_callback'    => $a->handler,
-                'permission_callback' => fn() => current_user_can($a->capability),
+                'permission_callback' => fn() => current_user_can($a->capability) && Governance::is_ability_enabled($a),
             ]);
         }
     }
