@@ -168,4 +168,32 @@ class FilesystemGuardTest extends \WP_UnitTestCase
         $this->assertTrue($restored);
         $this->assertSame("a\nb\nc\n", file_get_contents($target));
     }
+
+    public function test_log_appends_a_capped_entry_to_the_audit_option(): void
+    {
+        delete_option(Filesystem_Guard::AUDIT_OPTION);
+
+        Filesystem_Guard::log('write', 'wp-content/themes/x/style.css');
+
+        $log = get_option(Filesystem_Guard::AUDIT_OPTION);
+        $this->assertIsArray($log);
+        $this->assertCount(1, $log);
+        $this->assertSame('write', $log[0]['op']);
+        $this->assertSame('wp-content/themes/x/style.css', $log[0]['path']);
+        $this->assertArrayHasKey('user', $log[0]);
+        $this->assertArrayHasKey('time', $log[0]);
+    }
+
+    public function test_log_caps_the_audit_option_at_the_configured_max(): void
+    {
+        delete_option(Filesystem_Guard::AUDIT_OPTION);
+
+        for ($i = 0; $i < Filesystem_Guard::AUDIT_MAX + 5; $i++) {
+            Filesystem_Guard::log('write', "file-{$i}.txt");
+        }
+
+        $log = get_option(Filesystem_Guard::AUDIT_OPTION);
+        $this->assertCount(Filesystem_Guard::AUDIT_MAX, $log);
+        $this->assertSame('file-' . (Filesystem_Guard::AUDIT_MAX + 4) . '.txt', $log[ count($log) - 1 ]['path']);
+    }
 }

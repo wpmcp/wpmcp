@@ -17,6 +17,9 @@ if (! defined('ABSPATH')) {
  */
 class Filesystem_Guard
 {
+    public const AUDIT_OPTION = 'wpmcp_fs_write_audit_log';
+    public const AUDIT_MAX    = 100;
+
     /**
      * Confine a path to $root (defaults to ABSPATH). Returns the canonical
      * absolute path, or a WP_Error when the path is invalid or escapes root.
@@ -119,6 +122,19 @@ class Filesystem_Guard
     }
 
     /**
+     * Live wrapper: gate writes from the current request context.
+     *
+     * @return true|\WP_Error
+     */
+    public static function writes_allowed()
+    {
+        return self::check_writes(
+            current_user_can('edit_files'),
+            defined('DISALLOW_FILE_EDIT') && DISALLOW_FILE_EDIT
+        );
+    }
+
+    /**
      * Path relative to $root (defaults to ABSPATH), for display/log/output.
      * $root is a parameter only so tests can point it at a fixture root.
      */
@@ -165,5 +181,26 @@ class Filesystem_Guard
             return false;
         }
         return copy($backup_abs, $target_abs);
+    }
+
+    /**
+     * Append a write/edit/delete to the capped audit log option.
+     */
+    public static function log(string $op, string $rel_path): void
+    {
+        $log = get_option(self::AUDIT_OPTION, []);
+        if (! is_array($log)) {
+            $log = [];
+        }
+        $log[] = [
+            'op'   => $op,
+            'path' => $rel_path,
+            'user' => get_current_user_id(),
+            'time' => time(),
+        ];
+        if (count($log) > self::AUDIT_MAX) {
+            $log = array_slice($log, -self::AUDIT_MAX);
+        }
+        update_option(self::AUDIT_OPTION, $log, false);
     }
 }
