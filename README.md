@@ -121,8 +121,12 @@ The same endpoint works with Cursor, Claude Desktop, and any MCP-compatible clie
 | `sideload-image` | write | Download an image from a URL into the Media Library as a new attachment |
 | `get-settings` | read | Read site settings (general, reading, writing, discussion, media, permalinks) with group/type/writable metadata |
 | `update-settings` | write (safe) | Update allowlisted site settings; validates/coerces each value and applies the valid subset even if some keys fail |
+| `list-users` | read | List users as safe summary rows (id, username, display name, email, roles); never returns password hashes |
+| `get-user` | read | Read one user's profile detail plus an `is_admin` flag derived from live capabilities; never returns the password hash |
+| `create-user` | write | Create a non-admin user; auto-generates a strong password (never returned) and emails the user; rejects admin and unknown roles |
+| `update-user` | write (safe) | Update a non-admin user's profile fields; refuses admin-capable users; never changes role or password |
 
-Every write tool is wrapped in the safety engine, except `create-post` and `sideload-image`: both only ever create brand new objects, so there is nothing pre-existing to snapshot or roll back. Reads and rollbacks are gated by the `edit_posts` capability. `delete-media` additionally requires a site to opt in via the `wpmcp_enable_delete_media` filter before it will run at all. `update-settings` snapshots each changed option individually (the safety engine's snapshot/rollback now supports WordPress options as well as posts), so any subset of a batch write can be undone via `rollback-operation`.
+Every write tool is wrapped in the safety engine, except `create-post`, `sideload-image`, and `create-user`: each only ever creates a brand new object, so there is nothing pre-existing to snapshot or roll back. Reads and rollbacks are gated by the `edit_posts` capability. `create-user` and `update-user` are additionally gated by the `create_users` and `edit_users` capabilities. `delete-media` additionally requires a site to opt in via the `wpmcp_enable_delete_media` filter before it will run at all. `update-settings` snapshots each changed option individually, and `update-user` snapshots the user's profile fields and usermeta (the safety engine's snapshot/rollback now supports WordPress options and users as well as posts), so any subset of a batch write can be undone via `rollback-operation`. There is deliberately no delete-user or role-change tool.
 
 ## Free vs Pro
 
