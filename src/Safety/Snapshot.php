@@ -25,7 +25,34 @@ class Snapshot
         if ('user' === $object_type) {
             return self::capture_user((int) $object_id);
         }
+        if ('comment' === $object_type) {
+            return self::capture_comment((int) $object_id);
+        }
         return self::capture_post($object_id);
+    }
+
+    /**
+     * Capture a comment's full row (plus its commentmeta) so moderate/edit
+     * writes can be undone and a force-deleted comment can be resurrected.
+     *
+     * The full get_comment(ARRAY_A) row is kept rather than a hand-picked
+     * subset (mirroring the post path's stance): a partial capture would let
+     * a resurrection rebuild the missing columns from wp_insert_comment()'s
+     * defaults (comment_date, comment_author_IP, comment_agent, comment_type,
+     * comment_parent all lost). If the comment no longer exists at capture
+     * time the row is null, matching how capture_post() records a missing post.
+     */
+    private static function capture_comment(int $comment_id): array
+    {
+        $comment = get_comment($comment_id, ARRAY_A);
+        return [
+            'object_type' => 'comment',
+            'object_id'   => $comment_id,
+            'data'        => [
+                'comment' => $comment ?: null,
+                'meta'    => get_comment_meta($comment_id),
+            ],
+        ];
     }
 
     /**

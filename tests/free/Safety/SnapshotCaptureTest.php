@@ -33,4 +33,28 @@ class SnapshotCaptureTest extends \WP_UnitTestCase {
         $snap = Snapshot::capture( 'option', 'wpmcp_test_missing_option' );
         $this->assertFalse( $snap['data']['existed'] );
     }
+
+    public function test_capture_records_comment_row_and_meta(): void {
+        $post_id    = self::factory()->post->create();
+        $comment_id = self::factory()->comment->create( [
+            'comment_post_ID'      => $post_id,
+            'comment_content'      => 'Nice post',
+            'comment_approved'     => '1',
+            'comment_author'       => 'Ada',
+            'comment_author_email' => 'ada@example.com',
+            'comment_author_url'   => 'https://example.com',
+        ] );
+        update_comment_meta( $comment_id, 'rating', '5' );
+
+        $snap = Snapshot::capture( 'comment', $comment_id );
+
+        $this->assertSame( 'comment', $snap['object_type'] );
+        $this->assertSame( $comment_id, $snap['object_id'] );
+        $this->assertSame( 'Nice post', $snap['data']['comment']['comment_content'] );
+        $this->assertSame( '1', $snap['data']['comment']['comment_approved'] );
+        $this->assertSame( 'Ada', $snap['data']['comment']['comment_author'] );
+        $this->assertSame( 'ada@example.com', $snap['data']['comment']['comment_author_email'] );
+        $this->assertSame( 'https://example.com', $snap['data']['comment']['comment_author_url'] );
+        $this->assertSame( '5', $snap['data']['meta']['rating'][0] );
+    }
 }
