@@ -91,6 +91,30 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertSame('update', $abilities['wpmcp/update-settings']->operation);
     }
 
+    public function test_users_abilities_are_tagged_users_domain(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        $this->assertSame('users', $abilities['wpmcp/list-users']->domain);
+        $this->assertSame('read', $abilities['wpmcp/list-users']->operation);
+        $this->assertSame('users', $abilities['wpmcp/create-user']->domain);
+        $this->assertSame('create', $abilities['wpmcp/create-user']->operation);
+        $this->assertSame('users', $abilities['wpmcp/update-user']->domain);
+        $this->assertSame('update', $abilities['wpmcp/update-user']->operation);
+    }
+
+    public function test_comments_abilities_are_tagged_comments_domain(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        $this->assertSame('comments', $abilities['wpmcp/list-comments']->domain);
+        $this->assertSame('read', $abilities['wpmcp/list-comments']->operation);
+        $this->assertSame('comments', $abilities['wpmcp/moderate-comment']->domain);
+        $this->assertSame('update', $abilities['wpmcp/moderate-comment']->operation);
+        $this->assertSame('comments', $abilities['wpmcp/delete-comment']->domain);
+        $this->assertSame('delete', $abilities['wpmcp/delete-comment']->operation);
+    }
+
     /** @param Ability[] $abilities @return array<string, Ability> */
     private function index(array $abilities): array
     {

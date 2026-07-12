@@ -548,7 +548,9 @@ final class Plugin
                 ],
             ],
             [$list_users, 'handle'],
-            'list_users'
+            'list_users',
+            'users',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/get-user',
@@ -562,7 +564,9 @@ final class Plugin
                 'required'   => [ 'id' ],
             ],
             [$get_user, 'handle'],
-            'list_users'
+            'list_users',
+            'users',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/create-user',
@@ -581,7 +585,9 @@ final class Plugin
                 'required'   => [ 'username', 'email' ],
             ],
             [$create_user, 'handle'],
-            'create_users'
+            'create_users',
+            'users',
+            'create'
         ));
         $registrar->register(new Ability(
             'wpmcp/update-user',
@@ -603,7 +609,9 @@ final class Plugin
                 'required'   => [ 'id' ],
             ],
             [$update_user, 'handle'],
-            'edit_users'
+            'edit_users',
+            'users',
+            'update'
         ));
 
         $list_comments     = new List_Comments();
@@ -626,7 +634,9 @@ final class Plugin
                 ],
             ],
             [$list_comments, 'handle'],
-            'moderate_comments'
+            'moderate_comments',
+            'comments',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/get-comment',
@@ -640,7 +650,9 @@ final class Plugin
                 'required'   => [ 'id' ],
             ],
             [$get_comment, 'handle'],
-            'moderate_comments'
+            'moderate_comments',
+            'comments',
+            'read'
         ));
         $registrar->register(new Ability(
             'wpmcp/moderate-comment',
@@ -656,7 +668,9 @@ final class Plugin
                 'required'   => [ 'id', 'status' ],
             ],
             [$moderate_comment, 'handle'],
-            'moderate_comments'
+            'moderate_comments',
+            'comments',
+            'update'
         ));
         $registrar->register(new Ability(
             'wpmcp/edit-comment',
@@ -675,7 +689,9 @@ final class Plugin
                 'required'   => [ 'id' ],
             ],
             [$edit_comment, 'handle'],
-            'edit_comments'
+            'edit_comments',
+            'comments',
+            'update'
         ));
         $registrar->register(new Ability(
             'wpmcp/delete-comment',
@@ -691,7 +707,9 @@ final class Plugin
                 'required'   => [ 'id', 'confirm' ],
             ],
             [$delete_comment, 'handle'],
-            'edit_comments'
+            'edit_comments',
+            'comments',
+            'delete'
         ));
 
         $list_plugins      = new List_Plugins();
