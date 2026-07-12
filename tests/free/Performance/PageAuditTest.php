@@ -94,4 +94,19 @@ class PageAuditTest extends \WP_UnitTestCase
         $none = $this->audit->analyze($this->fetched('<html></html>', []), false);
         $this->assertSame('warning', $this->status_of($none, 'compression'));
     }
+
+    public function test_cache_headers_detected_from_any_of_three_headers(): void
+    {
+        $cache_control = $this->audit->analyze($this->fetched('<html></html>', ['cache-control' => 'max-age=600']), false);
+        $this->assertSame('pass', $this->status_of($cache_control, 'cache_headers'));
+
+        $expires = $this->audit->analyze($this->fetched('<html></html>', ['expires' => 'Wed, 21 Oct 2026 07:28:00 GMT']), false);
+        $this->assertSame('pass', $this->status_of($expires, 'cache_headers'));
+
+        $x_cache = $this->audit->analyze($this->fetched('<html></html>', ['x-cache' => 'HIT']), false);
+        $this->assertSame('pass', $this->status_of($x_cache, 'cache_headers'));
+
+        $none = $this->audit->analyze($this->fetched('<html></html>', []), false);
+        $this->assertSame('warning', $this->status_of($none, 'cache_headers'));
+    }
 }

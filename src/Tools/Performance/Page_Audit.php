@@ -98,6 +98,19 @@ class Page_Audit
                 'Enable gzip or brotli at the server (or via a cache plugin) to cut transfer size.'
             );
 
+        $has_cache_headers = ! empty($headers['cache-control']) || ! empty($headers['expires']) || ! empty($headers['x-cache']);
+        $findings[]        = $has_cache_headers
+            ? Finding::make('cache_headers', 'page', 'Cache headers', 'pass', true, 'The page sends caching headers.')
+            : Finding::make(
+                'cache_headers',
+                'page',
+                'Cache headers',
+                'warning',
+                false,
+                'No Cache-Control / Expires headers on the HTML.',
+                'A page cache that emits Cache-Control lets browsers and CDNs reuse the response.'
+            );
+
         return ['findings' => $findings, 'page_fetch' => $page_fetch];
     }
 }
