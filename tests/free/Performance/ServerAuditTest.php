@@ -21,4 +21,12 @@ class ServerAuditTest extends \WP_UnitTestCase
         $this->assertSame('warning', $this->audit->evaluate_php_version('8.1.27')['status']);
         $this->assertSame('critical', $this->audit->evaluate_php_version('7.4.33')['status']);
     }
+
+    public function test_memory_limit_bands(): void
+    {
+        $this->assertSame('pass', $this->audit->evaluate_memory_limit('256M')['status']);
+        $this->assertSame('pass', $this->audit->evaluate_memory_limit('128M')['status']);
+        $this->assertSame('warning', $this->audit->evaluate_memory_limit('64M')['status']);
+        $this->assertSame('pass', $this->audit->evaluate_memory_limit('-1')['status']);
+    }
 }
