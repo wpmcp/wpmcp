@@ -46,4 +46,52 @@ class GovernanceTest extends \WP_UnitTestCase
 
         remove_all_filters('wpmcp_ability_enabled');
     }
+
+    public function test_wpmcp_domain_enabled_filter_can_disable_a_whole_domain(): void
+    {
+        $ability = $this->ability('wpmcp/delete-rows', 'database', 'delete');
+        add_filter('wpmcp_domain_enabled', function (bool $enabled, string $domain) {
+            return 'database' === $domain ? false : $enabled;
+        }, 10, 2);
+
+        $this->assertFalse(Governance::is_ability_enabled($ability));
+
+        remove_all_filters('wpmcp_domain_enabled');
+    }
+
+    public function test_wpmcp_domain_enabled_filter_does_not_affect_other_domains(): void
+    {
+        $ability = $this->ability('wpmcp/get-post', 'content', 'read');
+        add_filter('wpmcp_domain_enabled', function (bool $enabled, string $domain) {
+            return 'database' === $domain ? false : $enabled;
+        }, 10, 2);
+
+        $this->assertTrue(Governance::is_ability_enabled($ability));
+
+        remove_all_filters('wpmcp_domain_enabled');
+    }
+
+    public function test_wpmcp_operation_enabled_filter_can_disable_all_deletes(): void
+    {
+        $ability = $this->ability('wpmcp/delete-post', 'content', 'delete');
+        add_filter('wpmcp_operation_enabled', function (bool $enabled, string $operation) {
+            return 'delete' === $operation ? false : $enabled;
+        }, 10, 2);
+
+        $this->assertFalse(Governance::is_ability_enabled($ability));
+
+        remove_all_filters('wpmcp_operation_enabled');
+    }
+
+    public function test_wpmcp_operation_enabled_filter_does_not_affect_reads(): void
+    {
+        $ability = $this->ability('wpmcp/get-post', 'content', 'read');
+        add_filter('wpmcp_operation_enabled', function (bool $enabled, string $operation) {
+            return 'delete' === $operation ? false : $enabled;
+        }, 10, 2);
+
+        $this->assertTrue(Governance::is_ability_enabled($ability));
+
+        remove_all_filters('wpmcp_operation_enabled');
+    }
 }
