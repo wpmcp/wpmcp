@@ -19,6 +19,7 @@ class Filesystem_Guard
 {
     public const AUDIT_OPTION = 'wpmcp_fs_write_audit_log';
     public const AUDIT_MAX    = 100;
+    public const BACKUP_DIR   = 'wpmcp-fs-backups';
 
     /**
      * Confine a path to $root (defaults to ABSPATH). Returns the canonical
@@ -181,6 +182,35 @@ class Filesystem_Guard
             return false;
         }
         return copy($backup_abs, $target_abs);
+    }
+
+    /**
+     * Live wrapper: back up $abs (an already resolve_path()'d absolute path)
+     * to a timestamped file under wp-content/uploads/wpmcp-fs-backups/,
+     * creating that directory (and blocking direct web access to it) on
+     * first use. Returns the backup path, '' if $abs does not exist yet, or
+     * a WP_Error if the uploads directory or the copy itself is unavailable.
+     *
+     * @return string|\WP_Error
+     */
+    public static function backup(string $abs)
+    {
+        if (! is_file($abs)) {
+            return '';
+        }
+        $uploads = wp_upload_dir();
+        if (! empty($uploads['error'])) {
+            return new \WP_Error('no_uploads', 'Uploads directory is unavailable for backups.');
+        }
+        $dir = trailingslashit($uploads['basedir']) . self::BACKUP_DIR;
+        if (! wp_mkdir_p($dir)) {
+            return new \WP_Error('backup_dir', 'Could not create the backup directory.');
+        }
+        if (! is_file($dir . '/.htaccess')) {
+            @file_put_contents($dir . '/.htaccess', "Require all denied\n");
+            @file_put_contents($dir . '/index.html', '');
+        }
+        return self::backup_to_dir($abs, $dir, ABSPATH, gmdate('Ymd-His'));
     }
 
     /**
