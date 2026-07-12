@@ -51,6 +51,12 @@ class Rate_Limiter
         return time();
     }
 
+    /** Whether the limiter is active at all (wpmcp_rate_limit_enabled filter, default true). */
+    public static function is_enabled(): bool
+    {
+        return (bool) apply_filters('wpmcp_rate_limit_enabled', true);
+    }
+
     /** Calls allowed per window (wpmcp_rate_limit filter). */
     private static function limit(): int
     {
@@ -71,6 +77,14 @@ class Rate_Limiter
      */
     public static function check(string $key): array
     {
+        if (! self::is_enabled()) {
+            return [
+                'allowed'     => true,
+                'remaining'   => self::limit(),
+                'retry_after' => 0,
+            ];
+        }
+
         $window = self::window();
         $limit  = self::limit();
         $now    = self::now();

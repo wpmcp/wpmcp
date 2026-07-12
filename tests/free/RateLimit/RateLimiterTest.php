@@ -84,4 +84,18 @@ class RateLimiterTest extends \WP_UnitTestCase
         $this->assertTrue($other['allowed']);
         $this->assertSame(0, $other['remaining']);
     }
+
+    public function test_no_call_is_denied_when_the_limiter_is_disabled(): void
+    {
+        add_filter('wpmcp_rate_limit', fn() => 1);
+        add_filter('wpmcp_rate_limit_enabled', '__return_false');
+        Rate_Limiter::set_clock_override(fn() => 1000);
+
+        // Well past the limit of 1, every call stays allowed.
+        for ($i = 0; $i < 5; $i++) {
+            $result = Rate_Limiter::check('user:1');
+            $this->assertTrue($result['allowed']);
+            $this->assertSame(0, $result['retry_after']);
+        }
+    }
 }
