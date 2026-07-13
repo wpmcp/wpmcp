@@ -11,6 +11,7 @@ use WPMCP\Maintenance\Maintenance_Guard;
 use WPMCP\Tools\Maintenance\Get_Maintenance_Status;
 use WPMCP\Tools\Maintenance\Enable_Maintenance;
 use WPMCP\Tools\Maintenance\Disable_Maintenance;
+use WPMCP\Tools\Context\Get_Site_Context;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
 use WPMCP\Tools\Get_Page;
@@ -1331,6 +1332,7 @@ final class Plugin
         $this->register_diagnostics_abilities($registrar);
         $this->register_cron_abilities($registrar);
         $this->register_maintenance_abilities($registrar);
+        $this->register_context_abilities($registrar);
     }
 
     /**
@@ -1492,6 +1494,35 @@ final class Plugin
             'manage_options',
             'maintenance',
             'update'
+        ));
+    }
+
+    /**
+     * Register the site-context orientation tool as a free-tier ability
+     * (parity gap tracked in issue #19).
+     *
+     * Gated at edit_posts, a low bar reflecting that this is orientation
+     * data for an agent (site identity, versions, theme, content model,
+     * integrations), not a site-settings-level read. The admin email is
+     * deliberately excluded from the payload so this low gate never leaks a
+     * secret-shaped value. Read-only, so it never touches Safe_Mutation.
+     */
+    private function register_context_abilities(Registrar $registrar): void
+    {
+        $get_site_context = new Get_Site_Context();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-site-context',
+            'free',
+            'Report a single orientation payload for an agent connecting to this site: name, URL, tagline, WordPress and PHP versions, active theme, active plugin count and slugs, registered public post types with counts, public taxonomies, user count, locale, timezone, multisite status, and which integrations (Elementor, WooCommerce, ACF, Yoast, RankMath) are active. Excludes the admin email. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$get_site_context, 'handle'],
+            'edit_posts',
+            'context',
+            'read'
         ));
     }
 
