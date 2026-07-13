@@ -4,6 +4,7 @@ namespace WPMCP\Tests\Free\Analytics;
 
 use WPMCP\Tools\Analytics\Get_Analytics_Connection_Status;
 use WPMCP\Tools\Analytics\Get_Analytics_Summary;
+use WPMCP\Tools\Analytics\Get_Top_Pages;
 
 /**
  * Thin argument-handling tests for the Analytics tool classes. The adapter's
@@ -47,5 +48,27 @@ class AnalyticsToolsTest extends \WP_UnitTestCase
 
         $this->assertInstanceOf(\WP_Error::class, $result);
         $this->assertSame('wpmcp_invalid_date_range', $result->get_error_code());
+    }
+
+    public function test_get_top_pages_returns_not_connected_error_when_nothing_is_connected(): void
+    {
+        $tool   = new Get_Top_Pages();
+        $result = $tool->handle(['start_date' => '2026-01-01', 'end_date' => '2026-01-28']);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('wpmcp_analytics_not_connected', $result->get_error_code());
+    }
+
+    public function test_get_top_pages_coerces_a_non_numeric_limit_to_the_default_rather_than_throwing(): void
+    {
+        // With no provider connected the not-connected error still fires,
+        // but this proves handle() never fatals on a malformed limit before
+        // reaching that check: it degrades to the adapter default instead
+        // of throwing, matching List_Network_Sites's to_int_or_null idiom.
+        $tool   = new Get_Top_Pages();
+        $result = $tool->handle(['start_date' => '2026-01-01', 'end_date' => '2026-01-28', 'limit' => 'not-a-number']);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('wpmcp_analytics_not_connected', $result->get_error_code());
     }
 }

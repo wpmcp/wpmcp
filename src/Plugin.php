@@ -136,6 +136,7 @@ use WPMCP\Tools\Multisite\List_Network_Sites;
 use WPMCP\Tools\Multisite\Get_Site_Details;
 use WPMCP\Tools\Analytics\Get_Analytics_Connection_Status;
 use WPMCP\Tools\Analytics\Get_Analytics_Summary;
+use WPMCP\Tools\Analytics\Get_Top_Pages;
 use WPMCP\Tools\Identity\Create_Identity;
 use WPMCP\Tools\Identity\List_Identities;
 use WPMCP\Tools\Identity\Delete_Identity;
@@ -2326,6 +2327,7 @@ final class Plugin
     {
         $get_connection_status = new Get_Analytics_Connection_Status();
         $get_analytics_summary = new Get_Analytics_Summary();
+        $get_top_pages         = new Get_Top_Pages();
 
         $registrar->register(new Ability(
             'wpmcp/get-analytics-connection-status',
@@ -2353,6 +2355,24 @@ final class Plugin
                 ],
             ],
             [$get_analytics_summary, 'handle'],
+            'manage_options',
+            'analytics',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/get-top-pages',
+            'free',
+            'Read-only list of top pages by pageviews over a date range (Y-m-d, defaulting to a trailing 28-day window ending yesterday) via the connected analytics provider, with optional limit (default 10, capped at 100). Returns an error when no provider is connected',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'start_date' => [ 'type' => 'string' ],
+                    'end_date'   => [ 'type' => 'string' ],
+                    'limit'      => [ 'type' => 'integer' ],
+                ],
+            ],
+            [$get_top_pages, 'handle'],
             'manage_options',
             'analytics',
             'read'
