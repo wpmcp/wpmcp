@@ -137,6 +137,7 @@ use WPMCP\Tools\Multisite\Get_Site_Details;
 use WPMCP\Tools\Analytics\Get_Analytics_Connection_Status;
 use WPMCP\Tools\Analytics\Get_Analytics_Summary;
 use WPMCP\Tools\Analytics\Get_Top_Pages;
+use WPMCP\Tools\Analytics\Get_Search_Console_Summary;
 use WPMCP\Tools\Identity\Create_Identity;
 use WPMCP\Tools\Identity\List_Identities;
 use WPMCP\Tools\Identity\Delete_Identity;
@@ -2328,6 +2329,7 @@ final class Plugin
         $get_connection_status = new Get_Analytics_Connection_Status();
         $get_analytics_summary = new Get_Analytics_Summary();
         $get_top_pages         = new Get_Top_Pages();
+        $get_search_console_summary = new Get_Search_Console_Summary();
 
         $registrar->register(new Ability(
             'wpmcp/get-analytics-connection-status',
@@ -2373,6 +2375,23 @@ final class Plugin
                 ],
             ],
             [$get_top_pages, 'handle'],
+            'manage_options',
+            'analytics',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/get-search-console-summary',
+            'free',
+            'Read-only clicks/impressions/ctr/position summary over a date range (Y-m-d, defaulting to a trailing 28-day window ending yesterday) via the connected Search Console provider. Returns an error when no provider is connected',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'start_date' => [ 'type' => 'string' ],
+                    'end_date'   => [ 'type' => 'string' ],
+                ],
+            ],
+            [$get_search_console_summary, 'handle'],
             'manage_options',
             'analytics',
             'read'
