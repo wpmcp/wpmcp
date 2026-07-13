@@ -593,7 +593,7 @@ final class Plugin
                 ],
             ],
             [$get_settings, 'handle'],
-            'edit_posts',
+            'manage_options',
             'settings',
             'read'
         ));
@@ -609,7 +609,7 @@ final class Plugin
                 'required'   => [ 'settings' ],
             ],
             [$update_settings, 'handle'],
-            'edit_posts',
+            'manage_options',
             'settings',
             'update'
         ));
