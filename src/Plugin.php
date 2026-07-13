@@ -25,6 +25,7 @@ use WPMCP\Tools\Structure\List_Sidebar_Widgets;
 use WPMCP\Tools\Export\Export_Content;
 use WPMCP\Tools\Export\List_Exports;
 use WPMCP\Tools\Export\Import_Content;
+use WPMCP\Tools\Analysis\Check_Contrast;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
 use WPMCP\Tools\Get_Page;
@@ -1350,6 +1351,7 @@ final class Plugin
         $this->register_block_abilities($registrar);
         $this->register_structure_abilities($registrar);
         $this->register_export_abilities($registrar);
+        $this->register_analysis_abilities($registrar);
     }
 
     /**
@@ -2741,6 +2743,39 @@ final class Plugin
             'edit_posts',
             'seo',
             'update'
+        ));
+    }
+
+    /**
+     * Register the SEO + accessibility analysis tools as pro-tier abilities.
+     *
+     * All four are read-only: they extract and score a post's stored content
+     * and never write anything, so none touch the safety core. Because
+     * Registrar skips 'pro' tier abilities unless Gate::is_pro() is true, these
+     * only register on Pro-tier sites, matching the Elementor deep-editing
+     * pro group. They share domain 'analysis' and operation 'read', so their
+     * read_only_hint annotation derives to true automatically.
+     */
+    private function register_analysis_abilities(Registrar $registrar): void
+    {
+        $check_contrast = new Check_Contrast();
+
+        $registrar->register(new Ability(
+            'wpmcp/check-contrast',
+            'pro',
+            'Compute the WCAG contrast ratio between a foreground and background hex color and report AA/AAA pass/fail for normal and large text. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'foreground' => [ 'type' => 'string' ],
+                    'background' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'foreground', 'background' ],
+            ],
+            [$check_contrast, 'handle'],
+            'edit_posts',
+            'analysis',
+            'read'
         ));
     }
 }
