@@ -7,6 +7,7 @@ class BlocksAbilitiesRegistrationTest extends \WP_UnitTestCase
     private const NAMES = [
         'wpmcp/list-block-types',
         'wpmcp/get-block-type',
+        'wpmcp/parse-blocks',
     ];
 
     public function test_all_block_tools_are_registered_as_free_abilities(): void

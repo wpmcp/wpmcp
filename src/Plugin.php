@@ -16,6 +16,7 @@ use WPMCP\Tools\Rest\List_Rest_Routes;
 use WPMCP\Tools\Rest\Call_Rest;
 use WPMCP\Tools\Blocks\List_Block_Types;
 use WPMCP\Tools\Blocks\Get_Block_Type;
+use WPMCP\Tools\Blocks\Parse_Blocks;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
 use WPMCP\Tools\Get_Page;
@@ -1610,6 +1611,7 @@ final class Plugin
     {
         $list_block_types = new List_Block_Types();
         $get_block_type   = new Get_Block_Type();
+        $parse_blocks     = new Parse_Blocks();
 
         $registrar->register(new Ability(
             'wpmcp/list-block-types',
@@ -1639,6 +1641,22 @@ final class Plugin
                 'required'   => [ 'name' ],
             ],
             [$get_block_type, 'handle'],
+            'edit_posts',
+            'blocks',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/parse-blocks',
+            'free',
+            'Parse block markup into its block tree via parse_blocks(). Accepts either "blocks" (raw markup) or "id" (an existing post, parses its post_content). Each node reports blockName, attrs, recursively parsed innerBlocks, and an innerHTML summary. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'     => [ 'type' => 'integer' ],
+                    'blocks' => [ 'type' => 'string' ],
+                ],
+            ],
+            [$parse_blocks, 'handle'],
             'edit_posts',
             'blocks',
             'read'
