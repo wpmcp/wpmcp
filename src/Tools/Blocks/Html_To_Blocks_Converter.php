@@ -52,7 +52,7 @@ class Html_To_Blocks_Converter
             return '' === $text ? null : self::html_block($text);
         }
 
-        if (XML_ELEMENT_NODE !== $node->nodeType) {
+        if (! $node instanceof \DOMElement) {
             return null;
         }
 
@@ -73,8 +73,26 @@ class Html_To_Blocks_Converter
             'pre'        => self::leaf_block('core/code', [], self::pre_to_code_html($document, $node)),
             'code'       => self::leaf_block('core/code', [], self::pre_to_code_html($document, $node, wrap_in_pre: true)),
             'hr'         => self::leaf_block('core/separator', [], '<hr class="wp-block-separator"/>'),
+            'table'      => self::leaf_block('core/table', [], self::with_added_class($document, $node, 'wp-block-table')),
             default      => self::html_block($outer_html),
         };
+    }
+
+    /**
+     * Merge $class into $node's existing class attribute (if any) and return
+     * the resulting outer HTML, matching the wp-block-* class WordPress adds
+     * to the wrapper element of several core blocks.
+     */
+    private static function with_added_class(\DOMDocument $document, \DOMElement $node, string $class): string
+    {
+        $existing = trim((string) $node->getAttribute('class'));
+        $classes  = array_filter(array_unique(array_merge(
+            '' === $existing ? [] : preg_split('/\s+/', $existing),
+            [$class]
+        )));
+        $node->setAttribute('class', implode(' ', $classes));
+
+        return self::outer_html($document, $node);
     }
 
     /**

@@ -174,4 +174,20 @@ class ConvertHtmlToBlocksTest extends \WP_UnitTestCase
         $this->assertCount(1, $blocks);
         $this->assertSame('core/separator', $blocks[0]['blockName']);
     }
+
+    public function test_converts_table_to_core_table(): void
+    {
+        $html = '<table><tr><td>a</td><td>b</td></tr></table>';
+
+        $out = (new Convert_Html_To_Blocks())->handle(['html' => $html]);
+
+        $blocks = array_values(array_filter(
+            parse_blocks($out['markup']),
+            static fn (array $block): bool => null !== $block['blockName']
+        ));
+
+        $this->assertCount(1, $blocks);
+        $this->assertSame('core/table', $blocks[0]['blockName']);
+        $this->assertStringContainsString('<td>a</td>', $blocks[0]['innerHTML']);
+    }
 }
