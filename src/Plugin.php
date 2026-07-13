@@ -18,6 +18,7 @@ use WPMCP\Tools\Blocks\List_Block_Types;
 use WPMCP\Tools\Blocks\Get_Block_Type;
 use WPMCP\Tools\Blocks\Parse_Blocks;
 use WPMCP\Tools\Blocks\Serialize_Blocks;
+use WPMCP\Tools\Structure\List_Shortcodes;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
 use WPMCP\Tools\Get_Page;
@@ -1341,6 +1342,7 @@ final class Plugin
         $this->register_context_abilities($registrar);
         $this->register_rest_abilities($registrar);
         $this->register_block_abilities($registrar);
+        $this->register_structure_abilities($registrar);
     }
 
     /**
@@ -1677,6 +1679,37 @@ final class Plugin
             [$serialize_blocks, 'handle'],
             'edit_posts',
             'blocks',
+            'read'
+        ));
+    }
+
+    /**
+     * Register the shortcode and widget/sidebar introspection tools as
+     * free-tier abilities (parity gap tracked in issue #38).
+     *
+     * All are gated at edit_posts and tagged domain 'structure'. Read-only
+     * except render-shortcode, which executes the shortcode's own registered
+     * callback via do_shortcode() and is tagged 'read' as well since it has
+     * no database side effect of its own (the callback may of course have
+     * side effects, exactly as it would on a live page render).
+     */
+    private function register_structure_abilities(Registrar $registrar): void
+    {
+        $list_shortcodes = new List_Shortcodes();
+
+        $registrar->register(new Ability(
+            'wpmcp/list-shortcodes',
+            'free',
+            'List the shortcode tags registered in the global $shortcode_tags array: tag name and a short description of the registered callback where resolvable. Optional search (substring match on tag name) narrows the result. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'search' => [ 'type' => 'string' ],
+                ],
+            ],
+            [$list_shortcodes, 'handle'],
+            'edit_posts',
+            'structure',
             'read'
         ));
     }
