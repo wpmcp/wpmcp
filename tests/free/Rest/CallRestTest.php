@@ -9,6 +9,7 @@ class CallRestTest extends \WP_UnitTestCase
     protected function tearDown(): void
     {
         wp_set_current_user(0);
+        remove_all_filters('wpmcp_enable_rest_writes');
         parent::tearDown();
     }
 
@@ -52,5 +53,19 @@ class CallRestTest extends \WP_UnitTestCase
         $this->assertContains($out['status'], [401, 403]);
         $this->assertIsArray($out['body']);
         $this->assertArrayHasKey('code', $out['body']);
+    }
+
+    public function test_mutating_method_is_refused_when_writes_are_disabled(): void
+    {
+        $admin = self::factory()->user->create(['role' => 'administrator']);
+        wp_set_current_user($admin);
+
+        $this->expectException(\RuntimeException::class);
+        (new Call_Rest())->handle([
+            'method' => 'POST',
+            'route'  => '/wp/v2/posts',
+            'params' => ['title' => 'Should not be created', 'status' => 'publish'],
+            'confirm' => true,
+        ]);
     }
 }
