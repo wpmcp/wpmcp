@@ -150,6 +150,7 @@ use WPMCP\Tools\Elementor\Add_Widget;
 use WPMCP\Tools\Elementor\Remove_Element;
 use WPMCP\Tools\Elementor\Move_Element;
 use WPMCP\Tools\Elementor\Generate_Widget;
+use WPMCP\Tools\Builders\Detect_Builder;
 use WPMCP\Tools\WooCommerce\List_Products;
 use WPMCP\Tools\WooCommerce\Get_Product;
 use WPMCP\Tools\WooCommerce\Create_Product;
@@ -1421,6 +1422,7 @@ final class Plugin
         $this->register_woocommerce_abilities($registrar);
         $this->register_menu_abilities($registrar);
         $this->register_elementor_abilities($registrar);
+        $this->register_builder_abilities($registrar);
         $this->register_acf_abilities($registrar);
         $this->register_seo_abilities($registrar);
         $this->register_i18n_abilities($registrar);
@@ -3670,6 +3672,45 @@ final class Plugin
             [$list_tool_catalog, 'handle'],
             'manage_options',
             'connect',
+            'read'
+        ));
+    }
+
+    /**
+     * Register the Bricks/Divi page-builder tools as pro-tier abilities,
+     * matching how Elementor's deep-editing tools are tiered (issue #47).
+     *
+     * Unlike Elementor's `_elementor_data` deep-editing tools, none of these
+     * three tools require the Bricks or Divi plugin classes to be loaded:
+     * Bricks stores its structure as JSON in ordinary postmeta
+     * (`_bricks_page_content_2`) and Divi's classic builder stores its
+     * layout as shortcodes directly in `post_content` (flagged by the
+     * `_et_pb_use_builder` postmeta). Both are plain WordPress storage this
+     * plugin can read/write/snapshot/roll back without either paid plugin
+     * installed; only the real plugins' visual render is production-only.
+     * Writes go through Safe_Mutation::run() with object_type='post': the
+     * existing post snapshot (full post row, including post_content, plus
+     * all postmeta) already captures and restores both storage shapes, so
+     * every write here is undoable with no change to the safety core.
+     */
+    private function register_builder_abilities(Registrar $registrar): void
+    {
+        $detect_builder = new Detect_Builder();
+
+        $registrar->register(new Ability(
+            'wpmcp/detect-builder',
+            'pro',
+            'Detect which page builder authored a post (elementor / bricks / divi / gutenberg / classic), by inspecting plain postmeta/post_content markers: Elementor\'s _elementor_edit_mode, Bricks\' _bricks_page_content_2, Divi\'s _et_pb_use_builder, or Gutenberg block comments in post_content, falling back to classic. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$detect_builder, 'handle'],
+            'edit_posts',
+            'builders',
             'read'
         ));
     }
