@@ -9,6 +9,7 @@ class BlocksAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/get-block-type',
         'wpmcp/parse-blocks',
         'wpmcp/serialize-blocks',
+        'wpmcp/convert-html-to-blocks',
     ];
 
     public function test_all_block_tools_are_registered_as_free_abilities(): void

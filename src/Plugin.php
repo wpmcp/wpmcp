@@ -18,6 +18,7 @@ use WPMCP\Tools\Blocks\List_Block_Types;
 use WPMCP\Tools\Blocks\Get_Block_Type;
 use WPMCP\Tools\Blocks\Parse_Blocks;
 use WPMCP\Tools\Blocks\Serialize_Blocks;
+use WPMCP\Tools\Blocks\Convert_Html_To_Blocks;
 use WPMCP\Tools\Structure\List_Shortcodes;
 use WPMCP\Tools\Structure\Render_Shortcode;
 use WPMCP\Tools\Structure\List_Sidebars;
@@ -1697,13 +1698,18 @@ final class Plugin
      * list-block-types is read-only discovery: it only reads
      * WP_Block_Type_Registry, gated at edit_posts like other read tools.
      * Tagged domain 'blocks'.
+     *
+     * convert-html-to-blocks (parity gap tracked in issue #48) is a pure
+     * HTML-to-block-markup transform with no DB write, so it is likewise a
+     * read/utility operation rather than create/update.
      */
     private function register_block_abilities(Registrar $registrar): void
     {
-        $list_block_types = new List_Block_Types();
-        $get_block_type   = new Get_Block_Type();
-        $parse_blocks     = new Parse_Blocks();
-        $serialize_blocks = new Serialize_Blocks();
+        $list_block_types      = new List_Block_Types();
+        $get_block_type        = new Get_Block_Type();
+        $parse_blocks          = new Parse_Blocks();
+        $serialize_blocks      = new Serialize_Blocks();
+        $convert_html_to_blocks = new Convert_Html_To_Blocks();
 
         $registrar->register(new Ability(
             'wpmcp/list-block-types',
@@ -1765,6 +1771,22 @@ final class Plugin
                 'required'   => [ 'blocks' ],
             ],
             [$serialize_blocks, 'handle'],
+            'edit_posts',
+            'blocks',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/convert-html-to-blocks',
+            'free',
+            'Convert raw HTML into valid Gutenberg block markup. Maps common top-level elements to core blocks (h1-h6 to core/heading, p to core/paragraph, img to core/image, ul/ol to core/list, blockquote to core/quote, pre/code to core/code, hr to core/separator, table to core/table); anything unrecognized is wrapped in a core/html block so no content is lost. A pure transform, not a database write: it never touches a post. To write the resulting markup to a post use the existing update-blocks tool',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'html' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'html' ],
+            ],
+            [$convert_html_to_blocks, 'handle'],
             'edit_posts',
             'blocks',
             'read'
