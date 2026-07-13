@@ -69,6 +69,7 @@ class Html_To_Blocks_Converter
             'p'          => self::leaf_block('core/paragraph', [], $outer_html),
             'ul'         => self::leaf_block('core/list', [], $outer_html),
             'ol'         => self::leaf_block('core/list', ['ordered' => true], $outer_html),
+            'img'        => self::leaf_block('core/image', [], '<figure class="wp-block-image">' . $outer_html . '</figure>'),
             default      => self::html_block($outer_html),
         };
     }

@@ -58,4 +58,21 @@ class ConvertHtmlToBlocksTest extends \WP_UnitTestCase
         $this->assertSame('core/list', $blocks[0]['blockName']);
         $this->assertTrue($blocks[0]['attrs']['ordered']);
     }
+
+    public function test_converts_image_to_core_image(): void
+    {
+        $html = '<img src="https://example.com/photo.jpg" alt="A photo">';
+
+        $out = (new Convert_Html_To_Blocks())->handle(['html' => $html]);
+
+        $blocks = array_values(array_filter(
+            parse_blocks($out['markup']),
+            static fn (array $block): bool => null !== $block['blockName']
+        ));
+
+        $this->assertCount(1, $blocks);
+        $this->assertSame('core/image', $blocks[0]['blockName']);
+        $this->assertStringContainsString('https://example.com/photo.jpg', $blocks[0]['innerHTML']);
+        $this->assertStringContainsString('A photo', $blocks[0]['innerHTML']);
+    }
 }
