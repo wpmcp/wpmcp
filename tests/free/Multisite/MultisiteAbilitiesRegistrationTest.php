@@ -19,6 +19,7 @@ class MultisiteAbilitiesRegistrationTest extends \WP_UnitTestCase
     private const NETWORK_GATED_TOOLS = [
         'wpmcp/get-network-info',
         'wpmcp/list-network-sites',
+        'wpmcp/get-site-details',
     ];
 
     public function test_is_multisite_is_always_registered(): void

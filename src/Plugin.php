@@ -133,6 +133,7 @@ use WPMCP\Tools\Governance\List_Governance_Audit_Log;
 use WPMCP\Tools\Multisite\Is_Multisite;
 use WPMCP\Tools\Multisite\Get_Network_Info;
 use WPMCP\Tools\Multisite\List_Network_Sites;
+use WPMCP\Tools\Multisite\Get_Site_Details;
 use WPMCP\Tools\Identity\Create_Identity;
 use WPMCP\Tools\Identity\List_Identities;
 use WPMCP\Tools\Identity\Delete_Identity;
@@ -2263,6 +2264,25 @@ final class Plugin
                 ],
             ],
             [$list_network_sites, 'handle'],
+            'manage_network',
+            'multisite',
+            'read'
+        ));
+
+        $get_site_details = new Get_Site_Details();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-site-details',
+            'free',
+            'Report a single network site\'s details (blog_id, url, name, last_updated) by blog_id, via get_site()/get_blog_details(). Returns an error for an unrecognized blog_id',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'blog_id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'blog_id' ],
+            ],
+            [$get_site_details, 'handle'],
             'manage_network',
             'multisite',
             'read'
