@@ -46,6 +46,26 @@ class SetPostMetaTest extends \WP_UnitTestCase
         $this->assertSame('blue', get_post_meta($post_id, 'color', true));
     }
 
+    public function test_write_is_snapshotted_and_rollback_restores_prior_value(): void
+    {
+        $post_id = $this->post();
+        update_post_meta($post_id, 'color', 'red');
+
+        $out = (new Set_Post_Meta())->handle([
+            'post_id' => $post_id,
+            'key'     => 'color',
+            'value'   => 'blue',
+        ]);
+
+        $this->assertNotNull(Snapshot_Store::get_by_operation($out['operation_id']));
+        $this->assertSame('blue', get_post_meta($post_id, 'color', true));
+
+        $rolled_back = (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        $this->assertTrue($rolled_back['restored']);
+
+        $this->assertSame('red', get_post_meta($post_id, 'color', true));
+    }
+
     public function test_refuses_a_protected_key(): void
     {
         $post_id = $this->post();
