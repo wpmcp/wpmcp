@@ -142,4 +142,60 @@ class FileBackupTest extends \WP_UnitTestCase
     {
         $this->assertSame([], File_Backup::backup('op-empty', []));
     }
+
+    public function test_restore_copies_files_back_to_original_paths_recreating_directories(): void
+    {
+        $id    = $this->make_attachment_with_files();
+        $files = File_Backup::collect_attachment_files($id);
+
+        // Relocate the "originals" under a throwaway subdirectory nested
+        // inside the uploads dir, so this test can safely delete the whole
+        // subtree afterward without touching files any other test created
+        // in the shared uploads/<year>/<month>/ directory.
+        $sub_dir       = trailingslashit(dirname($files[0])) . 'wpmcp-restore-test';
+        $relocated     = [];
+        wp_mkdir_p($sub_dir);
+        foreach ($files as $original) {
+            $dest = $sub_dir . '/' . basename($original);
+            copy($original, $dest);
+            $relocated[] = $dest;
+        }
+
+        $op_id    = 'op-restore-' . $id;
+        $dir      = File_Backup::operation_dir($op_id);
+        $manifest = File_Backup::backup($op_id, $relocated);
+
+        // Simulate the irreversible delete: the originals (and the
+        // directory they lived in) are gone entirely.
+        foreach ($relocated as $path) {
+            unlink($path);
+        }
+        rmdir($sub_dir);
+        $this->assertDirectoryDoesNotExist($sub_dir);
+
+        File_Backup::restore($op_id, $manifest);
+
+        foreach ($relocated as $path) {
+            $this->assertFileExists($path);
+            unlink($path);
+        }
+        rmdir($sub_dir);
+
+        // Clean up the backup dir tree.
+        foreach (array_diff(scandir($dir), ['.', '..']) as $entry) {
+            unlink($dir . '/' . $entry);
+        }
+        rmdir($dir);
+        $parent = dirname($dir);
+        if (is_dir($parent) && count(scandir($parent)) === 2) {
+            rmdir($parent);
+        }
+    }
+
+    public function test_restore_is_a_noop_for_empty_manifest(): void
+    {
+        // Must not throw or warn when there is nothing to restore.
+        File_Backup::restore('op-nothing', []);
+        $this->addToAssertionCount(1);
+    }
 }

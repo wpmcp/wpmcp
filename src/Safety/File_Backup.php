@@ -81,6 +81,30 @@ class File_Backup
         return "{$i}-{$basename}";
     }
 
+    /**
+     * Copy every backed-up file in $manifest (original absolute path =>
+     * stored filename, as returned by backup()) back to its original path,
+     * recreating any directory that no longer exists. Missing backup files
+     * are skipped rather than aborting the whole restore, so a partial
+     * manifest still recovers what it can.
+     */
+    public static function restore(string $operation_id, array $manifest): void
+    {
+        if (empty($manifest)) {
+            return;
+        }
+
+        $dir = self::operation_dir($operation_id);
+        foreach ($manifest as $original => $stored) {
+            $source = $dir . '/' . $stored;
+            if (! is_file($source)) {
+                continue;
+            }
+            wp_mkdir_p(dirname($original));
+            copy($source, $original);
+        }
+    }
+
     /** Block direct web access to a backup directory (deny + empty index). */
     private static function protect_dir(string $dir): void
     {
