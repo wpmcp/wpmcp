@@ -152,6 +152,7 @@ use WPMCP\Tools\Elementor\Move_Element;
 use WPMCP\Tools\Elementor\Generate_Widget;
 use WPMCP\Tools\Builders\Detect_Builder;
 use WPMCP\Tools\Builders\Get_Builder_Content;
+use WPMCP\Tools\Builders\Update_Builder_Content;
 use WPMCP\Tools\WooCommerce\List_Products;
 use WPMCP\Tools\WooCommerce\Get_Product;
 use WPMCP\Tools\WooCommerce\Create_Product;
@@ -3732,6 +3733,27 @@ final class Plugin
             'edit_posts',
             'builders',
             'read'
+        ));
+
+        $update_builder_content = new Update_Builder_Content();
+
+        $registrar->register(new Ability(
+            'wpmcp/update-builder-content',
+            'pro',
+            'Replace the builder structure for a post. Bricks: validates the given string is well-formed JSON decoding to an array, then writes _bricks_page_content_2. Divi: validates the given content is a string, then writes post_content and ensures _et_pb_use_builder is on. Undoable via rollback-operation since both are ordinary postmeta/post_content captured by the existing post snapshot',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                    'builder' => [ 'type' => 'string' ],
+                    'content' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'post_id', 'builder', 'content' ],
+            ],
+            [$update_builder_content, 'handle'],
+            'edit_posts',
+            'builders',
+            'update'
         ));
     }
 }
