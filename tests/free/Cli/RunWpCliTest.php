@@ -144,19 +144,20 @@ class RunWpCliTest extends \WP_UnitTestCase
     {
         add_filter('wpmcp_allow_wp_cli', '__return_true');
         $this->fake_binary();
-        // Extend the allowlist so the rejection under test is specifically
-        // the metacharacter check, not the allowlist check.
-        add_filter('wpmcp_wp_cli_allowlist', function (array $a): array {
-            $a[] = 'plugin list';
-            return $a;
-        });
 
         $calls = [];
         $tool  = new Run_Wp_Cli($this->recording_executor($calls));
 
+        // The subcommand words themselves ("plugin", "list") exactly match
+        // the default allowlist entry, so this exercises the metacharacter
+        // check specifically, not the allowlist check: only the trailing
+        // argument carries the '$(...)' metacharacter. Asserting the
+        // "disallowed character" message (not just "not on the allowlist")
+        // confirms which guard actually fired.
         $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('disallowed character');
         try {
-            $tool->handle(['command' => 'plugin list; rm -rf /']);
+            $tool->handle(['command' => 'plugin list $(whoami)']);
         } finally {
             $this->assertCount(0, $calls);
         }
