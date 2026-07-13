@@ -99,4 +99,47 @@ class FileBackupTest extends \WP_UnitTestCase
         $this->assertNotContains($missing_path, $files);
         $this->assertSame(array_values(array_unique($files)), array_values($files));
     }
+
+    public function test_backup_copies_files_into_protected_per_operation_dir(): void
+    {
+        $id    = $this->make_attachment_with_files();
+        $files = File_Backup::collect_attachment_files($id);
+        $op_id = 'op-' . $id;
+
+        $manifest = File_Backup::backup($op_id, $files);
+
+        $uploads = wp_upload_dir();
+        $dir     = trailingslashit($uploads['basedir']) . '.wpmcp-backups/' . $op_id;
+        $this->created_files[] = $dir . '/.htaccess';
+        $this->created_files[] = $dir . '/index.php';
+
+        $this->assertTrue(is_dir($dir));
+        $this->assertFileExists($dir . '/.htaccess');
+        $this->assertFileExists($dir . '/index.php');
+        $this->assertStringContainsString('denied', strtolower((string) file_get_contents($dir . '/.htaccess')));
+
+        $this->assertCount(2, $manifest);
+        foreach ($files as $original) {
+            $this->assertArrayHasKey($original, $manifest);
+            $stored = $dir . '/' . $manifest[ $original ];
+            $this->created_files[] = $stored;
+            $this->assertFileExists($stored);
+            $this->assertFileEquals($original, $stored);
+        }
+
+        // Clean up the whole backup dir tree for this operation.
+        foreach (array_diff(scandir($dir), ['.', '..']) as $entry) {
+            unlink($dir . '/' . $entry);
+        }
+        rmdir($dir);
+        $parent = dirname($dir);
+        if (is_dir($parent) && count(scandir($parent)) === 2) {
+            rmdir($parent);
+        }
+    }
+
+    public function test_backup_returns_empty_manifest_for_no_files(): void
+    {
+        $this->assertSame([], File_Backup::backup('op-empty', []));
+    }
 }
