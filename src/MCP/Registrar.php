@@ -3,6 +3,8 @@
 namespace WPMCP\MCP;
 
 use WPMCP\Governance\Governance;
+use WPMCP\Governance\Governance_Audit_Log;
+use WPMCP\Identity\Identity_Context;
 use WPMCP\Pro\Gate;
 use WPMCP\RateLimit\Rate_Limiter;
 
@@ -31,7 +33,13 @@ class Registrar
                 'category'            => 'wpmcp',
                 'input_schema'        => $a->input_schema,
                 'execute_callback'    => $this->throttled($a),
-                'permission_callback' => fn() => current_user_can($a->capability) && Governance::is_ability_enabled($a),
+                'permission_callback' => function () use ($a) {
+                    $allowed = current_user_can($a->capability)
+                        && Governance::is_ability_enabled($a)
+                        && Governance::is_within_identity_scope($a);
+                    $this->record_audit($a, $allowed);
+                    return $allowed;
+                },
             ]);
         }
     }
@@ -40,6 +48,23 @@ class Registrar
     public function all(): array
     {
         return array_values($this->abilities);
+    }
+
+    /**
+     * Record a governance-decision outcome to Governance_Audit_Log. Wrapped
+     * in a try/catch so a logging failure (e.g. an option-write error) can
+     * never turn an otherwise-successful permission check into a fatal
+     * error; the allow/deny decision itself is always returned regardless
+     * of whether this succeeds.
+     */
+    private function record_audit(Ability $a, bool $allowed): void
+    {
+        try {
+            $identity = Identity_Context::current() ?? 'none';
+            Governance_Audit_Log::record($a->name, $identity, $allowed);
+        } catch (\Throwable $e) {
+            // Auditing must never break the permission check it is observing.
+        }
     }
 
     /**
