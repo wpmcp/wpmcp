@@ -19,10 +19,10 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_all_83_abilities_register_by_default(): void
+    public function test_all_86_abilities_register_by_default(): void
     {
         $registrar = Plugin::instance()->registrar();
-        $this->assertCount(83, $registrar->all());
+        $this->assertCount(86, $registrar->all());
     }
 
     public function test_read_ability_has_read_only_annotation(): void
@@ -221,6 +221,23 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertSame('update', $abilities['wpmcp/update-menu-item']->operation);
         $this->assertSame('menus', $abilities['wpmcp/delete-menu']->domain);
         $this->assertSame('delete', $abilities['wpmcp/delete-menu']->operation);
+    }
+
+    public function test_seo_abilities_are_tagged_seo_domain(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        $this->assertSame('seo', $abilities['wpmcp/get-seo-status']->domain);
+        $this->assertSame('read', $abilities['wpmcp/get-seo-status']->operation);
+
+        if (! isset($abilities['wpmcp/get-seo-meta'])) {
+            return;
+        }
+
+        $this->assertSame('seo', $abilities['wpmcp/get-seo-meta']->domain);
+        $this->assertSame('read', $abilities['wpmcp/get-seo-meta']->operation);
+        $this->assertSame('seo', $abilities['wpmcp/update-seo-meta']->domain);
+        $this->assertSame('update', $abilities['wpmcp/update-seo-meta']->operation);
     }
 
     /** @param Ability[] $abilities @return array<string, Ability> */

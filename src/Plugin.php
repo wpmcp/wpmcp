@@ -17,6 +17,10 @@ use WPMCP\Tools\Rollback_Session;
 use WPMCP\Tools\ACF\List_Field_Groups;
 use WPMCP\Tools\ACF\Get_Fields;
 use WPMCP\Tools\ACF\Update_Fields;
+use WPMCP\Tools\SEO\Get_SEO_Status;
+use WPMCP\Tools\SEO\Get_SEO_Meta;
+use WPMCP\Tools\SEO\Update_SEO_Meta;
+use WPMCP\Tools\SEO\SEO_Adapter;
 use WPMCP\Tools\Content\List_Post_Types;
 use WPMCP\Tools\Content\List_Taxonomies;
 use WPMCP\Tools\Content\Create_Post;
@@ -1301,6 +1305,7 @@ final class Plugin
         $this->register_menu_abilities($registrar);
         $this->register_elementor_abilities($registrar);
         $this->register_acf_abilities($registrar);
+        $this->register_seo_abilities($registrar);
     }
 
     /**
@@ -1958,6 +1963,84 @@ final class Plugin
             [$update_fields, 'handle'],
             'edit_posts',
             'acf',
+            'update'
+        ));
+    }
+
+    /**
+     * Register the SEO tools as free-tier abilities.
+     *
+     * get-seo-status is registered unconditionally: it must be reachable to
+     * report "no SEO plugin active" at all, and it does not touch any
+     * plugin-specific postmeta so it has nothing to degrade. get-seo-meta and
+     * update-seo-meta are registered conditionally on SEO_Adapter detecting
+     * Yoast or RankMath, following the same conditional-registration pattern
+     * as the ACF tool group: neither plugin has a free/pro split of its own
+     * to key off, so plugin absence is the only signal, and skipping keeps
+     * these two out of the catalog on sites running neither plugin.
+     */
+    private function register_seo_abilities(Registrar $registrar): void
+    {
+        $get_seo_status = new Get_SEO_Status();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-seo-status',
+            'free',
+            'Report which SEO plugin (Yoast SEO or Rank Math) is active on this site, by name and version',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$get_seo_status, 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
+        ));
+
+        if ('' === SEO_Adapter::active_plugin()) {
+            return;
+        }
+
+        $get_seo_meta    = new Get_SEO_Meta();
+        $update_seo_meta = new Update_SEO_Meta();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-seo-meta',
+            'free',
+            'Read a post\'s SEO title, meta description, focus keyword, canonical URL, and robots flags (noindex/nofollow) via the active SEO plugin\'s postmeta keys',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$get_seo_meta, 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-seo-meta',
+            'free',
+            'Set a post\'s SEO title, meta description, focus keyword, canonical URL, and/or robots flags (noindex/nofollow) via the active SEO plugin\'s postmeta keys. A field value is ordinary postmeta, so this is snapshotted via object_type post and rollback-operation restores the prior values exactly',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'title'         => [ 'type' => 'string' ],
+                    'description'   => [ 'type' => 'string' ],
+                    'focus_keyword' => [ 'type' => 'string' ],
+                    'canonical'     => [ 'type' => 'string' ],
+                    'noindex'       => [ 'type' => 'boolean' ],
+                    'nofollow'      => [ 'type' => 'boolean' ],
+                    'session_id'    => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$update_seo_meta, 'handle'],
+            'edit_posts',
+            'seo',
             'update'
         ));
     }
