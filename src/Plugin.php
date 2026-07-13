@@ -132,6 +132,7 @@ use WPMCP\Tools\Governance\Update_Governance_Settings;
 use WPMCP\Tools\Governance\List_Governance_Audit_Log;
 use WPMCP\Tools\Multisite\Is_Multisite;
 use WPMCP\Tools\Multisite\Get_Network_Info;
+use WPMCP\Tools\Multisite\List_Network_Sites;
 use WPMCP\Tools\Identity\Create_Identity;
 use WPMCP\Tools\Identity\List_Identities;
 use WPMCP\Tools\Identity\Delete_Identity;
@@ -2243,6 +2244,25 @@ final class Plugin
                 'properties' => [],
             ],
             [$get_network_info, 'handle'],
+            'manage_network',
+            'multisite',
+            'read'
+        ));
+
+        $list_network_sites = new List_Network_Sites();
+
+        $registrar->register(new Ability(
+            'wpmcp/list-network-sites',
+            'free',
+            'List sites on the network (blog_id, url, name, last_updated) via get_sites(), with optional limit (default 50) and offset for pagination. limit is capped at 500',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'limit'  => [ 'type' => 'integer' ],
+                    'offset' => [ 'type' => 'integer' ],
+                ],
+            ],
+            [$list_network_sites, 'handle'],
             'manage_network',
             'multisite',
             'read'
