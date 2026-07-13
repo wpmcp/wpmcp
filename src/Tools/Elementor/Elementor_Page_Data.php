@@ -116,6 +116,22 @@ class Elementor_Page_Data
         return false;
     }
 
+    /** Count every element in the tree, recursively including nested children. */
+    public static function count_all(array $elements): int
+    {
+        $count = 0;
+
+        foreach ($elements as $element) {
+            $count++;
+
+            if (! empty($element['elements']) && is_array($element['elements'])) {
+                $count += self::count_all($element['elements']);
+            }
+        }
+
+        return $count;
+    }
+
     public static function update_settings(array &$elements, string $id, array $settings): bool
     {
         foreach ($elements as &$item) {
