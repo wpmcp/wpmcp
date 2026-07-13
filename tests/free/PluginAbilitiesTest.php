@@ -19,10 +19,10 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_all_113_abilities_register_by_default(): void
+    public function test_all_114_abilities_register_by_default(): void
     {
         $registrar = Plugin::instance()->registrar();
-        $this->assertCount(113, $registrar->all());
+        $this->assertCount(114, $registrar->all());
     }
 
     public function test_read_ability_has_read_only_annotation(): void
