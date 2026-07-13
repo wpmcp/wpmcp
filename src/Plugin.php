@@ -48,6 +48,9 @@ use WPMCP\Tools\SEO\Get_SEO_Status;
 use WPMCP\Tools\SEO\Get_SEO_Meta;
 use WPMCP\Tools\SEO\Update_SEO_Meta;
 use WPMCP\Tools\SEO\SEO_Adapter;
+use WPMCP\Tools\Linking\Find_Orphan_Posts;
+use WPMCP\Tools\Linking\Suggest_Internal_Links;
+use WPMCP\Tools\Linking\Get_Link_Map;
 use WPMCP\Tools\Content\List_Post_Types;
 use WPMCP\Tools\Content\List_Taxonomies;
 use WPMCP\Tools\Content\Create_Post;
@@ -1387,6 +1390,7 @@ final class Plugin
         $this->register_elementor_abilities($registrar);
         $this->register_acf_abilities($registrar);
         $this->register_seo_abilities($registrar);
+        $this->register_linking_abilities($registrar);
         $this->register_meta_abilities($registrar);
         $this->register_diagnostics_abilities($registrar);
         $this->register_cron_abilities($registrar);
@@ -2818,6 +2822,75 @@ final class Plugin
             'edit_posts',
             'seo',
             'update'
+        ));
+    }
+
+    /**
+     * Register the internal-linking analysis tools as free-tier abilities.
+     *
+     * All three are read-only: they build the internal-link graph from a
+     * bounded set of published posts and report on it, never writing anything,
+     * so none touch the safety core. They share domain 'seo' and operation
+     * 'read', so their read_only_hint annotation derives to true automatically.
+     */
+    private function register_linking_abilities(Registrar $registrar): void
+    {
+        $find_orphan_posts      = new Find_Orphan_Posts();
+        $suggest_internal_links = new Suggest_Internal_Links();
+        $get_link_map           = new Get_Link_Map();
+
+        $registrar->register(new Ability(
+            'wpmcp/find-orphan-posts',
+            'free',
+            'List published posts or pages that have zero incoming internal links (orphans), by scanning the most-recent posts for links that resolve to this site\'s own content',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_type' => [ 'type' => 'string' ],
+                    'limit'     => [ 'type' => 'integer' ],
+                    'cap'       => [ 'type' => 'integer' ],
+                ],
+            ],
+            [$find_orphan_posts, 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/suggest-internal-links',
+            'free',
+            'Suggest related published posts a given post should link to, ranked by shared categories/tags and title keyword overlap, excluding posts it already links to',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'   => [ 'type' => 'integer' ],
+                    'post_type' => [ 'type' => 'string' ],
+                    'limit'     => [ 'type' => 'integer' ],
+                    'cap'       => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$suggest_internal_links, 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-link-map',
+            'free',
+            'Summarize the internal-link graph: per-post outgoing and incoming link counts, the orphan list, and the most-linked posts',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_type' => [ 'type' => 'string' ],
+                    'limit'     => [ 'type' => 'integer' ],
+                    'cap'       => [ 'type' => 'integer' ],
+                ],
+            ],
+            [$get_link_map, 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
         ));
     }
 
