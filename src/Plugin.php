@@ -129,6 +129,7 @@ use WPMCP\Tools\Elementor\Update_Element;
 use WPMCP\Tools\Elementor\Add_Widget;
 use WPMCP\Tools\Elementor\Remove_Element;
 use WPMCP\Tools\Elementor\Move_Element;
+use WPMCP\Tools\Elementor\Generate_Widget;
 use WPMCP\Tools\WooCommerce\List_Products;
 use WPMCP\Tools\WooCommerce\Get_Product;
 use WPMCP\Tools\WooCommerce\Create_Product;
@@ -2287,6 +2288,29 @@ final class Plugin
             'edit_posts',
             'elementor',
             'update'
+        ));
+
+        $generate_widget = new Generate_Widget();
+
+        $registrar->register(new Ability(
+            'wpmcp/generate-widget',
+            'pro',
+            'Generate a widget element (heading, text-editor, button, or image) from a curated settings schema and insert it into a page\'s _elementor_data, as a child of parent_id or at the top level when parent_id is omitted. Unknown widget types and missing required settings are rejected before anything is written. Undoable via rollback-operation since _elementor_data is ordinary postmeta captured by the existing post snapshot',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'     => [ 'type' => 'integer' ],
+                    'parent_id'   => [ 'type' => 'string' ],
+                    'widget_type' => [ 'type' => 'string' ],
+                    'settings'    => [ 'type' => 'object' ],
+                    'seed'        => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'post_id', 'widget_type', 'settings' ],
+            ],
+            [$generate_widget, 'handle'],
+            'edit_posts',
+            'elementor',
+            'create'
         ));
     }
 

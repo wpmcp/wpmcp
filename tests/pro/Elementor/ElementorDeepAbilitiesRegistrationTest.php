@@ -9,6 +9,7 @@ use WPMCP\Tools\Elementor\Update_Element;
 use WPMCP\Tools\Elementor\Add_Widget;
 use WPMCP\Tools\Elementor\Remove_Element;
 use WPMCP\Tools\Elementor\Move_Element;
+use WPMCP\Tools\Elementor\Generate_Widget;
 
 /**
  * Verifies the get-elementor-data ability is declared as pro-tier and that
@@ -236,5 +237,50 @@ class ElementorDeepAbilitiesRegistrationTest extends \WP_UnitTestCase
 
         $names = array_map(fn($a) => $a->name, $registrar->all());
         $this->assertContains('wpmcp/move-element', $names);
+    }
+
+    private function make_generate_widget_ability(): Ability
+    {
+        return new Ability(
+            'wpmcp/generate-widget',
+            'pro',
+            'Generate a widget element from a curated schema and insert it into a page.',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'     => ['type' => 'integer'],
+                    'parent_id'   => ['type' => 'string'],
+                    'widget_type' => ['type' => 'string'],
+                    'settings'    => ['type' => 'object'],
+                    'seed'        => ['type' => 'string'],
+                ],
+                'required'   => ['post_id', 'widget_type', 'settings'],
+            ],
+            [new Generate_Widget(), 'handle'],
+            'edit_posts',
+            'elementor',
+            'create'
+        );
+    }
+
+    public function test_registrar_skips_generate_widget_when_free(): void
+    {
+        Gate::set_pro_for_tests(false);
+
+        $registrar = new Registrar();
+        $registrar->register($this->make_generate_widget_ability());
+
+        $this->assertCount(0, $registrar->all());
+    }
+
+    public function test_registrar_keeps_generate_widget_when_pro(): void
+    {
+        Gate::set_pro_for_tests(true);
+
+        $registrar = new Registrar();
+        $registrar->register($this->make_generate_widget_ability());
+
+        $names = array_map(fn($a) => $a->name, $registrar->all());
+        $this->assertContains('wpmcp/generate-widget', $names);
     }
 }
