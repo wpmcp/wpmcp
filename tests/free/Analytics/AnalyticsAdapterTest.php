@@ -170,4 +170,25 @@ class AnalyticsAdapterTest extends \WP_UnitTestCase
 
         $this->assertSame($today, $result['end_date']);
     }
+
+    public function test_clamp_limit_defaults_when_not_given(): void
+    {
+        $this->assertSame(Analytics_Adapter::DEFAULT_LIMIT, Analytics_Adapter::clamp_limit(null));
+    }
+
+    public function test_clamp_limit_floors_below_one(): void
+    {
+        $this->assertSame(1, Analytics_Adapter::clamp_limit(0));
+        $this->assertSame(1, Analytics_Adapter::clamp_limit(-5));
+    }
+
+    public function test_clamp_limit_caps_at_max_limit(): void
+    {
+        $this->assertSame(Analytics_Adapter::MAX_LIMIT, Analytics_Adapter::clamp_limit(Analytics_Adapter::MAX_LIMIT + 50));
+    }
+
+    public function test_clamp_limit_passes_through_a_valid_value(): void
+    {
+        $this->assertSame(25, Analytics_Adapter::clamp_limit(25));
+    }
 }

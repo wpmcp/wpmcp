@@ -49,6 +49,16 @@ class Analytics_Adapter
     public const CONFIG_OPTION = 'wpmcp_analytics_config';
 
     /**
+     * Default/max row limits for the "top N" reporting tools (top_pages,
+     * search_console_queries). Smaller than Multisite_Adapter's 500-cap:
+     * these are reporting rows returned inline in a single tool response,
+     * not paginated entity listings, so a much smaller cap keeps responses
+     * a reasonable size for an LLM caller to consume in one go.
+     */
+    public const DEFAULT_LIMIT = 10;
+    public const MAX_LIMIT     = 100;
+
+    /**
      * Which analytics provider is active: 'site-kit', 'configured', or ''
      * when neither is. Site Kit is checked first, so it wins if a site
      * somehow has both Site Kit active and a manual config option set,
@@ -201,5 +211,17 @@ class Analytics_Adapter
         $date = \DateTime::createFromFormat('Y-m-d', $value);
 
         return $date instanceof \DateTime && $date->format('Y-m-d') === $value;
+    }
+
+    /**
+     * Clamp a caller-supplied limit to [1, MAX_LIMIT], defaulting to
+     * DEFAULT_LIMIT when null. Mirrors Multisite_Adapter::clamp_limit().
+     */
+    public static function clamp_limit(?int $limit): int
+    {
+        $limit = $limit ?? self::DEFAULT_LIMIT;
+        $limit = max(1, $limit);
+
+        return min($limit, self::MAX_LIMIT);
     }
 }
