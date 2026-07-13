@@ -179,4 +179,63 @@ class Wp_Cli_Guard
 
         return true;
     }
+
+    /**
+     * Conservative, fixed candidate paths checked when no
+     * WPMCP_WP_CLI_BINARY constant or wpmcp_wp_cli_binary filter resolves a
+     * location. Deliberately NOT a shell PATH search (e.g. `which wp` via a
+     * shell): every candidate here is an absolute path this class checks
+     * directly with is_file()/is_executable(), so resolution can never be
+     * influenced by an attacker-controlled PATH environment variable.
+     *
+     * @return string[]
+     */
+    private static function default_binary_candidates(): array
+    {
+        return [
+            '/usr/local/bin/wp',
+            '/usr/bin/wp',
+        ];
+    }
+
+    /**
+     * Resolve the wp-cli binary path. Order: WPMCP_WP_CLI_BINARY constant,
+     * then the wpmcp_wp_cli_binary filter (either may set an explicit path),
+     * then the fixed default candidates. The first candidate that exists and
+     * is executable wins; if nothing resolves, returns a WP_Error rather
+     * than falling back to any shell-based search.
+     *
+     * @return string|\WP_Error
+     */
+    public static function resolve_binary()
+    {
+        $configured = defined('WPMCP_WP_CLI_BINARY') ? WPMCP_WP_CLI_BINARY : null;
+        $configured = apply_filters('wpmcp_wp_cli_binary', $configured);
+
+        $candidates = null !== $configured && '' !== $configured
+            ? [(string) $configured]
+            : self::default_binary_candidates();
+
+        $found_but_not_executable = null;
+
+        foreach ($candidates as $candidate) {
+            if (! is_file($candidate)) {
+                continue;
+            }
+            if (! is_executable($candidate)) {
+                $found_but_not_executable = $candidate;
+                continue;
+            }
+            return $candidate;
+        }
+
+        if (null !== $found_but_not_executable) {
+            return new \WP_Error(
+                'wp_cli_binary_not_executable',
+                "The wp-cli binary at \"{$found_but_not_executable}\" is not executable."
+            );
+        }
+
+        return new \WP_Error('wp_cli_binary_not_found', 'No wp-cli binary could be resolved.');
+    }
 }
