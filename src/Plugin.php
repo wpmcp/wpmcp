@@ -131,6 +131,7 @@ use WPMCP\Tools\Governance\Get_Governance_Settings;
 use WPMCP\Tools\Governance\Update_Governance_Settings;
 use WPMCP\Tools\Governance\List_Governance_Audit_Log;
 use WPMCP\Tools\Multisite\Is_Multisite;
+use WPMCP\Tools\Multisite\Get_Network_Info;
 use WPMCP\Tools\Identity\Create_Identity;
 use WPMCP\Tools\Identity\List_Identities;
 use WPMCP\Tools\Identity\Delete_Identity;
@@ -2223,6 +2224,26 @@ final class Plugin
             ],
             [$is_multisite, 'handle'],
             'edit_posts',
+            'multisite',
+            'read'
+        ));
+
+        if (! is_multisite()) {
+            return;
+        }
+
+        $get_network_info = new Get_Network_Info();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-network-info',
+            'free',
+            'Report this network\'s id, name, domain, total site count, and main site id, via get_network()/get_main_site_id(). Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$get_network_info, 'handle'],
+            'manage_network',
             'multisite',
             'read'
         ));
