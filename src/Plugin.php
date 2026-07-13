@@ -14,6 +14,7 @@ use WPMCP\Tools\Maintenance\Disable_Maintenance;
 use WPMCP\Tools\Context\Get_Site_Context;
 use WPMCP\Tools\Rest\List_Rest_Routes;
 use WPMCP\Tools\Rest\Call_Rest;
+use WPMCP\Tools\Blocks\List_Block_Types;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
 use WPMCP\Tools\Get_Page;
@@ -1336,6 +1337,7 @@ final class Plugin
         $this->register_maintenance_abilities($registrar);
         $this->register_context_abilities($registrar);
         $this->register_rest_abilities($registrar);
+        $this->register_block_abilities($registrar);
     }
 
     /**
@@ -1592,6 +1594,36 @@ final class Plugin
             'edit_posts',
             'rest',
             'update'
+        ));
+    }
+
+    /**
+     * Register the block-type introspection and (de)serialization tools as
+     * free-tier abilities (parity gap tracked in issue #39).
+     *
+     * list-block-types is read-only discovery: it only reads
+     * WP_Block_Type_Registry, gated at edit_posts like other read tools.
+     * Tagged domain 'blocks'.
+     */
+    private function register_block_abilities(Registrar $registrar): void
+    {
+        $list_block_types = new List_Block_Types();
+
+        $registrar->register(new Ability(
+            'wpmcp/list-block-types',
+            'free',
+            'List the block types registered with WP_Block_Type_Registry: name, title, category, whether the block renders dynamically (is_dynamic), and its declared attribute names. Optional category (exact match) and/or search (substring match on block name) filters narrow the result. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'category' => [ 'type' => 'string' ],
+                    'search'   => [ 'type' => 'string' ],
+                ],
+            ],
+            [$list_block_types, 'handle'],
+            'edit_posts',
+            'blocks',
+            'read'
         ));
     }
 
