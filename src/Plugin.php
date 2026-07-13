@@ -26,6 +26,7 @@ use WPMCP\Tools\Export\Export_Content;
 use WPMCP\Tools\Export\List_Exports;
 use WPMCP\Tools\Export\Import_Content;
 use WPMCP\Tools\Analysis\Check_Contrast;
+use WPMCP\Tools\Analysis\Extract_Content;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
 use WPMCP\Tools\Get_Page;
@@ -2758,6 +2759,25 @@ final class Plugin
      */
     private function register_analysis_abilities(Registrar $registrar): void
     {
+        $extract_content = new Extract_Content();
+
+        $registrar->register(new Ability(
+            'wpmcp/extract-content',
+            'pro',
+            'Extract a post\'s readable plain text and a structural summary (headings, word count, link and image counts) from its stored content. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$extract_content, 'handle'],
+            'edit_posts',
+            'analysis',
+            'read'
+        ));
+
         $check_contrast = new Check_Contrast();
 
         $registrar->register(new Ability(
