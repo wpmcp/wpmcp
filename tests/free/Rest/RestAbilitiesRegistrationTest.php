@@ -6,6 +6,7 @@ class RestAbilitiesRegistrationTest extends \WP_UnitTestCase
 {
     private const NAMES = [
         'wpmcp/list-rest-routes',
+        'wpmcp/call-rest',
     ];
 
     public function test_all_rest_tools_are_registered_as_free_abilities(): void

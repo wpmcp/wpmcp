@@ -13,6 +13,7 @@ use WPMCP\Tools\Maintenance\Enable_Maintenance;
 use WPMCP\Tools\Maintenance\Disable_Maintenance;
 use WPMCP\Tools\Context\Get_Site_Context;
 use WPMCP\Tools\Rest\List_Rest_Routes;
+use WPMCP\Tools\Rest\Call_Rest;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
 use WPMCP\Tools\Get_Page;
@@ -1535,10 +1536,26 @@ final class Plugin
      * list-rest-routes is read-only discovery: it only reads the route table
      * off rest_get_server(), never executes a route, and is gated at
      * edit_posts like other read tools.
+     *
+     * call-rest is gated at edit_posts too, matching the capability every
+     * other read tool in this codebase requires: the REAL authorization
+     * decision for both reads and writes is made by the target endpoint's
+     * own permission_callback (see Call_Rest's class docblock), which runs
+     * against the current user regardless of what edit_posts alone would
+     * otherwise allow. edit_posts is therefore only the floor to reach this
+     * tool at all, not a grant of what it can do. The write path
+     * (POST/PUT/PATCH/DELETE) is additionally disabled by default behind the
+     * wpmcp_enable_rest_writes filter and requires confirm:true; sites
+     * enabling that filter are encouraged to also require manage_options (or
+     * an equivalent stricter capability) on whichever endpoints they expect
+     * this tool to write through, since call-rest itself cannot know in
+     * advance which capability a given write endpoint's permission_callback
+     * enforces.
      */
     private function register_rest_abilities(Registrar $registrar): void
     {
         $list_rest_routes = new List_Rest_Routes();
+        $call_rest        = new Call_Rest();
 
         $registrar->register(new Ability(
             'wpmcp/list-rest-routes',
@@ -1556,6 +1573,25 @@ final class Plugin
             'edit_posts',
             'rest',
             'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/call-rest',
+            'free',
+            'Perform an internal WP REST API request (rest_do_request) against any route registered on this site and return its HTTP status and body. Authorization is inherited from the REST API itself: the target endpoint\'s own permission_callback runs against the current user exactly as it would for a real HTTP request, so this tool cannot grant or widen access beyond what that endpoint already allows. GET/HEAD are always permitted (subject to the endpoint\'s own permission check). POST/PUT/PATCH/DELETE are refused unless a site has opted in via the wpmcp_enable_rest_writes filter (disabled by default) AND the caller passes confirm:true; a successful write reports recoverable:false because an arbitrary REST write cannot be generically snapshotted or undone',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'method'  => [ 'type' => 'string' ],
+                    'route'   => [ 'type' => 'string' ],
+                    'params'  => [ 'type' => 'object' ],
+                    'confirm' => [ 'type' => 'boolean' ],
+                ],
+                'required'   => [ 'method', 'route' ],
+            ],
+            [$call_rest, 'handle'],
+            'edit_posts',
+            'rest',
+            'update'
         ));
     }
 
