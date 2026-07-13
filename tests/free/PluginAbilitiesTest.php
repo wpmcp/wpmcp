@@ -19,10 +19,10 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_all_86_abilities_register_by_default(): void
+    public function test_all_90_abilities_register_by_default(): void
     {
         $registrar = Plugin::instance()->registrar();
-        $this->assertCount(86, $registrar->all());
+        $this->assertCount(90, $registrar->all());
     }
 
     public function test_read_ability_has_read_only_annotation(): void
@@ -101,6 +101,20 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertSame('read', $abilities['wpmcp/get-settings']->operation);
         $this->assertSame('settings', $abilities['wpmcp/update-settings']->domain);
         $this->assertSame('update', $abilities['wpmcp/update-settings']->operation);
+    }
+
+    public function test_meta_abilities_are_tagged_meta_and_settings_domain(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        $this->assertSame('meta', $abilities['wpmcp/get-post-meta']->domain);
+        $this->assertSame('read', $abilities['wpmcp/get-post-meta']->operation);
+        $this->assertSame('meta', $abilities['wpmcp/set-post-meta']->domain);
+        $this->assertSame('update', $abilities['wpmcp/set-post-meta']->operation);
+        $this->assertSame('settings', $abilities['wpmcp/get-option']->domain);
+        $this->assertSame('read', $abilities['wpmcp/get-option']->operation);
+        $this->assertSame('settings', $abilities['wpmcp/update-option']->domain);
+        $this->assertSame('update', $abilities['wpmcp/update-option']->operation);
     }
 
     public function test_users_abilities_are_tagged_users_domain(): void

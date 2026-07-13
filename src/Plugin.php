@@ -17,6 +17,10 @@ use WPMCP\Tools\Rollback_Session;
 use WPMCP\Tools\ACF\List_Field_Groups;
 use WPMCP\Tools\ACF\Get_Fields;
 use WPMCP\Tools\ACF\Update_Fields;
+use WPMCP\Tools\Meta\Get_Post_Meta;
+use WPMCP\Tools\Meta\Set_Post_Meta;
+use WPMCP\Tools\Meta\Get_Option;
+use WPMCP\Tools\Meta\Update_Option;
 use WPMCP\Tools\SEO\Get_SEO_Status;
 use WPMCP\Tools\SEO\Get_SEO_Meta;
 use WPMCP\Tools\SEO\Update_SEO_Meta;
@@ -1306,6 +1310,99 @@ final class Plugin
         $this->register_elementor_abilities($registrar);
         $this->register_acf_abilities($registrar);
         $this->register_seo_abilities($registrar);
+        $this->register_meta_abilities($registrar);
+    }
+
+    /**
+     * Register the generic post-meta and wp_options tools as free-tier
+     * abilities (parity gap tracked in issue #31).
+     *
+     * get-post-meta/set-post-meta are gated at edit_posts, matching the rest
+     * of the content tools; get-option/update-option are gated at
+     * manage_options, since arbitrary option access is a site-settings-level
+     * capability, not a content-editing one. set-post-meta and update-option
+     * are 'update' operations (route through Safe_Mutation and are
+     * undoable); update-option is additionally disabled by default behind
+     * the wpmcp_enable_option_write filter (see Update_Option), so
+     * registering the ability does not by itself allow any write.
+     */
+    private function register_meta_abilities(Registrar $registrar): void
+    {
+        $get_post_meta = new Get_Post_Meta();
+        $set_post_meta = new Set_Post_Meta();
+        $get_option    = new Get_Option();
+        $update_option = new Update_Option();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-post-meta',
+            'free',
+            'Read a post\'s meta, either the full map or a single key. Protected meta (a leading underscore, or is_protected_meta) is always skipped',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                    'key'     => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$get_post_meta, 'handle'],
+            'edit_posts',
+            'meta',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/set-post-meta',
+            'free',
+            'Set a single meta key/value on a post. Refuses protected meta keys (a leading underscore, or is_protected_meta). Snapshotted via object_type post; rollback-operation restores the prior value',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'    => [ 'type' => 'integer' ],
+                    'key'        => [ 'type' => 'string' ],
+                    'value'      => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'post_id', 'key' ],
+            ],
+            [$set_post_meta, 'handle'],
+            'edit_posts',
+            'meta',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-option',
+            'free',
+            'Read a single wp_options value by name. Refuses a conservative denylist of sensitive/core option names (auth keys and salts, siteurl, home, active_plugins, and secret/password/token-shaped names)',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'name' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'name' ],
+            ],
+            [$get_option, 'handle'],
+            'manage_options',
+            'settings',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-option',
+            'free',
+            'Update a single wp_options value by name. Refuses the same denylist as get-option, and is disabled by default until a site opts in with the wpmcp_enable_option_write filter. Snapshotted via object_type option; rollback-operation restores the prior value (or removes the option if it did not exist before)',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'name'       => [ 'type' => 'string' ],
+                    'value'      => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'name', 'value' ],
+            ],
+            [$update_option, 'handle'],
+            'manage_options',
+            'settings',
+            'update'
+        ));
     }
 
     /**
