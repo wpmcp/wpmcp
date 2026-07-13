@@ -111,4 +111,18 @@ class GetSiteContextTest extends \WP_UnitTestCase
 
         $this->assertFalse($out['wpmcp']['pro_active']);
     }
+
+    public function test_does_not_leak_the_admin_email_anywhere_in_the_payload(): void
+    {
+        $admin_email = get_option('admin_email');
+
+        $out = (new Get_Site_Context())->handle([]);
+
+        $this->assertArrayNotHasKey('admin_email', $out['site']);
+        $this->assertStringNotContainsString(
+            $admin_email,
+            (string) wp_json_encode($out),
+            'Expected the admin email to not appear anywhere in the payload'
+        );
+    }
 }
