@@ -19,10 +19,10 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_all_90_abilities_register_by_default(): void
+    public function test_all_94_abilities_register_by_default(): void
     {
         $registrar = Plugin::instance()->registrar();
-        $this->assertCount(90, $registrar->all());
+        $this->assertCount(94, $registrar->all());
     }
 
     public function test_read_ability_has_read_only_annotation(): void
@@ -115,6 +115,20 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertSame('read', $abilities['wpmcp/get-option']->operation);
         $this->assertSame('settings', $abilities['wpmcp/update-option']->domain);
         $this->assertSame('update', $abilities['wpmcp/update-option']->operation);
+    }
+
+    public function test_diagnostics_abilities_are_tagged_diagnostics_domain(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        $this->assertSame('diagnostics', $abilities['wpmcp/get-debug-config']->domain);
+        $this->assertSame('read', $abilities['wpmcp/get-debug-config']->operation);
+        $this->assertSame('diagnostics', $abilities['wpmcp/get-debug-log']->domain);
+        $this->assertSame('read', $abilities['wpmcp/get-debug-log']->operation);
+        $this->assertSame('diagnostics', $abilities['wpmcp/list-transients']->domain);
+        $this->assertSame('read', $abilities['wpmcp/list-transients']->operation);
+        $this->assertSame('diagnostics', $abilities['wpmcp/delete-transient']->domain);
+        $this->assertSame('update', $abilities['wpmcp/delete-transient']->operation);
     }
 
     public function test_users_abilities_are_tagged_users_domain(): void

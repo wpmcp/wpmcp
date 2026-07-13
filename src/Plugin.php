@@ -78,6 +78,10 @@ use WPMCP\Tools\Performance\Analyze_Performance;
 use WPMCP\Tools\Security\Scan_Security;
 use WPMCP\Tools\Cache\Get_Cache_Status;
 use WPMCP\Tools\Cache\Clear_Cache;
+use WPMCP\Tools\Diagnostics\Get_Debug_Config;
+use WPMCP\Tools\Diagnostics\Get_Debug_Log;
+use WPMCP\Tools\Diagnostics\List_Transients;
+use WPMCP\Tools\Diagnostics\Delete_Transient;
 use WPMCP\Tools\Elementor\List_Widgets;
 use WPMCP\Tools\Elementor\Get_Widget_Schema;
 use WPMCP\Tools\Elementor\Get_Elementor_Data;
@@ -1311,6 +1315,89 @@ final class Plugin
         $this->register_acf_abilities($registrar);
         $this->register_seo_abilities($registrar);
         $this->register_meta_abilities($registrar);
+        $this->register_diagnostics_abilities($registrar);
+    }
+
+    /**
+     * Register the system diagnostics tools as free-tier abilities (parity
+     * gap tracked in issue #32).
+     *
+     * All four are gated at manage_options: debug config/log and the
+     * transient list can reveal server paths and cache internals, so this
+     * matches the same capability already used for get-cache-status and
+     * clear-cache. get-debug-config, get-debug-log, and list-transients are
+     * 'read' operations; delete-transient is 'update' but, like clear-cache,
+     * is not routed through Safe_Mutation: a transient is cache-like data
+     * with no meaningful before-image to restore.
+     */
+    private function register_diagnostics_abilities(Registrar $registrar): void
+    {
+        $get_debug_config = new Get_Debug_Config();
+        $get_debug_log    = new Get_Debug_Log();
+        $list_transients  = new List_Transients();
+        $delete_transient = new Delete_Transient();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-debug-config',
+            'free',
+            'Report the debug-related constants (WP_DEBUG, WP_DEBUG_LOG, WP_DEBUG_DISPLAY, SCRIPT_DEBUG, SAVEQUERIES) and, when logging is on, the resolved debug.log path. Read-only, no secrets',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$get_debug_config, 'handle'],
+            'manage_options',
+            'diagnostics',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-debug-log',
+            'free',
+            'Return a bounded tail (at most 200 lines / 64KB) of the WordPress debug log, never the whole file. Defaults to WP_CONTENT_DIR/debug.log or the WP_DEBUG_LOG custom path; any path argument is confined to WP_CONTENT_DIR, refusing traversal',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'path'  => [ 'type' => 'string' ],
+                    'lines' => [ 'type' => 'integer' ],
+                ],
+            ],
+            [$get_debug_log, 'handle'],
+            'manage_options',
+            'diagnostics',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/list-transients',
+            'free',
+            'List transients (name, expiry) from the options table, with an optional search substring filter and a capped limit (default 50, hard cap 500)',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'search' => [ 'type' => 'string' ],
+                    'limit'  => [ 'type' => 'integer' ],
+                ],
+            ],
+            [$list_transients, 'handle'],
+            'manage_options',
+            'diagnostics',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/delete-transient',
+            'free',
+            'Delete a single named transient via delete_transient(). Not snapshotted: transients are cache-like data with no meaningful before-image to restore, the same reasoning documented for clear-cache',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'name' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'name' ],
+            ],
+            [$delete_transient, 'handle'],
+            'manage_options',
+            'diagnostics',
+            'update'
+        ));
     }
 
     /**
