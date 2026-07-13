@@ -19,6 +19,9 @@ if (! defined('ABSPATH')) {
  */
 class Wp_Cli_Guard
 {
+    /** Test seam: forces wp_get_environment_type()'s return value. Null = live detection. */
+    private static ?string $environment_override = null;
+
     /**
      * Whether wp-cli execution is enabled at all. Two opt-in seams, either
      * sufficient: the WPMCP_ALLOW_WP_CLI constant (for wp-config.php) and the
@@ -30,5 +33,47 @@ class Wp_Cli_Guard
         $default = defined('WPMCP_ALLOW_WP_CLI') && WPMCP_ALLOW_WP_CLI;
 
         return (bool) apply_filters('wpmcp_allow_wp_cli', $default);
+    }
+
+    /**
+     * Test seam: force wp_get_environment_type()'s effective value so tests
+     * do not depend on live server configuration, mirroring
+     * Database_Guard::set_no_backslash_escapes_override(). Pass null to
+     * resume live detection.
+     */
+    public static function set_environment_override(?string $environment): void
+    {
+        self::$environment_override = $environment;
+    }
+
+    /** Current environment type, honoring the test override when set. */
+    private static function environment_type(): string
+    {
+        if (null !== self::$environment_override) {
+            return self::$environment_override;
+        }
+
+        return function_exists('wp_get_environment_type') ? wp_get_environment_type() : 'production';
+    }
+
+    /**
+     * Whether the active environment permits wp-cli execution. Production is
+     * refused unless a SEPARATE, explicit wpmcp_allow_wp_cli_on_production
+     * filter/WPMCP_ALLOW_WP_CLI_ON_PRODUCTION constant is also set: enabling
+     * wp-cli at all (is_enabled()) is not, by itself, enough to run it on a
+     * live production site. Every other environment (development, staging,
+     * local, and the "production" fallback WordPress itself uses when
+     * wp_get_environment_type() is unavailable is intentionally treated as
+     * production, i.e. refused by default) is allowed.
+     */
+    public static function is_allowed_on_environment(): bool
+    {
+        if ('production' !== self::environment_type()) {
+            return true;
+        }
+
+        $default = defined('WPMCP_ALLOW_WP_CLI_ON_PRODUCTION') && WPMCP_ALLOW_WP_CLI_ON_PRODUCTION;
+
+        return (bool) apply_filters('wpmcp_allow_wp_cli_on_production', $default);
     }
 }
