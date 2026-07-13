@@ -39,13 +39,23 @@ class SearchPluginsTest extends \WP_UnitTestCase
         parent::tearDown();
     }
 
+    private $captured_args;
+
     public function mock_plugins_api($result, $action, $args)
     {
         if ('query_plugins' === $action) {
+            $this->captured_args = $args;
             return $this->canned_result;
         }
 
         return $result;
+    }
+
+    public function test_search_respects_per_page_cap(): void
+    {
+        (new Search_Plugins())->handle(['query' => 'contact form', 'per_page' => 500]);
+
+        $this->assertSame(50, $this->captured_args->per_page);
     }
 
     public function test_search_returns_mocked_results_with_expected_fields(): void
