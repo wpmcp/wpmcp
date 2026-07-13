@@ -59,10 +59,11 @@ class BearerAuthTest extends \WP_UnitTestCase
     public function test_valid_bearer_token_resolves_to_its_bound_user(): void
     {
         add_filter('wpmcp_oauth_enabled', '__return_true');
-        $token = Token_Store::issue('client_abc', 99, 'read');
+        $user_id = self::factory()->user->create(['role' => 'subscriber']);
+        $token   = Token_Store::issue('client_abc', $user_id, 'read');
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
 
-        $this->assertSame(99, Bearer_Auth::resolve(0));
+        $this->assertSame($user_id, Bearer_Auth::resolve(0));
     }
 
     public function test_invalid_bearer_token_does_not_authenticate_anyone(): void
@@ -84,7 +85,8 @@ class BearerAuthTest extends \WP_UnitTestCase
     public function test_valid_token_presentation_is_audited_as_allowed(): void
     {
         add_filter('wpmcp_oauth_enabled', '__return_true');
-        $token = Token_Store::issue('client_abc', 99, 'read');
+        $user_id = self::factory()->user->create(['role' => 'subscriber']);
+        $token   = Token_Store::issue('client_abc', $user_id, 'read');
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
 
         Bearer_Auth::resolve(0);
@@ -107,5 +109,57 @@ class BearerAuthTest extends \WP_UnitTestCase
 
         $serialized = wp_json_encode($entries);
         $this->assertStringNotContainsString('not-a-real-token', $serialized);
+    }
+
+    public function test_token_for_a_since_deleted_user_is_rejected(): void
+    {
+        add_filter('wpmcp_oauth_enabled', '__return_true');
+        $user_id = self::factory()->user->create(['role' => 'subscriber']);
+        $token   = Token_Store::issue('client_abc', $user_id, 'read');
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+
+        wp_delete_user($user_id);
+
+        $this->assertSame(0, Bearer_Auth::resolve(0));
+    }
+
+    public function test_token_issued_before_a_password_change_is_rejected_afterward(): void
+    {
+        add_filter('wpmcp_oauth_enabled', '__return_true');
+        $user_id = self::factory()->user->create(['role' => 'subscriber']);
+        $token   = Token_Store::issue('client_abc', $user_id, 'read');
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+
+        wp_set_password('a-brand-new-password', $user_id);
+
+        $this->assertSame(0, Bearer_Auth::resolve(0));
+    }
+
+    public function test_a_normal_unchanged_token_still_validates(): void
+    {
+        add_filter('wpmcp_oauth_enabled', '__return_true');
+        $user_id = self::factory()->user->create(['role' => 'subscriber']);
+        $token   = Token_Store::issue('client_abc', $user_id, 'read');
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+
+        $this->assertSame($user_id, Bearer_Auth::resolve(0));
+    }
+
+    public function test_the_stored_password_fingerprint_never_appears_in_audit_entries(): void
+    {
+        add_filter('wpmcp_oauth_enabled', '__return_true');
+        $user_id = self::factory()->user->create(['role' => 'subscriber']);
+        $token   = Token_Store::issue('client_abc', $user_id, 'read');
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+
+        Bearer_Auth::resolve(0);
+
+        $user        = get_userdata($user_id);
+        $fingerprint = hash('sha256', $user->user_pass);
+
+        $entries    = Governance_Audit_Log::list();
+        $serialized = wp_json_encode($entries);
+        $this->assertStringNotContainsString($fingerprint, $serialized);
+        $this->assertStringNotContainsString($user->user_pass, $serialized);
     }
 }

@@ -250,5 +250,14 @@ class EndpointsTest extends \WP_Test_REST_TestCase
 
         $validated = Token_Store::validate($token_data['access_token']);
         $this->assertSame($user, $validated['user_id']);
+
+        // The token endpoint response must never expose the credential
+        // fingerprint (or the raw password it is derived from) that
+        // Token_Store now binds tokens to at issuance (issue #43 C1/C2).
+        $wp_user     = get_userdata($user);
+        $fingerprint = hash('sha256', $wp_user->user_pass);
+        $serialized  = wp_json_encode($token_data);
+        $this->assertStringNotContainsString($fingerprint, $serialized);
+        $this->assertStringNotContainsString($wp_user->user_pass, $serialized);
     }
 }

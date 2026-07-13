@@ -9,7 +9,7 @@ if (! defined('ABSPATH')) {
 /**
  * Issues and validates OAuth 2.1 bearer access tokens. Backed by a single
  * wpmcp_oauth_tokens option, a map of a SHA-256 hash of the token to its
- * bound record: { client_id, user_id, scope, issued_at }.
+ * bound record: { client_id, user_id, scope, issued_at, pass_fingerprint }.
  *
  * Token_Store::validate() is the helper the MCP permission layer
  * (Registrar's execute/permission_callback wiring) calls to authenticate a
@@ -28,7 +28,17 @@ if (! defined('ABSPATH')) {
  *  - tokens expire after TTL_SECONDS; validate() rejects (and evicts) an
  *    expired token. Unlike Code_Store's single-use codes, a valid
  *    unexpired token may be validated repeatedly (that is the point of a
- *    bearer access token).
+ *    bearer access token);
+ *  - tokens are bound to the user's credential state (issue #43 C1/C2): at
+ *    issuance, a SHA-256 fingerprint of the user's current password hash
+ *    (`user_pass`) is stored alongside the record (never the raw
+ *    `user_pass` itself). validate() re-resolves the user via
+ *    get_userdata() and rejects if the user no longer exists OR the
+ *    fingerprint no longer matches -- so a stolen token stops authenticating
+ *    the instant the account is deleted or its password changes, with no
+ *    separate revocation store needed. The fingerprint is an internal
+ *    bookkeeping field only: it is never included in validate()'s returned
+ *    record, never logged, and never surfaced in any endpoint response.
  */
 class Token_Store
 {
@@ -65,10 +75,11 @@ class Token_Store
 
         $stored                       = self::load();
         $stored[ self::hash($token) ] = [
-            'client_id'  => $client_id,
-            'user_id'    => $user_id,
-            'scope'      => $scope,
-            'issued_at'  => self::now(),
+            'client_id'        => $client_id,
+            'user_id'          => $user_id,
+            'scope'            => $scope,
+            'issued_at'        => self::now(),
+            'pass_fingerprint' => self::pass_fingerprint($user_id),
         ];
         self::save($stored);
 
@@ -78,7 +89,8 @@ class Token_Store
     /**
      * Validate a presented bearer token. Returns its bound record
      * ({ client_id, user_id, scope }) if the token's hash matches a stored,
-     * unexpired record, otherwise null. An expired match is also evicted.
+     * unexpired record AND the bound user still exists with an unchanged
+     * password, otherwise null. An expired match is also evicted.
      */
     public static function validate(string $token): ?array
     {
@@ -97,11 +109,37 @@ class Token_Store
             return null;
         }
 
+        $stored_fingerprint  = $record['pass_fingerprint'] ?? null;
+        $current_fingerprint = self::pass_fingerprint((int) $record['user_id']);
+        if (null === $stored_fingerprint || null === $current_fingerprint) {
+            return null;
+        }
+        if (! hash_equals($stored_fingerprint, $current_fingerprint)) {
+            return null;
+        }
+
         return [
             'client_id' => $record['client_id'],
             'user_id'   => $record['user_id'],
             'scope'     => $record['scope'],
         ];
+    }
+
+    /**
+     * A SHA-256 fingerprint of the user's current password hash, or null if
+     * the user no longer exists. Never the raw user_pass itself; used only
+     * to detect "this user still exists and their credentials have not
+     * changed since token issuance" (issue #43 C1/C2). Never returned from
+     * validate(), never logged.
+     */
+    private static function pass_fingerprint(int $user_id): ?string
+    {
+        $user = get_userdata($user_id);
+        if (false === $user) {
+            return null;
+        }
+
+        return hash('sha256', $user->user_pass);
     }
 
     private static function hash(string $token): string

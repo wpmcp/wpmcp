@@ -59,8 +59,9 @@ class TokenGrantTest extends \WP_UnitTestCase
 
     public function test_happy_path_exchanges_a_valid_code_for_a_bearer_token(): void
     {
-        $client = $this->register_client();
-        $code   = $this->issue_code($client['client_id']);
+        $client  = $this->register_client();
+        $user_id = self::factory()->user->create(['role' => 'subscriber']);
+        $code    = $this->issue_code($client['client_id'], $user_id);
 
         $result = Token_Grant::exchange([
             'grant_type'    => 'authorization_code',
@@ -77,7 +78,7 @@ class TokenGrantTest extends \WP_UnitTestCase
         $this->assertSame('read', $result['scope']);
 
         $validated = Token_Store::validate($result['access_token']);
-        $this->assertSame(42, $validated['user_id']);
+        $this->assertSame($user_id, $validated['user_id']);
         $this->assertSame($client['client_id'], $validated['client_id']);
     }
 
