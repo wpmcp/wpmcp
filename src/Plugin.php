@@ -8,6 +8,9 @@ use WPMCP\Admin\Audit_Log_Page;
 use WPMCP\Admin\History_Page;
 use WPMCP\Admin\Restore_Controller;
 use WPMCP\Maintenance\Maintenance_Guard;
+use WPMCP\Tools\Maintenance\Get_Maintenance_Status;
+use WPMCP\Tools\Maintenance\Enable_Maintenance;
+use WPMCP\Tools\Maintenance\Disable_Maintenance;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
 use WPMCP\Tools\Get_Page;
@@ -1327,6 +1330,7 @@ final class Plugin
         $this->register_meta_abilities($registrar);
         $this->register_diagnostics_abilities($registrar);
         $this->register_cron_abilities($registrar);
+        $this->register_maintenance_abilities($registrar);
     }
 
     /**
@@ -1419,6 +1423,74 @@ final class Plugin
             [$run_event, 'handle'],
             'manage_options',
             'cron',
+            'update'
+        ));
+    }
+
+    /**
+     * Register the maintenance-mode tools as free-tier abilities (parity
+     * gap tracked in issue #42).
+     *
+     * All three are gated at manage_options and tagged domain 'maintenance':
+     * turning maintenance mode on or off is a site-operations-level action,
+     * matching the same capability already used for cron and diagnostics.
+     * get-maintenance-status is 'read'. enable-maintenance and
+     * disable-maintenance are both 'update', routed through Safe_Mutation on
+     * the 'wpmcp_maintenance' option, so rollback-operation restores the
+     * prior on/off state. Front-end enforcement (Maintenance_Guard, hooked
+     * to template_redirect in boot()) reads the same option and exempts any
+     * user who is logged in and holds manage_options, so registering these
+     * abilities never risks locking an admin out of their own site.
+     */
+    private function register_maintenance_abilities(Registrar $registrar): void
+    {
+        $get_maintenance_status = new Get_Maintenance_Status();
+        $enable_maintenance     = new Enable_Maintenance();
+        $disable_maintenance    = new Disable_Maintenance();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-maintenance-status',
+            'free',
+            'Report whether maintenance mode is on and, when it is, the configured message and Retry-After seconds. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$get_maintenance_status, 'handle'],
+            'manage_options',
+            'maintenance',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/enable-maintenance',
+            'free',
+            'Turn maintenance mode on: sets the wpmcp_maintenance option (enabled=true, message, retry_after seconds). Front-end visitors who are not logged in as a manage_options user then receive a 503 with the configured message until maintenance mode is disabled again. Snapshotted via object_type option (the wpmcp_maintenance option); rollback-operation restores the prior state',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'message'     => [ 'type' => 'string' ],
+                    'retry_after' => [ 'type' => 'integer' ],
+                    'session_id'  => [ 'type' => 'string' ],
+                ],
+            ],
+            [$enable_maintenance, 'handle'],
+            'manage_options',
+            'maintenance',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/disable-maintenance',
+            'free',
+            'Turn maintenance mode off: sets enabled=false on the wpmcp_maintenance option (message and retry_after are preserved for a later re-enable). Snapshotted via object_type option (the wpmcp_maintenance option); rollback-operation restores the prior state',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+            ],
+            [$disable_maintenance, 'handle'],
+            'manage_options',
+            'maintenance',
             'update'
         ));
     }
