@@ -127,6 +127,12 @@ use WPMCP\Tools\Backup\Get_Backup_Status;
 use WPMCP\Tools\Backup\List_Backup_Jobs;
 use WPMCP\Tools\Backup\Cancel_Backup_Job;
 use WPMCP\Tools\Backup\Run_Backup_Job;
+use WPMCP\Tools\Governance\Get_Governance_Settings;
+use WPMCP\Tools\Governance\Update_Governance_Settings;
+use WPMCP\Tools\Governance\List_Governance_Audit_Log;
+use WPMCP\Tools\Identity\Create_Identity;
+use WPMCP\Tools\Identity\List_Identities;
+use WPMCP\Tools\Identity\Delete_Identity;
 use WPMCP\Tools\Elementor\List_Widgets;
 use WPMCP\Tools\Elementor\Get_Widget_Schema;
 use WPMCP\Tools\Elementor\Get_Elementor_Data;
@@ -1423,6 +1429,7 @@ final class Plugin
         $this->register_analysis_abilities($registrar);
         $this->register_code_abilities($registrar);
         $this->register_connect_abilities($registrar);
+        $this->register_governance_abilities($registrar);
     }
 
     /**
@@ -2046,6 +2053,124 @@ final class Plugin
             'manage_options',
             'backup',
             'update'
+        ));
+    }
+
+    /**
+     * Governance configuration, scoped identities, and the governance
+     * decision audit log. All free-tier at manage_options, domain
+     * 'governance', matching the existing config/audit tools in this
+     * codebase (list-operations, rollback-*, get/update-settings): access
+     * control configuration is site administration, not a feature add-on,
+     * so none of this is gated behind Pro.
+     */
+    private function register_governance_abilities(Registrar $registrar): void
+    {
+        $get_governance_settings    = new Get_Governance_Settings();
+        $update_governance_settings = new Update_Governance_Settings();
+        $list_governance_audit_log  = new List_Governance_Audit_Log();
+        $create_identity            = new Create_Identity();
+        $list_identities            = new List_Identities();
+        $delete_identity            = new Delete_Identity();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-governance-settings',
+            'free',
+            'Return the stored governance toggle maps (ability, domain, operation): explicit enable/disable decisions layered on top of the wpmcp_ability_enabled/wpmcp_domain_enabled/wpmcp_operation_enabled filters. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$get_governance_settings, 'handle'],
+            'manage_options',
+            'governance',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/update-governance-settings',
+            'free',
+            'Batch-update stored governance toggles across the ability, domain, and operation dimensions, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}, operation: {"delete": false}}. Invalid individual entries are skipped and reported, not thrown for; only entirely empty input throws',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'ability'   => [ 'type' => 'object' ],
+                    'domain'    => [ 'type' => 'object' ],
+                    'operation' => [ 'type' => 'object' ],
+                ],
+            ],
+            [$update_governance_settings, 'handle'],
+            'manage_options',
+            'governance',
+            'update'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/list-governance-audit-log',
+            'free',
+            'List governance-decision audit log entries (ability, active identity or "none", allowed/denied, timestamp), newest first. Optional limit (default 20). Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'limit' => [ 'type' => 'integer' ],
+                ],
+            ],
+            [$list_governance_audit_log, 'handle'],
+            'manage_options',
+            'governance',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/create-identity',
+            'free',
+            'Create (or overwrite, by name) a scoped identity: a named restriction that, once active (see the wpmcp_current_identity filter), narrows which abilities are usable on top of the caller\'s capability and Governance. Accepts name (required), and optional domains/operations/abilities allowlists plus mode (allow, the default, or deny)',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'name'       => [ 'type' => 'string' ],
+                    'domains'    => [ 'type' => 'array' ],
+                    'operations' => [ 'type' => 'array' ],
+                    'abilities'  => [ 'type' => 'array' ],
+                    'mode'       => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'name' ],
+            ],
+            [$create_identity, 'handle'],
+            'manage_options',
+            'governance',
+            'create'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/list-identities',
+            'free',
+            'List every registered scoped identity. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$list_identities, 'handle'],
+            'manage_options',
+            'governance',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/delete-identity',
+            'free',
+            'Delete a scoped identity by name. Returns an error if no identity with that name exists',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'name' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'name' ],
+            ],
+            [$delete_identity, 'handle'],
+            'manage_options',
+            'governance',
+            'delete'
         ));
     }
 

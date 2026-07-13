@@ -19,10 +19,10 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_all_132_abilities_register_by_default(): void
+    public function test_all_138_abilities_register_by_default(): void
     {
         $registrar = Plugin::instance()->registrar();
-        $this->assertCount(132, $registrar->all());
+        $this->assertCount(138, $registrar->all());
     }
 
     public function test_read_ability_has_read_only_annotation(): void
@@ -299,6 +299,24 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertSame('read', $abilities['wpmcp/list-tool-catalog']->operation);
         $this->assertSame('manage_options', $abilities['wpmcp/list-tool-catalog']->capability);
         $this->assertTrue($abilities['wpmcp/list-tool-catalog']->read_only_hint);
+    }
+
+    public function test_governance_abilities_are_tagged_governance_domain(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        $this->assertSame('governance', $abilities['wpmcp/get-governance-settings']->domain);
+        $this->assertSame('read', $abilities['wpmcp/get-governance-settings']->operation);
+        $this->assertSame('governance', $abilities['wpmcp/update-governance-settings']->domain);
+        $this->assertSame('update', $abilities['wpmcp/update-governance-settings']->operation);
+        $this->assertSame('governance', $abilities['wpmcp/list-governance-audit-log']->domain);
+        $this->assertSame('read', $abilities['wpmcp/list-governance-audit-log']->operation);
+        $this->assertSame('governance', $abilities['wpmcp/create-identity']->domain);
+        $this->assertSame('create', $abilities['wpmcp/create-identity']->operation);
+        $this->assertSame('governance', $abilities['wpmcp/list-identities']->domain);
+        $this->assertSame('read', $abilities['wpmcp/list-identities']->operation);
+        $this->assertSame('governance', $abilities['wpmcp/delete-identity']->domain);
+        $this->assertSame('delete', $abilities['wpmcp/delete-identity']->operation);
     }
 
     /** @param Ability[] $abilities @return array<string, Ability> */
