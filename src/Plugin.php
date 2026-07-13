@@ -19,6 +19,7 @@ use WPMCP\Tools\Blocks\Get_Block_Type;
 use WPMCP\Tools\Blocks\Parse_Blocks;
 use WPMCP\Tools\Blocks\Serialize_Blocks;
 use WPMCP\Tools\Structure\List_Shortcodes;
+use WPMCP\Tools\Structure\Render_Shortcode;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
 use WPMCP\Tools\Get_Page;
@@ -1695,7 +1696,8 @@ final class Plugin
      */
     private function register_structure_abilities(Registrar $registrar): void
     {
-        $list_shortcodes = new List_Shortcodes();
+        $list_shortcodes  = new List_Shortcodes();
+        $render_shortcode = new Render_Shortcode();
 
         $registrar->register(new Ability(
             'wpmcp/list-shortcodes',
@@ -1708,6 +1710,22 @@ final class Plugin
                 ],
             ],
             [$list_shortcodes, 'handle'],
+            'edit_posts',
+            'structure',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/render-shortcode',
+            'free',
+            'Render a shortcode string (e.g. "[gallery ids=\"1,2\"]") via do_shortcode() and return the resulting HTML. Only invokes tags already present in the registered shortcode registry; input must contain an opening "[" or it is refused',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'shortcode' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'shortcode' ],
+            ],
+            [$render_shortcode, 'handle'],
             'edit_posts',
             'structure',
             'read'
