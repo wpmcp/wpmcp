@@ -28,6 +28,7 @@ use WPMCP\Tools\Export\List_Exports;
 use WPMCP\Tools\Export\Import_Content;
 use WPMCP\Tools\Analysis\Check_Contrast;
 use WPMCP\Tools\Code\Validate_Php_Snippet;
+use WPMCP\Tools\Code\Run_Php_Snippet;
 use WPMCP\Tools\Cli\Run_Wp_Cli;
 use WPMCP\Tools\Analysis\Extract_Content;
 use WPMCP\Tools\Analysis\Analyze_Seo;
@@ -1454,6 +1455,7 @@ final class Plugin
         $this->register_analysis_abilities($registrar);
         $this->register_code_abilities($registrar);
         $this->register_cli_abilities($registrar);
+        $this->register_php_exec_abilities($registrar);
         $this->register_connect_abilities($registrar);
         $this->register_governance_abilities($registrar);
         $this->register_multisite_abilities($registrar);
@@ -1531,6 +1533,51 @@ final class Plugin
             [$run_wp_cli, 'handle'],
             'manage_options',
             'cli',
+            'update'
+        ));
+    }
+
+    /**
+     * Register the guarded PHP snippet executor (issue #45) as a PRO-tier
+     * ability. This is the single most dangerous capability this plugin
+     * exposes: running arbitrary PHP is remote code execution by
+     * definition. It is the ONE explicit escape hatch outside the
+     * snapshot/rollback safety model (Safety\Snapshot_Store, Safe_Mutation,
+     * Rollback_Service): a snippet's effects are not captured before it
+     * runs and are not undoable afterward, because there is no generic
+     * before-image to snapshot for "whatever arbitrary PHP does." This
+     * plugin's "AI physically can't wreck your site" promise holds here
+     * ONLY because Run_Php_Snippet/Php_Snippet_Guard default this off,
+     * fail closed on production and any unrecognized environment, and
+     * require an operator to deliberately, explicitly enable it.
+     *
+     * Gated at manage_options (matching run-wp-cli and every other
+     * site-operations tool group), domain 'code', operation 'update' (it
+     * can mutate arbitrary site state, unlike validate-php-snippet's
+     * read-only static analysis). Registering this ability does not, by
+     * itself, allow any snippet to run: Run_Php_Snippet::handle() still
+     * refuses unless PHP execution is explicitly enabled, the environment
+     * permits it, and the #22 static validator does not flag the snippet
+     * as unsafe (a usability speed-bump, not a security boundary).
+     */
+    private function register_php_exec_abilities(Registrar $registrar): void
+    {
+        $run_php_snippet = new Run_Php_Snippet();
+
+        $registrar->register(new Ability(
+            'wpmcp/run-php-snippet',
+            'pro',
+            'Run a guarded, arbitrary PHP snippet and return its return value, echoed output, and any thrown error. THIS IS REMOTE CODE EXECUTION: disabled by default (opt in via the WPMCP_ALLOW_PHP_EXEC constant or wpmcp_allow_php_exec filter); refuses to run on a production environment or any unrecognized environment unless a separate WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION override is also set; snippets flagged unsafe by the static validator are rejected before execution as a usability speed-bump only, not a security boundary. Its effects are not captured by this plugin\'s snapshot/rollback system and cannot be undone.',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'code' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'code' ],
+            ],
+            [$run_php_snippet, 'handle'],
+            'manage_options',
+            'code',
             'update'
         ));
     }
