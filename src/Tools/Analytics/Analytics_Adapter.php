@@ -278,4 +278,60 @@ class Analytics_Adapter
 
         return $out;
     }
+
+    /**
+     * Normalize a Search Console searchanalytics.query response (queried
+     * with no dimensions, so a single totals row) into the neutral summary
+     * shape: ['start_date'=>, 'end_date'=>, 'clicks'=>int,
+     * 'impressions'=>int, 'ctr'=>float, 'position'=>float]. Pure, so it is
+     * testable without a live Search Console call.
+     *
+     * Missing/empty rows default every value to 0/0.0 rather than erroring,
+     * matching normalize_ga4_summary()'s treatment of an empty report.
+     *
+     * Honesty note: this fixture/mapping shape approximates the Search
+     * Console searchanalytics.query response (a "rows" array of objects,
+     * each with numeric "clicks", "impressions", "ctr", "position" fields
+     * directly, unlike GA4's nested value-wrapper) based on the public API
+     * reference. It has not been verified against a live Search Console
+     * response.
+     */
+    public static function normalize_gsc_summary(array $raw, string $start_date, string $end_date): array
+    {
+        $row = $raw['rows'][0] ?? [];
+
+        return [
+            'start_date'  => $start_date,
+            'end_date'    => $end_date,
+            'clicks'      => (int) ($row['clicks'] ?? 0),
+            'impressions' => (int) ($row['impressions'] ?? 0),
+            'ctr'         => (float) ($row['ctr'] ?? 0.0),
+            'position'    => (float) ($row['position'] ?? 0.0),
+        ];
+    }
+
+    /**
+     * Normalize a Search Console searchanalytics.query response (queried
+     * with dimensions=['query']) into a list of
+     * ['query'=>string,'clicks'=>int,'impressions'=>int]. Pure, same
+     * honesty caveat as normalize_gsc_summary(): the fixture shape
+     * approximates, but is not verified against, a live Search Console
+     * response. Each row's "keys" array holds the dimension value(s)
+     * requested, in this case a single query string.
+     */
+    public static function normalize_gsc_queries(array $raw): array
+    {
+        $rows = $raw['rows'] ?? [];
+        $out  = [];
+
+        foreach ($rows as $row) {
+            $out[] = [
+                'query'       => (string) ($row['keys'][0] ?? ''),
+                'clicks'      => (int) ($row['clicks'] ?? 0),
+                'impressions' => (int) ($row['impressions'] ?? 0),
+            ];
+        }
+
+        return $out;
+    }
 }

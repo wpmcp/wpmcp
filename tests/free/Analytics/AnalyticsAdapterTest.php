@@ -266,4 +266,82 @@ class AnalyticsAdapterTest extends \WP_UnitTestCase
     {
         $this->assertSame([], Analytics_Adapter::normalize_ga4_top_pages([]));
     }
+
+    /**
+     * Fixture shape approximates the Search Console searchanalytics.query
+     * response (a "rows" array, each row carrying numeric "clicks",
+     * "impressions", "ctr", and "position" fields directly, no nested
+     * value-wrapper unlike GA4) based on the public API reference. Not
+     * verified against a live Search Console response.
+     */
+    public function test_normalize_gsc_summary_maps_a_fixture_search_analytics_response(): void
+    {
+        $raw = [
+            'rows' => [
+                [
+                    'clicks'      => 42,
+                    'impressions' => 1000,
+                    'ctr'         => 0.042,
+                    'position'    => 8.5,
+                ],
+            ],
+        ];
+
+        $result = Analytics_Adapter::normalize_gsc_summary($raw, '2026-01-01', '2026-01-28');
+
+        $this->assertSame([
+            'start_date'   => '2026-01-01',
+            'end_date'     => '2026-01-28',
+            'clicks'       => 42,
+            'impressions'  => 1000,
+            'ctr'          => 0.042,
+            'position'     => 8.5,
+        ], $result);
+    }
+
+    public function test_normalize_gsc_summary_defaults_to_zero_when_rows_are_missing(): void
+    {
+        $result = Analytics_Adapter::normalize_gsc_summary([], '2026-01-01', '2026-01-28');
+
+        $this->assertSame(0, $result['clicks']);
+        $this->assertSame(0, $result['impressions']);
+        $this->assertSame(0.0, $result['ctr']);
+        $this->assertSame(0.0, $result['position']);
+    }
+
+    /**
+     * Same honesty caveat: this fixture approximates a Search Console
+     * searchanalytics.query response with dimensions=['query'], each row's
+     * "keys" holding the query string per the public API reference. Not
+     * verified against a live response.
+     */
+    public function test_normalize_gsc_queries_maps_a_fixture_search_analytics_response(): void
+    {
+        $raw = [
+            'rows' => [
+                [
+                    'keys'        => ['grand rapids itinerary'],
+                    'clicks'      => 30,
+                    'impressions' => 400,
+                ],
+                [
+                    'keys'        => ['visit grand rapids'],
+                    'clicks'      => 12,
+                    'impressions' => 200,
+                ],
+            ],
+        ];
+
+        $result = Analytics_Adapter::normalize_gsc_queries($raw);
+
+        $this->assertSame([
+            ['query' => 'grand rapids itinerary', 'clicks' => 30, 'impressions' => 400],
+            ['query' => 'visit grand rapids', 'clicks' => 12, 'impressions' => 200],
+        ], $result);
+    }
+
+    public function test_normalize_gsc_queries_returns_an_empty_array_when_rows_are_missing(): void
+    {
+        $this->assertSame([], Analytics_Adapter::normalize_gsc_queries([]));
+    }
 }
