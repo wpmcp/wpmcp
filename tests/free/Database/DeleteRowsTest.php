@@ -70,7 +70,10 @@ class DeleteRowsTest extends \WP_UnitTestCase
 
         $this->assertSame($wpdb->options, $result['table']);
         $this->assertSame(1, $result['affected']);
-        $this->assertFalse($result['recoverable']);
+        // wp_options has a primary key, so since issue #82 this delete is
+        // snapshot-backed and genuinely restorable.
+        $this->assertTrue($result['recoverable']);
+        $this->assertNotEmpty($result['operation_id']);
         $this->assertNotEmpty($result['before_image']);
         $this->assertSame('gone-soon', $result['before_image'][0]['option_value']);
 
