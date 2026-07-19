@@ -169,7 +169,7 @@ Compact mode is exposure-only and off by default. It never changes which abiliti
 
 Choose the mode site-wide with the `wpmcp_tool_exposure_mode` option (`full` or `compact`), per scoped identity via the identity's `exposure` field (`create-identity` accepts it; it overrides the site setting for that agent), or in code via the `wpmcp_tool_exposure_mode` filter. The `wpmcp_compact_exposed_abilities` filter can add tools to the compact core (the three meta-tools are always included).
 
-Measured `tools/list` payload (v0.7.32 test environment, all optional plugins active): **full** 67,761 bytes across 147 tools; **compact** 2,790 bytes across 5 tools — a **95.9% reduction**. The numbers are pinned by a checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) and re-measured on every CI run.
+Measured `tools/list` payload (test environment, all optional plugins active): **full** 72,897 bytes across 154 tools; **compact** 2,790 bytes across 5 tools — a **96.2% reduction**. The numbers are pinned by a checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) and re-measured on every CI run.
 
 ## Free vs Pro
 
