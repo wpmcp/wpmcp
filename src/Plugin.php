@@ -34,6 +34,8 @@ use WPMCP\Tools\Analysis\Extract_Content;
 use WPMCP\Tools\Analysis\Analyze_Seo;
 use WPMCP\Tools\Analysis\Analyze_Accessibility;
 use WPMCP\Admin\Handshake_Settings_Page;
+use WPMCP\Admin\Connection_Page;
+use WPMCP\Connect\Exposure;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Handshake_Instructions;
 use WPMCP\MCP\Registrar;
@@ -250,6 +252,14 @@ final class Plugin
             // The Settings API registration for the handshake instructions
             // option (sanitize + clamp on every save through options.php).
             add_action('admin_init', [Handshake_Settings_Page::class, 'register_setting']);
+            // Master MCP exposure switch (issue #76): narrows through the
+            // existing wpmcp_ability_enabled governance filter (off = every
+            // ability denies on the next request) and surfaces its state in
+            // the admin bar for manage_options users.
+            Exposure::register();
+            // Secret-free Claude Desktop bundle download from the Connection
+            // screen (nonce + manage_options enforced inside the handler).
+            add_action('admin_post_wpmcp_download_bundle', [new Connection_Page(), 'download_bundle']);
         }
     }
 
@@ -302,6 +312,19 @@ final class Plugin
             'manage_options',
             'wpmcp-handshake',
             [new Handshake_Settings_Page(), 'render']
+        );
+
+        // Connection manager (issue #76): provisions Application Passwords,
+        // reveals them exactly once alongside filled client configs, serves
+        // the desktop bundle, and hosts the master exposure switch — all
+        // site-wide trust decisions, so manage_options like the rest.
+        add_submenu_page(
+            'wpmcp',
+            'wpmcp: Connection',
+            'Connection',
+            'manage_options',
+            Connection_Page::SLUG,
+            [new Connection_Page(), 'render']
         );
     }
 

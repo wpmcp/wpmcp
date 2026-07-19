@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Connect;
 
+use WPMCP\Connect\Client_Config_Generator;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -14,8 +16,8 @@ if (! defined('ABSPATH')) {
  * The endpoint is this site's REST base plus the route the WordPress 6.9+
  * Abilities/MCP integration mounts for a plugin named "wpmcp"
  * (wp-json/mcp/wpmcp-server), matching what this plugin's own README
- * documents as the connection URL. If a future WordPress core version mounts
- * a different route, this is the one place that needs updating.
+ * documents as the connection URL. The route lives in one place —
+ * Client_Config_Generator::ROUTE — shared with the Connection admin screen.
  *
  * Authorization is always a WordPress Application Password sent as HTTP
  * Basic auth (base64 of "username:application-password"); this tool never
@@ -24,11 +26,9 @@ if (! defined('ABSPATH')) {
  */
 class Get_Connection_Info
 {
-    private const ROUTE = '/wp-json/mcp/wpmcp-server';
-
     public function handle(array $args): array
     {
-        $endpoint          = home_url(self::ROUTE);
+        $endpoint          = Client_Config_Generator::endpoint();
         $auth_header_value = 'Basic BASE64_OF_username:application-password';
 
         return [
