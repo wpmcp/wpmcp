@@ -10,6 +10,13 @@ class BlocksAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/parse-blocks',
         'wpmcp/serialize-blocks',
         'wpmcp/convert-html-to-blocks',
+        'wpmcp/add-block',
+        'wpmcp/update-block',
+        'wpmcp/remove-block',
+        'wpmcp/move-block',
+        'wpmcp/duplicate-block',
+        'wpmcp/list-patterns',
+        'wpmcp/insert-pattern',
     ];
 
     public function test_all_block_tools_are_registered_as_free_abilities(): void
