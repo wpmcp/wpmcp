@@ -33,7 +33,9 @@ use WPMCP\Tools\Cli\Run_Wp_Cli;
 use WPMCP\Tools\Analysis\Extract_Content;
 use WPMCP\Tools\Analysis\Analyze_Seo;
 use WPMCP\Tools\Analysis\Analyze_Accessibility;
+use WPMCP\Admin\Handshake_Settings_Page;
 use WPMCP\MCP\Ability;
+use WPMCP\MCP\Handshake_Instructions;
 use WPMCP\MCP\Registrar;
 use WPMCP\Tools\Get_Page;
 use WPMCP\Tools\Update_Blocks;
@@ -235,6 +237,19 @@ final class Plugin
             // checks work for OAuth callers with no change to Registrar
             // itself. Also a no-op unless OAuth_Config::is_enabled().
             (new Bearer_Auth())->register();
+            // Handshake context injection (issue #80): swap the MCP
+            // Adapter's initialize `instructions` for the admin-authored
+            // text plus the permission-gated site summary. A no-op unless
+            // the adapter (which owns this filter) is installed and fires it.
+            add_filter(
+                'mcp_adapter_initialize_response',
+                [new Handshake_Instructions(), 'filter_initialize'],
+                10,
+                2
+            );
+            // The Settings API registration for the handshake instructions
+            // option (sanitize + clamp on every save through options.php).
+            add_action('admin_init', [Handshake_Settings_Page::class, 'register_setting']);
         }
     }
 
@@ -275,6 +290,18 @@ final class Plugin
             'manage_options',
             'wpmcp-audit-log',
             [new Audit_Log_Page(), 'render']
+        );
+
+        // Handshake instructions (issue #80): the text on this screen is
+        // broadcast to every connecting MCP client at initialize, so editing
+        // it is a site-wide trust decision — manage_options, like the rest.
+        add_submenu_page(
+            'wpmcp',
+            'wpmcp: Handshake Instructions',
+            'Handshake',
+            'manage_options',
+            'wpmcp-handshake',
+            [new Handshake_Settings_Page(), 'render']
         );
     }
 

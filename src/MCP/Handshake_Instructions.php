@@ -149,6 +149,38 @@ class Handshake_Instructions
         }
     }
 
+    /**
+     * Callback for the MCP Adapter's mcp_adapter_initialize_response filter:
+     * replaces the initialize result's `instructions` with build(), leaving
+     * every other field untouched. Duck-typed against the InitializeResult
+     * DTO's documented toArray()/fromArray() round-trip (the adapter is a
+     * separate plugin, so its DTO class cannot be referenced here); anything
+     * not honoring that contract passes through unchanged.
+     *
+     * @param mixed $result The adapter's InitializeResult DTO.
+     * @param mixed $server The McpServer instance (unused).
+     * @return mixed
+     */
+    public function filter_initialize($result, $server = null)
+    {
+        if (
+            ! is_object($result)
+            || ! method_exists($result, 'toArray')
+            || ! method_exists($result, 'fromArray')
+        ) {
+            return $result;
+        }
+
+        $data = $result->toArray();
+        if (! is_array($data)) {
+            return $result;
+        }
+
+        $data['instructions'] = $this->build();
+
+        return $result::fromArray($data);
+    }
+
     /** Multibyte-safe length clamp that never splits a UTF-8 character. */
     private function clamp(string $text, int $max): string
     {
