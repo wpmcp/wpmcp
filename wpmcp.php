@@ -12,10 +12,9 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 define( 'WPMCP_VERSION', '0.7.32' );
 define( 'WPMCP_FILE', __FILE__ );
 define( 'WPMCP_DIR', plugin_dir_path( __FILE__ ) );
-// Freemius credentials: placeholders until this plugin is registered on freemius.com.
-// Fill WPMCP_FS_ID (Plugin ID) and WPMCP_FS_PUBLIC_KEY (Public Key) from the freemius.com dashboard.
-define( 'WPMCP_FS_ID', 0 );
-define( 'WPMCP_FS_PUBLIC_KEY', '' );
+// Freemius credentials (registered on freemius.com; the public key is public by design).
+define( 'WPMCP_FS_ID', 34955 );
+define( 'WPMCP_FS_PUBLIC_KEY', 'pk_198c5294157bf7068fd2ffd493957' );
 require_once __DIR__ . '/vendor/autoload.php';
 \WPMCP\Freemius\Bootstrap::init();
 \WPMCP\Plugin::instance()->boot();

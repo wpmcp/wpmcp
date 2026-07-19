@@ -25,15 +25,15 @@ class Snapshot_Store
         $table   = self::table_name();
         $charset = $wpdb->get_charset_collate();
         dbDelta("CREATE TABLE {$table} (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             operation_id CHAR(36) NOT NULL,
             session_id CHAR(36) NOT NULL,
             object_type VARCHAR(32) NOT NULL,
-            object_id BIGINT UNSIGNED NOT NULL,
+            object_id BIGINT(20) UNSIGNED NOT NULL,
             tool_name VARCHAR(64) NOT NULL,
             args_hash CHAR(64) NOT NULL,
             before_blob LONGBLOB NOT NULL,
-            user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            user_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             KEY operation_id (operation_id),

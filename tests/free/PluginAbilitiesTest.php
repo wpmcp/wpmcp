@@ -25,6 +25,19 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertCount(144, $registrar->all());
     }
 
+    public function test_no_pro_tier_ability_registers_without_a_license(): void
+    {
+        // Real license path (no Gate test override): the harness boots the
+        // live Freemius SDK with an unlicensed install, so every 'pro' tier
+        // ability must have been skipped at registration time (issue #54).
+        $pro = array_filter(
+            Plugin::instance()->registrar()->all(),
+            fn ($ability) => 'pro' === $ability->tier
+        );
+
+        $this->assertCount(0, $pro);
+    }
+
     public function test_read_ability_has_read_only_annotation(): void
     {
         $registrar = Plugin::instance()->registrar();
