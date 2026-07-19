@@ -4,6 +4,11 @@
     <testsuite name="free"><directory>tests/free</directory></testsuite>
     <testsuite name="pro"><directory>tests/pro</directory></testsuite>
   </testsuites>
+  <coverage processUncoveredFiles="true">
+    <include>
+      <directory suffix=".php">src</directory>
+    </include>
+  </coverage>
   <php>
     <const name="WPMCP_TESTING" value="true"/>
   </php>

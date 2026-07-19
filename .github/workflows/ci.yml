@@ -4,7 +4,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
-      matrix: { php: ['8.1','8.2'] }
+      matrix: { php: ['8.1','8.2','8.3','8.4'] }
     services:
       mysql:
         image: mariadb:10.6
@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: shivammathur/setup-php@v2
-        with: { php-version: '${{ matrix.php }}' }
+        with: { php-version: '${{ matrix.php }}', coverage: pcov }
       - run: composer install --no-interaction
       - run: composer lint
       - name: Install subversion (required by install-wp-tests.sh)
@@ -23,3 +23,20 @@ jobs:
       - name: Install optional test plugins (Elementor, WooCommerce, ACF, Yoast SEO, Polylang)
         run: bash bin/install-test-plugins.sh
       - run: composer test
+        if: matrix.php != '8.4'
+      # On one matrix leg the plain run is replaced by a pcov coverage run of
+      # the same suite: it emits clover + text reports, enforces the coverage
+      # floor (a ratchet: only ever raise it), and uploads the report as a
+      # per-run artifact. See issue #55.
+      - name: Run suite with coverage (pcov)
+        if: matrix.php == '8.4'
+        run: composer test:coverage
+      - name: Enforce coverage floor
+        if: matrix.php == '8.4'
+        run: php bin/check-coverage.php coverage/clover.xml 89.5
+      - name: Upload coverage artifact
+        if: matrix.php == '8.4'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
