@@ -21,7 +21,13 @@ class Parse_Blocks
 
         $parsed = parse_blocks($markup);
 
-        return ['blocks' => array_map([$this, 'normalize'], $parsed)];
+        return [
+            'blocks'       => array_map([$this, 'normalize'], $parsed),
+            // Freshness token for the surgical block tools (issue #56): pass
+            // this back as expected_hash so a later write can prove the
+            // content has not changed since this read.
+            'content_hash' => hash('sha256', $markup),
+        ];
     }
 
     private function resolve_markup(array $args): string

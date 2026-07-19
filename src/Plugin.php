@@ -19,6 +19,13 @@ use WPMCP\Tools\Blocks\Get_Block_Type;
 use WPMCP\Tools\Blocks\Parse_Blocks;
 use WPMCP\Tools\Blocks\Serialize_Blocks;
 use WPMCP\Tools\Blocks\Convert_Html_To_Blocks;
+use WPMCP\Tools\Blocks\Add_Block;
+use WPMCP\Tools\Blocks\Update_Block;
+use WPMCP\Tools\Blocks\Remove_Block;
+use WPMCP\Tools\Blocks\Move_Block;
+use WPMCP\Tools\Blocks\Duplicate_Block;
+use WPMCP\Tools\Blocks\List_Patterns;
+use WPMCP\Tools\Blocks\Insert_Pattern;
 use WPMCP\Tools\Structure\List_Shortcodes;
 use WPMCP\Tools\Structure\Render_Shortcode;
 use WPMCP\Tools\Structure\List_Sidebars;
@@ -1987,6 +1994,171 @@ final class Plugin
             'edit_posts',
             'blocks',
             'read'
+        ));
+        $this->register_surgical_block_abilities($registrar);
+    }
+
+    /**
+     * Register the surgical per-block editing tools and pattern tools
+     * (issue #56) as free-tier abilities, domain 'blocks'.
+     *
+     * Shared targeting model: a "path" is an array of zero-based indexes
+     * into the tree exactly as parse-blocks reports it, each subsequent
+     * index descending into innerBlocks. Every mutation requires
+     * expected_hash (the content_hash returned by parse-blocks) so a stale
+     * read is refused instead of clobbering concurrent edits, refuses
+     * content that does not round-trip byte-identically through
+     * parse/serialize (so untouched blocks are never rewritten), and is
+     * snapshot-first via Safe_Mutation, restorable with rollback-operation.
+     */
+    private function register_surgical_block_abilities(Registrar $registrar): void
+    {
+        $add_block       = new Add_Block();
+        $update_block    = new Update_Block();
+        $remove_block    = new Remove_Block();
+        $move_block      = new Move_Block();
+        $duplicate_block = new Duplicate_Block();
+        $list_patterns   = new List_Patterns();
+        $insert_pattern  = new Insert_Pattern();
+
+        $path_schema = [
+            'type'  => 'array',
+            'items' => [ 'type' => 'integer' ],
+        ];
+
+        $registrar->register(new Ability(
+            'wpmcp/add-block',
+            'free',
+            'Surgically insert ONE block (given as "<!-- wp:... -->" delimited markup) into a post so it lands at "path" (array of zero-based indexes into the parse-blocks tree; the final segment may equal the sibling count to append; nested paths descend innerBlocks). Requires expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first; every other block stays byte-identical',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'            => [ 'type' => 'integer' ],
+                    'path'          => $path_schema,
+                    'markup'        => [ 'type' => 'string' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'session_id'    => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id', 'path', 'markup', 'expected_hash' ],
+            ],
+            [$add_block, 'handle'],
+            'edit_posts',
+            'blocks',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-block',
+            'free',
+            'Surgically update ONE block in place by "path" (array of zero-based indexes into the parse-blocks tree, descending innerBlocks): replace its attributes ("attrs", full replacement) and/or its inner HTML ("inner_html", leaf blocks only — target a container\'s children by their own paths). Requires expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first; every other block stays byte-identical',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'            => [ 'type' => 'integer' ],
+                    'path'          => $path_schema,
+                    'attrs'         => [ 'type' => 'object' ],
+                    'inner_html'    => [ 'type' => 'string' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'session_id'    => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id', 'path', 'expected_hash' ],
+            ],
+            [$update_block, 'handle'],
+            'edit_posts',
+            'blocks',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/remove-block',
+            'free',
+            'Surgically remove ONE block by "path" (array of zero-based indexes into the parse-blocks tree, descending innerBlocks); nested removals keep the container wrapper intact. Requires expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first and fully restorable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'            => [ 'type' => 'integer' ],
+                    'path'          => $path_schema,
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'session_id'    => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id', 'path', 'expected_hash' ],
+            ],
+            [$remove_block, 'handle'],
+            'edit_posts',
+            'blocks',
+            'delete'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/move-block',
+            'free',
+            'Move the block at "from_path" to position "to_index" among its own siblings (same parent only; compose remove-block + add-block to move across parents). Requires expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'            => [ 'type' => 'integer' ],
+                    'from_path'     => $path_schema,
+                    'to_index'      => [ 'type' => 'integer' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'session_id'    => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id', 'from_path', 'to_index', 'expected_hash' ],
+            ],
+            [$move_block, 'handle'],
+            'edit_posts',
+            'blocks',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/duplicate-block',
+            'free',
+            'Duplicate the block at "path" (deep copy, inserted immediately after the original within the same parent) and return the copy\'s new_path. Requires expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'            => [ 'type' => 'integer' ],
+                    'path'          => $path_schema,
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'session_id'    => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id', 'path', 'expected_hash' ],
+            ],
+            [$duplicate_block, 'handle'],
+            'edit_posts',
+            'blocks',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/list-patterns',
+            'free',
+            'List the block patterns registered with WP_Block_Patterns_Registry: name, title, description, and categories. Optional search (case-insensitive substring match on name or title) narrows the result. Pattern markup is inserted server-side by insert-pattern, so it is not returned here. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'search' => [ 'type' => 'string' ],
+                ],
+            ],
+            [$list_patterns, 'handle'],
+            'edit_posts',
+            'blocks',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/insert-pattern',
+            'free',
+            'Insert a registered block pattern\'s parsed blocks into a post starting at "path" (same path semantics as add-block; pure-whitespace filler nodes are dropped). Requires expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first; every pre-existing block stays byte-identical',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'            => [ 'type' => 'integer' ],
+                    'name'          => [ 'type' => 'string' ],
+                    'path'          => $path_schema,
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'session_id'    => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id', 'name', 'path', 'expected_hash' ],
+            ],
+            [$insert_pattern, 'handle'],
+            'edit_posts',
+            'blocks',
+            'create'
         ));
     }
 

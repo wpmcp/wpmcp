@@ -29,10 +29,18 @@ class Update_Blocks
                 wp_update_post(['ID' => $id, 'post_content' => $blocks]);
                 return true;
             },
-            function () use ($blocks) {
-                $parsed = parse_blocks($blocks);
+            function () use ($id, $blocks) {
+                // Strengthened verify (issue #56): inspect what was actually
+                // STORED, not the input string, so a save filter mangling the
+                // write (or a silently failed write) triggers a rollback.
+                clean_post_cache($id);
+                $stored = (string) get_post($id)->post_content;
+                if ('' === trim($stored) && '' !== trim($blocks)) {
+                    return false;
+                }
+                $parsed = parse_blocks($stored);
                 foreach ($parsed as $b) {
-                    if (null === $b['blockName'] && '' !== trim($b['innerHTML']) && ! str_contains($blocks, '<!-- wp:')) {
+                    if (null === $b['blockName'] && '' !== trim($b['innerHTML']) && ! str_contains($stored, '<!-- wp:')) {
                         return false;
                     }
                 }

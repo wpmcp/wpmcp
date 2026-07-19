@@ -151,7 +151,7 @@ class SurgicalBlockEditsTest extends \WP_UnitTestCase
     public function test_add_block_appended_at_end(): void
     {
         [$id, $h] = $this->make_post();
-        $new = '<!-- wp:separator --><hr class="wp-block-separator"/><!-- /wp:separator -->';
+        $new = '<!-- wp:paragraph --><p>tail</p><!-- /wp:paragraph -->';
 
         (new Add_Block())->handle([
             'id'            => $id,
@@ -319,6 +319,96 @@ class SurgicalBlockEditsTest extends \WP_UnitTestCase
     }
 
     // ---------------------------------------------------------------
+    // Deeply nested trees (three levels)
+    // ---------------------------------------------------------------
+
+    private function deep_markup(): string
+    {
+        return '<!-- wp:group --><div class="wp-block-group">'
+            . '<!-- wp:group --><div class="wp-block-group">'
+            . '<!-- wp:paragraph --><p>a</p><!-- /wp:paragraph -->'
+            . '<!-- wp:paragraph --><p>b</p><!-- /wp:paragraph -->'
+            . '</div><!-- /wp:group -->'
+            . '</div><!-- /wp:group -->';
+    }
+
+    public function test_add_block_at_third_nesting_level(): void
+    {
+        [$id, $h] = $this->make_post($this->deep_markup());
+        $new = '<!-- wp:paragraph --><p>c</p><!-- /wp:paragraph -->';
+
+        (new Add_Block())->handle([
+            'id'            => $id,
+            'path'          => [0, 0, 2],
+            'markup'        => $new,
+            'expected_hash' => $h,
+            'session_id'    => 's1',
+        ]);
+
+        $this->assertSame(
+            str_replace('<p>b</p><!-- /wp:paragraph -->', '<p>b</p><!-- /wp:paragraph -->' . $new, $this->deep_markup()),
+            get_post($id)->post_content
+        );
+    }
+
+    public function test_remove_block_at_third_nesting_level(): void
+    {
+        [$id, $h] = $this->make_post($this->deep_markup());
+
+        (new Remove_Block())->handle([
+            'id'            => $id,
+            'path'          => [0, 0, 0],
+            'expected_hash' => $h,
+            'session_id'    => 's1',
+        ]);
+
+        $this->assertSame(
+            str_replace('<!-- wp:paragraph --><p>a</p><!-- /wp:paragraph -->', '', $this->deep_markup()),
+            get_post($id)->post_content
+        );
+    }
+
+    public function test_move_block_at_third_nesting_level(): void
+    {
+        [$id, $h] = $this->make_post($this->deep_markup());
+
+        (new Move_Block())->handle([
+            'id'            => $id,
+            'from_path'     => [0, 0, 0],
+            'to_index'      => 1,
+            'expected_hash' => $h,
+            'session_id'    => 's1',
+        ]);
+
+        $this->assertSame(
+            str_replace(
+                '<p>a</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>b</p>',
+                '<p>b</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>a</p>',
+                $this->deep_markup()
+            ),
+            get_post($id)->post_content
+        );
+    }
+
+    public function test_update_block_at_third_nesting_level(): void
+    {
+        [$id, $h] = $this->make_post($this->deep_markup());
+
+        (new Update_Block())->handle([
+            'id'            => $id,
+            'path'          => [0, 0, 1],
+            'inner_html'    => '<p>B2</p>',
+            'expected_hash' => $h,
+            'session_id'    => 's1',
+        ]);
+
+        $this->assertSame(
+            str_replace('<p>b</p>', '<p>B2</p>', $this->deep_markup()),
+            get_post($id)->post_content
+        );
+    }
+
+    // ---------------------------------------------------------------
     // Freshness: stale or missing expected_hash
     // ---------------------------------------------------------------
 
@@ -424,8 +514,15 @@ class SurgicalBlockEditsTest extends \WP_UnitTestCase
     {
         // Nonstandard spacing inside the attrs JSON re-serializes differently,
         // so a surgical edit would silently rewrite this block's bytes.
+        // Written straight to the DB (as an importer or an unfiltered_html
+        // author would): wp_insert_post's kses pass normalizes the comment
+        // and would defeat the fixture.
         $odd = '<!-- wp:heading {"level" : 3} --><h3>x</h3><!-- /wp:heading -->';
-        [$id, $h] = $this->make_post(self::PARA . $odd);
+        [$id] = $this->make_post();
+        global $wpdb;
+        $wpdb->update($wpdb->posts, ['post_content' => self::PARA . $odd], ['ID' => $id]);
+        clean_post_cache($id);
+        $h = hash('sha256', get_post($id)->post_content);
 
         try {
             (new Update_Block())->handle([
