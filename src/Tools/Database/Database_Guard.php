@@ -283,13 +283,16 @@ class Database_Guard
 
     /**
      * Capture the rows an equality-AND WHERE will affect, before an
-     * update/delete runs, so the caller can return an honest before-image
-     * even though a full generic-table rollback is not offered.
+     * update/delete runs. Since issue #82 this doubles as the snapshot
+     * payload for the recoverable path (see recoverability_probe()) and,
+     * with a limit of 1 and a primary-key WHERE, as the current-row fetch
+     * used by Rollback_Service's conflict detection.
      *
-     * @param string $table A validated real table name.
-     * @param array  $where col => value (equality AND).
+     * @param string   $table A validated real table name.
+     * @param array    $where col => value (equality AND).
+     * @param int|null $limit Row cap; defaults to BEFORE_IMAGE_CAP.
      */
-    public static function before_image(string $table, array $where): array
+    public static function before_image(string $table, array $where, ?int $limit = null): array
     {
         global $wpdb;
 
@@ -305,18 +308,135 @@ class Database_Guard
         }
 
         $sql  = 'SELECT * FROM `' . str_replace('`', '', $table) . '` WHERE '
-            . implode(' AND ', $conditions) . ' LIMIT ' . self::BEFORE_IMAGE_CAP;
+            . implode(' AND ', $conditions) . ' LIMIT ' . max(1, (int) ($limit ?? self::BEFORE_IMAGE_CAP));
         $rows = $wpdb->get_results($wpdb->prepare($sql, $values), ARRAY_A);
 
         return is_array($rows) ? $rows : [];
     }
 
     /**
-     * Append a structured write to the capped audit log. This is the
-     * recoverability record for Update_Rows/Delete_Rows: since a generic
-     * arbitrary-table rollback is not offered (see those tools' docblocks),
-     * the before-image captured here is the only trail a human has to
-     * manually reconstruct a change if needed.
+     * The table's PRIMARY KEY column names in index order, or [] when the
+     * table declares no primary key. The PK is what makes a captured row
+     * re-identifiable at rollback time, so its absence is one of the cases
+     * where update-rows/delete-rows must stay honestly recoverable:false.
+     * SHOW KEYS output is filtered in PHP rather than with a WHERE clause so
+     * the query works identically across MySQL and MariaDB versions.
+     */
+    public static function primary_key(string $table): array
+    {
+        global $wpdb;
+
+        $rows = $wpdb->get_results(
+            'SHOW KEYS FROM `' . str_replace('`', '', $table) . '`',
+            ARRAY_A
+        );
+
+        $pk = [];
+        foreach ((array) $rows as $row) {
+            if ('PRIMARY' === ($row['Key_name'] ?? '')) {
+                $pk[ (int) $row['Seq_in_index'] ] = (string) $row['Column_name'];
+            }
+        }
+
+        ksort($pk);
+        return array_values($pk);
+    }
+
+    /**
+     * The table's live column names, for re-validating a db_rows snapshot
+     * against the CURRENT schema at rollback time (see
+     * Rollback_Service::apply_db_rows_snapshot()): a captured column that no
+     * longer exists means the exact restore that was promised is impossible,
+     * and a column name that never existed means the snapshot is forged.
+     */
+    public static function columns(string $table): array
+    {
+        global $wpdb;
+
+        $rows = $wpdb->get_results(
+            'SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '`',
+            ARRAY_A
+        );
+
+        $columns = [];
+        foreach ((array) $rows as $row) {
+            $columns[] = (string) $row['Field'];
+        }
+        return $columns;
+    }
+
+    /**
+     * Decide whether an exact, snapshot-backed rollback can be PROMISED for
+     * the rows $where matches in $table, and capture the before-image either
+     * way. recoverable is true only when every condition for a faithful
+     * restore holds:
+     *  - the table has a PRIMARY KEY (rows are re-identifiable later);
+     *  - the WHERE matched no more rows than BEFORE_IMAGE_CAP (a truncated
+     *    before-image would silently restore only some of the rows);
+     *  - every captured value survives the JSON snapshot encoding losslessly
+     *    (non-UTF-8 binary bytes would be mangled by wp_json_encode, so a
+     *    "restore" would write corrupted data back).
+     * When any condition fails, 'reason' says which one, so the tool can
+     * report recoverable:false honestly instead of degrading silently.
+     *
+     * @param string $table A validated real table name.
+     * @param array  $where col => value (equality AND).
+     * @return array{recoverable:bool,reason:?string,primary_key:array,rows:array}
+     */
+    public static function recoverability_probe(string $table, array $where): array
+    {
+        $primary_key = self::primary_key($table);
+
+        // Fetch one row past the cap so truncation is detectable, then trim
+        // back to the cap so callers see the same before-image as before.
+        $rows      = self::before_image($table, $where, self::BEFORE_IMAGE_CAP + 1);
+        $truncated = count($rows) > self::BEFORE_IMAGE_CAP;
+        if ($truncated) {
+            $rows = array_slice($rows, 0, self::BEFORE_IMAGE_CAP);
+        }
+
+        $reason = null;
+        if ([] === $primary_key) {
+            $reason = 'the table has no primary key, so affected rows cannot be re-identified for rollback';
+        } elseif ($truncated) {
+            $reason = 'the WHERE matches more than ' . self::BEFORE_IMAGE_CAP
+                . ' rows (before-image cap), so a complete before-image cannot be captured';
+        } elseif (! self::rows_are_utf8($rows)) {
+            $reason = 'matched rows contain non-UTF-8 binary values that cannot be captured losslessly in a snapshot';
+        }
+
+        return [
+            'recoverable' => null === $reason,
+            'reason'      => $reason,
+            'primary_key' => $primary_key,
+            'rows'        => $rows,
+        ];
+    }
+
+    /**
+     * True when every string value in $rows is valid UTF-8. Snapshot blobs
+     * are JSON (see Snapshot::serialize()), and wp_json_encode() mangles or
+     * drops invalid-UTF-8 bytes rather than round-tripping them, so binary
+     * column content (BLOB etc.) cannot be promised back byte-for-byte.
+     */
+    public static function rows_are_utf8(array $rows): bool
+    {
+        foreach ($rows as $row) {
+            foreach ((array) $row as $value) {
+                if (is_string($value) && ! preg_match('//u', $value)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Append a structured write to the capped audit log. Every structured
+     * write lands here regardless of recoverability; for the honestly
+     * non-recoverable cases (no primary key, cap exceeded, binary values —
+     * see recoverability_probe()) the before-image captured here is the only
+     * trail a human has to manually reconstruct a change if needed.
      */
     public static function audit(string $operation, string $table, int $affected, array $before = []): void
     {

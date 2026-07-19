@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Database;
 
+use WPMCP\Safety\Safe_Mutation;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -9,26 +11,32 @@ if (! defined('ABSPATH')) {
 /**
  * Update rows matching an equality WHERE via $wpdb->update() (parameterized;
  * never raw write SQL). Disabled by default: sites must opt in via the
- * wpmcp_enable_db_writes filter. Always requires confirm:true (it reports
- * recoverable:false, so it confirms like Delete_Rows). A non-empty WHERE is
- * mandatory, which
- * prevents an unqualified/unbounded update (a bare, WHERE-less write that
- * would touch every row in a table); it does not limit how many rows a
- * broad but valid WHERE can still match. Refuses protected tables
- * (users/usermeta by default).
+ * wpmcp_enable_db_writes filter. Always requires confirm:true. A non-empty
+ * WHERE is mandatory, which prevents an unqualified/unbounded update (a
+ * bare, WHERE-less write that would touch every row in a table); it does not
+ * limit how many rows a broad but valid WHERE can still match. Refuses
+ * protected tables (users/usermeta by default).
  *
- * Recoverability: this is NOT routed through Safe_Mutation/Snapshot, because
- * that safety core's apply_snapshot() dispatches on a small, fixed set of
- * object types (post/option/user) with bespoke, hand-verified restore logic
- * for each; a generic "restore arbitrary rows in an arbitrary table" path
- * would be a much larger and riskier surface than this tool's scope
- * justifies. Instead, the rows about to be changed are captured as a
- * before-image and written to Database_Guard's capped audit log
- * (Database_Guard::AUDIT_OPTION) BEFORE the write runs, and the response is
- * honest about it: 'recoverable' is always false here, and 'before_image'
- * is returned so a human (or a future targeted rollback tool) can manually
- * reconstruct the prior values. This tool never claims a rollback capability
- * it cannot deliver.
+ * Recoverability (issue #82): when an exact restore can genuinely be
+ * promised — the table has a PRIMARY KEY, the WHERE matched no more rows
+ * than the before-image cap, and the captured values survive JSON encoding
+ * losslessly (no raw binary) — the write routes through Safe_Mutation like
+ * every other recoverable tool: the matched rows' full before-images are
+ * snapshotted to the operation history FIRST, the response reports
+ * recoverable:true with an operation_id, and rollback-operation /
+ * rollback-session restore the exact prior column values (see
+ * Rollback_Service::apply_db_rows_snapshot(), which re-validates the
+ * snapshot against the live schema and warns when rows drifted since the
+ * operation). Documented caveats: the restore is per-captured-row, so rows
+ * created by third parties after the operation are untouched, and
+ * concurrent edits made after the operation are overwritten by the
+ * before-image (with a warning).
+ *
+ * When an exact restore CANNOT be promised (no primary key, cap exceeded,
+ * binary values), the behavior is the pre-#82 one and the response stays
+ * HONESTLY recoverable:false with a recoverable_reason: the before-image
+ * still goes to Database_Guard's capped audit log so a human can manually
+ * reconstruct the prior values, and no rollback capability is claimed.
  */
 class Update_Rows
 {
@@ -44,7 +52,7 @@ class Update_Rows
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Updating rows is not recoverable via generic-table rollback. Pass confirm:true to proceed.');
+            throw new \InvalidArgumentException('Updating raw table rows requires confirm:true.');
         }
 
         $data = (array) ($args['data'] ?? []);
@@ -66,21 +74,61 @@ class Update_Rows
             throw new \RuntimeException("Refusing to write to protected table \"{$table}\".");
         }
 
-        $before = Database_Guard::before_image($table, $where);
+        $probe  = Database_Guard::recoverability_probe($table, $where);
+        $before = $probe['rows'];
 
-        global $wpdb;
-        $affected = $wpdb->update($table, $data, $where);
-        if (false === $affected) {
-            throw new \RuntimeException($wpdb->last_error ?: 'Update failed.');
+        $mutation = static function () use ($table, $data, $where): int {
+            global $wpdb;
+            $affected = $wpdb->update($table, $data, $where);
+            if (false === $affected) {
+                throw new \RuntimeException($wpdb->last_error ?: 'Update failed.');
+            }
+            return (int) $affected;
+        };
+
+        if (! $probe['recoverable']) {
+            $affected = $mutation();
+            Database_Guard::audit('update', $table, $affected, $before);
+
+            return [
+                'table'              => $table,
+                'affected'           => $affected,
+                'before_image'       => $before,
+                'recoverable'        => false,
+                'recoverable_reason' => 'Not snapshot-backed: ' . $probe['reason'] . '.',
+            ];
         }
 
-        Database_Guard::audit('update', $table, (int) $affected, $before);
+        $out = Safe_Mutation::run(
+            [
+                'object_type'         => 'db_rows',
+                'object_id'           => $table,
+                'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'           => 'update-rows',
+                'args'                => $args,
+                'extra_snapshot_data' => [
+                    'table'       => $table,
+                    'operation'   => 'update',
+                    'primary_key' => $probe['primary_key'],
+                    'where'       => $where,
+                    'set'         => $data,
+                    'rows'        => $before,
+                ],
+            ],
+            $mutation
+        );
+
+        Database_Guard::audit('update', $table, (int) $out['result'], $before);
 
         return [
             'table'        => $table,
-            'affected'     => (int) $affected,
+            'affected'     => (int) $out['result'],
             'before_image' => $before,
-            'recoverable'  => false,
+            'recoverable'  => true,
+            'operation_id' => $out['operation_id'],
+            'caveats'      => [
+                'Rollback restores the exact captured before-images of the matched rows; edits made to those rows after this operation will be overwritten (with a warning).',
+            ],
         ];
     }
 }

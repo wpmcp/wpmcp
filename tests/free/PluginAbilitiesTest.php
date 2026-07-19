@@ -206,12 +206,20 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertSame('delete', $abilities['wpmcp/delete-rows']->operation);
     }
 
-    public function test_update_rows_keeps_destructive_irreversible_hint(): void
+    /**
+     * Until issue #82, update-rows carried explicit destructive/non-idempotent
+     * hint overrides because a raw row update was irreversible. Now that the
+     * write is snapshot-backed and restorable (when the table has a primary
+     * key), it uses the standard 'update' operation hint mapping, exactly
+     * like update-post: not read-only, not destructive, idempotent.
+     */
+    public function test_update_rows_uses_standard_update_hints_now_snapshot_backed(): void
     {
         $abilities = $this->index(Plugin::instance()->registrar()->all());
 
-        $this->assertTrue($abilities['wpmcp/update-rows']->destructive_hint);
-        $this->assertFalse($abilities['wpmcp/update-rows']->idempotent_hint);
+        $this->assertFalse($abilities['wpmcp/update-rows']->read_only_hint);
+        $this->assertFalse($abilities['wpmcp/update-rows']->destructive_hint);
+        $this->assertTrue($abilities['wpmcp/update-rows']->idempotent_hint);
     }
 
     public function test_filesystem_abilities_are_tagged_filesystem_domain(): void

@@ -1231,35 +1231,34 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-rows',
             'free',
-            'Update rows matching a mandatory equality WHERE via $wpdb->update() (parameterized). Requires confirm:true. Refuses protected tables. Disabled by default (wpmcp_enable_db_writes filter). Captures a before-image to the write audit log and honestly reports recoverable:false (no generic-table rollback)',
+            'Update rows matching a mandatory equality WHERE via $wpdb->update() (parameterized). Requires confirm:true. Refuses protected tables. Disabled by default (wpmcp_enable_db_writes filter). Snapshot-backed and restorable via rollback-operation when the table has a primary key and the WHERE stays under the before-image cap; otherwise reports recoverable:false with a reason and logs the before-image to the write audit log',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'table'   => [ 'type' => 'string' ],
-                    'data'    => [ 'type' => 'object' ],
-                    'where'   => [ 'type' => 'object' ],
-                    'confirm' => [ 'type' => 'boolean' ],
+                    'table'      => [ 'type' => 'string' ],
+                    'data'       => [ 'type' => 'object' ],
+                    'where'      => [ 'type' => 'object' ],
+                    'confirm'    => [ 'type' => 'boolean' ],
+                    'session_id' => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'table', 'data', 'where' ],
             ],
             [$update_rows, 'handle'],
             'manage_options',
             'database',
-            'update',
-            false,
-            true,
-            false
+            'update'
         ));
         $registrar->register(new Ability(
             'wpmcp/delete-rows',
             'free',
-            'Delete rows matching a mandatory equality WHERE via $wpdb->delete() (parameterized). Requires confirm:true. Refuses protected tables. Disabled by default (wpmcp_enable_db_writes filter). Captures a before-image to the write audit log and honestly reports recoverable:false (no generic-table rollback)',
+            'Delete rows matching a mandatory equality WHERE via $wpdb->delete() (parameterized). Requires confirm:true. Refuses protected tables. Disabled by default (wpmcp_enable_db_writes filter). Snapshot-backed and restorable via rollback-operation (rows reinserted with their original primary-key ids) when the table has a primary key and the WHERE stays under the before-image cap; otherwise reports recoverable:false with a reason and logs the before-image to the write audit log',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'table'   => [ 'type' => 'string' ],
-                    'where'   => [ 'type' => 'object' ],
-                    'confirm' => [ 'type' => 'boolean' ],
+                    'table'      => [ 'type' => 'string' ],
+                    'where'      => [ 'type' => 'object' ],
+                    'confirm'    => [ 'type' => 'boolean' ],
+                    'session_id' => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'table', 'where' ],
             ],
