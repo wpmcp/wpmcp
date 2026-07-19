@@ -39,15 +39,27 @@ class Registrar
                 'category'            => 'wpmcp',
                 'input_schema'        => $a->input_schema,
                 'execute_callback'    => $this->throttled($a),
-                'permission_callback' => function () use ($a) {
-                    $allowed = current_user_can($a->capability)
-                        && Governance::is_ability_enabled($a)
-                        && Governance::is_within_identity_scope($a);
-                    $this->record_audit($a, $allowed);
-                    return $allowed;
-                },
+                'permission_callback' => fn () => $this->is_permitted($a),
             ]);
         }
+    }
+
+    /**
+     * Permission decision for one ability invocation. On top of the
+     * pre-existing capability + Governance + identity-scope gating, 'pro'
+     * tier abilities re-check the live license here (issue #54): the
+     * Abilities API runs this before every execution, so a license that
+     * lapses after registration cannot keep a pro tool usable. The
+     * decision is audited exactly as before.
+     */
+    public function is_permitted(Ability $a): bool
+    {
+        $allowed = ('pro' !== $a->tier || Gate::is_pro())
+            && current_user_can($a->capability)
+            && Governance::is_ability_enabled($a)
+            && Governance::is_within_identity_scope($a);
+        $this->record_audit($a, $allowed);
+        return $allowed;
     }
 
     /** @return Ability[] */

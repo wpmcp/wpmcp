@@ -105,4 +105,37 @@ class GateTest extends \WP_UnitTestCase
 
         $this->assertCount(1, $r->all());
     }
+
+    public function test_permission_recheck_denies_pro_ability_after_license_lapse(): void
+    {
+        // Issue #54: license state is re-checked at permission time, not
+        // only at registration. Simulate a license that was valid when the
+        // ability registered but lapsed before the permission check.
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+
+        $ability = new Ability('wpmcp/elementor-deep', 'pro', 'Pro', [], fn ($a) => []);
+
+        $r = new Registrar();
+        Gate::set_pro_for_tests(true);
+        $r->register($ability);
+        $this->assertCount(1, $r->all());
+
+        $this->assertTrue($r->is_permitted($ability));
+
+        Gate::set_pro_for_tests(false);
+        $this->assertFalse($r->is_permitted($ability));
+    }
+
+    public function test_permission_recheck_leaves_free_abilities_unaffected(): void
+    {
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        Gate::set_pro_for_tests(false);
+
+        $ability = new Ability('wpmcp/free-thing', 'free', 'Free', [], fn ($a) => []);
+
+        $r = new Registrar();
+        $r->register($ability);
+
+        $this->assertTrue($r->is_permitted($ability));
+    }
 }

@@ -136,7 +136,10 @@ class Bootstrap
 
         // Inert without live credentials or without the SDK on disk
         // (dev/CI checkouts without vendor/, uninstall on stripped installs).
-        if (! self::should_load()) {
+        // The resolved path is captured once so the require below can never
+        // race a re-resolution to null.
+        $start = self::credentials_present() ? self::locate_sdk() : null;
+        if (null === $start) {
             return;
         }
 
@@ -148,7 +151,7 @@ class Bootstrap
         // guarded on the function the SDK defines, is both idempotent and
         // correct: when start.php already ran for real, the guard skips.
         if (! function_exists('fs_dynamic_init')) {
-            require self::locate_sdk();
+            require $start;
         }
 
         // Fail inert, never fatal: if the SDK deferred to another copy or
