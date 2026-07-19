@@ -23,8 +23,17 @@ class Registrar
     /** @var Ability[] */
     private array $abilities = [];
 
+    /** @var Ability[] every ability handed to register(), before any gating. */
+    private array $declared = [];
+
     public function register(Ability $a): void
     {
+        // Record the declaration BEFORE the tier/governance gates: the
+        // ability grid (issue #78) must list governance-disabled and
+        // unlicensed pro abilities so an admin can see and re-enable them.
+        // Only all()/get() feed the exposed MCP surface; declared() is a
+        // display catalog and grants nothing.
+        $this->declared[ $a->name ] = $a;
         if ('pro' === $a->tier && ! Gate::is_pro()) {
             return;
         }
@@ -66,6 +75,20 @@ class Registrar
     public function all(): array
     {
         return array_values($this->abilities);
+    }
+
+    /**
+     * The full declared surface: every ability register() was handed,
+     * including ones the pro gate or governance then dropped. Display-only
+     * (the ability grid, issue #78) — nothing here is registered with the
+     * Abilities API or reachable over MCP unless it also passed the gates
+     * into all().
+     *
+     * @return Ability[]
+     */
+    public function declared(): array
+    {
+        return array_values($this->declared);
     }
 
     /**

@@ -34,30 +34,53 @@ class Governance
 
     public static function is_ability_enabled(Ability $a): bool
     {
+        return self::explain($a)['enabled'];
+    }
+
+    /**
+     * The same six-layer walk as is_ability_enabled(), additionally naming
+     * WHICH layer decided (issue #78: the ability grid shows "disabled:
+     * governance toggle" vs "disabled: wpmcp_domain_enabled filter" instead
+     * of a bare off state). Read-only — this IS the enforcement walk, not a
+     * parallel one: is_ability_enabled() delegates here, so the two can
+     * never disagree.
+     *
+     * Layers short-circuit most- to least-specific, so the reported layer is
+     * the FIRST one that disabled; 'layer' is null when the ability is
+     * enabled. Because every filter receives the same `true` a still-enabled
+     * walk would have accumulated, behavior is identical to the original
+     * inline chain.
+     *
+     * @return array{enabled: bool, layer: ?string} layer is one of
+     *         ability_toggle|ability_filter|domain_toggle|domain_filter|
+     *         operation_toggle|operation_filter, or null when enabled.
+     */
+    public static function explain(Ability $a): array
+    {
         $stored = self::stored_settings();
 
         if (isset($stored['ability'][ $a->name ]) && false === $stored['ability'][ $a->name ]) {
-            return false;
+            return ['enabled' => false, 'layer' => 'ability_toggle'];
         }
-        $enabled = apply_filters('wpmcp_ability_enabled', true, $a->name);
-        if (! $enabled) {
-            return false;
+        if (! apply_filters('wpmcp_ability_enabled', true, $a->name)) {
+            return ['enabled' => false, 'layer' => 'ability_filter'];
         }
 
         if (isset($stored['domain'][ $a->domain ]) && false === $stored['domain'][ $a->domain ]) {
-            return false;
+            return ['enabled' => false, 'layer' => 'domain_toggle'];
         }
-        $enabled = apply_filters('wpmcp_domain_enabled', $enabled, $a->domain);
-        if (! $enabled) {
-            return false;
+        if (! apply_filters('wpmcp_domain_enabled', true, $a->domain)) {
+            return ['enabled' => false, 'layer' => 'domain_filter'];
         }
 
         if (isset($stored['operation'][ $a->operation ]) && false === $stored['operation'][ $a->operation ]) {
-            return false;
+            return ['enabled' => false, 'layer' => 'operation_toggle'];
         }
-        $enabled = apply_filters('wpmcp_operation_enabled', $enabled, $a->operation);
+        if (! apply_filters('wpmcp_operation_enabled', true, $a->operation)) {
+            return ['enabled' => false, 'layer' => 'operation_filter'];
+        }
 
-        return (bool) $enabled;
+        return ['enabled' => true, 'layer' => null];
     }
 
     /** Explicitly enable or disable a single named ability. */

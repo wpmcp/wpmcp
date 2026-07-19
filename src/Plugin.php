@@ -42,6 +42,8 @@ use WPMCP\Tools\Analysis\Analyze_Seo;
 use WPMCP\Tools\Analysis\Analyze_Accessibility;
 use WPMCP\Admin\Handshake_Settings_Page;
 use WPMCP\Admin\Connection_Page;
+use WPMCP\Admin\Ability_Grid_Page;
+use WPMCP\Governance\Default_Seeder;
 use WPMCP\Connect\Exposure;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Handshake_Instructions;
@@ -240,6 +242,11 @@ final class Plugin
             register_activation_hook(WPMCP_FILE, [Activator::class, 'activate']);
         }
         if (function_exists('add_action')) {
+            // Versioned default-disabled seeding (issue #78) runs BEFORE any
+            // registration hook can fire: newly shipped default-off abilities
+            // land as ordinary governance toggles, so enforcement lives in
+            // the registration/permission path with no admin class loaded.
+            Default_Seeder::seed();
             $hook = function_exists('wp_register_ability') ? 'wp_abilities_api_init' : 'init';
             add_action($hook, [$this, 'register_abilities']);
             if (function_exists('wp_register_ability_category')) {
@@ -359,6 +366,35 @@ final class Plugin
             Connection_Page::SLUG,
             [new Connection_Page(), 'render']
         );
+
+        // Ability toggle grid (issue #78): sees and narrows the full MCP
+        // ability surface — a site-wide trust decision, so manage_options
+        // like the rest.
+        add_submenu_page(
+            'wpmcp',
+            'wpmcp: Abilities',
+            'Abilities',
+            'manage_options',
+            Ability_Grid_Page::SLUG,
+            [new Ability_Grid_Page(), 'render']
+        );
+    }
+
+    /**
+     * The full declared ability surface (pre-gating; see
+     * Registrar::declared()) for admin display. Lazily replays
+     * register_abilities() when the registration hook has not fired in this
+     * request — outside a wp_abilities_api_init window Registrar only fills
+     * its internal maps, so the replay never touches the Abilities API.
+     *
+     * @return \WPMCP\MCP\Ability[]
+     */
+    public function declared_abilities(): array
+    {
+        if ([] === $this->registrar()->declared()) {
+            $this->register_abilities();
+        }
+        return $this->registrar()->declared();
     }
 
     public function register_abilities(): void
