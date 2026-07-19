@@ -66,6 +66,20 @@ class ParseBlocksTest extends \WP_UnitTestCase
         $this->assertStringContainsString('hi there', $out['blocks'][0]['innerHTML']);
     }
 
+    public function test_returns_content_hash_for_freshness_checks(): void
+    {
+        $markup  = '<!-- wp:paragraph --><p>hashed</p><!-- /wp:paragraph -->';
+        $post_id = self::factory()->post->create(['post_content' => $markup]);
+        $this->created_posts[] = $post_id;
+
+        $out = (new Parse_Blocks())->handle(['id' => $post_id]);
+
+        $this->assertSame(hash('sha256', get_post($post_id)->post_content), $out['content_hash']);
+
+        $raw = (new Parse_Blocks())->handle(['blocks' => $markup]);
+        $this->assertSame(hash('sha256', $markup), $raw['content_hash']);
+    }
+
     public function test_throws_when_neither_id_nor_blocks_given(): void
     {
         $this->expectException(\InvalidArgumentException::class);
