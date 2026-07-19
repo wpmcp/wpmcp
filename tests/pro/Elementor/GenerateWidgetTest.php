@@ -7,10 +7,11 @@ use WPMCP\Safety\{Rollback_Service, Snapshot_Store};
 use WPMCP\Tools\Elementor\Generate_Widget;
 
 /**
- * generate-widget builds a valid Elementor widget element from a curated
- * widget-type schema (Widget_Schema) and inserts it into a post's
+ * generate-widget builds a valid Elementor widget element from the curated
+ * widget catalog (Widget_Catalog, issue #59) and inserts it into a post's
  * _elementor_data through the same undoable write path as the other
- * Elementor deep-editing tools.
+ * Elementor deep-editing tools. Any cataloged type is supported; the old
+ * hardcoded 4-type limit is gone.
  */
 class GenerateWidgetTest extends \WP_UnitTestCase
 {
@@ -53,9 +54,7 @@ class GenerateWidgetTest extends \WP_UnitTestCase
         $this->assertArrayHasKey('element', $out);
         $this->assertSame('widget', $out['element']['elType']);
         $this->assertSame('heading', $out['element']['widgetType']);
-        $this->assertSame('Welcome', $out['element']['settings']['title']);
-        $this->assertSame('h2', $out['element']['settings']['header_size']);
-        $this->assertSame('left', $out['element']['settings']['align']);
+        $this->assertSame(['title' => 'Welcome'], $out['element']['settings']);
         $this->assertSame($out['element_id'], $out['element']['id']);
 
         $raw      = json_decode(get_post_meta($post_id, '_elementor_data', true), true);
@@ -93,7 +92,6 @@ class GenerateWidgetTest extends \WP_UnitTestCase
         $this->assertSame('button', $out['element']['widgetType']);
         $this->assertSame('Click me', $out['element']['settings']['text']);
         $this->assertSame('https://example.com', $out['element']['settings']['link']['url']);
-        $this->assertSame('center', $out['element']['settings']['align']);
     }
 
     public function test_generates_image_widget(): void
@@ -103,13 +101,62 @@ class GenerateWidgetTest extends \WP_UnitTestCase
         $out = (new Generate_Widget())->handle([
             'post_id'     => $post_id,
             'widget_type' => 'image',
-            'settings'    => ['url' => 'https://example.com/photo.jpg', 'id' => 42],
+            'settings'    => ['image' => ['url' => 'https://example.com/photo.jpg', 'id' => 42]],
         ]);
 
         $this->assertSame('image', $out['element']['widgetType']);
         $this->assertSame('https://example.com/photo.jpg', $out['element']['settings']['image']['url']);
         $this->assertSame(42, $out['element']['settings']['image']['id']);
-        $this->assertSame('center', $out['element']['settings']['align']);
+    }
+
+    public function test_generates_any_cataloged_type_beyond_the_old_four(): void
+    {
+        // counter was outside generate-widget's original 4-type set; the
+        // catalog (issue #59) is now the single source of supported types.
+        $post_id = $this->make_page();
+
+        $out = (new Generate_Widget())->handle([
+            'post_id'     => $post_id,
+            'widget_type' => 'counter',
+            'settings'    => ['ending_number' => 250, 'suffix' => '+', 'title' => 'Happy Clients'],
+        ]);
+
+        $this->assertSame('counter', $out['element']['widgetType']);
+        $this->assertSame(250, $out['element']['settings']['ending_number']);
+        $this->assertSame('+', $out['element']['settings']['suffix']);
+    }
+
+    public function test_returns_wp_error_for_unknown_param(): void
+    {
+        $post_id = $this->make_page();
+
+        $out = (new Generate_Widget())->handle([
+            'post_id'     => $post_id,
+            'widget_type' => 'heading',
+            'settings'    => ['title' => 'Welcome', 'bogus' => 'x'],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('unknown_param', $out->get_error_code());
+    }
+
+    public function test_cataloged_pro_widget_degrades_cleanly_without_elementor_pro(): void
+    {
+        $widget = \Elementor\Plugin::instance()->widgets_manager->get_widget_types('form');
+        if ($widget && 0 === strpos(get_class($widget), 'ElementorPro\\')) {
+            $this->markTestSkipped('Elementor Pro is installed; the degrade path cannot be exercised.');
+        }
+
+        $post_id = $this->make_page();
+
+        $out = (new Generate_Widget())->handle([
+            'post_id'     => $post_id,
+            'widget_type' => 'form',
+            'settings'    => ['form_name' => 'Contact'],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('requires_elementor_pro', $out->get_error_code());
     }
 
     public function test_inserts_under_parent_when_parent_id_given(): void
@@ -231,7 +278,7 @@ class GenerateWidgetTest extends \WP_UnitTestCase
         ]);
 
         $this->assertInstanceOf(\WP_Error::class, $out);
-        $this->assertSame('missing_required_setting', $out->get_error_code());
+        $this->assertSame('missing_required_param', $out->get_error_code());
     }
 
     public function test_returns_wp_error_for_invalid_post(): void

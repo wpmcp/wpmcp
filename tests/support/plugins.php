@@ -112,3 +112,24 @@ if ( ! function_exists( 'wpmcp_seo_plugin' ) ) {
 		return '';
 	}
 }
+
+if ( ! function_exists( 'wpmcp_ensure_elementor_kit' ) ) {
+	/**
+	 * Ensure Elementor has an active kit post in the current test.
+	 *
+	 * The WP test framework deletes all posts before each test, taking the
+	 * default kit with it; several Elementor code paths (get_controls() on
+	 * nested widgets, Document::save()) dereference the active kit and fatal
+	 * without one. No-op when Elementor is absent.
+	 */
+	function wpmcp_ensure_elementor_kit(): void {
+		if ( ! wpmcp_elementor_active() ) {
+			return;
+		}
+
+		$kits = \Elementor\Plugin::instance()->kits_manager;
+		if ( ! $kits->get_active_id() || ! get_post( (int) $kits->get_active_id() ) ) {
+			update_option( 'elementor_active_kit', \Elementor\Core\Kits\Manager::create_default_kit() );
+		}
+	}
+}

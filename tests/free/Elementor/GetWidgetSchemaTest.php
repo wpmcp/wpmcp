@@ -12,7 +12,7 @@ class GetWidgetSchemaTest extends \WP_UnitTestCase
             $this->markTestSkipped('Elementor not active');
         }
 
-        $out = (new Get_Widget_Schema())->handle(['widget_name' => 'heading']);
+        $out = (new Get_Widget_Schema())->handle(['widget_name' => 'heading', 'full' => true]);
 
         $this->assertArrayHasKey('widget_name', $out);
         $this->assertSame('heading', $out['widget_name']);
