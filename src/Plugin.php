@@ -45,6 +45,10 @@ use WPMCP\Admin\Connection_Page;
 use WPMCP\Connect\Exposure;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Handshake_Instructions;
+use WPMCP\MCP\Tool_Exposure;
+use WPMCP\Tools\Dispatch\Call_Tool;
+use WPMCP\Tools\Dispatch\Get_Tool_Schema;
+use WPMCP\Tools\Dispatch\List_Tools;
 use WPMCP\MCP\Registrar;
 use WPMCP\Tools\Get_Page;
 use WPMCP\Tools\Update_Blocks;
@@ -267,6 +271,13 @@ final class Plugin
             // Secret-free Claude Desktop bundle download from the Connection
             // screen (nonce + manage_options enforced inside the handler).
             add_action('admin_post_wpmcp_download_bundle', [new Connection_Page(), 'download_bundle']);
+            // Compact tool-surface mode (issue #79): in compact mode the
+            // adapter's advertised tools/list collapses to the meta-tools
+            // plus connection basics. Exposure-only — registration and
+            // permissions are untouched — and a no-op unless the adapter
+            // (which owns this filter) is installed, and while the mode
+            // resolves to 'full' (the default).
+            add_filter('mcp_adapter_tools_list', [new Tool_Exposure(), 'filter_tools_list'], 10, 2);
         }
     }
 
@@ -1516,6 +1527,7 @@ final class Plugin
         $this->register_governance_abilities($registrar);
         $this->register_multisite_abilities($registrar);
         $this->register_analytics_abilities($registrar);
+        $this->register_dispatch_abilities($registrar);
     }
 
     /**
@@ -2466,7 +2478,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-identity',
             'free',
-            'Create (or overwrite, by name) a scoped identity: a named restriction that, once active (see the wpmcp_current_identity filter), narrows which abilities are usable on top of the caller\'s capability and Governance. Accepts name (required), and optional domains/operations/abilities allowlists plus mode (allow, the default, or deny)',
+            'Create (or overwrite, by name) a scoped identity: a named restriction that, once active (see the wpmcp_current_identity filter), narrows which abilities are usable on top of the caller\'s capability and Governance. Accepts name (required), and optional domains/operations/abilities allowlists plus mode (allow, the default, or deny). Optional exposure (full or compact) sets this identity\'s tool-surface mode, overriding the site-wide setting; omit to inherit',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2475,6 +2487,7 @@ final class Plugin
                     'operations' => [ 'type' => 'array' ],
                     'abilities'  => [ 'type' => 'array' ],
                     'mode'       => [ 'type' => 'string' ],
+                    'exposure'   => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'name' ],
             ],
@@ -4081,6 +4094,84 @@ final class Plugin
             'edit_posts',
             'builders',
             'update'
+        ));
+    }
+
+    /**
+     * The compact-surface meta-tools (issue #79), registered UNCONDITIONALLY
+     * in both exposure modes: compact mode is exposure-only, so the
+     * registered ability surface — and with it the ability-manifest drift
+     * guard — never varies with the mode. In full mode these three simply
+     * ride along as ordinary tools; in compact mode they ARE the surface.
+     *
+     * call-tool is deliberately classified domain=dispatch, operation=update
+     * with explicit destructive annotations: it proxies writes and deletes,
+     * so it must not advertise itself as read-only, and Governance/identity
+     * narrowing applies to the shell like any other ability (a scoped
+     * identity that should dispatch must include domain 'dispatch' and
+     * operation 'update'; AND-of-narrowing, no special bypass). The REAL
+     * authorization decision for a dispatched call is made by the target
+     * ability's own permission callback — see Call_Tool's docblock, and the
+     * call-rest precedent for a gateway tool whose floor capability is
+     * edit_posts while every target enforces its own gate.
+     */
+    private function register_dispatch_abilities(Registrar $registrar): void
+    {
+        $list_tools      = new List_Tools();
+        $get_tool_schema = new Get_Tool_Schema();
+        $call_tool       = new Call_Tool();
+
+        $registrar->register(new Ability(
+            'wpmcp/list-tools',
+            'free',
+            'List every tool this wpmcp install currently registers: name, a short summary, domain, operation, and tier, sorted by name. Optional domain filter narrows the result; full:true adds complete descriptions and MCP annotations. Schemas stay behind get-tool-schema. Read-only. With compact mode active this is the discovery entry point for every tool not directly listed',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'domain' => [ 'type' => 'string' ],
+                    'full'   => [ 'type' => 'boolean' ],
+                ],
+            ],
+            [$list_tools, 'handle'],
+            'edit_posts',
+            'dispatch',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-tool-schema',
+            'free',
+            'Read one registered wpmcp tool\'s full contract by name: the exact input schema it was registered with, its complete description, MCP annotations, and its domain/operation/tier classification. Read-only. Use wpmcp/list-tools to discover names',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'name' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'name' ],
+            ],
+            [$get_tool_schema, 'handle'],
+            'edit_posts',
+            'dispatch',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/call-tool',
+            'free',
+            'Invoke any wpmcp-registered tool by name with the given arguments object — the dispatch path for tools hidden from tools/list by compact mode. The target tool\'s own permission checks (capability, governance, identity scope, license), rate limit, input validation, and snapshot/rollback safety behavior all apply exactly as if it were called directly; this tool can never widen access. Refuses tools not registered by wpmcp and the meta-tools themselves',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'name'      => [ 'type' => 'string' ],
+                    'arguments' => [ 'type' => 'object' ],
+                ],
+                'required'   => [ 'name' ],
+            ],
+            [$call_tool, 'handle'],
+            'edit_posts',
+            'dispatch',
+            'update',
+            false,
+            true,
+            false
         ));
     }
 }

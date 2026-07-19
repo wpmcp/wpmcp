@@ -69,6 +69,16 @@ class Registrar
     }
 
     /**
+     * Look up one registered ability by name. Used by the meta-tools
+     * (issue #79): list-tools/get-tool-schema read the registered contract,
+     * and call-tool allowlists dispatch to wpmcp's own surface with it.
+     */
+    public function get(string $name): ?Ability
+    {
+        return $this->abilities[ $name ] ?? null;
+    }
+
+    /**
      * Record a governance-decision outcome to Governance_Audit_Log. Wrapped
      * in a try/catch so a logging failure (e.g. an option-write error) can
      * never turn an otherwise-successful permission check into a fatal

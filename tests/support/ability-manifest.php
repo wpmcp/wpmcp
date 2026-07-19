@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 166,
-    'free'      => 151,
+    'total'     => 169,
+    'free'      => 154,
     'pro'       => 15,
     'abilities' => [
         'wpmcp/activate-plugin' => 'free',
@@ -29,6 +29,7 @@ return [
         'wpmcp/analyze-seo' => 'pro',
         'wpmcp/assign-menu-to-location' => 'free',
         'wpmcp/call-rest' => 'free',
+        'wpmcp/call-tool' => 'free',
         'wpmcp/cancel-backup-job' => 'free',
         'wpmcp/check-contrast' => 'pro',
         'wpmcp/clear-cache' => 'free',
@@ -94,6 +95,7 @@ return [
         'wpmcp/get-seo-status' => 'free',
         'wpmcp/get-settings' => 'free',
         'wpmcp/get-site-context' => 'free',
+        'wpmcp/get-tool-schema' => 'free',
         'wpmcp/get-top-pages' => 'free',
         'wpmcp/get-user' => 'free',
         'wpmcp/get-widget-schema' => 'free',
@@ -133,6 +135,7 @@ return [
         'wpmcp/list-taxonomies' => 'free',
         'wpmcp/list-themes' => 'free',
         'wpmcp/list-tool-catalog' => 'free',
+        'wpmcp/list-tools' => 'free',
         'wpmcp/list-transients' => 'free',
         'wpmcp/list-users' => 'free',
         'wpmcp/list-widgets' => 'free',

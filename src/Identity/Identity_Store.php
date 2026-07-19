@@ -8,12 +8,17 @@ if (! defined('ABSPATH')) {
 
 /**
  * CRUD over a single wpmcp_identities option: a map of identity name =>
- * identity record. A record is { name, domains, operations, abilities, mode },
- * where domains/operations/abilities are string[] allowlists (an empty array
- * means "no restriction on this dimension") and mode is 'allow' (default) or
- * 'deny'. The identity name is the natural, caller-chosen unique key, so
- * there is no separate id sequence to keep deterministic (unlike
- * Backup_Job_Store, which needs one because jobs are anonymous).
+ * identity record. A record is { name, domains, operations, abilities, mode,
+ * exposure }, where domains/operations/abilities are string[] allowlists (an
+ * empty array means "no restriction on this dimension") and mode is 'allow'
+ * (default) or 'deny'. The identity name is the natural, caller-chosen
+ * unique key, so there is no separate id sequence to keep deterministic
+ * (unlike Backup_Job_Store, which needs one because jobs are anonymous).
+ *
+ * 'exposure' (issue #79) is this identity's tool-surface preference:
+ * 'full', 'compact', or '' (default) to inherit the site-wide
+ * wpmcp_tool_exposure_mode option. It is purely an exposure choice consumed
+ * by Tool_Exposure — unlike the scope arrays it grants or denies nothing.
  */
 class Identity_Store
 {
@@ -37,12 +42,15 @@ class Identity_Store
      */
     public static function create(string $name, array $fields): array
     {
+        $exposure = $fields['exposure'] ?? '';
+
         $record = [
             'name'       => $name,
             'domains'    => array_values(array_map('strval', $fields['domains'] ?? [])),
             'operations' => array_values(array_map('strval', $fields['operations'] ?? [])),
             'abilities'  => array_values(array_map('strval', $fields['abilities'] ?? [])),
             'mode'       => 'deny' === ($fields['mode'] ?? 'allow') ? 'deny' : 'allow',
+            'exposure'   => in_array($exposure, ['full', 'compact'], true) ? $exposure : '',
         ];
 
         $stored          = self::load();

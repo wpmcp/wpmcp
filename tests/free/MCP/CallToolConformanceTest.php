@@ -12,7 +12,7 @@ use WPMCP\Plugin;
 use WPMCP\Pro\Gate;
 use WPMCP\RateLimit\Rate_Limiter;
 use WPMCP\Safety\Snapshot_Store;
-use WPMCP\Tools\Meta\Call_Tool;
+use WPMCP\Tools\Dispatch\Call_Tool;
 
 /**
  * The security-critical conformance suite for the call-tool dispatcher
@@ -130,14 +130,14 @@ class CallToolConformanceTest extends \WP_UnitTestCase
         $this->as_user('administrator');
         $id = self::factory()->post->create(['post_type' => 'page']);
 
-        // In scope: identity allows the meta domain (the dispatcher shell)
+        // In scope: identity allows the dispatch domain (the dispatcher shell)
         // and the target's core domain.
-        Identity_Store::create('core-bot', ['domains' => ['meta', 'core']]);
+        Identity_Store::create('core-bot', ['domains' => ['dispatch', 'core']]);
         Identity_Context::set_current_for_tests('core-bot');
         $this->assertIsArray($this->dispatch('wpmcp/get-page', ['id' => $id]));
 
         // Out of scope: same shell access, target domain no longer allowed.
-        Identity_Store::create('meta-only-bot', ['domains' => ['meta']]);
+        Identity_Store::create('meta-only-bot', ['domains' => ['dispatch']]);
         Identity_Context::set_current_for_tests('meta-only-bot');
 
         $this->assertNotTrue(wp_get_ability('wpmcp/get-page')->check_permissions(['id' => $id]));
@@ -149,23 +149,27 @@ class CallToolConformanceTest extends \WP_UnitTestCase
      * dispatcher): a pro ability whose license lapses AFTER registration
      * denies identically on both paths. The synthetic pro ability is
      * registered through a private wp_abilities_api_init window (only this
-     * test's hook fires; the framework restores all hooks at tearDown) into
-     * the real shared Registrar and the live registry, and stays registered
-     * for the rest of the process exactly like a licensed-then-lapsed tool
-     * would — every later permission check re-runs the live Gate check, so
-     * it simply denies everywhere.
+     * test's hook fires; the framework restores all hooks at tearDown)
+     * against a temporarily swapped fresh Registrar, so the shared
+     * registrar — which other suites assert has zero pro-tier entries on
+     * an unlicensed install — is never polluted. The live registry entry
+     * is removed again in the finally block.
      */
     public function test_dispatch_honors_the_live_pro_license_check(): void
     {
         $this->as_user('administrator');
 
-        $registrar = Plugin::instance()->registrar();
+        $plugin   = Plugin::instance();
+        $prop     = new \ReflectionProperty(Plugin::class, 'registrar');
+        $original = $prop->getValue($plugin);
+        $fresh    = new \WPMCP\MCP\Registrar();
+        $prop->setValue($plugin, $fresh);
 
-        if (null === $registrar->get('wpmcp/test-pro-tool')) {
+        try {
             Gate::set_pro_for_tests(true);
             remove_all_actions('wp_abilities_api_init');
-            add_action('wp_abilities_api_init', function () use ($registrar) {
-                $registrar->register(new Ability(
+            add_action('wp_abilities_api_init', function () use ($fresh) {
+                $fresh->register(new Ability(
                     'wpmcp/test-pro-tool',
                     'pro',
                     'Synthetic pro tool for license-parity testing',
@@ -177,18 +181,20 @@ class CallToolConformanceTest extends \WP_UnitTestCase
                 ));
             });
             do_action('wp_abilities_api_init');
-        } else {
-            Gate::set_pro_for_tests(true);
+
+            // Licensed: both paths succeed.
+            $this->assertSame(['ok' => true], wp_get_ability('wpmcp/test-pro-tool')->execute([]));
+            $this->assertSame(['ok' => true], $this->dispatch('wpmcp/test-pro-tool'));
+
+            // License lapses AFTER registration: both paths must deny.
+            Gate::set_pro_for_tests(false);
+            $this->assertInstanceOf(\WP_Error::class, wp_get_ability('wpmcp/test-pro-tool')->execute([]));
+            $this->assertInstanceOf(\WP_Error::class, $this->dispatch('wpmcp/test-pro-tool'));
+        } finally {
+            Gate::set_pro_for_tests(null);
+            wp_unregister_ability('wpmcp/test-pro-tool');
+            $prop->setValue($plugin, $original);
         }
-
-        // Licensed: both paths succeed.
-        $this->assertSame(['ok' => true], wp_get_ability('wpmcp/test-pro-tool')->execute([]));
-        $this->assertSame(['ok' => true], $this->dispatch('wpmcp/test-pro-tool'));
-
-        // License lapses AFTER registration: both paths must deny.
-        Gate::set_pro_for_tests(false);
-        $this->assertInstanceOf(\WP_Error::class, wp_get_ability('wpmcp/test-pro-tool')->execute([]));
-        $this->assertInstanceOf(\WP_Error::class, $this->dispatch('wpmcp/test-pro-tool'));
     }
 
     public function test_dispatched_invocations_are_rate_limited_like_direct_calls(): void
@@ -276,6 +282,43 @@ class CallToolConformanceTest extends \WP_UnitTestCase
         $handler = new Call_Tool();
         $this->assertInstanceOf(\WP_Error::class, $handler->handle([]));
         $this->assertInstanceOf(\WP_Error::class, $handler->handle(['name' => '']));
+        $this->assertInstanceOf(\WP_Error::class, $handler->handle(['name' => 42]));
+    }
+
+    /**
+     * An ability known to the Registrar but absent from the live Abilities
+     * registry (e.g. the Abilities API window never ran for it) must produce
+     * a clean error, not a crash or a raw-handler fallback — the dispatcher
+     * has no invocation path other than the live WP_Ability.
+     */
+    public function test_dispatch_errors_cleanly_when_the_live_registry_entry_is_missing(): void
+    {
+        $this->as_user('administrator');
+
+        $plugin   = Plugin::instance();
+        $prop     = new \ReflectionProperty(Plugin::class, 'registrar');
+        $original = $prop->getValue($plugin);
+        $fresh    = new \WPMCP\MCP\Registrar();
+        $prop->setValue($plugin, $fresh);
+
+        try {
+            // Registered outside a wp_abilities_api_init window: lands in the
+            // Registrar's map but never in the live Abilities registry.
+            $fresh->register(new Ability(
+                'wpmcp/registrar-only-tool',
+                'free',
+                'Registrar-only tool for the unavailable branch',
+                ['type' => 'object', 'properties' => []],
+                fn(array $args = []) => ['ok' => true]
+            ));
+
+            $result = (new Call_Tool())->handle(['name' => 'wpmcp/registrar-only-tool']);
+
+            $this->assertInstanceOf(\WP_Error::class, $result);
+            $this->assertSame('wpmcp_call_tool_unavailable', $result->get_error_code());
+        } finally {
+            $prop->setValue($plugin, $original);
+        }
     }
 
     public function test_dispatch_denials_are_audited_under_the_target_ability_name(): void
@@ -305,7 +348,7 @@ class CallToolConformanceTest extends \WP_UnitTestCase
     {
         $this->as_user('administrator');
 
-        Identity_Store::create('meta-only-bot', ['domains' => ['meta']]);
+        Identity_Store::create('meta-only-bot', ['domains' => ['dispatch']]);
         Identity_Context::set_current_for_tests('meta-only-bot');
 
         foreach ([Tool_Exposure::MODE_FULL, Tool_Exposure::MODE_COMPACT] as $mode) {

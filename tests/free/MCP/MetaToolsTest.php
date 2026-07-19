@@ -4,8 +4,8 @@ namespace WPMCP\Tests\Free\MCP;
 
 use WPMCP\MCP\Tool_Exposure;
 use WPMCP\Plugin;
-use WPMCP\Tools\Meta\Get_Tool_Schema;
-use WPMCP\Tools\Meta\List_Tools;
+use WPMCP\Tools\Dispatch\Get_Tool_Schema;
+use WPMCP\Tools\Dispatch\List_Tools;
 
 /**
  * The meta-tools that make the compact surface navigable (issue #79):
@@ -36,12 +36,12 @@ class MetaToolsTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_meta_abilities_are_free_tier_in_the_meta_domain(): void
+    public function test_meta_abilities_are_free_tier_in_the_dispatch_domain(): void
     {
         foreach (Tool_Exposure::META_ABILITIES as $name) {
             $ability = $this->registrar_ability($name);
             $this->assertSame('free', $ability->tier, $name);
-            $this->assertSame('meta', $ability->domain, $name);
+            $this->assertSame('dispatch', $ability->domain, $name);
         }
     }
 
@@ -116,7 +116,7 @@ class MetaToolsTest extends \WP_UnitTestCase
 
     public function test_list_tools_can_filter_by_domain(): void
     {
-        $out = (new List_Tools())->handle(['domain' => 'meta']);
+        $out = (new List_Tools())->handle(['domain' => 'dispatch']);
 
         $names = array_column($out['tools'], 'name');
         sort($names);
