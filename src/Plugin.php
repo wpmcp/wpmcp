@@ -167,6 +167,14 @@ use WPMCP\Tools\Elementor\Add_Widget;
 use WPMCP\Tools\Elementor\Remove_Element;
 use WPMCP\Tools\Elementor\Move_Element;
 use WPMCP\Tools\Elementor\Generate_Widget;
+use WPMCP\Tools\Elementor\Add_Container;
+use WPMCP\Tools\Elementor\Update_Container;
+use WPMCP\Tools\Elementor\Batch_Update;
+use WPMCP\Tools\Elementor\Reorder_Elements;
+use WPMCP\Tools\Elementor\Duplicate_Element;
+use WPMCP\Tools\Elementor\Set_Element_Label;
+use WPMCP\Tools\Elementor\Find_Element;
+use WPMCP\Tools\Elementor\Update_Page_Settings;
 use WPMCP\Tools\Builders\Detect_Builder;
 use WPMCP\Tools\Builders\Get_Builder_Content;
 use WPMCP\Tools\Builders\Update_Builder_Content;
@@ -3168,6 +3176,215 @@ final class Plugin
             'edit_posts',
             'elementor',
             'create'
+        ));
+
+        $this->register_elementor_structural_abilities($registrar);
+    }
+
+    /**
+     * Register the Elementor structural editing suite as pro-tier abilities
+     * (issue #58).
+     *
+     * All eight tools share the Element_Tree engine: mutations require
+     * expected_hash (sha256 of the raw _elementor_data JSON, or of the
+     * JSON-encoded page settings for update-page-settings, both reported by
+     * get-elementor-data) so a stale read is a structured refusal with no
+     * partial write; writes route through Elementor's own Document::save()
+     * when available (canonical data, Post_CSS regeneration, document cache
+     * invalidation) with a raw-meta fallback that clears the generated-CSS
+     * cache explicitly; and every write is snapshot-first with a verify
+     * step, so any failure — including any single entry of a batch-update —
+     * rolls the whole operation back and every success is undoable via
+     * rollback-operation. find-element is the one read-only tool in the
+     * suite and never touches the safety core.
+     */
+    private function register_elementor_structural_abilities(Registrar $registrar): void
+    {
+        $add_container = new Add_Container();
+
+        $registrar->register(new Ability(
+            'wpmcp/add-container',
+            'pro',
+            'Create an Elementor layout element (container by default, or section/column) at the top level or nested under parent_id, at an optional position among its siblings. Columns require a parent; widgets are never valid parents. Requires expected_hash from get-elementor-data (stale reads are refused with no partial write). Undoable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'parent_id'     => [ 'type' => 'string' ],
+                    'el_type'       => [ 'type' => 'string', 'enum' => [ 'container', 'section', 'column' ] ],
+                    'settings'      => [ 'type' => 'object' ],
+                    'position'      => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'post_id', 'expected_hash' ],
+            ],
+            [$add_container, 'handle'],
+            'edit_posts',
+            'elementor',
+            'create'
+        ));
+
+        $update_container = new Update_Container();
+
+        $registrar->register(new Ability(
+            'wpmcp/update-container',
+            'pro',
+            'Merge settings non-destructively into an Elementor layout element (container, section, or column) by id: given keys are overwritten or added, all other settings survive. Widgets are refused (use update-element). Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'element_id'    => [ 'type' => 'string' ],
+                    'settings'      => [ 'type' => 'object' ],
+                ],
+                'required'   => [ 'post_id', 'expected_hash', 'element_id', 'settings' ],
+            ],
+            [$update_container, 'handle'],
+            'edit_posts',
+            'elementor',
+            'update'
+        ));
+
+        $batch_update = new Batch_Update();
+
+        $registrar->register(new Ability(
+            'wpmcp/batch-update',
+            'pro',
+            'Apply N Elementor element settings updates atomically under ONE snapshot: every {element_id, settings} entry is validated before anything is written, one unknown id refuses the whole batch, and any failure rolls the entire batch back. Requires expected_hash from get-elementor-data. Undoable as a single rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'updates'       => [
+                        'type'  => 'array',
+                        'items' => [
+                            'type'       => 'object',
+                            'properties' => [
+                                'element_id' => [ 'type' => 'string' ],
+                                'settings'   => [ 'type' => 'object' ],
+                            ],
+                            'required'   => [ 'element_id', 'settings' ],
+                        ],
+                    ],
+                ],
+                'required'   => [ 'post_id', 'expected_hash', 'updates' ],
+            ],
+            [$batch_update, 'handle'],
+            'edit_posts',
+            'elementor',
+            'update'
+        ));
+
+        $reorder_elements = new Reorder_Elements();
+
+        $registrar->register(new Ability(
+            'wpmcp/reorder-elements',
+            'pro',
+            'Reorder the children of one Elementor parent element (or the top level when parent_id is omitted) to an explicit id order. The order must be an exact permutation of the current children; anything else is refused before any write. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'parent_id'     => [ 'type' => 'string' ],
+                    'order'         => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                ],
+                'required'   => [ 'post_id', 'expected_hash', 'order' ],
+            ],
+            [$reorder_elements, 'handle'],
+            'edit_posts',
+            'elementor',
+            'update'
+        ));
+
+        $duplicate_element = new Duplicate_Element();
+
+        $registrar->register(new Ability(
+            'wpmcp/duplicate-element',
+            'pro',
+            'Deep-copy an Elementor element (and its whole subtree) with recursively regenerated ids, inserted immediately after the original among its siblings. Fresh ids use Elementor\'s 7-char hex format and are checked against every id on the page, so the builder opens the result without warnings. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'element_id'    => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'post_id', 'expected_hash', 'element_id' ],
+            ],
+            [$duplicate_element, 'handle'],
+            'edit_posts',
+            'elementor',
+            'create'
+        ));
+
+        $set_element_label = new Set_Element_Label();
+
+        $registrar->register(new Ability(
+            'wpmcp/set-element-label',
+            'pro',
+            'Set an Elementor element\'s navigator label (stored as the _title setting); an empty label clears the custom name. All other settings survive untouched. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'element_id'    => [ 'type' => 'string' ],
+                    'label'         => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'post_id', 'expected_hash', 'element_id', 'label' ],
+            ],
+            [$set_element_label, 'handle'],
+            'edit_posts',
+            'elementor',
+            'update'
+        ));
+
+        $find_element = new Find_Element();
+
+        $registrar->register(new Ability(
+            'wpmcp/find-element',
+            'pro',
+            'Search a page\'s Elementor element tree by el_type, widget_type, setting_key + setting_value, and/or css_class token (criteria AND-combined; at least one required). Each match reports element_id, types, navigator label, and ancestor id path; the response carries the current data_hash so a structural mutation can be chained without a second read. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'el_type'       => [ 'type' => 'string' ],
+                    'widget_type'   => [ 'type' => 'string' ],
+                    'setting_key'   => [ 'type' => 'string' ],
+                    'setting_value' => [ 'type' => 'string' ],
+                    'css_class'     => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$find_element, 'handle'],
+            'edit_posts',
+            'elementor',
+            'read'
+        ));
+
+        $update_page_settings = new Update_Page_Settings();
+
+        $registrar->register(new Ability(
+            'wpmcp/update-page-settings',
+            'pro',
+            'Merge settings non-destructively into a page\'s Elementor page settings (_elementor_page_settings): given keys are overwritten or added, all other settings survive. Post field keys (post_title, post_status, template, ...) are refused — use the post tools. Requires expected_hash = the settings_hash from get-elementor-data. Undoable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'settings'      => [ 'type' => 'object' ],
+                ],
+                'required'   => [ 'post_id', 'expected_hash', 'settings' ],
+            ],
+            [$update_page_settings, 'handle'],
+            'edit_posts',
+            'elementor',
+            'update'
         ));
     }
 
