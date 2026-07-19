@@ -33,7 +33,7 @@ jobs:
         run: composer test:coverage
       - name: Enforce coverage floor
         if: matrix.php == '8.4'
-        run: php bin/check-coverage.php coverage/clover.xml 89.5
+        run: php bin/check-coverage.php coverage/clover.xml 90.5
       - name: Upload coverage artifact
         if: matrix.php == '8.4'
         uses: actions/upload-artifact@v4
