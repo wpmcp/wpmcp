@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 169,
-    'free'      => 154,
+    'total'     => 170,
+    'free'      => 155,
     'pro'       => 15,
     'abilities' => [
         'wpmcp/activate-plugin' => 'free',
@@ -28,6 +28,7 @@ return [
         'wpmcp/analyze-performance' => 'free',
         'wpmcp/analyze-seo' => 'pro',
         'wpmcp/assign-menu-to-location' => 'free',
+        'wpmcp/build-page' => 'free',
         'wpmcp/call-rest' => 'free',
         'wpmcp/call-tool' => 'free',
         'wpmcp/cancel-backup-job' => 'free',

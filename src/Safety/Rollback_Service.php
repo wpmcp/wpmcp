@@ -109,6 +109,14 @@ class Rollback_Service
         if ('option' === $snapshot['object_type']) {
             return 'option:' . $snapshot['data']['name'];
         }
+        // A page_build snapshot IS the oldest possible state of its page —
+        // "did not exist yet". Keying it as post:<id> lets restore_session's
+        // oldest-first dedup pick it over any later 'post' snapshot of the
+        // same page, so a session rollback deletes the created page instead
+        // of restoring an intermediate edit of it.
+        if ('page_build' === $snapshot['object_type']) {
+            return 'post:' . $snapshot['object_id'];
+        }
         // Users, like posts, are identified by an int object_id, so the raw
         // object_type:object_id key is already stable and distinct.
         return $snapshot['object_type'] . ':' . $snapshot['object_id'];
@@ -380,6 +388,11 @@ class Rollback_Service
             return;
         }
 
+        if ('page_build' === $snapshot['object_type']) {
+            self::apply_page_build_snapshot($snapshot);
+            return;
+        }
+
         if ('post' !== $snapshot['object_type']) {
             return;
         }
@@ -550,6 +563,48 @@ class Rollback_Service
                 throw new Mutation_Failed("Rollback failed to restore row {$pk_desc} in \"{$table}\": " . ($wpdb->last_error ?: 'update failed'));
             }
         }
+    }
+
+    /**
+     * Undo a build-page composition (issue #57). Unlike every other snapshot
+     * type, a 'page_build' snapshot records what the operation CREATED
+     * (recorded after the mutation, since the ids cannot exist before it),
+     * so its restore is a deletion: the created page's pre-operation state
+     * was nonexistence. The menu items placed by the build go first, then
+     * the page itself — force-deleted, matching how resurrect() treats
+     * force-deletion as the true inverse of creation.
+     *
+     * The page is only deleted if it is plausibly still the page the build
+     * created: post_date_gmt is set once at creation and never changes on
+     * update, so a mismatch means a DIFFERENT post has since reclaimed the
+     * id and deleting it would destroy an unrelated object. That case warns
+     * and leaves the post untouched (a non-fatal conflict, like the db_rows
+     * drift warnings). Later edits to the created page keep post_date_gmt,
+     * so an edited page is still honestly removed by the rollback.
+     */
+    private static function apply_page_build_snapshot(array $snapshot): void
+    {
+        $data = (array) ($snapshot['data'] ?? []);
+
+        foreach ((array) ($data['menu_item_ids'] ?? []) as $item_id) {
+            $item = get_post((int) $item_id);
+            if ($item && 'nav_menu_item' === $item->post_type) {
+                wp_delete_post((int) $item_id, true);
+            }
+        }
+
+        $post_id = (int) $snapshot['object_id'];
+        $current = get_post($post_id);
+        if (! $current) {
+            return; // Already gone; nothing left to undo.
+        }
+
+        if (($data['post_date_gmt'] ?? null) !== $current->post_date_gmt) {
+            self::warn("Post {$post_id} is not the page this build created (the id was reclaimed by another post); it was left untouched.");
+            return;
+        }
+
+        wp_delete_post($post_id, true);
     }
 
     /** Human-readable "pk=value" description of a row's primary-key values, for warnings and errors. */

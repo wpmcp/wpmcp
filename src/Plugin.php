@@ -1501,6 +1501,7 @@ final class Plugin
             'update'
         ));
 
+        $this->register_compose_abilities($registrar);
         $this->register_woocommerce_abilities($registrar);
         $this->register_menu_abilities($registrar);
         $this->register_elementor_abilities($registrar);
@@ -3394,6 +3395,70 @@ final class Plugin
      * behind the wpmcp_enable_delete_menu filter, needs confirm, and is honest
      * that it cannot be rolled back automatically.
      */
+    /**
+     * One-call declarative page composition (issue #57). Registered free:
+     * the Gutenberg dialect is the free tier's builder; the Elementor
+     * builder dialect is gated PRO inside the handler via Pro\Gate, so the
+     * one ability serves both tiers with the gate re-checked per call.
+     */
+    private function register_compose_abilities(Registrar $registrar): void
+    {
+        $build_page = new \WPMCP\Tools\Compose\Build_Page();
+
+        $node_schema = [
+            'type'        => 'object',
+            'description' => 'One node of the recursive sections tree. Gutenberg dialect types: group, columns, column, buttons (containers, may have children); heading{text,level}, paragraph{text}, list{items,ordered}, quote{text,citation}, image{attachment_id|url,alt}, button{text,url}, separator, spacer{height}, code{text}, html{html}, pattern{slug, top-level only} (leaves). Elementor dialect types: container, section, column (containers; settings passed to the element verbatim); widget{widget,widget_settings} (leaf).',
+            'properties'  => [
+                'type'     => [ 'type' => 'string' ],
+                'settings' => [ 'type' => 'object' ],
+                'children' => [ 'type' => 'array', 'items' => [ '$ref' => '#/properties/spec/properties/content/items' ] ],
+            ],
+            'required'    => [ 'type' ],
+        ];
+
+        $registrar->register(new Ability(
+            'wpmcp/build-page',
+            'free',
+            'Compose a complete page from ONE declarative spec: title, a recursive sections/blocks tree, media references (existing attachment ids), and optional menu placement. The whole composition is a single atomic, recoverable operation: the spec is strictly validated (node-path-addressed errors, bounded size/nodes/depth) before any write, a mid-build failure automatically removes everything it created, and on success one operation_id is returned whose rollback-operation removes the page and its menu placement entirely. Markup is composed deterministically from the spec; nothing in the spec is evaluated or executed. dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'spec' => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'title'   => [ 'type' => 'string' ],
+                            'status'  => [ 'type' => 'string', 'enum' => [ 'draft', 'publish' ] ],
+                            'slug'    => [ 'type' => 'string' ],
+                            'dialect' => [ 'type' => 'string', 'enum' => [ 'gutenberg', 'elementor' ] ],
+                            'content' => [ 'type' => 'array', 'items' => $node_schema ],
+                            'media'   => [
+                                'type'       => 'object',
+                                'properties' => [ 'featured' => [ 'type' => 'integer' ] ],
+                            ],
+                            'menu'    => [
+                                'type'       => 'object',
+                                'properties' => [
+                                    'menu_id'  => [ 'type' => 'integer' ],
+                                    'title'    => [ 'type' => 'string' ],
+                                    'position' => [ 'type' => 'integer' ],
+                                    'parent'   => [ 'type' => 'integer' ],
+                                ],
+                                'required'   => [ 'menu_id' ],
+                            ],
+                        ],
+                        'required'   => [ 'title', 'content' ],
+                    ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'spec' ],
+            ],
+            [$build_page, 'handle'],
+            'edit_posts',
+            'content',
+            'create'
+        ));
+    }
+
     private function register_menu_abilities(Registrar $registrar): void
     {
         $list_menus              = new List_Menus();

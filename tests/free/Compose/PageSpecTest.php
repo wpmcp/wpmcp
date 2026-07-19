@@ -206,12 +206,25 @@ class PageSpecTest extends \WP_UnitTestCase
 
     public function test_total_node_count_is_bounded(): void
     {
-        $nodes = [];
-        for ($i = 0; $i < Page_Spec::MAX_NODES + 1; $i++) {
-            $nodes[] = ['type' => 'paragraph', 'settings' => ['text' => 'n' . $i]];
+        $leaves = [];
+        for ($i = 0; $i < Page_Spec::MAX_NODES; $i++) {
+            $leaves[] = ['type' => 'paragraph', 'settings' => ['text' => 'n' . $i]];
         }
 
-        $this->assertRejected($this->valid_spec(['content' => $nodes]), (string) Page_Spec::MAX_NODES);
+        $this->assertRejected(
+            $this->valid_spec(['content' => [['type' => 'group', 'children' => $leaves]]]),
+            (string) Page_Spec::MAX_NODES
+        );
+    }
+
+    public function test_top_level_section_count_is_bounded(): void
+    {
+        $sections = [];
+        for ($i = 0; $i < Page_Spec::MAX_SECTIONS + 1; $i++) {
+            $sections[] = ['type' => 'paragraph', 'settings' => ['text' => 's' . $i]];
+        }
+
+        $this->assertRejected($this->valid_spec(['content' => $sections]), 'sections');
     }
 
     public function test_nesting_depth_is_bounded(): void
