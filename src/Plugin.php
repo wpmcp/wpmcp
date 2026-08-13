@@ -181,6 +181,8 @@ use WPMCP\Tools\Backup\Get_Backup_Status;
 use WPMCP\Tools\Backup\List_Backup_Jobs;
 use WPMCP\Tools\Backup\Cancel_Backup_Job;
 use WPMCP\Tools\Backup\Run_Backup_Job;
+use WPMCP\Tools\Backup\Get_Backup_Manifest;
+use WPMCP\Tools\Backup\Delete_Backup_Archive;
 use WPMCP\Tools\Governance\Get_Governance_Settings;
 use WPMCP\Tools\Governance\Update_Governance_Settings;
 use WPMCP\Tools\Governance\List_Governance_Audit_Log;
@@ -3323,15 +3325,20 @@ final class Plugin
         $get_backup_status  = new Get_Backup_Status();
         $list_backup_jobs   = new List_Backup_Jobs();
         $cancel_backup_job  = new Cancel_Backup_Job();
+        $get_backup_manifest   = new Get_Backup_Manifest();
+        $delete_backup_archive = new Delete_Backup_Archive();
 
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
             'free',
-            'Queue an asynchronous backup job and schedule a WP-Cron event that produces the backup artifact (a WXR export via export-content) and flips the job\'s status to completed or failed. Returns the job id immediately, before the backup itself has run, so a large-site backup does not have to complete within a single request',
+            'Queue an asynchronous backup job and schedule a WP-Cron event that produces the backup artifact and flips the job\'s status to completed or failed. Returns the job id immediately, before the backup itself has run, so a large-site backup does not have to complete within a single request. type=full produces a portable site archive (a zip holding a complete SQL dump, wp-content, and a manifest describing the origin site) that can be restored or migrated to another install; database, files and uploads produce the same archive format narrowed to that scope; content produces a WXR export via export-content',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'type'  => [ 'type' => 'string' ],
+                    'type'  => [
+                        'type' => 'string',
+                        'enum' => ['full', 'database', 'files', 'uploads', 'content'],
+                    ],
                     'scope' => [ 'type' => 'string' ],
                 ],
             ],
@@ -3386,6 +3393,38 @@ final class Plugin
             'manage_options',
             'backup',
             'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-backup-manifest',
+            'free',
+            'Read the manifest of a completed site-backup archive, by job id or archive path: origin site_url/home_url, table prefix, multisite flag, WordPress/PHP/plugin versions, scope, per-table row counts, tables holding BLOB columns, and file count. Use this to confirm an archive is the right one, and what it would take to restore or migrate it, before touching anything. Read-only; the archive is not extracted. Paths outside the site-backup directory are refused',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'job_id' => [ 'type' => 'integer' ],
+                    'path'   => [ 'type' => 'string' ],
+                ],
+            ],
+            [$get_backup_manifest, 'handle'],
+            'manage_options',
+            'backup',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/delete-backup-archive',
+            'free',
+            'Delete a site-backup archive from disk, by job id or archive path, and report the bytes freed. The job record is kept and its result flagged as deleted, so backup history never silently points at an artifact that is gone. Paths outside the site-backup directory are refused',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'job_id' => [ 'type' => 'integer' ],
+                    'path'   => [ 'type' => 'string' ],
+                ],
+            ],
+            [$delete_backup_archive, 'handle'],
+            'manage_options',
+            'backup',
+            'delete'
         ));
     }
 

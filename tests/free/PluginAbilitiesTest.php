@@ -22,7 +22,7 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
     public function test_all_free_abilities_register_by_default(): void
     {
         $registrar = Plugin::instance()->registrar();
-        $this->assertCount(202, $registrar->all());
+        $this->assertCount(204, $registrar->all());
     }
 
     public function test_no_pro_tier_ability_registers_without_a_license(): void
