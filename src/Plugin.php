@@ -111,6 +111,15 @@ use WPMCP\Tools\Content\Update_Post;
 use WPMCP\Tools\Content\Delete_Post;
 use WPMCP\Tools\Content\List_Posts;
 use WPMCP\Tools\Content\Set_Post_Terms;
+use WPMCP\Tools\Content\Duplicate_Post;
+use WPMCP\Tools\Content\Diff_Revisions;
+use WPMCP\Tools\Content\Count_Content;
+use WPMCP\Tools\Terms\List_Terms;
+use WPMCP\Tools\Terms\Get_Term;
+use WPMCP\Tools\Terms\Create_Term;
+use WPMCP\Tools\Terms\Update_Term;
+use WPMCP\Tools\Terms\Delete_Term;
+use WPMCP\Tools\Terms\Set_Term_Meta;
 use WPMCP\Tools\Revisions\List_Revisions;
 use WPMCP\Tools\Revisions\Get_Revision;
 use WPMCP\Tools\Revisions\Restore_Revision;
@@ -327,7 +336,7 @@ final class Plugin
         'woocommerce' => [
             'compose', 'woocommerce', 'menu', 'seo', 'linking', 'redirects',
             'meta', 'diagnostics', 'cron', 'maintenance', 'context', 'block',
-            'structure', 'export', 'backup', 'analysis', 'connect',
+            'structure', 'taxonomy', 'export', 'backup', 'analysis', 'connect',
             'governance', 'skills',
         ],
     ];
@@ -798,6 +807,9 @@ final class Plugin
         $delete_post     = new Delete_Post();
         $list_posts      = new List_Posts();
         $set_post_terms  = new Set_Post_Terms();
+        $duplicate_post  = new Duplicate_Post();
+        $diff_revisions  = new Diff_Revisions();
+        $count_content   = new Count_Content();
 
         $registrar->register(new Ability(
             'wpmcp/list-post-types',
@@ -933,6 +945,58 @@ final class Plugin
                 ],
             ],
             [$list_posts, 'handle'],
+            'edit_posts',
+            'content',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/duplicate-post',
+            'free',
+            'Duplicate a post, page or CPT entry with its content, meta and terms, optionally including child posts. The copy is a draft unless another status is given, so a half-finished clone never lands live. Editor bookkeeping meta (_edit_lock, _wp_old_slug) is skipped; page-builder data is copied',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'          => [ 'type' => 'integer' ],
+                    'title'            => [ 'type' => 'string' ],
+                    'status'           => [ 'type' => 'string', 'enum' => ['draft', 'pending', 'private', 'publish'] ],
+                    'include_children' => [ 'type' => 'boolean' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$duplicate_post, 'handle'],
+            'edit_posts',
+            'content',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/diff-revisions',
+            'free',
+            'Diff two revisions of a post, or one revision against the post\'s current state: a unified diff per changed field (title, content, excerpt) rather than two full documents. Unchanged fields are omitted. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'from_revision_id' => [ 'type' => 'integer' ],
+                    'to_revision_id'   => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'from_revision_id' ],
+            ],
+            [$diff_revisions, 'handle'],
+            'edit_posts',
+            'content',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/count-content',
+            'free',
+            'Counts so a job can be sized before it starts: posts per public type by status, media by MIME family, comments by status, terms per taxonomy, users per role. From core counting APIs, so figures match wp-admin. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'include'   => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'post_type' => [ 'type' => 'string' ],
+                ],
+            ],
+            [$count_content, 'handle'],
             'edit_posts',
             'content',
             'read'
@@ -2027,6 +2091,7 @@ final class Plugin
             'rest'           => fn () => $this->register_rest_abilities($registrar),
             'block'          => fn () => $this->register_block_abilities($registrar),
             'structure'      => fn () => $this->register_structure_abilities($registrar),
+            'taxonomy'       => fn () => $this->register_taxonomy_abilities($registrar),
             'export'         => fn () => $this->register_export_abilities($registrar),
             'backup'         => fn () => $this->register_backup_abilities($registrar),
             'analysis'       => fn () => $this->register_analysis_abilities($registrar),
@@ -3150,6 +3215,155 @@ final class Plugin
             'edit_posts',
             'blocks',
             'create'
+        ));
+    }
+
+    /**
+     * Taxonomy term CRUD.
+     *
+     * Free tier and gated at manage_categories, the capability WordPress
+     * itself uses for the Categories and Tags screens, so an editor who can
+     * manage terms in wp-admin can manage them here and nobody else can.
+     *
+     * Every write runs through Safe_Mutation with a 'term' snapshot keyed by
+     * (taxonomy, slug), following the create-redirect precedent rather than
+     * the create-post one: terms have a natural key that exists before the
+     * write, so even a creation is reversible. A deleted term is restored at
+     * its ORIGINAL term_id and term_taxonomy_id, which is what reattaches
+     * the posts that were filed under it.
+     */
+    private function register_taxonomy_abilities(Registrar $registrar): void
+    {
+        $list_terms    = new List_Terms();
+        $get_term      = new Get_Term();
+        $create_term   = new Create_Term();
+        $update_term   = new Update_Term();
+        $delete_term   = new Delete_Term();
+        $set_term_meta = new Set_Term_Meta();
+
+        $registrar->register(new Ability(
+            'wpmcp/list-terms',
+            'free',
+            'List terms in a taxonomy with search, parent filter, ordering and pagination. Empty terms are INCLUDED unless hide_empty is set (the opposite of core\'s default), so a partial list never leads to creating a duplicate. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'taxonomy'   => [ 'type' => 'string' ],
+                    'search'     => [ 'type' => 'string' ],
+                    'parent'     => [ 'type' => 'integer' ],
+                    'hide_empty' => [ 'type' => 'boolean' ],
+                    'per_page'   => [ 'type' => 'integer' ],
+                    'page'       => [ 'type' => 'integer' ],
+                    'orderby'    => [ 'type' => 'string', 'enum' => ['name', 'slug', 'count', 'term_id'] ],
+                    'order'      => [ 'type' => 'string', 'enum' => ['ASC', 'DESC'] ],
+                ],
+                'required'   => [ 'taxonomy' ],
+            ],
+            [$list_terms, 'handle'],
+            'manage_categories',
+            'taxonomy',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-term',
+            'free',
+            'Read one term by term_id or slug, with its meta and full ancestor chain. Ancestors disambiguate a hierarchical taxonomy, where several same-named terms sit under different parents. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'taxonomy' => [ 'type' => 'string' ],
+                    'term_id'  => [ 'type' => 'integer' ],
+                    'slug'     => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'taxonomy' ],
+            ],
+            [$get_term, 'handle'],
+            'manage_categories',
+            'taxonomy',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/create-term',
+            'free',
+            'Create a category, tag or custom taxonomy term. Snapshot-first, so the creation itself is reversible with rollback-operation. Refuses an existing slug, a missing parent, or a parent on a non-hierarchical taxonomy',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'taxonomy'    => [ 'type' => 'string' ],
+                    'name'        => [ 'type' => 'string' ],
+                    'slug'        => [ 'type' => 'string' ],
+                    'description' => [ 'type' => 'string' ],
+                    'parent'      => [ 'type' => 'integer' ],
+                    'session_id'  => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'taxonomy', 'name' ],
+            ],
+            [$create_term, 'handle'],
+            'manage_categories',
+            'taxonomy',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-term',
+            'free',
+            'Update a term\'s name, slug, description or parent, snapshot-first. Refuses a slug held by another term, and refuses reparenting onto itself or a descendant: core permits that and the resulting cycle makes the taxonomy unrenderable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'taxonomy'    => [ 'type' => 'string' ],
+                    'term_id'     => [ 'type' => 'integer' ],
+                    'slug'        => [ 'type' => 'string' ],
+                    'name'        => [ 'type' => 'string' ],
+                    'description' => [ 'type' => 'string' ],
+                    'parent'      => [ 'type' => 'integer' ],
+                    'session_id'  => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'taxonomy' ],
+            ],
+            [$update_term, 'handle'],
+            'manage_categories',
+            'taxonomy',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/delete-term',
+            'free',
+            'Delete a term, snapshot-first. Rolling back restores it at its original term_id and term_taxonomy_id and refiles the posts that were in it. Reports objects affected; refuses a taxonomy\'s default term',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'taxonomy'   => [ 'type' => 'string' ],
+                    'term_id'    => [ 'type' => 'integer' ],
+                    'slug'       => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'taxonomy' ],
+            ],
+            [$delete_term, 'handle'],
+            'manage_categories',
+            'taxonomy',
+            'delete'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/set-term-meta',
+            'free',
+            'Write or delete a term meta value, snapshot-first (whole term plus meta map captured, so rollback is exact). value:null deletes the key, staying distinct from an empty string. Protected keys are refused',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'taxonomy'   => [ 'type' => 'string' ],
+                    'term_id'    => [ 'type' => 'integer' ],
+                    'slug'       => [ 'type' => 'string' ],
+                    'key'        => [ 'type' => 'string' ],
+                    'value'      => [],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'taxonomy', 'key' ],
+            ],
+            [$set_term_meta, 'handle'],
+            'manage_categories',
+            'taxonomy',
+            'update'
         ));
     }
 

@@ -400,6 +400,11 @@ class Rollback_Service
             return;
         }
 
+        if ('term' === $snapshot['object_type']) {
+            self::apply_term_snapshot($snapshot);
+            return;
+        }
+
         if ('page_build' === $snapshot['object_type']) {
             self::apply_page_build_snapshot($snapshot);
             return;
@@ -680,6 +685,179 @@ class Rollback_Service
      * reported as a warning, not silently overwritten, matching how every
      * other restore path treats a reclaimed identity.
      */
+    /**
+     * Restore a taxonomy term to its captured state.
+     *
+     * Three cases, mirroring apply_redirect_snapshot():
+     *  - the term did not exist at capture time: delete whatever now holds
+     *    that (taxonomy, slug), which undoes a create-term;
+     *  - the term existed and still does: overwrite its fields and meta;
+     *  - the term existed and is gone: resurrect it at its ORIGINAL term_id,
+     *    because post-to-term relationships are stored by term_taxonomy_id
+     *    and a term that comes back with a fresh id is silently detached from
+     *    every post that was filed under it.
+     *
+     * Deleting a term is not routed through wp_delete_term() in the
+     * "undo a create" case only when the term is the taxonomy default; that
+     * would move posts to a replacement term, which is a second mutation the
+     * user never asked for. It is reported instead.
+     */
+    private static function apply_term_snapshot(array $snapshot): void
+    {
+        if (! current_user_can('manage_categories')) {
+            throw new Mutation_Failed('Rollback refused: restoring a term requires the manage_categories capability.');
+        }
+
+        $data     = (array) ($snapshot['data'] ?? []);
+        $taxonomy = (string) ($data['taxonomy'] ?? '');
+        $slug     = (string) ($data['slug'] ?? '');
+
+        if ('' === $taxonomy || ! taxonomy_exists($taxonomy)) {
+            self::warn(sprintf('Taxonomy "%s" no longer exists, so its term could not be restored.', $taxonomy));
+            return;
+        }
+
+        $captured = is_array($data['term'] ?? null) ? (array) $data['term'] : null;
+
+        if (empty($data['existed'])) {
+            $current = get_term_by('slug', $slug, $taxonomy);
+            if ($current instanceof \WP_Term) {
+                wp_delete_term($current->term_id, $taxonomy);
+            }
+            return;
+        }
+
+        if (null === $captured) {
+            return;
+        }
+
+        $term_id = (int) ($captured['term_id'] ?? 0);
+        if ($term_id <= 0) {
+            return;
+        }
+
+        // Something else may have taken the captured slug since the
+        // operation. Restoring onto it would fail the taxonomy's unique-slug
+        // rule, so the squatter is cleared first, exactly as the redirect
+        // path does for its UNIQUE source_path.
+        $holder = get_term_by('slug', $slug, $taxonomy);
+        if ($holder instanceof \WP_Term && (int) $holder->term_id !== $term_id) {
+            self::warn(sprintf(
+                'Term slug "%s" in %s had been taken by term #%d since the operation; it was removed so the captured term could be restored.',
+                $slug,
+                $taxonomy,
+                (int) $holder->term_id
+            ));
+            wp_delete_term((int) $holder->term_id, $taxonomy);
+        }
+
+        $was_missing = null === get_term($term_id, $taxonomy);
+
+        if ($was_missing) {
+            self::resurrect_term($term_id, $taxonomy, $captured);
+        } else {
+            wp_update_term($term_id, $taxonomy, [
+                'name'        => (string) ($captured['name'] ?? ''),
+                'slug'        => $slug,
+                'description' => (string) ($captured['description'] ?? ''),
+                'parent'      => (int) ($captured['parent'] ?? 0),
+            ]);
+        }
+
+        self::restore_term_meta($term_id, (array) ($data['meta'] ?? []));
+
+        // Only a resurrection needs the relationships rebuilt: an in-place
+        // update never removed them, and re-adding them there would fight
+        // with assignments made after the operation.
+        if ($was_missing) {
+            self::restore_term_objects($term_id, $taxonomy, $data);
+        }
+    }
+
+    /**
+     * Refile the objects that were assigned to a term before it was deleted.
+     *
+     * wp_delete_term() removes the wp_term_relationships rows along with the
+     * term, so without this a restored term comes back empty: correct-looking
+     * in wp-admin, and silently detached from all of its content.
+     */
+    private static function restore_term_objects(int $term_id, string $taxonomy, array $data): void
+    {
+        $objects = array_map('intval', (array) ($data['objects'] ?? []));
+
+        foreach ($objects as $object_id) {
+            if ($object_id > 0) {
+                wp_set_object_terms($object_id, [$term_id], $taxonomy, true);
+            }
+        }
+
+        if (! empty($data['objects_truncated'])) {
+            self::warn(sprintf(
+                'Term %d held more than %d objects when it was captured; the %d most recent were reattached and the rest were not.',
+                $term_id,
+                \WPMCP\Safety\Snapshot::MAX_TERM_OBJECTS,
+                count($objects)
+            ));
+        }
+
+        wp_update_term_count_now($objects ? [$term_id] : [], $taxonomy);
+    }
+
+    /**
+     * Re-insert a deleted term at its original term_id.
+     *
+     * wp_insert_term() always allocates a new id, so the row goes in
+     * directly. term_taxonomy_id is likewise preserved: it is the column
+     * wp_term_relationships joins on, so reusing it is what actually
+     * reattaches the posts rather than merely recreating a same-named term.
+     */
+    private static function resurrect_term(int $term_id, string $taxonomy, array $captured): void
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Restoring a deleted term at its original id; no core API preserves term_id or term_taxonomy_id.
+        $wpdb->insert($wpdb->terms, [
+            'term_id'    => $term_id,
+            'name'       => (string) ($captured['name'] ?? ''),
+            'slug'       => (string) ($captured['slug'] ?? ''),
+            'term_group' => (int) ($captured['term_group'] ?? 0),
+        ]);
+
+        $term_taxonomy_id = (int) ($captured['term_taxonomy_id'] ?? 0);
+        $row              = [
+            'term_id'     => $term_id,
+            'taxonomy'    => $taxonomy,
+            'description' => (string) ($captured['description'] ?? ''),
+            'parent'      => (int) ($captured['parent'] ?? 0),
+            'count'       => (int) ($captured['count'] ?? 0),
+        ];
+        if ($term_taxonomy_id > 0) {
+            $row['term_taxonomy_id'] = $term_taxonomy_id;
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- See above; term_taxonomy_id is what wp_term_relationships joins on.
+        $wpdb->insert($wpdb->term_taxonomy, $row);
+
+        clean_term_cache([$term_id], $taxonomy);
+    }
+
+    /** Replace a term's meta with the captured map. */
+    private static function restore_term_meta(int $term_id, array $meta): void
+    {
+        $existing = get_term_meta($term_id);
+        if (is_array($existing)) {
+            foreach (array_keys($existing) as $key) {
+                delete_term_meta($term_id, (string) $key);
+            }
+        }
+
+        foreach ($meta as $key => $values) {
+            foreach ((array) $values as $value) {
+                add_term_meta($term_id, (string) $key, maybe_unserialize($value));
+            }
+        }
+    }
+
     private static function apply_redirect_snapshot(array $snapshot): void
     {
         if (! current_user_can('manage_options')) {

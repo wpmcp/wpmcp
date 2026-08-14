@@ -37,7 +37,109 @@ class Snapshot
         if ('redirect' === $object_type) {
             return self::capture_redirect((string) $object_id);
         }
+        if ('term' === $object_type) {
+            return self::capture_term((string) $object_id);
+        }
         return self::capture_post($object_id);
+    }
+
+    /**
+     * Capture a taxonomy term, keyed by "taxonomy:slug" rather than by
+     * term_id, for exactly the reason capture_redirect() is keyed by source
+     * path: the slug is the term's natural key within its taxonomy (WordPress
+     * enforces it as unique there), and it is known BEFORE the write, while
+     * the auto-increment term_id is not.
+     *
+     * That is what lets create-term run through Safe_Mutation like every
+     * other write instead of recording an after-the-fact "I made this" row:
+     * the capture is simply "no term owned this slug yet", and the undo is to
+     * delete whatever now does.
+     *
+     * The full row is captured, term_id included, so restoring a deleted term
+     * resurrects the same id rather than a copy. term_taxonomy_id, parent,
+     * description and count come along because wp_insert_term() cannot
+     * reconstruct them from the name alone, and a category that comes back
+     * without its parent has silently moved in the site's hierarchy.
+     */
+    /**
+     * Cap on how many object assignments a term snapshot carries. See
+     * capture_term(); exceeding it is recorded, never silently dropped.
+     */
+    public const MAX_TERM_OBJECTS = 5000;
+
+    private static function capture_term(string $key): array
+    {
+        [$taxonomy, $slug] = self::split_term_key($key);
+
+        $term = ('' !== $taxonomy && '' !== $slug)
+            ? get_term_by('slug', $slug, $taxonomy, ARRAY_A)
+            : false;
+
+        $meta      = [];
+        $objects   = [];
+        $truncated = false;
+
+        if (is_array($term) && isset($term['term_id'])) {
+            $term_id = (int) $term['term_id'];
+
+            $stored = get_term_meta($term_id);
+            $meta   = is_array($stored) ? $stored : [];
+
+            // The object relationships have to come along. wp_delete_term()
+            // deletes the wp_term_relationships rows as well as the term, so
+            // restoring the term and term_taxonomy rows alone resurrects an
+            // EMPTY term: it looks correct in wp-admin while every post that
+            // was filed under it has silently lost the assignment.
+            $objects = get_objects_in_term([$term_id], [$taxonomy]);
+            $objects = is_wp_error($objects) ? [] : array_map('intval', (array) $objects);
+
+            if (count($objects) > self::MAX_TERM_OBJECTS) {
+                // A term on a large site can hold tens of thousands of posts,
+                // and a snapshot blob that big is its own problem. The cap is
+                // recorded rather than hidden so the restore can say plainly
+                // that it reattached a subset.
+                $objects   = array_slice($objects, 0, self::MAX_TERM_OBJECTS);
+                $truncated = true;
+            }
+        }
+
+        return [
+            'object_type' => 'term',
+            'object_id'   => $key,
+            'data'        => [
+                'taxonomy'         => $taxonomy,
+                'slug'             => $slug,
+                'existed'          => is_array($term),
+                'term'             => is_array($term) ? $term : null,
+                'meta'             => $meta,
+                'objects'          => $objects,
+                'objects_truncated' => $truncated,
+            ],
+        ];
+    }
+
+    /**
+     * Split a "taxonomy:slug" snapshot key. Only the FIRST colon separates
+     * the two: a taxonomy name cannot contain a colon (sanitize_key strips
+     * it) but a slug can arrive with one before sanitisation, so splitting on
+     * the last colon would mis-key those terms.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function split_term_key(string $key): array
+    {
+        $at = strpos($key, ':');
+        if (false === $at) {
+            return ['', ''];
+        }
+
+        return [substr($key, 0, $at), substr($key, $at + 1)];
+    }
+
+    /** Build the snapshot key for a term. */
+    public static function term_key(string $taxonomy, string $slug): string
+    {
+        return $taxonomy . ':' . $slug;
     }
 
     /**

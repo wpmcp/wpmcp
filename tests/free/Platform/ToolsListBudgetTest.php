@@ -36,9 +36,15 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  148066 bytes over 281 tools; raised 155000 -> 160000 in review for the
      *  agent project memory tools (memory-recall, memory-propose,
      *  memory-save-summary), which puts the payload at 156353 bytes over 293
-     *  tools.
+     *  tools; raised 160000 -> 165000 in review for the foundation parity
+     *  cluster (taxonomy term CRUD plus duplicate-post, diff-revisions and
+     *  count-content), which puts the payload at 161467 bytes over 302 tools.
+     *  That last raise was taken only after trimming the new descriptions:
+     *  they still carry the refusal rules (duplicate slug, parent cycle,
+     *  default term) because an agent that learns those from the description
+     *  avoids a failed call, which costs more than the bytes do.
      *  Compact tool mode keeps clients with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 160000;
+    private const TOOLS_LIST_BYTE_BUDGET = 165000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
