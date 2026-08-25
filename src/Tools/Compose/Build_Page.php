@@ -59,7 +59,7 @@ class Build_Page
 
         if ('elementor' === $spec['dialect']) {
             if (! Gate::can_use('build-page-builder')) {
-                throw new \RuntimeException('The builder (Elementor) dialect of build-page is a PRO feature; the free tier composes Gutenberg pages.');
+                throw new \RuntimeException('The builder (Elementor) dialect is not enabled for this install; the Gutenberg dialect is always available.');
             }
             if (! class_exists('\\Elementor\\Plugin')) {
                 throw new \RuntimeException('The builder dialect requires Elementor to be active on this site.');
