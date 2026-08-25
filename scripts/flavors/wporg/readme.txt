@@ -124,6 +124,14 @@ The analytics abilities read data through Google Site Kit's REST routes when
 that plugin is active and already connected; this plugin holds no analytics
 credentials of its own and talks to no analytics provider directly.
 
+= WP MCP Cloud (inert in this build) =
+
+The code contains an HTTP client for the author's optional cloud service, but
+this build ships no tool that can configure or connect it: the client only
+ever fires if a cloud URL and key have been saved by the separate add-on
+plugin, and then it reaches only the URL you saved. With this plugin alone,
+nothing is ever sent. Terms and privacy policy: https://wpmcp-pro.com/
+
 == Installation ==
 
 1. Install and activate the plugin.
