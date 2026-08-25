@@ -62,7 +62,7 @@ class BuildPageBuilderTest extends \WP_UnitTestCase
             (new Build_Page())->handle(['spec' => $this->builder_spec()]);
             $this->fail('Expected the builder dialect to be PRO-gated.');
         } catch (\RuntimeException $e) {
-            $this->assertStringContainsString('PRO', $e->getMessage());
+            $this->assertStringContainsString('not enabled for this install', $e->getMessage());
         }
 
         $this->assertSame($pages, $this->page_count());

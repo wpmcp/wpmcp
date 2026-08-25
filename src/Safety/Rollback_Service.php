@@ -651,6 +651,7 @@ class Rollback_Service
             }
 
             if (null === $current) {
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- reinserts a captured before-image row into the Database_Guard-validated table it was deleted from; no WP API covers raw table rows.
                 if (false === $wpdb->insert($table, $row)) {
                     throw new Mutation_Failed('Rollback failed to reinsert row ' . esc_html($pk_desc) . ' into "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'insert failed'));
                 }
@@ -661,6 +662,7 @@ class Rollback_Service
             if ([] === $restore) {
                 continue; // PK-only table: existing row is already the before-image.
             }
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- restores a captured before-image row in the Database_Guard-validated table; undo-critical write, no WP API covers raw table rows.
             if (false === $wpdb->update($table, $restore, $where)) {
                 throw new Mutation_Failed('Rollback failed to restore row ' . esc_html($pk_desc) . ' in "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'update failed'));
             }

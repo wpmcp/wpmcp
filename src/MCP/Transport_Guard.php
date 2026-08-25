@@ -222,8 +222,8 @@ class Transport_Guard
      */
     public static function suppress_error_display(): void
     {
-        // phpcs:ignore WordPress.PHP.IniSet.display_errors_Disallowed -- deliberate: a printed notice corrupts JSON-RPC framing. Errors still log.
-        @ini_set('display_errors', '0'); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+        // phpcs:ignore WordPress.PHP.IniSet.display_errors_Disallowed, WordPress.PHP.NoSilencedErrors.Discouraged -- deliberate: a printed notice corrupts JSON-RPC framing. Errors still log.
+        @ini_set('display_errors', '0');
     }
 
     /**
@@ -269,6 +269,6 @@ class Transport_Guard
             }
         }
 
-        return isset($_SERVER['HTTP_HOST']) ? (string) wp_unslash($_SERVER['HTTP_HOST']) : '';
+        return isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
     }
 }
