@@ -61,11 +61,13 @@ class Stock_Key_Store
     private static function encrypt(string $plaintext): string
     {
         $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- makes the binary sodium nonce+ciphertext safe to store in the options table; not obfuscation.
         return base64_encode($nonce . sodium_crypto_secretbox($plaintext, $nonce, self::key()));
     }
 
     private static function decrypt(string $blob): ?string
     {
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- decodes the storage encoding written by encrypt(); not obfuscation.
         $raw = base64_decode($blob, true);
         if (false === $raw || strlen($raw) <= SODIUM_CRYPTO_SECRETBOX_NONCEBYTES) {
             return null;

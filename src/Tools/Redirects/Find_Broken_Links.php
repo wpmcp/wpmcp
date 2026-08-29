@@ -85,7 +85,7 @@ class Find_Broken_Links
     {
         $scan = Broken_Link_Scan_Store::get($scan_id);
         if (null === $scan) {
-            throw new \InvalidArgumentException("No broken-link scan found with id \"{$scan_id}\".");
+            throw new \InvalidArgumentException('No broken-link scan found with id "' . (int) $scan_id . '".');
         }
 
         $total = (int) $scan['total'];

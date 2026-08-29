@@ -82,6 +82,7 @@ class Url_Rewriter
         }
 
         if ($this->is_serialized($value)) {
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize -- decodes WP's own PHP-serialized option/meta values with allowed_classes disabled; JSON cannot read this fixed format.
             $decoded = @unserialize($value, ['allowed_classes' => false]);
 
             // unserialize() returns false both for a genuine serialized false
@@ -95,6 +96,7 @@ class Url_Rewriter
                 return $value;
             }
 
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- re-encodes in the same PHP-serialized format WP wrote; consumers of the option/meta expect that format, not JSON.
             return serialize($this->rewrite($decoded, $from, $to, $depth + 1));
         }
 
@@ -131,6 +133,7 @@ class Url_Rewriter
         }
 
         if (is_string($value) && $this->is_serialized($value)) {
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize -- decodes WP's own PHP-serialized values with allowed_classes disabled, only to check for embedded objects.
             $decoded = @unserialize($value, ['allowed_classes' => false]);
             if (false === $decoded && 'b:0;' !== $value) {
                 return false;

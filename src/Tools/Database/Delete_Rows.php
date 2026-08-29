@@ -57,11 +57,11 @@ class Delete_Rows
 
         $table = Database_Guard::valid_table((string) ($args['table'] ?? ''));
         if (is_wp_error($table)) {
-            throw new \RuntimeException($table->get_error_message());
+            throw new \RuntimeException(esc_html($table->get_error_message()));
         }
 
         if (Database_Guard::is_protected($table)) {
-            throw new \RuntimeException("Refusing to write to protected table \"{$table}\".");
+            throw new \RuntimeException('Refusing to write to protected table "' . esc_html($table) . '".');
         }
 
         $probe  = Database_Guard::recoverability_probe($table, $where);
@@ -69,9 +69,10 @@ class Delete_Rows
 
         $mutation = static function () use ($table, $where): int {
             global $wpdb;
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- agent-requested raw delete on a Database_Guard-validated table; no WP API covers arbitrary table rows.
             $affected = $wpdb->delete($table, $where);
             if (false === $affected) {
-                throw new \RuntimeException($wpdb->last_error ?: 'Delete failed.');
+                throw new \RuntimeException(esc_html($wpdb->last_error ?: 'Delete failed.'));
             }
             return (int) $affected;
         };

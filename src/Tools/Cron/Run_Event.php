@@ -49,9 +49,10 @@ class Run_Event
 
         $stored_args = self::scheduled_args($hook);
         if (null === $stored_args) {
-            throw new \RuntimeException("Hook \"{$hook}\" is not scheduled; refusing to run it.");
+            throw new \RuntimeException('Hook "' . esc_html($hook) . '" is not scheduled; refusing to run it.');
         }
 
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound -- fires an already-scheduled cron hook on request; this tool does not define a hook of its own.
         do_action_ref_array($hook, $stored_args);
 
         return [

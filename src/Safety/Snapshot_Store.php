@@ -81,6 +81,7 @@ class Snapshot_Store
     public static function save(string $operation_id, string $session_id, array $snapshot, string $tool_name, string $args_hash): int
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
         $written = $wpdb->insert(self::table_name(), [
             'operation_id' => $operation_id,
             'session_id'   => $session_id,
@@ -96,7 +97,7 @@ class Snapshot_Store
         if (false === $written) {
             throw new Mutation_Failed(
                 'The change was not made: its undo point could not be saved'
-                    . ($wpdb->last_error ? ' (' . $wpdb->last_error . ')' : '') . '.'
+                    . ($wpdb->last_error ? ' (' . esc_html($wpdb->last_error) . ')' : '') . '.'
             );
         }
 
@@ -106,7 +107,8 @@ class Snapshot_Store
     public static function get_by_operation(string $operation_id): ?array
     {
         global $wpdb;
-        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table_name() . " WHERE operation_id = %s", $operation_id), ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; reads back undo state that must never be stale.
+        $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM %i WHERE operation_id = %s', self::table_name(), $operation_id), ARRAY_A);
         if (! $row) {
             return null;
         }
@@ -117,13 +119,15 @@ class Snapshot_Store
     public static function list_by_session(string $session_id): array
     {
         global $wpdb;
-        return $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::table_name() . " WHERE session_id = %s ORDER BY id DESC", $session_id), ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; reads back undo state that must never be stale.
+        return $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE session_id = %s ORDER BY id DESC', self::table_name(), $session_id), ARRAY_A);
     }
 
     public static function recent(int $limit): array
     {
         global $wpdb;
-        return $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::table_name() . " ORDER BY id DESC LIMIT %d", $limit), ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; reads back undo state that must never be stale.
+        return $wpdb->get_results($wpdb->prepare('SELECT * FROM %i ORDER BY id DESC LIMIT %d', self::table_name(), $limit), ARRAY_A);
     }
 
     /**
@@ -139,14 +143,17 @@ class Snapshot_Store
     {
         global $wpdb;
         $t = self::table_name();
-        $cutoff = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$t} ORDER BY id DESC LIMIT 1 OFFSET %d", $keep));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; pruning must see the live row set.
+        $cutoff = $wpdb->get_var($wpdb->prepare('SELECT id FROM %i ORDER BY id DESC LIMIT 1 OFFSET %d', $t, $keep));
         if (null === $cutoff) {
             return 0;
         }
 
-        $pruned_op_ids = $wpdb->get_col($wpdb->prepare("SELECT operation_id FROM {$t} WHERE id <= %d", $cutoff));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; pruning must see the live row set.
+        $pruned_op_ids = $wpdb->get_col($wpdb->prepare('SELECT operation_id FROM %i WHERE id <= %d', $t, $cutoff));
 
-        $deleted = (int) $wpdb->query($wpdb->prepare("DELETE FROM {$t} WHERE id <= %d", $cutoff));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the prune is the delete itself.
+        $deleted = (int) $wpdb->query($wpdb->prepare('DELETE FROM %i WHERE id <= %d', $t, $cutoff));
 
         foreach ((array) $pruned_op_ids as $operation_id) {
             File_Backup::delete_backup_dir((string) $operation_id);

@@ -61,7 +61,7 @@ class Redirect_Chain
         $path = Redirect_Store::normalize_path($target);
         if ($path === $source) {
             throw new \InvalidArgumentException(
-                "Redirect refused: \"{$source}\" would point at itself."
+                'Redirect refused: "' . esc_html($source) . '" would point at itself.'
             );
         }
 
@@ -91,9 +91,9 @@ class Redirect_Chain
             if (isset($seen[ $path ])) {
                 throw new \InvalidArgumentException(sprintf(
                     'Redirect refused: "%s" -> "%s" would create a redirect loop (%s).',
-                    $source,
-                    Redirect_Store::normalize_path($target),
-                    implode(' -> ', array_merge([$source], $result['chain'], [$path]))
+                    esc_html($source),
+                    esc_html(Redirect_Store::normalize_path($target)),
+                    esc_html(implode(' -> ', array_merge([$source], $result['chain'], [$path])))
                 ));
             }
             $seen[ $path ] = true;
@@ -101,8 +101,8 @@ class Redirect_Chain
 
         throw new \InvalidArgumentException(sprintf(
             'Redirect refused: "%s" leads through more than %d redirects, which is treated as a loop.',
-            $source,
-            Redirect_Store::MAX_CHAIN_DEPTH
+            esc_html($source),
+            (int) Redirect_Store::MAX_CHAIN_DEPTH
         ));
     }
 }

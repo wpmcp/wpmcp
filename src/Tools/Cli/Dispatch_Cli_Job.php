@@ -97,9 +97,11 @@ class Dispatch_Cli_Job
             // Counted AFTER the purge above, so a queue held open only by
             // jobs whose workers died is never what blocks a dispatch.
             Wp_Cli_Guard_Chain::audit(self::ABILITY, false);
-            throw new \RuntimeException(
-                "Too many CLI jobs are already in flight ({$in_flight} of a maximum {$max}). Wait for them to finish, cancel them with cancel-cli-job, or raise the wpmcp_cli_job_max_in_flight filter."
-            );
+            throw new \RuntimeException(sprintf(
+                'Too many CLI jobs are already in flight (%d of a maximum %d). Wait for them to finish, cancel them with cancel-cli-job, or raise the wpmcp_cli_job_max_in_flight filter.',
+                (int) $in_flight,
+                (int) $max
+            ));
         }
 
         $job = Cli_Job_Store::create($subcommand_argv, self::resolve_timeout($args));

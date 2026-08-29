@@ -77,7 +77,7 @@ class Remote_Image_Guard
 
         throw new \InvalidArgumentException(sprintf(
             'Host "%s" is not on the allowed remote media host list. Extend it with the wpmcp_remote_media_allowed_hosts filter if this source is trusted.',
-            $host
+            esc_html($host)
         ));
     }
 

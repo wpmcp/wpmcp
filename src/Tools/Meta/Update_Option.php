@@ -37,7 +37,7 @@ class Update_Option
         }
 
         if (Option_Guard::is_denylisted($name)) {
-            throw new \RuntimeException("Refusing to write sensitive option \"{$name}\".");
+            throw new \RuntimeException('Refusing to write sensitive option "' . esc_html($name) . '".');
         }
 
         if (! self::is_enabled()) {

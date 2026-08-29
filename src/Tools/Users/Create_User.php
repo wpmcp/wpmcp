@@ -56,7 +56,7 @@ class Create_User
 
         $user_id = wp_insert_user($userdata);
         if (is_wp_error($user_id)) {
-            throw new \RuntimeException('Could not create user: ' . $user_id->get_error_message());
+            throw new \RuntimeException('Could not create user: ' . esc_html($user_id->get_error_message()));
         }
 
         // Notify the new user by email so they can set their own password.

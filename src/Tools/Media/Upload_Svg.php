@@ -67,7 +67,7 @@ class Upload_Svg
             remove_filter('upload_mimes', $allow_svg);
         }
         if (! empty($upload['error'])) {
-            throw new \RuntimeException('The SVG could not be written to the uploads directory: ' . $upload['error']);
+            throw new \RuntimeException('The SVG could not be written to the uploads directory: ' . esc_html((string) $upload['error']));
         }
 
         $post_id  = (int) ($args['post_id'] ?? 0);
@@ -83,7 +83,7 @@ class Upload_Svg
         );
         if (is_wp_error($media_id)) {
             wp_delete_file($upload['file']);
-            throw new \RuntimeException('The SVG attachment could not be created: ' . $media_id->get_error_message());
+            throw new \RuntimeException('The SVG attachment could not be created: ' . esc_html($media_id->get_error_message()));
         }
         $media_id = (int) $media_id;
 

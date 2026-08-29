@@ -71,7 +71,7 @@ class Update_Post
         if (isset($args['meta']) && is_array($args['meta'])) {
             $guard = Content_Guard::check_meta($args['meta']);
             if (true !== $guard) {
-                throw new \InvalidArgumentException($guard);
+                throw new \InvalidArgumentException(esc_html($guard));
             }
         }
         if (isset($args['status']) && ! in_array($args['status'], self::VALID_STATUSES, true)) {

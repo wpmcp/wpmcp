@@ -122,6 +122,72 @@ class CodeRulesTest extends Compliance_Test_Case
     }
 
     /**
+     * PHPCS honours a justified phpcs:ignore and so does Plugin Check, which
+     * runs phpcs underneath. A rule that mirrors those sniffs but ignores the
+     * annotation over-reports relative to the reviewer's own tooling and
+     * contradicts the remediation several findings recommend. The annotation
+     * must name the mirrored sniff and carry a justification after "--".
+     */
+    public function test_a_justified_phpcs_ignore_for_the_mirrored_sniff_suppresses_the_finding(): void
+    {
+        $body = "<?php\nclass Guard {\n    public function run( \$h, \$c ) {\n";
+        $body .= "        // phpcs:ignore Squiz.PHP.DiscouragedFunctions -- a printed notice corrupts JSON-RPC framing; logging untouched.\n";
+        $body .= "        ini_set( 'display_errors', '0' );\n";
+        $body .= "        fclose( \$h ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- proc_open pipe; WP_Filesystem cannot close process pipes.\n";
+        $body .= "        // phpcs:ignore WordPress.WP.AlternativeFunctions -- DNS pinning needs CURLOPT_RESOLVE; the HTTP API has no equivalent.\n";
+        $body .= "        curl_setopt( \$c, CURLOPT_RESOLVE, [] );\n";
+        $body .= "        // phpcs:ignore Generic.PHP.ForbiddenFunctions -- reading, not writing, the registry.\n";
+        $body .= "        return wp_get_sidebars_widgets();\n    }\n}\n";
+
+        $findings = $this->findings(new Forbidden_Functions_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/guard.php' => $body,
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    /**
+     * ini_set is reported by WordPressCS under its dedicated
+     * WordPress.PHP.IniSet sniff as well, so an annotation naming that sniff
+     * is an accepted suppression for the same call.
+     */
+    public function test_an_ini_set_annotation_naming_the_wordpresscs_sniff_also_counts(): void
+    {
+        $body = "<?php\nclass Guard {\n    public function run() {\n";
+        $body .= "        // phpcs:ignore WordPress.PHP.IniSet.display_errors_Disallowed -- deliberate: errors still log.\n";
+        $body .= "        ini_set( 'display_errors', '0' );\n    }\n}\n";
+
+        $findings = $this->findings(new Forbidden_Functions_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/guard.php' => $body,
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    /**
+     * A bare annotation with no justification, or one naming an unrelated
+     * sniff, suppresses nothing: the annotation must not become a silent
+     * mute button.
+     */
+    public function test_bare_or_unrelated_annotations_do_not_suppress(): void
+    {
+        $body = "<?php\nclass Guard {\n    public function run( \$h ) {\n";
+        $body .= "        ini_set( 'display_errors', '0' ); // phpcs:ignore Squiz.PHP.DiscouragedFunctions\n";
+        $body .= "        fclose( \$h ); // phpcs:ignore WordPress.Security.EscapeOutput -- wrong sniff entirely.\n";
+        $body .= "    }\n}\n";
+
+        $findings = $this->findings(new Forbidden_Functions_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/guard.php' => $body,
+        ]);
+
+        $this->assert_reports($findings, 'ini_set() changes PHP settings globally');
+        $this->assert_reports($findings, 'fclose() is an error under WordPress.WP.AlternativeFunctions');
+    }
+
+    /**
      * The mirror must not overshoot either. copy(), fseek() and curl_version()
      * are not in the sniff, and reporting them would invent errors that the
      * reviewer's own tooling does not raise. Verified against Plugin Check 2.0.0.

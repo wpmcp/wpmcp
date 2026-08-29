@@ -43,7 +43,7 @@ class Delete_Plugin
         }
 
         if (Package_Guard::is_protected_plugin($plugin)) {
-            throw new \RuntimeException("Refusing to delete protected plugin \"{$plugin}\".");
+            throw new \RuntimeException('Refusing to delete protected plugin "' . esc_html($plugin) . '".');
         }
 
         if (! function_exists('get_plugins')) {
@@ -52,11 +52,11 @@ class Delete_Plugin
 
         $all_plugins = get_plugins();
         if (! isset($all_plugins[ $plugin ])) {
-            throw new \RuntimeException("Plugin \"{$plugin}\" was not found.");
+            throw new \RuntimeException('Plugin "' . esc_html($plugin) . '" was not found.');
         }
 
         if (is_plugin_active($plugin)) {
-            throw new \RuntimeException("Refusing to delete active plugin \"{$plugin}\"; deactivate it first.");
+            throw new \RuntimeException('Refusing to delete active plugin "' . esc_html($plugin) . '"; deactivate it first.');
         }
 
         if (! Package_Guard::filesystem_ready()) {
@@ -65,7 +65,7 @@ class Delete_Plugin
 
         $result = delete_plugins([$plugin]);
         if (is_wp_error($result)) {
-            throw new \RuntimeException('Plugin delete failed: ' . $result->get_error_message());
+            throw new \RuntimeException('Plugin delete failed: ' . esc_html($result->get_error_message()));
         }
 
         return [

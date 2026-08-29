@@ -175,9 +175,10 @@ class Connection_Page
      */
     public function download_bundle(?callable $sender = null)
     {
-        // phpcs:ignore -- this IS the nonce verification for the download.
+        $nonce      = is_string($_GET['_wpnonce'] ?? null) ? sanitize_text_field(wp_unslash($_GET['_wpnonce'])) : '';
         $authorized = current_user_can('manage_options')
-            && wp_verify_nonce(self::str(wp_unslash($_GET['_wpnonce'] ?? '')), self::NONCE_ACTION);
+            && '' !== $nonce
+            && wp_verify_nonce($nonce, self::NONCE_ACTION);
 
         if (! $authorized) {
             if (null !== $sender) {

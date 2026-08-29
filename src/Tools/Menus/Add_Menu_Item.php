@@ -51,7 +51,7 @@ class Add_Menu_Item
 
         $item_id = wp_update_nav_menu_item($menu_id, 0, $data);
         if (is_wp_error($item_id)) {
-            throw new \RuntimeException('Could not add the menu item: ' . $item_id->get_error_message());
+            throw new \RuntimeException('Could not add the menu item: ' . esc_html($item_id->get_error_message()));
         }
 
         return [

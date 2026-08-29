@@ -28,7 +28,7 @@ class Get_Plugin_Info
 
         $info = plugins_api('plugin_information', ['slug' => $slug]);
         if (is_wp_error($info)) {
-            throw new \RuntimeException('Could not fetch plugin info for "' . $slug . '": ' . $info->get_error_message());
+            throw new \RuntimeException('Could not fetch plugin info for "' . esc_html($slug) . '": ' . esc_html($info->get_error_message()));
         }
 
         $sections         = (array) ($info->sections ?? []);

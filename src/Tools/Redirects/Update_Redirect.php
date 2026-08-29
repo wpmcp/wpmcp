@@ -28,7 +28,7 @@ class Update_Redirect
         $id  = (int) ($args['redirect_id'] ?? 0);
         $row = $id > 0 ? Redirect_Store::get($id) : null;
         if (null === $row) {
-            throw new \InvalidArgumentException("Redirect {$id} not found.");
+            throw new \InvalidArgumentException('Redirect ' . (int) $id . ' not found.');
         }
 
         $fields = [];
@@ -41,8 +41,8 @@ class Update_Redirect
                 if (null !== $clash) {
                     throw new \InvalidArgumentException(sprintf(
                         'Source "%s" is already redirected by redirect #%d.',
-                        $new_source,
-                        $clash['id']
+                        esc_html($new_source),
+                        (int) $clash['id']
                     ));
                 }
                 $fields['source_path'] = $new_source;

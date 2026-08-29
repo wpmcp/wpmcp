@@ -156,6 +156,7 @@ class Code_Store
         $before_value = maybe_serialize($before);
         $after_value  = maybe_serialize($after);
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- conditional UPDATE on wp_options implements the compare-and-swap guarantee described in the docblock; update_option() cannot express the WHERE guard.
         $affected = $wpdb->query(
             $wpdb->prepare(
                 "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",

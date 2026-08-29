@@ -37,17 +37,18 @@ class Insert_Row
 
         $table = Database_Guard::valid_table((string) ($args['table'] ?? ''));
         if (is_wp_error($table)) {
-            throw new \RuntimeException($table->get_error_message());
+            throw new \RuntimeException(esc_html($table->get_error_message()));
         }
 
         if (Database_Guard::is_protected($table)) {
-            throw new \RuntimeException("Refusing to write to protected table \"{$table}\".");
+            throw new \RuntimeException(sprintf('Refusing to write to protected table "%s".', esc_html($table)));
         }
 
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- opt-in write to an arbitrary (Database_Guard-validated) custom table; $wpdb->insert() is parameterized and WP has no API for such tables.
         $affected = $wpdb->insert($table, $data);
         if (false === $affected) {
-            throw new \RuntimeException($wpdb->last_error ?: 'Insert failed.');
+            throw new \RuntimeException(esc_html($wpdb->last_error) ?: 'Insert failed.');
         }
 
         return [

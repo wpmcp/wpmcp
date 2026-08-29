@@ -185,8 +185,9 @@ class Redirect_Store
     public static function get(int $id): ?array
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; the read must reflect the live row (it feeds snapshots and the undo path).
         $row = $wpdb->get_row(
-            $wpdb->prepare('SELECT * FROM ' . self::table_name() . ' WHERE id = %d', $id),
+            $wpdb->prepare('SELECT * FROM %i WHERE id = %d', self::table_name(), $id),
             ARRAY_A
         );
         return $row ? self::cast($row) : null;
@@ -196,9 +197,11 @@ class Redirect_Store
     public static function find_by_source(string $source_path): ?array
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; the front-end matcher must see the live row for a source path.
         $row = $wpdb->get_row(
             $wpdb->prepare(
-                'SELECT * FROM ' . self::table_name() . ' WHERE source_path = %s',
+                'SELECT * FROM %i WHERE source_path = %s',
+                self::table_name(),
                 self::normalize_path($source_path)
             ),
             ARRAY_A
@@ -221,7 +224,9 @@ class Redirect_Store
         $offset = max(0, (int) ($filters['offset'] ?? 0));
 
         $sql = 'SELECT * FROM ' . self::table_name() . $where . ' ORDER BY id DESC LIMIT %d OFFSET %d';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; listings must reflect live rows.
         $rows = $wpdb->get_results(
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql is literal fragments plus where_clause() output; every value goes through a %s/%d placeholder.
             $wpdb->prepare($sql, array_merge($params, [$limit, $offset])),
             ARRAY_A
         );
@@ -235,6 +240,7 @@ class Redirect_Store
         global $wpdb;
         [$where, $params] = self::where_clause($filters);
         $sql = 'SELECT COUNT(*) FROM ' . self::table_name() . $where;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- wpmcp_redirects is this plugin's own table; $sql is literal fragments plus where_clause() output with %s/%d placeholders, and the count must match live rows.
         return (int) ($params ? $wpdb->get_var($wpdb->prepare($sql, $params)) : $wpdb->get_var($sql));
     }
 
@@ -279,6 +285,7 @@ class Redirect_Store
     {
         global $wpdb;
         $now = current_time('mysql', true);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_redirects is this plugin's own table; undo is handled by Safe_Mutation at the tool layer (see block comment above).
         $wpdb->insert(self::table_name(), array_merge(self::defaults(), $fields, [
             'created_at' => $now,
             'updated_at' => $now,
@@ -291,18 +298,21 @@ class Redirect_Store
     {
         global $wpdb;
         $fields['updated_at'] = current_time('mysql', true);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; undo is handled by Safe_Mutation at the tool layer (see block comment above).
         $wpdb->update(self::table_name(), $fields, ['id' => $id]);
     }
 
     public static function delete(int $id): void
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; undo is handled by Safe_Mutation at the tool layer (see block comment above).
         $wpdb->delete(self::table_name(), ['id' => $id], ['%d']);
     }
 
     public static function delete_by_source(string $source_path): void
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; undo is handled by Safe_Mutation at the tool layer (see block comment above).
         $wpdb->delete(self::table_name(), ['source_path' => self::normalize_path($source_path)], ['%s']);
     }
 
@@ -316,6 +326,7 @@ class Redirect_Store
     public static function insert_raw(array $row): void
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_redirects is this plugin's own table; this IS the rollback path, resurrecting a captured row verbatim.
         $wpdb->insert(self::table_name(), self::writable_columns($row));
     }
 
@@ -330,6 +341,7 @@ class Redirect_Store
         global $wpdb;
         $fields = self::writable_columns($row);
         unset($fields['id']);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; this IS the rollback path, restoring a captured row's values.
         $wpdb->update(self::table_name(), $fields, ['id' => $id]);
     }
 
@@ -342,9 +354,10 @@ class Redirect_Store
     public static function record_hit(int $id): void
     {
         global $wpdb;
-        $table = self::table_name();
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; atomic hit-counter increment on the front-end hot path (see docblock).
         $wpdb->query($wpdb->prepare(
-            "UPDATE {$table} SET hits = hits + 1, last_hit_at = %s WHERE id = %d",
+            'UPDATE %i SET hits = hits + 1, last_hit_at = %s WHERE id = %d',
+            self::table_name(),
             current_time('mysql', true),
             $id
         ));

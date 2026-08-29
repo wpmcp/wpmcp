@@ -82,7 +82,6 @@ class Widget_Spec_Store
             'posts_per_page'   => 200,
             'orderby'          => 'title',
             'order'            => 'ASC',
-            'suppress_filters' => true,
         ]);
 
         $out = [];

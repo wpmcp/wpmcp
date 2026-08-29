@@ -21,7 +21,7 @@ class List_Sidebar_Widgets
         global $wp_registered_sidebars, $wp_registered_widgets;
 
         if (! isset($wp_registered_sidebars[ $sidebar_id ])) {
-            throw new \InvalidArgumentException("Sidebar \"{$sidebar_id}\" is not registered.");
+            throw new \InvalidArgumentException('Sidebar "' . esc_html($sidebar_id) . '" is not registered.');
         }
 
         // wp_get_sidebars_widgets() is on Plugin Check's forbidden-functions

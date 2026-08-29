@@ -67,11 +67,11 @@ class Update_Rows
 
         $table = Database_Guard::valid_table((string) ($args['table'] ?? ''));
         if (is_wp_error($table)) {
-            throw new \RuntimeException($table->get_error_message());
+            throw new \RuntimeException(esc_html($table->get_error_message()));
         }
 
         if (Database_Guard::is_protected($table)) {
-            throw new \RuntimeException("Refusing to write to protected table \"{$table}\".");
+            throw new \RuntimeException(sprintf('Refusing to write to protected table "%s".', esc_html($table)));
         }
 
         $probe  = Database_Guard::recoverability_probe($table, $where);
@@ -79,9 +79,10 @@ class Update_Rows
 
         $mutation = static function () use ($table, $data, $where): int {
             global $wpdb;
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the whole tool is a raw row write against a validated, unprotected table; there is no WP API and nothing to cache on a write.
             $affected = $wpdb->update($table, $data, $where);
             if (false === $affected) {
-                throw new \RuntimeException($wpdb->last_error ?: 'Update failed.');
+                throw new \RuntimeException(esc_html($wpdb->last_error ?: 'Update failed.'));
             }
             return (int) $affected;
         };

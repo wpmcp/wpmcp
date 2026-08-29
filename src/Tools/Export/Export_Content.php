@@ -60,11 +60,15 @@ class Export_Content
         // export_wp() unconditionally calls header(); suppress the resulting
         // "headers already sent" notice rather than letting it leak into the
         // captured buffer or a test's output.
-        $suppress = set_error_handler(static function () {
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- suppresses only export_wp()'s header() warning; the handler is provably restored in finally.
+        set_error_handler(static function () {
             return true;
         }, E_WARNING);
-        export_wp($export_args);
-        set_error_handler($suppress);
+        try {
+            export_wp($export_args);
+        } finally {
+            restore_error_handler();
+        }
         $xml = (string) ob_get_clean();
 
         $dir = Export_Dir::path();

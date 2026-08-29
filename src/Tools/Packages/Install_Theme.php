@@ -46,14 +46,16 @@ class Install_Theme
 
         $info = themes_api('theme_information', ['slug' => $slug, 'fields' => ['sections' => false]]);
         if (is_wp_error($info)) {
-            throw new \RuntimeException('Could not find theme "' . $slug . '" on wordpress.org: ' . $info->get_error_message());
+            throw new \RuntimeException(
+                'Could not find theme "' . esc_html($slug) . '" on wordpress.org: ' . esc_html($info->get_error_message())
+            );
         }
 
         $upgrader = new \Theme_Upgrader(new \Automatic_Upgrader_Skin());
         $result   = $upgrader->install($info->download_link);
         if (is_wp_error($result) || ! $result) {
             $message = is_wp_error($result) ? $result->get_error_message() : 'unknown error';
-            throw new \RuntimeException('Theme install failed: ' . $message);
+            throw new \RuntimeException('Theme install failed: ' . esc_html($message));
         }
 
         $activated = false;

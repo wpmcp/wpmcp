@@ -49,10 +49,9 @@ jobs:
   # profile, and the directory build under the strict wporg-free profile,
   # which is the artifact the directory would actually receive.
   #
-  # The distribution run stays advisory: that zip is sold off-directory, where
-  # licensing and the two guarded execution sites are permitted, and the
-  # profile already downgrades everything that is only a problem because
-  # WordPress.org says so.
+  # Both runs are hard gates (issue #186). The engine exits 1 on any blocker,
+  # and main is green in both profiles as of the gate flip, so a red run is a
+  # regression, not noise.
   #
   # The wporg-free run is a hard gate. scripts/build-wporg-release.sh runs the
   # engine itself as its last step, so this job fails if the directory build
@@ -65,7 +64,6 @@ jobs:
         with: { php-version: '8.3', coverage: none }
       - run: composer install --no-interaction
       - name: Compliance, distribution profile (source tree)
-        continue-on-error: true
         run: composer compliance
       - name: Build the directory zip and gate it
         run: bash scripts/build-wporg-release.sh
@@ -80,3 +78,21 @@ jobs:
         with:
           name: compliance-report
           path: compliance-report.md
+
+  # Official Plugin Check, run against the assembled directory zip rather than
+  # the working tree, so what is checked is exactly what a reviewer would
+  # unzip and vendor-side findings are not lost to a default exclude (#185).
+  # Errors fail the job; warnings stay visible in the log.
+  plugin-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with: { php-version: '8.3', coverage: none }
+      - run: composer install --no-interaction
+      - name: Assemble the directory zip
+        run: bash scripts/build-wporg-release.sh
+      - name: Plugin Check
+        uses: WordPress/plugin-check-action@v1
+        with:
+          build-dir: './build/wporg/wpmcp'

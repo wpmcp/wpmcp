@@ -1,0 +1,808 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: WP MCP\n"
+"Report-Msgid-Bugs-To: \n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-08-25T21:59:05+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: wpmcp\n"
+
+#: Admin/Ability_Grid_Page.php:60
+msgid "You are not allowed to manage MCP abilities on this site."
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:64
+#: Admin/Connection_Page.php:61
+msgid "Security check failed. Reload the page and try again."
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:74
+#: Admin/Connection_Page.php:76
+msgid "Unknown action."
+msgstr ""
+
+#. translators: %s: ability name.
+#: Admin/Ability_Grid_Page.php:84
+#, php-format
+msgid "Unknown ability \"%s\"."
+msgstr ""
+
+#. translators: 1: ability name, 2: opt-in filter name.
+#: Admin/Ability_Grid_Page.php:91
+#, php-format
+msgid "\"%1$s\" is a default-off dangerous ability. It cannot be enabled from this screen: its execution is gated by the %2$s opt-in filter, which only site code can add. The filter is the master gate."
+msgstr ""
+
+#. translators: %s: domain name.
+#: Admin/Ability_Grid_Page.php:122
+#, php-format
+msgid "Unknown domain \"%s\"."
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:176
+msgid "disabled: no pro license"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:178
+#: Admin/Ability_Grid_Page.php:273
+#: Admin/Ability_Grid_Page.php:284
+msgid "enabled"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:201
+msgid "disabled: master switch (Connection screen)"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:205
+msgid "disabled: governance ability toggle"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:206
+msgid "disabled: wpmcp_ability_enabled filter"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:207
+msgid "disabled: governance domain toggle"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:208
+msgid "disabled: wpmcp_domain_enabled filter"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:209
+msgid "disabled: governance operation toggle"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:210
+msgid "disabled: wpmcp_operation_enabled filter"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:213
+#: Admin/Ability_Grid_Page.php:273
+#: Admin/Ability_Grid_Page.php:284
+msgid "disabled"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:259
+#: Plugin.php:643
+msgid "wpmcp: Abilities"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:261
+msgid "Every ability the plugin declares, grouped by domain. Toggles write governance state (a narrowing layer: they can disable, or clear a disable, never bypass another layer), and every change is recorded in the governance audit log."
+msgstr ""
+
+#. translators: 1: ability name, 2: enabled/disabled.
+#: Admin/Ability_Grid_Page.php:271
+#, php-format
+msgid "%1$s is now %2$s."
+msgstr ""
+
+#. translators: 1: domain name, 2: enabled/disabled.
+#: Admin/Ability_Grid_Page.php:282
+#, php-format
+msgid "Domain %1$s is now %2$s."
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:290
+msgid "Not enabled (execution opt-in filter absent):"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:298
+msgid "PRO abilities are listed so you can see the full surface; they stay off until a pro license is active."
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:314
+msgid "Enable all"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:317
+msgid "Disable all"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:322
+msgid "Ability"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:323
+#: Admin/Skills_Settings_Page.php:83
+msgid "Tier"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:324
+msgid "Operation"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:325
+msgid "Risk"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:326
+msgid "State"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:335
+msgid "PRO"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:337
+msgid "(locked)"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:340
+msgid "free"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:348
+msgid "default-off"
+msgstr ""
+
+#. translators: %s: opt-in filter name.
+#: Admin/Ability_Grid_Page.php:355
+#, php-format
+msgid "gated by %s"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:361
+msgid "destructive"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:374
+msgid "execution still blocked until the opt-in filter is added"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:384
+msgid "Disable"
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:388
+msgid "Requires a pro license."
+msgstr ""
+
+#: Admin/Ability_Grid_Page.php:389
+#: Admin/Ability_Grid_Page.php:398
+#: Admin/Ability_Grid_Page.php:402
+msgid "Enable"
+msgstr ""
+
+#. translators: %s: opt-in filter name.
+#: Admin/Ability_Grid_Page.php:395
+#, php-format
+msgid "Cannot be enabled here: requires the %s opt-in filter in code."
+msgstr ""
+
+#: Admin/Announcements.php:233
+msgid "Read more"
+msgstr ""
+
+#: Admin/Announcements.php:235
+#: Admin/Redirects_Page.php:126
+msgid "Dismiss"
+msgstr ""
+
+#: Admin/Announcements.php:259
+#: Admin/Announcements.php:261
+msgid "You are not allowed to dismiss wpmcp announcements."
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:63
+#: Plugin.php:606
+msgid "wpmcp: Audit Log"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:86
+msgid "Mutations"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:87
+msgid "Requests"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:110
+msgid "Who"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:111
+#: Admin/Audit_Log_Page.php:157
+msgid "When"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:112
+msgid "What"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:113
+msgid "Domain"
+msgstr ""
+
+#. translators: %d: the WordPress user id of a deleted or unknown user.
+#: Admin/Audit_Log_Page.php:120
+#, php-format
+msgid "User #%d"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:134
+#: Admin/History_Page.php:38
+msgid "Restore"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:151
+msgid "Argument capture is ON: tool arguments are stored with secret-looking values redacted. Turn it off to stop recording payloads."
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:152
+msgid "Tool arguments are not recorded. Enable the wpmcp_request_log_capture_args option or filter to capture redacted payloads while debugging."
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:158
+msgid "Tool"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:159
+msgid "Client"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:160
+msgid "Outcome"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:161
+msgid "Duration"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:162
+msgid "Undo point"
+msgstr ""
+
+#. translators: %s: the machine-readable error code the tool call failed with.
+#: Admin/Audit_Log_Page.php:177
+#, php-format
+msgid "Error: %s"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:178
+msgid "OK"
+msgstr ""
+
+#. translators: %d: how long the tool call took, in milliseconds.
+#: Admin/Audit_Log_Page.php:183
+#, php-format
+msgid "%d ms"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:208
+msgid "View in History"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:232
+msgid "Tool name"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:237
+msgid "User ID"
+msgstr ""
+
+#: Admin/Audit_Log_Page.php:248
+msgid "Filter"
+msgstr ""
+
+#: Admin/Connection_Page.php:57
+msgid "You are not allowed to manage MCP connections on this site."
+msgstr ""
+
+#: Admin/Connection_Page.php:84
+msgid "That user does not exist."
+msgstr ""
+
+#: Admin/Connection_Page.php:88
+msgid "You are not allowed to create credentials for that user."
+msgstr ""
+
+#: Admin/Connection_Page.php:92
+msgid "Application Passwords are not available for that user on this site. They require HTTPS (or a local environment) and must not be disabled by another plugin."
+msgstr ""
+
+#: Admin/Connection_Page.php:184
+#: Admin/Connection_Page.php:186
+msgid "You are not allowed to download the connection bundle."
+msgstr ""
+
+#: Admin/Connection_Page.php:221
+#: Plugin.php:631
+msgid "wpmcp: Connection"
+msgstr ""
+
+#: Admin/Connection_Page.php:226
+msgid "Application password revoked. The client it was issued to is disconnected."
+msgstr ""
+
+#: Admin/Connection_Page.php:229
+msgid "1. MCP surface"
+msgstr ""
+
+#: Admin/Connection_Page.php:231
+msgid "Endpoint:"
+msgstr ""
+
+#: Admin/Connection_Page.php:234
+msgid "exposed"
+msgstr ""
+
+#: Admin/Connection_Page.php:236
+msgid "disabled by the master switch"
+msgstr ""
+
+#: Admin/Connection_Page.php:244
+msgid "Turn MCP off"
+msgstr ""
+
+#: Admin/Connection_Page.php:244
+msgid "Turn MCP on"
+msgstr ""
+
+#: Admin/Connection_Page.php:250
+msgid "The master switch narrows through governance: off means every ability denies instantly, for every client and credential. Its state is shown in the admin bar."
+msgstr ""
+
+#: Admin/Connection_Page.php:257
+msgid "Run connection self-test"
+msgstr ""
+
+#: Admin/Connection_Page.php:275
+msgid "2. Create a connection"
+msgstr ""
+
+#: Admin/Connection_Page.php:277
+msgid "This creates a standard WordPress Application Password for the chosen user. Least privilege: prefer a dedicated user with only the role the agent needs, the agent can never do more than that user can, and wpmcp governance and tool capability gates narrow further from there. You can revoke the password below at any time."
+msgstr ""
+
+#: Admin/Connection_Page.php:284
+msgid "Connect as user"
+msgstr ""
+
+#: Admin/Connection_Page.php:296
+msgid "Credential name"
+msgstr ""
+
+#: Admin/Connection_Page.php:297
+msgid "e.g. Claude Code on my laptop"
+msgstr ""
+
+#: Admin/Connection_Page.php:300
+msgid "Create application password"
+msgstr ""
+
+#: Admin/Connection_Page.php:306
+msgid "Application password created, shown only once."
+msgstr ""
+
+#: Admin/Connection_Page.php:307
+msgid "Copy it (or a filled config below) now; wpmcp does not store it and cannot show it again."
+msgstr ""
+
+#: Admin/Connection_Page.php:310
+msgid "User:"
+msgstr ""
+
+#: Admin/Connection_Page.php:311
+msgid "Password:"
+msgstr ""
+
+#: Admin/Connection_Page.php:315
+msgid "3. Paste into your client"
+msgstr ""
+
+#: Admin/Connection_Page.php:325
+msgid "Claude Desktop bundle"
+msgstr ""
+
+#: Admin/Connection_Page.php:328
+msgid "Download wpmcp.mcpb"
+msgstr ""
+
+#: Admin/Connection_Page.php:331
+msgid "Double-click to install in Claude Desktop, then enter the username and password above when prompted. The bundle contains no credentials, only this site's endpoint and a self-contained proxy."
+msgstr ""
+
+#: Admin/Connection_Page.php:335
+msgid "4. Next steps"
+msgstr ""
+
+#: Admin/Connection_Page.php:337
+msgid "Ask your client to list tools, you should see the wpmcp toolset."
+msgstr ""
+
+#: Admin/Connection_Page.php:338
+msgid "Every write is snapshotted first; review and roll back anything from the wpmcp History screen."
+msgstr ""
+
+#: Admin/Connection_Page.php:339
+msgid "Narrow what agents may do per ability, domain, or operation via governance, and audit every decision on the Audit Log screen."
+msgstr ""
+
+#: Admin/Connection_Page.php:343
+msgid "Issued application passwords"
+msgstr ""
+
+#: Admin/Connection_Page.php:346
+msgid "None issued from this screen yet."
+msgstr ""
+
+#: Admin/Connection_Page.php:350
+#: Admin/Skills_Settings_Page.php:81
+msgid "Name"
+msgstr ""
+
+#: Admin/Connection_Page.php:351
+msgid "User"
+msgstr ""
+
+#: Admin/Connection_Page.php:352
+msgid "Created"
+msgstr ""
+
+#: Admin/Connection_Page.php:368
+msgid "Revoke"
+msgstr ""
+
+#: Admin/Handshake_Settings_Page.php:61
+#: Plugin.php:618
+msgid "wpmcp: Handshake Instructions"
+msgstr ""
+
+#: Admin/Handshake_Settings_Page.php:64
+msgid "This text is served to every AI agent that connects, inside the MCP initialize response, ahead of an auto-generated site summary. Plain text only; markup is stripped."
+msgstr ""
+
+#: Admin/Handshake_Settings_Page.php:81
+msgid "Auto-generated summary (appended for authorized connections)"
+msgstr ""
+
+#: Admin/History_Page.php:27
+msgid "wpmcp: Agent History"
+msgstr ""
+
+#: Admin/Memory_Page.php:93
+msgid "Kind"
+msgstr ""
+
+#: Admin/Memory_Page.php:105
+msgid "Severity"
+msgstr ""
+
+#: Admin/Memory_Page.php:117
+msgid "Targets (one per line)"
+msgstr ""
+
+#: Admin/Memory_Page.php:124
+msgid "Published severity=block entries are enforced by the server: every matching call is refused before it runs. tool: targets are exact; post_id:/post_type: targets match only calls whose arguments name that post or type."
+msgstr ""
+
+#: Admin/Redirects_Page.php:31
+#: Plugin.php:656
+msgid "wpmcp: Redirects"
+msgstr ""
+
+#: Admin/Redirects_Page.php:44
+msgid "Managed redirects"
+msgstr ""
+
+#: Admin/Redirects_Page.php:47
+msgid "No redirects yet. An agent creates them with the create-redirect tool."
+msgstr ""
+
+#: Admin/Redirects_Page.php:52
+#: Admin/Redirects_Page.php:98
+#: Admin/Skills_Settings_Page.php:84
+msgid "Source"
+msgstr ""
+
+#: Admin/Redirects_Page.php:53
+msgid "Target"
+msgstr ""
+
+#: Admin/Redirects_Page.php:54
+msgid "Code"
+msgstr ""
+
+#: Admin/Redirects_Page.php:55
+#: Admin/Skills_Settings_Page.php:85
+msgid "Status"
+msgstr ""
+
+#: Admin/Redirects_Page.php:56
+msgid "Hits"
+msgstr ""
+
+#: Admin/Redirects_Page.php:67
+msgid "target missing"
+msgstr ""
+
+#: Admin/Redirects_Page.php:71
+msgid "active"
+msgstr ""
+
+#: Admin/Redirects_Page.php:72
+msgid "inactive"
+msgstr ""
+
+#: Admin/Redirects_Page.php:84
+msgid "Pending suggestions"
+msgstr ""
+
+#: Admin/Redirects_Page.php:85
+msgid "Raised when a published post was deleted or moved to a new URL. Nothing is redirected until you create it."
+msgstr ""
+
+#: Admin/Redirects_Page.php:91
+msgid "No pending suggestions."
+msgstr ""
+
+#: Admin/Redirects_Page.php:99
+msgid "Reason"
+msgstr ""
+
+#: Admin/Redirects_Page.php:100
+msgid "Proposed target"
+msgstr ""
+
+#: Admin/Redirects_Page.php:117
+msgid "choose a target with create-redirect"
+msgstr ""
+
+#: Admin/Redirects_Page.php:123
+msgid "Create redirect"
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:51
+#: Plugin.php:668
+msgid "wpmcp: Agent Skills"
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:54
+msgid "Skills are versioned markdown playbooks served to connected agents through the list-skills and get-skill tools. Turning the surface off unregisters both tools entirely, so they cost a connecting client nothing."
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:70
+msgid "Serve agent skills over MCP"
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:76
+msgid "Installed skills"
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:80
+msgid "Slug"
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:82
+msgid "Version"
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:90
+msgid "No skills found."
+msgstr ""
+
+#. translators: %s: comma-separated ability names.
+#: Admin/Skills_Settings_Page.php:104
+#, php-format
+msgid "Hidden, requires: %s"
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:108
+msgid "Listed, body needs a Pro licence"
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:110
+msgid "Served"
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:120
+msgid "Rejected documents"
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:123
+msgid "These SKILL.md files were found but failed validation, so they are not served to any agent."
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:132
+msgid "File"
+msgstr ""
+
+#: Admin/Skills_Settings_Page.php:133
+msgid "Errors"
+msgstr ""
+
+#: Connect/Client_Config_Generator.php:60
+msgid "Run the one-line command in your project, or paste the JSON block into .mcp.json."
+msgstr ""
+
+#: Connect/Client_Config_Generator.php:66
+msgid "Easiest: download the desktop bundle below and double-click it. Alternatively, merge this block into claude_desktop_config.json under \"mcpServers\" and restart Claude Desktop."
+msgstr ""
+
+#: Connect/Client_Config_Generator.php:72
+msgid "Paste into .cursor/mcp.json (project) or ~/.cursor/mcp.json (global)."
+msgstr ""
+
+#: Connect/Client_Config_Generator.php:89
+msgid "VS Code reads a top-level \"servers\" key from .vscode/mcp.json."
+msgstr ""
+
+#: Connect/Client_Config_Generator.php:92
+msgid "Any MCP client (generic JSON)"
+msgstr ""
+
+#: Connect/Client_Config_Generator.php:95
+msgid "The common \"mcpServers\" shape: a streamable-HTTP server with an Authorization header."
+msgstr ""
+
+#. translators: %s: transport error message.
+#: Connect/Connection_Tester.php:68
+#, php-format
+msgid "The MCP endpoint could not be reached from this server: %s. Loopback requests may be blocked on this host; the endpoint may still be reachable from your machine."
+msgstr ""
+
+#: Connect/Connection_Tester.php:82
+msgid "The MCP endpoint answered 404, the MCP adapter route is not mounted. Check that the Abilities API / MCP adapter is active on this WordPress version."
+msgstr ""
+
+#: Connect/Connection_Tester.php:91
+msgid "The MCP endpoint answered 421, the site-URL mismatch guard rejected the request: the host this server used to reach itself is not the host in Settings > General. Fix the site address, or disable the guard with the wpmcp_host_guard_enabled filter if a reverse proxy rewrites Host on purpose."
+msgstr ""
+
+#. translators: %d: HTTP status code.
+#: Connect/Connection_Tester.php:102
+#, php-format
+msgid "The MCP endpoint is up (HTTP %d without credentials). Connect with an Application Password and this becomes a session."
+msgstr ""
+
+#. translators: %d: HTTP status code.
+#: Connect/Connection_Tester.php:114
+#, php-format
+msgid "The MCP endpoint answered (HTTP %d)."
+msgstr ""
+
+#: Connect/Connection_Tester.php:136
+msgid "Responses are marked no-store"
+msgstr ""
+
+#: Connect/Connection_Tester.php:139
+msgid "Cache-Control: no-store is present, so proxies and page caches will not replay an old MCP response."
+msgstr ""
+
+#: Connect/Connection_Tester.php:140
+msgid "Cache-Control: no-store did not survive to the client. A caching layer in front of WordPress is rewriting or dropping it; exclude the MCP endpoint from that cache."
+msgstr ""
+
+#: Connect/Connection_Tester.php:145
+msgid "Response buffering is disabled"
+msgstr ""
+
+#: Connect/Connection_Tester.php:148
+msgid "X-Accel-Buffering: no is present, so a streaming MCP response is not held back by the proxy."
+msgstr ""
+
+#: Connect/Connection_Tester.php:149
+msgid "X-Accel-Buffering: no did not survive to the client. Streaming responses may be buffered by nginx or a similar proxy, which looks to a client like a hung connector."
+msgstr ""
+
+#: Connect/Connection_Tester.php:174
+#: Connect/Connection_Tester.php:184
+msgid "Response body is clean JSON"
+msgstr ""
+
+#: Connect/Connection_Tester.php:176
+msgid "The endpoint returned no body to inspect (expected without credentials)."
+msgstr ""
+
+#: Connect/Connection_Tester.php:187
+msgid "The response body parsed as JSON with nothing prepended to it."
+msgstr ""
+
+#: Connect/Connection_Tester.php:188
+msgid "The response body is not valid JSON. Something on this site is printing to the response (a PHP notice, a warning, or plugin output), which corrupts JSON-RPC framing and makes clients drop the connection. Check the PHP error log."
+msgstr ""
+
+#: Connect/Exposure.php:75
+msgid "MCP: On"
+msgstr ""
+
+#: Connect/Exposure.php:76
+msgid "MCP: Off"
+msgstr ""
+
+#: Connect/Exposure.php:80
+msgid "wpmcp: the MCP surface is exposed. Click to manage connections."
+msgstr ""
+
+#: Connect/Exposure.php:81
+msgid "wpmcp: the MCP surface is disabled. Click to manage connections."
+msgstr ""
+
+#: MCP/Server.php:94
+msgid "AI builds and edits your WordPress site, and physically cannot wreck it."
+msgstr ""
+
+#. translators: %s: the current MCP endpoint URL.
+#: MCP/Transport_Guard.php:241
+#, php-format
+msgid "Site URL mismatch: this connector is pointed at a host this site no longer answers to. Reconnect using %s."
+msgstr ""
+
+#: Plugin.php:579
+#: Plugin.php:594
+#: Plugin.php:595
+msgid "wpmcp"
+msgstr ""
+
+#: Plugin.php:607
+msgid "Audit Log"
+msgstr ""
+
+#: Plugin.php:619
+msgid "Handshake"
+msgstr ""
+
+#: Plugin.php:632
+msgid "Connection"
+msgstr ""
+
+#: Plugin.php:644
+msgid "Abilities"
+msgstr ""
+
+#: Plugin.php:657
+msgid "Redirects"
+msgstr ""
+
+#: Plugin.php:669
+msgid "Skills"
+msgstr ""
+
+#: Plugin.php:684
+msgid "wpmcp: Agent Memory"
+msgstr ""
+
+#: Plugin.php:685
+msgid "Memory"
+msgstr ""
+
+#. translators: %s: the title of the post being duplicated.
+#: Tools/Content/Duplicate_Post.php:51
+#, php-format
+msgid "%s (copy)"
+msgstr ""
+
+#: Tools/Elementor/Elementor_Template_Data.php:111
+msgid "Untitled template"
+msgstr ""
+
+#: Tools/Elementor/Import_Template.php:29
+msgid "Imported template"
+msgstr ""

@@ -42,13 +42,13 @@ class Delete_Theme
 
         $theme = wp_get_theme($stylesheet);
         if (! $theme->exists()) {
-            throw new \RuntimeException("Theme \"{$stylesheet}\" was not found.");
+            throw new \RuntimeException(sprintf('Theme "%s" was not found.', esc_html($stylesheet)));
         }
 
         $active_stylesheet = get_stylesheet();
         $active_template   = get_template();
         if ($stylesheet === $active_stylesheet || $stylesheet === $active_template) {
-            throw new \RuntimeException("Refusing to delete active theme \"{$stylesheet}\".");
+            throw new \RuntimeException(sprintf('Refusing to delete active theme "%s".', esc_html($stylesheet)));
         }
 
         if (! Package_Guard::filesystem_ready()) {
@@ -61,7 +61,7 @@ class Delete_Theme
 
         $result = delete_theme($stylesheet);
         if (is_wp_error($result)) {
-            throw new \RuntimeException('Theme delete failed: ' . $result->get_error_message());
+            throw new \RuntimeException('Theme delete failed: ' . esc_html($result->get_error_message()));
         }
 
         return [

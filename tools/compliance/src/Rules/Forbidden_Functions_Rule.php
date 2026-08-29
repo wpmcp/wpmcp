@@ -116,6 +116,9 @@ final class Forbidden_Functions_Rule extends Base_Rule
         $findings = [];
         foreach ($context->php_files() as $file) {
             foreach ($file->find_calls(self::FORBIDDEN, false) as $call) {
+                if ($file->has_phpcs_ignore($call['line'], 'Generic.PHP.ForbiddenFunctions')) {
+                    continue;
+                }
                 $findings[] = $this->finding(
                     $file,
                     $call['line'],
@@ -123,6 +126,9 @@ final class Forbidden_Functions_Rule extends Base_Rule
                 );
             }
             foreach ($file->find_calls(self::DISCOURAGED, false) as $call) {
+                if ($this->has_discouraged_ignore($file, $call)) {
+                    continue;
+                }
                 $findings[] = $this->finding(
                     $file,
                     $call['line'],
@@ -131,6 +137,9 @@ final class Forbidden_Functions_Rule extends Base_Rule
                 );
             }
             foreach ($file->find_calls(array_keys(self::ALTERNATIVES), false) as $call) {
+                if ($file->has_phpcs_ignore($call['line'], 'WordPress.WP.AlternativeFunctions')) {
+                    continue;
+                }
                 $findings[] = $this->finding(
                     $file,
                     $call['line'],
@@ -138,6 +147,9 @@ final class Forbidden_Functions_Rule extends Base_Rule
                 );
             }
             foreach ($this->curl_calls($file) as $call) {
+                if ($file->has_phpcs_ignore($call['line'], 'WordPress.WP.AlternativeFunctions')) {
+                    continue;
+                }
                 $findings[] = $this->finding(
                     $file,
                     $call['line'],
@@ -149,6 +161,23 @@ final class Forbidden_Functions_Rule extends Base_Rule
             }
         }
         return $findings;
+    }
+
+    /**
+     * ini_set is also reported by WordPressCS's dedicated WordPress.PHP.IniSet
+     * sniff, so an annotation naming either sniff is an accepted suppression
+     * for that call; the other three settings functions only ever appear
+     * under Squiz.PHP.DiscouragedFunctions.
+     *
+     * @param array{name:string,line:int} $call
+     */
+    private function has_discouraged_ignore(\WPMCP\Compliance\Source_File $file, array $call): bool
+    {
+        if ($file->has_phpcs_ignore($call['line'], 'Squiz.PHP.DiscouragedFunctions')) {
+            return true;
+        }
+        return 'ini_set' === $call['name']
+            && $file->has_phpcs_ignore($call['line'], 'WordPress.PHP.IniSet');
     }
 
     /**

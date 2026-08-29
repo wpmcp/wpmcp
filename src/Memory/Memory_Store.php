@@ -211,10 +211,10 @@ class Memory_Store
             'posts_per_page'   => $limit,
             'orderby'          => 'ID',
             'order'            => 'ASC',
-            'suppress_filters' => true,
         ];
 
         if (isset($args['kind'])) {
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- admin-scale query bounded to MAX_RULES (200) posts of the private memory post type.
             $query['meta_query'] = [
                 [
                     'key'     => self::META_KIND,
@@ -296,7 +296,7 @@ class Memory_Store
             'posts_per_page'   => self::MAX_RULES,
             'orderby'          => 'ID',
             'order'            => 'ASC',
-            'suppress_filters' => true,
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- bounded to MAX_RULES (200) rows of the private memory post type, memoized per request in $rules_cache.
             'meta_query'       => [
                 [
                     'key'   => self::META_SEVERITY,

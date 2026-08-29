@@ -39,6 +39,7 @@ class Wp_Cli_Executor
 
         // Array form: proc_open never invokes a shell to parse this, each
         // element is passed to the child process as a literal argv entry.
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open -- array argv, no shell involved; pro-only file stripped from the wp.org directory build.
         $process = proc_open($argv, $descriptors, $pipes);
 
         if (! is_resource($process)) {
@@ -50,6 +51,7 @@ class Wp_Cli_Executor
             ];
         }
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- proc_open pipe handle; WP_Filesystem has no API for process pipes.
         fclose($pipes[0]);
         stream_set_blocking($pipes[1], false);
         stream_set_blocking($pipes[2], false);
@@ -83,7 +85,9 @@ class Wp_Cli_Executor
         $stdout .= stream_get_contents($pipes[1]);
         $stderr .= stream_get_contents($pipes[2]);
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- proc_open pipe handle; WP_Filesystem has no API for process pipes.
         fclose($pipes[1]);
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- proc_open pipe handle; WP_Filesystem has no API for process pipes.
         fclose($pipes[2]);
 
         $exit_code = $timed_out ? -1 : (int) proc_close($process);

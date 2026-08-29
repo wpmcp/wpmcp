@@ -32,6 +32,7 @@ final class Curl_Dns_Pin
     public static function filter(string $resolve_entry): callable
     {
         return static function ($handle) use ($resolve_entry) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- deliberate SSRF defence: pins the audited request's DNS via CURLOPT_RESOLVE, which the WordPress HTTP API cannot express; the request itself still goes through wp_safe_remote_get().
             curl_setopt($handle, CURLOPT_RESOLVE, [$resolve_entry]);
             return $handle;
         };

@@ -59,7 +59,7 @@ class Build_Page
 
         if ('elementor' === $spec['dialect']) {
             if (! Gate::can_use('build-page-builder')) {
-                throw new \RuntimeException('The builder (Elementor) dialect of build-page is a PRO feature; the free tier composes Gutenberg pages.');
+                throw new \RuntimeException('The builder (Elementor) dialect is not enabled for this install; the Gutenberg dialect is always available.');
             }
             if (! class_exists('\\Elementor\\Plugin')) {
                 throw new \RuntimeException('The builder dialect requires Elementor to be active on this site.');
@@ -157,7 +157,7 @@ class Build_Page
         $problems = $this->inspect($spec);
 
         if ([] !== $problems) {
-            throw new \InvalidArgumentException($problems[0]);
+            throw new \InvalidArgumentException(esc_html($problems[0]));
         }
     }
 
@@ -352,7 +352,7 @@ class Build_Page
         ]);
 
         if (is_wp_error($item_id)) {
-            throw new \RuntimeException('The menu placement step failed: ' . $item_id->get_error_message());
+            throw new \RuntimeException('The menu placement step failed: ' . esc_html($item_id->get_error_message()));
         }
 
         return (int) $item_id;

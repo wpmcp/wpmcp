@@ -21,6 +21,7 @@ mkdir -p "$STAGE"
 
 cp "$ROOT/LICENSE" "$ROOT/composer.json" "$ROOT/composer.lock" "$STAGE/"
 cp -R "$ROOT/src" "$STAGE/src"
+cp -R "$ROOT/languages" "$STAGE/languages"
 sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/$SLUG.php" > "$STAGE/$SLUG.php"
 sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/readme.txt" > "$STAGE/readme.txt"
 

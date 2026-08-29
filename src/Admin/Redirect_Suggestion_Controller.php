@@ -37,7 +37,7 @@ class Redirect_Suggestion_Controller
     {
         $suggestion = Redirect_Suggestions::find($source);
         if (null === $suggestion) {
-            throw new \InvalidArgumentException("No pending redirect suggestion for \"{$source}\".");
+            throw new \InvalidArgumentException('No pending redirect suggestion for "' . esc_html($source) . '".');
         }
 
         $args = [
@@ -77,7 +77,7 @@ class Redirect_Suggestion_Controller
         try {
             wp_send_json_success($this->confirm(
                 $source,
-                (int) wp_unslash($_POST['target_post_id'] ?? 0),
+                absint(wp_unslash($_POST['target_post_id'] ?? 0)),
                 esc_url_raw(wp_unslash($_POST['target'] ?? ''))
             ));
         } catch (\Throwable $e) {

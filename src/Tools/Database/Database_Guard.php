@@ -66,6 +66,7 @@ class Database_Guard
         global $wpdb;
         $mode = '';
         if (isset($wpdb) && is_object($wpdb) && method_exists($wpdb, 'get_var')) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- reads the live session sql_mode (no WP API exists); memoized per request in $no_backslash_escapes_cache.
             $mode = (string) $wpdb->get_var('SELECT @@SESSION.sql_mode');
         }
 
@@ -367,6 +368,7 @@ class Database_Guard
                 && in_array(strtolower((string) $row['meta_key']), $meta_keys, true)
                 && array_key_exists('meta_value', $row)
             ) {
+                // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- masking a meta_value column in already-fetched result rows, not building a meta query.
                 $rows[ $index ]['meta_value'] = self::SECRET_MASK;
             }
         }
@@ -390,6 +392,7 @@ class Database_Guard
             return new \WP_Error('unknown_table', 'A table name is required.');
         }
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- validates a caller-supplied table name against the live schema; a cached table list would validate against stale schema.
         $tables = (array) $wpdb->get_col('SHOW TABLES');
         foreach ($tables as $candidate) {
             if (strtolower((string) $candidate) === strtolower($table)) {
@@ -445,30 +448,27 @@ class Database_Guard
         }
 
         $conditions = [];
-        $values     = [];
+        $values     = [$table];
         foreach ($where as $column => $value) {
-            $quoted = '`' . str_replace('`', '', (string) $column) . '`';
             // Match $wpdb->update()/delete() semantics exactly: a null WHERE
             // value means "IS NULL" there, so it must here too. Rendering it
             // as "= %s" would prepare to "= ''", capturing NOTHING while the
-            // mutation touches the NULL rows — a silently incomplete
+            // mutation touches the NULL rows: a silently incomplete
             // before-image behind a recoverable:true promise.
             if (null === $value) {
-                $conditions[] = $quoted . ' IS NULL';
+                $conditions[] = '%i IS NULL';
+                $values[]     = (string) $column;
                 continue;
             }
-            $conditions[] = $quoted . ' = %s';
+            $conditions[] = '%i = %s';
+            $values[]     = (string) $column;
             $values[]     = $value;
         }
+        $values[] = max(1, (int) ($limit ?? self::BEFORE_IMAGE_CAP));
 
-        $sql = 'SELECT * FROM `' . str_replace('`', '', $table) . '` WHERE '
-            . implode(' AND ', $conditions) . ' LIMIT ' . max(1, (int) ($limit ?? self::BEFORE_IMAGE_CAP));
-        // An all-null WHERE produces no placeholders, and wpdb::prepare()
-        // refuses a placeholder-less query; the SQL is then already fully
-        // static (IS NULL conditions plus validated identifiers) and safe.
-        if ([] !== $values) {
-            $sql = $wpdb->prepare($sql, $values);
-        }
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- the format string is assembled only from the literal '%i IS NULL' / '%i = %s' fragments above; every identifier (%i) and value (%s) is bound via the $values array, which the sniff cannot count.
+        $sql = $wpdb->prepare('SELECT * FROM %i WHERE ' . implode(' AND ', $conditions) . ' LIMIT %d', $values);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- before-image capture for the generic row tools: it must read the exact live rows the imminent write will touch, so a cache would break the recoverability promise. $sql is prepared on the line above.
         $rows = $wpdb->get_results($sql, ARRAY_A);
 
         return is_array($rows) ? $rows : [];
@@ -486,10 +486,8 @@ class Database_Guard
     {
         global $wpdb;
 
-        $rows = $wpdb->get_results(
-            'SHOW KEYS FROM `' . str_replace('`', '', $table) . '`',
-            ARRAY_A
-        );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- schema introspection (SHOW KEYS) for the rollback identity check; it must reflect the live table.
+        $rows = $wpdb->get_results($wpdb->prepare('SHOW KEYS FROM %i', $table), ARRAY_A);
 
         $pk = [];
         foreach ((array) $rows as $row) {
@@ -513,10 +511,8 @@ class Database_Guard
     {
         global $wpdb;
 
-        $rows = $wpdb->get_results(
-            'SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '`',
-            ARRAY_A
-        );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- schema introspection (SHOW COLUMNS) for snapshot re-validation at rollback time; it must reflect the live table.
+        $rows = $wpdb->get_results($wpdb->prepare('SHOW COLUMNS FROM %i', $table), ARRAY_A);
 
         $columns = [];
         foreach ((array) $rows as $row) {

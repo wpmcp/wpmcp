@@ -33,12 +33,12 @@ class Delete_File
 
         $gate = Filesystem_Guard::writes_allowed();
         if (is_wp_error($gate)) {
-            throw new \RuntimeException($gate->get_error_message());
+            throw new \RuntimeException(esc_html($gate->get_error_message()));
         }
 
         $abs = Filesystem_Guard::resolve_path((string) ($args['path'] ?? ''));
         if (is_wp_error($abs)) {
-            throw new \RuntimeException($abs->get_error_message());
+            throw new \RuntimeException(esc_html($abs->get_error_message()));
         }
 
         if (Filesystem_Guard::is_protected($abs)) {
@@ -51,7 +51,7 @@ class Delete_File
 
         $backup = Filesystem_Guard::backup($abs);
         if (is_wp_error($backup)) {
-            throw new \RuntimeException($backup->get_error_message());
+            throw new \RuntimeException(esc_html($backup->get_error_message()));
         }
 
         $rel = Filesystem_Guard::to_relative($abs);

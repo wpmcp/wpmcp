@@ -1,8 +1,8 @@
 === WP MCP for WooCommerce - AI Store Management with Snapshot Safety ===
 Contributors: fahdi
-Tags: woocommerce, mcp, ai, ai agent, claude
+Tags: woocommerce, mcp, ai, ai agent, automation
 Requires at least: 6.9
-Tested up to: 6.9
+Tested up to: 7.1
 Requires PHP: 8.1
 Stable tag: {{VERSION}}
 License: GPLv2 or later
@@ -39,7 +39,73 @@ This plugin is complete for WooCommerce stores. The full WP MCP plugin adds page
 
 = Privacy =
 
-No telemetry. The plugin makes no calls home.
+This plugin collects nothing about you and sends nothing anywhere on its own.
+Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing scheduled ever makes a network request, and activation makes no requests. Every outbound
+request listed under "External services" below happens only while you or your
+agent are running the specific tool that needs it.
+
+== External services ==
+
+= WordPress.org core checksums API (api.wordpress.org) =
+
+Used by the `scan-security` ability to compare this site's core files against
+the official checksums for its version, so modified core files can be
+reported. It is contacted only when an administrator or an agent runs that
+ability. What is sent: the WordPress version and the site locale, plus a
+`WPMCP-Security-Scanner/1.0` user agent. No site URL, no content, no personal
+data. Terms of use: https://wordpress.org/about/privacy/ Privacy policy:
+https://wordpress.org/about/privacy/
+
+= Openverse (api.openverse.org) =
+
+Used by the `search-stock-images` ability when the Openverse provider is
+chosen. It is contacted only when you or an agent run that search. What is
+sent: your search terms, the page number and the results-per-page count. No
+key and no account are required. Terms of use:
+https://openverse.org/terms Privacy policy: https://wordpress.org/about/privacy/
+
+= Pexels (api.pexels.com) =
+
+Used by the `search-stock-images` ability when the Pexels provider is chosen,
+which requires you to save a Pexels API key first. It is contacted only when
+you or an agent run that search. What is sent: your search terms, the page
+number, the results-per-page count, and your own API key in the Authorization
+header. Licence terms for the returned images live at
+https://www.pexels.com/license/ Terms of use: https://www.pexels.com/terms-of-service/
+Privacy policy: https://www.pexels.com/privacy-policy/
+
+= Unsplash (api.unsplash.com) =
+
+Used by the `search-stock-images` ability when the Unsplash provider is
+chosen, which requires you to save an Unsplash API key first. It is contacted
+only when you or an agent run that search. What is sent: your search terms,
+the page number, the results-per-page count, and your own API key in the
+Authorization header. Licence terms for the returned images live at
+https://unsplash.com/license Terms of use: https://unsplash.com/terms Privacy
+policy: https://unsplash.com/privacy
+
+= Image downloads from stock providers =
+
+`import-stock-image` downloads the image you picked. The download target is
+restricted to the image hosts of the providers above (images.pexels.com,
+images.unsplash.com, plus.unsplash.com, upload.wikimedia.org and
+staticflickr.com); nothing but the image is requested, and no data about you
+is sent.
+
+= Pages you ask the plugin to measure =
+
+`analyze-performance` fetches the URL you give it so it can measure the
+response. It is normally this site's own address. Private, loopback and
+reserved addresses are refused and redirects are not followed. Nothing is sent
+beyond an ordinary GET and a `WPMCP-Performance-Analyzer/1.0` user agent.
+
+= This site's own REST API =
+
+The connection self-test and the analytics abilities call this site's own URL
+over HTTP. These are loopback requests to your server. The analytics abilities
+read data through Google Site Kit's REST routes when that plugin is active and
+already connected; this plugin holds no analytics credentials of its own and
+talks to no analytics provider directly.
 
 == Installation ==
 

@@ -30,7 +30,7 @@ class Update_Block
             throw new \InvalidArgumentException(sprintf(
                 'Invalid block path [%s]: the target is freeform content with no block name; it cannot be '
                 . 'updated surgically.',
-                implode(',', $path)
+                esc_html(implode(',', $path))
             ));
         }
         if (null !== $attrs) {

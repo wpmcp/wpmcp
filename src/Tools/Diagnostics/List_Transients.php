@@ -43,6 +43,7 @@ class List_Transients
                 . $name_clause
                 . ' ORDER BY option_name ASC LIMIT ' . (int) $limit;
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- $sql is assembled above from literal clauses; the search value goes through a %s placeholder and the limit is (int)-cast, and a transient inventory must read the live options table.
         $rows = $wpdb->get_col($wpdb->prepare($sql, $params));
 
         $transients = [];

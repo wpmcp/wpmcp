@@ -4,6 +4,14 @@
 
 namespace WPMCP;
 
+// Plugin Check's Direct_File_Access_Check only accepts the bare defined()
+// test near the top of the file; an extra conjunct, or a guard buried after
+// hundreds of use-statements, makes it report the file as unprotected. The
+// test bootstrap defines ABSPATH itself, so no test escape hatch is needed.
+if (! defined('ABSPATH')) {
+    exit;
+}
+
 use WPMCP\Admin\Audit_Log_Page;
 use WPMCP\Admin\History_Page;
 use WPMCP\Admin\Restore_Controller;
@@ -291,12 +299,6 @@ use WPMCP\MCP\Structured_Result;
 use WPMCP\MCP\Server as Mcp_Server;
 use WPMCP\MCP\Transport_Guard;
 
-// Plugin Check's Direct_File_Access_Check only accepts the bare defined()
-// test; an extra conjunct makes it report the file as unprotected. The test
-// bootstrap defines ABSPATH itself, so the guard needs no test escape hatch.
-if (! defined('ABSPATH')) {
-    exit;
-}
 
 final class Plugin
 {
@@ -653,8 +655,8 @@ final class Plugin
         // manage_options decision, like the rest.
         add_submenu_page(
             'wpmcp',
-            'wpmcp: Redirects',
-            'Redirects',
+            __('wpmcp: Redirects', 'wpmcp'),
+            __('Redirects', 'wpmcp'),
             'manage_options',
             Redirects_Page::SLUG,
             [new Redirects_Page(), 'render']
@@ -665,8 +667,8 @@ final class Plugin
         // connecting agent is told about how to work on this site.
         add_submenu_page(
             'wpmcp',
-            'wpmcp: Agent Skills',
-            'Skills',
+            __('wpmcp: Agent Skills', 'wpmcp'),
+            __('Skills', 'wpmcp'),
             'manage_options',
             Skills_Settings_Page::SLUG,
             [new Skills_Settings_Page(), 'render']
@@ -681,8 +683,8 @@ final class Plugin
         if ($memory) {
             add_submenu_page(
                 'wpmcp',
-                'wpmcp: Agent Memory',
-                Memory_Page::badged('Memory', $pending),
+                __('wpmcp: Agent Memory', 'wpmcp'),
+                Memory_Page::badged(__('Memory', 'wpmcp'), $pending),
                 'manage_options',
                 Memory_Page::submenu_slug()
             );

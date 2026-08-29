@@ -19,6 +19,7 @@ mkdir -p "$STAGE"
 
 cp "$ROOT/wpmcp.php" "$ROOT/readme.txt" "$ROOT/LICENSE" "$ROOT/composer.json" "$ROOT/composer.lock" "$STAGE/"
 cp -R "$ROOT/src" "$STAGE/src"
+cp -R "$ROOT/languages" "$STAGE/languages"
 
 composer install --working-dir="$STAGE" --no-dev --optimize-autoloader --quiet --no-interaction
 rm -f "$STAGE/composer.json" "$STAGE/composer.lock"

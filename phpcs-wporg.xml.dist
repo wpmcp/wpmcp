@@ -1,0 +1,76 @@
+<?xml version="1.0"?>
+<ruleset name="wpmcp-wporg-review">
+    <description>
+        Mirror of the sniff layer the WordPress.org review actually runs
+        (Plugin Check's plugin-review ruleset), so the class of finding that
+        surfaced as issues #171-#182 fails CI instead of accumulating. The
+        guideline layer that phpcs cannot see is covered separately by
+        tools/compliance. PSR-12 formatting stays in phpcs.xml.dist; this
+        ruleset is security and directory-policy only.
+    </description>
+
+    <file>src</file>
+    <file>wpmcp.php</file>
+
+    <arg name="extensions" value="php"/>
+    <arg value="sp"/>
+
+    <!-- The review runs on the assembled zip, where these do not exist. -->
+    <exclude-pattern>*/vendor/*</exclude-pattern>
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+
+    <!-- Escaping, sanitization and nonces: the bulk of issues #173 and #177. -->
+    <rule ref="WordPress.Security.EscapeOutput"/>
+    <rule ref="WordPress.Security.ValidatedSanitizedInput"/>
+    <rule ref="WordPress.Security.NonceVerification"/>
+    <rule ref="WordPress.Security.PluginMenuSlug"/>
+    <rule ref="WordPress.Security.SafeRedirect"/>
+
+    <!-- Database: issues #174, #175, #182. -->
+    <rule ref="WordPress.DB.PreparedSQL"/>
+    <rule ref="WordPress.DB.PreparedSQLPlaceholders"/>
+    <rule ref="WordPress.DB.DirectDatabaseQuery"/>
+    <rule ref="WordPress.DB.SlowDBQuery"/>
+    <rule ref="WordPress.DB.RestrictedFunctions"/>
+    <rule ref="WordPress.DB.RestrictedClasses"/>
+
+    <!-- Function policy: issues #171, #181. json_encode and the two
+         file_get/put_contents names are the exclusions Plugin Check itself
+         carries. -->
+    <rule ref="WordPress.WP.AlternativeFunctions">
+        <exclude name="WordPress.WP.AlternativeFunctions.json_encode_json_encode"/>
+        <exclude name="WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents"/>
+        <exclude name="WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents"/>
+    </rule>
+    <rule ref="WordPress.PHP.DevelopmentFunctions"/>
+    <rule ref="WordPress.PHP.DiscouragedPHPFunctions"/>
+    <rule ref="WordPress.PHP.IniSet"/>
+    <rule ref="WordPress.PHP.RestrictedPHPFunctions"/>
+    <rule ref="WordPress.WP.DeprecatedFunctions"/>
+    <rule ref="WordPress.WP.DeprecatedClasses"/>
+    <rule ref="WordPress.WP.DeprecatedParameters"/>
+    <rule ref="WordPress.WP.DiscouragedConstants"/>
+    <rule ref="WordPress.WP.EnqueuedResources"/>
+    <rule ref="WordPress.DateTime.RestrictedFunctions"/>
+
+    <!-- i18n: issues #176, #183. -->
+    <rule ref="WordPress.WP.I18n">
+        <properties>
+            <property name="text_domain" type="array">
+                <element value="wpmcp"/>
+                <element value="wpmcp-for-woocommerce"/>
+            </property>
+        </properties>
+    </rule>
+
+    <!-- WordPress-global hygiene the review flags on sight. -->
+    <rule ref="WordPress.WP.GlobalVariablesOverride"/>
+    <rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+        <properties>
+            <property name="prefixes" type="array">
+                <element value="wpmcp"/>
+                <element value="WPMCP"/>
+            </property>
+        </properties>
+    </rule>
+</ruleset>

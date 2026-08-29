@@ -41,7 +41,7 @@ class Switch_Theme
 
         $theme = wp_get_theme($stylesheet);
         if (! $theme->exists()) {
-            throw new \RuntimeException("Theme \"{$stylesheet}\" was not found.");
+            throw new \RuntimeException('Theme "' . esc_html($stylesheet) . '" was not found.');
         }
 
         $session_id = (string) ($args['session_id'] ?? 'default');

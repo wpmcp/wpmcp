@@ -122,9 +122,7 @@ class Memory_Page
         echo '</p>';
 
         echo '<p class="description">' . esc_html__(
-            'Published severity=block entries are enforced by the server: every matching call is refused '
-            . 'before it runs. tool: targets are exact; post_id:/post_type: targets match only calls whose '
-            . 'arguments name that post or type.',
+            'Published severity=block entries are enforced by the server: every matching call is refused before it runs. tool: targets are exact; post_id:/post_type: targets match only calls whose arguments name that post or type.',
             'wpmcp'
         ) . '</p>';
     }
