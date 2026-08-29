@@ -2,7 +2,7 @@
 Contributors: fahdi
 Tags: mcp, mcp server, ai agent, automation, undo
 Requires at least: 6.9
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 8.1
 Stable tag: {{VERSION}}
 License: GPLv2 or later
@@ -48,7 +48,7 @@ add-on's code is not in this download at all.
 = Privacy =
 
 This plugin collects nothing about you and sends nothing anywhere on its own.
-It has no scheduled jobs and no activation-time requests. Every outbound
+Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing scheduled ever makes a network request, and activation makes no requests. Every outbound
 request listed under "External services" below happens only while you or your
 agent are running the specific tool that needs it.
 

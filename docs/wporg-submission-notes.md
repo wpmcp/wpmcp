@@ -22,8 +22,10 @@ handlers: `src/Tools/Packages/*.php`).
 - **Nothing installs on activation, in the background, or on a schedule.**
   The only path to any of these call sites is an authenticated MCP `tools/call`
   or REST invocation of the ability by a connected client. The plugin
-  registers no cron task and no activation-time install of anything
-  (`src/Activator.php` creates database tables only).
+  registers exactly one cron task, a daily local sweep of expired OAuth
+  tokens (`wpmcp_oauth_gc`, scheduled by `src/Activator.php` via
+  `src/Auth/Oauth_Gc.php`), which makes no network requests; activation
+  otherwise creates database tables only.
 - **Nothing is bundled.** The zip contains no other plugin or theme, and the
   installer cannot be pointed at one: `src/Tools/Packages/Install_Plugin.php`
   validates the slug against `[a-z0-9-]` and resolves it through core's own

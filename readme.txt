@@ -2,7 +2,7 @@
 Contributors: fahdi
 Tags: mcp, mcp server, ai agent, automation, undo
 Requires at least: 6.9
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 8.1
 Stable tag: 0.8.0
 License: GPLv2 or later
@@ -46,7 +46,7 @@ WP MCP Pro adds unlimited snapshot history, deep Elementor editing and building,
 
 = Privacy =
 
-The plugin collects nothing about you and sends nothing anywhere on its own. It has no scheduled jobs and no activation-time requests. Every outbound request it can make is listed under "External services" below, and each one happens only while you or your agent are running the tool that needs it. Licensing (Freemius) and WP MCP Cloud sync are opt-in and inactive until you connect them.
+The plugin collects nothing about you and sends nothing anywhere on its own. Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing scheduled ever makes a network request, and activation makes no requests. Every outbound request it can make is listed under "External services" below, and each one happens only while you or your agent are running the tool that needs it. Licensing (Freemius) and WP MCP Cloud sync are opt-in and inactive until you connect them.
 
 == External services ==
 

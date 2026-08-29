@@ -1,8 +1,8 @@
 === WP MCP for WooCommerce - AI Store Management with Snapshot Safety ===
 Contributors: fahdi
-Tags: woocommerce, mcp, ai, ai agent, claude
+Tags: woocommerce, mcp, ai, ai agent, automation
 Requires at least: 6.9
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 8.1
 Stable tag: {{VERSION}}
 License: GPLv2 or later
@@ -40,7 +40,7 @@ This plugin is complete for WooCommerce stores. The full WP MCP plugin adds page
 = Privacy =
 
 This plugin collects nothing about you and sends nothing anywhere on its own.
-It has no scheduled jobs and no activation-time requests. Every outbound
+Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing scheduled ever makes a network request, and activation makes no requests. Every outbound
 request listed under "External services" below happens only while you or your
 agent are running the specific tool that needs it.
 
