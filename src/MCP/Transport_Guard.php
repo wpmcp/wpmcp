@@ -222,7 +222,7 @@ class Transport_Guard
      */
     public static function suppress_error_display(): void
     {
-        // phpcs:ignore WordPress.PHP.IniSet.display_errors_Disallowed, WordPress.PHP.NoSilencedErrors.Discouraged -- deliberate: a printed notice corrupts JSON-RPC framing. Errors still log.
+        // phpcs:ignore WordPress.PHP.IniSet.display_errors_Disallowed, WordPress.PHP.NoSilencedErrors.Discouraged, PluginCheck.CodeAnalysis.PHPErrorReporting.IniDirectiveDisplay_errors -- deliberate: a printed notice corrupts JSON-RPC framing. Errors still log.
         @ini_set('display_errors', '0');
     }
 

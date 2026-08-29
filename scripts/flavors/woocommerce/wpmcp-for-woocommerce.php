@@ -4,7 +4,7 @@
  * Description: AI agents run your WooCommerce store over MCP, with a snapshot before every write and one-click rollback.
  * Version: {{VERSION}}
  * Requires at least: 6.9
- * Tested up to: 7.0
+ * Tested up to:      7.1
  * Requires PHP: 8.1
  * Requires Plugins: woocommerce
  * License: GPL-2.0-or-later
