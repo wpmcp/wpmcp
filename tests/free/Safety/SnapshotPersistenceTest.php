@@ -165,4 +165,48 @@ class SnapshotPersistenceTest extends \WP_UnitTestCase
         $this->assertFalse($mutation_ran, 'The write ran even though its snapshot was never persisted.');
         $this->assertSame('Original', get_post($post_id)->post_title);
     }
+
+    /**
+     * A corrupt stored blob must be LOUD, not a polite no-op.
+     *
+     * Snapshot::unserialize() used to map an undecodable blob to [], and
+     * Rollback_Service::restore_operation() then walked apply_snapshot()
+     * finding nothing to do and still returned true - "restored" while
+     * restoring nothing, the exact silent-failure mode this branch exists
+     * to kill. A truncated or hand-edited row is rare; lying about it
+     * cannot be.
+     */
+    public function test_a_corrupt_blob_throws_instead_of_decoding_to_nothing(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        Snapshot::unserialize('this is neither gzip nor base64-of-gzip');
+    }
+
+    public function test_restoring_an_operation_with_a_corrupt_blob_does_not_report_success(): void
+    {
+        global $wpdb;
+        $operation_id = 'corrupt-blob-op';
+        $wpdb->insert(Snapshot_Store::table_name(), [
+            'operation_id' => $operation_id,
+            'session_id'   => 'corrupt-blob-session',
+            'ability'      => 'wpmcp/update-post',
+            'object_type'  => 'post',
+            'object_id'    => 1,
+            'before_blob'  => 'truncated-garbage-that-never-was-a-snapshot',
+            'created_at'   => gmdate('Y-m-d H:i:s'),
+        ]);
+
+        try {
+            \WPMCP\Safety\Rollback_Service::restore_operation($operation_id);
+            $this->fail('restore_operation returned instead of throwing on a corrupt snapshot row');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('snapshot', strtolower($e->getMessage()));
+        }
+    }
+
+    public function test_a_genuinely_empty_json_snapshot_still_round_trips(): void
+    {
+        // [] is a legal serialization payload; only UNDECODABLE blobs throw.
+        $this->assertSame([], Snapshot::unserialize(Snapshot::serialize([])));
+    }
 }

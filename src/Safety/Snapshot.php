@@ -386,19 +386,33 @@ class Snapshot
     public static function unserialize(string $blob): array
     {
         if (str_starts_with($blob, "\x1f\x8b")) {
-            $json = gzdecode($blob);
+            $json = @gzdecode($blob);
         } else {
             // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- decodes the portability encoding written by serialize() (see docblocks), not obfuscation.
             $decoded = base64_decode($blob, true);
-            $json    = false === $decoded ? false : gzdecode($decoded);
+            $json    = false === $decoded ? false : @gzdecode($decoded);
         }
 
         if (false === $json) {
-            return [];
+            // An undecodable blob must be LOUD. Mapping it to [] made
+            // restore_operation() walk apply_snapshot() with nothing to do
+            // and still report restored: true - "restored" while restoring
+            // nothing, the silent-failure mode this file exists to prevent.
+            // A genuinely empty snapshot serializes to valid gzip of "[]",
+            // so it never lands here; only corruption does.
+            throw new \RuntimeException(
+                'Snapshot blob is undecodable (truncated or corrupted row); refusing to report a restore that cannot happen.'
+            );
         }
 
         $data = json_decode($json, true);
 
-        return is_array($data) ? $data : [];
+        if (! is_array($data)) {
+            throw new \RuntimeException(
+                'Snapshot blob decoded but is not a snapshot (corrupted row); refusing to report a restore that cannot happen.'
+            );
+        }
+
+        return $data;
     }
 }

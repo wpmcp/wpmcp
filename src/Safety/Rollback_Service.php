@@ -66,7 +66,15 @@ class Rollback_Service
         // before-images overwrite newer ones where they overlap.
         $legacy = [];
         foreach ($rows as $r) {
-            $snapshot = Snapshot::unserialize($r['before_blob']);
+            try {
+                $snapshot = Snapshot::unserialize($r['before_blob']);
+            } catch (\RuntimeException $e) {
+                // One corrupt row must not abort the unwind of every other
+                // operation in the session - but it must be visible: the row
+                // is reported, skipped, and NOT counted as restored.
+                self::warn(sprintf('operation %s skipped: %s', $r['operation_id'], $e->getMessage()));
+                continue;
+            }
             if ('db_rows' === $snapshot['object_type']) {
                 self::apply_snapshot($snapshot);
                 $count++;
