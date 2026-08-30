@@ -85,7 +85,7 @@ class Search_Index_Store
     {
         global $wpdb;
         $table = self::table_name();
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- table name is built from $wpdb->prefix.
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- existence check for wpmcp_search_index, this plugin's own table ($wpdb->prefix + literal); must see the live schema so self-healing install works.
         return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table;
     }
 
@@ -107,6 +107,7 @@ class Search_Index_Store
             if ('' === trim($content)) {
                 continue;
             }
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_search_index is this plugin's own derived-index table; WP has no API for it.
             $wpdb->insert(self::table_name(), [
                 'object_type' => $object_type,
                 'object_id'   => $object_id,
@@ -128,6 +129,7 @@ class Search_Index_Store
     public static function purge_object(string $object_type, int $object_id): void
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_search_index is this plugin's own derived-index table; WP has no API for it and a delete has nothing to cache.
         $wpdb->delete(self::table_name(), [
             'object_type' => $object_type,
             'object_id'   => $object_id,
@@ -139,7 +141,7 @@ class Search_Index_Store
     {
         global $wpdb;
         $table = self::table_name();
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- table name is built from $wpdb->prefix.
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- full clear of wpmcp_search_index, this plugin's own table; the name is $wpdb->prefix plus a literal (see table_name()) and identifiers cannot be bound.
         $wpdb->query("DELETE FROM {$table}");
     }
 
@@ -201,7 +203,7 @@ class Search_Index_Store
              ORDER BY weight DESC, id ASC
              LIMIT ' . $max_rows;
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- placeholders are built above; values are bound here.
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- placeholders are built above and values bound here; wpmcp_search_index is this plugin's own table and a search must read the live index, capped at max_rows (5000).
         $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
 
         return is_array($rows) ? $rows : [];
@@ -214,12 +216,12 @@ class Search_Index_Store
         self::ensure_installed();
         $table = self::table_name();
 
-        // phpcs:disable WordPress.DB.PreparedSQL.NotPrepared -- table name is built from $wpdb->prefix.
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- aggregate stats over wpmcp_search_index, this plugin's own table; the name is $wpdb->prefix plus a literal (see table_name()) and the stats must reflect the just-written index.
         $documents = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}");
         $objects   = (int) $wpdb->get_var("SELECT COUNT(DISTINCT object_type, object_id) FROM {$table}");
         $last      = $wpdb->get_var("SELECT MAX(indexed_at) FROM {$table}");
         $rows      = $wpdb->get_results("SELECT source, COUNT(*) AS total FROM {$table} GROUP BY source", ARRAY_A);
-        // phpcs:enable WordPress.DB.PreparedSQL.NotPrepared
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
         $by_source = [];
         foreach ((array) $rows as $row) {

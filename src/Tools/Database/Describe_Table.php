@@ -25,7 +25,8 @@ class Describe_Table
         }
 
         global $wpdb;
-        $columns = $wpdb->get_results('DESCRIBE `' . str_replace('`', '', $table) . '`', ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- schema introspection has no WP API and must reflect the live table structure.
+        $columns = $wpdb->get_results($wpdb->prepare('DESCRIBE %i', $table), ARRAY_A);
 
         return [
             'table'   => $table,
