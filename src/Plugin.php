@@ -386,6 +386,11 @@ final class Plugin
             add_action('init', ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Spec_Store', 'ensure_post_type']);
             add_action('elementor/widgets/register', ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Registry', 'register']);
         }
+        // Theme-builder site parts (issue #70): register the wpmcp_template CPT
+        // on init; render adapters hook here once they exist.
+        if ($this->group_enabled('theme_builder')) {
+            add_action('init', ['\\WPMCP\\Tools\\ThemeBuilder\\Template_Store', 'ensure_post_type']);
+        }
         // Data-driven custom Gutenberg block builder: register the wpmcp_block
         // CPT and register active specs as real blocks via register_block_type.
         if ($this->group_enabled('block_builder')) {
@@ -2114,6 +2119,7 @@ final class Plugin
             'integration'    => fn () => $this->register_integration_abilities($registrar),
             'widget_builder' => fn () => $this->register_widget_builder_abilities($registrar),
             'block_builder'  => fn () => $this->register_block_builder_abilities($registrar),
+            'theme_builder'  => fn () => $this->register_theme_builder_abilities($registrar),
             'cloud'          => fn () => $this->register_cloud_abilities($registrar),
             'search'         => fn () => $this->register_search_abilities($registrar),
             'skills'         => fn () => $this->register_skills_abilities($registrar),
@@ -2367,6 +2373,43 @@ final class Plugin
             'content',
             'update'
         ));
+    }
+
+    /**
+     * Theme-builder site parts (issue #70, scoped v1): templates for header,
+     * footer, and 404 assignable to contexts by include/exclude conditions,
+     * with deterministic winner resolution (specificity > priority > id).
+     * Engine is free with a cap of one template per part type enforced in
+     * Template_Store via Pro\Gate; granular conditions and unlimited
+     * templates are PRO. manage_options: templates render site-wide markup.
+     */
+    private function register_theme_builder_abilities(Registrar $registrar): void
+    {
+        $conditions_schema = [ 'type' => 'object' ];
+        $context_schema    = [ 'type' => 'object' ];
+
+        $tools = [
+            ['create-template', 'create', new \WPMCP\Tools\ThemeBuilder\Create_Template(), 'Create a theme-builder template (header, footer, or 404 site part) with include/exclude display conditions and a tie-break priority. Free tier caps at one template per part type. Remove via the standard trash', ['part_type' => ['type' => 'string'], 'title' => ['type' => 'string'], 'content' => ['type' => 'string'], 'conditions' => $conditions_schema, 'priority' => ['type' => 'integer']], ['part_type', 'title', 'conditions']],
+            ['list-templates', 'read', new \WPMCP\Tools\ThemeBuilder\List_Templates(), 'List the theme-builder templates on this site (id, part type, title, conditions, priority, status), optionally filtered by part type. Read-only', ['part_type' => ['type' => 'string']], []],
+            ['resolve-template', 'read', new \WPMCP\Tools\ThemeBuilder\Resolve_Template(), 'Report which theme-builder template wins for a given context (specificity > priority > id), with every considered template and why. Read-only', ['part_type' => ['type' => 'string'], 'context' => $context_schema], ['part_type']],
+        ];
+
+        foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
+            $schema = [ 'type' => 'object', 'properties' => $props ];
+            if ([] !== $required) {
+                $schema['required'] = $required;
+            }
+            $registrar->register(new Ability(
+                'wpmcp/' . $name,
+                'free',
+                $desc,
+                $schema,
+                [$handler, 'handle'],
+                'manage_options',
+                'theme',
+                $op
+            ));
+        }
     }
 
     /**
