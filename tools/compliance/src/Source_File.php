@@ -7,7 +7,7 @@ namespace WPMCP\Compliance;
  * the rules need.
  *
  * Token-level lookups exist so that pattern strings and documentation
- * comments never false-positive: scripts/build-woo-release.sh already learned
+ * comments never false-positive: scripts/lib/exec-gate.php already learned
  * that lesson for eval/proc_open, and every construct rule here follows it.
  */
 final class Source_File
