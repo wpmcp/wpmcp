@@ -158,7 +158,8 @@ class Hardening_Audit
         $admin_exists = function_exists('username_exists') && username_exists('admin');
         $findings[]   = $this->evaluate_admin_user((bool) $admin_exists);
 
-        $xmlrpc     = (bool) apply_filters('xmlrpc_enabled', true) && file_exists(ABSPATH . 'xmlrpc.php'); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- core filter, read to probe the site's effective XML-RPC state.
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- reading core's xmlrpc_enabled filter, not defining one.
+        $xmlrpc     = (bool) apply_filters('xmlrpc_enabled', true) && file_exists(ABSPATH . 'xmlrpc.php');
         $findings[] = $this->evaluate_xmlrpc($xmlrpc);
 
         $findings[] = $this->evaluate_https(home_url());

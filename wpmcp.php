@@ -9,6 +9,11 @@
  * Text Domain: wpmcp
  */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/src/flavor-guard.php';
+// Only one WP MCP build may boot per request: they share the WPMCP_* constants,
+// the \WPMCP\ namespace and all persisted state. The full plugin outranks the
+// wp.org verticals, so it only stands down for a copy that already loaded.
+if ( wpmcp_flavor_should_defer( basename( __FILE__ ), array(), defined( 'WPMCP_VERSION' ) ) ) { return; }
 define( 'WPMCP_VERSION', '0.8.0' );
 define( 'WPMCP_FILE', __FILE__ );
 define( 'WPMCP_DIR', plugin_dir_path( __FILE__ ) );
