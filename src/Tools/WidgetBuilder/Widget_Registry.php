@@ -49,7 +49,6 @@ class Widget_Registry
             'post_status'      => 'publish',
             'name'             => sanitize_title($name),
             'posts_per_page'   => 1,
-            'suppress_filters' => true,
         ]);
         if (empty($posts)) {
             return null;

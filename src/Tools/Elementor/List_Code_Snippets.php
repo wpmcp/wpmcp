@@ -21,7 +21,6 @@ class List_Code_Snippets
             'posts_per_page' => 200,
             'orderby'        => 'title',
             'order'          => 'ASC',
-            'suppress_filters' => true,
         ]);
 
         $snippets = [];

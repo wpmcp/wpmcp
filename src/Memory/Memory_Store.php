@@ -211,7 +211,6 @@ class Memory_Store
             'posts_per_page'   => $limit,
             'orderby'          => 'ID',
             'order'            => 'ASC',
-            'suppress_filters' => true,
         ];
 
         if (isset($args['kind'])) {
@@ -296,7 +295,6 @@ class Memory_Store
             'posts_per_page'   => self::MAX_RULES,
             'orderby'          => 'ID',
             'order'            => 'ASC',
-            'suppress_filters' => true,
             'meta_query'       => [
                 [
                     'key'   => self::META_SEVERITY,
