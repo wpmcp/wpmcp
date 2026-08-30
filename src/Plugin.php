@@ -2410,8 +2410,10 @@ final class Plugin
     /**
      * The data-driven custom Elementor widget builder (EMCP parity, no eval):
      * store/validate/list widget specs that Dynamic_Widget renders at runtime.
-     * All PRO, manage_options + unfiltered_html-class authority (site-wide
-     * markup authoring), domain 'elementor'.
+     * All PRO, gated on manage_options, domain 'elementor'. That is site-wide
+     * markup authoring, but manage_options is not unfiltered_html (a multisite
+     * site admin has the first and not the second), so Widget_Spec_Store runs
+     * the template through wp_kses_post for anyone lacking unfiltered_html.
      */
     private function register_widget_builder_abilities(Registrar $registrar): void
     {
