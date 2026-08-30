@@ -43,6 +43,7 @@ use WPMCP\Tools\Cli\List_Cli_Jobs;
 use WPMCP\Tools\Cli\Cancel_Cli_Job;
 use WPMCP\Tools\Cli\Run_Cli_Job;
 use WPMCP\Tools\Analysis\Extract_Content;
+use WPMCP\Tools\Analysis\Get_Page_Snapshot;
 use WPMCP\Tools\Analysis\Analyze_Seo;
 use WPMCP\Tools\Analysis\Analyze_Accessibility;
 use WPMCP\Tools\Analysis\Fix_Color_Contrast;
@@ -6361,6 +6362,36 @@ final class Plugin
      */
     private function register_analysis_abilities(Registrar $registrar): void
     {
+        // get-page-snapshot (issue #81) is the one free-tier ability in this
+        // group: a one-call normalized page digest. Its pro overlay sections
+        // attach via the wpmcp_page_snapshot_sections filter, so the free
+        // build renders it without any pro code present.
+        $get_page_snapshot = new Get_Page_Snapshot();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-page-snapshot',
+            'free',
+            'One-call normalized page digest for any post: structure summary with counts, content outline, media and link inventory, builder detection (elementor/bricks/divi/gutenberg/classic), and SEO-lite signals. Heavy sections (global_tokens, responsive_overrides) are excluded by default and opt-in via the sections param. Response size is bounded. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'  => [ 'type' => 'integer' ],
+                    'sections' => [
+                        'type'  => 'array',
+                        'items' => [
+                            'type' => 'string',
+                            'enum' => [ 'global_tokens', 'responsive_overrides' ],
+                        ],
+                    ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$get_page_snapshot, 'handle'],
+            'edit_posts',
+            'analysis',
+            'read'
+        ));
+
         $extract_content = new Extract_Content();
 
         $registrar->register(new Ability(
