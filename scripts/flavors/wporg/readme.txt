@@ -31,7 +31,7 @@ Around 180 abilities across content, structure, media and site management:
 
 * Posts, pages, custom post types, taxonomies, menus, users, options
 * Block editor: surgical block edits and full page composition
-* Elementor page composition and widget inspection
+* Elementor widget inspection and global class reads
 * Store, custom field, and SEO plugin integrations, read and write
 * Forms, events, donations and memberships, read
 * Media library plus stock image search and import
@@ -40,10 +40,11 @@ Around 180 abilities across content, structure, media and site management:
 = Add-on =
 
 A separate add-on plugin, distributed by the author rather than through this
-directory, adds deep Elementor editing, the custom widget and block builders,
-the Bricks and Divi write tools, WP-CLI and PHP snippet execution, and cloud
-sync. Nothing in this plugin is locked, reduced or switched off by it: the
-add-on's code is not in this download at all.
+directory, adds Elementor page composition and deep Elementor editing, the
+custom widget and block builders, the Bricks and Divi write tools, WP-CLI and
+PHP snippet execution, and cloud sync. Nothing in this plugin is locked,
+reduced or switched off by it: the add-on's code is not in this download at
+all.
 
 = Privacy =
 
@@ -149,7 +150,7 @@ No. Nothing here requires registration. Stock image search with Pexels or Unspla
 * First directory release.
 * MCP server on the core Abilities API, with a snapshot before every write and one-click or whole-session rollback.
 * Six governance layers, an audit log, scoped identities and OAuth 2.1.
-* Block editor, Elementor composition, store, custom field, SEO and forms integrations.
+* Block editor composition, Elementor widget inspection, store, custom field, SEO and forms integrations.
 
 == Upgrade Notice ==
 

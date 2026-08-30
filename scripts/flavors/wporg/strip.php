@@ -190,6 +190,17 @@ $edits['src/Tools/Compose/Build_Page.php'][] = [
     " * This build composes Gutenberg pages; the builder (Elementor) dialect\n * ships with the off-directory add-on.\n",
     1,
 ];
+// The class docblock's pipeline description named a preflight check that goes
+// with the dialect. A docblock describing a step this build does not run is
+// as much a finding as the code would be: the reviewer reads those too.
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    " *  2. preflight() \u{2014} referential validation against live state (patterns\n"
+        . " *     registered, attachments exist, menu exists, Elementor widgets known),\n"
+        . " *     still before any write.\n",
+    " *  2. preflight() \u{2014} referential validation against live state (patterns\n"
+        . " *     registered, attachments exist, menu exists), still before any write.\n",
+    1,
+];
 // handle(): only the Gutenberg composer remains.
 $edits['src/Tools/Compose/Build_Page.php'][] = [
     <<<'SRC'
@@ -326,13 +337,56 @@ $edits['src/Tools/Compose/Build_Page.php'][] = [
     '',
     1,
 ];
+// dry_run()'s own docblock, same reasoning: it promised a report on widget
+// types and coerced atomic props, both of which were Elementor-only.
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    "     * live site would object to (missing attachments, unregistered patterns\n"
+        . "     * and widget types, atomic props that had to be renamed, rewrapped, or\n"
+        . "     * refused). Composition is a pure transform, so running it here has no\n",
+    "     * live site would object to (missing attachments and unregistered block\n"
+        . "     * patterns). Composition is a pure transform, so running it here has no\n",
+    1,
+];
+// 'coerced' and the composer's own 'warnings' were produced by
+// Elementor_Composer only: Block_Composer::compose() returns markup and count
+// and nothing else, so both reply keys are permanently empty here.
+// They leave the same way 'unknown_widgets' did, comment included: a build
+// with no builder dialect must not describe "prop repairs the builder dialect
+// had to make".
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+        // Prop repairs the builder dialect had to make are reported on the
+        // real build too, not just in dry_run, so a caller that skipped the
+        // dry run still learns what was changed on the way in.
+        if ([] !== ($composed['coerced'] ?? [])) {
+            $out['coerced'] = array_values($composed['coerced']);
+        }
+        if ([] !== ($composed['warnings'] ?? [])) {
+            $out['warnings'] = array_values($composed['warnings']);
+        }
+
+SRC . "\n",
+    '',
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    "        \$warnings = array_merge(\$problems, \$composed['warnings'] ?? []);\n",
+    "        \$warnings = \$problems;\n",
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    "            'coerced'          => array_values(\$composed['coerced'] ?? []),\n",
+    '',
+    1,
+];
 
 // ----------------------------------------------------------------- Page_Spec
 // The validator stops admitting the dialect at all: an 'elementor' spec is
 // rejected with the same neutral spec.dialect error any unknown dialect gets,
-// long before Build_Page runs. The dead elementor node-validation branches
-// this leaves behind carry no gate and no paid copy; pruning them is
-// follow-up work under issue #162.
+// long before Build_Page runs. Everything that only ever ran for that dialect
+// goes with it, documentation included: this file IS the shipped description
+// of what a spec may contain, so leaving it detailing a node vocabulary it
+// rejects on line one is worse than leaving dead code.
 $edits['src/Tools/Compose/Page_Spec.php'] = [
     [
         " *   dialect  'gutenberg' (default, free) | 'elementor' (PRO)\n",
@@ -342,6 +396,81 @@ $edits['src/Tools/Compose/Page_Spec.php'] = [
     [
         "    private const DIALECTS = ['gutenberg', 'elementor'];\n",
         "    private const DIALECTS = ['gutenberg'];\n",
+        1,
+    ],
+    // The preflight sentence names a referential check Build_Page no longer
+    // has, and the shape header offers a choice this build does not.
+    [
+        " * exists, attachment exists, pattern registered, Elementor widget known)\n",
+        " * exists, attachment exists, pattern registered)\n",
+        1,
+    ],
+    [
+        " * Top-level shape (both dialects):\n",
+        " * Top-level shape:\n",
+        1,
+    ],
+    // The builder node vocabulary, documented and implemented.
+    [
+        " * Elementor dialect node types:\n"
+            . " *   containers: container, section, column (settings passed through to the\n"
+            . " *               element verbatim \u{2014} Elementor's settings vocabulary is its own)\n"
+            . " *   leaf:       widget{widget: string, widget_settings?: object}\n *\n",
+        '',
+        1,
+    ],
+    [
+        "    private const ELEMENTOR_CONTAINERS = ['container', 'section', 'column'];\n",
+        '',
+        1,
+    ],
+    [
+        <<<'SRC'
+        if ('elementor' === $dialect) {
+            return $this->elementor_node($node, $type, $settings, $path, $dialect, $depth);
+        }
+
+SRC . "\n",
+        '',
+        1,
+    ],
+    [
+        <<<'SRC'
+    private function elementor_node(array $node, string $type, array $settings, string $path, string $dialect, int $depth): array
+    {
+        $is_container = in_array($type, self::ELEMENTOR_CONTAINERS, true);
+
+        if (! $is_container && 'widget' !== $type) {
+            $this->reject($path, sprintf('unknown builder node type "%s" (expected container, section, column, or widget)', $type));
+        }
+
+        if ('widget' === $type) {
+            if (isset($node['children'])) {
+                $this->reject($path, 'a "widget" node may not have children');
+            }
+            foreach (array_keys($settings) as $key) {
+                if (! in_array((string) $key, ['widget', 'widget_settings'], true)) {
+                    $this->reject($path, sprintf('unknown setting "%s" for a "widget" node', $key));
+                }
+            }
+            if ('' === trim((string) ($settings['widget'] ?? ''))) {
+                $this->reject($path, 'a "widget" node requires a non-empty "widget" setting (the Elementor widget type)');
+            }
+            if (isset($settings['widget_settings']) && ! is_array($settings['widget_settings'])) {
+                $this->reject($path, '"widget_settings" must be an object');
+            }
+        }
+
+        $children = [];
+        foreach (array_values((array) ($node['children'] ?? [])) as $i => $child) {
+            $children[] = $this->node($child, $path . '.children[' . $i . ']', $dialect, $depth + 1, $type);
+        }
+
+        return ['type' => $type, 'settings' => $settings, 'children' => $children];
+    }
+
+SRC . "\n",
+        '',
         1,
     ],
 ];
@@ -529,9 +658,13 @@ $plugin_edits[] = [
     'The spec composes block editor (Gutenberg) markup. Set dry_run=true',
     1,
 ];
+// "unknown widget types" and "atomic props that had to be coerced" were both
+// produced only by the builder composer, which is not in this build, so the
+// dry run can never report either. The description is what the calling model
+// reads, so it must not promise them.
 $plugin_edits[] = [
-    'nesting depth, markup size, unknown widget types, atomic props',
-    'nesting depth, markup size, atomic props',
+    'nesting depth, markup size, unknown widget types, atomic props that had to be coerced, and every referential problem at once',
+    'nesting depth, markup size, and every referential problem at once',
     1,
 ];
 $plugin_edits[] = [
