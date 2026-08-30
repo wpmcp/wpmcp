@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<ruleset name="wpmcp-wporg">
+    <description>WordPressCS sniff layer mirroring the sniffs the wp.org plugin review team runs (phpcs-rulesets/plugin-review.xml): output escaping, input sanitization, nonce verification, prepared SQL, and discouraged PHP constructs. Complements phpcs.xml.dist (PSR-12 style) and the compliance engine (guideline layer). See issue #185.</description>
+
+    <file>src</file>
+    <file>wpmcp.php</file>
+    <arg name="extensions" value="php"/>
+    <arg value="np"/>
+
+    <!-- Output escaping: everything echoed must go through an escaping function. -->
+    <rule ref="WordPress.Security.EscapeOutput"/>
+
+    <!-- Input handling: superglobals must be unslashed and sanitized, and
+         state-changing request handlers must verify a nonce. -->
+    <rule ref="WordPress.Security.ValidatedSanitizedInput"/>
+    <rule ref="WordPress.Security.NonceVerification"/>
+    <rule ref="WordPress.Security.PluginMenuSlug"/>
+    <rule ref="WordPress.Security.SafeRedirect"/>
+
+    <!-- Database: $wpdb queries must be prepared, with matching placeholders. -->
+    <rule ref="WordPress.DB.PreparedSQL"/>
+    <rule ref="WordPress.DB.PreparedSQLPlaceholders"/>
+    <rule ref="WordPress.DB.RestrictedFunctions"/>
+    <rule ref="WordPress.DB.RestrictedClasses"/>
+
+    <!-- Discouraged / dangerous PHP constructs the review team flags. -->
+    <rule ref="WordPress.PHP.DevelopmentFunctions"/>
+    <rule ref="WordPress.PHP.DiscouragedPHPFunctions"/>
+    <rule ref="WordPress.PHP.IniSet"/>
+    <rule ref="Generic.PHP.BacktickOperator"/>
+    <rule ref="Squiz.PHP.Eval"/>
+
+    <!-- WordPress runtime hygiene. -->
+    <rule ref="WordPress.WP.EnqueuedResources"/>
+    <rule ref="WordPress.WP.GlobalVariablesOverride"/>
+    <rule ref="WordPress.WP.DeprecatedFunctions"/>
+</ruleset>

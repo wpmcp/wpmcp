@@ -80,3 +80,29 @@ jobs:
         with:
           name: compliance-report
           path: compliance-report.md
+
+  # wp.org sniff layer (issue #185). The WordPressCS ruleset
+  # (phpcs-wporg.xml.dist) mirrors the plugin review team's
+  # phpcs-rulesets/plugin-review.xml and runs through `composer lint` in the
+  # test job; .phpcs-baseline.json lets it start green on the pre-existing
+  # count and fails the build on any new violation (ratchet: only lower it).
+  #
+  # Plugin Check runs against the assembled directory build, the tree the
+  # directory would actually scan, rather than the working tree, so
+  # vendor-side findings are not excluded by default.
+  plugin-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with: { php-version: '8.3', coverage: none }
+      - run: composer install --no-interaction
+      - name: Assemble the directory build
+        run: bash scripts/build-wporg-release.sh
+      - name: Plugin Check
+        uses: wordpress/plugin-check-action@v1
+        with:
+          build-dir: ./build/wporg/wpmcp
+          # TODO(#185): after the first run, record any pre-existing findings
+          # as an explicit ignore-codes baseline here and ratchet it down;
+          # do not broaden exclude-directories, vendor code must stay in scope.
