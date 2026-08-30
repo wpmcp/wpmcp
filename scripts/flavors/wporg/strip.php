@@ -356,6 +356,63 @@ $plugin_edits[] = [
         . "     * they serve: this build has no premium skill library to withhold.\n",
     1,
 ];
+// The in-admin AI chat (issue #73) is part of the add-on: src/Pro goes
+// whole, so the imports, the two runtime hooks and the submenu that name
+// those classes have to go with it or this build would name classes it does
+// not ship and fatal on init, rest_api_init and admin_menu.
+$plugin_edits[] = [
+    "use WPMCP\\Pro\\Chat\\Chat_Page;\n"
+        . "use WPMCP\\Pro\\Chat\\Chat_Rest_Controller;\n"
+        . "use WPMCP\\Pro\\Chat\\Conversation_Store;\n"
+        . "use WPMCP\\Pro\\Gate;\n",
+    '',
+    1,
+];
+$plugin_edits[] = [
+    "            // In-admin AI chat (issue #73, PRO). Both hooks resolve the tier\n"
+        . "            // inside the callback and self-no-op when the feature cannot run,\n"
+        . "            // so a free install pays a closure call and nothing else, and no\n"
+        . "            // object is constructed at plugin load. That matters here: the\n"
+        . "            // controller's Key_Vault needs aes-256-gcm, and building it\n"
+        . "            // eagerly would turn an unsupported host into a site-wide fatal\n"
+        . "            // instead of one unavailable feature.\n"
+        . "            add_action('init', static function (): void {\n"
+        . "                if (! Gate::is_pro()) {\n"
+        . "                    return;\n"
+        . "                }\n"
+        . "                Conversation_Store::register_post_type();\n"
+        . "            }, 5);\n"
+        . "            add_action('wp_delete_user', [Conversation_Store::class, 'purge_for_user']);\n"
+        . "            add_action('rest_api_init', static function (): void {\n"
+        . "                if (! Gate::is_pro()) {\n"
+        . "                    return;\n"
+        . "                }\n"
+        . "                (new Chat_Rest_Controller())->register_routes();\n"
+        . "            });\n",
+    "            // The in-admin AI chat is part of the off-directory add-on, so\n"
+        . "            // this build has no chat hooks to wire.\n",
+    1,
+];
+$plugin_edits[] = [
+    "        // In-admin AI chat (issue #73): the chat drives the same governed\n"
+        . "        // ability surface as external MCP clients under the admin's own\n"
+        . "        // identity, so viewing the screen is manage_options like the rest.\n"
+        . "        // The entry appears only where the feature can actually run: no dead\n"
+        . "        // menu item and no locked screen on installs without it.\n"
+        . "        if (Gate::is_pro()) {\n"
+        . "            add_submenu_page(\n"
+        . "                'wpmcp',\n"
+        . "                __('wpmcp: Chat', 'wpmcp'),\n"
+        . "                __('Chat', 'wpmcp'),\n"
+        . "                'manage_options',\n"
+        . "                Chat_Page::SLUG,\n"
+        . "                [new Chat_Page(), 'render']\n"
+        . "            );\n"
+        . "        }\n\n",
+    '',
+    1,
+];
+
 $edits['src/Plugin.php'] = $plugin_edits;
 
 $edits['src/Identity/Identity_Context.php'] = [
