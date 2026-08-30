@@ -40,6 +40,7 @@ rm -rf \
   "$STAGE/src/Tools/Search" \
   "$STAGE/src/Cloud" \
   "$STAGE/src/Tools/Memory" \
+  "$STAGE/src/Tools/Sync" \
   "$STAGE/src/Integrations"
 
 # NOTE: src/Memory and src/Admin/Memory_Page.php deliberately STAY. The three
