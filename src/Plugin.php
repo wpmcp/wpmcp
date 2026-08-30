@@ -4563,7 +4563,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/import-template',
             'pro',
-            'Create an elementor_library template from a portable export structure (the content envelope export-page produces), so a design can be round-tripped into a reusable template, including across sites. Not snapshotted (a create destroys nothing); remove with delete-post',
+            'Create an elementor_library template from a portable export structure (the envelope export-page and export-template produce), so a design can be round-tripped into a reusable template, including across sites. Element ids are regenerated, and the envelope\'s page_settings and display conditions are applied when present. Not snapshotted (a create destroys nothing); remove with delete-post',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4584,7 +4584,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-template',
             'pro',
-            'Export an elementor_library template to a portable structure (content element tree + page_settings + type + version + conditions), the envelope import-template accepts, so a saved template can round-trip as JSON between sites. Read-only',
+            'Export an elementor_library template to a portable structure (content element tree + page_settings + conditions + type + version), the envelope import-template accepts and re-applies, so a saved template round-trips as JSON between sites with its page settings and display conditions intact. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4682,13 +4682,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/resolve-theme-template',
             'pro',
-            'Report which Elementor theme-builder template wins for a location (header, footer, single, archive, ...): every candidate with its display conditions and score, plus the winner. Read-only',
+            'Report which Elementor theme-builder template wins for a location (header, footer, single, archive, ...) and an optional context: every candidate with its display conditions, specificity score and any matching exclude, plus the winner. Pass post_type/post_id to resolve conditions against a real target; without them the score is specificity only. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
                     'location'  => [ 'type' => 'string' ],
-                    'post_type' => [ 'type' => 'string' ],
-                    'post_id'   => [ 'type' => 'integer' ],
+                    'post_type' => [ 'type' => 'string', 'description' => 'Optional context: the post type the location is being resolved for.' ],
+                    'post_id'   => [ 'type' => 'integer', 'description' => 'Optional context: the specific post the location is being resolved for.' ],
                 ],
                 'required'   => [ 'location' ],
             ],
