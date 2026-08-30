@@ -135,6 +135,13 @@ mcp, mcp server, ai agent, automation, undo
 competitor and vendor names as tags. The tag list was already at five, so
 dropping it cost nothing.
 
+This list is now the one that actually ships: `readme.txt` and
+`scripts/flavors/wporg/readme.txt` carry it verbatim, and the WooCommerce
+listing carries the same five with `woocommerce` in place of `mcp server`
+(`scripts/flavors/woocommerce/readme.txt`). The compliance engine only ever
+reads the readme at the root of the tree it scans, so the flavor readmes are
+covered by `tests/free/Compliance/ShippedReadmesTest.php` instead.
+
 **Version headers:** `Stable tag: 0.8.0`, `Requires at least: 6.9`,
 `Tested up to: 7.0`, `Requires PHP: 8.1`, `License: GPLv2 or later`. The stable
 tag is substituted from `WPMCP_VERSION` at build time, so it cannot drift from

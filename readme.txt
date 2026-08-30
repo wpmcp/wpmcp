@@ -1,6 +1,6 @@
 === WP MCP - AI Agents for WordPress with Snapshot Safety ===
 Contributors: fahdi
-Tags: mcp, ai, ai agent, claude, automation
+Tags: mcp, mcp server, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 6.9
 Requires PHP: 8.1
