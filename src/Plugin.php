@@ -85,6 +85,7 @@ use WPMCP\Tools\SEO\Get_SEO_Status;
 use WPMCP\Tools\SEO\Get_SEO_Meta;
 use WPMCP\Tools\SEO\Update_SEO_Meta;
 use WPMCP\Tools\SEO\SEO_Adapter;
+use WPMCP\Tools\SEO\Generate_Schema_Markup;
 use WPMCP\Tools\I18n\I18n_Adapter;
 use WPMCP\Tools\I18n\List_Languages;
 use WPMCP\Tools\I18n\Get_Post_Translations;
@@ -5993,6 +5994,30 @@ final class Plugin
                 'properties' => [],
             ],
             [$get_seo_status, 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
+        ));
+
+        // Schema generation (issue #67): a proposal (read) tool that builds
+        // JSON-LD from the post's own data, so it is useful even with no SEO
+        // plugin active and registers unconditionally like get-seo-status.
+        // PRO by tier: the Registrar drops it centrally when unlicensed.
+        $generate_schema = new Generate_Schema_Markup();
+
+        $registrar->register(new Ability(
+            'wpmcp/generate-schema-markup',
+            'pro',
+            'Generate schema.org JSON-LD for a post (Article or WebPage) from its title, dates, author, excerpt or SEO description, featured image, and permalink. Proposal only: returns the structure and encoded JSON-LD, writes nothing',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'     => [ 'type' => 'integer' ],
+                    'schema_type' => [ 'type' => 'string', 'enum' => [ 'Article', 'WebPage' ] ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$generate_schema, 'handle'],
             'edit_posts',
             'seo',
             'read'

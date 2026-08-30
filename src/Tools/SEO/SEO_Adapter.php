@@ -65,6 +65,30 @@ class SEO_Adapter
         'nofollow'      => '_genesis_nofollow',
     ];
 
+    // Extended vocabulary (issue #67), first slice: per-post OG/Twitter
+    // overrides for the two plugins that store them as flat postmeta.
+    // SEOPress also has flat keys (_seopress_social_*); The SEO Framework and
+    // SureRank need dedicated branches. Until a plugin has a verified map
+    // here, get_social_meta() reports it as unsupported rather than guessing.
+    // TODO(#67): SEOPress/SEO Framework/SureRank social maps + write path.
+    private const YOAST_SOCIAL_KEYS = [
+        'og_title'            => '_yoast_wpseo_opengraph-title',
+        'og_description'      => '_yoast_wpseo_opengraph-description',
+        'og_image'            => '_yoast_wpseo_opengraph-image',
+        'twitter_title'       => '_yoast_wpseo_twitter-title',
+        'twitter_description' => '_yoast_wpseo_twitter-description',
+        'twitter_image'       => '_yoast_wpseo_twitter-image',
+    ];
+
+    private const RANKMATH_SOCIAL_KEYS = [
+        'og_title'            => 'rank_math_facebook_title',
+        'og_description'      => 'rank_math_facebook_description',
+        'og_image'            => 'rank_math_facebook_image',
+        'twitter_title'       => 'rank_math_twitter_title',
+        'twitter_description' => 'rank_math_twitter_description',
+        'twitter_image'       => 'rank_math_twitter_image',
+    ];
+
     /** Test seam: force the detected plugin. Guarded by WPMCP_TESTING. */
     private static ?string $active_override = null;
 
@@ -345,5 +369,42 @@ class SEO_Adapter
                 update_post_meta($post_id, $keys['nofollow'], $fields['nofollow'] ? 'yes' : '');
             }
         }
+    }
+    /**
+     * Read the per-post social (OG/Twitter) overrides for the active plugin.
+     *
+     * Returns ['supported' => true, 'fields' => [...]] where mapped, or a
+     * structured ['supported' => false, 'reason' => ...] where the active
+     * plugin has no verified per-post social map yet: issue #67 requires
+     * unsupported combinations to be reported, not thrown.
+     *
+     * TODO(#67): update_social_meta() write path through Safe_Mutation, and
+     * term-level variants of both.
+     */
+    public static function get_social_meta(int $post_id): array
+    {
+        $active = self::active_plugin();
+
+        $maps = [
+            'yoast'    => self::YOAST_SOCIAL_KEYS,
+            'rankmath' => self::RANKMATH_SOCIAL_KEYS,
+        ];
+
+        if (! isset($maps[$active])) {
+            return [
+                'supported' => false,
+                'plugin'    => $active,
+                'reason'    => '' === $active
+                    ? 'No supported SEO plugin is active.'
+                    : 'Per-post social fields are not mapped for this plugin yet.',
+            ];
+        }
+
+        $fields = [];
+        foreach ($maps[$active] as $field => $key) {
+            $fields[$field] = (string) get_post_meta($post_id, $key, true);
+        }
+
+        return ['supported' => true, 'plugin' => $active, 'fields' => $fields];
     }
 }
