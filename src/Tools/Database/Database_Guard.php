@@ -469,6 +469,7 @@ class Database_Guard
         if ([] !== $values) {
             $sql = $wpdb->prepare($sql, $values);
         }
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- identifiers are allowlisted by valid_table() (this file) and backtick-stripped above; values are bound via wpdb::prepare().
         $rows = $wpdb->get_results($sql, ARRAY_A);
 
         return is_array($rows) ? $rows : [];
@@ -487,6 +488,7 @@ class Database_Guard
         global $wpdb;
 
         $rows = $wpdb->get_results(
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $table is allowlisted by valid_table() (this file) and backtick-stripped; SHOW KEYS takes no values to prepare.
             'SHOW KEYS FROM `' . str_replace('`', '', $table) . '`',
             ARRAY_A
         );
@@ -514,6 +516,7 @@ class Database_Guard
         global $wpdb;
 
         $rows = $wpdb->get_results(
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $table is allowlisted by valid_table() (this file) and backtick-stripped; SHOW COLUMNS takes no values to prepare.
             'SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '`',
             ARRAY_A
         );

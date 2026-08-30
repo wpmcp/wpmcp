@@ -37,12 +37,15 @@ class List_Transients
             $params[]    = '%' . $wpdb->esc_like($search) . '%';
         }
 
+        $params[] = $limit;
+
         $sql = "SELECT option_name FROM {$wpdb->options}
                 WHERE option_name LIKE %s
                 AND option_name NOT LIKE '\_transient\_timeout\_%'"
                 . $name_clause
-                . ' ORDER BY option_name ASC LIMIT ' . (int) $limit;
+                . ' ORDER BY option_name ASC LIMIT %d';
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $sql is assembled above from literals and $wpdb->options; every user value (LIKE patterns, limit) is bound via wpdb::prepare().
         $rows = $wpdb->get_col($wpdb->prepare($sql, $params));
 
         $transients = [];

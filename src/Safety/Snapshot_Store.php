@@ -106,6 +106,7 @@ class Snapshot_Store
     public static function get_by_operation(string $operation_id): ?array
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- table name comes from self::table_name() (this file), $wpdb->prefix plus a literal; all values are bound via wpdb::prepare().
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table_name() . " WHERE operation_id = %s", $operation_id), ARRAY_A);
         if (! $row) {
             return null;
@@ -117,12 +118,14 @@ class Snapshot_Store
     public static function list_by_session(string $session_id): array
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- table name comes from self::table_name() (this file), $wpdb->prefix plus a literal; all values are bound via wpdb::prepare().
         return $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::table_name() . " WHERE session_id = %s ORDER BY id DESC", $session_id), ARRAY_A);
     }
 
     public static function recent(int $limit): array
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- table name comes from self::table_name() (this file), $wpdb->prefix plus a literal; all values are bound via wpdb::prepare().
         return $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::table_name() . " ORDER BY id DESC LIMIT %d", $limit), ARRAY_A);
     }
 
@@ -139,13 +142,16 @@ class Snapshot_Store
     {
         global $wpdb;
         $t = self::table_name();
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- table name comes from self::table_name() (this file), $wpdb->prefix plus a literal; all values are bound via wpdb::prepare().
         $cutoff = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$t} ORDER BY id DESC LIMIT 1 OFFSET %d", $keep));
         if (null === $cutoff) {
             return 0;
         }
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- table name comes from self::table_name() (this file), $wpdb->prefix plus a literal; all values are bound via wpdb::prepare().
         $pruned_op_ids = $wpdb->get_col($wpdb->prepare("SELECT operation_id FROM {$t} WHERE id <= %d", $cutoff));
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- table name comes from self::table_name() (this file), $wpdb->prefix plus a literal; all values are bound via wpdb::prepare().
         $deleted = (int) $wpdb->query($wpdb->prepare("DELETE FROM {$t} WHERE id <= %d", $cutoff));
 
         foreach ((array) $pruned_op_ids as $operation_id) {

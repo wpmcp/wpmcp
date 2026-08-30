@@ -46,6 +46,7 @@ class Query
 
         // Validated read-only by Database_Guard::is_read_only_sql() above; no
         // user values are interpolated by this tool itself.
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- read-only SQL validated by Database_Guard::is_read_only_sql() (src/Tools/Database/Database_Guard.php); this tool interpolates no values of its own.
         $rows = $wpdb->get_results($sql, ARRAY_A);
         if (null === $rows) {
             throw new \RuntimeException($wpdb->last_error ?: 'Query failed.');

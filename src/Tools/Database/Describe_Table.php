@@ -25,6 +25,7 @@ class Describe_Table
         }
 
         global $wpdb;
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $table is allowlisted by Database_Guard::valid_table() (src/Tools/Database/Database_Guard.php) and backtick-stripped; DESCRIBE takes no values to prepare.
         $columns = $wpdb->get_results('DESCRIBE `' . str_replace('`', '', $table) . '`', ARRAY_A);
 
         return [
