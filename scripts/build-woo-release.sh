@@ -70,22 +70,12 @@ rm -f "$STAGE/composer.json" "$STAGE/composer.lock"
 find "$STAGE/src" -name '*.php' -exec sed -i '' "s/, 'wpmcp' )/, '$SLUG' )/g; s/, 'wpmcp')/, '$SLUG')/g" {} +
 
 # Belt and braces: fail the build if any real eval/exec call site survived.
-# Token-level check, so strings and comments (e.g. Malware_Audit's pattern
-# descriptions) do not false-positive.
-php -r '
-$bad = [];
-$it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($argv[1]));
-foreach ($it as $f) {
-    if ($f->getExtension() !== "php") { continue; }
-    foreach (token_get_all(file_get_contents($f->getPathname())) as $t) {
-        if (!is_array($t)) { continue; }
-        if ($t[0] === T_EVAL || ($t[0] === T_STRING && in_array(strtolower($t[1]), ["proc_open", "shell_exec", "passthru", "popen"], true))) {
-            $bad[] = $f->getPathname() . ":" . $t[2] . " " . (is_string($t[1]) ? $t[1] : "eval");
-        }
-    }
-}
-if ($bad) { fwrite(STDERR, implode("\n", $bad) . "\n"); exit(1); }
-' "$STAGE/src" || { echo "ERROR: execution call site found in the $SLUG build" >&2; exit 1; }
+# Shared token-level gate (scripts/lib/exec-gate.php), so strings and
+# comments (e.g. Malware_Audit's pattern descriptions) do not false-positive.
+# Same widened list and coverage as the wp.org build: src, vendor and the
+# flavor main file (#167).
+php "$ROOT/scripts/lib/exec-gate.php" "$STAGE/src" "$STAGE/vendor" "$STAGE/$SLUG.php" \
+  || { echo "ERROR: execution call site found in the $SLUG build" >&2; exit 1; }
 
 mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/$SLUG-$VERSION.zip"

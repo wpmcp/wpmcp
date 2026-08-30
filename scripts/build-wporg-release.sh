@@ -60,26 +60,11 @@ while IFS= read -r file; do
 done < <(find "$STAGE/src" "$STAGE/$SLUG.php" -name '*.php')
 
 # 2. No execution construct, at token level so Malware_Audit's detection
-#    patterns and ordinary comments cannot false-positive.
-php -r '
-$bad = [];
-$names = ["proc_open", "shell_exec", "passthru", "popen", "exec", "system", "pcntl_exec", "create_function", "str_rot13", "move_uploaded_file", "assert"];
-$it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($argv[1]));
-foreach ($it as $f) {
-    if ($f->getExtension() !== "php") { continue; }
-    $tokens = token_get_all(file_get_contents($f->getPathname()));
-    foreach ($tokens as $i => $t) {
-        if (!is_array($t)) { continue; }
-        if ($t[0] === T_EVAL) { $bad[] = $f->getPathname() . ":" . $t[2] . " eval"; continue; }
-        if ($t[0] !== T_STRING || !in_array(strtolower($t[1]), $names, true)) { continue; }
-        // A method or property of the same name is not the global function.
-        $prev = $tokens[$i - 1] ?? null;
-        if (is_array($prev) && in_array($prev[0], [T_OBJECT_OPERATOR, T_DOUBLE_COLON, T_FUNCTION, T_NULLSAFE_OBJECT_OPERATOR], true)) { continue; }
-        $bad[] = $f->getPathname() . ":" . $t[2] . " " . $t[1];
-    }
-}
-if ($bad) { fwrite(STDERR, implode("\n", $bad) . "\n"); exit(1); }
-' "$STAGE/src" || fail "an execution construct survived into the $SLUG build"
+#    patterns and ordinary comments cannot false-positive. Walks src, vendor
+#    and the flavor main file, not just src: a dependency that grows an
+#    exec call site is just as much a rejection as our own code (#167).
+php "$ROOT/scripts/lib/exec-gate.php" "$STAGE/src" "$STAGE/vendor" "$STAGE/$SLUG.php" \
+  || fail "an execution construct survived into the $SLUG build"
 
 # 3. No paid predicate, no licensing SDK, no pro-tier ability. Text-level on
 #    purpose: a docblock that still talks about licensing is also a finding,
