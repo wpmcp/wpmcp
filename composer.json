@@ -17,7 +17,8 @@
     "psr-4": {
       "WPMCP\\Tests\\Free\\": "tests/free/",
       "WPMCP\\Tests\\Pro\\": "tests/pro/",
-      "WPMCP\\Compliance\\": "tools/compliance/src/"
+      "WPMCP\\Compliance\\": "tools/compliance/src/",
+      "WPMCP\\Lint\\": "tools/lint/src/"
     }
   },
   "scripts": {

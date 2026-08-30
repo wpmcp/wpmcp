@@ -82,27 +82,45 @@ jobs:
           path: compliance-report.md
 
   # wp.org sniff layer (issue #185). The WordPressCS ruleset
-  # (phpcs-wporg.xml.dist) mirrors the plugin review team's
-  # phpcs-rulesets/plugin-review.xml and runs through `composer lint` in the
-  # test job; .phpcs-baseline.json lets it start green on the pre-existing
-  # count and fails the build on any new violation (ratchet: only lower it).
+  # (phpcs-wporg.xml.dist) carries the security, database, function-policy and
+  # i18n sniffs from the plugin review team's phpcs-rulesets/plugin-review.xml
+  # and runs through `composer lint` in the test job. .phpcs-baseline.json
+  # records the pre-existing count PER SNIFF CODE, so the job starts green but
+  # any individual code going up fails the build, including a new violation
+  # that arrives in the same change that removes an old one.
   #
-  # Plugin Check runs against the assembled directory build, the tree the
-  # directory would actually scan, rather than the working tree, so
-  # vendor-side findings are not excluded by default.
+  # Plugin Check runs against the assembled directory build rather than the
+  # working tree, so what is scanned is the tree the directory would actually
+  # receive (post strip.php, with the generated bootstrap). Note that Plugin
+  # Check excludes vendor/ unconditionally and its exclude-directories input
+  # can only ADD to that list, so vendor is out of scope here by design; the
+  # dependency surface is covered by the compliance engine's packaging rules,
+  # not by this job.
+  #
+  # Still advisory (continue-on-error) until the first run's findings are
+  # triaged into an explicit ignore-codes baseline, in the same way the
+  # compliance job above was only flipped to a hard gate once main was known
+  # green in both profiles.
   plugin-check:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v5
       - uses: shivammathur/setup-php@v2
         with: { php-version: '8.3', coverage: none }
       - run: composer install --no-interaction
+      # The build script's last step is the wporg-free compliance hard gate, so
+      # a compliance blocker would otherwise abort this job before Plugin Check
+      # ever runs, losing the second signal exactly when the build regresses.
       - name: Assemble the directory build
+        id: build
+        continue-on-error: true
         run: bash scripts/build-wporg-release.sh
       - name: Plugin Check
+        if: hashFiles('build/wporg/wpmcp/wpmcp.php') != ''
         uses: wordpress/plugin-check-action@v1
         with:
           build-dir: ./build/wporg/wpmcp
-          # TODO(#185): after the first run, record any pre-existing findings
-          # as an explicit ignore-codes baseline here and ratchet it down;
-          # do not broaden exclude-directories, vendor code must stay in scope.
+          # TODO(#185): triage the first run and record the pre-existing
+          # findings as an explicit ignore-codes baseline here, then drop
+          # continue-on-error so this becomes a hard gate.
