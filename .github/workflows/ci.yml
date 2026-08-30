@@ -45,6 +45,32 @@ jobs:
           name: coverage-report
           path: coverage/
 
+  # WordPress's own Plugin Check, run against the assembled directory zip
+  # rather than the checkout, with vendor/ left in scope. This is the
+  # authoritative answer to issue #165's third definition-of-done bullet.
+  #
+  # The vendor point is the whole reason this job exists. `wp plugin check`
+  # excludes .git,vendor,node_modules by default, which is why R-06 (the
+  # bundled SDK's site_transient_update_plugins usage) never showed up in a
+  # local run; the wordpress.org side does not necessarily exclude anything,
+  # so the default would check a tree the directory will never see. Passing
+  # exclude-directories explicitly, without vendor, puts the run back on the
+  # artifact as submitted.
+  plugin-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with: { php-version: '8.3', coverage: none }
+      - run: composer install --no-interaction
+      - name: Build the directory zip
+        run: bash scripts/build-wporg-release.sh
+      - name: Plugin Check against the extracted zip, vendor included
+        uses: WordPress/plugin-check-action@v1
+        with:
+          build-dir: ./build/wporg/wpmcp
+          exclude-directories: '.git,node_modules'
+
   # wp.org compliance. Two runs: the source tree under the distribution
   # profile, and the directory build under the strict wporg-free profile,
   # which is the artifact the directory would actually receive.
