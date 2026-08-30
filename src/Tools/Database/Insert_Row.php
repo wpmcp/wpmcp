@@ -45,6 +45,7 @@ class Insert_Row
         }
 
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The tool's purpose is a direct insert into an arbitrary table; wpdb::insert() parameterizes it, and a write has nothing to cache.
         $affected = $wpdb->insert($table, $data);
         if (false === $affected) {
             throw new \RuntimeException($wpdb->last_error ?: 'Insert failed.');

@@ -43,6 +43,7 @@ class List_Transients
                 . $name_clause
                 . ' ORDER BY option_name ASC LIMIT ' . (int) $limit;
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Core has no API to enumerate transients; a diagnostics listing must reflect the live options table, so caching would be wrong.
         $rows = $wpdb->get_col($wpdb->prepare($sql, $params));
 
         $transients = [];

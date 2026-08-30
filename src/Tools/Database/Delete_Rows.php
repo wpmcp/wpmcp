@@ -69,6 +69,7 @@ class Delete_Rows
 
         $mutation = static function () use ($table, $where): int {
             global $wpdb;
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The tool's purpose is a direct delete on an arbitrary table; wpdb::delete() parameterizes it, and a write has nothing to cache.
             $affected = $wpdb->delete($table, $where);
             if (false === $affected) {
                 throw new \RuntimeException($wpdb->last_error ?: 'Delete failed.');

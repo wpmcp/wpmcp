@@ -66,6 +66,7 @@ class Database_Guard
         global $wpdb;
         $mode = '';
         if (isset($wpdb) && is_object($wpdb) && method_exists($wpdb, 'get_var')) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Session sql_mode probe; memoized in a static above, and a cross-request cache would be wrong because sql_mode is per connection.
             $mode = (string) $wpdb->get_var('SELECT @@SESSION.sql_mode');
         }
 
@@ -390,6 +391,7 @@ class Database_Guard
             return new \WP_Error('unknown_table', 'A table name is required.');
         }
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Table-name validation must run against the live schema; a cached table list would validate against stale state.
         $tables = (array) $wpdb->get_col('SHOW TABLES');
         foreach ($tables as $candidate) {
             if (strtolower((string) $candidate) === strtolower($table)) {
@@ -469,6 +471,7 @@ class Database_Guard
         if ([] !== $values) {
             $sql = $wpdb->prepare($sql, $values);
         }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Recoverability before-image must read the live rows immediately before the mutation; any cache defeats the snapshot.
         $rows = $wpdb->get_results($sql, ARRAY_A);
 
         return is_array($rows) ? $rows : [];
@@ -486,6 +489,7 @@ class Database_Guard
     {
         global $wpdb;
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Live schema introspection at snapshot/rollback time; a cached key list could disagree with the current schema.
         $rows = $wpdb->get_results(
             'SHOW KEYS FROM `' . str_replace('`', '', $table) . '`',
             ARRAY_A
@@ -513,6 +517,7 @@ class Database_Guard
     {
         global $wpdb;
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Live schema re-validation at rollback time; the whole point is the CURRENT schema, so caching would be wrong.
         $rows = $wpdb->get_results(
             'SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '`',
             ARRAY_A

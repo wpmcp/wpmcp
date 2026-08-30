@@ -156,6 +156,7 @@ class Code_Store
         $before_value = maybe_serialize($before);
         $after_value  = maybe_serialize($after);
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Atomic compare-and-swap on the options row; it must bypass the options cache so at most one concurrent consume() can win, which is the single-redemption guarantee.
         $affected = $wpdb->query(
             $wpdb->prepare(
                 "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",

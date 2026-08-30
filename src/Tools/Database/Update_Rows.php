@@ -79,6 +79,7 @@ class Update_Rows
 
         $mutation = static function () use ($table, $data, $where): int {
             global $wpdb;
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The tool's purpose is a direct update on an arbitrary table; wpdb::update() parameterizes it, and a write has nothing to cache.
             $affected = $wpdb->update($table, $data, $where);
             if (false === $affected) {
                 throw new \RuntimeException($wpdb->last_error ?: 'Update failed.');

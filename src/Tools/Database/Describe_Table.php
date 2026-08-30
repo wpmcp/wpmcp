@@ -25,6 +25,7 @@ class Describe_Table
         }
 
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema introspection tool; DESCRIBE has no core API and must reflect the live schema, so caching would be wrong.
         $columns = $wpdb->get_results('DESCRIBE `' . str_replace('`', '', $table) . '`', ARRAY_A);
 
         return [
