@@ -93,6 +93,16 @@ done
 if [ -d "$STAGE/vendor/freemius" ]; then fail "the licensing SDK is still vendored"; fi
 if grep -q 'freemius' "$STAGE/composer.json"; then fail "composer.json still requires the licensing SDK"; fi
 
+# 3b. Finding B-07 (issue #163): the composite insert-stock-image ability is
+#     part of the paid add-on and must be absent from this build entirely,
+#     handler and registration both, not merely gated.
+for pattern in 'insert-stock-image' 'Insert_Stock_Image'; do
+  if grep -rqF --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php"; then
+    grep -rnF --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php" >&2
+    fail "insert-stock-image (\"$pattern\") survived into the $SLUG build"
+  fi
+done
+
 # 4. Every WPMCP class the shipped code names must still exist, so a file the
 #    strip removed cannot leave a fatal behind. Resolved against composer's
 #    authoritative classmap, which is the same map WordPress will autoload
