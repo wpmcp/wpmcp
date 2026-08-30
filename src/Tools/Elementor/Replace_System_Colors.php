@@ -11,7 +11,9 @@ if (! defined('ABSPATH')) {
  * secondary, text, accent) on the active kit. Unlike update-global-colors,
  * which patches individual slots, this tool requires a complete set: every
  * system slot must be present exactly once with a valid hex color, or
- * nothing is written (all four slots or none). Requires expected_hash from
+ * nothing is written (all four slots or none). An entry that omits "title"
+ * keeps the slot's current title (a slot the user renamed in the builder is
+ * not silently renamed back). Requires expected_hash from
  * get-global-settings; undoable via rollback-operation since the kit's
  * _elementor_page_settings is captured by the post snapshot.
  */
@@ -32,7 +34,10 @@ class Replace_System_Colors
             );
         }
 
-        $replacement = self::validate_complete_set($colors, $kit_id);
+        $replacement = self::validate_complete_set(
+            $colors,
+            Elementor_Kit_Data::system_slot_titles($kit_id, 'system_colors')
+        );
         if (is_wp_error($replacement)) {
             return $replacement;
         }
@@ -55,9 +60,11 @@ class Replace_System_Colors
      * valid hex color. Any failure rejects the whole set before a write:
      * partial replacement of the system palette is never allowed.
      *
+     * @param array<string,string> $titles current slot titles keyed by _id, used
+     *                                     when an entry omits its own title.
      * @return array|\WP_Error the sanitized replacement entries, slot order preserved.
      */
-    private static function validate_complete_set(array $colors, int $kit_id)
+    private static function validate_complete_set(array $colors, array $titles)
     {
         $slots = array_column(Elementor_Kit_Data::default_system_colors(), null, '_id');
         $seen  = [];
@@ -88,7 +95,7 @@ class Replace_System_Colors
 
             $seen[$id] = [
                 '_id'   => $id,
-                'title' => sanitize_text_field((string) ($entry['title'] ?? $slots[$id]['title'])),
+                'title' => sanitize_text_field((string) ($entry['title'] ?? $titles[$id])),
                 'color' => $color,
             ];
         }

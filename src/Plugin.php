@@ -4243,6 +4243,22 @@ final class Plugin
             'read'
         ));
 
+        $get_global_settings = new Get_Global_Settings();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-global-settings',
+            'free',
+            'Read the active Elementor kit\'s global design tokens: system and custom colors and typography (the four Elementor system tokens filled from defaults when the kit is untouched), plus the kit\'s spacing (space_between_widgets, container_padding) and layout (container_width, viewport_lg, viewport_md) groups. Returns a settings_hash to chain a guarded write with update-global-colors / update-global-typography / replace-system-colors / replace-system-typography. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$get_global_settings, 'handle'],
+            'edit_posts',
+            'elementor',
+            'read'
+        ));
+
         $this->register_elementor_pro_abilities($registrar);
     }
 
@@ -4418,22 +4434,6 @@ final class Plugin
             'create'
         ));
 
-        $get_global_settings = new Get_Global_Settings();
-
-        $registrar->register(new Ability(
-            'wpmcp/get-global-settings',
-            'pro',
-            'Read the active Elementor kit\'s global design tokens: system and custom colors and typography, with the four Elementor system tokens filled from defaults when the kit is untouched. Returns a settings_hash to chain a guarded write with update-global-colors / update-global-typography. Read-only',
-            [
-                'type'       => 'object',
-                'properties' => [],
-            ],
-            [$get_global_settings, 'handle'],
-            'edit_posts',
-            'elementor',
-            'read'
-        ));
-
         $update_global_colors = new Update_Global_Colors();
 
         $registrar->register(new Ability(
@@ -4481,7 +4481,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/replace-system-colors',
             'pro',
-            'Atomically replace all four Elementor system color slots (primary, secondary, text, accent) on the active kit. The replacement must cover every slot exactly once with a valid hex color or nothing is written: all four slots or none. Requires expected_hash from get-global-settings. Undoable via rollback-operation',
+            'Atomically replace all four Elementor system color slots (primary, secondary, text, accent) on the active kit. The replacement must cover every slot exactly once with a valid hex color or nothing is written: all four slots or none. An entry that omits "title" keeps the slot\'s current title. Requires expected_hash from get-global-settings. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4501,7 +4501,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/replace-system-typography',
             'pro',
-            'Atomically replace all four Elementor system typography slots (primary, secondary, text, accent) on the active kit. The replacement must cover every slot exactly once or nothing is written: all four slots or none. Any typography_* field is kept, and setting a font enables custom typography so the token renders. Requires expected_hash from get-global-settings. Undoable via rollback-operation',
+            'Atomically replace all four Elementor system typography slots (primary, secondary, text, accent) on the active kit. The replacement must cover every slot exactly once or nothing is written: all four slots or none. Each entry carries only typography_* fields (an unrecognized or misspelled key is refused, not dropped) and must carry at least one; setting a font enables custom typography so the token renders, and an entry that omits "title" keeps the slot\'s current title. Requires expected_hash from get-global-settings. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [

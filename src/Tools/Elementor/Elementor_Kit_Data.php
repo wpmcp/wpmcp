@@ -35,6 +35,12 @@ class Elementor_Kit_Data
         ['_id' => 'accent', 'title' => 'Accent', 'color' => '#61CE70'],
     ];
 
+    /** Genuine spacing tokens on the kit (gap between widgets, container padding). */
+    private const SPACING_KEYS = ['space_between_widgets', 'container_padding'];
+
+    /** Layout/breakpoint tokens: a content width and the responsive viewports. */
+    private const LAYOUT_KEYS = ['container_width', 'viewport_lg', 'viewport_md'];
+
     /** Elementor's four system typography tokens (font fields left for editing). */
     private const DEFAULT_SYSTEM_TYPOGRAPHY = [
         ['_id' => 'primary', 'title' => 'Primary'],
@@ -116,30 +122,52 @@ class Elementor_Kit_Data
             'custom_colors'     => array_values(is_array($settings['custom_colors'] ?? null) ? $settings['custom_colors'] : []),
             'system_typography' => self::with_system_defaults($settings['system_typography'] ?? [], self::DEFAULT_SYSTEM_TYPOGRAPHY),
             'custom_typography' => array_values(is_array($settings['custom_typography'] ?? null) ? $settings['custom_typography'] : []),
-            'spacing'           => self::spacing($settings),
+            'spacing'           => self::subset($settings, self::SPACING_KEYS),
+            'layout'            => self::subset($settings, self::LAYOUT_KEYS),
         ];
     }
 
     /**
-     * The kit's persisted layout spacing tokens as a keyed subset of the
-     * settings (absent keys are simply omitted; the builder falls back to
-     * Elementor's own defaults for those).
+     * The current title of every system slot, keyed by _id, as the builder
+     * shows it: the stored title when the user renamed a slot, otherwise the
+     * Elementor default. Replacement tools use this so an entry that omits a
+     * title keeps the user's name instead of silently reverting it.
      *
-     * TODO(#60): extend with breakpoint-specific variants (space_between_widgets_tablet
-     * etc.) once update-global-spacing lands; reads should stay in lockstep
-     * with whatever that write tool can touch.
+     * @param string $key 'system_colors' or 'system_typography'.
+     * @return array<string,string>
      */
-    private static function spacing(array $settings): array
+    public static function system_slot_titles(int $kit_id, string $key): array
     {
-        $keys    = ['space_between_widgets', 'container_padding', 'container_width', 'viewport_lg', 'viewport_md'];
-        $spacing = [];
-        foreach ($keys as $key) {
-            if (array_key_exists($key, $settings)) {
-                $spacing[$key] = $settings[$key];
+        $defaults = 'system_colors' === $key ? self::DEFAULT_SYSTEM_COLORS : self::DEFAULT_SYSTEM_TYPOGRAPHY;
+        $titles   = array_column($defaults, 'title', '_id');
+
+        foreach (self::view($kit_id)[$key] as $entry) {
+            if (is_array($entry) && isset($entry['_id'], $entry['title']) && '' !== (string) $entry['title']) {
+                $titles[(string) $entry['_id']] = (string) $entry['title'];
             }
         }
 
-        return $spacing;
+        return $titles;
+    }
+
+    /**
+     * A keyed subset of the persisted settings (absent keys are simply
+     * omitted; the builder falls back to Elementor's own defaults for those).
+     *
+     * TODO(#60): extend SPACING_KEYS with the breakpoint-specific variants
+     * (space_between_widgets_tablet etc.) once update-global-spacing lands;
+     * reads should stay in lockstep with whatever that write tool can touch.
+     */
+    private static function subset(array $settings, array $keys): array
+    {
+        $subset = [];
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $settings)) {
+                $subset[$key] = $settings[$key];
+            }
+        }
+
+        return $subset;
     }
 
     public static function default_system_colors(): array
