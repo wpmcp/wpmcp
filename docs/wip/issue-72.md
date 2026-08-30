@@ -68,9 +68,12 @@ two forms never both claim one widget name.
 - [x] Widgets load only via the manifest from an isolated directory, hash
       verified; disabling removes the widget from the builder without deleting
       the spec or the file (`set-widget-status`, `delete-custom-widget`).
-- [x] The compile is an operation in history (`Safe_Mutation`, manifest option
-      snapshotted); delete disables the class and stays restorable from the spec
-      via the trash.
+- [~] History: the compile is an operation (`Safe_Mutation` snapshots the
+      manifest option) and delete disables the class while staying restorable
+      from the spec via the trash. `create-custom-widget` and
+      `update-custom-widget` still write the spec post directly, so those two
+      are not yet operations in history; that is the one criterion still
+      partially open.
 
 ## Remaining work
 
@@ -81,7 +84,9 @@ two forms never both claim one widget name.
    content section, same as the dynamic widget).
 3. A `recompile-all` path for when a spec changes: `update-custom-widget`
    currently leaves the compiled class stale until the widget is compiled again.
-4. Adversarial security review before release, per the issue.
+4. Route `create-custom-widget` and `update-custom-widget` through
+   `Safe_Mutation` so spec create/update are operations in history too.
+5. Adversarial security review before release, per the issue.
 
 ## Compliance stance (wp.org build)
 
