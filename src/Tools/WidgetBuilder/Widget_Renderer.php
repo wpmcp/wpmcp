@@ -16,6 +16,16 @@ if (! defined('ABSPATH')) {
  */
 class Widget_Renderer
 {
+    /**
+     * Renders the spec's template with every interpolated value already
+     * escaped by its control type, so the returned string is safe to echo
+     * as-is. Callers (Dynamic_Widget::render()) must not escape it again;
+     * a second pass would double-encode entities.
+     *
+     * @param array $spec     Validated widget spec (template + controls).
+     * @param array $settings Current control values keyed by control name.
+     * @return string Pre-escaped HTML ready for output.
+     */
     public static function render(array $spec, array $settings): string
     {
         $controls = is_array($spec['controls'] ?? null) ? $spec['controls'] : [];

@@ -94,7 +94,11 @@ if (class_exists('\\Elementor\\Widget_Base')) {
             if ([] === $spec) {
                 return;
             }
-            // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Widget_Renderer::render() escapes every interpolated value by control type; see Widget_Renderer::render().
+            // Widget_Renderer::render() (src/Tools/WidgetBuilder/Widget_Renderer.php) returns
+            // pre-escaped HTML: every {{name}} placeholder is escaped by control type before
+            // interpolation (text/textarea -> esc_html, wysiwyg -> wp_kses_post, url/image ->
+            // esc_url, anything else -> esc_html). Escaping again here would double-encode.
+            // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
             echo Widget_Renderer::render($spec, (array) $this->get_settings_for_display());
         }
 
