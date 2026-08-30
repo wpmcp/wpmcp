@@ -37,6 +37,10 @@ class IntegrationAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/sureforms-write',
         'wpmcp/metform-read',
         'wpmcp/metform-write',
+        'wpmcp/metabox-read',
+        'wpmcp/metabox-write',
+        'wpmcp/theme-read',
+        'wpmcp/theme-write',
     ];
 
     public function test_dispatcher_pair_is_registered_as_free_abilities(): void
