@@ -5,6 +5,7 @@ namespace WPMCP\Tests\Pro;
 use WPMCP\Freemius\Bootstrap;
 use WPMCP\Pro\Gate;
 use WPMCP\MCP\{Registrar, Ability};
+use WPMCP\Safety\Snapshot_Store;
 
 class GateTest extends \WP_UnitTestCase
 {
@@ -48,6 +49,29 @@ class GateTest extends \WP_UnitTestCase
     {
         Gate::set_pro_for_tests(true);
         $this->assertTrue(Gate::is_pro());
+    }
+
+    /**
+     * Issue #158: snapshot retention is not a tier. The Gate has no
+     * history_limit() at all any more, and the cap Snapshot_Store hands out
+     * is the same number whether or not the site is licensed. This is the
+     * assertion that replaces the deleted Gate::history_limit() coverage.
+     */
+    public function test_snapshot_retention_does_not_depend_on_paid_state(): void
+    {
+        $this->assertFalse(
+            method_exists(Gate::class, 'history_limit'),
+            'Gate must not own a snapshot cap: a quota lifted by payment is what guideline 5 rejects.'
+        );
+
+        Gate::set_pro_for_tests(false);
+        $free = Snapshot_Store::history_limit();
+
+        Gate::set_pro_for_tests(true);
+        $pro = Snapshot_Store::history_limit();
+
+        $this->assertSame(Snapshot_Store::DEFAULT_HISTORY_LIMIT, $free);
+        $this->assertSame($free, $pro);
     }
 
     public function test_is_pro_falls_back_safely_without_freemius_sdk(): void

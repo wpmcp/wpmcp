@@ -2,7 +2,6 @@
 
 namespace WPMCP\Safety;
 
-
 if (! defined('ABSPATH')) {
     exit;
 }

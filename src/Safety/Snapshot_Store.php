@@ -126,15 +126,6 @@ class Snapshot_Store
     }
 
     /**
-     * Delete all but the $keep most recent snapshot rows. Additionally
-     * deletes each pruned row's attachment file backup dir (if any), via
-     * File_Backup::delete_backup_dir(), so a force-deleted attachment's
-     * backed-up bytes do not accumulate under wp-content/uploads/ forever
-     * once its snapshot has aged out and can no longer be rolled back to.
-     * Calling delete_backup_dir() for every pruned operation_id is a no-op
-     * for the (overwhelming majority of) rows that never had one.
-     */
-    /**
      * How many snapshots a site keeps. One number for every install: no
      * licence, no tier, nothing a payment changes. Filterable so a site
      * that wants deeper history can have it for free, which is the
@@ -146,6 +137,15 @@ class Snapshot_Store
         return $limit > 0 ? $limit : self::DEFAULT_HISTORY_LIMIT;
     }
 
+    /**
+     * Delete all but the $keep most recent snapshot rows. Additionally
+     * deletes each pruned row's attachment file backup dir (if any), via
+     * File_Backup::delete_backup_dir(), so a force-deleted attachment's
+     * backed-up bytes do not accumulate under wp-content/uploads/ forever
+     * once its snapshot has aged out and can no longer be rolled back to.
+     * Calling delete_backup_dir() for every pruned operation_id is a no-op
+     * for the (overwhelming majority of) rows that never had one.
+     */
     public static function prune(int $keep): int
     {
         global $wpdb;

@@ -52,7 +52,7 @@ Every mutating ability routes through one `Safe_Mutation` wrapper:
 
 **Snapshot table** `wp_wpmcp_snapshots`: `id, operation_id, session_id, object_type, object_id, tool_name, args_hash, before_blob (gzipped), user_id, created_at`.
 
-**Retention:** configurable; free tier keeps last N operations, paid keeps unlimited + longer window.
+**Retention:** one flat cap for every install (`Snapshot_Store::DEFAULT_HISTORY_LIMIT`, 20), filterable for free via `wpmcp_snapshot_history_limit`. Superseded the original free/paid split in issue #158: a quota lifted by payment is what wp.org guideline 5 rejects.
 
 This primitive is non-negotiable and gets exhaustive tests, it *is* the product promise.
 
@@ -67,7 +67,7 @@ This primitive is non-negotiable and gets exhaustive tests, it *is* the product 
 ## 6. Free vs paid split
 
 - **Free (wp.org, the funnel & trust hook):** safe-write engine + one-click rollback + Gutenberg editing + history (last ~20 ops). Genuinely useful, *not* crippled bait (deliberate contrast with Respira's ~30-edit trial).
-- **Paid (Freemius, ~$9-19/mo entry to drive volume):** Elementor deep editing, unlimited history + session rollback, preview/diff, priority. Agency/multi-site tier later.
+- **Paid (Freemius, ~$9-19/mo entry to drive volume):** Elementor deep editing, preview/diff, priority. Agency/multi-site tier later. (History is no longer part of this list, see Retention above and issue #158.)
 
 ## 7. CI & test discipline (what makes hourly cadence survivable)
 
@@ -106,7 +106,7 @@ Multi-site fleet management, human-approval queue UI, visual-regression diffing,
 
 ## Known limitations (MVP)
 
-1. **Free-tier retention bounds session rollback.** Free tier keeps only the last 20 snapshot operations (`Gate::history_limit()`), pruned after every write. An agent session performing >20 operations can lose its earliest snapshots, so `rollback-session` on free tier restores to the earliest *surviving* snapshot, not necessarily the true pre-session state. Pro (unlimited history) is not affected. TOP fast-follow backlog item: make pruning session-aware (never prune snapshots of a session still within the retention window).
+1. **Free-tier retention bounds session rollback.** Every install keeps only the last 20 snapshot operations (`Snapshot_Store::history_limit()`), pruned after every write. An agent session performing >20 operations can lose its earliest snapshots, so `rollback-session` restores to the earliest *surviving* snapshot, not necessarily the true pre-session state. Raising `wpmcp_snapshot_history_limit` widens the window on any site, free or paid. TOP fast-follow backlog item: make pruning session-aware (never prune snapshots of a session still within the retention window).
 2. **Snapshot capture scope.** `Snapshot::capture()` records `post_content`, `post_title`, `post_status`, and all post meta. It does NOT capture excerpt, parent, menu_order, or taxonomy terms, mutations to those are not rolled back. Free-tier `update-blocks` only edits content, so no live gap today.
 3. **`rollback-session` return value** counts snapshot operations processed, not distinct objects restored.
 4. **`delete-media` file recovery.** Resolved (issue #24). Force-deleting media (or deleting without `MEDIA_TRASH` enabled) backs up the physical file plus every intermediate size via `File_Backup` before unlinking them; rollback restores both the media record and the file bytes at their original paths, and the response reports `files_recoverable: true`. Backups live under `wp-content/uploads/.wpmcp-backups/<operation_id>/` (protected from direct web access) and are deleted when their snapshot is pruned. Media force-delete is disabled by default (`wpmcp_enable_delete_media` filter must be explicitly enabled).

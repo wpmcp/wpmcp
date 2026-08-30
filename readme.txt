@@ -40,9 +40,9 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 
 = Free vs Pro =
 
-The free plugin is fully functional: the MCP server, the safety core, snapshots and rollback (last 20 snapshots), Gutenberg building, and the integration read tools.
+The free plugin is fully functional: the MCP server, the safety core, snapshots and rollback, Gutenberg building, and the integration read tools. Snapshot history keeps the last 20 operations on every install, free and Pro alike, and the `wpmcp_snapshot_history_limit` filter raises or lowers that number on any site at no cost.
 
-WP MCP Pro adds unlimited snapshot history, deep Elementor editing and building, custom widget/block builders, cloud sync for your widget and block specs, and priority support. See https://wpmcp-pro.com/pricing.html
+WP MCP Pro adds deep Elementor editing and building, custom widget/block builders, cloud sync for your widget and block specs, and priority support. See https://wpmcp-pro.com/pricing.html
 
 = Privacy =
 
@@ -84,9 +84,12 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 
 = Is it really free? =
 
-Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (unlimited history, Elementor deep editing, builders, cloud sync), not safety.
+Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.1 =
+* Snapshot retention is now one flat number for every install (`Snapshot_Store::DEFAULT_HISTORY_LIMIT`, 20), raisable or lowerable for free through the new `wpmcp_snapshot_history_limit` filter. The paid unlimited-history branch is gone.
 
 = 0.8.0 =
 * Launch release.
@@ -97,6 +100,10 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * WP MCP Cloud sync client for widget and block specs (Pro).
 
 == Upgrade Notice ==
+
+= 0.8.1 =
+Snapshot history is now capped at 20 operations on every install. Sites running 0.8.0 with a Pro licence kept unlimited history, and the first write after this upgrade prunes everything past the newest 20, including the file backups behind those older snapshots. If you need deeper history, set it before you upgrade, or before the next write:
+`add_filter( 'wpmcp_snapshot_history_limit', fn() => 500 );`
 
 = 0.8.0 =
 First public release.

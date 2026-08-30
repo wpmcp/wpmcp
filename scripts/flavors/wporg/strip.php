@@ -141,11 +141,11 @@ $edits['src/MCP/Registrar.php'] = [
 // ------------------------------------------------------- snapshot retention
 // Guideline 5's quota clause is satisfied in source (issue #158): every call
 // site already reads Snapshot_Store::history_limit(), a flat cap with a
-// filter so a site can raise it for free. Nothing to rewrite here.
+// filter so a site can raise it for free. Nothing to rewrite here; the
+// residual-Gate scan after the edit loop is what keeps it that way.
 
 // ---------------------------------------------------------------- Build_Page
 // The Elementor dialect is not gated here, it is simply free.
-$edits["src/Tools/Compose/Build_Page.php"][] = ["use WPMCP\\Pro\\Gate;\n", "", 1];
 $edits['src/Tools/Compose/Build_Page.php'][] = [
     "            if (! Gate::can_use('build-page-builder')) {\n"
         . "                throw new \\RuntimeException('The builder (Elementor) dialect of build-page is a PRO feature; the free tier composes Gutenberg pages.');\n"
@@ -399,10 +399,20 @@ foreach ($edits as $relative => $file_edits) {
     file_put_contents($path, $contents);
 }
 
-/** DEFAULT_HISTORY_LIMIT has to exist for the new accessor to read it. */
+/**
+ * Snapshot retention (issue #158) is no longer rewritten here, so the only
+ * thing standing between an upstream refactor and a gated zip is this check.
+ * Both halves of the flat cap have to be present in the staged source: the
+ * constant and the accessor that reads it.
+ */
 $snapshot_store = $stage . '/src/Safety/Snapshot_Store.php';
-if (is_file($snapshot_store) && ! str_contains((string) file_get_contents($snapshot_store), 'DEFAULT_HISTORY_LIMIT =')) {
-    $failures[] = 'src/Safety/Snapshot_Store.php: DEFAULT_HISTORY_LIMIT is not declared in the source';
+if (is_file($snapshot_store)) {
+    $snapshot_source = (string) file_get_contents($snapshot_store);
+    foreach (['DEFAULT_HISTORY_LIMIT =', 'function history_limit()'] as $needle) {
+        if (! str_contains($snapshot_source, $needle)) {
+            $failures[] = sprintf('src/Safety/Snapshot_Store.php: %s is not present in the source', $needle);
+        }
+    }
 }
 
 /** Delete the pro-only method declarations from Plugin.php, docblock included. */
@@ -455,6 +465,24 @@ const SWEPT_DIRECTORIES = ['src/Tools/Elementor', 'src/Tools/Builders'];
 
 $swept = sweep_unreferenced($stage, SWEPT_DIRECTORIES);
 $applied += count($swept);
+
+/**
+ * The paid tier leaves by path (src/Pro is in REMOVED_PATHS), so any Gate::
+ * call still standing after every edit, removal and sweep above would only
+ * fatal at runtime inside the free zip. Since snapshot retention (issue #158)
+ * is no longer rewritten by an exact-string edit, this scan is what keeps the
+ * file header's promise that a refactor upstream breaks the build loudly
+ * instead of silently shipping a gated zip.
+ */
+foreach (scan_php_files($stage . '/src') as $php_file) {
+    if (preg_match('/\bGate::/', (string) file_get_contents($php_file))) {
+        $failures[] = sprintf(
+            '%s: a Gate:: call survived the strip, but src/Pro is removed by path',
+            ltrim(str_replace($stage, '', $php_file), '/')
+        );
+    }
+}
+
 
 if ([] !== $failures) {
     fwrite(STDERR, "wp.org strip failed:\n  " . implode("\n  ", $failures) . "\n");
@@ -768,4 +796,21 @@ function prune_unused_imports(string $stage): int
         }
     }
     return $removed;
+}
+
+/** Every .php file under $directory, as absolute paths. */
+function scan_php_files(string $directory): array
+{
+    if (! is_dir($directory)) {
+        return [];
+    }
+    $files = [];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory));
+    foreach ($iterator as $file) {
+        if ($file instanceof SplFileInfo && 'php' === $file->getExtension()) {
+            $files[] = $file->getPathname();
+        }
+    }
+    sort($files);
+    return $files;
 }
