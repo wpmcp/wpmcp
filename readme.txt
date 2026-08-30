@@ -1,10 +1,10 @@
 === WP MCP - AI Agents for WordPress with Snapshot Safety ===
 Contributors: fahdi
-Tags: mcp, ai, ai agent, claude, automation
+Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.0
+Stable tag: 0.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -88,6 +88,10 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.1 =
+* Tested up to WordPress 7.1: the full test suite runs green against that release.
+* Dropped the third-party trademark from the tag list.
+
 = 0.8.0 =
 * Launch release.
 * 200+ abilities across content, builders, and integrations.
@@ -97,6 +101,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * WP MCP Cloud sync client for widget and block specs (Pro).
 
 == Upgrade Notice ==
+
+= 0.8.1 =
+Compatibility with WordPress 7.1. No functional changes.
 
 = 0.8.0 =
 First public release.
