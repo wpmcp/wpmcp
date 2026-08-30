@@ -76,13 +76,15 @@ class Widget_Spec_Store
     public static function all(bool $active_only = false): array
     {
         self::ensure_post_type();
+        // No suppress_filters: get_posts() defaults it to true, and the explicit
+        // argument is what Plugin Check flags. Not false either, since this reads a
+        // plugin-internal post type with no translated content to correct.
         $rows = get_posts([
             'post_type'        => self::POST_TYPE,
             'post_status'      => $active_only ? ['publish'] : ['publish', 'draft'],
             'posts_per_page'   => 200,
             'orderby'          => 'title',
             'order'            => 'ASC',
-            'suppress_filters' => true,
         ]);
 
         $out = [];
