@@ -2,6 +2,8 @@
 
 namespace WPMCP\MCP;
 
+use WPMCP\Safety\Operation_Context;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -12,21 +14,53 @@ if (! defined('ABSPATH')) {
  * Several MCP clients only speak stdio, and local development wants a server
  * without any HTTP setup. This class serves the same tool surface as the
  * HTTP transport (WPMCP\MCP\Server) over newline-delimited JSON-RPC on
- * stdin/stdout, started with `wp mcp-stdio serve`.
+ * stdin/stdout, started with `wp mcp-stdio serve --user=<login|id>`.
  *
  * Design mirrors the rest of the plugin: the transport is a thin loop, and
  * every protocol decision lives in a pure, independently testable method
- * (handle_request), so tests exercise the handshake, tools/list and
- * tools/call round-trip without spawning a process. Tool dispatch goes
- * through the live Abilities registry exactly like Server::tool_names(), so
- * governance gating, tier gating and exposure decisions apply unchanged and
- * no new permission surface is introduced: WP-CLI already runs as the site
- * owner, matching the guarded CLI work from issue #44.
+ * (handle_request), so tests exercise the handshake, tools/list and the
+ * tools/call round-trip without spawning a process.
+ *
+ * Three things this transport must get right, because none of them are free:
+ *
+ *  1. USER CONTEXT. WP-CLI runs as user 0 unless the global --user flag is
+ *     given, and every wpmcp ability's permission_callback
+ *     (Registrar::is_permitted) starts with current_user_can(). Without a
+ *     user, every tools/call would be denied, so serve() refuses to start
+ *     rather than serving a surface where nothing works. (This is the
+ *     opposite direction of travel from issue #44, which is MCP -> wp-cli
+ *     and default-OFF; here wp-cli is the client, so the operator's own
+ *     --user choice is the whole trust decision.)
+ *  2. EXPOSURE PARITY. Compact mode (issue #79) is applied by
+ *     Tool_Exposure on the adapter's mcp_adapter_tools_list filter, which
+ *     the adapter's HTTP pipeline fires and this transport does not. The
+ *     tool list is therefore run through Tool_Exposure directly, and the
+ *     handshake reuses Handshake_Instructions, so both transports advertise
+ *     the same surface and the same guidance. Tool results go through
+ *     Structured_Result::normalize() for the same reason.
+ *  3. FRAMING. Newline-delimited JSON-RPC is destroyed by a single PHP
+ *     notice on stdout, which is exactly failure mode 2 in Transport_Guard
+ *     (issue #133), so the display channel is suppressed before the first
+ *     read and protocol output is written with fwrite() rather than echo.
+ *
+ * The loop is long-lived, which per-request state does not expect: the
+ * object cache and Operation_Context are reset between messages so option
+ * writes (a revoked ability, a flipped exposure mode) and the rate-limit
+ * counter are observed instead of frozen at process start.
  */
 class Stdio_Transport
 {
     private const JSONRPC = '2.0';
-    private const PROTOCOL_VERSION = '2025-03-26';
+
+    /**
+     * Protocol version used when the MCP Adapter (which owns negotiation)
+     * is not loaded. Kept equal to the newest version the adapter's
+     * McpVersionNegotiator supports so both transports agree.
+     */
+    public const FALLBACK_PROTOCOL_VERSION = '2025-11-25';
+
+    /** The adapter class that owns protocol-version negotiation. */
+    private const NEGOTIATOR = '\\WP\\MCP\\Core\\McpVersionNegotiator';
 
     /** Registers the WP-CLI command. No-op outside WP-CLI. */
     public static function register(): void
@@ -35,7 +69,10 @@ class Stdio_Transport
             return;
         }
 
-        \WP_CLI::add_command('mcp-stdio serve', [self::class, 'serve']);
+        \WP_CLI::add_command('mcp-stdio serve', [self::class, 'serve'], [
+            'shortdesc' => 'Serves MCP over stdio. Requires the global --user flag, e.g. '
+                . 'wp mcp-stdio serve --user=admin',
+        ]);
     }
 
     /**
@@ -44,11 +81,25 @@ class Stdio_Transport
      */
     public static function serve(): void
     {
+        Transport_Guard::suppress_error_display();
+
+        $context_error = self::user_context_error();
+        if (null !== $context_error) {
+            if (class_exists('WP_CLI')) {
+                \WP_CLI::error($context_error);
+                return;
+            }
+            fwrite(STDERR, $context_error . "\n");
+            return;
+        }
+
         // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
         $stdin = fopen('php://stdin', 'r');
         if (false === $stdin) {
             return;
         }
+
+        $transport = new self();
 
         while (false !== ($line = fgets($stdin))) {
             $line = trim($line);
@@ -62,13 +113,33 @@ class Stdio_Transport
                 continue;
             }
 
-            $response = (new self())->handle_request($request);
+            $response = $transport->handle_request($request);
             if (null !== $response) {
                 self::emit($response);
             }
+
+            self::reset_per_message_state();
         }
         // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
         fclose($stdin);
+    }
+
+    /**
+     * Why the process must not start, or null when the context is usable.
+     *
+     * Separated from serve() so the requirement is testable without a
+     * process: WP-CLI is user 0 unless --user is given, and user 0 fails
+     * every ability's capability check.
+     */
+    public static function user_context_error(): ?string
+    {
+        if (get_current_user_id() > 0) {
+            return null;
+        }
+
+        return 'wp mcp-stdio serve needs a user context: WP-CLI runs as no user by default, so every '
+            . 'tool call would be denied by its capability check. Re-run with the global --user flag, '
+            . 'e.g. wp mcp-stdio serve --user=admin';
     }
 
     /**
@@ -81,45 +152,82 @@ class Stdio_Transport
      */
     public function handle_request(array $request): ?array
     {
-        $id     = $request['id'] ?? null;
         $method = isset($request['method']) ? (string) $request['method'] : '';
 
-        if (str_starts_with($method, 'notifications/')) {
+        // JSON-RPC 2.0 defines a notification as a request with no id at
+        // all; the method prefix is only a fast path for the common case.
+        if (str_starts_with($method, 'notifications/') || ! array_key_exists('id', $request)) {
             return null;
         }
 
+        $id     = $request['id'];
+        $params = is_array($request['params'] ?? null) ? $request['params'] : [];
+
         switch ($method) {
             case 'initialize':
-                return self::result_response($id, $this->initialize_result());
+                return self::result_response($id, $this->initialize_result($params));
             case 'ping':
                 return self::result_response($id, []);
             case 'tools/list':
                 return self::result_response($id, [ 'tools' => $this->list_tools() ]);
             case 'tools/call':
-                return $this->call_tool($id, is_array($request['params'] ?? null) ? $request['params'] : []);
+                return $this->call_tool($id, $params);
             default:
                 return self::error_response($id, -32601, sprintf('Method not found: %s', $method));
         }
     }
 
-    /** @return array<string,mixed> */
-    private function initialize_result(): array
+    /**
+     * @param array<string,mixed> $params initialize params.
+     * @return array<string,mixed>
+     */
+    private function initialize_result(array $params): array
     {
-        return [
-            'protocolVersion' => self::PROTOCOL_VERSION,
+        $result = [
+            'protocolVersion' => self::negotiate_protocol_version($params),
             'capabilities'    => [ 'tools' => [ 'listChanged' => false ] ],
             'serverInfo'      => [
                 'name'    => Server::SERVER_ID,
                 'version' => defined('WPMCP_VERSION') ? WPMCP_VERSION : '0.0.0',
             ],
-            // TODO(#77): reuse Handshake_Instructions so stdio clients get the
-            // same instructions text the HTTP handshake serves.
         ];
+
+        // Same guidance the HTTP handshake serves, built directly rather
+        // than through mcp_adapter_initialize_response: that filter passes
+        // the adapter's InitializeResult DTO, and handing foreign callbacks
+        // a plain array instead would be a contract break.
+        $instructions = (new Handshake_Instructions())->build();
+        if ('' !== $instructions) {
+            $result['instructions'] = $instructions;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Echoes the client's protocol version when the adapter supports it,
+     * otherwise the newest supported version. No hardcoded version: the
+     * adapter validates the MCP-Protocol-Version header against this exact
+     * list on the HTTP route, so the two transports must not drift.
+     *
+     * @param array<string,mixed> $params initialize params.
+     */
+    private static function negotiate_protocol_version(array $params): string
+    {
+        $requested = isset($params['protocolVersion']) ? (string) $params['protocolVersion'] : '';
+
+        if (class_exists(self::NEGOTIATOR)) {
+            $negotiator = self::NEGOTIATOR;
+            return (string) $negotiator::negotiate($requested);
+        }
+
+        return self::FALLBACK_PROTOCOL_VERSION;
     }
 
     /**
      * Tool descriptors for every wpmcp/ ability visible in the live
-     * registry, same filtering rule as Server::tool_names().
+     * registry, same filtering rule as Server::tool_names(), then the same
+     * exposure trim compact mode applies on the HTTP route.
      *
      * @return array<int,array<string,mixed>>
      */
@@ -140,8 +248,7 @@ class Stdio_Transport
             }
 
             $tools[] = [
-                // MCP tool names cannot contain '/', match the adapter's mapping.
-                'name'        => str_replace('/', '-', $name),
+                'name'        => self::tool_name($name),
                 'description' => is_object($ability) && method_exists($ability, 'get_description')
                     ? (string) $ability->get_description()
                     : '',
@@ -151,7 +258,9 @@ class Stdio_Transport
             ];
         }
 
-        return $tools;
+        $trimmed = (new Tool_Exposure())->filter_tools_list($tools);
+
+        return is_array($trimmed) ? array_values($trimmed) : $tools;
     }
 
     /**
@@ -165,19 +274,16 @@ class Stdio_Transport
      */
     private function call_tool($id, array $params): array
     {
-        $tool_name = isset($params['name']) ? (string) $params['name'] : '';
-        $ability_name = str_replace('-', '/', $tool_name);
-        // The first '-' is the namespace separator; the rest belong to the slug.
-        if (str_contains($tool_name, '-')) {
-            [ $ns, $slug ] = explode('-', $tool_name, 2);
-            $ability_name  = $ns . '/' . $slug;
-        }
+        $tool_name    = isset($params['name']) ? (string) $params['name'] : '';
+        $ability_name = self::ability_for_tool($tool_name);
 
-        if (! function_exists('wp_get_ability') || ! str_starts_with($ability_name, 'wpmcp/')) {
+        if (null === $ability_name) {
             return self::error_response($id, -32602, sprintf('Unknown tool: %s', $tool_name));
         }
 
-        $ability = wp_get_ability($ability_name);
+        // wp_has_ability() first: wp_get_ability() on an unknown name raises
+        // _doing_it_wrong(), which prints HTML onto the protocol stream.
+        $ability = wp_has_ability($ability_name) ? wp_get_ability($ability_name) : null;
         if (! is_object($ability) || ! method_exists($ability, 'execute')) {
             return self::error_response($id, -32602, sprintf('Unknown tool: %s', $tool_name));
         }
@@ -192,10 +298,87 @@ class Stdio_Transport
             ]);
         }
 
+        // Same wire normalization the HTTP route gets from Structured_Result
+        // on mcp_adapter_tool_call_result: structuredContent must be a JSON
+        // object, never a top-level list or scalar.
+        $normalized = Structured_Result::normalize($result);
+
         return self::result_response($id, [
-            'isError' => false,
-            'content' => [ [ 'type' => 'text', 'text' => (string) wp_json_encode($result) ] ],
+            'isError'           => false,
+            'content'           => [ [ 'type' => 'text', 'text' => (string) wp_json_encode($normalized) ] ],
+            'structuredContent' => $normalized,
         ]);
+    }
+
+    /**
+     * The ability name behind an advertised MCP tool name, or null when no
+     * registered wpmcp ability maps to it.
+     *
+     * Resolved by inverting the registry through the same mapping used to
+     * advertise the tool rather than by reversing the string: the adapter's
+     * sanitizer is not a reversible transform (it truncates long names and
+     * rewrites out-of-charset ones), so guessing where the '/' was is wrong
+     * for exactly the names that are hardest to debug.
+     */
+    private static function ability_for_tool(string $tool_name): ?string
+    {
+        if (
+            '' === $tool_name
+            || ! function_exists('wp_get_abilities')
+            || ! function_exists('wp_get_ability')
+            || ! function_exists('wp_has_ability')
+        ) {
+            return null;
+        }
+
+        foreach (wp_get_abilities() as $key => $ability) {
+            $name = is_object($ability) && method_exists($ability, 'get_name')
+                ? $ability->get_name()
+                : (string) $key;
+
+            if (! str_starts_with($name, 'wpmcp/')) {
+                continue;
+            }
+
+            if (self::tool_name($name) === $tool_name) {
+                return $name;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Ability name to MCP tool name, using the adapter's sanitizer when it
+     * is loaded so stdio and HTTP advertise byte-identical names.
+     */
+    private static function tool_name(string $ability_name): string
+    {
+        $sanitizer = '\\WP\\MCP\\Domain\\Utils\\McpNameSanitizer';
+        if (class_exists($sanitizer)) {
+            $sanitized = $sanitizer::sanitize_name($ability_name);
+            if (is_string($sanitized)) {
+                return $sanitized;
+            }
+        }
+
+        return Tool_Exposure::tool_name($ability_name);
+    }
+
+    /**
+     * Per-request state that a long-lived loop would otherwise freeze:
+     * option-backed gates (Governance, exposure) and the rate-limit
+     * transient are read through the non-persistent object cache, so
+     * without a flush a revoked ability stays callable for the life of the
+     * process.
+     */
+    private static function reset_per_message_state(): void
+    {
+        Operation_Context::reset();
+
+        if (function_exists('wp_cache_flush')) {
+            wp_cache_flush();
+        }
     }
 
     /**
@@ -226,7 +409,8 @@ class Stdio_Transport
     /** @param array<string,mixed> $response Response to write to stdout. */
     private static function emit(array $response): void
     {
-        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- machine protocol stream, not HTML.
-        echo wp_json_encode($response) . "\n";
+        // fwrite, not echo: WP-CLI's output layer can buffer and interleave,
+        // and one interleaved byte desynchronizes the framing.
+        fwrite(STDOUT, wp_json_encode($response) . "\n");
     }
 }
