@@ -87,6 +87,16 @@ foreach ($it as $f) {
 if ($bad) { fwrite(STDERR, implode("\n", $bad) . "\n"); exit(1); }
 ' "$STAGE/src" || { echo "ERROR: execution call site found in the $SLUG build" >&2; exit 1; }
 
+# Belt and braces: fail the build if the prune list left a dangling
+# inheritance edge. The flavor gate is a RUNTIME check, so a class that a
+# still-registered group instantiates (register_woocommerce_abilities, say)
+# fatals with "Class not found" the moment it is autoloaded, and nothing
+# catches that. Lazy `use` imports are fine and stay quiet; only extends /
+# implements edges are checked. See the script header for the issue #68 case
+# this exists to prevent.
+php "$ROOT/scripts/lib/check-dangling-inheritance.php" "$STAGE/src" \
+  || { echo "ERROR: dangling inheritance edge to a pruned domain in the $SLUG build" >&2; exit 1; }
+
 mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
 rm -f "$ZIP"
