@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 304,
+    'total'     => 306,
     'free'      => 213,
-    'pro'       => 91,
+    'pro'       => 93,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -114,6 +114,7 @@ return [
         'wpmcp/formidable-write' => 'free',
         'wpmcp/forminator-read' => 'free',
         'wpmcp/forminator-write' => 'free',
+        'wpmcp/generate-schema-markup' => 'pro',
         'wpmcp/generate-widget' => 'pro',
         'wpmcp/get-analytics-connection-status' => 'free',
         'wpmcp/get-analytics-summary' => 'free',
@@ -156,6 +157,7 @@ return [
         'wpmcp/get-settings' => 'free',
         'wpmcp/get-site-context' => 'free',
         'wpmcp/get-skill' => 'free',
+        'wpmcp/get-social-meta' => 'pro',
         'wpmcp/get-term' => 'free',
         'wpmcp/get-theme-template' => 'pro',
         'wpmcp/get-tool-schema' => 'free',

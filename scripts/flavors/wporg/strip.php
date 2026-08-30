@@ -69,6 +69,13 @@ const REMOVED_PATHS = [
     'src/Tools/Performance/Curl_Dns_Pin.php',
     // Paid ability whose handler lives inside an otherwise free directory.
     'src/Tools/Media/Stock/Insert_Stock_Image.php',
+    // Same shape for the SEO group (issue #67): the post-meta surface stays
+    // free, so the directory cannot go whole, but the schema generation and
+    // extended social vocabulary are paid. Schema_Generator has no caller
+    // once Generate_Schema_Markup is gone, so it goes with it.
+    'src/Tools/SEO/Generate_Schema_Markup.php',
+    'src/Tools/SEO/Schema_Generator.php',
+    'src/Tools/SEO/Get_Social_Meta.php',
     // Brand kits (issue #75). Every class under here is reachable only from
     // register_brand_kit_abilities, which this build deletes, and the kit
     // library itself is data rather than a free feature, so the directory
@@ -335,6 +342,26 @@ $plugin_edits[] = [
 // the local it was assigned to.
 $plugin_edits[] = ["        \$insert_stock_image  = new Insert_Stock_Image();\n", '', 1];
 
+// Same for the two inline pro SEO abilities (issue #67): remove_pro_abilities()
+// takes the register() calls, these take the locals and the comments that
+// describe the tiering.
+$plugin_edits[] = [
+    "        // Schema generation (issue #67): a proposal (read) tool that builds\n"
+        . "        // JSON-LD from the post's own record, so it is useful even with no\n"
+        . "        // SEO plugin active and registers unconditionally like get-seo-status.\n"
+        . "        \$generate_schema = new Generate_Schema_Markup();\n\n",
+    '',
+    1,
+];
+$plugin_edits[] = [
+    "        // Extended vocabulary (issue #67): per-post OG/Twitter reads in one\n"
+        . "        // neutral field set. Plugins whose social storage is not mapped yet\n"
+        . "        // answer with a structured \"unsupported\", never an error.\n"
+        . "        \$get_social_meta = new Get_Social_Meta();\n\n",
+    '',
+    1,
+];
+
 // Documentation the reviewer reads too: a build with no licence gate must not
 // describe one.
 $plugin_edits[] = [
@@ -345,6 +372,36 @@ $plugin_edits[] = [
     "     * One-call declarative page composition (issue #57). Both dialects,\n"
         . "     * the block editor and the Elementor builder, are available to every\n"
         . "     * install of this plugin.\n",
+    1,
+];
+$plugin_edits[] = [
+    "     * Register the SEO tool group. Mixed tiers since issue #67: the\n"
+        . "     * post-meta surface (get-seo-status, get-seo-meta, update-seo-meta) is\n"
+        . "     * free, and the generation and extended-vocabulary tools\n"
+        . "     * (generate-schema-markup, get-social-meta) declare tier 'pro', which the\n"
+        . "     * Registrar enforces centrally rather than each handler re-checking.\n"
+        . "     *\n"
+        . "     * get-seo-status is registered unconditionally: it must be reachable to\n"
+        . "     * report \"no SEO plugin active\" at all, and it does not touch any\n"
+        . "     * plugin-specific postmeta so it has nothing to degrade.\n"
+        . "     * generate-schema-markup registers unconditionally for the same reason:\n"
+        . "     * it builds the graph from the post's own record, so it works on a site\n"
+        . "     * with no SEO plugin at all. get-seo-meta, update-seo-meta and\n"
+        . "     * get-social-meta are registered conditionally on SEO_Adapter detecting a\n"
+        . "     * supported plugin, following the same conditional-registration pattern\n"
+        . "     * as the ACF tool group: no supported plugin has a free/pro split of its\n"
+        . "     * own to key off, so plugin absence is the only signal, and skipping\n"
+        . "     * keeps these out of the catalog on sites running none of them.\n",
+    "     * Register the SEO tools as free-tier abilities.\n"
+        . "     *\n"
+        . "     * get-seo-status is registered unconditionally: it must be reachable to\n"
+        . "     * report \"no SEO plugin active\" at all, and it does not touch any\n"
+        . "     * plugin-specific postmeta so it has nothing to degrade. get-seo-meta and\n"
+        . "     * update-seo-meta are registered conditionally on SEO_Adapter detecting a\n"
+        . "     * supported plugin, following the same conditional-registration pattern\n"
+        . "     * as the ACF tool group: no supported plugin has a free/pro split of its\n"
+        . "     * own to key off, so plugin absence is the only signal, and skipping\n"
+        . "     * keeps these out of the catalog on sites running none of them.\n",
     1,
 ];
 $plugin_edits[] = [

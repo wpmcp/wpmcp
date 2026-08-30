@@ -65,12 +65,13 @@ class SEO_Adapter
         'nofollow'      => '_genesis_nofollow',
     ];
 
-    // Extended vocabulary (issue #67), first slice: per-post OG/Twitter
-    // overrides for the two plugins that store them as flat postmeta.
-    // SEOPress also has flat keys (_seopress_social_*); The SEO Framework and
-    // SureRank need dedicated branches. Until a plugin has a verified map
-    // here, get_social_meta() reports it as unsupported rather than guessing.
-    // TODO(#67): SEOPress/SEO Framework/SureRank social maps + write path.
+    // Extended vocabulary (issue #67): per-post OG/Twitter overrides for the
+    // plugins that store them as flat postmeta. The SEO Framework derives its
+    // social fields rather than storing a full per-post set, and SureRank
+    // packs them into the serialized _surerank_meta array, so both need
+    // dedicated branches. Until a plugin has a verified map here,
+    // get_social_meta() reports it as unsupported rather than guessing.
+    // TODO(#67): SEO Framework / SureRank social maps + write path.
     private const YOAST_SOCIAL_KEYS = [
         'og_title'            => '_yoast_wpseo_opengraph-title',
         'og_description'      => '_yoast_wpseo_opengraph-description',
@@ -89,6 +90,15 @@ class SEO_Adapter
         'twitter_image'       => 'rank_math_twitter_image',
     ];
 
+    private const SEOPRESS_SOCIAL_KEYS = [
+        'og_title'            => '_seopress_social_fb_title',
+        'og_description'      => '_seopress_social_fb_desc',
+        'og_image'            => '_seopress_social_fb_img',
+        'twitter_title'       => '_seopress_social_twitter_title',
+        'twitter_description' => '_seopress_social_twitter_desc',
+        'twitter_image'       => '_seopress_social_twitter_img',
+    ];
+
     /** Test seam: force the detected plugin. Guarded by WPMCP_TESTING. */
     private static ?string $active_override = null;
 
@@ -100,8 +110,8 @@ class SEO_Adapter
     }
 
     /**
-     * Which SEO plugin is active: 'yoast', 'rankmath', 'seopress', or '' when
-     * none is.
+     * Which SEO plugin is active: 'yoast', 'rankmath', 'seopress',
+     * 'seoframework', 'surerank', or '' when none is.
      */
     public static function active_plugin(): string
     {
@@ -114,6 +124,15 @@ class SEO_Adapter
 
         if (class_exists('RankMath')) {
             return 'rankmath';
+        }
+
+        // SEOPress: the key map below has existed since the adapter was
+        // written, but detection did not, so a SEOPress site reported "no
+        // supported plugin". Both constants are defined by the free plugin;
+        // the function check covers installs that load the settings layer
+        // before the version constant.
+        if (defined('SEOPRESS_VERSION') || function_exists('seopress_get_toggle_titles_option')) {
+            return 'seopress';
         }
 
         if (defined('THE_SEO_FRAMEWORK_VERSION') || function_exists('tsf')) {
@@ -388,6 +407,7 @@ class SEO_Adapter
         $maps = [
             'yoast'    => self::YOAST_SOCIAL_KEYS,
             'rankmath' => self::RANKMATH_SOCIAL_KEYS,
+            'seopress' => self::SEOPRESS_SOCIAL_KEYS,
         ];
 
         if (! isset($maps[$active])) {
