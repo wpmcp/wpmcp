@@ -2,7 +2,6 @@
 
 namespace WPMCP\Tools\Elementor;
 
-use WPMCP\Pro\Gate;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
 
@@ -180,7 +179,7 @@ class Global_Classes_Store
             $tool_name,
             hash('sha256', (string) wp_json_encode($args))
         );
-        Snapshot_Store::prune(Gate::history_limit());
+        Snapshot_Store::prune(Snapshot_Store::history_limit());
 
         try {
             self::persist($items, $order);

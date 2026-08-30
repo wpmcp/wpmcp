@@ -15,9 +15,8 @@ class Snapshot_Store
     /**
      * Snapshots kept per site by default.
      *
-     * The single source of truth for the number, so the directory build can
-     * read it directly (see scripts/flavors/wporg/strip.php) instead of
-     * asking a licence gate what the cap is.
+     * The single source of truth for the number. history_limit() below is
+     * the only reader; no licence gate is consulted anywhere.
      */
     public const DEFAULT_HISTORY_LIMIT = 20;
 
@@ -135,6 +134,18 @@ class Snapshot_Store
      * Calling delete_backup_dir() for every pruned operation_id is a no-op
      * for the (overwhelming majority of) rows that never had one.
      */
+    /**
+     * How many snapshots a site keeps. One number for every install: no
+     * licence, no tier, nothing a payment changes. Filterable so a site
+     * that wants deeper history can have it for free, which is the
+     * difference guideline 5 draws between a product decision and a lock.
+     */
+    public static function history_limit(): int
+    {
+        $limit = (int) apply_filters('wpmcp_snapshot_history_limit', self::DEFAULT_HISTORY_LIMIT);
+        return $limit > 0 ? $limit : self::DEFAULT_HISTORY_LIMIT;
+    }
+
     public static function prune(int $keep): int
     {
         global $wpdb;

@@ -34,7 +34,6 @@ class GateTest extends \WP_UnitTestCase
     {
         Gate::set_pro_for_tests(false);
         $this->assertFalse(Gate::is_pro());
-        $this->assertSame(20, Gate::history_limit());
     }
 
     public function test_registrar_skips_pro_when_free(): void
@@ -49,7 +48,6 @@ class GateTest extends \WP_UnitTestCase
     {
         Gate::set_pro_for_tests(true);
         $this->assertTrue(Gate::is_pro());
-        $this->assertGreaterThan(1000000, Gate::history_limit());
     }
 
     public function test_is_pro_falls_back_safely_without_freemius_sdk(): void
@@ -75,7 +73,6 @@ class GateTest extends \WP_UnitTestCase
         Bootstrap::set_fs_for_tests($this->fs_stub(true));
 
         $this->assertTrue(Gate::is_pro());
-        $this->assertGreaterThan(1000000, Gate::history_limit());
     }
 
     public function test_is_pro_false_when_freemius_license_state_is_free(): void
@@ -83,7 +80,6 @@ class GateTest extends \WP_UnitTestCase
         Bootstrap::set_fs_for_tests($this->fs_stub(false));
 
         $this->assertFalse(Gate::is_pro());
-        $this->assertSame(20, Gate::history_limit());
     }
 
     public function test_gate_test_seam_wins_over_freemius_state(): void

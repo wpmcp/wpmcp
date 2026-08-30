@@ -2,7 +2,6 @@
 
 namespace WPMCP\Safety;
 
-use WPMCP\Pro\Gate;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -43,7 +42,7 @@ class Safe_Mutation
         // the call (MCP\Request_Log rows, issue #134) link to this id as an
         // undo point, so it must never be advertised before it exists.
         Operation_Context::note($operation_id);
-        Snapshot_Store::prune(Gate::history_limit());
+        Snapshot_Store::prune(Snapshot_Store::history_limit());
         $result = $mutation();
         if ($verify && ! $verify($result)) {
             self::restore($snapshot);

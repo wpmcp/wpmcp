@@ -139,25 +139,13 @@ $edits['src/MCP/Registrar.php'] = [
 ];
 
 // ------------------------------------------------------- snapshot retention
-// Guideline 5's quota clause. The cap becomes flat and unconditional, with a
-// filter so a site can raise it for free: nothing here is lifted by a payment.
-foreach (
-    [
-    'src/Safety/Safe_Mutation.php',
-    'src/Tools/Compose/Build_Page.php',
-    'src/Tools/Packages/Switch_Theme.php',
-    'src/Tools/Media/Media_Import_Snapshot.php',
-    // Reachable from the free build through List_Global_Classes, which stays:
-    // the read is free, only the write tools around it are the add-on.
-    'src/Tools/Elementor/Global_Classes_Store.php',
-    ] as $path
-) {
-    $edits[$path][] = ["use WPMCP\\Pro\\Gate;\n", '', 1];
-    $edits[$path][] = ['Snapshot_Store::prune(Gate::history_limit());', 'Snapshot_Store::prune(Snapshot_Store::history_limit());', 1];
-}
+// Guideline 5's quota clause is satisfied in source (issue #158): every call
+// site already reads Snapshot_Store::history_limit(), a flat cap with a
+// filter so a site can raise it for free. Nothing to rewrite here.
 
 // ---------------------------------------------------------------- Build_Page
 // The Elementor dialect is not gated here, it is simply free.
+$edits["src/Tools/Compose/Build_Page.php"][] = ["use WPMCP\\Pro\\Gate;\n", "", 1];
 $edits['src/Tools/Compose/Build_Page.php'][] = [
     "            if (! Gate::can_use('build-page-builder')) {\n"
         . "                throw new \\RuntimeException('The builder (Elementor) dialect of build-page is a PRO feature; the free tier composes Gutenberg pages.');\n"
@@ -378,27 +366,6 @@ $edits['src/Tools/Connect/List_Tool_Catalog.php'] = [
         " * reflects what is actually available on this site right now.\n"
             . " * A caller (namely this class's own test suite) may inject a different\n"
             . " * Registrar to inspect a hand-built ability set.\n",
-        1,
-    ],
-];
-
-// ------------------------------------------------------------- Snapshot_Store
-// The flat cap the four call sites above now read.
-$edits['src/Safety/Snapshot_Store.php'] = [
-    [
-        "    public static function prune(int \$keep): int\n",
-        "    /**\n"
-            . "     * How many snapshots a site keeps. One number for every install: no\n"
-            . "     * licence, no tier, nothing a payment changes. Filterable so a site\n"
-            . "     * that wants deeper history can have it for free, which is the\n"
-            . "     * difference guideline 5 draws between a product decision and a lock.\n"
-            . "     */\n"
-            . "    public static function history_limit(): int\n"
-            . "    {\n"
-            . "        \$limit = (int) apply_filters('wpmcp_snapshot_history_limit', self::DEFAULT_HISTORY_LIMIT);\n"
-            . "        return \$limit > 0 ? \$limit : self::DEFAULT_HISTORY_LIMIT;\n"
-            . "    }\n\n"
-            . "    public static function prune(int \$keep): int\n",
         1,
     ],
 ];
