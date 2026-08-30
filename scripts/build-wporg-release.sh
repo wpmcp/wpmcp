@@ -60,26 +60,22 @@ while IFS= read -r file; do
 done < <(find "$STAGE/src" "$STAGE/$SLUG.php" -name '*.php')
 
 # 2. No execution construct, at token level so Malware_Audit's detection
-#    patterns and ordinary comments cannot false-positive.
-php -r '
-$bad = [];
-$names = ["proc_open", "shell_exec", "passthru", "popen", "exec", "system", "pcntl_exec", "create_function", "str_rot13", "move_uploaded_file", "assert"];
-$it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($argv[1]));
-foreach ($it as $f) {
-    if ($f->getExtension() !== "php") { continue; }
-    $tokens = token_get_all(file_get_contents($f->getPathname()));
-    foreach ($tokens as $i => $t) {
-        if (!is_array($t)) { continue; }
-        if ($t[0] === T_EVAL) { $bad[] = $f->getPathname() . ":" . $t[2] . " eval"; continue; }
-        if ($t[0] !== T_STRING || !in_array(strtolower($t[1]), $names, true)) { continue; }
-        // A method or property of the same name is not the global function.
-        $prev = $tokens[$i - 1] ?? null;
-        if (is_array($prev) && in_array($prev[0], [T_OBJECT_OPERATOR, T_DOUBLE_COLON, T_FUNCTION, T_NULLSAFE_OBJECT_OPERATOR], true)) { continue; }
-        $bad[] = $f->getPathname() . ":" . $t[2] . " " . $t[1];
-    }
-}
-if ($bad) { fwrite(STDERR, implode("\n", $bad) . "\n"); exit(1); }
-' "$STAGE/src" || fail "an execution construct survived into the $SLUG build"
+#    patterns and ordinary comments cannot false-positive. Walks src, vendor
+#    and the flavor main file, not just src: a dependency that grows an
+#    exec call site is just as much a rejection as our own code (#167).
+# Exit 1 is a surviving construct, exit 2 is the gate not being able to do
+# its job at all (a path that was never staged, an unreadable tree). Those are
+# different bugs and must not report as the same one.
+set +e
+php "$ROOT/scripts/lib/exec-gate.php" "$STAGE/src" "$STAGE/vendor" "$STAGE/$SLUG.php"
+gate_status=$?
+set -e
+case "$gate_status" in
+  0) ;;
+  1) fail "a banned execution or obfuscation construct survived into the $SLUG build" ;;
+  2) fail "the exec gate was pointed at a path that was never staged or cannot be read" ;;
+  *) fail "the exec gate failed unexpectedly (exit $gate_status)" ;;
+esac
 
 # 3. No paid predicate, no licensing SDK, no pro-tier ability. Text-level on
 #    purpose: a docblock that still talks about licensing is also a finding,
@@ -140,7 +136,17 @@ ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
 rm -f "$ZIP"
 (cd "$STAGE_PARENT" && zip -rq "$ZIP" "$SLUG" -x "*.DS_Store")
 
-# 6. The compliance engine, in the profile that models the directory, run
+# 6. The execution files themselves are absent from the artifact, checked on
+#    the zip listing rather than on the staging directory: the strip list, the
+#    staging copy and the zip step are three chances to reintroduce them
+#    (#167).
+for forbidden in Php_Snippet_Runner.php Wp_Cli_Executor.php Run_Php_Snippet.php Run_Wp_Cli.php; do
+  if unzip -l "$ZIP" | grep -q "/$forbidden\$"; then
+    fail "$forbidden is inside $ZIP"
+  fi
+done
+
+# 7. The compliance engine, in the profile that models the directory, run
 #    against the extracted zip rather than the checkout. This is the check
 #    that decides whether the artifact is submittable.
 BUILD_DIR="$ROOT/build/wporg"

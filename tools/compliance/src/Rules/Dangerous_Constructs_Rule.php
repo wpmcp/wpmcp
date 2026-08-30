@@ -11,9 +11,12 @@ use WPMCP\Compliance\Severity;
  * eval and proc_open are on Plugin Check's Generic.PHP.ForbiddenFunctions
  * list (error, severity 7); shell_exec, exec, system and popen are not, but
  * reviewers close submissions over them under guidelines 8 and 9, so the
- * repo's own build gate already treats them as fatal. This rule is the same
- * gate as scripts/build-woo-release.sh, generalised: token level, so pattern
- * strings in Malware_Audit and documentation comments cannot false-positive.
+ * repo's own build gate already treats them as fatal. This rule is the
+ * artifact-level half of scripts/lib/exec-gate.php, which the same builds run
+ * over the staged tree: CONSTRUCTS below and Exec_Gate::EXECUTION_CONSTRUCTS
+ * are the same list, pinned together by ExecGateTest, so the two steps cannot
+ * enforce different policies. Both are token level, so pattern strings in
+ * Malware_Audit and documentation comments cannot false-positive.
  *
  * The profile decides whether the two audited, default-off, environment-gated
  * call sites are an exception (distribution) or a hard failure (wporg-free).
