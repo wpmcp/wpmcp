@@ -2,7 +2,7 @@
 Contributors: fahdi
 Tags: woocommerce, mcp, ai, ai agent, claude
 Requires at least: 6.9
-Tested up to: 6.9
+Tested up to: 7.0
 Requires PHP: 8.1
 Stable tag: {{VERSION}}
 License: GPLv2 or later
