@@ -203,4 +203,42 @@ class ListingRulesTest extends Compliance_Test_Case
 
         $this->assert_reports($findings, 'add_menu_page() is given an untranslated label');
     }
+
+    /**
+     * Regression guard for issue #183. The rule emits menu-label findings at
+     * best-practice severity, and CI's `composer compliance` gate only fails
+     * on blockers, so nothing in the pipeline would notice the next unwrapped
+     * add_submenu_page() label. This test is that noticer: it runs the real
+     * rule over the real src/Plugin.php, so a new screen added with a bare
+     * string label fails here rather than shipping.
+     */
+    public function test_the_real_admin_menu_registration_has_no_untranslated_labels(): void
+    {
+        $root = dirname(__DIR__, 3);
+
+        $findings = $this->findings(new I18n_Rule(), [
+            'wpmcp.php' => $this->main_file(['Plugin Name' => 'wpmcp', 'Text Domain' => 'wpmcp']),
+            'src/Plugin.php' => (string) file_get_contents($root . '/src/Plugin.php'),
+            'src/Admin/Memory_Page.php' => (string) file_get_contents($root . '/src/Admin/Memory_Page.php'),
+            'src/Memory/Memory_Store.php' => (string) file_get_contents($root . '/src/Memory/Memory_Store.php'),
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    /**
+     * Also issue #183: the product name is a brand, not a sentence. Wrapping
+     * it in __() produces a msgid identical to the text domain (no context
+     * for a translator) and, because scripts/build-woo-release.sh rewrites
+     * only the DOMAIN argument of a gettext call, a brand baked into a msgid
+     * survives verbatim into a vertical zip that names the other product.
+     */
+    public function test_the_product_name_is_never_itself_a_translatable_msgid(): void
+    {
+        $source = (string) file_get_contents(dirname(__DIR__, 3) . '/src/Plugin.php');
+
+        $this->assertStringNotContainsString("__('wpmcp', 'wpmcp')", $source);
+        $this->assertStringNotContainsString("'wpmcp: ", $source);
+        $this->assertStringContainsString("public const BRAND = 'wpmcp';", $source);
+    }
 }

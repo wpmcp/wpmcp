@@ -50,6 +50,28 @@ class MemoryPageTest extends \WP_UnitTestCase
         $this->assertStringStartsWith('Memory ', $label);
     }
 
+    /**
+     * The badge is a menu title, and _wp_menu_output() echoes menu titles raw
+     * on every wp-admin screen. Since issue #183 the label is translator
+     * supplied, so a .mo file would be an injection vector into all of
+     * wp-admin if badged() passed it through unescaped. Both the badged and
+     * the quiet-site path have to escape.
+     */
+    public function test_the_label_is_escaped_on_both_the_badged_and_the_quiet_path(): void
+    {
+        $hostile = '<img src=x onerror=alert(1)>Memory';
+
+        $this->assertSame(esc_html($hostile), Memory_Page::badged($hostile, 0));
+        $this->assertStringNotContainsString('<img', Memory_Page::badged($hostile, 0));
+
+        Memory_Store::propose(['text' => 'One.']);
+        $badged = Memory_Page::badged($hostile);
+
+        $this->assertStringNotContainsString('<img', $badged);
+        $this->assertStringContainsString('&lt;img', $badged);
+        $this->assertStringContainsString('awaiting-mod', $badged);
+    }
+
     public function test_published_entries_do_not_count_towards_the_badge(): void
     {
         $id = Memory_Store::propose(['text' => 'One.']);

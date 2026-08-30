@@ -300,6 +300,17 @@ if (! defined('ABSPATH')) {
 
 final class Plugin
 {
+    /**
+     * The product name as it appears in the admin menu. A brand, not a
+     * sentence: it is deliberately NOT wrapped in __(), because a msgid
+     * identical to the text domain gives translators no context, and because
+     * scripts/build-woo-release.sh rewrites only the text domain argument of
+     * a gettext call, so a brand baked into a msgid would survive into a
+     * vertical zip naming the wrong product. Menu titles compose it with a
+     * translated tail instead (see register_admin_menu()).
+     */
+    public const BRAND = 'wpmcp';
+
     private static ?Plugin $instance = null;
     private ?Registrar $registrar = null;
     public static function instance(): Plugin
@@ -555,8 +566,8 @@ final class Plugin
     public function register_ability_category(): void
     {
         wp_register_ability_category('wpmcp', [
-            'label'       => 'wpmcp',
-            'description' => 'Abilities provided by the wpmcp plugin.',
+            'label'       => self::BRAND,
+            'description' => __('Abilities provided by the wpmcp plugin.', 'wpmcp'),
         ]);
     }
 
@@ -570,13 +581,13 @@ final class Plugin
         // here may touch it when the group is off.
         $memory     = $this->group_enabled('memory');
         $pending    = $memory ? Memory_Page::pending_count() : 0;
-        $menu_title = $memory ? Memory_Page::badged(__('wpmcp', 'wpmcp'), $pending) : __('wpmcp', 'wpmcp');
+        $menu_title = $memory ? Memory_Page::badged(self::BRAND, $pending) : self::BRAND;
 
         // The history page views (and its Restore button rolls back) ALL
         // users' site-wide agent mutations, so it is gated at manage_options,
         // matching Restore_Controller::handle()'s ajax capability check.
         add_menu_page(
-            __('wpmcp', 'wpmcp'),
+            self::BRAND,
             $menu_title,
             'manage_options',
             'wpmcp',
@@ -591,8 +602,8 @@ final class Plugin
         // and keeps this entry's label exactly what it has always rendered as.
         add_submenu_page(
             'wpmcp',
-            __('wpmcp', 'wpmcp'),
-            __('wpmcp', 'wpmcp'),
+            self::BRAND,
+            self::BRAND,
             'manage_options',
             'wpmcp',
             [new History_Page(), 'render']
@@ -603,8 +614,8 @@ final class Plugin
         // site-wide agent mutations, so it needs the same trust level.
         add_submenu_page(
             'wpmcp',
-            __('wpmcp: Audit Log', 'wpmcp'),
-            __('Audit Log', 'wpmcp'),
+            sprintf('%s: %s', self::BRAND, __('Audit Log', 'wpmcp')),
+            _x('Audit Log', 'admin menu', 'wpmcp'),
             'manage_options',
             Audit_Log_Page::SLUG,
             [new Audit_Log_Page(), 'render']
@@ -615,8 +626,8 @@ final class Plugin
         // it is a site-wide trust decision — manage_options, like the rest.
         add_submenu_page(
             'wpmcp',
-            __('wpmcp: Handshake Instructions', 'wpmcp'),
-            __('Handshake', 'wpmcp'),
+            sprintf('%s: %s', self::BRAND, __('Handshake Instructions', 'wpmcp')),
+            _x('Handshake', 'admin menu', 'wpmcp'),
             'manage_options',
             'wpmcp-handshake',
             [new Handshake_Settings_Page(), 'render']
@@ -628,8 +639,8 @@ final class Plugin
         // site-wide trust decisions, so manage_options like the rest.
         add_submenu_page(
             'wpmcp',
-            __('wpmcp: Connection', 'wpmcp'),
-            __('Connection', 'wpmcp'),
+            sprintf('%s: %s', self::BRAND, __('Connection', 'wpmcp')),
+            _x('Connection', 'admin menu', 'wpmcp'),
             'manage_options',
             Connection_Page::SLUG,
             [new Connection_Page(), 'render']
@@ -640,8 +651,8 @@ final class Plugin
         // like the rest.
         add_submenu_page(
             'wpmcp',
-            __('wpmcp: Abilities', 'wpmcp'),
-            __('Abilities', 'wpmcp'),
+            sprintf('%s: %s', self::BRAND, __('Abilities', 'wpmcp')),
+            _x('Abilities', 'admin menu', 'wpmcp'),
             'manage_options',
             Ability_Grid_Page::SLUG,
             [new Ability_Grid_Page(), 'render']
@@ -653,8 +664,8 @@ final class Plugin
         // manage_options decision, like the rest.
         add_submenu_page(
             'wpmcp',
-            __('wpmcp: Redirects', 'wpmcp'),
-            __('Redirects', 'wpmcp'),
+            sprintf('%s: %s', self::BRAND, __('Redirects', 'wpmcp')),
+            _x('Redirects', 'admin menu', 'wpmcp'),
             'manage_options',
             Redirects_Page::SLUG,
             [new Redirects_Page(), 'render']
@@ -665,8 +676,8 @@ final class Plugin
         // connecting agent is told about how to work on this site.
         add_submenu_page(
             'wpmcp',
-            __('wpmcp: Agent Skills', 'wpmcp'),
-            __('Skills', 'wpmcp'),
+            sprintf('%s: %s', self::BRAND, __('Agent Skills', 'wpmcp')),
+            _x('Skills', 'admin menu', 'wpmcp'),
             'manage_options',
             Skills_Settings_Page::SLUG,
             [new Skills_Settings_Page(), 'render']
@@ -681,8 +692,8 @@ final class Plugin
         if ($memory) {
             add_submenu_page(
                 'wpmcp',
-                __('wpmcp: Agent Memory', 'wpmcp'),
-                Memory_Page::badged(__('Memory', 'wpmcp'), $pending),
+                sprintf('%s: %s', self::BRAND, __('Agent Memory', 'wpmcp')),
+                Memory_Page::badged(_x('Memory', 'admin menu', 'wpmcp'), $pending),
                 'manage_options',
                 Memory_Page::submenu_slug()
             );

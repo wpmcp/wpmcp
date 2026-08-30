@@ -38,19 +38,26 @@ class Memory_Page
 
     /**
      * Appends the WordPress count bubble to a menu title when proposals are
-     * waiting. Returns $label unchanged when the count is zero, so a quiet
-     * site sees no decoration at all.
+     * waiting. Returns the escaped $label alone when the count is zero, so a
+     * quiet site sees no decoration at all.
+     *
+     * The return value is a menu title, and _wp_menu_output() echoes menu
+     * titles raw on every wp-admin screen, so this is the last place the
+     * label can be escaped. $label is now translator-supplied (issue #183),
+     * which means a .mo file would otherwise be an injection vector into
+     * every admin page; esc_html() costs nothing for the plain-text labels
+     * the call sites pass.
      */
     public static function badged(string $label, ?int $count = null): string
     {
         $count = null === $count ? self::pending_count() : $count;
         if ($count < 1) {
-            return $label;
+            return esc_html($label);
         }
 
         return sprintf(
             '%s <span class="awaiting-mod update-plugins count-%d"><span class="pending-count">%s</span></span>',
-            $label,
+            esc_html($label),
             $count,
             number_format_i18n($count)
         );
