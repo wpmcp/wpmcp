@@ -183,6 +183,7 @@ class ListingRulesTest extends Compliance_Test_Case
         $body = "<?php\nfunction example_strings() {\n";
         $body .= "    \$a = __( 'Saved', 'example-toolkit' );\n";
         $body .= "    \$b = _x( 'Draft', 'post status', 'example-toolkit' );\n";
+        $body .= "    /* translators: %d: number of items. */\n";
         $body .= "    \$c = _n( '%d item', '%d items', 2, 'example-toolkit' );\n";
         $body .= "    return [ \$a, \$b, \$c ];\n}\n";
 
@@ -202,5 +203,63 @@ class ListingRulesTest extends Compliance_Test_Case
         ]);
 
         $this->assert_reports($findings, 'add_menu_page() is given an untranslated label');
+    }
+
+    public function test_i18n_rule_reports_a_placeholder_string_without_a_translators_comment(): void
+    {
+        $body = "<?php\nfunction example_strings( \$count ) {\n";
+        $body .= "    \$a = sprintf( __( 'Deleted %d posts', 'example-toolkit' ), \$count );\n";
+        $body .= "    return \$a;\n}\n";
+
+        $findings = $this->findings(new I18n_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/strings.php' => $body,
+        ]);
+
+        $this->assert_reports($findings, 'has placeholders but no translators comment');
+    }
+
+    public function test_i18n_rule_accepts_a_translators_comment_on_the_line_above(): void
+    {
+        $body = "<?php\nfunction example_strings( \$count ) {\n";
+        $body .= "    /* translators: %d: number of posts deleted. */\n";
+        $body .= "    \$a = sprintf( __( 'Deleted %d posts', 'example-toolkit' ), \$count );\n";
+        $body .= "    \$b = sprintf(\n        /* translators: %s: post title. */\n        __( '%s (copy)', 'example-toolkit' ),\n        'Hello'\n    );\n";
+        $body .= "    return [ \$a, \$b ];\n}\n";
+
+        $findings = $this->findings(new I18n_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/strings.php' => $body,
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    public function test_i18n_rule_ignores_a_literal_percent_and_a_string_without_placeholders(): void
+    {
+        $body = "<?php\nfunction example_strings() {\n";
+        $body .= "    \$a = __( 'Saved', 'example-toolkit' );\n";
+        $body .= "    \$b = __( '100%% complete', 'example-toolkit' );\n";
+        $body .= "    return [ \$a, \$b ];\n}\n";
+
+        $findings = $this->findings(new I18n_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/strings.php' => $body,
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    public function test_i18n_rule_reports_a_concatenated_translatable_string(): void
+    {
+        $body = "<?php\nfunction example_strings() {\n";
+        $body .= "    return esc_html__(\n        'One long sentence that was wrapped '\n        . 'across two source lines.',\n        'example-toolkit'\n    );\n}\n";
+
+        $findings = $this->findings(new I18n_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/strings.php' => $body,
+        ]);
+
+        $this->assert_reports($findings, 'is not a single string literal');
     }
 }
