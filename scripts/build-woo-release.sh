@@ -69,6 +69,15 @@ rm -f "$STAGE/composer.json" "$STAGE/composer.lock"
 # wp.org's text-domain sniff wants the i18n domain to match the slug.
 find "$STAGE/src" -name '*.php' -exec sed -i '' "s/, 'wpmcp' )/, '$SLUG' )/g; s/, 'wpmcp')/, '$SLUG')/g" {} +
 
+# The two flavors must be installable side by side: rewrite the shared
+# 'wpmcp_' string prefix (options, transients, hook names, cron hooks,
+# capabilities) to a flavor-private one so neither install reads or fires
+# the other's state. The text-domain rewrite above already consumed the
+# bare 'wpmcp' occurrences, so only prefixed identifiers match here.
+PREFIX="wpmcp_woo"
+find "$STAGE/src" -name '*.php' -exec sed -i '' "s/'wpmcp_/'${PREFIX}_/g; s/\"wpmcp_/\"${PREFIX}_/g" {} +
+sed -i '' "s/'wpmcp_/'${PREFIX}_/g; s/\"wpmcp_/\"${PREFIX}_/g" "$STAGE/$SLUG.php"
+
 # Belt and braces: fail the build if any real eval/exec call site survived.
 # Token-level check, so strings and comments (e.g. Malware_Audit's pattern
 # descriptions) do not false-positive.

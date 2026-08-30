@@ -99,7 +99,7 @@ class I18n_Adapter
             // WPML's modern API returns translation elements keyed by language
             // code, each exposing an ->element_id (the translated post id).
             $element_type = 'post_' . get_post_type($post_id);
-            $elements     = apply_filters('wpml_get_element_translations', null, $post_id, $element_type);
+            $elements     = apply_filters('wpml_get_element_translations', null, $post_id, $element_type); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WPML's own API filter, invoked cross-plugin; the name is theirs.
             $map          = [];
             foreach ((array) $elements as $code => $element) {
                 if (isset($element->element_id)) {
@@ -158,7 +158,7 @@ class I18n_Adapter
             // and untested against a real WPML install (WPML is a paid plugin,
             // not installable from wordpress.org, so it is absent here).
             do_action(
-                'wpml_set_element_language_details',
+                'wpml_set_element_language_details', // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WPML's own API action, invoked cross-plugin.
                 [
                     'element_id'   => $post_id,
                     'element_type' => 'post_' . get_post_type($post_id),
@@ -197,7 +197,7 @@ class I18n_Adapter
                 $post_id      = (int) $post_id;
                 $element_type = 'post_' . get_post_type($post_id);
                 do_action(
-                    'wpml_set_element_language_details',
+                    'wpml_set_element_language_details', // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WPML's own API action, invoked cross-plugin.
                     [
                         'element_id'    => $post_id,
                         'element_type'  => $element_type,
@@ -206,7 +206,7 @@ class I18n_Adapter
                     ]
                 );
                 if (null === $trid && function_exists('apply_filters')) {
-                    $trid = apply_filters('wpml_element_trid', null, $post_id, $element_type);
+                    $trid = apply_filters('wpml_element_trid', null, $post_id, $element_type); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WPML's own API filter, invoked cross-plugin.
                 }
             }
         }
