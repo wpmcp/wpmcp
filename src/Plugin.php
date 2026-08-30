@@ -36,6 +36,9 @@ use WPMCP\Tools\Export\Import_Content;
 use WPMCP\Tools\Analysis\Check_Contrast;
 use WPMCP\Tools\Code\Validate_Php_Snippet;
 use WPMCP\Tools\Code\Run_Php_Snippet;
+use WPMCP\Tools\CustomCode\Add_Scoped_Css;
+use WPMCP\Tools\CustomCode\Add_Custom_Js;
+use WPMCP\Tools\CustomCode\Custom_Code_Renderer;
 use WPMCP\Tools\Cli\Run_Wp_Cli;
 use WPMCP\Tools\Cli\Dispatch_Cli_Job;
 use WPMCP\Tools\Cli\Get_Cli_Job;
@@ -2106,6 +2109,7 @@ final class Plugin
             'code'           => fn () => $this->register_code_abilities($registrar),
             'cli'            => fn () => $this->register_cli_abilities($registrar),
             'php_exec'       => fn () => $this->register_php_exec_abilities($registrar),
+            'custom_code'    => fn () => $this->register_custom_code_abilities($registrar),
             'connect'        => fn () => $this->register_connect_abilities($registrar),
             'governance'     => fn () => $this->register_governance_abilities($registrar),
             'multisite'      => fn () => $this->register_multisite_abilities($registrar),
@@ -2696,6 +2700,74 @@ final class Plugin
                 'required'   => [ 'code' ],
             ],
             [$run_php_snippet, 'handle'],
+            'manage_options',
+            'code',
+            'update'
+        ));
+    }
+
+    /**
+     * Register the custom CSS/JS injection tools (issue #63) as PRO-tier
+     * abilities. add-scoped-css stores sanitized CSS scoped to ONE
+     * post/page in the plugin's own option-backed store, snapshot-first
+     * via Safe_Mutation, so every write is reversible; site-wide CSS
+     * deliberately stays with the existing wpmcp/add-custom-css ability
+     * (Elementor group, core Additional CSS storage), so agents have one
+     * path per scope instead of two competing site-wide ones. Css_Sanitizer
+     * rejects anything script-capable on write AND again at render, so
+     * there is no stored-XSS path through CSS. add-custom-js is an
+     * XSS-class surface and follows the default-off, governance-gated
+     * convention: registering the ability does not by itself allow any
+     * write, because Add_Custom_Js::handle() refuses unless
+     * Custom_Js_Guard::is_enabled() (WPMCP_ALLOW_JS_INJECTION constant or
+     * wpmcp_allow_js_injection filter) AND the caller holds unfiltered_html
+     * on top of the manage_options ability gate.
+     *
+     * Custom_Code_Renderer::boot() is what actually prints the stored code
+     * on the front end (CSS in wp_head, gated JS in wp_footer).
+     * TODO(#63): booting the renderer here couples output to this ability
+     * group being enabled; move the boot to the main plugin bootstrap so
+     * disabling the tools does not silently un-render stored CSS.
+     */
+    private function register_custom_code_abilities(Registrar $registrar): void
+    {
+        Custom_Code_Renderer::boot();
+
+        $add_scoped_css = new Add_Scoped_Css();
+        $add_custom_js  = new Add_Custom_Js();
+
+        $registrar->register(new Ability(
+            'wpmcp/add-scoped-css',
+            'pro',
+            'Store a custom CSS block scoped to one post/page (post_id required); it renders in wp_head only on that page. Pass either a full css fragment, or a selector plus bare css declarations to be wrapped as "selector { declarations }". For site-wide CSS use add-custom-css instead. The CSS is sanitized before storage (markup, expression()/behavior, script-capable URL schemes, @import and escape obfuscation are rejected) and again at render. Snapshotted via Safe_Mutation on the wpmcp_custom_code option; rollback-operation restores the prior state',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'css'        => [ 'type' => 'string' ],
+                    'selector'   => [ 'type' => 'string' ],
+                    'post_id'    => [ 'type' => 'integer' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'css', 'post_id' ],
+            ],
+            [$add_scoped_css, 'handle'],
+            'manage_options',
+            'code',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/add-custom-js',
+            'pro',
+            'Store a site-wide custom JS snippet rendered in wp_footer. THIS IS AN XSS-CLASS SURFACE and is disabled by default: it refuses unless JS injection is explicitly enabled (WPMCP_ALLOW_JS_INJECTION constant or wpmcp_allow_js_injection filter) AND the caller holds unfiltered_html in addition to manage_options. The write is snapshotted via Safe_Mutation on the wpmcp_custom_code option and is reversible; disabling the governance gate also stops rendering of previously stored JS',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'js'         => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'js' ],
+            ],
+            [$add_custom_js, 'handle'],
             'manage_options',
             'code',
             'update'
