@@ -1,0 +1,31 @@
+{
+    "sniffs": {
+        "Squiz.PHP.Eval.Discouraged": 1,
+        "WordPress.DB.DirectDatabaseQuery.DirectQuery": 60,
+        "WordPress.DB.DirectDatabaseQuery.NoCaching": 53,
+        "WordPress.DB.DirectDatabaseQuery.SchemaChange": 1,
+        "WordPress.DB.PreparedSQL.InterpolatedNotPrepared": 23,
+        "WordPress.DB.PreparedSQL.NotPrepared": 26,
+        "WordPress.DB.SlowDBQuery.slow_db_query_meta_query": 4,
+        "WordPress.DB.SlowDBQuery.slow_db_query_meta_value": 1,
+        "WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound": 2,
+        "WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound": 6,
+        "WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler": 2,
+        "WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode": 4,
+        "WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode": 6,
+        "WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize": 1,
+        "WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize": 2,
+        "WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open": 1,
+        "WordPress.PHP.IniSet.display_errors_Disallowed": 1,
+        "WordPress.PHP.NoSilencedErrors.Discouraged": 19,
+        "WordPress.Security.EscapeOutput.ExceptionNotEscaped": 180,
+        "WordPress.Security.EscapeOutput.OutputNotEscaped": 1,
+        "WordPress.Security.NonceVerification.Recommended": 7,
+        "WordPress.Security.ValidatedSanitizedInput.InputNotSanitized": 11,
+        "WordPress.Security.ValidatedSanitizedInput.MissingUnslash": 4,
+        "WordPress.WP.AlternativeFunctions.curl_curl_setopt": 1,
+        "WordPress.WP.AlternativeFunctions.file_system_operations_fclose": 3,
+        "WordPress.WP.I18n.MissingTranslatorsComment": 3,
+        "WordPress.WP.I18n.NonSingularStringLiteralText": 1
+    }
+}

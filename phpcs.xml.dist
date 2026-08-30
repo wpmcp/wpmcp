@@ -5,6 +5,7 @@
     <file>src</file>
     <!-- Dev-only tooling, linted to the same standard as the plugin. -->
     <file>tools/compliance</file>
+    <file>tools/lint</file>
     <arg name="extensions" value="php"/>
     <arg value="np"/>
 
