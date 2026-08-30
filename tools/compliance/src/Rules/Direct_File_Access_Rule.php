@@ -9,12 +9,24 @@ use WPMCP\Compliance\Rule_Context;
  * needs an ABSPATH (or WPINC) guard. Files that only declare a class,
  * interface, trait or enum are exempt.
  *
- * Merely mentioning defined('ABSPATH') is not enough. Direct_File_Access_Check
- * accepts five shapes and nothing else (Direct_File_Access_Check.php:323-346),
- * reproduced verbatim below, so a guard whose condition carries an extra
- * conjunct -- if ( ! defined('ABSPATH') && ! defined('MY_TESTING') ) -- matches
- * none of them and Plugin Check reports the file as unprotected. Recognising
- * the loose form would hide a real error from the submitter.
+ * Merely mentioning defined('ABSPATH') is not enough. Two things have to hold.
+ *
+ * Shape. Direct_File_Access_Check accepts five patterns and nothing else
+ * (Direct_File_Access_Check.php:323-346), reproduced verbatim below, so a guard
+ * whose condition carries an extra conjunct -- if ( ! defined('ABSPATH') &&
+ * ! defined('MY_TESTING') ) -- matches none of them and Plugin Check reports
+ * the file as unprotected.
+ *
+ * Position. The checker never reads the whole file. Its AST pass only inspects
+ * top-level statements, which a namespaced file never reaches, and its regex
+ * fallback reads a window at the head of the file. A correctly shaped guard
+ * parked below a long use block is invisible to it: that is finding B-21, where
+ * src/Plugin.php carried the bare guard at line 297 under 286 use statements
+ * and Plugin Check still called the file unprotected. So the guard has to sit
+ * inside GUARD_WINDOW_LINES of the top, which in practice means directly under
+ * the namespace declaration.
+ *
+ * Recognising either loose form would hide a real error from the submitter.
  */
 final class Direct_File_Access_Rule extends Base_Rule
 {
@@ -34,6 +46,13 @@ final class Direct_File_Access_Rule extends Base_Rule
 
     /** Any mention at all, used only to tell "no guard" from "guard the checker will not accept". */
     private const LOOSE_PATTERN = '/\bdefined\s*\(\s*[\'"](?:ABSPATH|WPINC)[\'"]\s*\)/';
+
+    /**
+     * How far into a file the checker's regex fallback looks for the guard.
+     * Lines are counted raw, comments included, because that is what the
+     * checker reads.
+     */
+    private const GUARD_WINDOW_LINES = 50;
 
     public function id(): string
     {
@@ -56,7 +75,8 @@ final class Direct_File_Access_Rule extends Base_Rule
             . 'HTTP. Any of the accepted forms works: defined(\'ABSPATH\') || exit;, '
             . 'if ( ! defined( \'ABSPATH\' ) ) { exit; }, or the WPINC variant. The condition must be '
             . 'exactly that test: adding another conjunct makes Plugin Check treat the file as '
-            . 'unguarded. Pure class, interface, trait and enum declarations are exempt.';
+            . 'unguarded, and so does burying the guard below the head of the file, which the '
+            . 'checker never reads. Pure class, interface, trait and enum declarations are exempt.';
     }
 
     public function check(Rule_Context $context): array
@@ -67,13 +87,30 @@ final class Direct_File_Access_Rule extends Base_Rule
             if ('' === trim($contents)) {
                 continue;
             }
-            if ($this->has_accepted_guard($contents)) {
+            $code = $this->without_comments($contents);
+            if ($this->has_accepted_guard($this->head($code))) {
                 continue;
             }
             if ($file->is_declaration_only()) {
                 continue;
             }
             $line = $this->first_code_line($file->tokens());
+            if ($this->has_accepted_guard($code)) {
+                $findings[] = $this->finding(
+                    $file,
+                    $this->guard_line($file, $line),
+                    sprintf(
+                        'the ABSPATH guard is too far down the file for Direct_File_Access_Check to '
+                        . 'see it, so Plugin Check reports this file as unprotected; move it into '
+                        . 'the first %d lines, directly under the namespace declaration',
+                        self::GUARD_WINDOW_LINES
+                    )
+                );
+                continue;
+            }
+            // Deliberately the raw contents, not the stripped code: a guard that
+            // survives only in a comment still tells us the author meant to
+            // write one, which picks the more useful of the two messages.
             if (preg_match(self::LOOSE_PATTERN, $contents)) {
                 $findings[] = $this->finding(
                     $file,
@@ -93,11 +130,9 @@ final class Direct_File_Access_Rule extends Base_Rule
         return $findings;
     }
 
-    private function has_accepted_guard(string $contents): bool
+    /** @param string $code comment-stripped source, whole file or just its head */
+    private function has_accepted_guard(string $code): bool
     {
-        // Comments are stripped first, exactly as the checker does, so a guard
-        // quoted in a docblock cannot satisfy the check.
-        $code = $this->without_comments($contents);
         foreach (self::GUARD_PATTERNS as $pattern) {
             if (preg_match($pattern, $code)) {
                 return true;
@@ -106,11 +141,27 @@ final class Direct_File_Access_Rule extends Base_Rule
         return false;
     }
 
-    private function without_comments(string $contents): string
+    /** The slice of a file the checker's regex fallback actually reads. */
+    private function head(string $code): string
+    {
+        $lines = explode("\n", $code);
+        if (count($lines) <= self::GUARD_WINDOW_LINES) {
+            return $code;
+        }
+        return implode("\n", array_slice($lines, 0, self::GUARD_WINDOW_LINES));
+    }
+
+    /**
+     * Comments are dropped, exactly as the checker does, so a guard quoted in a
+     * docblock cannot satisfy the check. Their newlines are kept so that line
+     * numbers, and with them the guard window, still line up with the file.
+     */
+    public function without_comments(string $contents): string
     {
         $out = '';
         foreach (token_get_all($contents) as $token) {
             if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                $out .= str_repeat("\n", substr_count($token[1], "\n"));
                 continue;
             }
             $out .= is_array($token) ? $token[1] : $token;

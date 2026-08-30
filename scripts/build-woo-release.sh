@@ -92,5 +92,18 @@ ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
 rm -f "$ZIP"
 (cd "$STAGE_PARENT" && zip -rq "$ZIP" "$SLUG" -x "*.DS_Store")
 
+# The compliance engine, in the profile that models the directory, run against
+# the extracted zip rather than the checkout. build-wporg-release.sh has had
+# this gate since it was written; this build is a wp.org submission too, and
+# without it nothing ever checked the woocommerce artifact. It is what catches
+# a missing or unrecognised ABSPATH guard (issue #170) in the shipped bytes.
+BUILD_DIR="$ROOT/build/woocommerce"
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+unzip -q "$ZIP" -d "$BUILD_DIR"
+php "$ROOT/tools/compliance/bin/compliance.php" \
+  --profile=wporg-free --artifact --path="$BUILD_DIR/$SLUG" \
+  || { echo "ERROR: the compliance engine found blockers in $ZIP" >&2; exit 1; }
+
 echo "built $ZIP"
 unzip -l "$ZIP" | tail -2

@@ -2,38 +2,55 @@
 
 namespace WPMCP\Tests\Free\Compliance;
 
+use WPMCP\Compliance\Profile;
+use WPMCP\Compliance\Rule_Context;
 use WPMCP\Compliance\Rules\Direct_File_Access_Rule;
 
 /**
- * Regression pin for issue #170 (finding B-21): Plugin Check's
- * Direct_File_Access_Check accepts five exact guard shapes, and the guard
- * src/Plugin.php used to emit carried a WPMCP_TESTING conjunct that matched
- * none of them, so Plugin Check reported the file as unprotected.
+ * Regression pin for issue #170 (finding B-21).
  *
- * The fix is a bare `if (! defined('ABSPATH')) { exit; }`; the test bootstrap
- * gets ABSPATH from the WordPress test library, so no escape hatch is needed.
- * These tests run the repo's own Direct_File_Access_Rule (a verbatim port of
- * the checker's patterns) over the real shipped files, so the conjunct cannot
- * quietly come back in any of them.
+ * Plugin Check's Direct_File_Access_Check accepts five exact guard shapes, and
+ * only near the head of the file. src/Plugin.php failed it twice over: first
+ * with a WPMCP_TESTING conjunct that matched none of the five shapes, then, once
+ * the conjunct was dropped, with the bare guard parked at line 297 below 286 use
+ * statements, out of the checker's reach. Both are now encoded in
+ * Direct_File_Access_Rule, and these tests run that rule over the checkout.
+ *
+ * What is genuinely new here is the flavor entry files under scripts/flavors:
+ * Plugin_Source::DEFAULT_EXCLUDES skips scripts/, so neither `composer
+ * compliance` nor the zip gates ever look at them in the checkout, and the
+ * woocommerce build had no compliance gate at all until this change. For
+ * wpmcp.php and src/Plugin.php these tests overlap the checkout-wide
+ * `composer compliance` run and build-wporg-release.sh's gate 6; they are kept
+ * because they fail in seconds inside the unit suite and name the issue.
+ *
+ * These tests read the checkout, which is the source the builds derive their
+ * zips from, not the zip bytes. The wporg zip's src/ is rewritten by
+ * scripts/flavors/wporg/strip.php and the entry file is produced by
+ * substituting {{VERSION}}, so the artifact itself is only ever certified by
+ * the engine run inside the build scripts.
  */
 class ShippedGuardRegressionTest extends Compliance_Test_Case
 {
     /**
-     * Entry points and the file the original finding pointed at, as shipped.
+     * The two entry points the issue names, plus every flavor entry file found
+     * on disk, so a new flavor is covered the day it lands rather than the day
+     * someone remembers to extend a literal list.
      *
-     * @return array<string,array{string,string}> case => [repo path, fixture path]
+     * @return array<string,array{string,string}> case => [repo path, shipped path]
      */
-    public function shipped_file_provider(): array
+    public static function shipped_file_provider(): array
     {
-        return [
+        $cases = [
             'main plugin file' => ['wpmcp.php', 'wpmcp.php'],
             'plugin bootstrap' => ['src/Plugin.php', 'src/Plugin.php'],
-            'wporg flavor entry file' => ['scripts/flavors/wporg/wpmcp.php', 'wpmcp.php'],
-            'woocommerce flavor entry file' => [
-                'scripts/flavors/woocommerce/wpmcp-for-woocommerce.php',
-                'wpmcp-for-woocommerce.php',
-            ],
         ];
+        foreach (self::flavor_entry_files() as $relative) {
+            // The build scripts write each flavor entry file to the zip root
+            // under its own basename, so that is the path the rule sees.
+            $cases[basename(dirname($relative)) . ' flavor entry file'] = [$relative, basename($relative)];
+        }
+        return $cases;
     }
 
     /**
@@ -41,72 +58,99 @@ class ShippedGuardRegressionTest extends Compliance_Test_Case
      */
     public function test_shipped_file_carries_a_guard_plugin_check_accepts(
         string $repo_path,
-        string $fixture_path
+        string $shipped_path
     ): void {
-        $contents = file_get_contents(self::repo_root() . '/' . $repo_path);
-        $this->assertNotFalse($contents, sprintf('%s should exist in the checkout', $repo_path));
+        $path = self::repo_root() . '/' . $repo_path;
+        $this->assertFileExists($path, sprintf('%s should exist in the checkout', $repo_path));
 
-        // Each file is scanned exactly as it ships: the flavor entry files are
-        // copied to the zip root by the build scripts, so they take their
-        // shipped name in the fixture tree.
+        $contents = (string) file_get_contents($path);
+        // An empty file is not a passing file: Direct_File_Access_Rule skips
+        // blank sources outright, so without this the test would go green on a
+        // truncated entry point.
+        $this->assertNotSame('', trim($contents), sprintf('%s should not be empty', $repo_path));
+
         $findings = $this->findings(new Direct_File_Access_Rule(), [
-            $fixture_path => $contents,
+            $shipped_path => $contents,
         ]);
 
         $this->assert_clean($findings);
     }
 
     /**
-     * The original bug in one line: no shipped source file may pair the
-     * ABSPATH guard with another conjunct. This is stricter than the rule
-     * above (which would also accept a file with two guards, one accepted and
-     * one loose) and catches the exact regression the issue describes.
+     * At least one flavor entry file has to exist, otherwise the provider above
+     * quietly shrinks to the two hardcoded cases and the new coverage is gone.
      */
-    public function test_no_source_file_pairs_the_abspath_guard_with_a_conjunct(): void
+    public function test_the_flavor_entry_files_are_discovered(): void
     {
-        $offenders = [];
-        foreach ($this->source_files() as $path) {
-            $contents = file_get_contents($path);
-            if (false === $contents) {
-                continue;
+        $this->assertNotSame([], self::flavor_entry_files());
+    }
+
+    /**
+     * The original bug in one assertion: every PHP file the plugin ships from
+     * the checkout carries a guard Plugin Check accepts, in a place it looks.
+     *
+     * This runs the rule rather than a bespoke regex on purpose. A regex over
+     * raw text is both too narrow (it has to guess at operand order, at WPINC
+     * versus ABSPATH, at parenthesisation) and too wide (it matches the guard
+     * shape quoted inside a docblock, which Direct_File_Access_Rule strips
+     * before matching, as the checker does). The rule already draws the line
+     * the issue is about.
+     */
+    public function test_no_shipped_source_file_carries_a_guard_plugin_check_rejects(): void
+    {
+        $context = Rule_Context::for_path(self::repo_root(), Profile::wporg_free());
+        $this->assert_clean((new Direct_File_Access_Rule())->check($context));
+    }
+
+    /**
+     * The specific shape of B-21's second half, pinned by position rather than
+     * by the rule, so a future widening of the rule's window cannot silently
+     * let the bootstrap slide back down under the use block.
+     */
+    public function test_the_bootstrap_guard_sits_above_the_use_block(): void
+    {
+        $lines = file(self::repo_root() . '/src/Plugin.php', FILE_IGNORE_NEW_LINES);
+        $this->assertNotFalse($lines);
+
+        $guard = null;
+        $first_use = null;
+        foreach ($lines as $index => $line) {
+            if (null === $guard && preg_match("/^\s*if\s*\(\s*!\s*defined\(\s*'ABSPATH'\s*\)\s*\)/", $line)) {
+                $guard = $index + 1;
             }
-            if (preg_match(
-                "/defined\s*\(\s*['\"]ABSPATH['\"]\s*\)\s*(?:&&|\|\||and\b|or\b)\s*!?\s*defined/i",
-                $contents
-            )) {
-                $offenders[] = substr($path, strlen(self::repo_root()) + 1);
+            if (null === $first_use && preg_match('/^use\s+WPMCP\\\\/', $line)) {
+                $first_use = $index + 1;
             }
         }
-        $this->assertSame(
-            [],
-            $offenders,
-            'these files pair the ABSPATH guard with another defined() conjunct, '
-            . 'which Plugin Check reports as a missing guard'
+
+        $this->assertNotNull($guard, 'src/Plugin.php should carry a bare ABSPATH guard');
+        $this->assertNotNull($first_use, 'src/Plugin.php should still import its collaborators');
+        $this->assertLessThan(
+            $first_use,
+            $guard,
+            'the ABSPATH guard must stay above the use block; below it, Plugin Check cannot see it'
         );
     }
 
     /**
-     * @return string[] absolute paths of every shipped PHP source file
+     * Entry files under scripts/flavors, identified by their plugin header so
+     * that build tooling living in the same directory (strip.php) is not
+     * mistaken for something that ships.
+     *
+     * @return string[] repo-relative paths
      */
-    private function source_files(): array
+    private static function flavor_entry_files(): array
     {
-        $files = [
-            self::repo_root() . '/wpmcp.php',
-            self::repo_root() . '/scripts/flavors/wporg/wpmcp.php',
-            self::repo_root() . '/scripts/flavors/woocommerce/wpmcp-for-woocommerce.php',
-        ];
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator(
-                self::repo_root() . '/src',
-                \FilesystemIterator::SKIP_DOTS
-            )
-        );
-        foreach ($iterator as $file) {
-            if ('php' === $file->getExtension()) {
-                $files[] = $file->getPathname();
+        $found = [];
+        foreach (glob(self::repo_root() . '/scripts/flavors/*/*.php') ?: [] as $path) {
+            $head = (string) file_get_contents($path, false, null, 0, 4096);
+            if (false === strpos($head, 'Plugin Name:')) {
+                continue;
             }
+            $found[] = substr($path, strlen(self::repo_root()) + 1);
         }
-        return $files;
+        sort($found);
+        return $found;
     }
 
     private static function repo_root(): string
