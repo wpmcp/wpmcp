@@ -127,6 +127,85 @@ class Snapshot_Store
     }
 
     /**
+     * Ledger columns that identify a row without dragging its before-image
+     * along. before_blob is a LONGBLOB holding a whole serialized object, so
+     * a consumer that only needs to know WHICH objects were touched (the
+     * change-set builder, issue #192) must never SELECT *: on a Pro history
+     * limit of PHP_INT_MAX that is an unbounded read straight into PHP
+     * memory. Callers that need the before-image fetch it per row via
+     * get_by_operation().
+     */
+    private const INDEX_COLUMNS = 'id, operation_id, session_id, object_type, object_id, tool_name, created_at';
+
+    /**
+     * Identify (do not load) the rows of one session, newest first.
+     *
+     * @return array[] At most $limit rows, before_blob excluded.
+     */
+    public static function index_by_session(string $session_id, int $limit): array
+    {
+        global $wpdb;
+        return (array) $wpdb->get_results($wpdb->prepare(
+            "SELECT " . self::INDEX_COLUMNS . " FROM " . self::table_name() . " WHERE session_id = %s ORDER BY id DESC LIMIT %d",
+            $session_id,
+            $limit
+        ), ARRAY_A);
+    }
+
+    /**
+     * Identify (do not load) the rows written after a ledger row id, newest
+     * first. Strictly greater than: the marker row is the caller's "I have
+     * already seen this" cursor.
+     *
+     * @return array[] At most $limit rows, before_blob excluded.
+     */
+    public static function index_since(int $since_id, int $limit): array
+    {
+        global $wpdb;
+        return (array) $wpdb->get_results($wpdb->prepare(
+            "SELECT " . self::INDEX_COLUMNS . " FROM " . self::table_name() . " WHERE id > %d ORDER BY id DESC LIMIT %d",
+            $since_id,
+            $limit
+        ), ARRAY_A);
+    }
+
+    /**
+     * The lowest row id still in the ledger: the retention floor left behind
+     * by prune(). A consumer deriving a set of "everything touched since X"
+     * is only telling the truth if X is above this floor, so the floor has
+     * to be readable. Null when the ledger is empty.
+     */
+    public static function min_id(): ?int
+    {
+        global $wpdb;
+        $min = $wpdb->get_var("SELECT MIN(id) FROM " . self::table_name());
+        return null === $min ? null : (int) $min;
+    }
+
+    /** How many rows are currently in the ledger. */
+    public static function row_count(): int
+    {
+        global $wpdb;
+        return (int) $wpdb->get_var("SELECT COUNT(*) FROM " . self::table_name());
+    }
+
+    /**
+     * Resolve an operation_id to its ledger row id. operation_id is the
+     * identifier every tool hands back to clients (list-operations, the
+     * history screen); the numeric row id is not exposed anywhere, so a
+     * marker API that only accepted the row id would be unreachable.
+     */
+    public static function id_for_operation(string $operation_id): ?int
+    {
+        global $wpdb;
+        $id = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM " . self::table_name() . " WHERE operation_id = %s",
+            $operation_id
+        ));
+        return null === $id ? null : (int) $id;
+    }
+
+    /**
      * Delete all but the $keep most recent snapshot rows. Additionally
      * deletes each pruned row's attachment file backup dir (if any), via
      * File_Backup::delete_backup_dir(), so a force-deleted attachment's
