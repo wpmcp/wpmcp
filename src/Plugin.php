@@ -274,6 +274,8 @@ use WPMCP\Tools\WooCommerce\Get_Order;
 use WPMCP\Tools\WooCommerce\Update_Order_Status;
 use WPMCP\Tools\WooCommerce\Add_Order_Note;
 use WPMCP\Tools\WooCommerce\Get_Sales_Report;
+use WPMCP\Tools\WooCommerce\Catalog\Woo_Ops;
+use WPMCP\Tools\WooCommerce\Catalog\Woo_Read;
 use WPMCP\Tools\Menus\List_Menus;
 use WPMCP\Tools\Menus\Get_Menu;
 use WPMCP\Tools\Menus\List_Menu_Locations;
@@ -5644,6 +5646,49 @@ final class Plugin
                 ],
             ],
             [$get_sales_report, 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+
+        // Deep WooCommerce operations catalog (issue #68). PRO tier: the 11
+        // tools above stay the simple free surface; the catalog dispatchers
+        // template internal wc/v3 REST routes through Call_Rest's in-process
+        // dispatch, so authorization is the target endpoint's own
+        // permission_callback running as the current user. This slice is
+        // read-only; woo-write (confirm gates, snapshots, batch) is TODO in
+        // Op_Catalog.
+        $woo_ops  = new Woo_Ops();
+        $woo_read = new Woo_Read();
+
+        $registrar->register(new Ability(
+            'wpmcp/woo-ops',
+            'pro',
+            'List the deep WooCommerce operations catalog: named store ops mapped to internal wc/v3 REST routes, grouped by domain (products, orders, refunds, coupons, customers, shipping, taxes, webhooks, settings), each with method, route template, required path params and a one-line summary. Drive woo-read with these op names. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'domain' => [ 'type' => 'string' ],
+                ],
+            ],
+            [$woo_ops, 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/woo-read',
+            'pro',
+            'Execute one read op from the deep WooCommerce operations catalog (see woo-ops) as an internal wc/v3 REST request dispatched in-process as the current user, so the store endpoint\'s own permission checks apply. Path params fill the route template; all other params pass through as the endpoint\'s query params. Returns the endpoint\'s status and body. Read-only: only GET ops dispatch here',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'op'     => [ 'type' => 'string' ],
+                    'params' => [ 'type' => 'object' ],
+                ],
+                'required'   => [ 'op' ],
+            ],
+            [$woo_read, 'handle'],
             'manage_woocommerce',
             'woocommerce',
             'read'
