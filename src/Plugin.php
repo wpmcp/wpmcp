@@ -274,6 +274,8 @@ use WPMCP\Tools\WooCommerce\Get_Order;
 use WPMCP\Tools\WooCommerce\Update_Order_Status;
 use WPMCP\Tools\WooCommerce\Add_Order_Note;
 use WPMCP\Tools\WooCommerce\Get_Sales_Report;
+use WPMCP\Tools\WooCommerce\Catalog\Woo_Ops;
+use WPMCP\Tools\WooCommerce\Catalog\Woo_Read;
 use WPMCP\Tools\Menus\List_Menus;
 use WPMCP\Tools\Menus\Get_Menu;
 use WPMCP\Tools\Menus\List_Menu_Locations;
@@ -5416,7 +5418,8 @@ final class Plugin
     }
 
     /**
-     * Register the WooCommerce store tools as free-tier abilities.
+     * Register the WooCommerce store tools: eleven free-tier abilities plus
+     * the two pro-tier operations-catalog dispatchers.
      *
      * These are registered unconditionally (matching every other tool group):
      * a caller only reaches a handler by invoking the ability, and each handler
@@ -5427,6 +5430,16 @@ final class Plugin
      * engine. Writes require manage_woocommerce; order writes require
      * edit_shop_orders. The destructive delete-product tool is disabled by
      * default behind the wpmcp_enable_delete_product filter and needs confirm.
+     *
+     * The pro pair (woo-ops, woo-read, issue #68) is the deep catalog over the
+     * store's own wc/v3 REST surface: woo-ops lists the named ops, woo-read
+     * dispatches one in-process. Both carry manage_woocommerce at the ability
+     * layer; Woo_Read then enforces the SAME per-op capability split as the
+     * free tools above (edit_shop_orders for orders, notes and refunds,
+     * list_users for customers) before dispatching, so the catalog is never
+     * looser than the free tool covering the same data. It also refuses to
+     * dispatch at all when WooCommerce is inactive, returning a structured
+     * integration_unavailable error rather than a bare rest_no_route 404.
      */
     private function register_woocommerce_abilities(Registrar $registrar): void
     {
@@ -5644,6 +5657,52 @@ final class Plugin
                 ],
             ],
             [$get_sales_report, 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+
+        // Deep WooCommerce operations catalog (issue #68). PRO tier: the 11
+        // tools above stay the simple free surface; the catalog dispatchers
+        // template internal wc/v3 REST routes through their own in-process
+        // dispatch (Wc_Rest_Dispatch, GET-only by construction and free of
+        // any dependency on src/Tools/Rest or src/Integrations, both of which
+        // the vertical wpmcp-for-woocommerce build prunes), so authorization
+        // is the target endpoint's own permission_callback running as the
+        // current user, on top of Woo_Read's per-op capability gate. This
+        // slice is read-only; woo-write (confirm gates, snapshots, batch) is
+        // TODO in Op_Catalog.
+        $woo_ops  = new Woo_Ops();
+        $woo_read = new Woo_Read();
+
+        $registrar->register(new Ability(
+            'wpmcp/woo-ops',
+            'pro',
+            'List the deep WooCommerce operations catalog: named store ops (domain-namespaced, e.g. products.list, orders.get) mapped to internal wc/v3 REST routes, grouped by domain (products, orders, refunds, coupons, customers, shipping, taxes, webhooks, settings), each with method, route template, required path params, the capability it requires and a one-line summary. Reports available:false when WooCommerce is inactive. Drive woo-read with these op names. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'domain' => [ 'type' => 'string' ],
+                ],
+            ],
+            [$woo_ops, 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/woo-read',
+            'pro',
+            'Execute one read op from the deep WooCommerce operations catalog (see woo-ops) as an internal wc/v3 REST request dispatched in-process as the current user, so the store endpoint\'s own permission checks apply on top of the op\'s own capability (orders, notes and refunds need edit_shop_orders; customers need list_users). Path params fill the route template; all other params pass through as the endpoint\'s query params. Returns the endpoint\'s status and the RAW wc/v3 body, which for order and customer ops includes personal data; list ops are capped at 50 records per call and default to 20. Read-only: only GET ops dispatch here',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'op'     => [ 'type' => 'string' ],
+                    'params' => [ 'type' => 'object' ],
+                ],
+                'required'   => [ 'op' ],
+            ],
+            [$woo_read, 'handle'],
             'manage_woocommerce',
             'woocommerce',
             'read'
