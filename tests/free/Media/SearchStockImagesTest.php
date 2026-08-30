@@ -180,4 +180,35 @@ class SearchStockImagesTest extends \WP_UnitTestCase
         $this->expectException(\RuntimeException::class);
         (new Search_Stock_Images())->handle(['query' => 'x']);
     }
+
+    /**
+     * Issue #166: the readme tells the user that a stock search sends the
+     * search terms, paging and (for the keyed providers) their own key.
+     * WordPress's default user agent is "WordPress/<ver>; <home_url>", which
+     * would hand the site URL and the WordPress version to three third
+     * parties on top of that and make the disclosure false, so the request
+     * pins its own agent.
+     */
+    public function test_the_search_request_pins_its_own_user_agent_so_the_site_url_is_not_sent(): void
+    {
+        $this->respond_with = ['result_count' => 0, 'results' => []];
+
+        (new Search_Stock_Images())->handle(['query' => 'barn']);
+
+        $this->assertSame('WPMCP-Stock-Search/1.0', $this->request['args']['user-agent'] ?? '');
+        $this->assertStringNotContainsString(
+            (string) wp_parse_url(home_url('/'), PHP_URL_HOST),
+            (string) ($this->request['args']['user-agent'] ?? '')
+        );
+    }
+
+    public function test_the_pinned_user_agent_is_sent_for_keyed_providers_too(): void
+    {
+        Stock_Key_Store::set('pexels', 'k-123');
+        $this->respond_with = ['total_results' => 0, 'photos' => []];
+
+        (new Search_Stock_Images())->handle(['query' => 'barn', 'provider' => 'pexels']);
+
+        $this->assertSame('WPMCP-Stock-Search/1.0', $this->request['args']['user-agent'] ?? '');
+    }
 }

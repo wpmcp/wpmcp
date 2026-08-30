@@ -158,10 +158,22 @@ class Search_Stock_Images
         return [isset($body['total']) ? (int) $body['total'] : null, $results];
     }
 
+    /**
+     * Pinned so the request carries no site identity. WordPress's default
+     * agent is "WordPress/<version>; <home_url>", which would send the site
+     * URL and core version to three third parties on every search and make
+     * the readme's "what is sent" disclosure false (issue #166).
+     */
+    private const USER_AGENT = 'WPMCP-Stock-Search/1.0';
+
     /** @return array decoded JSON body */
     private function fetch_json(string $provider, string $url, array $headers = []): array
     {
-        $response = wp_remote_get($url, ['timeout' => 20, 'headers' => $headers]);
+        $response = wp_remote_get($url, [
+            'timeout'    => 20,
+            'headers'    => $headers,
+            'user-agent' => self::USER_AGENT,
+        ]);
         if (is_wp_error($response)) {
             throw new \RuntimeException(sprintf('The %s search request failed: %s', $provider, $response->get_error_message()));
         }
