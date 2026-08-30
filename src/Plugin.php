@@ -2425,6 +2425,7 @@ final class Plugin
             ['delete-custom-widget', 'delete', new \WPMCP\Tools\WidgetBuilder\Delete_Custom_Widget(), 'Delete a custom widget by moving it to the trash (reversible via restore-post)', ['widget_id' => ['type' => 'integer']], ['widget_id']],
             ['set-widget-status', 'update', new \WPMCP\Tools\WidgetBuilder\Set_Widget_Status(), 'Enable (publish) or disable (draft) a custom widget by id', ['widget_id' => ['type' => 'integer'], 'status' => ['type' => 'string']], ['widget_id', 'status']],
             ['validate-widget-spec', 'read', new \WPMCP\Tools\WidgetBuilder\Validate_Widget_Spec(), 'Statically validate a custom-widget spec (title, controls, template) without storing it. Read-only', ['spec' => $spec_schema], ['spec']],
+            ['compile-custom-widget', 'update', new \WPMCP\Tools\WidgetBuilder\Compiler\Compile_Custom_Widget(), 'Compile a stored custom-widget spec into a standalone widget class in the manifest-loaded sandbox (issue #72, WIP: validates and lints but does not write files yet). The plugin, never the agent, emits the PHP', ['widget_id' => ['type' => 'integer']], ['widget_id']],
             ['list-control-types', 'read', new \WPMCP\Tools\WidgetBuilder\List_Control_Types(), 'List the control types a custom-widget spec may use and the Elementor control each maps to. Read-only', [], []],
         ];
 
