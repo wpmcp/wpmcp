@@ -43,7 +43,7 @@ class List_Transients
                 . $name_clause
                 . ' ORDER BY option_name ASC LIMIT ' . (int) $limit;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Core has no API to enumerate transients; a diagnostics listing must reflect the live options table, so caching would be wrong.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Core has no API to enumerate transients; a diagnostics listing must reflect the live options table, so caching would be wrong. $sql is assembled from literals in this method and every caller-supplied value is bound through the $wpdb->prepare() call on this line.
         $rows = $wpdb->get_col($wpdb->prepare($sql, $params));
 
         $transients = [];

@@ -45,11 +45,14 @@ class Insert_Row
         }
 
         global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The tool's purpose is a direct insert into an arbitrary table; wpdb::insert() parameterizes it, and a write has nothing to cache.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- The tool's purpose is a direct insert into an arbitrary Database_Guard-validated table; wpdb::insert() parameterizes the values and core has no API for arbitrary tables.
         $affected = $wpdb->insert($table, $data);
         if (false === $affected) {
             throw new \RuntimeException($wpdb->last_error ?: 'Insert failed.');
         }
+
+        // Nothing in core clears the caches this row belongs to, so do it here.
+        Database_Guard::invalidate_caches($table, ['data' => $data]);
 
         return [
             'table'     => $table,

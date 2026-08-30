@@ -25,7 +25,7 @@ class Describe_Table
         }
 
         global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema introspection tool; DESCRIBE has no core API and must reflect the live schema, so caching would be wrong.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Schema introspection tool; DESCRIBE has no core API and must reflect the live schema, so caching would be wrong. A table identifier cannot be bound with $wpdb->prepare(), so the name is Database_Guard-validated and backticks are stripped before interpolation.
         $columns = $wpdb->get_results('DESCRIBE `' . str_replace('`', '', $table) . '`', ARRAY_A);
 
         return [

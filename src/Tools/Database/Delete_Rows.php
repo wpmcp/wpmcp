@@ -67,13 +67,14 @@ class Delete_Rows
         $probe  = Database_Guard::recoverability_probe($table, $where);
         $before = $probe['rows'];
 
-        $mutation = static function () use ($table, $where): int {
+        $mutation = static function () use ($table, $where, $before): int {
             global $wpdb;
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The tool's purpose is a direct delete on an arbitrary table; wpdb::delete() parameterizes it, and a write has nothing to cache.
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The tool's purpose is a direct delete on an arbitrary Database_Guard-validated table; wpdb::delete() parameterizes it and core has no API for arbitrary tables. The write is not cached but it does invalidate: the caches it makes stale are cleared immediately below, which is the remedy this sniff asks for on a delete.
             $affected = $wpdb->delete($table, $where);
             if (false === $affected) {
                 throw new \RuntimeException($wpdb->last_error ?: 'Delete failed.');
             }
+            Database_Guard::invalidate_caches($table, ['rows' => $before, 'where' => $where]);
             return (int) $affected;
         };
 
