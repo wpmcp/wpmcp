@@ -29,11 +29,11 @@ class Redirect_Input
             );
         }
         if (strlen($source) > Redirect_Store::MAX_SOURCE_LENGTH) {
-            throw new \InvalidArgumentException(esc_html(sprintf(
+            throw new \InvalidArgumentException(sprintf(
                 'Source path is %d characters; the maximum is %d.',
-                strlen($source),
-                Redirect_Store::MAX_SOURCE_LENGTH
-            )));
+                esc_html(strlen($source)),
+                esc_html(Redirect_Store::MAX_SOURCE_LENGTH)
+            ));
         }
 
         return $source;
@@ -67,7 +67,7 @@ class Redirect_Input
             $post_id = (int) $args['target_post_id'];
             $post    = $post_id > 0 ? get_post($post_id) : null;
             if (! $post) {
-                throw new \InvalidArgumentException(esc_html("Target post {$post_id} does not exist."));
+                throw new \InvalidArgumentException(sprintf('Target post %s does not exist.', esc_html($post_id)));
             }
             $permalink = get_permalink($post_id);
             return [is_string($permalink) ? $permalink : '', $post_id];
@@ -85,11 +85,11 @@ class Redirect_Input
 
         $code = (int) $args['status_code'];
         if (! in_array($code, Redirect_Store::ALLOWED_STATUS_CODES, true)) {
-            throw new \InvalidArgumentException(esc_html(sprintf(
+            throw new \InvalidArgumentException(sprintf(
                 'Status code %d is not a supported redirect code (%s).',
-                $code,
-                implode(', ', Redirect_Store::ALLOWED_STATUS_CODES)
-            )));
+                esc_html($code),
+                esc_html(implode(', ', Redirect_Store::ALLOWED_STATUS_CODES))
+            ));
         }
 
         return $code;

@@ -15,7 +15,7 @@ class Key_Vault
     public function __construct(private ?string $salt = null)
     {
         if (! in_array(self::CIPHER, openssl_get_cipher_methods(), true)) {
-            throw new \RuntimeException(esc_html(sprintf('Required cipher %s is not supported by OpenSSL.', self::CIPHER)));
+            throw new \RuntimeException(sprintf('Required cipher %s is not supported by OpenSSL.', esc_html(self::CIPHER)));
         }
     }
 

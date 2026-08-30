@@ -37,11 +37,11 @@ class Create_Redirect
 
         $existing = Redirect_Store::find_by_source($source);
         if (null !== $existing) {
-            throw new \InvalidArgumentException(esc_html(sprintf(
+            throw new \InvalidArgumentException(sprintf(
                 'Source "%s" is already redirected by redirect #%d; use update-redirect to change it.',
-                $source,
-                $existing['id']
-            )));
+                esc_html($source),
+                esc_html($existing['id'])
+            ));
         }
 
         [$target_url, $target_post_id] = Redirect_Input::target($args);

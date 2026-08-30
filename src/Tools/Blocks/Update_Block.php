@@ -27,11 +27,11 @@ class Update_Block
             throw new \InvalidArgumentException('At least one of "attrs" or "inner_html" is required.');
         }
         if (null === $node['blockName']) {
-            throw new \InvalidArgumentException(esc_html(sprintf(
+            throw new \InvalidArgumentException(sprintf(
                 'Invalid block path [%s]: the target is freeform content with no block name; it cannot be '
                 . 'updated surgically.',
-                implode(',', $path)
-            )));
+                esc_html(implode(',', $path))
+            ));
         }
         if (null !== $attrs) {
             if (! is_array($attrs)) {

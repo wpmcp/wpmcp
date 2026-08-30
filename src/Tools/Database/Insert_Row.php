@@ -41,7 +41,7 @@ class Insert_Row
         }
 
         if (Database_Guard::is_protected($table)) {
-            throw new \RuntimeException(esc_html("Refusing to write to protected table \"{$table}\"."));
+            throw new \RuntimeException(sprintf('Refusing to write to protected table "%s".', esc_html($table)));
         }
 
         global $wpdb;

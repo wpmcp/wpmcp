@@ -9,7 +9,9 @@
     "phpunit/phpunit": "^9.6",
     "yoast/phpunit-polyfills": "^2.0",
     "wp-phpunit/wp-phpunit": "^6.9",
-    "squizlabs/php_codesniffer": "^3.9"
+    "squizlabs/php_codesniffer": "^3.9",
+    "wp-coding-standards/wpcs": "^3.1",
+    "phpcsstandards/phpcsutils": "^1.2"
   },
   "autoload": { "psr-4": { "WPMCP\\": "src/" } },
   "autoload-dev": {
@@ -26,6 +28,7 @@
     "test:coverage": "phpunit --coverage-clover coverage/clover.xml --coverage-text",
     "manifest:regenerate": "WPMCP_REGENERATE_MANIFEST=1 phpunit --filter AbilityManifestTest",
     "lint": "phpcs -q",
+    "lint:escaping": "phpcs -q --standard=WordPress --sniffs=WordPress.Security.EscapeOutput --extensions=php src wpmcp.php",
     "compliance": "php tools/compliance/bin/compliance.php --profile=distribution",
     "compliance:wporg": "php tools/compliance/bin/compliance.php --profile=wporg-free --no-artifact",
     "build:wporg": "bash scripts/build-wporg-release.sh"

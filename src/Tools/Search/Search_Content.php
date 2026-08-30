@@ -48,8 +48,8 @@ class Search_Content
         $terms = Search_Ranker::tokenize($query);
         if ([] === $terms) {
             throw new \InvalidArgumentException(
-                esc_html('The query contains no searchable term (terms must be at least '
-                . Search_Ranker::MIN_TERM_LENGTH . ' characters).')
+                'The query contains no searchable term (terms must be at least '
+                . esc_html(Search_Ranker::MIN_TERM_LENGTH) . ' characters).'
             );
         }
 

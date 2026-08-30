@@ -37,7 +37,7 @@ class Redirect_Suggestion_Controller
     {
         $suggestion = Redirect_Suggestions::find($source);
         if (null === $suggestion) {
-            throw new \InvalidArgumentException(esc_html("No pending redirect suggestion for \"{$source}\"."));
+            throw new \InvalidArgumentException(sprintf('No pending redirect suggestion for "%s".', esc_html($source)));
         }
 
         $args = [

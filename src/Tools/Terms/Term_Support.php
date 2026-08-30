@@ -30,11 +30,11 @@ class Term_Support
 
         if (! taxonomy_exists($taxonomy)) {
             $known = get_taxonomies([], 'names');
-            throw new \InvalidArgumentException(esc_html(sprintf(
+            throw new \InvalidArgumentException(sprintf(
                 'Unknown taxonomy "%s". Registered taxonomies: %s',
-                $taxonomy,
-                implode(', ', array_values(is_array($known) ? $known : []))
-            )));
+                esc_html($taxonomy),
+                esc_html(implode(', ', array_values(is_array($known) ? $known : [])))
+            ));
         }
 
         return $taxonomy;
@@ -58,7 +58,7 @@ class Term_Support
             if ($term instanceof \WP_Term) {
                 return $term;
             }
-            throw new \InvalidArgumentException(esc_html(sprintf('No term %d in taxonomy "%s".', $term_id, $taxonomy)));
+            throw new \InvalidArgumentException(sprintf('No term %d in taxonomy "%s".', (int) $term_id, esc_html($taxonomy)));
         }
 
         $slug = (string) ($args['slug'] ?? '');
@@ -67,7 +67,7 @@ class Term_Support
             if ($term instanceof \WP_Term) {
                 return $term;
             }
-            throw new \InvalidArgumentException(esc_html(sprintf('No term with slug "%s" in taxonomy "%s".', $slug, $taxonomy)));
+            throw new \InvalidArgumentException(sprintf('No term with slug "%s" in taxonomy "%s".', esc_html($slug), esc_html($taxonomy)));
         }
 
         throw new \InvalidArgumentException('Provide either term_id or slug.');

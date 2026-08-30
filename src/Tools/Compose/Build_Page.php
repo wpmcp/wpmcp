@@ -97,7 +97,7 @@ class Build_Page
 
             $result = wp_insert_post($postarr, true);
             if (is_wp_error($result)) {
-                throw new \RuntimeException(esc_html('Could not create the page: ' . $result->get_error_message()));
+                throw new \RuntimeException('Could not create the page: ' . esc_html($result->get_error_message()));
             }
             $post_id = (int) $result;
 
@@ -352,7 +352,7 @@ class Build_Page
         ]);
 
         if (is_wp_error($item_id)) {
-            throw new \RuntimeException(esc_html('The menu placement step failed: ' . $item_id->get_error_message()));
+            throw new \RuntimeException('The menu placement step failed: ' . esc_html($item_id->get_error_message()));
         }
 
         return (int) $item_id;

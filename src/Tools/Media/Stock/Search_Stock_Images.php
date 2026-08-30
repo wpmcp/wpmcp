@@ -41,10 +41,10 @@ class Search_Stock_Images
                 [$total, $results] = $this->search_unsplash($query, $page, $per_page);
                 break;
             default:
-                throw new \InvalidArgumentException(esc_html(sprintf(
+                throw new \InvalidArgumentException(sprintf(
                     'Unknown stock provider "%s". Supported: openverse, pexels, unsplash.',
-                    $provider
-                )));
+                    esc_html($provider)
+                ));
         }
 
         return [
@@ -61,10 +61,10 @@ class Search_Stock_Images
     {
         $key = Stock_Key_Store::get($provider);
         if (null === $key || '' === $key) {
-            throw new \RuntimeException(esc_html(sprintf(
+            throw new \RuntimeException(sprintf(
                 'Provider "%s" needs an API key. Store one (encrypted) with the set-stock-key tool first.',
-                $provider
-            )));
+                esc_html($provider)
+            ));
         }
         return $key;
     }
@@ -163,17 +163,17 @@ class Search_Stock_Images
     {
         $response = wp_remote_get($url, ['timeout' => 20, 'headers' => $headers]);
         if (is_wp_error($response)) {
-            throw new \RuntimeException(esc_html(sprintf('The %s search request failed: %s', $provider, $response->get_error_message())));
+            throw new \RuntimeException(sprintf('The %s search request failed: %s', esc_html($provider), esc_html($response->get_error_message())));
         }
 
         $code = (int) wp_remote_retrieve_response_code($response);
         if (200 !== $code) {
-            throw new \RuntimeException(esc_html(sprintf('The %s search API answered HTTP %d.', $provider, $code)));
+            throw new \RuntimeException(sprintf('The %s search API answered HTTP %d.', esc_html($provider), (int) $code));
         }
 
         $body = json_decode((string) wp_remote_retrieve_body($response), true);
         if (! is_array($body)) {
-            throw new \RuntimeException(esc_html(sprintf('The %s search API returned an unparseable body.', $provider)));
+            throw new \RuntimeException(sprintf('The %s search API returned an unparseable body.', esc_html($provider)));
         }
 
         return $body;

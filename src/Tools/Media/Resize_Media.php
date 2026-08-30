@@ -36,11 +36,11 @@ class Resize_Media
         $registered = wp_get_registered_image_subsizes();
         foreach ($sizes as $size) {
             if (! isset($registered[ $size ])) {
-                throw new \InvalidArgumentException(esc_html(sprintf(
+                throw new \InvalidArgumentException(sprintf(
                     '"%s" is not a registered image size. Registered sizes: %s.',
-                    $size,
-                    implode(', ', array_keys($registered))
-                )));
+                    esc_html($size),
+                    esc_html(implode(', ', array_keys($registered)))
+                ));
             }
         }
 
@@ -78,10 +78,10 @@ class Resize_Media
                     $spec    = $registered[ $size ];
                     $resized = image_make_intermediate_size($file, (int) $spec['width'], (int) $spec['height'], (bool) $spec['crop']);
                     if (! is_array($resized)) {
-                        throw new \RuntimeException(esc_html(sprintf(
+                        throw new \RuntimeException(sprintf(
                             'Size "%s" could not be generated (the original may be smaller than the requested dimensions).',
-                            $size
-                        )));
+                            esc_html($size)
+                        ));
                     }
                     $meta['sizes'][ $size ] = $resized;
                     $result[ $size ]        = [

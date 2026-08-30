@@ -33,11 +33,11 @@ class Delete_Term
 
         $default = (int) get_option('default_' . $taxonomy, 0);
         if ($default > 0 && $default === $term_id) {
-            throw new \InvalidArgumentException(esc_html(sprintf(
+            throw new \InvalidArgumentException(sprintf(
                 'Term %d is the default term for "%s" and cannot be deleted. Change the default first.',
-                $term_id,
-                $taxonomy
-            )));
+                esc_html($term_id),
+                esc_html($taxonomy)
+            ));
         }
 
         $affected = (int) $term->count;

@@ -104,7 +104,7 @@ class Client_Registration
     private static function deny(string $code, string $message, array $data = []): \WP_Error
     {
         self::audit(false);
-        return new \WP_Error(esc_html($code), $message, $data);
+        return new \WP_Error($code, $message, $data);
     }
 
     private static function audit(bool $allowed): void

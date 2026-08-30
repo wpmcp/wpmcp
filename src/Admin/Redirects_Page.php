@@ -117,7 +117,7 @@ class Redirects_Page
                     ? '<em>' . esc_html__('choose a target with create-redirect', 'wpmcp') . '</em>'
                     : esc_html($target),
                 esc_attr($source),
-                $post_id,
+                (int) $post_id,
                 esc_attr($nonce),
                 $post_id > 0 ? '' : ' disabled="disabled"',
                 esc_html__('Create redirect', 'wpmcp'),

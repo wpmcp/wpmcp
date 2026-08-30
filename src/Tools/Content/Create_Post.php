@@ -23,7 +23,7 @@ class Create_Post
             $post_type = 'post';
         }
         if (! Content_Guard::is_writable_post_type($post_type)) {
-            throw new \InvalidArgumentException(esc_html("\"{$post_type}\" is not a writable post type."));
+            throw new \InvalidArgumentException(sprintf('"%s" is not a writable post type.', esc_html($post_type)));
         }
 
         $status = sanitize_key((string) ($args['status'] ?? 'draft'));

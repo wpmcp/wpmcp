@@ -46,7 +46,7 @@ class Update_Term
             }
             $holder = get_term_by('slug', $slug, $taxonomy);
             if ($holder instanceof \WP_Term && (int) $holder->term_id !== $term_id) {
-                throw new \InvalidArgumentException(esc_html(sprintf('Slug "%s" is already used by term %d.', $slug, (int) $holder->term_id)));
+                throw new \InvalidArgumentException(sprintf('Slug "%s" is already used by term %d.', esc_html($slug), (int) $holder->term_id));
             }
             $fields['slug'] = $slug;
         }
@@ -59,20 +59,20 @@ class Update_Term
             $parent = (int) $args['parent'];
             if ($parent > 0) {
                 if (! is_taxonomy_hierarchical($taxonomy)) {
-                    throw new \InvalidArgumentException(esc_html(sprintf('Taxonomy "%s" is not hierarchical, so a parent cannot be set.', $taxonomy)));
+                    throw new \InvalidArgumentException(sprintf('Taxonomy "%s" is not hierarchical, so a parent cannot be set.', esc_html($taxonomy)));
                 }
                 if ($parent === $term_id) {
                     throw new \InvalidArgumentException('A term cannot be its own parent.');
                 }
                 if (! get_term($parent, $taxonomy) instanceof \WP_Term) {
-                    throw new \InvalidArgumentException(esc_html(sprintf('Parent term %d does not exist in "%s".', $parent, $taxonomy)));
+                    throw new \InvalidArgumentException(sprintf('Parent term %d does not exist in "%s".', (int) $parent, esc_html($taxonomy)));
                 }
                 if (in_array($term_id, get_ancestors($parent, $taxonomy, 'taxonomy'), true)) {
-                    throw new \InvalidArgumentException(esc_html(sprintf(
+                    throw new \InvalidArgumentException(sprintf(
                         'Term %d is an ancestor of %d; reparenting there would create a cycle.',
-                        $term_id,
-                        $parent
-                    )));
+                        esc_html($term_id),
+                        esc_html($parent)
+                    ));
                 }
             }
             $fields['parent'] = $parent;
