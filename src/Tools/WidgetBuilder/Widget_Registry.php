@@ -44,6 +44,9 @@ class Widget_Registry
     public static function spec_for(string $name): ?array
     {
         Widget_Spec_Store::ensure_post_type();
+        // No suppress_filters: get_posts() defaults it to true, and the explicit
+        // argument is what Plugin Check flags. Not false either, since this reads a
+        // plugin-internal post type with no translated content to correct.
         $posts = get_posts([
             'post_type'        => Widget_Spec_Store::POST_TYPE,
             'post_status'      => 'publish',

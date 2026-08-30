@@ -205,6 +205,9 @@ class Memory_Store
         $status = $args['status'] ?? 'publish';
         $limit  = max(1, min(self::MAX_RULES, (int) ($args['limit'] ?? self::DEFAULT_LIMIT)));
 
+        // No suppress_filters: get_posts() defaults it to true, and the explicit
+        // argument is what Plugin Check flags. Unlike block_rules() below, this
+        // read feeds listings rather than the write guard, so nothing is pinned.
         $query = [
             'post_type'        => self::POST_TYPE,
             'post_status'      => $status,
@@ -289,12 +292,20 @@ class Memory_Store
             return self::$rules_cache;
         }
 
+        // The deny list is read unfiltered on purpose, and the argument stays
+        // explicit rather than leaning on get_posts()'s default so that the
+        // reason is visible at the call site. Memory_Guard::blocking_rule()
+        // fails open, so a third-party posts_where / posts_results / the_posts
+        // filter that empties this result set would switch the write guard off
+        // site-wide. It must never be flipped to false.
         $posts = get_posts([
             'post_type'        => self::POST_TYPE,
             'post_status'      => 'publish',
             'posts_per_page'   => self::MAX_RULES,
             'orderby'          => 'ID',
             'order'            => 'ASC',
+            // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters -- guardrail read; a third-party posts_* filter must not be able to remove block rules.
+            'suppress_filters' => true,
             'meta_query'       => [
                 [
                     'key'   => self::META_SEVERITY,

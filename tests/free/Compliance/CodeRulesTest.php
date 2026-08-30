@@ -7,6 +7,7 @@ use WPMCP\Compliance\Rules\Code_Obfuscation_Rule;
 use WPMCP\Compliance\Rules\Dangerous_Constructs_Rule;
 use WPMCP\Compliance\Rules\Forbidden_Functions_Rule;
 use WPMCP\Compliance\Rules\Php_Hygiene_Rule;
+use WPMCP\Compliance\Rules\Suppress_Filters_Rule;
 use WPMCP\Compliance\Rules\Wp_Load_Rule;
 use WPMCP\Compliance\Severity;
 
@@ -247,5 +248,73 @@ class CodeRulesTest extends Compliance_Test_Case
         ]);
 
         $this->assert_clean($findings);
+    }
+
+    /**
+     * B-26 / issue #175: nothing in the repo could detect a reintroduced
+     * suppress_filters, because the VIP sniff that Plugin Check runs is not in
+     * our ruleset and vipwpcs is not a dependency. This rule is the guard, so
+     * the finding fails CI instead of accumulating.
+     */
+    public function test_suppress_filters_is_reported_at_every_unjustified_site(): void
+    {
+        $findings = $this->findings(new Suppress_Filters_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'src/Catalog.php' => "<?php\nclass Catalog {\n    public function all() {\n        return get_posts( [\n            'post_type' => 'thing',\n            'suppress_filters' => true,\n        ] );\n    }\n}\n",
+        ]);
+
+        $this->assert_reports($findings, 'suppress_filters');
+        $this->assertCount(1, $findings);
+    }
+
+    public function test_a_justified_suppress_filters_site_is_accepted(): void
+    {
+        $findings = $this->findings(new Suppress_Filters_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'src/Guard.php' => "<?php\nclass Guard {\n    public function rules() {\n        return get_posts( [\n            'post_type' => 'rule',\n            // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters -- guardrail read; a third-party posts_* filter must not be able to remove block rules.\n            'suppress_filters' => true,\n        ] );\n    }\n}\n",
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    public function test_an_explicit_false_and_a_bare_ignore_are_treated_differently(): void
+    {
+        $findings = $this->findings(new Suppress_Filters_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'src/Opted_In.php' => "<?php\nclass Opted_In {\n    public function all() {\n        return get_posts( [ 'suppress_filters' => false ] );\n    }\n}\n",
+            'src/Muted.php' => "<?php\nclass Muted {\n    public function all() {\n        // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters\n        return get_posts( [ 'suppress_filters' => true ] );\n    }\n}\n",
+        ]);
+
+        $this->assertCount(1, $findings, 'false opts filters back in and is fine; a bare ignore with no reason is not');
+        $this->assertSame('src/Muted.php', $findings[0]->file());
+    }
+
+    /**
+     * The shipped tree is the real subject: this is what would have caught
+     * B-26 before Plugin Check did.
+     */
+    public function test_the_shipped_source_tree_has_no_unjustified_suppress_filters(): void
+    {
+        $root = dirname(__DIR__, 3);
+        $hits = [];
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root . '/src'));
+        foreach ($iterator as $file) {
+            if (! $file->isFile() || 'php' !== $file->getExtension()) {
+                continue;
+            }
+            $lines = explode("\n", (string) file_get_contents($file->getPathname()));
+            foreach ($lines as $index => $line) {
+                if (! preg_match("/'suppress_filters'\\s*=>\\s*true/", $line)) {
+                    continue;
+                }
+                $context = ($lines[$index - 1] ?? '') . "\n" . $line;
+                if (preg_match('/phpcs:ignore\\s+[^-\\n]*SuppressFilters[^-\\n]*--\\s*\\S/', $context)) {
+                    continue;
+                }
+                $hits[] = str_replace($root . '/', '', $file->getPathname()) . ':' . ($index + 1);
+            }
+        }
+
+        $this->assertSame([], $hits, 'unjustified suppress_filters => true in shipped source');
     }
 }

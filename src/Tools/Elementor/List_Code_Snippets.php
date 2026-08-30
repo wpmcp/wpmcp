@@ -15,6 +15,9 @@ class List_Code_Snippets
 {
     public function handle(array $args): array
     {
+        // No suppress_filters: get_posts() defaults it to true, and the explicit
+        // argument is what Plugin Check flags. Not false either, since this reads a
+        // plugin-internal post type with no translated content to correct.
         $posts = get_posts([
             'post_type'      => 'elementor_snippet',
             'post_status'    => ['publish', 'draft', 'private'],
