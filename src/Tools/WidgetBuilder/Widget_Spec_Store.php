@@ -12,6 +12,14 @@ if (! defined('ABSPATH')) {
  * post_status publish/draft). A spec is ordinary post + postmeta, so it is
  * reversible through the standard trash and could be snapshotted if writes ever
  * needed it; creation and status changes here are non-destructive.
+ *
+ * The template is the one field that reaches the front end as markup
+ * (Widget_Renderer::render() interpolates escaped values into it but returns
+ * the template itself unchanged), so this is where the markup trust decision
+ * is made: verbatim for authors who hold `unfiltered_html`, wp_kses_post for
+ * everyone else. The abilities are gated on `manage_options`, which on
+ * multisite a site administrator has WITHOUT `unfiltered_html`, so the two are
+ * not interchangeable and the capability has to be checked here.
  */
 class Widget_Spec_Store
 {
@@ -34,7 +42,7 @@ class Widget_Spec_Store
     public static function create(array $spec)
     {
         self::ensure_post_type();
-        $spec = Widget_Spec::normalize($spec);
+        $spec = self::gate_template(Widget_Spec::normalize($spec));
 
         $id = wp_insert_post([
             'post_type'   => self::POST_TYPE,
@@ -57,7 +65,7 @@ class Widget_Spec_Store
         if (! self::is_widget($id)) {
             return false;
         }
-        $spec = Widget_Spec::normalize($spec);
+        $spec = self::gate_template(Widget_Spec::normalize($spec));
         wp_update_post(['ID' => $id, 'post_title' => sanitize_text_field((string) $spec['title'])]);
         update_post_meta($id, '_wpmcp_widget_spec', $spec);
         return true;
@@ -101,5 +109,25 @@ class Widget_Spec_Store
     public static function is_widget(int $id): bool
     {
         return $id > 0 && self::POST_TYPE === get_post_type($id);
+    }
+
+    /**
+     * Applies WordPress's own markup-authoring rule to the spec's template.
+     *
+     * Core does exactly this for post_content: a user with `unfiltered_html`
+     * stores what they wrote, everyone else goes through wp_kses_post. The
+     * template is rendered verbatim on the public front end, so it gets the
+     * same treatment rather than being trusted on the strength of
+     * `manage_options` alone.
+     */
+    private static function gate_template(array $spec): array
+    {
+        if (current_user_can('unfiltered_html')) {
+            return $spec;
+        }
+
+        $spec['template'] = wp_kses_post((string) ($spec['template'] ?? ''));
+
+        return $spec;
     }
 }
