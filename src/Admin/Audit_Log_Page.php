@@ -76,7 +76,8 @@ class Audit_Log_Page
 
     private function current_tab(): string
     {
-        $tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab selection, no state change.
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab selection on an admin list screen; the value only picks which list renders.
+        $tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : '';
         return self::TAB_REQUESTS === $tab ? self::TAB_REQUESTS : self::TAB_MUTATIONS;
     }
 
@@ -211,10 +212,8 @@ class Audit_Log_Page
     {
         $filters = [];
         foreach (['user_id', 'tool_name', 'domain', 'object_type', 'object_id', 'date_from', 'date_to'] as $key) {
-            if (! isset($_GET[ $key ])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only listing filters, no state change.
-                continue;
-            }
-            $value = sanitize_text_field(wp_unslash($_GET[ $key ])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only listing filters, no state change.
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter on an admin list screen; the value only narrows what is displayed.
+            $value = isset($_GET[ $key ]) ? sanitize_text_field(wp_unslash($_GET[ $key ])) : '';
             if ('' !== $value) {
                 $filters[ $key ] = $value;
             }
@@ -226,7 +225,10 @@ class Audit_Log_Page
     private function render_filter_form(array $filters): void
     {
         echo '<form method="get">';
-        printf('<input type="hidden" name="page" value="%s" />', esc_attr(isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : self::SLUG)); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only echo of the current page slug, no state change.
+        // The submenu callback is registered only under self::SLUG (see Plugin::register_admin_menu),
+        // so $_GET['page'] can never hold anything else here; echo the constant instead of
+        // round-tripping the superglobal.
+        printf('<input type="hidden" name="page" value="%s" />', esc_attr(self::SLUG));
         printf('<input type="hidden" name="tab" value="%s" />', esc_attr(self::TAB_MUTATIONS));
         printf(
             '<input type="text" name="tool_name" placeholder="%s" value="%s" />',
