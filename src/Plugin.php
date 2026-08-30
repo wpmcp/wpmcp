@@ -56,6 +56,9 @@ use WPMCP\Admin\Memory_Page;
 use WPMCP\Admin\Redirect_Suggestion_Controller;
 use WPMCP\Admin\Redirects_Page;
 use WPMCP\Admin\Skills_Settings_Page;
+use WPMCP\Admin\Chat_Page;
+use WPMCP\Pro\Chat\Chat_Rest_Controller;
+use WPMCP\Pro\Chat\Conversation_Store;
 use WPMCP\Memory\Memory_Store;
 use WPMCP\Skills\Skills_Module;
 use WPMCP\Tools\Skills\Get_Skill;
@@ -476,6 +479,13 @@ final class Plugin
             // Endpoints::register() itself no-ops unless OAuth_Config::is_enabled()
             // (default false), so this hook registration is always safe to add.
             add_action('rest_api_init', [new OAuth_Endpoints(), 'register']);
+            // In-admin AI chat (issue #73, PRO). The conversation CPT is
+            // fully private (no UI, no REST of its own) and every chat route
+            // re-checks manage_options AND Pro\Gate::is_pro() per request,
+            // so registering these hooks unconditionally is safe on free
+            // builds: the routes exist but fail closed.
+            add_action('init', [Conversation_Store::class, 'register_post_type']);
+            add_action('rest_api_init', [new Chat_Rest_Controller(), 'register_routes']);
             // Resolves a valid OAuth Bearer token to its bound WP user via
             // determine_current_user, so Registrar's existing capability
             // checks work for OAuth callers with no change to Registrar
@@ -670,6 +680,20 @@ final class Plugin
             'manage_options',
             Skills_Settings_Page::SLUG,
             [new Skills_Settings_Page(), 'render']
+        );
+
+        // In-admin AI chat (issue #73): the chat drives the same governed
+        // ability surface as external MCP clients under the admin's own
+        // identity, so viewing the screen is manage_options like the rest.
+        // The page renders an upsell notice on free builds; every chat
+        // action re-checks Pro\Gate server-side in the REST controller.
+        add_submenu_page(
+            'wpmcp',
+            __('wpmcp: Chat', 'wpmcp'),
+            __('Chat', 'wpmcp'),
+            'manage_options',
+            Chat_Page::SLUG,
+            [new Chat_Page(), 'render']
         );
 
         // Agent memory (issue #131). The target is the wpmcp_memory CPT list
