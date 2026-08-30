@@ -481,6 +481,11 @@ final class Plugin
             // checks work for OAuth callers with no change to Registrar
             // itself. Also a no-op unless OAuth_Config::is_enabled().
             (new Bearer_Auth())->register();
+
+            // Binds a gateway-issued bearer token to its scoped Identity
+            // (issue #130). Keyed on the authenticated client_id, not on the
+            // token's scope string, which any registered client can ask for.
+            \WPMCP\Cloud\Gateway_Credential::register();
             // Handshake context injection (issue #80): swap the MCP
             // Adapter's initialize `instructions` for the admin-authored
             // text plus the permission-gated site summary. A no-op unless
@@ -2280,6 +2285,9 @@ final class Plugin
             ['cloud-list-assets', 'read', new \WPMCP\Tools\Cloud\Cloud_List_Assets(), 'List the assets (widget/block specs) in this site\'s WP MCP Cloud account. Read-only', [], []],
             ['cloud-push-assets', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Assets(), 'Push this site\'s custom widget and block specs up to WP MCP Cloud (backup + reuse across sites). Optionally filter by type (widget|block)', ['types' => ['type' => 'array']], []],
             ['cloud-pull-assets', 'create', new \WPMCP\Tools\Cloud\Cloud_Pull_Assets(), 'Pull the builder assets from this site\'s WP MCP Cloud account and recreate them locally as custom widget/block specs (each validated before it is stored)', [], []],
+            ['cloud-gateway-provision', 'create', new \WPMCP\Tools\Cloud\Gateway_Provision(), 'Provision this site\'s WP MCP Gateway credential, bound to an existing scoped identity, and upload it to the connected cloud. Requires explicit consent (consent=true, default false): the credential lets the gateway act on this site for years. The client secret and refresh token are returned EXACTLY ONCE and cannot be recovered afterwards', ['identity' => ['type' => 'string'], 'consent' => ['type' => 'boolean'], 'upload' => ['type' => 'boolean']], ['identity', 'consent']],
+            ['cloud-gateway-revoke', 'delete', new \WPMCP\Tools\Cloud\Gateway_Revoke(), 'Kill this site\'s gateway credential: the refresh chain and every access token issued along it are revoked locally, so the switch works with the cloud unreachable', [], []],
+            ['cloud-gateway-status', 'read', new \WPMCP\Tools\Cloud\Gateway_Status(), 'Report whether this site has a gateway credential, which identity it is bound to, and whether it was uploaded. Never returns secrets. Read-only', [], []],
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {

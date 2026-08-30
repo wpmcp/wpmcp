@@ -33,6 +33,39 @@ if (! defined('ABSPATH')) {
  */
 class Bearer_Auth
 {
+    /**
+     * The record of the bearer token that authenticated THIS request, or
+     * null when the request was not bearer-authenticated.
+     *
+     * Kept because resolve() returns only the user id: layers above need
+     * the token's client_id to decide what else the caller is (issue #130
+     * looks it up against the stored gateway credential to bind the request
+     * to a named Identity). Deliberately the client_id and scope only,
+     * never the token, and never written from anything but a successful
+     * Token_Store::validate().
+     *
+     * @var array{client_id: string, user_id: int, scope: string}|null
+     */
+    private static ?array $current = null;
+
+    /** @return array{client_id: string, user_id: int, scope: string}|null */
+    public static function current_token(): ?array
+    {
+        return self::$current;
+    }
+
+    /** The client_id that authenticated this request, or '' when none did. */
+    public static function current_client_id(): string
+    {
+        return (string) (self::$current['client_id'] ?? '');
+    }
+
+    /** Test seam: forget the request-scoped token record. */
+    public static function reset_for_tests(): void
+    {
+        self::$current = null;
+    }
+
     public function register(): void
     {
         add_filter('determine_current_user', [self::class, 'resolve'], 20);
@@ -60,9 +93,12 @@ class Bearer_Auth
 
         $record = Token_Store::validate($token);
         if (null === $record) {
+            self::$current = null;
             self::audit(false);
             return $incoming_user_id;
         }
+
+        self::$current = $record;
 
         self::audit(true);
 
