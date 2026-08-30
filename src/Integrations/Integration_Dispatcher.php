@@ -37,6 +37,14 @@ if (! defined('ABSPATH')) {
  *      'enabled_by_default' bool (default true); a default-off op is refused
  *                           until the site opts in via the
  *                           wpmcp_integration_op_enabled filter
+ *      'validate'           callable(array $args) returning null to proceed or
+ *                           ['code', 'message', 'data'] to refuse. Runs after
+ *                           schema validation and BEFORE the handler and
+ *                           before any snapshot is captured, so an op's own
+ *                           preconditions refuse with no side effects. A
+ *                           handler may also throw Operation_Refused for a
+ *                           failure only discoverable mid-write; both surface
+ *                           as the ordinary top-level error envelope
  *      'snapshot'           write/destructive ops only: callable(array $args)
  *                           returning ['object_type' => ..., 'object_id' => ...]
  *                           (or null) naming the snapshotable target. When it
@@ -52,7 +60,7 @@ if (! defined('ABSPATH')) {
  * effects and writes no snapshot):
  *   availability -> op exists in this channel -> enabled flag/filter ->
  *   op-level governance -> per-op capability -> destructive confirm:true ->
- *   schema validation -> handler.
+ *   schema validation -> per-op validate() -> handler.
  *
  * Layering with the platform gates: the pair's own capability, Governance,
  * identity scope, and pro-tier gates all apply unchanged through
@@ -268,11 +276,34 @@ abstract class Integration_Dispatcher
             ]);
         }
 
-        if ('read' === $channel) {
-            return $this->ok($op, ($def['handler'])($op_args));
+        // Pre-dispatch refusal hook: an op whose own preconditions (an
+        // allowlist, a filesystem gate, a slug that will not confine) can be
+        // decided from the args alone rejects HERE, before any handler runs
+        // and, crucially, before run_write() captures a snapshot. That keeps
+        // the guarantee above literally true rather than nearly true.
+        if (isset($def['validate'])) {
+            $refusal = ($def['validate'])($op_args);
+            if (is_array($refusal) && isset($refusal['code'])) {
+                return $this->error(
+                    (string) $refusal['code'],
+                    (string) ($refusal['message'] ?? ''),
+                    (array) ($refusal['data'] ?? [])
+                );
+            }
         }
 
-        return $this->run_write($op, $def, $op_args, (string) ($args['session_id'] ?? 'default'));
+        try {
+            if ('read' === $channel) {
+                return $this->ok($op, ($def['handler'])($op_args));
+            }
+
+            return $this->run_write($op, $def, $op_args, (string) ($args['session_id'] ?? 'default'));
+        } catch (Operation_Refused $e) {
+            // Mid-write failures (mkdir, file write) surface as the same
+            // top-level envelope as every other refusal, never as a
+            // successful result carrying an 'error' key.
+            return $this->error($e->error_code(), $e->getMessage(), $e->error_data());
+        }
     }
 
     /**
