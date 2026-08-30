@@ -1602,7 +1602,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/install-plugin',
             'free',
-            'Install a plugin from wordpress.org by slug, optionally activating it. Additive only; nothing to roll back',
+            'Install a plugin from wordpress.org by slug, optionally activating it. The install itself is additive; with activate: true the activation step also requires the activate_plugins capability and is snapshotted, so it returns a rollbackable operation_id',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1687,7 +1687,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/install-theme',
             'free',
-            'Install a theme from wordpress.org by slug, optionally activating it. Additive only; nothing to roll back',
+            'Install a theme from wordpress.org by slug, optionally activating it. The install itself is additive; with activate: true the switch also requires the switch_themes capability and snapshots template/stylesheet, so it returns rollbackable operation_ids',
             [
                 'type'       => 'object',
                 'properties' => [
