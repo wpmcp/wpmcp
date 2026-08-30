@@ -39,7 +39,37 @@ This plugin is complete for WooCommerce stores. The full WP MCP plugin adds page
 
 = Privacy =
 
-No telemetry. The plugin makes no calls home.
+The plugin collects nothing about you and sends nothing anywhere on its own. It has no scheduled jobs and no activation-time requests. Every outbound request it can make is listed under "External services" below, and each one happens only while you or your agent are running the specific tool that needs it.
+
+== External services ==
+
+= WordPress.org core checksums API (api.wordpress.org) =
+
+Used by the `scan-security` ability to compare this site's core files against the official checksums for its version, so modified core files can be reported. It is contacted only when an administrator or an agent runs that ability. What is sent: the WordPress version and the site locale. No site URL, no content, no personal data. Privacy policy: https://wordpress.org/about/privacy/
+
+= Openverse (api.openverse.org) =
+
+Used by the `search-stock-images` ability when the Openverse provider is chosen. It is contacted only when you or an agent run that search. What is sent: your search terms, the page number and the results-per-page count. No key and no account are required. Terms of use: https://openverse.org/terms Privacy policy: https://wordpress.org/about/privacy/
+
+= Pexels (api.pexels.com) =
+
+Used by the `search-stock-images` ability when the Pexels provider is chosen, which requires you to save a Pexels API key first. What is sent: your search terms, paging, and your own API key. Terms of use: https://www.pexels.com/terms-of-service/ Privacy policy: https://www.pexels.com/privacy-policy/
+
+= Unsplash (api.unsplash.com) =
+
+Used by the `search-stock-images` ability when the Unsplash provider is chosen, which requires you to save an Unsplash API key first. What is sent: your search terms, paging, and your own API key. Terms of use: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
+
+= Image downloads from stock providers =
+
+`import-stock-image` downloads the image you picked. The download target is restricted to the image hosts of the providers above (images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org and staticflickr.com); nothing but the image is requested, and no data about you is sent.
+
+= Pages you ask the plugin to measure =
+
+`analyze-performance` fetches the URL you give it so it can measure the response. It is normally this site's own address. Private, loopback and reserved addresses are refused and redirects are not followed.
+
+= This site's own REST API =
+
+The connection self-test calls this site's own URL over HTTP. These are loopback requests to your server, not calls to any third party.
 
 == Installation ==
 
