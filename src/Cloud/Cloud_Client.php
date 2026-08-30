@@ -46,7 +46,7 @@ class Cloud_Client
             'method'  => $method,
             'timeout' => 20,
             'headers' => [
-                'Authorization' => 'Bearer ' . Cloud_Config::api_key(),
+                'Authorization' => 'Bearer ' . $this->auth_credential(),
                 'Accept'        => 'application/json',
             ],
         ];
@@ -69,5 +69,25 @@ class Cloud_Client
         }
 
         return is_array($data) ? $data : [];
+    }
+
+    /**
+     * Auth resolution (issue #141): prefer a fresh access token from the
+     * vault, invoke Token_Refresher when stale, fall back to the API key
+     * (phase A connections have no token bundle yet).
+     */
+    private function auth_credential(): string
+    {
+        $bundle = Cloud_Credentials::all();
+        if (Token_Refresher::is_fresh($bundle)) {
+            return (string) $bundle['access_token'];
+        }
+        if ('' !== (string) ($bundle['refresh_token'] ?? '')) {
+            $token = (new Token_Refresher())->ensure_fresh_access_token();
+            if (null !== $token && '' !== $token) {
+                return $token;
+            }
+        }
+        return Cloud_Config::api_key();
     }
 }

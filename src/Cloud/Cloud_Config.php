@@ -7,25 +7,23 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * Where WP MCP Cloud lives and how this site authenticates to it. The base URL
- * and API key are stored as options; everything else about the cloud is behind
- * the versioned REST contract (see Cloud_Client), so the backend can be
- * reimplemented (WordPress now, a scalable service later) without touching the
- * plugin.
+ * Where WP MCP Cloud lives and how this site authenticates to it. Since
+ * issue #141 this is a thin facade over the encrypted Cloud_Credentials
+ * vault, so cloud-connect and the other phase A tools keep their existing
+ * call sites while no secret is stored unencrypted. Everything else about
+ * the cloud is behind the versioned REST contract (see Cloud_Client), so
+ * the backend can be reimplemented without touching the plugin.
  */
 class Cloud_Config
 {
-    private const URL_OPTION = 'wpmcp_cloud_url';
-    private const KEY_OPTION = 'wpmcp_cloud_key';
-
     public static function base_url(): string
     {
-        return rtrim((string) get_option(self::URL_OPTION, ''), '/');
+        return rtrim((string) (Cloud_Credentials::get('base_url') ?? ''), '/');
     }
 
     public static function api_key(): string
     {
-        return (string) get_option(self::KEY_OPTION, '');
+        return (string) (Cloud_Credentials::get('api_key') ?? '');
     }
 
     public static function is_configured(): bool
@@ -35,7 +33,9 @@ class Cloud_Config
 
     public static function set(string $url, string $key): void
     {
-        update_option(self::URL_OPTION, esc_url_raw(rtrim($url, '/')));
-        update_option(self::KEY_OPTION, sanitize_text_field($key));
+        Cloud_Credentials::merge([
+            'base_url' => esc_url_raw(rtrim($url, '/')),
+            'api_key'  => sanitize_text_field($key),
+        ]);
     }
 }
