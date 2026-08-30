@@ -39,7 +39,24 @@ This plugin is complete for WooCommerce stores. The full WP MCP plugin adds page
 
 = Privacy =
 
-No telemetry. The plugin makes no calls home.
+No telemetry and no calls home. Every outbound request this build can make is listed under "External services" below, and each one happens only while you or your agent are running the tool that needs it. This build contains no licensing SDK and no cloud sync.
+
+== External services ==
+
+The plugin never phones home. Each request below fires only while you or your agent run the tool that needs it.
+
+Fixed hosts:
+
+* api.wordpress.org - core file checksums, fetched only when the scan-security ability runs its integrity check (requires the manage_options capability). Sends the WordPress version and site locale with the user agent WPMCP-Security-Scanner/1.0. Terms: https://wordpress.org/about/license/ Privacy policy: https://wordpress.org/about/privacy/
+* api.openverse.org - stock image search. Openverse is the default provider for search-stock-images and needs no key or configuration, so this request is unconditional whenever that ability runs without another provider selected. Sends the search terms and paging only. Terms: https://openverse.org/terms Privacy policy: https://openverse.org/privacy
+* api.pexels.com - stock image search, only when the Pexels provider is selected and you have saved a Pexels key via set-stock-key. Sends the search terms, paging and your key. Results link to www.pexels.com license pages; those links are displayed, never requested. Terms: https://www.pexels.com/terms-of-service/ Privacy policy: https://www.pexels.com/privacy-policy/
+* api.unsplash.com - stock image search, only when the Unsplash provider is selected and you have saved an Unsplash key via set-stock-key. Sends the search terms, paging and your key. Results link to unsplash.com license pages; those links are displayed, never requested. Terms: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
+
+Dynamic destinations:
+
+* import-stock-image downloads the image you picked from a fixed allowlist of five image CDNs (images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org, staticflickr.com); any other host is refused before a request is made.
+* analyze-performance fetches the page URL you give it (defaulting to this site's front page), refusing private, loopback and reserved addresses.
+* The connection self-test requests this site's own home URL to verify the MCP endpoint is reachable.
 
 == Installation ==
 
