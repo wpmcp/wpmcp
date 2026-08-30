@@ -192,6 +192,8 @@ use WPMCP\Tools\Backup\Cancel_Backup_Job;
 use WPMCP\Tools\Backup\Run_Backup_Job;
 use WPMCP\Tools\Backup\Get_Backup_Manifest;
 use WPMCP\Tools\Backup\Delete_Backup_Archive;
+use WPMCP\Tools\Sync\Build_Change_Set;
+use WPMCP\Tools\Sync\Get_Change_Set;
 use WPMCP\Tools\Governance\Get_Governance_Settings;
 use WPMCP\Tools\Governance\Update_Governance_Settings;
 use WPMCP\Tools\Governance\List_Governance_Audit_Log;
@@ -2102,6 +2104,7 @@ final class Plugin
             'taxonomy'       => fn () => $this->register_taxonomy_abilities($registrar),
             'export'         => fn () => $this->register_export_abilities($registrar),
             'backup'         => fn () => $this->register_backup_abilities($registrar),
+            'sync'           => fn () => $this->register_sync_abilities($registrar),
             'analysis'       => fn () => $this->register_analysis_abilities($registrar),
             'code'           => fn () => $this->register_code_abilities($registrar),
             'cli'            => fn () => $this->register_cli_abilities($registrar),
@@ -3645,6 +3648,61 @@ final class Plugin
             'manage_options',
             'backup',
             'delete'
+        ));
+    }
+
+    /**
+     * Local-live sync, phase 1 (issue #192): change-set export derived from
+     * the snapshot ledger. The unit of sync is a set of explicitly selected
+     * objects touched during a build session, never the whole database, so
+     * live-side data the local copy has never seen (orders, comments, form
+     * entries) is left alone by construction.
+     *
+     * Both tools are read-only with respect to user content (build writes
+     * one artifact file into the protected site-backup dir), so neither is
+     * routed through Safe_Mutation. The phase 2 apply side is the mutating
+     * half and will go snapshot-first through Rollback_Service on the
+     * target. Gated at manage_options like the backup group it builds on.
+     * Free/Pro placement is an open question on the issue; registered free
+     * here so the WIP is exercisable, revisit before release.
+     */
+    private function register_sync_abilities(Registrar $registrar): void
+    {
+        $build_change_set = new Build_Change_Set();
+        $get_change_set   = new Get_Change_Set();
+
+        $registrar->register(new Ability(
+            'wpmcp/build-change-set',
+            'free',
+            'Derive a local-live sync change set from the snapshot ledger: every object touched since a marker (a session_id or a ledger row id), deduplicated, with its current state, terms and resolved attachment dependencies, serialized to an inspectable JSON artifact in the protected site-backup directory. Deletions are reported in the artifact, never applied automatically. This is the export half of local-live sync; nothing is pushed anywhere',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'session_id' => [ 'type' => 'string' ],
+                    'since_id'   => [ 'type' => 'integer' ],
+                ],
+            ],
+            [$build_change_set, 'handle'],
+            'manage_options',
+            'sync',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-change-set',
+            'free',
+            'Inspect a change-set artifact before it is applied anywhere: origin site, per-object summary (type, id, modified time, deleted flag), resolved attachment dependencies with checksums, and what was excluded and why. Pass include_objects=true for full object data. Read-only; paths outside the site-backup directory are refused',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'path'            => [ 'type' => 'string' ],
+                    'include_objects' => [ 'type' => 'boolean' ],
+                ],
+                'required'   => [ 'path' ],
+            ],
+            [$get_change_set, 'handle'],
+            'manage_options',
+            'sync',
+            'read'
         ));
     }
 
