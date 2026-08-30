@@ -138,6 +138,38 @@ class DispatcherValidationTest extends \WP_UnitTestCase
         $this->assertTrue($out['result']['available']);
     }
 
+    public function test_op_with_a_missing_dependency_returns_a_top_level_error(): void
+    {
+        Fixture_Integration::$dependency_present = false;
+
+        $out = $this->integration->handle_read([ 'operation' => 'needs-dependency' ]);
+
+        // The refusal must use the dispatcher's own error channel, not a
+        // hand-rolled ['error' => ...] payload wrapped in a success envelope.
+        $this->assertArrayNotHasKey('result', $out);
+        $this->assertSame('companion_unavailable', $out['error']['code']);
+        $this->assertSame('needs-dependency', $out['error']['data']['operation']);
+        $this->assertSame([], Fixture_Integration::$calls, 'The handler must never run');
+    }
+
+    public function test_op_with_a_satisfied_dependency_runs(): void
+    {
+        $out = $this->integration->handle_read([ 'operation' => 'needs-dependency' ]);
+
+        $this->assertArrayNotHasKey('error', $out);
+        $this->assertSame([ 'done' => true ], $out['result']);
+    }
+
+    public function test_catalog_flags_an_op_whose_dependency_is_missing(): void
+    {
+        Fixture_Integration::$dependency_present = false;
+
+        $ops = array_column($this->integration->catalog()['operations'], null, 'name');
+
+        $this->assertFalse($ops['needs-dependency']['available']);
+        $this->assertTrue($ops['ping']['available']);
+    }
+
     public function test_unavailable_integration_returns_structured_error_not_fatal(): void
     {
         Fixture_Integration::$available = false;

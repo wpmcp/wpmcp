@@ -132,3 +132,160 @@ if (! function_exists('wpforms')) {
         return json_decode((string) $json, true);
     }
 }
+
+// ---- Flamingo: Flamingo_Inbound_Message -------------------------------------
+// Faithful double of Flamingo 2.x's inbound-message model. Visibility is
+// deliberately identical to the real plugin: $found_items is PRIVATE static and
+// there is NO get_instance(), so any integration reaching for either fatals in
+// the suite exactly as it would in production. Storage is real flamingo_inbound
+// posts queried through WP_Query, so paging, offset handling, channel scoping,
+// post_status defaults, and the snapshot/rollback path are genuinely exercised.
+if (! class_exists('Flamingo_Inbound_Message')) {
+    class Flamingo_Inbound_Message
+    {
+        const post_type = 'flamingo_inbound';
+        const spam_status = 'flamingo-spam';
+        const channel_taxonomy = 'flamingo_inbound_channel';
+
+        private static $found_items = 0;
+
+        public $id;
+        public $post_status;
+        public $channel;
+        public $channel_id;
+        public $subject = '';
+        public $from = '';
+        public $from_name = '';
+        public $from_email = '';
+        public $fields = [];
+        public $meta = [];
+        public $spam = false;
+
+        /** Mirrors Flamingo's own registration so WP_Query can see the rows. */
+        public static function register(): void
+        {
+            register_post_type(self::post_type, [
+                'public'   => false,
+                'label'    => 'Inbound Messages',
+                'supports' => [ 'title', 'editor' ],
+            ]);
+            register_taxonomy(self::channel_taxonomy, self::post_type, [
+                'public'       => false,
+                'hierarchical' => true,
+            ]);
+            register_post_status(self::spam_status, [ 'internal' => true ]);
+        }
+
+        public static function unregister(): void
+        {
+            unregister_taxonomy(self::channel_taxonomy);
+            unregister_post_type(self::post_type);
+        }
+
+        /**
+         * Test seam only: create one inbound message the way Flamingo's add()
+         * does, as a post plus its underscore-prefixed meta.
+         */
+        public static function seed(array $args = []): int
+        {
+            $id = wp_insert_post([
+                'post_type'   => self::post_type,
+                'post_title'  => (string) ($args['subject'] ?? 'Message'),
+                'post_status' => (string) ($args['post_status'] ?? 'publish'),
+                'post_date'   => (string) ($args['post_date'] ?? current_time('mysql')),
+            ]);
+            update_post_meta($id, '_subject', (string) ($args['subject'] ?? ''));
+            update_post_meta($id, '_from', (string) ($args['from'] ?? ''));
+            update_post_meta($id, '_from_name', (string) ($args['from_name'] ?? ''));
+            update_post_meta($id, '_from_email', (string) ($args['from_email'] ?? ''));
+            update_post_meta($id, '_fields', (array) ($args['fields'] ?? []));
+            update_post_meta($id, '_meta', (array) ($args['meta'] ?? []));
+            if (! empty($args['channel'])) {
+                wp_set_object_terms($id, [ (int) $args['channel'] ], self::channel_taxonomy);
+            }
+            return (int) $id;
+        }
+
+        public static function find($args = '')
+        {
+            $defaults = [
+                'posts_per_page' => 10,
+                'offset'         => 0,
+                'orderby'        => 'date',
+                'order'          => 'DESC',
+                'post_status'    => 'any',
+                'channel'        => '',
+                'channel_id'     => 0,
+                's'              => '',
+            ];
+            $args = wp_parse_args($args, $defaults);
+
+            $query = $args;
+            $query['post_type'] = self::post_type;
+            unset($query['channel'], $query['channel_id']);
+
+            if (! empty($args['channel'])) {
+                $query['tax_query'] = [ [
+                    'taxonomy' => self::channel_taxonomy,
+                    'terms'    => $args['channel'],
+                    'field'    => 'slug',
+                ] ];
+            } elseif (! empty($args['channel_id'])) {
+                $query['tax_query'] = [ [
+                    'taxonomy' => self::channel_taxonomy,
+                    'terms'    => (int) $args['channel_id'],
+                    'field'    => 'term_id',
+                ] ];
+            }
+
+            $q     = new \WP_Query();
+            $posts = $q->query($query);
+            self::$found_items = (int) $q->found_posts;
+
+            $out = [];
+            foreach ((array) $posts as $post) {
+                $out[] = new self($post);
+            }
+            return $out;
+        }
+
+        public static function count($args = '')
+        {
+            // Flamingo's count() re-runs find() and, unlike find(), defaults
+            // post_status to 'publish' rather than 'any'.
+            $args = wp_parse_args($args, [ 'post_status' => 'publish' ]);
+            $args['posts_per_page'] = 1;
+            self::find($args);
+            return absint(self::$found_items);
+        }
+
+        /** Note: like Flamingo, this does NOT validate the post type. */
+        public function __construct($post = null)
+        {
+            $post = empty($post) ? null : get_post($post);
+            if (! $post) {
+                return;
+            }
+            $this->id = $post->ID;
+            $this->post_status = $post->post_status;
+            $this->subject = (string) get_post_meta($post->ID, '_subject', true);
+            $this->from = (string) get_post_meta($post->ID, '_from', true);
+            $this->from_name = (string) get_post_meta($post->ID, '_from_name', true);
+            $this->from_email = (string) get_post_meta($post->ID, '_from_email', true);
+            $this->fields = (array) get_post_meta($post->ID, '_fields', true);
+            $this->meta = (array) get_post_meta($post->ID, '_meta', true);
+            $this->spam = self::spam_status === $post->post_status;
+
+            $terms = wp_get_object_terms($post->ID, self::channel_taxonomy);
+            if (! is_wp_error($terms) && ! empty($terms)) {
+                $this->channel = $terms[0]->slug;
+                $this->channel_id = (int) $terms[0]->term_id;
+            }
+        }
+
+        public function id()
+        {
+            return $this->id;
+        }
+    }
+}

@@ -37,6 +37,16 @@ if (! defined('ABSPATH')) {
  *      'enabled_by_default' bool (default true); a default-off op is refused
  *                           until the site opts in via the
  *                           wpmcp_integration_op_enabled filter
+ *      'requires'           callable(): true|array — per-op dependency check
+ *                           for an op that needs a companion plugin the
+ *                           integration as a whole does not (CF7 entries need
+ *                           Flamingo). Returns true when satisfied, or
+ *                           ['code' => ..., 'message' => ...] naming what is
+ *                           missing, which the dispatcher emits as its own
+ *                           top-level error. The op stays in the catalog
+ *                           (flagged available:false) so list-operations still
+ *                           documents it, but the handler is never reached and
+ *                           no snapshot is written
  *      'snapshot'           write/destructive ops only: callable(array $args)
  *                           returning ['object_type' => ..., 'object_id' => ...]
  *                           (or null) naming the snapshotable target. When it
@@ -51,8 +61,8 @@ if (! defined('ABSPATH')) {
  * only ever reached after ALL of them pass — a rejected call has no side
  * effects and writes no snapshot):
  *   availability -> op exists in this channel -> enabled flag/filter ->
- *   op-level governance -> per-op capability -> destructive confirm:true ->
- *   schema validation -> handler.
+ *   op-level governance -> per-op capability -> per-op 'requires' dependency ->
+ *   destructive confirm:true -> schema validation -> handler.
  *
  * Layering with the platform gates: the pair's own capability, Governance,
  * identity scope, and pro-tier gates all apply unchanged through
@@ -183,6 +193,7 @@ abstract class Integration_Dispatcher
                 'capability'       => $def['capability'] ?? $this->capability(),
                 'enabled'          => $this->is_op_enabled($name, $def),
                 'requires_confirm' => 'destructive' === ($def['mode'] ?? ''),
+                'available'        => true === self::op_requirement($def),
                 'input_schema'     => $def['input_schema'] ?? [ 'type' => 'object' ],
             ];
         }
@@ -248,6 +259,15 @@ abstract class Integration_Dispatcher
             ), [ 'reason' => 'capability' ]);
         }
 
+        $requirement = self::op_requirement($def);
+        if (true !== $requirement) {
+            return $this->error(
+                (string) ($requirement['code'] ?? 'dependency_unavailable'),
+                (string) ($requirement['message'] ?? sprintf('Operation "%s" is missing a dependency.', $op)),
+                [ 'operation' => $op ]
+            );
+        }
+
         if ('destructive' === $def['mode'] && true !== ($args['confirm'] ?? false)) {
             return $this->error('confirmation_required', sprintf(
                 'Operation "%s" is destructive and requires confirm:true.',
@@ -303,6 +323,22 @@ abstract class Integration_Dispatcher
             'operation_id' => $out['operation_id'],
             'recoverable'  => true,
         ];
+    }
+
+    /**
+     * Evaluate an op's optional 'requires' dependency check. Returns true when
+     * the op has no check or the check passes, otherwise the
+     * ['code', 'message'] payload the dispatcher turns into a top-level error.
+     *
+     * @return true|array<string, string>
+     */
+    private static function op_requirement(array $def)
+    {
+        if (! isset($def['requires']) || ! is_callable($def['requires'])) {
+            return true;
+        }
+        $out = ($def['requires'])();
+        return true === $out ? true : (array) $out;
     }
 
     /** Ops visible to one dispatcher half; write sees write + destructive. */

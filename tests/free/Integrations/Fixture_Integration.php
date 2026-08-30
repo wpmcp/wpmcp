@@ -15,13 +15,17 @@ class Fixture_Integration extends Integration_Dispatcher
     /** Toggle for availability-detection tests. */
     public static bool $available = true;
 
+    /** Toggle for the per-op 'requires' dependency hook. */
+    public static bool $dependency_present = true;
+
     /** Every op handler invocation lands here so tests can assert "no side effects". */
     public static array $calls = [];
 
     public static function reset(): void
     {
-        self::$available = true;
-        self::$calls     = [];
+        self::$available          = true;
+        self::$dependency_present = true;
+        self::$calls              = [];
     }
 
     public function integration(): string
@@ -97,6 +101,19 @@ class Fixture_Integration extends Integration_Dispatcher
                 'input_schema'       => [ 'type' => 'object', 'properties' => [] ],
                 'handler'            => function (array $args) {
                     self::$calls[] = [ 'default-off-op', $args ];
+                    return [ 'done' => true ];
+                },
+            ],
+            'needs-dependency' => [
+                'mode'         => 'read',
+                'description'  => 'A read that needs a companion plugin',
+                'input_schema' => [ 'type' => 'object', 'properties' => [] ],
+                'requires'     => static fn () => self::$dependency_present ? true : [
+                    'code'    => 'companion_unavailable',
+                    'message' => 'The companion plugin is not active on this site.',
+                ],
+                'handler'      => function (array $args) {
+                    self::$calls[] = [ 'needs-dependency', $args ];
                     return [ 'done' => true ];
                 },
             ],
