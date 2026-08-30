@@ -98,7 +98,7 @@ class Dispatch_Cli_Job
             // jobs whose workers died is never what blocks a dispatch.
             Wp_Cli_Guard_Chain::audit(self::ABILITY, false);
             throw new \RuntimeException(
-                "Too many CLI jobs are already in flight ({$in_flight} of a maximum {$max}). Wait for them to finish, cancel them with cancel-cli-job, or raise the wpmcp_cli_job_max_in_flight filter."
+                sprintf('Too many CLI jobs are already in flight (%s of a maximum %s). Wait for them to finish, cancel them with cancel-cli-job, or raise the wpmcp_cli_job_max_in_flight filter.', esc_html($in_flight), esc_html($max))
             );
         }
 

@@ -68,7 +68,7 @@ class Update_User
             function () use ($id, $changes): void {
                 $result = wp_update_user(array_merge(['ID' => $id], $changes));
                 if (is_wp_error($result)) {
-                    throw new \RuntimeException('Could not update user: ' . $result->get_error_message());
+                    throw new \RuntimeException('Could not update user: ' . esc_html($result->get_error_message()));
                 }
             }
         );

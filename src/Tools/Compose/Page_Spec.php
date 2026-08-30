@@ -349,6 +349,6 @@ class Page_Spec
     /** @return never */
     private function reject(string $path, string $message): void
     {
-        throw new \InvalidArgumentException($path . ': ' . $message);
+        throw new \InvalidArgumentException(esc_html($path) . ': ' . esc_html($message));
     }
 }

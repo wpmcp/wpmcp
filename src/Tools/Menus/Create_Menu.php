@@ -25,7 +25,7 @@ class Create_Menu
 
         $result = wp_create_nav_menu($name);
         if (is_wp_error($result)) {
-            throw new \RuntimeException('Could not create the menu: ' . $result->get_error_message());
+            throw new \RuntimeException('Could not create the menu: ' . esc_html($result->get_error_message()));
         }
 
         $menu = wp_get_nav_menu_object((int) $result);

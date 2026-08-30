@@ -49,7 +49,7 @@ class Run_Event
 
         $stored_args = self::scheduled_args($hook);
         if (null === $stored_args) {
-            throw new \RuntimeException("Hook \"{$hook}\" is not scheduled; refusing to run it.");
+            throw new \RuntimeException(sprintf('Hook "%s" is not scheduled; refusing to run it.', esc_html($hook)));
         }
 
         do_action_ref_array($hook, $stored_args);

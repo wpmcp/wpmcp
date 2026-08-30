@@ -47,14 +47,14 @@ class Install_Plugin
 
         $info = plugins_api('plugin_information', ['slug' => $slug, 'fields' => ['sections' => false]]);
         if (is_wp_error($info)) {
-            throw new \RuntimeException('Could not find plugin "' . $slug . '" on wordpress.org: ' . $info->get_error_message());
+            throw new \RuntimeException('Could not find plugin "' . esc_html($slug) . '" on wordpress.org: ' . esc_html($info->get_error_message()));
         }
 
         $upgrader = new \Plugin_Upgrader(new \Automatic_Upgrader_Skin());
         $result   = $upgrader->install($info->download_link);
         if (is_wp_error($result) || ! $result) {
             $message = is_wp_error($result) ? $result->get_error_message() : 'unknown error';
-            throw new \RuntimeException('Plugin install failed: ' . $message);
+            throw new \RuntimeException('Plugin install failed: ' . esc_html($message));
         }
 
         $plugin_file = $upgrader->plugin_info();

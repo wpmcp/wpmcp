@@ -96,7 +96,7 @@ class Snapshot_Store
         if (false === $written) {
             throw new Mutation_Failed(
                 'The change was not made: its undo point could not be saved'
-                    . ($wpdb->last_error ? ' (' . $wpdb->last_error . ')' : '') . '.'
+                    . ($wpdb->last_error ? ' (' . esc_html($wpdb->last_error) . ')' : '') . '.'
             );
         }
 

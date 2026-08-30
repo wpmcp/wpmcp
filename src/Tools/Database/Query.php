@@ -31,12 +31,12 @@ class Query
 
         $read_only = Database_Guard::is_read_only_sql($sql);
         if (is_wp_error($read_only)) {
-            throw new \RuntimeException($read_only->get_error_message());
+            throw new \RuntimeException(esc_html($read_only->get_error_message()));
         }
 
         $user_table_read = Database_Guard::guard_user_table_read($sql);
         if (is_wp_error($user_table_read)) {
-            throw new \RuntimeException($user_table_read->get_error_message());
+            throw new \RuntimeException(esc_html($user_table_read->get_error_message()));
         }
 
         global $wpdb;
@@ -48,7 +48,7 @@ class Query
         // user values are interpolated by this tool itself.
         $rows = $wpdb->get_results($sql, ARRAY_A);
         if (null === $rows) {
-            throw new \RuntimeException($wpdb->last_error ?: 'Query failed.');
+            throw new \RuntimeException(esc_html($wpdb->last_error ?: 'Query failed.'));
         }
 
         $truncated = count($rows) > $limit;
