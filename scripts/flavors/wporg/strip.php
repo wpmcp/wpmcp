@@ -179,51 +179,24 @@ $edits['src/Tools/Context/Get_Site_Context.php'] = [
 
 // ------------------------------------------------------------- ability grid
 // Guideline 9 prohibits "implying users must pay to unlock included
-// features". With nothing paid in the build there is nothing to imply, so the
-// locked-row state and its copy go.
+// features". The screen no longer has a locked row state at all (issue #161):
+// it lists what this install would actually register. With one tier in this
+// build the tier predicate is constant, so it collapses to true and the tier
+// cell collapses to the free literal.
 $edits['src/Admin/Ability_Grid_Page.php'] = [
     ["use WPMCP\\Pro\\Gate;\n", '', 1],
     [
-        "        \$pro_locked = 'pro' === \$a->tier && ! Gate::is_pro();\n        \$explain    = Governance::explain(\$a);\n",
-        "        \$explain    = Governance::explain(\$a);\n",
+        "        return 'pro' !== \$a->tier || Gate::is_pro();\n",
+        "        return true;\n",
         1,
     ],
     [
-        "        if (\$pro_locked) {\n            \$reason = __('disabled: no pro license', 'wpmcp');\n        } elseif (\$explain['enabled']) {\n",
-        "        if (\$explain['enabled']) {\n",
-        1,
-    ],
-    ["            'pro_locked'  => \$pro_locked,\n", '', 1],
-    ["            'enabled'     => ! \$pro_locked && \$explain['enabled'],\n", "            'enabled'     => \$explain['enabled'],\n", 1],
-    ["        \$is_pro = Gate::is_pro();\n", '', 1],
-    [
-        "            <?php if (! \$is_pro) : ?>\n"
-            . "                <p class=\"description\">\n"
-            . "                    <?php echo esc_html__('PRO abilities are listed so you can see the full surface; they stay off until a pro license is active.', 'wpmcp'); ?>\n"
-            . "                </p>\n"
-            . "            <?php endif; ?>\n\n",
-        '',
-        1,
-    ],
-    [
-                "                                <?php if ('pro' === \$row['tier']) : ?>\n"
-        . "                                    <strong><?php echo esc_html__('PRO', 'wpmcp'); ?></strong>\n"
-        . "                                    <?php if (\$row['pro_locked']) : ?>\n"
-        . "                                        <span class=\"description\"><?php echo esc_html__('(locked)', 'wpmcp'); ?></span>\n"
-        . "                                    <?php endif; ?>\n"
-        . "                                <?php else : ?>\n"
-        . "                                    <?php echo esc_html__('free', 'wpmcp'); ?>\n"
-        . "                                <?php endif; ?>\n",
+        "                                <?php if ('pro' === \$row['tier']) : ?>\n"
+            . "                                    <strong><?php echo esc_html__('PRO', 'wpmcp'); ?></strong>\n"
+            . "                                <?php else : ?>\n"
+            . "                                    <?php echo esc_html__('free', 'wpmcp'); ?>\n"
+            . "                                <?php endif; ?>\n",
         "                                <?php echo esc_html__('free', 'wpmcp'); ?>\n",
-        1,
-    ],
-    [
-        "                                    <?php elseif (\$row['pro_locked']) : ?>\n"
-            . "                                        <button type=\"button\" class=\"button button-small\" disabled\n"
-            . "                                            title=\"<?php echo esc_attr__('Requires a pro license.', 'wpmcp'); ?>\">\n"
-            . "                                            <?php echo esc_html__('Enable', 'wpmcp'); ?>\n"
-            . "                                        </button>\n",
-        '',
         1,
     ],
 ];

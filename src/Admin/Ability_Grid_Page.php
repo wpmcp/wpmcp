@@ -27,8 +27,15 @@ if (! defined('ABSPATH')) {
  *  - Every write goes through Governance::set_ability_toggle() /
  *    set_domain_toggle() — the existing narrowing mechanism, no bypass —
  *    and lands in the governance audit log with the acting user.
- *  - Abilities whose tier is not available in this install are absent from
- *    the grid entirely (issue #161): no locked rows, no upsell copy.
+ *  - The grid is a view of the surface this install would actually register,
+ *    not of the surface that exists somewhere. An ability whose tier this
+ *    install cannot run is absent from it entirely (issue #161) rather than
+ *    listed and locked: no lock state, no upsell copy, and no write path.
+ *    This is deliberate for BOTH builds. The directory build has one tier, so
+ *    there is nothing to withhold; the build we sell ourselves would otherwise
+ *    have to render a row for an ability the Registrar refuses to register,
+ *    and the only honest label for that row is the pay-to-unlock copy this
+ *    screen must not carry.
  *  - Default-off dangerous abilities (exec, db writes, fs writes) CANNOT be
  *    enabled here while their execution opt-in filter is absent: the filter
  *    (see Opt_In_Gates) stays the master gate, and the grid refuses rather
@@ -154,19 +161,16 @@ class Ability_Grid_Page
      * opt-in gate state, and the effective enabled state with the layer
      * that decided it.
      *
-     * Abilities whose tier is not available in this install are simply
-     * absent (issue #161): the grid lists only what the Registrar would
-     * actually register, so there is no locked or upsell row state.
+     * Sourced from declared_by_name(), so the grid lists only what this
+     * install would actually register (issue #161): abilities it cannot run
+     * are absent rather than shown as a locked or upsell row.
      *
      * @return array<string, array<int, array>>
      */
     public function rows(): array
     {
         $rows = [];
-        foreach (Plugin::instance()->declared_abilities() as $ability) {
-            if ('pro' === $ability->tier && ! Gate::is_pro()) {
-                continue;
-            }
+        foreach ($this->declared_by_name() as $ability) {
             $rows[ $ability->domain ][] = $this->row_for($ability);
         }
         ksort($rows);
@@ -229,11 +233,32 @@ class Ability_Grid_Page
         Governance_Audit_Log::record($subject, 'user:' . $actor, $enabled);
     }
 
-    /** @return array<string, Ability> */
+    /**
+     * Whether this install would actually register the ability, i.e. the same
+     * predicate Registrar::register() applies. It lives here once so the read
+     * model (rows()) and the write model (toggle_ability(), toggle_domain())
+     * cannot drift: an ability with no row must also have no write path.
+     */
+    private function is_available(Ability $a): bool
+    {
+        return 'pro' !== $a->tier || Gate::is_pro();
+    }
+
+    /**
+     * The abilities this screen governs, keyed by name: the declared surface
+     * narrowed to what this install can actually register. Everything else is
+     * absent rather than shown locked (issue #161), for reads and writes
+     * alike, so a hand-crafted POST cannot toggle a row nobody can see.
+     *
+     * @return array<string, Ability>
+     */
     private function declared_by_name(): array
     {
         $map = [];
         foreach (Plugin::instance()->declared_abilities() as $ability) {
+            if (! $this->is_available($ability)) {
+                continue;
+            }
             $map[ $ability->name ] = $ability;
         }
         return $map;

@@ -64,8 +64,11 @@ else. Concretely:
 * `eval()` and `proc_open()` were both pro-tier abilities, so they leave with
   the rest of the paid tier. The directory build contains no execution
   construct at all, checked at token level by the build script.
-* No pay-to-unlock copy survives anywhere, including in the ability grid, which
-  used to render locked rows reading "disabled: no pro license".
+* No pay-to-unlock copy survives anywhere. The ability grid used to render
+  locked rows reading "disabled: no pro license"; issue #161 removed that row
+  state from the source outright, so the screen now lists only the abilities
+  the install would actually register. Nothing is shown withheld, in this
+  build or the one we sell.
 
 **Divergence from the marketing plan worth flagging.** Phase 1 item 10 says to
 "hard-code the unlimited value" for snapshot history. The build ships a flat
