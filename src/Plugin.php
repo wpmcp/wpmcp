@@ -233,6 +233,8 @@ use WPMCP\Tools\Elementor\Export_Page;
 use WPMCP\Tools\Elementor\Save_As_Template;
 use WPMCP\Tools\Elementor\Apply_Template;
 use WPMCP\Tools\Elementor\Import_Template;
+use WPMCP\Tools\Elementor\Export_Template;
+use WPMCP\Tools\Elementor\Resolve_Theme_Template;
 use WPMCP\Tools\Elementor\Create_Theme_Template;
 use WPMCP\Tools\Elementor\Set_Template_Conditions;
 use WPMCP\Tools\Elementor\Get_Theme_Template;
@@ -4577,6 +4579,25 @@ final class Plugin
             'create'
         ));
 
+        $export_template = new Export_Template();
+
+        $registrar->register(new Ability(
+            'wpmcp/export-template',
+            'pro',
+            'Export an elementor_library template to a portable structure (content element tree + page_settings + type + version + conditions), the envelope import-template accepts, so a saved template can round-trip as JSON between sites. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'template_id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'template_id' ],
+            ],
+            [$export_template, 'handle'],
+            'edit_posts',
+            'elementor',
+            'read'
+        ));
+
         $create_theme_template = new Create_Theme_Template();
 
         $registrar->register(new Ability(
@@ -4651,6 +4672,27 @@ final class Plugin
                 ],
             ],
             [$list_theme_templates, 'handle'],
+            'edit_posts',
+            'elementor',
+            'read'
+        ));
+
+        $resolve_theme_template = new Resolve_Theme_Template();
+
+        $registrar->register(new Ability(
+            'wpmcp/resolve-theme-template',
+            'pro',
+            'Report which Elementor theme-builder template wins for a location (header, footer, single, archive, ...): every candidate with its display conditions and score, plus the winner. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'location'  => [ 'type' => 'string' ],
+                    'post_type' => [ 'type' => 'string' ],
+                    'post_id'   => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'location' ],
+            ],
+            [$resolve_theme_template, 'handle'],
             'edit_posts',
             'elementor',
             'read'

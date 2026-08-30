@@ -36,6 +36,11 @@ class Import_Template
             $type = (string) $args['template_type'];
         }
 
+        // Regenerate every element id on import so a template exported from
+        // another site (or the same one) never carries colliding ids.
+        $taken   = [];
+        $content = Elementor_Template_Data::regenerate_ids($content, $taken);
+
         $template_id = Elementor_Template_Data::create($title, $type, $content);
         if (is_wp_error($template_id)) {
             return $template_id;
