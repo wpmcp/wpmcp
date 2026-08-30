@@ -1,4 +1,4 @@
-=== WP MCP for WooCommerce - AI Store Management with Snapshot Safety ===
+=== WP MCP for WooCommerce ===
 Contributors: fahdi
 Tags: woocommerce, mcp, ai, ai agent, claude
 Requires at least: 6.9
