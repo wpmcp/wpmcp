@@ -116,7 +116,30 @@ class Elementor_Kit_Data
             'custom_colors'     => array_values(is_array($settings['custom_colors'] ?? null) ? $settings['custom_colors'] : []),
             'system_typography' => self::with_system_defaults($settings['system_typography'] ?? [], self::DEFAULT_SYSTEM_TYPOGRAPHY),
             'custom_typography' => array_values(is_array($settings['custom_typography'] ?? null) ? $settings['custom_typography'] : []),
+            'spacing'           => self::spacing($settings),
         ];
+    }
+
+    /**
+     * The kit's persisted layout spacing tokens as a keyed subset of the
+     * settings (absent keys are simply omitted; the builder falls back to
+     * Elementor's own defaults for those).
+     *
+     * TODO(#60): extend with breakpoint-specific variants (space_between_widgets_tablet
+     * etc.) once update-global-spacing lands; reads should stay in lockstep
+     * with whatever that write tool can touch.
+     */
+    private static function spacing(array $settings): array
+    {
+        $keys    = ['space_between_widgets', 'container_padding', 'container_width', 'viewport_lg', 'viewport_md'];
+        $spacing = [];
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $settings)) {
+                $spacing[$key] = $settings[$key];
+            }
+        }
+
+        return $spacing;
     }
 
     public static function default_system_colors(): array

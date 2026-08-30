@@ -219,6 +219,8 @@ use WPMCP\Tools\Elementor\Generate_Widget;
 use WPMCP\Tools\Elementor\Get_Global_Settings;
 use WPMCP\Tools\Elementor\Update_Global_Colors;
 use WPMCP\Tools\Elementor\Update_Global_Typography;
+use WPMCP\Tools\Elementor\Replace_System_Colors;
+use WPMCP\Tools\Elementor\Replace_System_Typography;
 use WPMCP\Tools\Elementor\List_Global_Classes;
 use WPMCP\Tools\Elementor\Create_Global_Class;
 use WPMCP\Tools\Elementor\Update_Global_Class;
@@ -4469,6 +4471,46 @@ final class Plugin
                 'required'   => [ 'expected_hash' ],
             ],
             [$update_global_typography, 'handle'],
+            'manage_options',
+            'elementor',
+            'update'
+        ));
+
+        $replace_system_colors = new Replace_System_Colors();
+
+        $registrar->register(new Ability(
+            'wpmcp/replace-system-colors',
+            'pro',
+            'Atomically replace all four Elementor system color slots (primary, secondary, text, accent) on the active kit. The replacement must cover every slot exactly once with a valid hex color or nothing is written: all four slots or none. Requires expected_hash from get-global-settings. Undoable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'system_colors' => [ 'type' => 'array' ],
+                ],
+                'required'   => [ 'expected_hash', 'system_colors' ],
+            ],
+            [$replace_system_colors, 'handle'],
+            'manage_options',
+            'elementor',
+            'update'
+        ));
+
+        $replace_system_typography = new Replace_System_Typography();
+
+        $registrar->register(new Ability(
+            'wpmcp/replace-system-typography',
+            'pro',
+            'Atomically replace all four Elementor system typography slots (primary, secondary, text, accent) on the active kit. The replacement must cover every slot exactly once or nothing is written: all four slots or none. Any typography_* field is kept, and setting a font enables custom typography so the token renders. Requires expected_hash from get-global-settings. Undoable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'expected_hash'     => [ 'type' => 'string' ],
+                    'system_typography' => [ 'type' => 'array' ],
+                ],
+                'required'   => [ 'expected_hash', 'system_typography' ],
+            ],
+            [$replace_system_typography, 'handle'],
             'manage_options',
             'elementor',
             'update'
