@@ -39,7 +39,15 @@ class Add_Atomic_Widget
         }
         [$post_id, $elements] = $read;
 
-        $element   = Atomic_Element::widget($widget_type, $settings);
+        $element = Atomic_Element::widget($widget_type, $settings);
+
+        $style_warnings = [];
+        if (is_array($args['style'] ?? null) && [] !== $args['style']) {
+            $built          = Atomic_Styles::build($element['id'], $args['style']);
+            $element        = Atomic_Styles::attach($element, $built);
+            $style_warnings = $built['warnings'];
+        }
+
         $parent_id = (string) ($args['parent_id'] ?? '');
         $position  = isset($args['position']) ? (int) $args['position'] : null;
 
@@ -51,6 +59,8 @@ class Add_Atomic_Widget
         if (is_wp_error($out)) {
             return $out;
         }
+
+        $mapped['warnings'] = array_merge($mapped['warnings'] ?? [], $style_warnings);
 
         return $out
             + ['element_id' => $element['id'], 'widget_type' => $widget_type]

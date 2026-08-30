@@ -29,6 +29,15 @@ class Atomic_Element
             && class_exists('\\Elementor\\Modules\\AtomicWidgets\\Module');
     }
 
+    /**
+     * Whether the atomic write tools should register at all (issue #62): the
+     * builder version gate, overridable by tests or site code via filter.
+     */
+    public static function registration_supported(): bool
+    {
+        return (bool) apply_filters('wpmcp_elementor_atomic_supported', self::is_supported());
+    }
+
     public static function container(string $el_type, array $settings): array
     {
         if (! isset($settings['classes'])) {
