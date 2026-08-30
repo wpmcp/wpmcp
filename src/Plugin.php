@@ -2280,6 +2280,12 @@ final class Plugin
             ['cloud-list-assets', 'read', new \WPMCP\Tools\Cloud\Cloud_List_Assets(), 'List the assets (widget/block specs) in this site\'s WP MCP Cloud account. Read-only', [], []],
             ['cloud-push-assets', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Assets(), 'Push this site\'s custom widget and block specs up to WP MCP Cloud (backup + reuse across sites). Optionally filter by type (widget|block)', ['types' => ['type' => 'array']], []],
             ['cloud-pull-assets', 'create', new \WPMCP\Tools\Cloud\Cloud_Pull_Assets(), 'Pull the builder assets from this site\'s WP MCP Cloud account and recreate them locally as custom widget/block specs (each validated before it is stored)', [], []],
+            // Gateway credential lifecycle (issue #142). Locally-first: none
+            // of these touch the network, so provisioning and revocation
+            // work with the cloud unreachable.
+            ['gateway-provision', 'create', new \WPMCP\Tools\Cloud\Gateway_Provision(), 'Provision (or rotate) the site-local gateway credential. Returns the refresh token plaintext exactly once; any previous gateway credential stops working. Requires confirm: true', ['confirm' => ['type' => 'boolean']], ['confirm']],
+            ['gateway-status', 'read', new \WPMCP\Tools\Cloud\Gateway_Status(), 'Report whether the site-local gateway credential is provisioned, and its client_id. Never returns token material. Read-only', [], []],
+            ['gateway-revoke', 'delete', new \WPMCP\Tools\Cloud\Gateway_Revoke(), 'Revoke the site-local gateway credential: removes the gateway client and every token bound to it. Local-only and idempotent', [], []],
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {

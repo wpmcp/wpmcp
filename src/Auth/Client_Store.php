@@ -218,6 +218,59 @@ class Client_Store
         return $removed;
     }
 
+    /**
+     * Non-creating lookup by registration identity (issue #142): the stored
+     * record whose client_name and redirect_uris match exactly, or null.
+     *
+     * This exists so teardown paths (Gateway_Credential::deprovision, the
+     * gateway-revoke tool) can locate the gateway client WITHOUT going
+     * through create(), which would re-provision the very thing being torn
+     * down. URI order is irrelevant: both sides are compared sorted.
+     */
+    public static function find_by_registration(string $name, array $redirect_uris): ?array
+    {
+        $wanted = array_values(array_unique(array_map('strval', $redirect_uris)));
+        sort($wanted);
+
+        foreach (self::load() as $record) {
+            if ((string) ($record['client_name'] ?? '') !== $name) {
+                continue;
+            }
+            $uris = array_map('strval', (array) ($record['redirect_uris'] ?? []));
+            sort($uris);
+            if ($uris === $wanted) {
+                return $record;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Revoke a client outright (issue #142): remove its record and evict
+     * every access and refresh token bound to it. Idempotent; returns false
+     * when the client was not registered (nothing to do), true when a
+     * record was removed.
+     */
+    public static function revoke(string $client_id): bool
+    {
+        $stored = self::load();
+        $known  = isset($stored[ $client_id ]);
+
+        if ($known) {
+            unset($stored[ $client_id ]);
+            self::save($stored);
+        }
+
+        // Tokens are evicted unconditionally: a half-revoked state (client
+        // row already gone, tokens lingering) must still converge to fully
+        // dead on a repeat call.
+        Token_Store::revoke_for_client($client_id);
+        Refresh_Token_Store::revoke_for_client($client_id);
+
+        return $known;
+    }
+
     /** Fetch a client's stored record (never includes the plaintext secret), or null. */
     public static function get(string $client_id): ?array
     {

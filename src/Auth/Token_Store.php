@@ -165,6 +165,26 @@ class Token_Store
         return $removed;
     }
 
+    /** Revoke every access token bound to a client. Returns the number removed. */
+    public static function revoke_for_client(string $client_id): int
+    {
+        $stored  = self::load();
+        $removed = 0;
+
+        foreach ($stored as $key => $record) {
+            if ((string) ($record['client_id'] ?? '') === $client_id) {
+                unset($stored[ $key ]);
+                $removed++;
+            }
+        }
+
+        if ($removed > 0) {
+            self::save($stored);
+        }
+
+        return $removed;
+    }
+
     /** Whether any access token is currently bound to a client. */
     public static function has_tokens_for_client(string $client_id): bool
     {
