@@ -26,16 +26,39 @@ class Cloud_Config
         return (string) (Cloud_Credentials::get('api_key') ?? '');
     }
 
+    /**
+     * A connection needs a cloud URL plus something to authenticate with:
+     * either the phase A API key or the phase 2 token bundle. Requiring the
+     * API key would make an OAuth-only connection unusable, because
+     * Cloud_Client refuses the request before its auth ladder ever runs.
+     */
     public static function is_configured(): bool
     {
-        return '' !== self::base_url() && '' !== self::api_key();
+        if ('' === self::base_url()) {
+            return false;
+        }
+        if ('' !== self::api_key()) {
+            return true;
+        }
+        $bundle = Cloud_Credentials::all();
+        return '' !== (string) ($bundle['access_token'] ?? '')
+            || '' !== (string) ($bundle['refresh_token'] ?? '');
     }
 
+    /**
+     * Point this site at a cloud. Deliberately a REPLACE, not a merge: a
+     * re-run of cloud-connect may be pointing at a different cloud or a
+     * different account, and keeping the previous connection's access token,
+     * refresh token or client id would make Cloud_Client prefer a foreign
+     * bearer token over the key just supplied, and hand the old refresh token
+     * to the newly supplied URL.
+     */
     public static function set(string $url, string $key): void
     {
-        Cloud_Credentials::merge([
+        Cloud_Credentials::replace([
             'base_url' => esc_url_raw(rtrim($url, '/')),
             'api_key'  => sanitize_text_field($key),
         ]);
+        delete_option(Token_Refresher::HEALTH_OPTION);
     }
 }

@@ -9,10 +9,10 @@ use WPMCP\Cloud\Cloud_Credentials;
  * Issue #141 phase 1: the encrypted cloud credential vault.
  *
  * Covers the crypto round-trip, corrupted-ciphertext handling, and the
- * transparent plaintext migration. The Token_Refresher branch tests
- * (winner, both race-loser shapes, lock-timeout bail, 5xx untouched
- * bundle, genuine rejection, success merge) and the client auth-resolution
- * order land next in this phase.
+ * transparent plaintext migration (including its refusal to delete the
+ * plaintext copies when the sealed write does not come back). The refresher
+ * branches live in TokenRefresherTest and the client auth-resolution order
+ * in CloudAuthResolutionTest.
  */
 class CloudCredentialsTest extends \WP_UnitTestCase
 {
@@ -68,5 +68,44 @@ class CloudCredentialsTest extends \WP_UnitTestCase
         $all = Cloud_Credentials::all();
         $this->assertSame('k', $all['api_key']);
         $this->assertSame('t', $all['access_token']);
+    }
+
+    public function test_migration_keeps_the_plaintext_options_when_the_sealed_write_does_not_land(): void
+    {
+        update_option('wpmcp_cloud_url', 'https://cloud.example');
+        update_option('wpmcp_cloud_key', 'legacy-key');
+
+        // Simulate a failing write (full disk, a filtering plugin, an encrypt
+        // failure): the vault stays empty, so the only copy of the credentials
+        // is still the plaintext pair and deleting it would be unrecoverable.
+        $block = static fn () => '';
+        add_filter('pre_update_option_' . Cloud_Credentials::OPTION, $block, 10, 1);
+
+        try {
+            $this->assertSame('legacy-key', Cloud_Config::api_key());
+        } finally {
+            remove_filter('pre_update_option_' . Cloud_Credentials::OPTION, $block, 10);
+        }
+
+        $this->assertSame('https://cloud.example', get_option('wpmcp_cloud_url'));
+        $this->assertSame('legacy-key', get_option('wpmcp_cloud_key'));
+    }
+
+    public function test_all_reflects_a_write_made_by_another_request_when_forced(): void
+    {
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'k']);
+        $this->assertSame('k', Cloud_Credentials::all()['api_key']);
+
+        // Stand in for a concurrent process: write the option behind the
+        // per-request caches, the way a second PHP worker would.
+        global $wpdb;
+        $sealed = get_option(Cloud_Credentials::OPTION);
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'rotated']);
+        $rotated = get_option(Cloud_Credentials::OPTION);
+        $wpdb->update($wpdb->options, ['option_value' => $sealed], ['option_name' => Cloud_Credentials::OPTION]);
+        wp_cache_set(Cloud_Credentials::OPTION, $sealed, 'options');
+        $wpdb->update($wpdb->options, ['option_value' => $rotated], ['option_name' => Cloud_Credentials::OPTION]);
+
+        $this->assertSame('rotated', Cloud_Credentials::all(true)['api_key']);
     }
 }

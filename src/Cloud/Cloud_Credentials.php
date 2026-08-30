@@ -21,7 +21,18 @@ if (! defined('ABSPATH')) {
  *
  * On first read the vault transparently imports the phase A plaintext options
  * (wpmcp_cloud_url / wpmcp_cloud_key) and deletes them, so existing connected
- * sites keep working with no re-connect.
+ * sites keep working with no re-connect. The plaintext copies are deleted only
+ * after the sealed blob has been read back and confirmed to decrypt to the
+ * same values: a write that silently does not land must never be the moment
+ * the site loses its only copy of the credentials.
+ *
+ * Reads pass through a per-request memo keyed on the raw sealed blob, so the
+ * several reads a single cloud request performs cost one decrypt rather than
+ * four; because the key is the stored ciphertext itself, any write (this
+ * request's or another process's, once the options cache is invalidated) is
+ * picked up automatically. Token_Refresher needs the opposite guarantee for
+ * its post-lock re-read, so all() takes a $force flag that drops the WordPress
+ * options cache entry and re-reads from the database.
  */
 class Cloud_Credentials
 {
@@ -32,19 +43,26 @@ class Cloud_Credentials
 
     private const FIELDS = ['base_url', 'api_key', 'access_token', 'refresh_token', 'access_expires_at', 'client_id'];
 
-    /** @return array<string,mixed> the full credential set; empty when not connected or undecryptable. */
-    public static function all(): array
+    /** Raw sealed blob the memo below was decoded from; null when unpopulated. */
+    private static ?string $memo_blob = null;
+
+    /** @var array<string,mixed> */
+    private static array $memo_fields = [];
+
+    /**
+     * @param bool $force re-read from the database, bypassing the options
+     *                    object cache and the per-request memo. Required
+     *                    whenever the answer must reflect a write another
+     *                    process may have made since this request started.
+     * @return array<string,mixed> the full credential set; empty when not connected or undecryptable.
+     */
+    public static function all(bool $force = false): array
     {
-        $blob = get_option(self::OPTION, '');
-        if (! is_string($blob) || '' === $blob) {
-            return self::migrate_plaintext();
+        $fields = self::read_vault($force);
+        if ([] !== $fields) {
+            return $fields;
         }
-        $plain = self::decrypt($blob);
-        if (null === $plain) {
-            return [];
-        }
-        $data = json_decode($plain, true);
-        return is_array($data) ? array_intersect_key($data, array_flip(self::FIELDS)) : [];
+        return self::migrate_plaintext();
     }
 
     /** @return mixed */
@@ -53,13 +71,13 @@ class Cloud_Credentials
         return self::all()[ $field ] ?? null;
     }
 
-    /** Merge $fields onto the stored set and re-seal. */
+    /** Merge $fields onto the freshest stored set and re-seal. */
     public static function merge(array $fields): void
     {
-        self::write(array_merge(self::all(), array_intersect_key($fields, array_flip(self::FIELDS))));
+        self::write(array_merge(self::all(true), array_intersect_key($fields, array_flip(self::FIELDS))));
     }
 
-    /** Replace the stored set entirely. */
+    /** Replace the stored set entirely; every field not supplied is dropped. */
     public static function replace(array $fields): void
     {
         self::write(array_intersect_key($fields, array_flip(self::FIELDS)));
@@ -67,19 +85,66 @@ class Cloud_Credentials
 
     public static function clear(): void
     {
+        self::$memo_blob = null;
+        self::$memo_fields = [];
         delete_option(self::OPTION);
         delete_option(self::LEGACY_URL_OPTION);
         delete_option(self::LEGACY_KEY_OPTION);
-    }
-
-    private static function write(array $fields): void
-    {
-        update_option(self::OPTION, self::encrypt((string) wp_json_encode($fields)), false);
+        delete_option(Token_Refresher::HEALTH_OPTION);
     }
 
     /**
-     * One-time import of the phase A plaintext options. Deletes the plaintext
-     * copies once sealed so no cloud secret remains unencrypted.
+     * Decode the sealed option. Separate from all() so migrate_plaintext() can
+     * verify its own write without recursing back through the migration path.
+     *
+     * @return array<string,mixed>
+     */
+    private static function read_vault(bool $force = false): array
+    {
+        if ($force) {
+            wp_cache_delete(self::OPTION, 'options');
+            self::$memo_blob = null;
+        }
+
+        $blob = get_option(self::OPTION, '');
+        if (! is_string($blob) || '' === $blob) {
+            return [];
+        }
+        if (null !== self::$memo_blob && $blob === self::$memo_blob) {
+            return self::$memo_fields;
+        }
+
+        $plain = self::decrypt($blob);
+        $data  = null === $plain ? null : json_decode($plain, true);
+        $fields = is_array($data) ? array_intersect_key($data, array_flip(self::FIELDS)) : [];
+
+        self::$memo_blob   = $blob;
+        self::$memo_fields = $fields;
+        return $fields;
+    }
+
+    private static function write(array $fields): bool
+    {
+        $json = wp_json_encode($fields);
+        if (! is_string($json)) {
+            return false;
+        }
+        self::$memo_blob   = null;
+        self::$memo_fields = [];
+        update_option(self::OPTION, self::encrypt($json), false);
+        return true;
+    }
+
+    /**
+     * One-time import of the phase A plaintext options. The plaintext copies
+     * are deleted only once the sealed blob reads back with the same values,
+     * so a write that fails (or an encrypt that produced nothing) leaves the
+     * site connected on the legacy options instead of destroying them.
+     *
+     * This is a write on a read path, including the read-only cloud-status
+     * tool. It happens at most once per site, and doing it lazily is what lets
+     * an already-connected site keep working without a re-connect; moving it
+     * into an upgrade routine is a phase 2 cleanup.
      *
      * @return array<string,mixed>
      */
@@ -90,8 +155,18 @@ class Cloud_Credentials
         if ('' === $url && '' === $key) {
             return [];
         }
+
         $fields = ['base_url' => rtrim($url, '/'), 'api_key' => $key];
-        self::write($fields);
+        if (! self::write($fields)) {
+            return $fields;
+        }
+
+        $stored = self::read_vault(true);
+        if (($stored['base_url'] ?? null) !== $fields['base_url'] || ($stored['api_key'] ?? null) !== $fields['api_key']) {
+            // The seal did not land. Keep the plaintext: it is the only copy.
+            return $fields;
+        }
+
         delete_option(self::LEGACY_URL_OPTION);
         delete_option(self::LEGACY_KEY_OPTION);
         return $fields;
@@ -100,11 +175,13 @@ class Cloud_Credentials
     private static function encrypt(string $plaintext): string
     {
         $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- makes the binary sodium nonce+ciphertext safe to store in the options table; not obfuscation.
         return base64_encode($nonce . sodium_crypto_secretbox($plaintext, $nonce, self::key()));
     }
 
     private static function decrypt(string $blob): ?string
     {
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- decodes the storage encoding written by encrypt(); not obfuscation.
         $raw = base64_decode($blob, true);
         if (false === $raw || strlen($raw) <= SODIUM_CRYPTO_SECRETBOX_NONCEBYTES) {
             return null;

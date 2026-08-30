@@ -22,6 +22,16 @@ class Cloud_Client
 {
     private const API_BASE = '/wpmcp-cloud/v1';
 
+    /**
+     * OAuth token endpoint, used by Token_Refresher for the refresh_token
+     * grant. It lives here, next to API_BASE, so this class stays the only
+     * place that knows where the backend answers. The path mirrors the
+     * plugin's own token route (see Auth\Endpoints), which is what the phase
+     * A WordPress-backed cloud exposes; phase 2 confirms it against the PKCE
+     * connect flow.
+     */
+    public const TOKEN_PATH = '/wp-json/wpmcp/v1/oauth/token';
+
     /** @return array|\WP_Error decoded JSON body, or an error. */
     public function get(string $path)
     {
