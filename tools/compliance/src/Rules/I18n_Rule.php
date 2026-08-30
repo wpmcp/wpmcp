@@ -35,6 +35,25 @@ final class I18n_Rule extends Base_Rule
         '_nx_noop' => 3,
     ];
 
+    /** function => zero-based indexes of the arguments that carry translatable text */
+    private const TEXT_ARGUMENTS = [
+        '__' => [0],
+        '_e' => [0],
+        'esc_html__' => [0],
+        'esc_html_e' => [0],
+        'esc_attr__' => [0],
+        'esc_attr_e' => [0],
+        'translate' => [0],
+        '_x' => [0],
+        '_ex' => [0],
+        'esc_html_x' => [0],
+        'esc_attr_x' => [0],
+        '_n' => [0, 1],
+        '_n_noop' => [0, 1],
+        '_nx' => [0, 1],
+        '_nx_noop' => [0, 1],
+    ];
+
     private const MENU_FUNCTIONS = ['add_menu_page', 'add_submenu_page', 'add_options_page', 'add_management_page'];
 
     public function id(): string
@@ -57,7 +76,9 @@ final class I18n_Rule extends Base_Rule
         return 'Every translation call must pass the plugin slug as a literal text domain. A variable '
             . 'or concatenated domain cannot be extracted, a mismatched domain is never loaded, and a '
             . 'missing domain silently falls back to core. load_plugin_textdomain has been unnecessary '
-            . 'for directory plugins since WordPress 4.6 and warns since 6.7.';
+            . 'for directory plugins since WordPress 4.6 and warns since 6.7. The translatable text '
+            . 'itself must also be one string literal, and a string carrying placeholders needs a '
+            . '/* translators: */ comment so the translator knows what each one will hold.';
     }
 
     public function check(Rule_Context $context): array
@@ -91,6 +112,14 @@ final class I18n_Rule extends Base_Rule
                     $call['line'],
                     sprintf('text domain "%s" does not match the declared domain "%s"', $call['domain'], $expected)
                 );
+            }
+
+            foreach ($this->non_literal_texts($file) as $problem) {
+                $findings[] = $this->finding($file, $problem['line'], $problem['message']);
+            }
+
+            foreach ($this->missing_translators_comments($file) as $problem) {
+                $findings[] = $this->finding($file, $problem['line'], $problem['message']);
             }
 
             foreach ($file->find_calls(['load_plugin_textdomain'], false) as $call) {
@@ -130,6 +159,214 @@ final class I18n_Rule extends Base_Rule
         }
 
         return $findings;
+    }
+
+    /**
+     * WordPress.WP.I18n.MissingTranslatorsComment. A string with printf
+     * placeholders is meaningless to a translator without a note saying what
+     * each one holds, so WPCS and Plugin Check both require a comment ending
+     * on the call's own line or the line directly above it.
+     *
+     * Public so the src/-wide regression guard can run the same check the
+     * engine runs, instead of reimplementing the sniff beside it.
+     *
+     * @return array<int,array{line:int,message:string}>
+     */
+    public function missing_translators_comments(Source_File $file): array
+    {
+        $problems = [];
+        foreach ($this->text_arguments($file) as $argument) {
+            if (! $this->has_placeholder($argument['text'])) {
+                continue;
+            }
+            if ($this->has_translators_comment($file->tokens(), $argument['index'], $argument['line'])) {
+                continue;
+            }
+            $problems[] = [
+                'line' => $argument['line'],
+                'message' => sprintf(
+                    '%s() has placeholders but no translators comment on or above the line; a translator cannot tell what %s holds',
+                    $argument['name'],
+                    $this->first_placeholder($argument['text'])
+                ),
+            ];
+        }
+        return $problems;
+    }
+
+    /**
+     * WordPress.WP.I18n.NonSingularStringLiteralText. make-pot reads the
+     * source, not the runtime, so a concatenated or interpolated argument
+     * produces no string in the .pot file at all.
+     *
+     * @return array<int,array{line:int,message:string}>
+     */
+    public function non_literal_texts(Source_File $file): array
+    {
+        $problems = [];
+        foreach ($this->text_arguments($file) as $argument) {
+            if ($argument['literal']) {
+                continue;
+            }
+            $problems[] = [
+                'line' => $argument['line'],
+                'message' => sprintf(
+                    'the text passed to %s() is not a single string literal, so make-pot cannot extract it',
+                    $argument['name']
+                ),
+            ];
+        }
+        return $problems;
+    }
+
+    /**
+     * Every translatable-text argument of every gettext call in the file.
+     *
+     * @return array<int,array{name:string,index:int,line:int,text:string,literal:bool}>
+     */
+    private function text_arguments(Source_File $file): array
+    {
+        $found = [];
+        $tokens = $file->tokens();
+        $count = count($tokens);
+        for ($i = 0; $i < $count; $i++) {
+            $token = $tokens[$i];
+            if (! is_array($token) || T_STRING !== $token[0] || ! isset(self::TEXT_ARGUMENTS[$token[1]])) {
+                continue;
+            }
+            $previous = $this->previous_significant($tokens, $i);
+            if (null !== $previous && in_array($previous[0], [T_FUNCTION, T_OBJECT_OPERATOR, T_DOUBLE_COLON, T_NEW], true)) {
+                continue;
+            }
+            $arguments = $this->argument_tokens($tokens, $i);
+            if (null === $arguments) {
+                continue;
+            }
+            foreach (self::TEXT_ARGUMENTS[$token[1]] as $position) {
+                if (! isset($arguments[$position])) {
+                    continue;
+                }
+                $parts = $arguments[$position];
+                $literal = 1 === count($parts)
+                    && is_array($parts[0])
+                    && T_CONSTANT_ENCAPSED_STRING === $parts[0][0];
+                $found[] = [
+                    'name' => $token[1],
+                    'index' => $i,
+                    'line' => $token[2],
+                    'text' => $literal ? (string) $parts[0][1] : '',
+                    'literal' => $literal,
+                ];
+            }
+        }
+        return $found;
+    }
+
+    /**
+     * A printf placeholder, ignoring the escaped %% that renders a literal
+     * percent sign and is not a placeholder.
+     */
+    private function has_placeholder(string $text): bool
+    {
+        return '' !== $this->first_placeholder($text);
+    }
+
+    private function first_placeholder(string $text): string
+    {
+        $text = str_replace('%%', '', $text);
+        return preg_match('/%(?:\\d+\\$)?[-+ 0\']*[0-9]*(?:\\.[0-9]+)?[bcdeEfFgGosuxX]/', $text, $matches)
+            ? $matches[0]
+            : '';
+    }
+
+    /**
+     * @param array<int,array|string> $tokens
+     */
+    private function has_translators_comment(array $tokens, int $index, int $line): bool
+    {
+        for ($i = $index - 1; $i >= 0; $i--) {
+            $token = $tokens[$i];
+            if (is_string($token)) {
+                continue;
+            }
+            if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                $ends_on = $token[2] + substr_count((string) $token[1], "\n");
+                if ($ends_on < $line - 1) {
+                    return false;
+                }
+                if (false !== stripos((string) $token[1], 'translators:')) {
+                    return true;
+                }
+                continue;
+            }
+            if ($token[2] < $line - 1) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @param  array<int,array|string> $tokens
+     * @return array{0:array|string}[]|null
+     */
+    private function argument_tokens(array $tokens, int $index): ?array
+    {
+        $count = count($tokens);
+        $i = $index + 1;
+        while ($i < $count && is_array($tokens[$i]) && T_WHITESPACE === $tokens[$i][0]) {
+            $i++;
+        }
+        if ($i >= $count || '(' !== $tokens[$i]) {
+            return null;
+        }
+        $depth = 0;
+        $arguments = [[]];
+        for (; $i < $count; $i++) {
+            $token = $tokens[$i];
+            if (is_string($token)) {
+                if ('(' === $token || '[' === $token) {
+                    $depth++;
+                    if (1 === $depth) {
+                        continue;
+                    }
+                } elseif (')' === $token || ']' === $token) {
+                    $depth--;
+                    if (0 === $depth) {
+                        break;
+                    }
+                } elseif (',' === $token && 1 === $depth) {
+                    $arguments[] = [];
+                    continue;
+                }
+                $arguments[count($arguments) - 1][] = $token;
+                continue;
+            }
+            if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT, T_WHITESPACE], true)) {
+                continue;
+            }
+            $arguments[count($arguments) - 1][] = $token;
+        }
+        return $arguments;
+    }
+
+    /**
+     * @param  array<int,array|string> $tokens
+     * @return array|null
+     */
+    private function previous_significant(array $tokens, int $index): ?array
+    {
+        for ($i = $index - 1; $i >= 0; $i--) {
+            $token = $tokens[$i];
+            if (is_string($token)) {
+                return null;
+            }
+            if (in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+            return $token;
+        }
+        return null;
     }
 
     /**
