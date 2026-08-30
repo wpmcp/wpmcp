@@ -18,7 +18,7 @@ use WPMCP\Tests\Free\Platform\RegisteredAbilities;
  * showing tier, risk hints, and the effective state WITH the layer that
  * decides it. Toggles write through the existing Governance mechanism only
  * (no new bypass), every change is audited with the acting user, pro rows
- * are visible-but-locked when unlicensed, and default-off dangerous
+ * whose tier is unavailable have no row at all (issue #161), and default-off dangerous
  * abilities (exec, db writes, fs writes) cannot be enabled from the grid
  * while their execution opt-in filter is absent — the filter stays the
  * master gate.
@@ -76,6 +76,10 @@ class AbilityGridPageTest extends \WP_UnitTestCase
 
     public function test_grid_rows_equal_the_registered_ability_surface(): void
     {
+        // Licensed, so the grid surface matches the full declared manifest;
+        // unlicensed installs simply omit the pro rows (issue #161).
+        Gate::set_pro_for_tests(true);
+
         $names = [];
         foreach ($this->rows() as $rows) {
             foreach ($rows as $row) {
@@ -146,26 +150,32 @@ class AbilityGridPageTest extends \WP_UnitTestCase
     }
 
     // ---------------------------------------------------------------
-    // Pro tier: visible teaser, never fake-enabled
+    // Pro tier: unavailable abilities are absent, never locked teasers
     // ---------------------------------------------------------------
 
-    public function test_pro_rows_are_visible_but_locked_without_a_license(): void
+    public function test_unlicensed_pro_abilities_have_no_grid_row_at_all(): void
     {
-        $row = $this->row('wpmcp/run-php-snippet');
-
-        $this->assertSame('pro', $row['tier']);
-        $this->assertTrue($row['pro_locked']);
-        $this->assertFalse($row['enabled'], 'An unlicensed pro row must never present as enabled.');
-        $this->assertStringContainsString('pro license', $row['reason']);
+        foreach ($this->rows() as $rows) {
+            foreach ($rows as $row) {
+                $this->assertNotSame(
+                    'pro',
+                    $row['tier'],
+                    "Unlicensed pro ability {$row['name']} must not render a grid row (issue #161)."
+                );
+                $this->assertArrayNotHasKey('pro_locked', $row);
+                $this->assertStringNotContainsString('pro license', $row['reason']);
+            }
+        }
     }
 
-    public function test_pro_rows_unlock_with_a_license(): void
+    public function test_pro_rows_appear_with_a_license_without_lock_state(): void
     {
         Gate::set_pro_for_tests(true);
 
         $row = $this->row('wpmcp/analyze-seo');
 
-        $this->assertFalse($row['pro_locked']);
+        $this->assertSame('pro', $row['tier']);
+        $this->assertArrayNotHasKey('pro_locked', $row);
         $this->assertStringNotContainsString('pro license', $row['reason']);
     }
 

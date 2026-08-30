@@ -27,8 +27,8 @@ if (! defined('ABSPATH')) {
  *  - Every write goes through Governance::set_ability_toggle() /
  *    set_domain_toggle() — the existing narrowing mechanism, no bypass —
  *    and lands in the governance audit log with the acting user.
- *  - Pro rows are visible when unlicensed but locked; they are never
- *    presented (or written) as enabled without a live license.
+ *  - Abilities whose tier is not available in this install are absent from
+ *    the grid entirely (issue #161): no locked rows, no upsell copy.
  *  - Default-off dangerous abilities (exec, db writes, fs writes) CANNOT be
  *    enabled here while their execution opt-in filter is absent: the filter
  *    (see Opt_In_Gates) stays the master gate, and the grid refuses rather
@@ -154,12 +154,19 @@ class Ability_Grid_Page
      * opt-in gate state, and the effective enabled state with the layer
      * that decided it.
      *
+     * Abilities whose tier is not available in this install are simply
+     * absent (issue #161): the grid lists only what the Registrar would
+     * actually register, so there is no locked or upsell row state.
+     *
      * @return array<string, array<int, array>>
      */
     public function rows(): array
     {
         $rows = [];
         foreach (Plugin::instance()->declared_abilities() as $ability) {
+            if ('pro' === $ability->tier && ! Gate::is_pro()) {
+                continue;
+            }
             $rows[ $ability->domain ][] = $this->row_for($ability);
         }
         ksort($rows);
@@ -168,13 +175,10 @@ class Ability_Grid_Page
 
     private function row_for(Ability $a): array
     {
-        $pro_locked = 'pro' === $a->tier && ! Gate::is_pro();
-        $explain    = Governance::explain($a);
-        $gated      = Opt_In_Gates::is_gated($a->name);
+        $explain = Governance::explain($a);
+        $gated   = Opt_In_Gates::is_gated($a->name);
 
-        if ($pro_locked) {
-            $reason = __('disabled: no pro license', 'wpmcp');
-        } elseif ($explain['enabled']) {
+        if ($explain['enabled']) {
             $reason = __('enabled', 'wpmcp');
         } else {
             $reason = $this->reason_for_layer($explain['layer']);
@@ -186,11 +190,10 @@ class Ability_Grid_Page
             'operation'   => $a->operation,
             'tier'        => $a->tier,
             'destructive' => $a->destructive_hint,
-            'pro_locked'  => $pro_locked,
             'dangerous'   => $gated,
             'gate_filter' => Opt_In_Gates::filter_for($a->name),
             'gate_open'   => $gated ? Opt_In_Gates::is_open($a->name) : true,
-            'enabled'     => ! $pro_locked && $explain['enabled'],
+            'enabled'     => $explain['enabled'],
             'reason'      => $reason,
         ];
     }
@@ -253,7 +256,6 @@ class Ability_Grid_Page
         // phpcs:ignore -- nonce + capability are verified inside handle_request().
         $result = $this->handle_request(wp_unslash($_POST));
         $nonce  = wp_create_nonce(self::NONCE_ACTION);
-        $is_pro = Gate::is_pro();
         ?>
         <div class="wrap">
             <h1><?php echo esc_html__('wpmcp: Abilities', 'wpmcp'); ?></h1>
@@ -293,12 +295,6 @@ class Ability_Grid_Page
                 <?php endif; ?>
             <?php endif; ?>
 
-            <?php if (! $is_pro) : ?>
-                <p class="description">
-                    <?php echo esc_html__('PRO abilities are listed so you can see the full surface; they stay off until a pro license is active.', 'wpmcp'); ?>
-                </p>
-            <?php endif; ?>
-
             <?php foreach ($this->rows() as $domain => $rows) : ?>
                 <h2 style="margin-top: 1.5em;">
                     <code><?php echo esc_html($domain); ?></code>
@@ -333,9 +329,6 @@ class Ability_Grid_Page
                             <td>
                                 <?php if ('pro' === $row['tier']) : ?>
                                     <strong><?php echo esc_html__('PRO', 'wpmcp'); ?></strong>
-                                    <?php if ($row['pro_locked']) : ?>
-                                        <span class="description"><?php echo esc_html__('(locked)', 'wpmcp'); ?></span>
-                                    <?php endif; ?>
                                 <?php else : ?>
                                     <?php echo esc_html__('free', 'wpmcp'); ?>
                                 <?php endif; ?>
@@ -382,11 +375,6 @@ class Ability_Grid_Page
                                     <?php if ($row['enabled']) : ?>
                                         <button type="submit" name="enabled" value="0" class="button button-small">
                                             <?php echo esc_html__('Disable', 'wpmcp'); ?>
-                                        </button>
-                                    <?php elseif ($row['pro_locked']) : ?>
-                                        <button type="button" class="button button-small" disabled
-                                            title="<?php echo esc_attr__('Requires a pro license.', 'wpmcp'); ?>">
-                                            <?php echo esc_html__('Enable', 'wpmcp'); ?>
                                         </button>
                                     <?php elseif ($row['dangerous'] && ! $row['gate_open']) : ?>
                                         <button type="button" class="button button-small" disabled
