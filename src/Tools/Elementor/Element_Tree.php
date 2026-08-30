@@ -326,10 +326,10 @@ class Element_Tree
     }
 
     /**
-     * Reduce a tree to the shape this plugin is responsible for — id,
-     * elType, widgetType, settings, children — ignoring keys Elementor's
-     * own save adds or normalizes (isInner, isLocked). Used by the verify
-     * step to prove the stored tree is the intended tree.
+     * Reduce a tree to the shape this plugin is responsible for (id, elType,
+     * widgetType, settings, children, and any atomic `styles` blob), ignoring
+     * keys Elementor's own save adds or normalizes (isInner, isLocked). Used
+     * by the verify step to prove the stored tree is the intended tree.
      */
     public static function normalize(array $elements): array
     {
@@ -349,6 +349,15 @@ class Element_Tree
 
             if ('widget' === $node['elType']) {
                 $node['widgetType'] = (string) ($element['widgetType'] ?? '');
+            }
+
+            // Atomic elements carry their local style classes in `styles`,
+            // which is load-bearing data (an element's `classes` ref points
+            // into it), so it has to be part of the verified round trip.
+            // Only when non-empty, so classic elements, which never have the
+            // key, keep their existing normalized shape.
+            if (! empty($element['styles']) && is_array($element['styles'])) {
+                $node['styles'] = $element['styles'];
             }
 
             $out[] = $node;

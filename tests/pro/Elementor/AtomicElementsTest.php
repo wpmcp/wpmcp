@@ -136,6 +136,102 @@ class AtomicElementsTest extends Structural_Harness
         $this->assertSame('bar', $widget['settings']['foo']['value']);
     }
 
+    public function test_add_atomic_widget_stores_a_style_class_that_survives_the_write(): void
+    {
+        $post_id = $this->atomic_page();
+
+        $out = (new Add_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'parent_id'     => 'flex001',
+            'widget_type'   => 'e-heading',
+            'params'        => ['title' => 'Styled'],
+            'style'         => ['color' => '#112233', 'font_size' => 32, 'padding' => ['top' => 8]],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+
+        $this->assertIsArray($out);
+
+        $widget   = $this->tree($post_id)[0]['elements'][0];
+        $class_id = $widget['settings']['classes']['value'][0];
+
+        $this->assertStringStartsWith('e-' . $widget['id'] . '-', $class_id);
+        $this->assertArrayHasKey($class_id, $widget['styles'], 'The classes ref must point at a stored style class.');
+
+        $props = $widget['styles'][$class_id]['variants'][0]['props'];
+        $this->assertSame('#112233', $props['color']['value']);
+        $this->assertSame(32.0, $props['font-size']['value']['size']);
+        $this->assertSame(8.0, $props['padding']['value']['block-start']['value']['size']);
+    }
+
+    public function test_add_atomic_widget_refuses_an_unusable_style_value(): void
+    {
+        $post_id = $this->atomic_page();
+
+        $out = (new Add_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'parent_id'     => 'flex001',
+            'widget_type'   => 'e-heading',
+            'params'        => ['title' => 'Styled'],
+            'style'         => ['color' => 'not-a-color'],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+
+        $this->assertWPError($out);
+        $this->assertSame([], $this->tree($post_id)[0]['elements'], 'A refused style must not write a widget.');
+    }
+
+    public function test_update_atomic_widget_rewrites_the_generated_style_class(): void
+    {
+        $post_id = $this->atomic_page();
+
+        (new Add_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'parent_id'     => 'flex001',
+            'widget_type'   => 'e-heading',
+            'params'        => ['title' => 'Styled'],
+            'style'         => ['color' => '#112233'],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+
+        $element_id = $this->tree($post_id)[0]['elements'][0]['id'];
+
+        $out = (new Update_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'element_id'    => $element_id,
+            'style'         => ['color' => '#445566'],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+
+        $this->assertIsArray($out);
+
+        $widget = $this->tree($post_id)[0]['elements'][0];
+        $this->assertCount(1, $widget['styles'], 'A style update replaces the generated class instead of stacking a second one.');
+        $this->assertCount(1, $widget['settings']['classes']['value']);
+
+        $class_id = $widget['settings']['classes']['value'][0];
+        $this->assertSame('#445566', $widget['styles'][$class_id]['variants'][0]['props']['color']['value']);
+    }
+
+    public function test_add_flexbox_accepts_style_props(): void
+    {
+        $post_id = $this->make_page([]);
+
+        $out = (new Add_Flexbox())->handle([
+            'post_id'       => $post_id,
+            'expected_hash' => $this->data_hash($post_id),
+            'style'         => ['gap' => 16, 'flex_direction' => 'column'],
+        ]);
+
+        $this->assertIsArray($out);
+
+        $container = $this->tree($post_id)[0];
+        $class_id  = $container['settings']['classes']['value'][0];
+        $props     = $container['styles'][$class_id]['variants'][0]['props'];
+
+        $this->assertSame(16.0, $props['gap']['value']['size']);
+        $this->assertSame('column', $props['flex-direction']['value']);
+    }
+
     public function test_add_atomic_widget_rejects_stale_hash(): void
     {
         $post_id = $this->atomic_page();

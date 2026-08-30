@@ -243,6 +243,7 @@ use WPMCP\Tools\Elementor\Add_Flexbox;
 use WPMCP\Tools\Elementor\Add_Div_Block;
 use WPMCP\Tools\Elementor\Add_Atomic_Widget;
 use WPMCP\Tools\Elementor\Atomic_Element;
+use WPMCP\Tools\Elementor\Atomic_Styles;
 use WPMCP\Tools\Elementor\Update_Atomic_Widget;
 use WPMCP\Tools\Elementor\Create_Popup;
 use WPMCP\Tools\Elementor\Set_Popup_Settings;
@@ -2125,6 +2126,126 @@ final class Plugin
                 $register();
             }
         }
+    }
+
+    /**
+     * The Elementor 4.0+ atomic write tools (issue #62).
+     *
+     * Registered only when the active builder ships the atomic-widgets module
+     * (Atomic_Element::registration_supported()); detect-elementor-version is
+     * registered unconditionally elsewhere and reports the same predicate as
+     * `atomic_tools_registered`, so a caller can learn why these are absent.
+     * Public so the conditional registration itself is testable against a
+     * fresh Registrar rather than only the predicate behind it.
+     */
+    public function register_atomic_elementor_abilities(Registrar $registrar): void
+    {
+        if (! Atomic_Element::registration_supported()) {
+            return;
+        }
+
+        $style_doc = sprintf(
+            'An optional flat "style" object (%s) becomes a local v4 style class on the element; an unknown key or an unusable value is an error, not a silent drop. ',
+            implode(', ', Atomic_Styles::style_keys())
+        );
+
+        $add_flexbox = new Add_Flexbox();
+
+        $registrar->register(new Ability(
+            'wpmcp/add-flexbox',
+            'pro',
+            'Add an Elementor 4.0+ atomic flexbox container (elType e-flexbox) to a page under parent_id (or top level) at an optional position. ' . $style_doc . 'Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'parent_id'     => [ 'type' => 'string' ],
+                    'position'      => [ 'type' => 'integer' ],
+                    'settings'      => [ 'type' => 'object' ],
+                    'style'         => [ 'type' => 'object' ],
+                ],
+                'required'   => [ 'post_id', 'expected_hash' ],
+            ],
+            [$add_flexbox, 'handle'],
+            'edit_posts',
+            'elementor',
+            'create'
+        ));
+
+        $add_div_block = new Add_Div_Block();
+
+        $registrar->register(new Ability(
+            'wpmcp/add-div-block',
+            'pro',
+            'Add an Elementor 4.0+ atomic div-block container (elType e-div-block) to a page under parent_id (or top level) at an optional position. ' . $style_doc . 'Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'parent_id'     => [ 'type' => 'string' ],
+                    'position'      => [ 'type' => 'integer' ],
+                    'settings'      => [ 'type' => 'object' ],
+                    'style'         => [ 'type' => 'object' ],
+                ],
+                'required'   => [ 'post_id', 'expected_hash' ],
+            ],
+            [$add_div_block, 'handle'],
+            'edit_posts',
+            'elementor',
+            'create'
+        ));
+
+        $add_atomic_widget = new Add_Atomic_Widget();
+
+        $registrar->register(new Ability(
+            'wpmcp/add-atomic-widget',
+            'pro',
+            'Add an Elementor 4.0+ atomic widget (elType widget with an e-* widgetType such as e-heading, e-paragraph, e-button, e-image) to a page. Friendly params (title, content, text, image_url, alt, link) are converted to typed $$type props for known types; any type also accepts raw $$type-wrapped settings. ' . $style_doc . 'Requires expected_hash. Undoable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'widget_type'   => [ 'type' => 'string' ],
+                    'parent_id'     => [ 'type' => 'string' ],
+                    'position'      => [ 'type' => 'integer' ],
+                    'params'        => [ 'type' => 'object' ],
+                    'settings'      => [ 'type' => 'object' ],
+                    'style'         => [ 'type' => 'object' ],
+                ],
+                'required'   => [ 'post_id', 'expected_hash', 'widget_type' ],
+            ],
+            [$add_atomic_widget, 'handle'],
+            'edit_posts',
+            'elementor',
+            'create'
+        ));
+
+        $update_atomic_widget = new Update_Atomic_Widget();
+
+        $registrar->register(new Ability(
+            'wpmcp/update-atomic-widget',
+            'pro',
+            'Update an Elementor 4.0+ atomic widget\'s settings by element id. Friendly params are mapped to typed $$type props for known types (only the params you pass change; untouched props survive); raw $$type-wrapped settings are also accepted. ' . $style_doc . 'A style object rewrites the element\'s generated local style class. Requires expected_hash. Undoable via rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'element_id'    => [ 'type' => 'string' ],
+                    'params'        => [ 'type' => 'object' ],
+                    'settings'      => [ 'type' => 'object' ],
+                    'style'         => [ 'type' => 'object' ],
+                ],
+                'required'   => [ 'post_id', 'expected_hash', 'element_id' ],
+            ],
+            [$update_atomic_widget, 'handle'],
+            'edit_posts',
+            'elementor',
+            'update'
+        ));
     }
 
     /**
@@ -4694,103 +4815,9 @@ final class Plugin
 
         // Atomic write tools register only when the active builder ships the
         // atomic-widgets module (issue #62); detect-elementor-version stays
-        // registered so a caller can learn why they are absent.
-        if (Atomic_Element::registration_supported()) {
-            $add_flexbox = new Add_Flexbox();
-
-            $registrar->register(new Ability(
-                'wpmcp/add-flexbox',
-                'pro',
-                'Add an Elementor 4.0+ atomic flexbox container (elType e-flexbox) to a page under parent_id (or top level) at an optional position. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
-                [
-                    'type'       => 'object',
-                    'properties' => [
-                        'post_id'       => [ 'type' => 'integer' ],
-                        'expected_hash' => [ 'type' => 'string' ],
-                        'parent_id'     => [ 'type' => 'string' ],
-                        'position'      => [ 'type' => 'integer' ],
-                        'settings'      => [ 'type' => 'object' ],
-                    ],
-                    'required'   => [ 'post_id', 'expected_hash' ],
-                ],
-                [$add_flexbox, 'handle'],
-                'edit_posts',
-                'elementor',
-                'create'
-            ));
-
-            $add_div_block = new Add_Div_Block();
-
-            $registrar->register(new Ability(
-                'wpmcp/add-div-block',
-                'pro',
-                'Add an Elementor 4.0+ atomic div-block container (elType e-div-block) to a page under parent_id (or top level) at an optional position. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
-                [
-                    'type'       => 'object',
-                    'properties' => [
-                        'post_id'       => [ 'type' => 'integer' ],
-                        'expected_hash' => [ 'type' => 'string' ],
-                        'parent_id'     => [ 'type' => 'string' ],
-                        'position'      => [ 'type' => 'integer' ],
-                        'settings'      => [ 'type' => 'object' ],
-                    ],
-                    'required'   => [ 'post_id', 'expected_hash' ],
-                ],
-                [$add_div_block, 'handle'],
-                'edit_posts',
-                'elementor',
-                'create'
-            ));
-
-            $add_atomic_widget = new Add_Atomic_Widget();
-
-            $registrar->register(new Ability(
-                'wpmcp/add-atomic-widget',
-                'pro',
-                'Add an Elementor 4.0+ atomic widget (elType widget with an e-* widgetType such as e-heading, e-paragraph, e-button, e-image) to a page. Friendly params (title, content, text, image_url, alt, link) are converted to typed $$type props for known types; any type also accepts raw $$type-wrapped settings. Requires expected_hash. Undoable via rollback-operation',
-                [
-                    'type'       => 'object',
-                    'properties' => [
-                        'post_id'       => [ 'type' => 'integer' ],
-                        'expected_hash' => [ 'type' => 'string' ],
-                        'widget_type'   => [ 'type' => 'string' ],
-                        'parent_id'     => [ 'type' => 'string' ],
-                        'position'      => [ 'type' => 'integer' ],
-                        'params'        => [ 'type' => 'object' ],
-                        'settings'      => [ 'type' => 'object' ],
-                        'style'         => [ 'type' => 'object' ],
-                    ],
-                    'required'   => [ 'post_id', 'expected_hash', 'widget_type' ],
-                ],
-                [$add_atomic_widget, 'handle'],
-                'edit_posts',
-                'elementor',
-                'create'
-            ));
-
-            $update_atomic_widget = new Update_Atomic_Widget();
-
-            $registrar->register(new Ability(
-                'wpmcp/update-atomic-widget',
-                'pro',
-                'Update an Elementor 4.0+ atomic widget\'s settings by element id. Friendly params are mapped to typed $$type props for known types (only the params you pass change; untouched props survive); raw $$type-wrapped settings are also accepted. Requires expected_hash. Undoable via rollback-operation',
-                [
-                    'type'       => 'object',
-                    'properties' => [
-                        'post_id'       => [ 'type' => 'integer' ],
-                        'expected_hash' => [ 'type' => 'string' ],
-                        'element_id'    => [ 'type' => 'string' ],
-                        'params'        => [ 'type' => 'object' ],
-                        'settings'      => [ 'type' => 'object' ],
-                    ],
-                    'required'   => [ 'post_id', 'expected_hash', 'element_id' ],
-                ],
-                [$update_atomic_widget, 'handle'],
-                'edit_posts',
-                'elementor',
-                'update'
-            ));
-        }
+        // registered, and reports the same predicate, so a caller can learn
+        // why they are absent.
+        $this->register_atomic_elementor_abilities($registrar);
 
         $create_popup = new Create_Popup();
 

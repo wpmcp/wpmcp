@@ -11,12 +11,19 @@ if (! defined('ABSPATH')) {
  * e-heading, e-paragraph, e-button, e-image, ...) to a page. Friendly params
  * (title, content, text, image_url, alt, link) are converted to the typed
  * $$type prop shapes for known types; any type also accepts raw $$type-wrapped
- * settings. Requires expected_hash; written snapshot-first, undoable.
+ * settings. An optional flat `style` object (color, font_size, padding, ...)
+ * becomes a local v4 style class on the element. Requires expected_hash;
+ * written snapshot-first, undoable.
  */
 class Add_Atomic_Widget
 {
     public function handle(array $args)
     {
+        $unsupported = Atomic_Element::require_supported();
+        if (null !== $unsupported) {
+            return $unsupported;
+        }
+
         $widget_type = sanitize_text_field((string) ($args['widget_type'] ?? ''));
         if ('' === $widget_type) {
             return new \WP_Error('missing_widget_type', 'A widget_type (e.g. e-heading) is required.');
@@ -42,8 +49,11 @@ class Add_Atomic_Widget
         $element = Atomic_Element::widget($widget_type, $settings);
 
         $style_warnings = [];
-        if (is_array($args['style'] ?? null) && [] !== $args['style']) {
-            $built          = Atomic_Styles::build($element['id'], $args['style']);
+        if (isset($args['style']) && [] !== $args['style']) {
+            $built = Atomic_Styles::build($element['id'], $args['style']);
+            if (is_wp_error($built)) {
+                return $built;
+            }
             $element        = Atomic_Styles::attach($element, $built);
             $style_warnings = $built['warnings'];
         }

@@ -38,6 +38,30 @@ class Atomic_Element
         return (bool) apply_filters('wpmcp_elementor_atomic_supported', self::is_supported());
     }
 
+    /**
+     * Null when this install can render atomic elements, a WP_Error when it
+     * cannot. Registration is gated on the filterable registration_supported(),
+     * whose documented purpose is a test/site override, so every atomic write
+     * re-checks the real capability: a forced-open gate on a legacy builder
+     * must fail the call rather than write elements Elementor cannot render.
+     *
+     * @return \WP_Error|null
+     */
+    public static function require_supported()
+    {
+        if (self::is_supported()) {
+            return null;
+        }
+
+        return new \WP_Error(
+            'atomic_unsupported',
+            sprintf(
+                'Atomic (v4) elements need Elementor 4.0+ with the atomic-widgets module; this site runs %s. Use the classic container/widget tools instead.',
+                defined('ELEMENTOR_VERSION') ? 'Elementor ' . ELEMENTOR_VERSION : 'no Elementor'
+            )
+        );
+    }
+
     public static function container(string $el_type, array $settings): array
     {
         if (! isset($settings['classes'])) {

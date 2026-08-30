@@ -72,8 +72,27 @@ class AbilityManifestTest extends \WP_UnitTestCase
         );
     }
 
+    /**
+     * The four Elementor atomic write tools register only on Elementor 4.0+
+     * (issue #62), so the pinned surface describes an atomic-capable
+     * environment. On an older builder the surface legitimately differs;
+     * say so instead of reporting it as drift.
+     */
+    private function skip_unless_atomic_tools_register(): void
+    {
+        if (! \WPMCP\Tools\Elementor\Atomic_Element::registration_supported()) {
+            $this->markTestSkipped(
+                'The ability manifest pins an Elementor 4.0+ environment; this install does not register '
+                . 'the atomic write tools, so the surface is expected to differ. Install Elementor 4.x '
+                . '(bin/install-test-plugins.sh) to assert the pinned surface.'
+            );
+        }
+    }
+
     public function test_registered_abilities_match_manifest_names_and_tiers(): void
     {
+        $this->skip_unless_atomic_tools_register();
+
         $manifest = self::load_manifest();
 
         $this->assertSame(
@@ -86,6 +105,8 @@ class AbilityManifestTest extends \WP_UnitTestCase
 
     public function test_total_free_and_pro_counts_match_manifest(): void
     {
+        $this->skip_unless_atomic_tools_register();
+
         $manifest = self::load_manifest();
         $actual   = RegisteredAbilities::manifest_map();
         $tiers    = array_count_values($actual);
