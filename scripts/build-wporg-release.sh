@@ -84,24 +84,76 @@ if ($bad) { fwrite(STDERR, implode("\n", $bad) . "\n"); exit(1); }
 # 3. No paid predicate, no licensing SDK, no pro-tier ability. Text-level on
 #    purpose: a docblock that still talks about licensing is also a finding,
 #    because the reviewer reads those too.
+# Not restricted to *.php: the staged tree also ships readme.txt and the
+# bundled SKILL.md library, which a reviewer reads too.
 for pattern in 'Pro\\Gate' '\bis_pro\b' '\bGate::' 'can_use_premium_code' '[Ff]reemius' 'WPMCP_FS_' 'fs_dynamic_init' "^\s*'pro',\s*$" ; do
-  if grep -rqE --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php"; then
-    grep -rnE --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php" >&2
+  if grep -rqE -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php" "$STAGE/readme.txt"; then
+    grep -rnE -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php" "$STAGE/readme.txt" >&2
     fail "paid/licensing surface \"$pattern\" survived into the $SLUG build"
   fi
 done
 if [ -d "$STAGE/vendor/freemius" ]; then fail "the licensing SDK is still vendored"; fi
 if grep -q 'freemius' "$STAGE/composer.json"; then fail "composer.json still requires the licensing SDK"; fi
 
-# 3b. Finding B-07 (issue #163): the composite insert-stock-image ability is
-#     part of the paid add-on and must be absent from this build entirely,
-#     handler and registration both, not merely gated.
-for pattern in 'insert-stock-image' 'Insert_Stock_Image'; do
-  if grep -rqF --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php"; then
-    grep -rnF --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php" >&2
-    fail "insert-stock-image (\"$pattern\") survived into the $SLUG build"
-  fi
-done
+# 3b. No ability the manifest tiers 'pro' may be REGISTERED in this build.
+#     Derived, not hardcoded: the forbidden set is every 'pro' entry in
+#     tests/support/ability-manifest.php, so pruning the next paid ability
+#     needs no new gate here. Registration is the invariant, not string
+#     mentions: a comment or an opt-in guard may still name an ability that is
+#     not in this build (Governance/Opt_In_Gates.php deliberately does), but
+#     nothing may hand one to the MCP surface. This is the manifest-level half
+#     of issue #163's definition of done, and it covers finding B-07
+#     (insert-stock-image) the same way it covers the other 90.
+php -r '
+$manifest = require $argv[2];
+$pro = array_filter($manifest["abilities"], static fn ($t) => "pro" === $t);
+$bad = [];
+$it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($argv[1] . "/src"));
+foreach ($it as $f) {
+    if ($f->getExtension() !== "php") { continue; }
+    preg_match_all("/new\\s+Ability\\(\\s*\\n\\s*[\\x27\"]([^\\x27\"]+)[\\x27\"]/", file_get_contents($f->getPathname()), $m);
+    foreach ($m[1] as $name) {
+        if (isset($pro[$name])) { $bad[] = $f->getPathname() . " registers " . $name; }
+    }
+}
+if (!$bad) { exit(0); }
+fwrite(STDERR, implode("\n", array_unique($bad)) . "\n");
+exit(1);
+' "$STAGE" "$ROOT/tests/support/ability-manifest.php" \
+  || fail "a pro-tier ability is still registered in the $SLUG build"
+
+# 3c. Every ability named in a document this build SHIPS must be an ability
+#     this build registers. readme.txt and the bundled SKILL.md library are
+#     read by the reviewer and acted on by the agent, so a document naming a
+#     tool that is not here is either a paid upsell (guideline 9) or a broken
+#     instruction. Derived too: no per-ability list to maintain.
+php -r '
+$stage = $argv[1];
+$registered = [];
+$it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($stage . "/src"));
+foreach ($it as $f) {
+    if ($f->getExtension() !== "php") { continue; }
+    preg_match_all("/new\\s+Ability\\(\\s*\\n\\s*[\\x27\"]([^\\x27\"]+)[\\x27\"]/", file_get_contents($f->getPathname()), $m);
+    foreach ($m[1] as $name) { $registered[$name] = true; }
+}
+$docs = array_merge(
+    (array) glob($stage . "/src/Skills/library/*/SKILL.md"),
+    (array) glob($stage . "/src/Skills/library/*/*/SKILL.md"),
+    [$stage . "/readme.txt"]
+);
+$bad = [];
+foreach ($docs as $doc) {
+    if (!is_file($doc)) { continue; }
+    preg_match_all("~wpmcp/[a-z0-9-]+~", file_get_contents($doc), $m);
+    foreach (array_unique($m[0]) as $name) {
+        if (!isset($registered[$name])) { $bad[] = $doc . " documents " . $name; }
+    }
+}
+if (!$bad) { exit(0); }
+fwrite(STDERR, implode("\n", array_unique($bad)) . "\n");
+exit(1);
+' "$STAGE" || fail "a shipped document names an ability the $SLUG build does not register"
+
 
 # 4. Every WPMCP class the shipped code names must still exist, so a file the
 #    strip removed cannot leave a fatal behind. Resolved against composer's

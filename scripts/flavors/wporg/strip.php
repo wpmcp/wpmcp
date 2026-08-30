@@ -74,6 +74,11 @@ const REMOVED_PATHS = [
     // library itself is data rather than a free feature, so the directory
     // goes whole rather than being swept.
     'src/Tools/Brand',
+    // The bundled Elementor playbook. Every ability in its `requires:` list
+    // is pro-tier and therefore not in this build, so the document would ship
+    // as a free skill instructing an agent to call tools that do not exist.
+    // A skill the reader cannot follow is worse than no skill.
+    'src/Skills/library/wpmcp-elementor-editing',
     // Agent project memory (issue #131). Only the three PRO ability wrappers
     // go. src/Memory and src/Admin/Memory_Page.php stay: publishing a
     // guardrail and having the server enforce it in Registrar::is_permitted()
@@ -263,6 +268,21 @@ $edits['src/Skills/Skill_Library.php'] = [
             . "    {\n"
             . "        return false;\n"
             . "    }\n",
+        1,
+    ],
+];
+
+// The starter library ships as documentation an agent reads and acts on, so
+// it may not name an ability this build does not register. The Elementor
+// playbook leaves whole (REMOVED_PATHS above); the safe-writes playbook only
+// mentions the two execution escape hatches in passing, so the bullet goes.
+$edits['src/Skills/library/wpmcp-safe-writes/SKILL.md'] = [
+    [
+        "- Anything done through an escape hatch (`wpmcp/run-wp-cli`,\n"
+            . "  `wpmcp/run-php-snippet`). Those run outside the safety net on purpose, they\n"
+            . "  are default-off and development-environment only, and you should say so\n"
+            . "  before proposing them.\n",
+        '',
         1,
     ],
 ];
