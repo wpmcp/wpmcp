@@ -8,6 +8,7 @@
  * Requires Plugins: woocommerce
  * License: GPL-2.0-or-later
  * Text Domain: wpmcp-for-woocommerce
+ * Domain Path: /languages
  */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 

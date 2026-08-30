@@ -33,6 +33,10 @@ mkdir -p "$STAGE"
 
 cp "$ROOT/LICENSE" "$ROOT/composer.json" "$ROOT/composer.lock" "$STAGE/"
 cp -R "$ROOT/src" "$STAGE/src"
+
+# Ship the translation directory the Domain Path header points at (issue #184).
+mkdir -p "$STAGE/languages"
+find "$ROOT/languages" -maxdepth 1 \( -name '*.po' -o -name '*.mo' -o -name '*.l10n.php' \) -exec cp {} "$STAGE/languages/" \;
 sed "s/{{VERSION}}/$VERSION/g" "$FLAVOR/$SLUG.php" > "$STAGE/$SLUG.php"
 sed "s/{{VERSION}}/$VERSION/g" "$FLAVOR/readme.txt" > "$STAGE/readme.txt"
 

@@ -427,6 +427,15 @@ final class Plugin
             // land as ordinary governance toggles, so enforcement lives in
             // the registration/permission path with no admin class loaded.
             Default_Seeder::seed();
+            // Load self-hosted translations from languages/ (issue #184).
+            // wp.org installs get JIT loading since WP 4.6, but the pro
+            // and flavor zips ship off-directory, where a .mo in
+            // languages/ only loads through this call.
+            add_action('init', static function (): void {
+                if (defined('WPMCP_FILE')) {
+                    load_plugin_textdomain('wpmcp', false, dirname(plugin_basename(WPMCP_FILE)) . '/languages');
+                }
+            });
             $hook = function_exists('wp_register_ability') ? 'wp_abilities_api_init' : 'init';
             add_action($hook, [$this, 'register_abilities']);
             if (function_exists('wp_register_ability_category')) {

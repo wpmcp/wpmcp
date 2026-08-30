@@ -20,6 +20,10 @@ mkdir -p "$STAGE"
 cp "$ROOT/wpmcp.php" "$ROOT/readme.txt" "$ROOT/LICENSE" "$ROOT/composer.json" "$ROOT/composer.lock" "$STAGE/"
 cp -R "$ROOT/src" "$STAGE/src"
 
+# Ship the translation directory the Domain Path header points at (issue #184).
+mkdir -p "$STAGE/languages"
+find "$ROOT/languages" -maxdepth 1 \( -name '*.po' -o -name '*.mo' -o -name '*.l10n.php' \) -exec cp {} "$STAGE/languages/" \;
+
 composer install --working-dir="$STAGE" --no-dev --optimize-autoloader --quiet --no-interaction
 rm -f "$STAGE/composer.json" "$STAGE/composer.lock"
 
