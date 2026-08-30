@@ -67,11 +67,11 @@ class Update_Rows
 
         $table = Database_Guard::valid_table((string) ($args['table'] ?? ''));
         if (is_wp_error($table)) {
-            throw new \RuntimeException($table->get_error_message());
+            throw new \RuntimeException(esc_html($table->get_error_message()));
         }
 
         if (Database_Guard::is_protected($table)) {
-            throw new \RuntimeException("Refusing to write to protected table \"{$table}\".");
+            throw new \RuntimeException(esc_html("Refusing to write to protected table \"{$table}\"."));
         }
 
         $probe  = Database_Guard::recoverability_probe($table, $where);
@@ -81,7 +81,7 @@ class Update_Rows
             global $wpdb;
             $affected = $wpdb->update($table, $data, $where);
             if (false === $affected) {
-                throw new \RuntimeException($wpdb->last_error ?: 'Update failed.');
+                throw new \RuntimeException(esc_html($wpdb->last_error ?: 'Update failed.'));
             }
             return (int) $affected;
         };

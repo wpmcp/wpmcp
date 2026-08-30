@@ -39,7 +39,7 @@ class Set_Post_Meta
 
         $guard = Content_Guard::check_meta([$key => $value]);
         if (true !== $guard) {
-            throw new \InvalidArgumentException($guard);
+            throw new \InvalidArgumentException(esc_html($guard));
         }
 
         $out = Safe_Mutation::run(

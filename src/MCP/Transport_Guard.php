@@ -235,7 +235,7 @@ class Transport_Guard
     public static function mismatch_error(string $home_host): \WP_Error
     {
         return new \WP_Error(
-            self::MISMATCH_CODE,
+            esc_html(self::MISMATCH_CODE),
             sprintf(
                 /* translators: %s: the current MCP endpoint URL. */
                 __('Site URL mismatch: this connector is pointed at a host this site no longer answers to. Reconnect using %s.', 'wpmcp'),

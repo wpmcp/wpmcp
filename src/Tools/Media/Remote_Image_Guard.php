@@ -75,10 +75,10 @@ class Remote_Image_Guard
             }
         }
 
-        throw new \InvalidArgumentException(sprintf(
+        throw new \InvalidArgumentException(esc_html(sprintf(
             'Host "%s" is not on the allowed remote media host list. Extend it with the wpmcp_remote_media_allowed_hosts filter if this source is trusted.',
             $host
-        ));
+        )));
     }
 
     /** @return string[] */
@@ -118,7 +118,7 @@ class Remote_Image_Guard
 
         try {
             if (is_wp_error($response)) {
-                throw new \RuntimeException('The remote media download failed: ' . $response->get_error_message());
+                throw new \RuntimeException(esc_html('The remote media download failed: ' . $response->get_error_message()));
             }
 
             $code = (int) wp_remote_retrieve_response_code($response);
@@ -126,18 +126,18 @@ class Remote_Image_Guard
                 throw new \RuntimeException('The remote media server answered with a redirect; redirects are never followed for media downloads.');
             }
             if (200 !== $code) {
-                throw new \RuntimeException(sprintf('The remote media server answered HTTP %d.', $code));
+                throw new \RuntimeException(esc_html(sprintf('The remote media server answered HTTP %d.', $code)));
             }
 
             $declared = wp_remote_retrieve_header($response, 'content-length');
             if ('' !== (string) $declared && (int) $declared > $max) {
-                throw new \RuntimeException(sprintf('The remote file declares %d bytes, above the %d byte limit.', (int) $declared, $max));
+                throw new \RuntimeException(esc_html(sprintf('The remote file declares %d bytes, above the %d byte limit.', (int) $declared, $max)));
             }
 
             clearstatcache(true, $tmp);
             $actual = is_file($tmp) ? (int) filesize($tmp) : 0;
             if ($actual > $max) {
-                throw new \RuntimeException(sprintf('The downloaded file is %d bytes, above the %d byte limit.', $actual, $max));
+                throw new \RuntimeException(esc_html(sprintf('The downloaded file is %d bytes, above the %d byte limit.', $actual, $max)));
             }
             if ($actual < 1) {
                 throw new \RuntimeException('The remote media download produced an empty file.');

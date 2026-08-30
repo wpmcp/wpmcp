@@ -22,10 +22,10 @@ class Insert_Pattern
         $name    = (string) ($args['name'] ?? '');
         $pattern = \WP_Block_Patterns_Registry::get_instance()->get_registered($name);
         if (! $pattern) {
-            throw new \InvalidArgumentException(sprintf(
+            throw new \InvalidArgumentException(esc_html(sprintf(
                 'Pattern "%s" is not registered. Use list-patterns to discover available pattern names.',
                 $name
-            ));
+            )));
         }
 
         $nodes = array_values(array_filter(
@@ -33,7 +33,7 @@ class Insert_Pattern
             static fn (array $b) => null !== $b['blockName'] || '' !== trim((string) ($b['innerHTML'] ?? ''))
         ));
         if ([] === $nodes) {
-            throw new \InvalidArgumentException(sprintf('Pattern "%s" contains no blocks to insert.', $name));
+            throw new \InvalidArgumentException(esc_html(sprintf('Pattern "%s" contains no blocks to insert.', $name)));
         }
 
         foreach ($nodes as $offset => $node) {

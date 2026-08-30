@@ -33,11 +33,11 @@ class Delete_Term
 
         $default = (int) get_option('default_' . $taxonomy, 0);
         if ($default > 0 && $default === $term_id) {
-            throw new \InvalidArgumentException(sprintf(
+            throw new \InvalidArgumentException(esc_html(sprintf(
                 'Term %d is the default term for "%s" and cannot be deleted. Change the default first.',
                 $term_id,
                 $taxonomy
-            ));
+            )));
         }
 
         $affected = (int) $term->count;
@@ -53,7 +53,7 @@ class Delete_Term
             static function () use ($term_id, $taxonomy): bool {
                 $deleted = wp_delete_term($term_id, $taxonomy);
                 if (is_wp_error($deleted)) {
-                    throw new \RuntimeException($deleted->get_error_message());
+                    throw new \RuntimeException(esc_html($deleted->get_error_message()));
                 }
                 if (false === $deleted) {
                     throw new \RuntimeException('The term could not be deleted.');

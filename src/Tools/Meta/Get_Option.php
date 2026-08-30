@@ -23,7 +23,7 @@ class Get_Option
         }
 
         if (Option_Guard::is_denylisted($name)) {
-            throw new \RuntimeException("Refusing to read sensitive option \"{$name}\".");
+            throw new \RuntimeException(esc_html("Refusing to read sensitive option \"{$name}\"."));
         }
 
         return ['name' => $name, 'value' => get_option($name)];

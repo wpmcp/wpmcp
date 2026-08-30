@@ -38,19 +38,19 @@ class Create_Term
         $slug = '' !== $slug ? sanitize_title($slug) : sanitize_title($name);
 
         if (get_term_by('slug', $slug, $taxonomy) instanceof \WP_Term) {
-            throw new \InvalidArgumentException(sprintf(
+            throw new \InvalidArgumentException(esc_html(sprintf(
                 'A term with slug "%s" already exists in "%s". Use update-term to change it.',
                 $slug,
                 $taxonomy
-            ));
+            )));
         }
 
         $parent = (int) ($args['parent'] ?? 0);
         if ($parent > 0 && ! get_term($parent, $taxonomy) instanceof \WP_Term) {
-            throw new \InvalidArgumentException(sprintf('Parent term %d does not exist in "%s".', $parent, $taxonomy));
+            throw new \InvalidArgumentException(esc_html(sprintf('Parent term %d does not exist in "%s".', $parent, $taxonomy)));
         }
         if ($parent > 0 && ! is_taxonomy_hierarchical($taxonomy)) {
-            throw new \InvalidArgumentException(sprintf('Taxonomy "%s" is not hierarchical, so a parent cannot be set.', $taxonomy));
+            throw new \InvalidArgumentException(esc_html(sprintf('Taxonomy "%s" is not hierarchical, so a parent cannot be set.', $taxonomy)));
         }
 
         $description = (string) ($args['description'] ?? '');
@@ -71,7 +71,7 @@ class Create_Term
                 ]);
 
                 if (is_wp_error($created)) {
-                    throw new \RuntimeException($created->get_error_message());
+                    throw new \RuntimeException(esc_html($created->get_error_message()));
                 }
 
                 return (int) $created['term_id'];

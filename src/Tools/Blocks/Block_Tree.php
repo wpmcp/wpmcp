@@ -112,14 +112,14 @@ class Block_Tree
     {
         if (! is_array($path) || [] === $path) {
             throw new \InvalidArgumentException(
-                sprintf('A non-empty "%s" (array of integer block indexes) is required.', $arg_name)
+                esc_html(sprintf('A non-empty "%s" (array of integer block indexes) is required.', $arg_name))
             );
         }
         $out = [];
         foreach ($path as $segment) {
             if (! is_int($segment) && ! (is_string($segment) && ctype_digit($segment))) {
                 throw new \InvalidArgumentException(
-                    sprintf('Invalid "%s": every segment must be a non-negative integer index.', $arg_name)
+                    esc_html(sprintf('Invalid "%s": every segment must be a non-negative integer index.', $arg_name))
                 );
             }
             $out[] = (int) $segment;
@@ -228,11 +228,11 @@ class Block_Tree
                 throw self::path_error($from_path, 0, count($blocks));
             }
             if ($to_index < 0 || $to_index >= count($blocks)) {
-                throw new \InvalidArgumentException(sprintf(
+                throw new \InvalidArgumentException(esc_html(sprintf(
                     'Invalid "to_index" %d: the target parent has %d block(s).',
                     $to_index,
                     count($blocks)
-                ));
+                )));
             }
             $node = $blocks[ $index ];
             array_splice($blocks, $index, 1);
@@ -322,12 +322,12 @@ class Block_Tree
 
     private static function path_error(array $path, int $depth, int $valid_count): \InvalidArgumentException
     {
-        return new \InvalidArgumentException(sprintf(
+        return new \InvalidArgumentException(esc_html(sprintf(
             'Invalid block path [%s]: no block at segment %d (parent has %d position(s)). '
             . 'Re-read with parse-blocks to get current paths.',
             implode(',', $path),
             $depth,
             $valid_count
-        ));
+        )));
     }
 }

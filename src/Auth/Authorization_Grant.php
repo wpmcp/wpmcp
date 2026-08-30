@@ -83,7 +83,7 @@ class Authorization_Grant
     {
         self::audit(false, $client_id);
 
-        return new \WP_Error($error_code, $message);
+        return new \WP_Error(esc_html($error_code), $message);
     }
 
     private static function audit(bool $allowed, string $client_id): void
