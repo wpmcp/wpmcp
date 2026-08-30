@@ -4,6 +4,7 @@ namespace WPMCP\Cloud;
 
 use WPMCP\Auth\Client_Store;
 use WPMCP\Auth\Refresh_Token_Store;
+use WPMCP\Auth\Token_Store;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -17,22 +18,42 @@ if (! defined('ABSPATH')) {
  * client in Client_Store plus a rotate-on-use refresh token scoped
  * "gateway". Everything here is locally-first by design; no method in this
  * class performs network I/O, so provisioning and (crucially) revocation
- * work with the cloud unreachable. Identity binding is phase 2; cloud
- * upload and consent are phase 3.
+ * work with the cloud unreachable. Cloud upload and consent are phase 3.
+ *
+ * WHAT A CREDENTIAL IS. The proxy redeems it at the token endpoint, and
+ * Token_Grant::exchange() authenticates EVERY grant type (refresh_token
+ * included) with client_id + client_secret, because Client_Store has no
+ * public-client mode. So the credential is the triple
+ * {client_id, client_secret, refresh_token}, not the pair: handing back
+ * only the refresh token would ship something that can never be redeemed.
+ * All three plaintext values appear exactly once, in issue_for_user()'s
+ * return value, and none of them is recoverable afterwards (Client_Store
+ * keeps a secret hash, Refresh_Token_Store a token hash).
  *
  * Idempotency invariants:
  *  - ensure_client() never grows the clients store on repeat calls: it
  *    resolves the existing gateway client (by stored id, then by
- *    non-creating registration lookup) before it will ever create one.
- *  - issue_for_user() rotates: any prior gateway refresh tokens for the
- *    client are revoked before the new one is minted, so re-provisioning
- *    replaces the credential rather than accumulating live ones.
+ *    non-creating fingerprint lookup) before it will ever create one.
+ *  - issue_for_user() rotates the WHOLE credential: the client secret is
+ *    re-minted and every access and refresh token bound to the client is
+ *    evicted before the new refresh token is issued, so a previously
+ *    issued credential is dead immediately rather than surviving until its
+ *    access tokens lapse.
  *  - deprovision() is safe to call repeatedly and converges to fully dead
- *    (no client row, no bound tokens) even from a half-revoked state.
+ *    (no client row, no bound tokens) even from a half-revoked state, and
+ *    even when more than one matching client row exists.
  *
- * The refresh token plaintext is returned exactly once, from
- * issue_for_user(), and is never persisted (Refresh_Token_Store hashes at
- * rest).
+ * BINDING. The refresh token is stamped with the user's password
+ * fingerprint (Refresh_Token_Store, via Token_Store::pass_fingerprint), so
+ * the credential dies on a password change or account deletion without any
+ * network round trip.
+ *
+ * SCOPE. The 'gateway' scope string is recorded on the token and carried
+ * onto the access tokens minted from it, but nothing in the request path
+ * enforces it today: Bearer_Auth performs no ability or domain scope
+ * check, so a gateway access token authorises whatever its bound user can
+ * do. Scope enforcement is tracked separately; do not read SCOPE as a
+ * restriction.
  */
 class Gateway_Credential
 {
@@ -43,6 +64,15 @@ class Gateway_Credential
     public const CLIENT_NAME  = 'WPMCP Gateway';
     public const REDIRECT_URI = 'urn:wpmcp:gateway';
 
+    /**
+     * Registrar key folded into the gateway client's registration
+     * fingerprint. A server-side constant on purpose: the public DCR
+     * endpoint keys registrations by remote IP, so no anonymous caller can
+     * produce a row with this fingerprint and have it adopted as the site's
+     * gateway client.
+     */
+    public const REGISTRAR_KEY = 'wpmcp-gateway-local';
+
     /** Scope stamped on gateway refresh tokens and the access tokens they mint. */
     public const SCOPE = 'gateway';
 
@@ -52,6 +82,9 @@ class Gateway_Credential
      * clients store.
      *
      * @return array The stored client record (never the plaintext secret).
+     *
+     * @throws \RuntimeException When the clients store is full (Client_Store
+     *         MAX_CLIENTS) or the just-created record cannot be read back.
      */
     public static function ensure_client(): array
     {
@@ -65,32 +98,39 @@ class Gateway_Credential
             delete_option(self::OPTION);
         }
 
-        $existing = Client_Store::find_by_registration(self::CLIENT_NAME, [self::REDIRECT_URI]);
+        $existing = self::find_registered();
         if (null !== $existing) {
             update_option(self::OPTION, (string) $existing['client_id']);
+            Client_Store::protect((string) $existing['client_id']);
             return $existing;
         }
 
-        $created = Client_Store::create([self::CLIENT_NAME], [self::REDIRECT_URI], 'wpmcp-gateway-local');
+        $created = Client_Store::create([self::CLIENT_NAME], [self::REDIRECT_URI], self::REGISTRAR_KEY);
         update_option(self::OPTION, $created['client_id']);
+        Client_Store::protect((string) $created['client_id']);
 
         $record = Client_Store::get($created['client_id']);
-        return null !== $record ? $record : $created;
+        if (null === $record) {
+            // Unreachable in practice. Failing loudly beats the alternative
+            // of handing back create()'s {client_id, client_secret} payload,
+            // which is a different shape AND would leak the plaintext secret
+            // through a method documented never to return one.
+            throw new \RuntimeException('Gateway client could not be read back after creation.');
+        }
+
+        return $record;
     }
 
     /**
      * Provision (or rotate) the gateway credential for a user.
      *
-     * The refresh token plaintext appears in this return value exactly once
-     * and nowhere else; callers surface it to the user and must not store
-     * it.
+     * All three plaintext values appear in this return value exactly once
+     * and nowhere else; callers surface them to the user and must not store
+     * them.
      *
-     * @todo (#142) Bind the token to the user's password fingerprint so the
-     *       credential dies on password change or account deletion, and
-     *       honor wpmcp_gateway_refresh_ttl; both need Refresh_Token_Store
-     *       to grow fingerprint + per-issue TTL support.
+     * @return array{client_id: string, client_secret: string, refresh_token: string}
      *
-     * @return array{client_id: string, refresh_token: string}
+     * @throws \RuntimeException When the clients store is full.
      */
     public static function issue_for_user(int $user_id): array
     {
@@ -98,13 +138,23 @@ class Gateway_Credential
         $client_id = (string) $client['client_id'];
 
         // Rotate rather than accumulate: any previously issued gateway
-        // credential is dead the moment a new one is provisioned.
+        // credential is dead the moment a new one is provisioned. That
+        // means all three parts -- the access tokens already minted from
+        // the old refresh token (Token_Store), the old refresh token
+        // itself, and the client secret the proxy authenticates with.
+        Token_Store::revoke_for_client($client_id);
         Refresh_Token_Store::revoke_for_client($client_id);
+
+        $client_secret = Client_Store::rotate_secret($client_id);
+        if (null === $client_secret) {
+            throw new \RuntimeException('Gateway client disappeared while provisioning.');
+        }
 
         $refresh_token = Refresh_Token_Store::issue($client_id, $user_id, self::SCOPE);
 
         return [
             'client_id'     => $client_id,
+            'client_secret' => $client_secret,
             'refresh_token' => $refresh_token,
         ];
     }
@@ -126,26 +176,54 @@ class Gateway_Credential
             }
         }
 
-        return Client_Store::find_by_registration(self::CLIENT_NAME, [self::REDIRECT_URI]);
+        return self::find_registered();
     }
 
     /**
-     * Kill the gateway credential locally: client row plus every access and
-     * refresh token bound to it. Local-only (no network access needed),
-     * idempotent, safe when nothing is provisioned.
+     * Kill the gateway credential locally: every matching client row plus
+     * every access and refresh token bound to it. Local-only (no network
+     * access needed), idempotent, safe when nothing is provisioned.
      *
-     * @return bool True when a provisioned credential was removed, false
-     *              when there was nothing to remove.
+     * Converges rather than doing one pass. Two states force that:
+     *  - half-revoked (the client row is already gone but tokens bound to
+     *    the recorded client_id linger); deleting the option first would
+     *    destroy the only pointer that can still find those tokens, so the
+     *    id is read and swept BEFORE the option goes;
+     *  - duplicate rows for the same registration, which create()'s dedup
+     *    permits once a row holds tokens; tearing down only the first match
+     *    would leave a live gateway client behind.
+     *
+     * @return bool True when this call removed something, false when there
+     *              was nothing left to remove.
      */
     public static function deprovision(): bool
     {
-        $record = self::current_client();
+        $removed = false;
+
+        // Sweep the recorded id first, while we still have it.
+        $client_id = (string) get_option(self::OPTION, '');
+        if ('' !== $client_id) {
+            $removed = Client_Store::revoke($client_id) || $removed;
+        }
         delete_option(self::OPTION);
 
-        if (null === $record) {
-            return false;
+        // Then every remaining row that carries the gateway registration
+        // fingerprint. Bounded by the store size; each revoke removes the
+        // row it matched, so this terminates.
+        foreach (Client_Store::find_all_by_registration(self::CLIENT_NAME, [self::REDIRECT_URI], self::REGISTRAR_KEY) as $record) {
+            $removed = Client_Store::revoke((string) $record['client_id']) || $removed;
         }
 
-        return Client_Store::revoke((string) $record['client_id']);
+        return $removed;
+    }
+
+    /** Non-creating fingerprint lookup of the gateway client row. */
+    private static function find_registered(): ?array
+    {
+        return Client_Store::find_by_registration(
+            self::CLIENT_NAME,
+            [self::REDIRECT_URI],
+            self::REGISTRAR_KEY
+        );
     }
 }

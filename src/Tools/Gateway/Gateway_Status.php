@@ -1,6 +1,6 @@
 <?php
 
-namespace WPMCP\Tools\Cloud;
+namespace WPMCP\Tools\Gateway;
 
 use WPMCP\Cloud\Gateway_Credential;
 
@@ -11,7 +11,7 @@ if (! defined('ABSPATH')) {
 /**
  * Report whether the site-local gateway credential is provisioned (issue
  * #142). Read-only, and deliberately reports the client_id at most; token
- * material never appears here.
+ * material and the client secret never appear here.
  */
 class Gateway_Status
 {

@@ -340,7 +340,7 @@ final class Plugin
             'compose', 'woocommerce', 'menu', 'seo', 'linking', 'redirects',
             'meta', 'diagnostics', 'cron', 'maintenance', 'context', 'block',
             'structure', 'taxonomy', 'export', 'backup', 'analysis', 'connect',
-            'governance', 'skills',
+            'governance', 'skills', 'gateway',
         ],
     ];
 
@@ -2115,6 +2115,7 @@ final class Plugin
             'widget_builder' => fn () => $this->register_widget_builder_abilities($registrar),
             'block_builder'  => fn () => $this->register_block_builder_abilities($registrar),
             'cloud'          => fn () => $this->register_cloud_abilities($registrar),
+            'gateway'        => fn () => $this->register_gateway_abilities($registrar),
             'search'         => fn () => $this->register_search_abilities($registrar),
             'skills'         => fn () => $this->register_skills_abilities($registrar),
             'memory'         => fn () => $this->register_memory_abilities($registrar),
@@ -2272,6 +2273,49 @@ final class Plugin
         ));
     }
 
+    /**
+     * Site-local gateway credential lifecycle (issue #142, phase 1 of #130).
+     *
+     * Its own group, NOT part of 'cloud', and free tier. That looks odd for
+     * a credential whose consumer is the multi-site proxy, and it is
+     * deliberate: 'cloud' is pruned from the wp.org build
+     * (scripts/flavors/wporg/strip.php drops src/Tools/Cloud and this
+     * method's cloud sibling entirely) and excluded from the WooCommerce
+     * vertical's FLAVOR_GROUPS. A credential that can be minted on a build
+     * but not revoked on it is a security hole, and the issue's requirement
+     * is explicit that revocation works locally with no network. So the
+     * whole lifecycle lives where every flavor can reach it.
+     *
+     * All manage_options, domain 'gateway'. None of these touch the
+     * network, so provisioning and revocation work with the cloud
+     * unreachable.
+     */
+    private function register_gateway_abilities(Registrar $registrar): void
+    {
+        $tools = [
+            ['gateway-provision', 'create', new \WPMCP\Tools\Gateway\Gateway_Provision(), 'Provision (or rotate) the site-local gateway credential. Returns client_id, client_secret and refresh_token plaintext exactly once; any previous gateway credential stops working immediately. Requires confirm: true', ['confirm' => ['type' => 'boolean']], ['confirm']],
+            ['gateway-status', 'read', new \WPMCP\Tools\Gateway\Gateway_Status(), 'Report whether the site-local gateway credential is provisioned, and its client_id. Never returns token material. Read-only', [], []],
+            ['gateway-revoke', 'delete', new \WPMCP\Tools\Gateway\Gateway_Revoke(), 'Revoke the site-local gateway credential: removes the gateway client and every token bound to it. Local-only and idempotent. Requires confirm: true', ['confirm' => ['type' => 'boolean']], ['confirm']],
+        ];
+
+        foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
+            $schema = [ 'type' => 'object', 'properties' => $props ];
+            if ([] !== $required) {
+                $schema['required'] = $required;
+            }
+            $registrar->register(new Ability(
+                'wpmcp/' . $name,
+                'free',
+                $desc,
+                $schema,
+                [$handler, 'handle'],
+                'manage_options',
+                'gateway',
+                $op
+            ));
+        }
+    }
+
     private function register_cloud_abilities(Registrar $registrar): void
     {
         $tools = [
@@ -2280,12 +2324,6 @@ final class Plugin
             ['cloud-list-assets', 'read', new \WPMCP\Tools\Cloud\Cloud_List_Assets(), 'List the assets (widget/block specs) in this site\'s WP MCP Cloud account. Read-only', [], []],
             ['cloud-push-assets', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Assets(), 'Push this site\'s custom widget and block specs up to WP MCP Cloud (backup + reuse across sites). Optionally filter by type (widget|block)', ['types' => ['type' => 'array']], []],
             ['cloud-pull-assets', 'create', new \WPMCP\Tools\Cloud\Cloud_Pull_Assets(), 'Pull the builder assets from this site\'s WP MCP Cloud account and recreate them locally as custom widget/block specs (each validated before it is stored)', [], []],
-            // Gateway credential lifecycle (issue #142). Locally-first: none
-            // of these touch the network, so provisioning and revocation
-            // work with the cloud unreachable.
-            ['gateway-provision', 'create', new \WPMCP\Tools\Cloud\Gateway_Provision(), 'Provision (or rotate) the site-local gateway credential. Returns the refresh token plaintext exactly once; any previous gateway credential stops working. Requires confirm: true', ['confirm' => ['type' => 'boolean']], ['confirm']],
-            ['gateway-status', 'read', new \WPMCP\Tools\Cloud\Gateway_Status(), 'Report whether the site-local gateway credential is provisioned, and its client_id. Never returns token material. Read-only', [], []],
-            ['gateway-revoke', 'delete', new \WPMCP\Tools\Cloud\Gateway_Revoke(), 'Revoke the site-local gateway credential: removes the gateway client and every token bound to it. Local-only and idempotent', [], []],
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {

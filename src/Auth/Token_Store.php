@@ -227,12 +227,15 @@ class Token_Store
 
     /**
      * A SHA-256 fingerprint of the user's current password hash, or null if
-     * the user no longer exists. Never the raw user_pass itself; used only
+     * the user no longer exists. Public since issue #142 so
+     * Refresh_Token_Store can bind long-lived gateway refresh tokens to the
+     * same credential state, using one definition of "fingerprint" rather
+     * than two that could drift apart. Never the raw user_pass itself; used only
      * to detect "this user still exists and their credentials have not
      * changed since token issuance" (issue #43 C1/C2). Never returned from
      * validate(), never logged.
      */
-    private static function pass_fingerprint(int $user_id): ?string
+    public static function pass_fingerprint(int $user_id): ?string
     {
         $user = get_userdata($user_id);
         if (false === $user) {

@@ -129,12 +129,13 @@ class Refresh_Token_Store
 
         $stored                      = self::load();
         $stored[ self::hash($token) ] = [
-            'client_id'  => $client_id,
-            'user_id'    => $user_id,
-            'scope'      => $scope,
-            'chain_id'   => '' !== $chain_id ? $chain_id : self::new_chain_id(),
-            'issued_at'  => self::now(),
-            'rotated_at' => 0,
+            'client_id'        => $client_id,
+            'user_id'          => $user_id,
+            'scope'            => $scope,
+            'chain_id'         => '' !== $chain_id ? $chain_id : self::new_chain_id(),
+            'issued_at'        => self::now(),
+            'rotated_at'       => 0,
+            'pass_fingerprint' => Token_Store::pass_fingerprint($user_id),
         ];
         self::save($stored);
 
@@ -155,7 +156,9 @@ class Refresh_Token_Store
      * @return array{status: string, record?: array} status is one of
      *         'ok' (fresh, rotated now), 'grace' (rotated already but
      *         within the window), 'unknown', 'expired', 'client_mismatch',
-     *         or 'reuse_detected' (chain revoked as a side effect).
+     *         'credential_changed' (the bound user was deleted or changed
+     *         their password; chain revoked as a side effect), or
+     *         'reuse_detected' (chain revoked as a side effect).
      */
     public static function redeem(string $token, string $client_id = ''): array
     {
@@ -177,6 +180,23 @@ class Refresh_Token_Store
             unset($stored[ $key ]);
             self::save($stored);
             return ['status' => 'expired'];
+        }
+
+        // Credential binding (issue #142). Access tokens already die on a
+        // password change or account deletion via Token_Store's
+        // fingerprint check, but a refresh token lives 30 days and mints
+        // fresh access tokens for that whole window, so without this a
+        // password change would not actually end the session it is
+        // supposed to end. Recorded fingerprints only: pre-#142 records
+        // carry none and keep their old behaviour rather than being
+        // invalidated wholesale by an upgrade.
+        $bound = $record['pass_fingerprint'] ?? null;
+        if (null !== $bound) {
+            $current = Token_Store::pass_fingerprint((int) ($record['user_id'] ?? 0));
+            if (null === $current || ! hash_equals($bound, $current)) {
+                self::revoke_chain((string) ($record['chain_id'] ?? ''));
+                return ['status' => 'credential_changed'];
+            }
         }
 
         $rotated_at = (int) ($record['rotated_at'] ?? 0);
