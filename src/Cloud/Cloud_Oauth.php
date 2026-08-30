@@ -2,6 +2,8 @@
 
 namespace WPMCP\Cloud;
 
+use WPMCP\Auth\PKCE;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -10,18 +12,30 @@ if (! defined('ABSPATH')) {
  * PKCE OAuth connect to WP MCP Cloud (issue #135, phase B step 1).
  *
  * The site acts as an OAuth 2.1 public client against the cloud's
- * authorization server. S256 only, mirroring what our own Auth\PKCE enforces
- * server-side. The resulting token bundle is sealed in Token_Vault; refresh
- * goes through Token_Vault::with_refresh_lock() so rotation races resolve as
- * treat-loser-as-success.
+ * authorization server, reusing this plugin's own Auth\PKCE for the S256
+ * challenge so client and server agree by construction. The resulting token
+ * bundle is sealed in Token_Vault; refresh goes through
+ * Token_Vault::with_refresh_lock() so rotation races resolve as
+ * lock / re-read / treat-a-finished-winner-as-success.
  *
- * TODO(#135): cloud-side /oauth/authorize and /oauth/token endpoints, the
- * admin redirect handler that completes exchange(), and switching
- * cloud-connect from API key to this flow once the backend ships them.
+ * The client_id is the site itself (its home URL), which is what a public
+ * client with no registration step can prove nothing about but must still
+ * send: an authorization request without client_id is malformed and no
+ * conforming server can process it.
+ *
+ * The pending state record is single-use and short-lived: it is deleted on
+ * every exit path of exchange() and rejected once older than STATE_TTL, so a
+ * captured state/verifier pair cannot be replayed.
+ *
+ * TODO(#135): the cloud-side /oauth/authorize and /oauth/token endpoints, and
+ * the admin redirect handler that calls exchange(); cloud-connect keeps taking
+ * an API key until the backend ships them.
  */
 class Cloud_Oauth
 {
     private const STATE_OPTION = 'wpmcp_cloud_oauth_state';
+    private const STATE_TTL    = 600; // seconds
+    private const SCOPE        = 'assets settings';
 
     /**
      * Begin the flow: generate verifier + S256 challenge, persist them with a
@@ -36,9 +50,9 @@ class Cloud_Oauth
             return new \WP_Error('missing_cloud_url', 'A cloud url is required to start the OAuth connect.');
         }
 
-        $verifier  = rtrim(strtr(base64_encode(random_bytes(48)), '+/', '-_'), '=');
-        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
-        $state     = rtrim(strtr(base64_encode(random_bytes(24)), '+/', '-_'), '=');
+        $verifier  = self::random_token(48);
+        $challenge = PKCE::challenge_from_verifier($verifier);
+        $state     = self::random_token(24);
 
         update_option(self::STATE_OPTION, [
             'verifier' => $verifier,
@@ -49,10 +63,12 @@ class Cloud_Oauth
 
         $url = add_query_arg([
             'response_type'         => 'code',
+            'client_id'             => self::client_id(),
+            'scope'                 => self::SCOPE,
             'code_challenge'        => $challenge,
             'code_challenge_method' => 'S256',
             'state'                 => $state,
-            'redirect_uri'          => admin_url('admin.php?page=wpmcp-cloud-callback'),
+            'redirect_uri'          => self::redirect_uri(),
         ], $cloud_url . '/wpmcp-cloud/v1/oauth/authorize');
 
         return ['url' => $url, 'state' => $state];
@@ -60,20 +76,155 @@ class Cloud_Oauth
 
     /**
      * Complete the flow: exchange the authorization code for a token bundle
-     * and seal it in the vault.
-     *
-     * TODO(#135): implement the token POST via Cloud_Client once the cloud
-     * exposes /oauth/token; until then this returns not-implemented.
+     * and seal it in the vault. The pending state is consumed no matter how
+     * this ends.
      *
      * @return true|\WP_Error
      */
     public static function exchange(string $code, string $state)
     {
         $pending = get_option(self::STATE_OPTION, null);
-        if (! is_array($pending) || ! hash_equals((string) ($pending['state'] ?? ''), $state)) {
+        $stored  = is_array($pending) ? (string) ($pending['state'] ?? '') : '';
+
+        // '' === '' passes hash_equals, so an absent/malformed pending record
+        // must be rejected before the comparison, not by it.
+        if ('' === $stored || '' === $state || ! hash_equals($stored, $state)) {
+            delete_option(self::STATE_OPTION);
             return new \WP_Error('oauth_state_mismatch', 'OAuth state does not match the pending connect; start over with cloud-connect.');
         }
 
-        return new \WP_Error('not_implemented', 'PKCE code exchange lands with the cloud /oauth/token endpoint (issue #135).');
+        $created = (int) ($pending['created'] ?? 0);
+        if ($created <= 0 || (time() - $created) > self::STATE_TTL) {
+            delete_option(self::STATE_OPTION);
+            return new \WP_Error('oauth_state_expired', 'The pending OAuth connect expired; start over with cloud-connect.');
+        }
+
+        $cloud_url = rtrim((string) ($pending['url'] ?? ''), '/');
+        $verifier  = (string) ($pending['verifier'] ?? '');
+        delete_option(self::STATE_OPTION);
+
+        if ('' === $cloud_url || '' === $verifier) {
+            return new \WP_Error('oauth_state_mismatch', 'The pending OAuth connect is incomplete; start over with cloud-connect.');
+        }
+
+        $tokens = self::token_request($cloud_url, [
+            'grant_type'    => 'authorization_code',
+            'client_id'     => self::client_id(),
+            'code'          => $code,
+            'code_verifier' => $verifier,
+            'redirect_uri'  => self::redirect_uri(),
+        ]);
+        if (is_wp_error($tokens)) {
+            return $tokens;
+        }
+
+        Token_Vault::store($tokens['access_token'], $tokens['refresh_token'], $tokens['expires_at'], $cloud_url);
+
+        return true;
+    }
+
+    /**
+     * Rotate the sealed bundle with the refresh grant, under the vault mutex.
+     *
+     * @param string $stale_access_token The token that was just refused, so a
+     *                                   worker that loses the mutex can tell a
+     *                                   finished rotation from an in-flight one.
+     * @return array|\WP_Error the bundle now in the vault
+     */
+    public static function refresh(string $stale_access_token = '')
+    {
+        return Token_Vault::with_refresh_lock(static function (array $bundle) {
+            $issuer = '' !== $bundle['issuer'] ? $bundle['issuer'] : Cloud_Config::base_url();
+            if ('' === $bundle['refresh_token']) {
+                return new \WP_Error('cloud_no_refresh_token', 'The stored cloud token bundle has no refresh token; reconnect.');
+            }
+
+            $tokens = self::token_request($issuer, [
+                'grant_type'    => 'refresh_token',
+                'client_id'     => self::client_id(),
+                'refresh_token' => $bundle['refresh_token'],
+            ]);
+            if (is_wp_error($tokens)) {
+                return $tokens;
+            }
+
+            return [
+                'access_token'  => $tokens['access_token'],
+                'refresh_token' => '' !== $tokens['refresh_token'] ? $tokens['refresh_token'] : $bundle['refresh_token'],
+                'expires_at'    => $tokens['expires_at'],
+                'issuer'        => $issuer,
+            ];
+        }, $stale_access_token);
+    }
+
+    /**
+     * POST the token endpoint and normalize the response.
+     *
+     * @param array<string,string> $body
+     * @return array{access_token:string,refresh_token:string,expires_at:int}|\WP_Error
+     */
+    private static function token_request(string $cloud_url, array $body)
+    {
+        $response = wp_remote_post(
+            rtrim($cloud_url, '/') . '/wpmcp-cloud/v1/oauth/token',
+            [
+                'timeout' => 20,
+                'headers' => [
+                    'Content-Type' => 'application/json',
+                    'Accept'       => 'application/json',
+                ],
+                'body'    => (string) wp_json_encode($body),
+            ]
+        );
+
+        if (is_wp_error($response)) {
+            return new \WP_Error('cloud_unreachable', 'Could not reach the WP MCP Cloud token endpoint: ' . $response->get_error_message());
+        }
+
+        $code = (int) wp_remote_retrieve_response_code($response);
+        $data = json_decode((string) wp_remote_retrieve_body($response), true);
+        if (! is_array($data)) {
+            $data = [];
+        }
+
+        if ($code < 200 || $code >= 300) {
+            $message = isset($data['error_description']) ? (string) $data['error_description'] : (string) ($data['error'] ?? "HTTP {$code}");
+            return new \WP_Error('cloud_oauth_failed', 'WP MCP Cloud refused the token request: ' . $message, ['status' => $code]);
+        }
+
+        $access = (string) ($data['access_token'] ?? '');
+        if ('' === $access) {
+            return new \WP_Error('cloud_oauth_failed', 'The WP MCP Cloud token response carried no access_token.');
+        }
+
+        $expires_in = (int) ($data['expires_in'] ?? 0);
+
+        return [
+            'access_token'  => $access,
+            'refresh_token' => (string) ($data['refresh_token'] ?? ''),
+            'expires_at'    => $expires_in > 0 ? time() + $expires_in : 0,
+        ];
+    }
+
+    /**
+     * This site's identity as a public OAuth client. Home URL rather than a
+     * registered id: there is no dynamic-registration step in the contract
+     * yet, and the cloud already keys accounts by site URL.
+     */
+    private static function client_id(): string
+    {
+        return home_url('/');
+    }
+
+    private static function redirect_uri(): string
+    {
+        return admin_url('admin.php?page=wpmcp-cloud-callback');
+    }
+
+    /** BASE64URL random token with no padding. */
+    private static function random_token(int $bytes): string
+    {
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- BASE64URL is the RFC 7636 wire form for verifiers and state; not obfuscation.
+        return rtrim(strtr(base64_encode(random_bytes($bytes)), '+/', '-_'), '=');
     }
 }

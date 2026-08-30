@@ -34,19 +34,25 @@ class Cloud_Client
         return $this->request('POST', $path, $body);
     }
 
-    /** @return array|\WP_Error */
-    private function request(string $method, string $path, ?array $body = null)
+    /**
+     * @param bool $may_refresh Whether a 401 may trigger one OAuth refresh and
+     *                          a single retry. False on the retry itself, so a
+     *                          cloud that keeps answering 401 cannot loop.
+     * @return array|\WP_Error
+     */
+    private function request(string $method, string $path, ?array $body = null, bool $may_refresh = true)
     {
         if (! Cloud_Config::is_configured()) {
             return new \WP_Error('cloud_not_configured', 'Connect to WP MCP Cloud first with cloud-connect (URL + API key).');
         }
 
-        $url  = Cloud_Config::base_url() . self::API_BASE . $path;
-        $args = [
+        $url   = Cloud_Config::base_url() . self::API_BASE . $path;
+        $token = Cloud_Config::bearer_token();
+        $args  = [
             'method'  => $method,
             'timeout' => 20,
             'headers' => [
-                'Authorization' => 'Bearer ' . Cloud_Config::bearer_token(),
+                'Authorization' => 'Bearer ' . $token,
                 'Accept'        => 'application/json',
             ],
         ];
@@ -62,6 +68,17 @@ class Cloud_Client
 
         $code = (int) wp_remote_retrieve_response_code($response);
         $data = json_decode((string) wp_remote_retrieve_body($response), true);
+
+        if (401 === $code && $may_refresh && null !== Token_Vault::read()) {
+            // The access token died mid-flight (or expired between the header
+            // being built and the cloud reading it). Rotate under the vault
+            // mutex and replay exactly once; a refresh that itself fails is
+            // reported as the original auth error, not as a refresh error.
+            $refreshed = Cloud_Oauth::refresh($token);
+            if (! is_wp_error($refreshed)) {
+                return $this->request($method, $path, $body, false);
+            }
+        }
 
         if ($code < 200 || $code >= 300) {
             $message = is_array($data) && isset($data['message']) ? (string) $data['message'] : "HTTP {$code}";
