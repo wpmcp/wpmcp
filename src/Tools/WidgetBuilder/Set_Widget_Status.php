@@ -9,6 +9,12 @@ if (! defined('ABSPATH')) {
 /**
  * Enable or disable a custom widget by setting its wpmcp_widget post status:
  * 'publish' (active, registered in the editor) or 'draft' (inactive).
+ *
+ * A widget that has been compiled (issue #72) also has a manifest entry, and
+ * the manifest is what decides whether its generated class loads at all. The
+ * status change flips that entry too, so disabling a widget really does remove
+ * it from the builder in both forms, while deleting neither the spec nor the
+ * generated file: re-enabling is one call and needs no recompile.
  */
 class Set_Widget_Status
 {
@@ -22,6 +28,8 @@ class Set_Widget_Status
         $status = 'draft' === ($args['status'] ?? '') ? 'draft' : 'publish';
         wp_update_post(['ID' => $id, 'post_status' => $status]);
 
-        return ['widget_id' => $id, 'status' => $status];
+        $compiled = Compiler\Compiled_Widget_Manifest::set_enabled($id, 'publish' === $status);
+
+        return ['widget_id' => $id, 'status' => $status, 'compiled_enabled' => $compiled ? 'publish' === $status : null];
     }
 }

@@ -9,10 +9,16 @@ if (! defined('ABSPATH')) {
 /**
  * Registers active custom-widget specs as real Elementor widgets at runtime.
  *
- * Data-driven, no code generation: every active spec is registered as an
- * instance of the single Dynamic_Widget, which renders by interpolating control
- * values into the spec's template (see Widget_Renderer). There is no eval and
- * no per-widget generated class, keeping wpmcp's single-eval-site invariant.
+ * Two forms, one spec store. By default a spec is registered as an instance of
+ * the single Dynamic_Widget, which renders by interpolating control values into
+ * the spec's template (see Widget_Renderer): no code generation, no eval.
+ *
+ * A spec that has been compiled (issue #72, PRO and opt-in) is registered from
+ * its generated class instead, loaded by Compiled_Widget_Manifest only when the
+ * file's hash still matches the manifest option. Compilation adds a third
+ * execution site to the plugin (a require of plugin-generated PHP from a
+ * protected wp-content sandbox); it is never reached unless a site turns the
+ * compiler on, and the AI still never authors PHP. See docs/wip/issue-72.md.
  */
 class Widget_Registry
 {
@@ -29,8 +35,23 @@ class Widget_Registry
             $widgets_manager = \Elementor\Plugin::instance()->widgets_manager;
         }
 
+        // Compiled widgets first: a spec with an enabled, hash-verified class
+        // registers from that class, and must NOT also register a
+        // Dynamic_Widget under the same name.
+        $compiled = Compiler\Compiled_Widget_Manifest::load_enabled();
+        foreach ($compiled as $class) {
+            if (! class_exists($class, false)) {
+                continue;
+            }
+            $widgets_manager->register(new $class());
+        }
+
         foreach (Widget_Spec_Store::all(true) as $row) {
-            $spec = Widget_Spec_Store::get((int) $row['widget_id']);
+            $widget_id = (int) $row['widget_id'];
+            if (isset($compiled[ $widget_id ])) {
+                continue;
+            }
+            $spec = Widget_Spec_Store::get($widget_id);
             if (! is_array($spec) || true !== Widget_Spec::validate($spec)) {
                 continue;
             }
