@@ -60,7 +60,7 @@ These are genuine plugin defects, not engine noise. They are unfixed and they ar
 | `WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters` | 4 | ERROR |
 | `WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler` | 2 | WARNING |
 | `outdated_tested_upto_header` | 1 | ERROR |
-| `WordPress.WP.I18n.MissingTranslatorsComment` | 1 | ERROR |
+| `WordPress.WP.I18n.MissingTranslatorsComment` | 3 | ERROR |
 | `WordPress.DB.SlowDBQuery` | 1 | WARNING |
 
 The engine deliberately does not reimplement PHPCS. The right fix is structural and is recorded as **ENG-1** below: `phpcs.xml.dist:8-16` is PSR-12 only, with no WordPressCS ruleset, so none of the above runs in CI today. That is why 135 escaping errors were invisible until Plugin Check was pointed at the zip.
@@ -105,7 +105,7 @@ Severity is the `wporg-free` profile. `dist` is the same finding's severity unde
 | B-24 | PC-only | 135 × `WordPress.Security.EscapeOutput.ExceptionNotEscaped` across 56 files, worst `src/Tools/Blocks/Block_Tree.php` (15) and `src/Safety/Rollback_Service.php` (13) | Every `throw new \Exception("...$var...")`. Escape the interpolated value or add a scoped `phpcs:ignore` with a justification. Bulk mechanical change; see ENG-1 for why it went unnoticed. |
 | B-25 | PC-only | 19 × `WordPress.DB.PreparedSQL.NotPrepared`, worst `src/Tools/Database/Database_Guard.php` (6) and `src/Safety/Snapshot_Store.php` (6); plus 8 × `PluginCheck.Security.DirectDB.UnescapedDBParameter` at ERROR | Interpolated identifiers. The read-only validator at `src/Tools/Database/Database_Guard.php:146` and the backtick stripping are real mitigations, but the sniff is an error and reviewers weight DB findings heavily. Prepare, or document each site. |
 | B-26 | PC-only | 4 × `WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters` — `src/Tools/WidgetBuilder/Widget_Registry.php:52`, `src/Tools/WidgetBuilder/Widget_Spec_Store.php:85`, `src/Tools/Elementor/List_Code_Snippets.php:24`, `src/Tools/BlockBuilder/Block_Spec_Store.php:81` | Drop `suppress_filters`. |
-| B-27 | PC-only | `WordPress.WP.I18n.MissingTranslatorsComment` — `src/Admin/Audit_Log_Page.php:50` | Add the `/* translators: */` comment. |
+| B-27 | PC-only | **Resolved (#176).** 3 × `WordPress.WP.I18n.MissingTranslatorsComment` — `src/Admin/Audit_Log_Page.php` lines 119, 175 and 180 as they stood on `main`. The count of 1 and the line-50 reference in earlier revisions of this table were both wrong; there were three sites and none of them was line 50. | Each `__()` now carries a `/* translators: */` comment as the line above it, inside the `sprintf()` it documents, so reformatting cannot detach it. `src/Admin/Memory_Page.php:124` was fixed in the same pass: its `esc_html__()` took a three-part concatenation (`WordPress.WP.I18n.NonSingularStringLiteralText`, an ERROR), which make-pot cannot extract at all. Both checks are now in `tools/compliance/src/Rules/I18n_Rule.php` and run in the `compliance` CI job, which is a hard gate on the wporg-free profile, plus a src/-wide regression test at `tests/free/Compliance/TranslatorsCommentGuardTest.php`. |
 
 ### Likely reject
 
