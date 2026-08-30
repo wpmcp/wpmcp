@@ -106,22 +106,31 @@ const REMOVED_METHODS = [
 $edits = [];
 
 // ---------------------------------------------------------------- Registrar
-// The tier skip stops being a licence question and becomes a statement of
-// fact about this build. Kept rather than deleted so a pro-tier ability that
-// somehow survived the prune still cannot reach the MCP surface.
+// The tier branch is deleted outright, not rewritten (issue #160): the prune
+// above removes every pro-tier registration and registration site, and the
+// strip aborts if any survives (see the pro-tier scan below), so a runtime
+// tier check would be exactly the "code disabled pending payment" shape that
+// guideline 5 flags. The directory build's Registrar must not mention tiers
+// at all; build-wporg-release.sh gates on that.
 $edits['src/MCP/Registrar.php'] = [
     ["use WPMCP\\Pro\\Gate;\n", '', 1],
     [
-        "        if ('pro' === \$a->tier && ! Gate::is_pro()) {\n            return;\n        }\n",
-        "        // The paid tier is a separate add-on plugin, not a locked part of\n"
-            . "        // this one: its abilities are not in this build at all. This is a\n"
-            . "        // belt-and-braces refusal, not a licence check.\n"
-            . "        if ('pro' === \$a->tier) {\n            return;\n        }\n",
+        "        // Record the declaration BEFORE the tier/governance gates: the\n"
+            . "        // ability grid (issue #78) must list governance-disabled and\n"
+            . "        // unlicensed pro abilities so an admin can see and re-enable them.\n",
+        "        // Record the declaration BEFORE the governance gate: the ability\n"
+            . "        // grid (issue #78) must list governance-disabled abilities so an\n"
+            . "        // admin can see and re-enable them.\n",
         1,
     ],
     [
-        "        \$allowed = ('pro' !== \$a->tier || Gate::is_pro())\n",
-        "        \$allowed = ('pro' !== \$a->tier)\n",
+        "        if ('pro' === \$a->tier && ! Gate::is_pro()) {\n            return;\n        }\n",
+        '',
+        1,
+    ],
+    [
+        "        \$allowed = ('pro' !== \$a->tier || Gate::is_pro())\n            && current_user_can(\$a->capability)\n",
+        "        \$allowed = current_user_can(\$a->capability)\n",
         1,
     ],
     [
@@ -132,8 +141,9 @@ $edits['src/MCP/Registrar.php'] = [
             . "     * lapses after registration cannot keep a pro tool usable. The\n"
             . "     * decision is audited exactly as before.\n",
         "     * Permission decision for one ability invocation: capability +\n"
-            . "     * Governance + identity scope, audited. Pro-tier abilities are not\n"
-            . "     * part of this build, so the tier test can only ever refuse.\n",
+            . "     * Governance + identity scope, audited. The paid add-on's\n"
+            . "     * abilities are not part of this build, so there is nothing\n"
+            . "     * here for a payment to unlock.\n",
         1,
     ],
 ];

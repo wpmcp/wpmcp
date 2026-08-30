@@ -91,6 +91,15 @@ for pattern in 'Pro\\Gate' '\bis_pro\b' '\bGate::' 'can_use_premium_code' '[Ff]r
   fi
 done
 if [ -d "$STAGE/vendor/freemius" ]; then fail "the licensing SDK is still vendored"; fi
+
+# 3b. The registrar must not branch on (or even mention) ability tiers in
+#     this build (issue #160). The pro tier is pruned above, so any surviving
+#     tier reference in the registration/permission path is withheld-by-tier
+#     code, which is what guideline 5 flags.
+if grep -qi 'tier' "$STAGE/src/MCP/Registrar.php"; then
+  grep -ni 'tier' "$STAGE/src/MCP/Registrar.php" >&2
+  fail "Registrar.php still references ability tiers in the $SLUG build"
+fi
 if grep -q 'freemius' "$STAGE/composer.json"; then fail "composer.json still requires the licensing SDK"; fi
 
 # 4. Every WPMCP class the shipped code names must still exist, so a file the
