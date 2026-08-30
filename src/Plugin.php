@@ -274,6 +274,9 @@ use WPMCP\Tools\WooCommerce\Get_Order;
 use WPMCP\Tools\WooCommerce\Update_Order_Status;
 use WPMCP\Tools\WooCommerce\Add_Order_Note;
 use WPMCP\Tools\WooCommerce\Get_Sales_Report;
+use WPMCP\Tools\WooCommerce\List_Variations;
+use WPMCP\Tools\WooCommerce\Update_Variation;
+use WPMCP\Tools\WooCommerce\List_Low_Stock_Products;
 use WPMCP\Tools\Menus\List_Menus;
 use WPMCP\Tools\Menus\Get_Menu;
 use WPMCP\Tools\Menus\List_Menu_Locations;
@@ -5441,6 +5444,9 @@ final class Plugin
         $update_order_status     = new Update_Order_Status();
         $add_order_note          = new Add_Order_Note();
         $get_sales_report        = new Get_Sales_Report();
+        $list_variations         = new List_Variations();
+        $update_variation        = new Update_Variation();
+        $list_low_stock          = new List_Low_Stock_Products();
 
         $registrar->register(new Ability(
             'wpmcp/list-products',
@@ -5644,6 +5650,65 @@ final class Plugin
                 ],
             ],
             [$get_sales_report, 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/list-variations',
+            'free',
+            'List the variations of one variable WooCommerce product as safe summary rows (id, sku, attributes, prices, stock), with paging',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'product_id' => [ 'type' => 'integer' ],
+                    'per_page'   => [ 'type' => 'integer' ],
+                    'page'       => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'product_id' ],
+            ],
+            [$list_variations, 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-variation',
+            'free',
+            'Update a WooCommerce product variation\'s fields (prices, sku, stock quantity and status). A variation is a product_variation post, so this is snapshotted via object_type post (including post_parent, keeping it attached to its parent) and rollback-operation restores the prior price and stock exactly',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'             => [ 'type' => 'integer' ],
+                    'regular_price'  => [ 'type' => 'string' ],
+                    'sale_price'     => [ 'type' => 'string' ],
+                    'sku'            => [ 'type' => 'string' ],
+                    'status'         => [ 'type' => 'string' ],
+                    'manage_stock'   => [ 'type' => 'boolean' ],
+                    'stock_quantity' => [ 'type' => 'integer' ],
+                    'stock_status'   => [ 'type' => 'string' ],
+                    'session_id'     => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [$update_variation, 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/list-low-stock-products',
+            'free',
+            'List products and variations whose managed stock is at or below a threshold (default: the store\'s own low-stock setting) or marked out of stock, as summary rows whose ids feed update-product/update-variation for restocking. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'threshold' => [ 'type' => 'integer' ],
+                    'per_page'  => [ 'type' => 'integer' ],
+                    'page'      => [ 'type' => 'integer' ],
+                ],
+            ],
+            [$list_low_stock, 'handle'],
             'manage_woocommerce',
             'woocommerce',
             'read'
