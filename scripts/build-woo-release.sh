@@ -7,6 +7,15 @@
 # every excluded group's files leave the zip, and the two remote-execution
 # call sites (eval in Php_Snippet_Runner, proc_open in Wp_Cli_Executor) must
 # never ship in this build at all.
+#
+# Read that whitelist narrowly: it gates ONLY the deferred group callbacks in
+# the $groups map at the end of Plugin::register_abilities(). Everything
+# registered before that map (media, packages, security, performance,
+# filesystem, ...) is unconditional and ships in every flavor whether or not
+# its group is named. When auditing what a flavor build actually exposes, and
+# in particular what it can reach over the network for readme.txt's External
+# services section, that unconditional prologue is the authoritative list;
+# the whitelist below is not.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
