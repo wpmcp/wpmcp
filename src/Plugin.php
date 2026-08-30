@@ -36,6 +36,12 @@ use WPMCP\Tools\Export\Import_Content;
 use WPMCP\Tools\Analysis\Check_Contrast;
 use WPMCP\Tools\Code\Validate_Php_Snippet;
 use WPMCP\Tools\Code\Run_Php_Snippet;
+use WPMCP\Tools\Code\Create_Php_Snippet;
+use WPMCP\Tools\Code\List_Php_Snippets;
+use WPMCP\Tools\Code\Get_Php_Snippet;
+use WPMCP\Tools\Code\Update_Php_Snippet;
+use WPMCP\Tools\Code\Delete_Php_Snippet;
+use WPMCP\Tools\Code\Activate_Php_Snippet;
 use WPMCP\Tools\Cli\Run_Wp_Cli;
 use WPMCP\Tools\Cli\Dispatch_Cli_Job;
 use WPMCP\Tools\Cli\Get_Cli_Job;
@@ -2509,6 +2515,132 @@ final class Plugin
             'manage_options',
             'code',
             'read'
+        ));
+
+        $this->register_snippet_store_abilities($registrar);
+    }
+
+    /**
+     * PHP snippet lifecycle store (issue #85): snippets as stored,
+     * validated, inactive-by-default objects around the existing
+     * Php_Snippet_Guard/Php_Snippet_Validator surface. CRUD is free tier
+     * (it never executes anything); activation is a distinct governed
+     * operation that shares Run_Php_Snippet's exact gates
+     * (Php_Snippet_Guard::is_enabled() and is_allowed_on_environment())
+     * and, like the execution surface it fronts, defaults OFF. Every write
+     * is snapshot-first via Safe_Mutation on the store option, so snippet
+     * CRUD is reversible. Gated at manage_options like the other code
+     * tools.
+     */
+    private function register_snippet_store_abilities(Registrar $registrar): void
+    {
+        $create_php_snippet   = new Create_Php_Snippet();
+        $list_php_snippets    = new List_Php_Snippets();
+        $get_php_snippet      = new Get_Php_Snippet();
+        $update_php_snippet   = new Update_Php_Snippet();
+        $delete_php_snippet   = new Delete_Php_Snippet();
+        $activate_php_snippet = new Activate_Php_Snippet();
+
+        $registrar->register(new Ability(
+            'wpmcp/create-php-snippet',
+            'free',
+            'Store a named PHP snippet as an inactive, reviewable object. The code is statically validated first (never executed); syntax errors or critical safety findings block creation. Snippets are always created inactive; activation is a separate governed operation. Snapshot-first and reversible',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'name' => [ 'type' => 'string' ],
+                    'code' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'name', 'code' ],
+            ],
+            [$create_php_snippet, 'handle'],
+            'manage_options',
+            'code',
+            'create'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/list-php-snippets',
+            'free',
+            'List stored PHP snippets as summaries (id, name, status, safety flag, timestamps) without code bodies. Read-only, never executes anything',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$list_php_snippets, 'handle'],
+            'manage_options',
+            'code',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/get-php-snippet',
+            'free',
+            'Fetch one stored PHP snippet by id: code, status (active/inactive), and the last static validation report. Read-only, never executes anything',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [$get_php_snippet, 'handle'],
+            'manage_options',
+            'code',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/update-php-snippet',
+            'free',
+            'Update a stored PHP snippet\'s name and/or code. New code is re-validated statically (never executed); syntax errors or critical findings block the update, and a code change forces the snippet back to inactive pending re-activation. Snapshot-first and reversible',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'   => [ 'type' => 'string' ],
+                    'name' => [ 'type' => 'string' ],
+                    'code' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [$update_php_snippet, 'handle'],
+            'manage_options',
+            'code',
+            'update'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/delete-php-snippet',
+            'free',
+            'Delete a stored PHP snippet by id. Snapshot-first and reversible via the normal rollback flow; never executes anything',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [$delete_php_snippet, 'handle'],
+            'manage_options',
+            'code',
+            'delete'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/activate-php-snippet',
+            'pro',
+            'Activate a stored PHP snippet (distinct governed operation; snippets are always created inactive). Refuses unless PHP snippet execution is explicitly enabled (WPMCP_ALLOW_PHP_EXEC constant or wpmcp_allow_php_exec filter, default off) and the environment permits it, the same gates as run-php-snippet. Re-validates the stored code first; activation only flips the status flag and never executes the snippet. Snapshot-first and reversible',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [$activate_php_snippet, 'handle'],
+            'manage_options',
+            'code',
+            'update'
         ));
     }
 
