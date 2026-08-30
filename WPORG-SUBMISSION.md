@@ -245,6 +245,13 @@ distributed by the author, which is the arrangement guideline 5 recommends
 premium code"). The readme mentions the add-on once, in a sentence that says
 plainly that nothing in this plugin is locked, reduced or switched off by it.
 
+Because the licensing SDK is removed rather than carved out, its updater is
+gone with it: no file in the zip references `site_transient_update_plugins` or
+any other `Plugin_Updater_Check` marker. That check is a file-content regex
+with no Freemius exclusion and the wp.org run does not skip `vendor/`, so the
+build script gates on it directly, against the staged tree with `vendor/`
+included, and the compliance engine re-checks the extracted zip.
+
 ### 5.7 "You have a `vendor/` directory."
 
 `composer.json` ships beside it, as `File_Type_Check` requires. It is the

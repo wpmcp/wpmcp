@@ -93,7 +93,21 @@ done
 if [ -d "$STAGE/vendor/freemius" ]; then fail "the licensing SDK is still vendored"; fi
 if grep -q 'freemius' "$STAGE/composer.json"; then fail "composer.json still requires the licensing SDK"; fi
 
-# 4. Every WPMCP class the shipped code names must still exist, so a file the
+# 4. No updater surface anywhere in the staged tree, vendor/ included.
+#    Plugin_Updater_Check is a file-content regex with no Freemius carve-out
+#    (unlike the PHPCS review ruleset, which excludes */freemius/* by name),
+#    and the wp.org run does not exclude vendor/. This build removes the SDK
+#    entirely, so its updater files can never be in the zip; this gate proves
+#    that, and that no other dependency smuggles an updater in. The patterns
+#    mirror Plugin_Updater_Check's error-level list.
+for pattern in 'plugin-update-checker' 'WP_GitHub_Updater' 'WPGitHubUpdater' 'class [A-Z_]+_Plugin_Updater' 'updater\.[A-Za-z0-9_]+\.[A-Za-z]{2,5}' 'site_transient_update_plugins' 'YahnisElsts\\PluginUpdateChecker' 'PucFactory::buildUpdateChecker'; do
+  if grep -rqIE --include='*.php' -- "$pattern" "$STAGE"; then
+    grep -rnIE --include='*.php' -- "$pattern" "$STAGE" >&2
+    fail "updater surface \"$pattern\" survived into the $SLUG build"
+  fi
+done
+
+# 5. Every WPMCP class the shipped code names must still exist, so a file the
 #    strip removed cannot leave a fatal behind. Resolved against composer's
 #    authoritative classmap, which is the same map WordPress will autoload
 #    from at runtime.
@@ -126,7 +140,7 @@ foreach ($it as $f) {
 if ($missing) { fwrite(STDERR, implode("\n", array_unique($missing)) . "\n"); exit(1); }
 ' "$STAGE" || fail "the $SLUG build names a class it does not ship"
 
-# 5. Packaging hygiene: no dotfiles, no development directories, no build
+# 6. Packaging hygiene: no dotfiles, no development directories, no build
 #    scripts. File_Type_Check errors on all three, and ".sh" is on its
 #    application-file list, so this script must never be inside its own zip.
 find "$STAGE" -name '.*' -not -name '.' -not -path "$STAGE" -print0 | xargs -0 rm -rf
@@ -140,7 +154,7 @@ ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
 rm -f "$ZIP"
 (cd "$STAGE_PARENT" && zip -rq "$ZIP" "$SLUG" -x "*.DS_Store")
 
-# 6. The compliance engine, in the profile that models the directory, run
+# 7. The compliance engine, in the profile that models the directory, run
 #    against the extracted zip rather than the checkout. This is the check
 #    that decides whether the artifact is submittable.
 BUILD_DIR="$ROOT/build/wporg"
