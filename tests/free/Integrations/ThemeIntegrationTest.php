@@ -426,4 +426,33 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
             $out['result']['refused'][0]['detail']
         );
     }
+
+    public function test_governance_can_disable_set_mods_without_touching_the_read_half(): void
+    {
+        $narrow = fn ($enabled, $name) => 'wpmcp/theme-set-mods' === $name ? false : $enabled;
+        add_filter('wpmcp_ability_enabled', $narrow, 10, 2);
+
+        try {
+            $denied = $this->withWritesEnabled(fn () => $this->integration->handle_write([
+                'operation' => 'set-mods',
+                'args'      => [ 'values' => [ 'header_textcolor' => 'aabbcc' ] ],
+            ]));
+            $read   = $this->integration->handle_read([ 'operation' => 'get-theme-context' ]);
+        } finally {
+            remove_filter('wpmcp_ability_enabled', $narrow);
+        }
+
+        $this->assertSame('operation_denied', $denied['error']['code']);
+        $this->assertSame('governance', $denied['error']['data']['reason']);
+        $this->assertArrayNotHasKey('error', $read);
+        $this->assertFalse(get_theme_mod('header_textcolor'));
+    }
+
+    public function test_both_halves_demand_edit_theme_options(): void
+    {
+        $this->assertSame('edit_theme_options', $this->integration->capability());
+        foreach ($this->integration->abilities() as $ability) {
+            $this->assertSame('edit_theme_options', $ability->capability);
+        }
+    }
 }
