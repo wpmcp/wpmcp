@@ -132,7 +132,7 @@ class Db_Dumper
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- $table came from tables() above (SHOW TABLES on our own prefix); identifiers cannot be bound as placeholders.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.NotPrepared -- $table came from tables() above (SHOW TABLES on our own prefix); identifiers cannot be bound as placeholders. SHOW CREATE TABLE reads the schema, it does not change it.
         $create = $wpdb->get_row('SHOW CREATE TABLE `' . str_replace('`', '``', $table) . '`', ARRAY_N);
 
         if (! is_array($create) || ! isset($create[1])) {
@@ -165,13 +165,14 @@ class Db_Dumper
                 // key read is stable under concurrent writes, and it also
                 // avoids the O(n^2) scan OFFSET costs on a large postmeta.
                 $sql = null === $cursor
-                    ? $wpdb->prepare("SELECT * FROM {$quoted} ORDER BY {$order} ASC LIMIT %d", self::BATCH)
-                    : $wpdb->prepare("SELECT * FROM {$quoted} WHERE {$order} > %s ORDER BY {$order} ASC LIMIT %d", $cursor, self::BATCH);
+                    ? $wpdb->prepare('SELECT * FROM %i ORDER BY %i ASC LIMIT %d', $table, $key, self::BATCH)
+                    : $wpdb->prepare('SELECT * FROM %i WHERE %i > %s ORDER BY %i ASC LIMIT %d', $table, $key, $cursor, $key, self::BATCH);
             } else {
                 // No single-column primary key to seek on, so OFFSET is the
-                // only option — but ordered, so at least the sequence is
+                // only option, but ordered, so at least the sequence is
                 // deterministic rather than whatever the optimiser returns.
-                $sql = $wpdb->prepare("SELECT * FROM {$quoted} ORDER BY {$order} LIMIT %d OFFSET %d", self::BATCH, $offset);
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $order is a backtick-quoted column list built by column_order() from SHOW COLUMNS on this validated table; a multi-identifier list cannot be expressed with %i.
+                $sql = $wpdb->prepare("SELECT * FROM %i ORDER BY {$order} LIMIT %d OFFSET %d", $table, self::BATCH, $offset);
             }
 
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Identifiers come from the validated table list and from SHOW KEYS/SHOW COLUMNS on that table; every value is bound.

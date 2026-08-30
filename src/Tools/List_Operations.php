@@ -33,11 +33,11 @@ class List_Operations
 
         $sql = "SELECT operation_id, session_id, tool_name, object_type, object_id, user_id, created_at "
             . "FROM {$table} {$where_sql} ORDER BY id DESC LIMIT %d";
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $sql is assembled above from literals and Snapshot_Store::table_name() (src/Safety/Snapshot_Store.php), $wpdb->prefix plus a literal; user values are bound via wpdb::prepare().
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- wpmcp_snapshots is this plugin's own audit table (Snapshot_Store::table_name()); $sql is literal fragments from build_where() with %s/%d placeholders and the log must never be stale.
         $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge($params, [$limit])), ARRAY_A);
 
         $count_sql   = "SELECT COUNT(*) FROM {$table} {$where_sql}";
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $count_sql is assembled above from literals and Snapshot_Store::table_name() (src/Safety/Snapshot_Store.php); user values are bound via wpdb::prepare(), and the placeholder-less branch is fully static SQL.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- wpmcp_snapshots is this plugin's own audit table (Snapshot_Store::table_name()); $count_sql is literal fragments from build_where() with %s/%d placeholders and the count must match the live log.
         $total_count = $params ? (int) $wpdb->get_var($wpdb->prepare($count_sql, $params)) : (int) $wpdb->get_var($count_sql);
 
         $abilities_by_tool = $this->abilities_by_tool_name();

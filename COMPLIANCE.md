@@ -45,16 +45,16 @@ Reconciling the differences produced real fixes in both directions. Full detail 
 
 ### Plugin Check finds these; the engine does not check for them
 
-These are genuine plugin defects, not engine noise. They are unfixed and they are listed as findings below.
+These are genuine plugin defects, not engine noise. Except where a row says otherwise, they are unfixed and they are listed as findings below.
 
 | Plugin Check code | Count | Type |
 |---|---|---|
 | `WordPress.Security.EscapeOutput.ExceptionNotEscaped` | 135 | ERROR |
 | `WordPress.DB.DirectDatabaseQuery.DirectQuery` / `.NoCaching` | 72 | WARNING |
-| `WordPress.DB.PreparedSQL.NotPrepared` | 19 | ERROR |
-| `PluginCheck.Security.DirectDB.UnescapedDBParameter` | 8 / 7 | ERROR / WARNING |
+| `WordPress.DB.PreparedSQL.NotPrepared` | 0 (was 19) | ERROR |
+| `PluginCheck.Security.DirectDB.UnescapedDBParameter` | 8 / 7, expected 0 / 7 after #174 (not re-measured) | ERROR / WARNING |
 | `WordPress.Security.ValidatedSanitizedInput.*` | 11 | WARNING |
-| `WordPress.DB.PreparedSQL.InterpolatedNotPrepared` | 10 | WARNING |
+| `WordPress.DB.PreparedSQL.InterpolatedNotPrepared` | 0 reported, 6 suppressed (was 10) | WARNING |
 | `WordPress.NamingConventions.PrefixAllGlobals.*` | 7 | WARNING |
 | `WordPress.Security.NonceVerification.Recommended` | 4 | WARNING |
 | `WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters` | 4 | ERROR |
@@ -103,7 +103,7 @@ Severity is the `wporg-free` profile. `dist` is the same finding's severity unde
 | B-22 | PCP-FORBIDDEN-FUNCTIONS | 18 sites, all confirmed by Plugin Check (dist: blocker) | `unlink` ×7 → `wp_delete_file()`; `fclose` ×4, `fopen`, `fread`, `readfile`, `rmdir` → `WP_Filesystem`; `parse_url` → `wp_parse_url()`; `curl_setopt` at `src/Tools/Performance/Page_Audit.php:94` → HTTP API, though the DNS pinning there is deliberate SSRF defence and may warrant an explanation instead; `wp_get_sidebars_widgets()` at `src/Tools/Structure/List_Sidebar_Widgets.php:27` → read `$wp_registered_sidebars` directly. Full list in the engine output. |
 | B-23 | PC-only | `readme.txt` — `Tested up to: 6.9`, current WordPress is 7.0 | Plugin Check errors: "your plugin will not show up in searches". Bump after testing. The engine cannot see this offline; it is a live-version check by nature. |
 | B-24 | PC-only | 135 × `WordPress.Security.EscapeOutput.ExceptionNotEscaped` across 56 files, worst `src/Tools/Blocks/Block_Tree.php` (15) and `src/Safety/Rollback_Service.php` (13) | Every `throw new \Exception("...$var...")`. Escape the interpolated value or add a scoped `phpcs:ignore` with a justification. Bulk mechanical change; see ENG-1 for why it went unnoticed. |
-| B-25 | PC-only | 19 × `WordPress.DB.PreparedSQL.NotPrepared`, worst `src/Tools/Database/Database_Guard.php` (6) and `src/Safety/Snapshot_Store.php` (6); plus 8 × `PluginCheck.Security.DirectDB.UnescapedDBParameter` at ERROR | Interpolated identifiers. The read-only validator at `src/Tools/Database/Database_Guard.php:146` and the backtick stripping are real mitigations, but the sniff is an error and reviewers weight DB findings heavily. Prepare, or document each site. |
+| B-25 | PC-only | **Fixed (issue #174).** Was 19 × `WordPress.DB.PreparedSQL.NotPrepared`, worst `src/Tools/Database/Database_Guard.php` (6) and `src/Safety/Snapshot_Store.php` (6), plus 8 × `PluginCheck.Security.DirectDB.UnescapedDBParameter` at ERROR | Every identifier interpolation that Plugin Check reported at ERROR is now bound with `wpdb::prepare()`'s `%i` placeholder (WordPress 6.2+; the plugin requires 6.9), across `Database_Guard`, `Snapshot_Store`, `Describe_Table`, `Query`, `List_Transients`, `List_Operations`, `Redirect_Store`, `Search_Index_Store`, `Db_Dumper`, `Paid_Memberships_Pro_Integration` and `Gravity_Tables_Integration`. `phpcs --sniffs=WordPress.DB.PreparedSQL,WordPress.DB.PreparedSQLPlaceholders,WordPress.DB.DirectDatabaseQuery` over `src` now reports 0 errors. The `UnescapedDBParameter` half has not been re-measured against Plugin Check itself: it is expected to clear because the interpolations it flagged no longer exist, and that needs confirming on the built zip before the row is closed. Eighteen call sites where no placeholder applies keep a scoped `phpcs:ignore` naming the mitigation: caller-supplied read-only SQL that is the tool's whole purpose (`Query`), format strings assembled from literal `%s`/`%d` fragments that the sniff cannot follow, and a multi-identifier `ORDER BY` list that `%i` cannot express (`Db_Dumper`). |
 | B-26 | PC-only | 4 × `WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters` — `src/Tools/WidgetBuilder/Widget_Registry.php:52`, `src/Tools/WidgetBuilder/Widget_Spec_Store.php:85`, `src/Tools/Elementor/List_Code_Snippets.php:24`, `src/Tools/BlockBuilder/Block_Spec_Store.php:81` | Drop `suppress_filters`. |
 | B-27 | PC-only | `WordPress.WP.I18n.MissingTranslatorsComment` — `src/Admin/Audit_Log_Page.php:50` | Add the `/* translators: */` comment. |
 
