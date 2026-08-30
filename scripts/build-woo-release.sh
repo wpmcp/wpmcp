@@ -24,6 +24,26 @@ cp -R "$ROOT/src" "$STAGE/src"
 sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/$SLUG.php" > "$STAGE/$SLUG.php"
 sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/readme.txt" > "$STAGE/readme.txt"
 
+# Name gate. This build stages its own header/readme pair out of
+# scripts/flavors/woocommerce/, so neither the source-tree compliance run
+# (which reads the root main file) nor build-wporg-release.sh's gates can see
+# it, and a mismatch here would ship as Plugin Check's mismatched_plugin_name.
+# The trademark check is the same rule that WPORG-17-TRADEMARK enforces: the
+# mark may appear only as a trailing "for <mark>", which is why the name is
+# "WP MCP for WooCommerce" and not a longer marketing string.
+STAGED_NAME="$(sed -n 's/^[[:space:]]*\*[[:space:]]*Plugin Name:[[:space:]]*\(.*[^[:space:]]\)[[:space:]]*$/\1/p' "$STAGE/$SLUG.php" | head -1)"
+STAGED_TITLE="$(sed -n '1s/^===[[:space:]]*\(.*[^[:space:]]\)[[:space:]]*===[[:space:]]*$/\1/p' "$STAGE/readme.txt")"
+[ -n "$STAGED_NAME" ] || { echo "ERROR: no Plugin Name header in $SLUG.php" >&2; exit 1; }
+[ "$STAGED_NAME" = "$STAGED_TITLE" ] || {
+  echo "ERROR: Plugin Name \"$STAGED_NAME\" differs from the readme title \"$STAGED_TITLE\"" >&2
+  exit 1
+}
+case "$(printf '%s' "$STAGED_NAME" | tr '[:upper:]' '[:lower:]')" in
+  *wordpress*) echo "ERROR: the plugin name carries the restricted term \"wordpress\"" >&2; exit 1 ;;
+  *for\ woocommerce) ;;
+  *woocommerce*) echo "ERROR: \"woocommerce\" is allowed only as a trailing \"for WooCommerce\"" >&2; exit 1 ;;
+esac
+
 # Prune the domains the 'woocommerce' flavor never registers.
 rm -rf \
   "$STAGE/src/Tools/Elementor" \

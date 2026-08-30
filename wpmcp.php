@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: wpmcp
+ * Plugin Name: WP MCP - MCP Server with Snapshot Undo for AI Agents
  * Description: AI builds and edits your WordPress site, and physically can't wreck it. MCP server + snapshot/rollback safety.
  * Version: 0.8.0
  * Requires at least: 6.9
