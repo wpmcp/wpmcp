@@ -56,16 +56,30 @@ class Export_Content
             $export_args['status'] = sanitize_key((string) $args['status']);
         }
 
+        $ob_level = ob_get_level();
         ob_start();
         // export_wp() unconditionally calls header(); suppress the resulting
-        // "headers already sent" notice rather than letting it leak into the
-        // captured buffer or a test's output.
-        $suppress = set_error_handler(static function () {
+        // "headers already sent" warning rather than letting it leak into the
+        // captured buffer or a test's output. The handler is intentionally
+        // narrow (E_WARNING only, active solely for the export_wp() call
+        // below) and the finally block guarantees it is restored on every
+        // exit path, including exceptions thrown from inside export_wp().
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- scoped to the export_wp() call and always restored in the finally block.
+        set_error_handler(static function (): bool {
             return true;
         }, E_WARNING);
-        export_wp($export_args);
-        set_error_handler($suppress);
-        $xml = (string) ob_get_clean();
+
+        try {
+            export_wp($export_args);
+            $xml = (string) ob_get_clean();
+        } finally {
+            restore_error_handler();
+            // Discard any buffer still open if export_wp() threw before
+            // ob_get_clean() ran, so the exception does not leak a buffer.
+            while (ob_get_level() > $ob_level) {
+                ob_end_clean();
+            }
+        }
 
         $dir = Export_Dir::path();
         Export_Dir::protect($dir);
