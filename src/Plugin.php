@@ -192,6 +192,7 @@ use WPMCP\Tools\Backup\Cancel_Backup_Job;
 use WPMCP\Tools\Backup\Run_Backup_Job;
 use WPMCP\Tools\Backup\Get_Backup_Manifest;
 use WPMCP\Tools\Backup\Delete_Backup_Archive;
+use WPMCP\Tools\Backup\Restore_Site_Backup;
 use WPMCP\Tools\Governance\Get_Governance_Settings;
 use WPMCP\Tools\Governance\Update_Governance_Settings;
 use WPMCP\Tools\Governance\List_Governance_Audit_Log;
@@ -3547,6 +3548,7 @@ final class Plugin
         $cancel_backup_job  = new Cancel_Backup_Job();
         $get_backup_manifest   = new Get_Backup_Manifest();
         $delete_backup_archive = new Delete_Backup_Archive();
+        $restore_site_backup   = new Restore_Site_Backup();
 
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
@@ -3645,6 +3647,27 @@ final class Plugin
             'manage_options',
             'backup',
             'delete'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/restore-site-backup',
+            'free',
+            'Restore this site in place from a site-backup archive, by job id or archive path. dry_run defaults to TRUE and returns a compatibility report (format version, table prefix, multisite, WordPress version, BLOB-table warnings) without touching anything; read that report before running a real restore. A real restore takes a pre-restore database safety archive first, enables maintenance mode for the duration, and imports the dump statement by statement. include_files (default false) additionally restores wp-content via a staged swap. Paths outside the site-backup directory are refused',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'job_id'        => [ 'type' => 'integer' ],
+                    'path'          => [ 'type' => 'string' ],
+                    'include_files' => [ 'type' => 'boolean' ],
+                    'dry_run'       => [ 'type' => 'boolean' ],
+                ],
+            ],
+            [$restore_site_backup, 'handle'],
+            'manage_options',
+            'backup',
+            'update',
+            false,
+            true,
+            true
         ));
     }
 
