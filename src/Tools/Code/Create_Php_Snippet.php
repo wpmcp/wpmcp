@@ -14,18 +14,29 @@ if (! defined('ABSPATH')) {
  *  1. Every snippet is created INACTIVE. There is no argument that can
  *     create an active snippet; activation is a distinct, governed
  *     operation (Activate_Php_Snippet).
- *  2. Creation is validation-gated: the snippet is run through
- *     Php_Snippet_Validator (static analysis only, never executed) and a
- *     critical finding or a syntax error blocks creation outright.
+ *  2. Creation runs the code through Php_Snippet_Validator (static
+ *     analysis only, never executed) and a critical finding or a syntax
+ *     error blocks creation.
  *
- * The write goes through Safe_Mutation against the store option so it is
- * snapshotted and reversible. Nothing here executes the snippet.
+ * DO NOT MISREAD (2) AS A SECURITY CONTROL. Php_Snippet_Validator is the
+ * same line-based regex scanner Run_Php_Snippet documents as "a usability
+ * speed-bump, NOT a security boundary": a caller who already holds
+ * manage_options can defeat it trivially (string concatenation, a variable
+ * function call, ...). It exists so an operator or an agent does not store
+ * an obviously dangerous snippet by accident. The real gates on this
+ * surface are capability (manage_options), enablement and environment, and
+ * they live on the activation and execution paths, not here.
+ *
+ * The write goes through Safe_Mutation against THIS SNIPPET (object_type
+ * 'php_snippet'), not the whole store option, so undoing this creation
+ * removes exactly this record and leaves every other snippet alone.
+ * Nothing here executes the snippet.
  */
 class Create_Php_Snippet
 {
     public function handle(array $args): array
     {
-        $name = trim((string) ($args['name'] ?? ''));
+        $name = sanitize_text_field(trim((string) ($args['name'] ?? '')));
         $code = (string) ($args['code'] ?? '');
 
         if ('' === $name) {
@@ -35,12 +46,15 @@ class Create_Php_Snippet
             throw new \InvalidArgumentException('A PHP code snippet is required.');
         }
 
+        Php_Snippet_Store::assert_code_within_limit($code);
+        Php_Snippet_Store::assert_has_room();
+
         $validation = Php_Snippet_Validator::validate($code);
         if (! $validation['syntax_valid']) {
             throw new \RuntimeException('Refusing to store snippet: it does not parse as valid PHP.');
         }
         if (! $validation['safe']) {
-            throw new \RuntimeException('Refusing to store snippet: static validation reported critical safety findings.');
+            throw new \RuntimeException('Refusing to store snippet: static validation flagged it (advisory speed-bump, not a security boundary). See validate-php-snippet for the findings.');
         }
 
         $now     = gmdate('c');
@@ -56,8 +70,8 @@ class Create_Php_Snippet
 
         $out = Safe_Mutation::run(
             [
-                'object_type' => 'option',
-                'object_id'   => Php_Snippet_Store::OPTION_NAME,
+                'object_type' => 'php_snippet',
+                'object_id'   => $snippet['id'],
                 'session_id'  => (string) ($args['session_id'] ?? 'default'),
                 'tool_name'   => 'create-php-snippet',
                 'args'        => $args,

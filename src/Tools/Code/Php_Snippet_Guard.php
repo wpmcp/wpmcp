@@ -44,6 +44,36 @@ class Php_Snippet_Guard
     }
 
     /**
+     * The execution gate chain, in order, as ONE shared refusal. Both
+     * surfaces that can put a snippet on the path to running call this:
+     * Run_Php_Snippet::guard() before it evaluates anything, and
+     * Activate_Php_Snippet before it marks a stored snippet active. It
+     * lives here rather than being re-typed at each call site so a third
+     * gate added to this chain applies to every such surface at once,
+     * which is the drift the split between "execution" and
+     * "exec-adjacent" would otherwise invite.
+     *
+     * Deliberately NOT included: Php_Snippet_Validator. The validator is a
+     * usability speed-bump that an authorized caller can trivially evade,
+     * and its message differs per surface; the two checks here are the
+     * real gate.
+     */
+    public static function assert_execution_allowed(): void
+    {
+        if (! self::is_enabled()) {
+            throw new \RuntimeException(
+                'PHP execution is disabled. Enable it with the WPMCP_ALLOW_PHP_EXEC constant or the wpmcp_allow_php_exec filter. This grants remote code execution to any manage_options caller; only enable it on a development or staging environment you control.'
+            );
+        }
+
+        if (! self::is_allowed_on_environment()) {
+            throw new \RuntimeException(
+                'PHP execution is refused on this environment. Production and any unrecognized/unknown environment are refused by default (fail closed); set WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION or the wpmcp_allow_php_exec_on_production filter to override.'
+            );
+        }
+    }
+
+    /**
      * Test seam: force wp_get_environment_type()'s effective value so tests
      * do not depend on live server configuration, mirroring
      * Wp_Cli_Guard::set_environment_override(). Pass null to resume live

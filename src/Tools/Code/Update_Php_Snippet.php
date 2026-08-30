@@ -10,12 +10,20 @@ if (! defined('ABSPATH')) {
 
 /**
  * Update a stored PHP snippet's name and/or code (issue #85). A code change
- * ALWAYS re-validates through Php_Snippet_Validator (static analysis only)
- * and critical findings or syntax errors block the update, mirroring
- * Create_Php_Snippet. A code change also forces the snippet back to
- * INACTIVE: edited code has not been re-approved for activation, so it must
- * re-enter the governed activation flow. Status cannot be changed here at
- * all; that is Activate_Php_Snippet's job. Snapshot-first via Safe_Mutation.
+ * re-runs Php_Snippet_Validator (static analysis only) and critical findings
+ * or syntax errors block the update, mirroring Create_Php_Snippet, with the
+ * same caveat spelled out there: the validator is an advisory speed-bump an
+ * authorized caller can trivially evade, not a security boundary.
+ *
+ * A code change also forces the snippet back to INACTIVE: edited code has not
+ * been re-approved for activation, so it must re-enter the governed
+ * activation flow. Status cannot be set here at all; that is
+ * Activate_Php_Snippet's and Deactivate_Php_Snippet's job.
+ *
+ * The mutation re-reads the record inside the Safe_Mutation closure and
+ * writes only the fields this call owns, so an interleaved write to a
+ * different field is not silently reverted by a stale copy read before the
+ * snapshot. Snapshot is per record (object_type 'php_snippet').
  */
 class Update_Php_Snippet
 {
@@ -26,8 +34,7 @@ class Update_Php_Snippet
             throw new \InvalidArgumentException('A snippet id is required.');
         }
 
-        $snippet = Php_Snippet_Store::get($id);
-        if (null === $snippet) {
+        if (! Php_Snippet_Store::exists($id)) {
             throw new \RuntimeException("No stored snippet with id \"{$id}\".");
         }
 
@@ -37,36 +44,41 @@ class Update_Php_Snippet
             throw new \InvalidArgumentException('Provide a new name and/or code to update.');
         }
 
+        $fields = [];
+
         if ($has_name) {
-            $snippet['name'] = trim((string) $args['name']);
+            $fields['name'] = sanitize_text_field(trim((string) $args['name']));
         }
 
         if ($has_code) {
-            $code       = (string) $args['code'];
+            $code = (string) $args['code'];
+            Php_Snippet_Store::assert_code_within_limit($code);
+
             $validation = Php_Snippet_Validator::validate($code);
             if (! $validation['syntax_valid']) {
                 throw new \RuntimeException('Refusing to update snippet: new code does not parse as valid PHP.');
             }
             if (! $validation['safe']) {
-                throw new \RuntimeException('Refusing to update snippet: static validation reported critical safety findings.');
+                throw new \RuntimeException('Refusing to update snippet: static validation flagged the new code (advisory speed-bump, not a security boundary). See validate-php-snippet for the findings.');
             }
-            $snippet['code']       = $code;
-            $snippet['validation'] = $validation;
-            $snippet['status']     = Php_Snippet_Store::STATUS_INACTIVE;
+
+            $fields['code']       = $code;
+            $fields['validation'] = $validation;
+            $fields['status']     = Php_Snippet_Store::STATUS_INACTIVE;
         }
 
-        $snippet['updated_at'] = gmdate('c');
+        $snippet = null;
 
         $out = Safe_Mutation::run(
             [
-                'object_type' => 'option',
-                'object_id'   => Php_Snippet_Store::OPTION_NAME,
+                'object_type' => 'php_snippet',
+                'object_id'   => $id,
                 'session_id'  => (string) ($args['session_id'] ?? 'default'),
                 'tool_name'   => 'update-php-snippet',
                 'args'        => $args,
             ],
-            function () use ($snippet): void {
-                Php_Snippet_Store::save($snippet);
+            function () use ($id, $fields, &$snippet): void {
+                $snippet = Php_Snippet_Store::update_fields($id, $fields);
             }
         );
 

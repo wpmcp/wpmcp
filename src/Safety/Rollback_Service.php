@@ -413,6 +413,11 @@ class Rollback_Service
             return;
         }
 
+        if ('php_snippet' === $snapshot['object_type']) {
+            self::apply_php_snippet_snapshot($snapshot);
+            return;
+        }
+
         if ('page_build' === $snapshot['object_type']) {
             self::apply_page_build_snapshot($snapshot);
             return;
@@ -864,6 +869,48 @@ class Rollback_Service
                 add_term_meta($term_id, (string) $key, maybe_unserialize($value));
             }
         }
+    }
+
+    /**
+     * Undo one stored PHP snippet write (issue #85; snapshot shape
+     * documented at Snapshot::capture_php_snippet()).
+     *
+     * manage_options is required for the same reason the redirect path
+     * requires it: the store holds PHP source, and restoring a record is a
+     * site-administration action, not a content edit.
+     *
+     * Two cases, and only the one captured record is touched either way, so
+     * snippets created or edited after this operation survive the rollback:
+     *  - the id existed: put the captured record back verbatim, including
+     *    its prior status. Restoring a record that was ACTIVE at capture
+     *    time restores exactly what the operator had; it does not grant
+     *    anything, because nothing executes from the status flag without
+     *    re-clearing Php_Snippet_Guard at call time.
+     *  - the id did not exist: the write created it, so remove it.
+     */
+    private static function apply_php_snippet_snapshot(array $snapshot): void
+    {
+        if (! current_user_can('manage_options')) {
+            throw new Mutation_Failed('Rollback refused: restoring a stored PHP snippet requires the manage_options capability.');
+        }
+
+        $data = (array) ($snapshot['data'] ?? []);
+        $id   = (string) ($data['id'] ?? '');
+        if ('' === $id) {
+            return;
+        }
+
+        if (empty($data['existed'])) {
+            \WPMCP\Tools\Code\Php_Snippet_Store::delete($id);
+            return;
+        }
+
+        $record = $data['record'] ?? null;
+        if (! is_array($record) || ! isset($record['id'])) {
+            throw new Mutation_Failed('Rollback refused: the captured PHP snippet record is missing or malformed.');
+        }
+
+        \WPMCP\Tools\Code\Php_Snippet_Store::save($record);
     }
 
     private static function apply_redirect_snapshot(array $snapshot): void

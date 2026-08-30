@@ -64,6 +64,10 @@ const REMOVED_PATHS = [
     'src/Tools/Cli/Wp_Cli_Executor.php',
     'src/Tools/Code/Run_Php_Snippet.php',
     'src/Tools/Code/Php_Snippet_Runner.php',
+    // Activation of a stored snippet (issue #85) is the exec gate's own
+    // ability and is pro. The free store CRUD stays: it persists and reads
+    // PHP source and nothing in this build can execute it.
+    'src/Tools/Code/Activate_Php_Snippet.php',
     // The only curl_setopt() in the tree. Page_Audit checks class_exists()
     // and falls back to wp_safe_remote_get() on its own.
     'src/Tools/Performance/Curl_Dns_Pin.php',

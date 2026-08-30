@@ -10,8 +10,9 @@ if (! defined('ABSPATH')) {
 
 /**
  * Delete a stored PHP snippet (issue #85). Snapshot-first via Safe_Mutation
- * against the store option, so a deletion is reversible through the normal
- * rollback flow like every other governed mutation. Never executes anything.
+ * against THIS RECORD (object_type 'php_snippet'), so undoing the deletion
+ * restores exactly this snippet and does not disturb snippets created since.
+ * Never executes anything.
  */
 class Delete_Php_Snippet
 {
@@ -28,8 +29,8 @@ class Delete_Php_Snippet
 
         $out = Safe_Mutation::run(
             [
-                'object_type' => 'option',
-                'object_id'   => Php_Snippet_Store::OPTION_NAME,
+                'object_type' => 'php_snippet',
+                'object_id'   => $id,
                 'session_id'  => (string) ($args['session_id'] ?? 'default'),
                 'tool_name'   => 'delete-php-snippet',
                 'args'        => $args,
