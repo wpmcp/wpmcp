@@ -30,6 +30,47 @@ class BootstrapTest extends \WP_UnitTestCase
         $this->assertSame('wpmcp', $config['menu']['slug']);
     }
 
+    public function test_config_pins_enable_anonymous_so_the_skip_path_exists(): void
+    {
+        // readme.txt promises a Skip path on the connect screen. Without an
+        // explicit enable_anonymous the SDK falls back to its own undeclared
+        // default, so the documented behaviour would rest on a value this
+        // repo never states (#164).
+        $config = Bootstrap::config();
+
+        $this->assertTrue($config['enable_anonymous']);
+    }
+
+    public function test_config_pins_override_exact_on_the_shared_wpmcp_menu(): void
+    {
+        // With anonymous_mode off the SDK enters activation mode, and for a
+        // top-level menu it removes the whole menu and replaces it with the
+        // connect screen. Our menu slug IS the plugin's own top-level menu,
+        // so without override_exact every wpmcp submenu (History, Audit Log,
+        // Handshake, Connection, Abilities, Redirects, Skills, Memory) would
+        // disappear from every admin screen until someone opts in or skips.
+        $config = Bootstrap::config();
+
+        $this->assertSame('wpmcp', $config['menu']['slug']);
+        $this->assertTrue($config['menu']['override_exact']);
+    }
+
+    public function test_sdk_menu_manager_reads_our_override_exact_flag(): void
+    {
+        // Assert against the SDK itself, not just the array: the guard only
+        // works if FS_Admin_Menu_Manager actually parses the key we set. A
+        // synthetic module id keeps the real wpmcp singleton untouched.
+        $this->assertTrue(class_exists(\FS_Admin_Menu_Manager::class));
+
+        $menu = \FS_Admin_Menu_Manager::instance(999999, 'plugin', 'wpmcp-test');
+        $menu->init(Bootstrap::config()['menu']);
+
+        // Top level is the branch that calls remove_menu_item(); override_exact
+        // is the only thing that keeps it off non-activation URLs.
+        $this->assertTrue($menu->is_top_level());
+        $this->assertTrue($menu->is_override_exact());
+    }
+
     public function test_config_id_and_public_key_come_from_constants(): void
     {
         $config = Bootstrap::config();
@@ -100,6 +141,23 @@ class BootstrapTest extends \WP_UnitTestCase
 
         $this->assertSame($fs, Bootstrap::fs());
         $this->assertSame($fs, wpmcp_fs());
+    }
+
+    public function test_connect_screen_icon_is_pinned_to_a_local_asset(): void
+    {
+        // readme.txt claims no activation-time requests. Without a local icon
+        // the SDK's get_local_icon_url() falls through to
+        // fetch_remote_icon_url() (and plugins_api) while rendering the
+        // connect screen on localhost installs, which is an outbound request
+        // before any opt-in. Pinning the plugin_icon filter short-circuits
+        // that branch entirely (#164).
+        $fs = Bootstrap::fs();
+        $this->assertInstanceOf(\Freemius::class, $fs);
+
+        $icon = apply_filters($fs->get_action_tag('plugin_icon'), false);
+
+        $this->assertIsString($icon);
+        $this->assertFileExists($icon);
     }
 
     public function test_fs_returns_null_when_sdk_forced_absent(): void
