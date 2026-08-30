@@ -570,7 +570,7 @@ final class Plugin
         // here may touch it when the group is off.
         $memory     = $this->group_enabled('memory');
         $pending    = $memory ? Memory_Page::pending_count() : 0;
-        $menu_title = $memory ? Memory_Page::badged('wpmcp', $pending) : 'wpmcp';
+        $menu_title = $memory ? Memory_Page::badged(__('wpmcp', 'wpmcp'), $pending) : __('wpmcp', 'wpmcp');
 
         // The history page views (and its Restore button rolls back) ALL
         // users' site-wide agent mutations, so it is gated at manage_options,
@@ -653,8 +653,8 @@ final class Plugin
         // manage_options decision, like the rest.
         add_submenu_page(
             'wpmcp',
-            'wpmcp: Redirects',
-            'Redirects',
+            __('wpmcp: Redirects', 'wpmcp'),
+            __('Redirects', 'wpmcp'),
             'manage_options',
             Redirects_Page::SLUG,
             [new Redirects_Page(), 'render']
@@ -665,8 +665,8 @@ final class Plugin
         // connecting agent is told about how to work on this site.
         add_submenu_page(
             'wpmcp',
-            'wpmcp: Agent Skills',
-            'Skills',
+            __('wpmcp: Agent Skills', 'wpmcp'),
+            __('Skills', 'wpmcp'),
             'manage_options',
             Skills_Settings_Page::SLUG,
             [new Skills_Settings_Page(), 'render']
@@ -681,8 +681,8 @@ final class Plugin
         if ($memory) {
             add_submenu_page(
                 'wpmcp',
-                'wpmcp: Agent Memory',
-                Memory_Page::badged('Memory', $pending),
+                __('wpmcp: Agent Memory', 'wpmcp'),
+                Memory_Page::badged(__('Memory', 'wpmcp'), $pending),
                 'manage_options',
                 Memory_Page::submenu_slug()
             );
