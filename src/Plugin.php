@@ -65,6 +65,9 @@ use WPMCP\Connect\Exposure;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Handshake_Instructions;
 use WPMCP\MCP\Tool_Exposure;
+use WPMCP\Tools\Bridge\Execute_Site_Ability;
+use WPMCP\Tools\Bridge\Get_Site_Ability;
+use WPMCP\Tools\Bridge\List_Site_Abilities;
 use WPMCP\Tools\Dispatch\Call_Tool;
 use WPMCP\Tools\Dispatch\Get_Tool_Schema;
 use WPMCP\Tools\Dispatch\List_Tools;
@@ -2111,6 +2114,7 @@ final class Plugin
             'multisite'      => fn () => $this->register_multisite_abilities($registrar),
             'analytics'      => fn () => $this->register_analytics_abilities($registrar),
             'dispatch'       => fn () => $this->register_dispatch_abilities($registrar),
+            'bridge'         => fn () => $this->register_bridge_abilities($registrar),
             'integration'    => fn () => $this->register_integration_abilities($registrar),
             'widget_builder' => fn () => $this->register_widget_builder_abilities($registrar),
             'block_builder'  => fn () => $this->register_block_builder_abilities($registrar),
@@ -6703,6 +6707,82 @@ final class Plugin
             [$call_tool, 'handle'],
             'edit_posts',
             'dispatch',
+            'update',
+            false,
+            true,
+            false
+        ));
+    }
+
+    /**
+     * The third-party ability bridge (issue #194), registered like the
+     * dispatch meta-tools: three shells that discover and invoke abilities
+     * OTHER plugins registered through the Abilities API, without a second
+     * MCP plugin and without ever widening access. The whole surface sits
+     * behind Bridge_Guard's default-off opt-in
+     * (WPMCP_ENABLE_ABILITY_BRIDGE / wpmcp_enable_ability_bridge), and a
+     * bridged invocation always runs the target ability's own
+     * permission_callback — there is no bypass path, filter or setting.
+     *
+     * Bridged abilities are never added to tools/list; discovery goes
+     * through list-site-abilities and execution through
+     * execute-site-ability, the same compact-mode pattern as call-tool.
+     * execute-site-ability carries explicit destructive annotations for the
+     * same reason call-tool does: it proxies writes we did not author, and
+     * nothing bridged carries the snapshot/rollback guarantee.
+     */
+    private function register_bridge_abilities(Registrar $registrar): void
+    {
+        $list_site_abilities  = new List_Site_Abilities();
+        $get_site_ability     = new Get_Site_Ability();
+        $execute_site_ability = new Execute_Site_Ability();
+
+        $registrar->register(new Ability(
+            'wpmcp/list-site-abilities',
+            'free',
+            'List every ability registered on this site by OTHER plugins via the Abilities API: name, a short summary, the owning plugin, whether an input schema is available, and reversible:false (bridged results are outside the wpmcp rollback guarantee). Optional plugin filter narrows the result. Read-only. Requires the site to opt in to the ability bridge (default off)',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'plugin' => [ 'type' => 'string' ],
+                ],
+            ],
+            [$list_site_abilities, 'handle'],
+            'edit_posts',
+            'bridge',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-site-ability',
+            'free',
+            'Read one third-party ability\'s full contract by name: complete description, exact input schema, output schema and meta where provided, and its owning plugin. Refuses wpmcp\'s own abilities (use wpmcp/get-tool-schema for those). Read-only. Use wpmcp/list-site-abilities to discover names',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'name' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'name' ],
+            ],
+            [$get_site_ability, 'handle'],
+            'edit_posts',
+            'bridge',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/execute-site-ability',
+            'free',
+            'Invoke one third-party ability by name with the given arguments object. The target ability\'s own permission callback always runs (no bypass exists), plus wpmcp governance, identity scope and rate limiting on this shell. Results are reversible:false — bridged writes are NOT covered by the wpmcp snapshot/rollback guarantee. Refuses wpmcp\'s own abilities; requires the site-level bridge opt-in (default off)',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'name'      => [ 'type' => 'string' ],
+                    'arguments' => [ 'type' => 'object' ],
+                ],
+                'required'   => [ 'name' ],
+            ],
+            [$execute_site_ability, 'handle'],
+            'edit_posts',
+            'bridge',
             'update',
             false,
             true,
