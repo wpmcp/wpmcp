@@ -183,6 +183,16 @@ $edits['src/Tools/Context/Get_Site_Context.php'] = [
 // locked-row state and its copy go.
 $edits['src/Admin/Ability_Grid_Page.php'] = [
     ["use WPMCP\\Pro\\Gate;\n", '', 1],
+    // The class docblock describes the locked-PRO row this build no longer
+    // renders. Gate 3 cannot see it (no Gate:: token on the line) and a
+    // reviewer reads docblocks, so it is an exact-string edit like the code.
+    [
+        " *  - Pro rows are visible when unlicensed but locked; they are never\n"
+            . " *    presented (or written) as enabled without a live license.\n",
+        " *  - Every row in this build is a free ability: nothing is listed here\n"
+            . " *    that the site cannot enable.\n",
+        1,
+    ],
     [
         "        \$pro_locked = 'pro' === \$a->tier && ! Gate::is_pro();\n        \$explain    = Governance::explain(\$a);\n",
         "        \$explain    = Governance::explain(\$a);\n",
@@ -233,6 +243,19 @@ $edits['src/Admin/Ability_Grid_Page.php'] = [
 // What leaves is the per-document tier: a premium library ships with the
 // off-directory add-on, so in this build nothing is ever withheld and the
 // lock branch, its error copy and the docs describing it all go.
+
+// The skills admin screen renders the same lock as a status column. is_locked()
+// is hardcoded false below, so the branch is dead code carrying live
+// pay-to-unlock copy: a reviewer reads the string, not the reachability.
+$edits['src/Admin/Skills_Settings_Page.php'] = [
+    [
+        "                            } elseif (! empty(\$skill['locked'])) {\n"
+            . "                                echo esc_html__('Listed, body needs a Pro licence', 'wpmcp');\n"
+            . "                            } else {\n",
+        "                            } else {\n",
+        1,
+    ],
+];
 $edits['src/Skills/Skill_Library.php'] = [
     ["use WPMCP\\Pro\\Gate;\n", '', 1],
     [
@@ -290,6 +313,53 @@ $edits['src/Tools/Skills/Get_Skill.php'] = [
             . "        }\n\n"
             . "        unset(\$skill['locked']);\n",
         "        unset(\$skill['locked']);\n",
+        1,
+    ],
+];
+
+// ------------------------------------------------- bundled skill documents
+// The playbooks under src/Skills/library ship inside the zip and are read by
+// the agent, so a document that still tells the user a capability needs a
+// licence, or that a quota only lifts on a paid site, is the same guideline 5
+// and 9 problem as the code that used to enforce it. These are prose edits,
+// but they are exact-string edits like the rest: reword the document upstream
+// and the build fails instead of shipping stale copy.
+$edits['src/Skills/library/wpmcp-safe-writes/SKILL.md'] = [
+    [
+        "## Free tier history limit\n\n"
+            . "On an unlicensed site the snapshot history is capped at the most recent 20\n"
+            . "operations. A long unattended run can therefore push its own earliest\n"
+            . "operations out of the history. For a large batch of changes, work in smaller\n"
+            . "sessions and confirm each one, or tell the user up front that only the last 20\n"
+            . "steps will be individually reversible.\n",
+        "## Snapshot history limit\n\n"
+            . "The snapshot history keeps a fixed number of recent operations, the same\n"
+            . "number on every install (site owners can change it with the\n"
+            . "`wpmcp_snapshot_history_limit` filter). A long unattended run can therefore\n"
+            . "push its own earliest operations out of the history. For a large batch of\n"
+            . "changes, work in smaller sessions and confirm each one, or tell the user up\n"
+            . "front that only the most recent steps will be individually reversible.\n",
+        1,
+    ],
+];
+
+$edits['src/Skills/library/wpmcp-governance/SKILL.md'] = [
+    [
+        "operation, and pro-tier tools re-check the licence on every call.\n",
+        "operation.\n",
+        1,
+    ],
+    [
+        "tools/list, that is usually a governance toggle or a missing licence, not a bug.\n",
+        "tools/list, that is usually a governance toggle, not a bug.\n",
+        1,
+    ],
+];
+
+$edits['src/Skills/library/wpmcp-elementor-editing/SKILL.md'] = [
+    [
+        "The Elementor tools are pro tier and require Elementor to be active. If they\n",
+        "The Elementor tools require Elementor to be active. If they\n",
         1,
     ],
 ];

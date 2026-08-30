@@ -84,18 +84,57 @@ if ($bad) { fwrite(STDERR, implode("\n", $bad) . "\n"); exit(1); }
 # 3. No paid predicate, no licensing SDK, no pro-tier ability. Text-level on
 #    purpose: a docblock that still talks about licensing is also a finding,
 #    because the reviewer reads those too.
-for pattern in 'Pro\\Gate' '\bis_pro\b' '\bGate::' '\bpro_active\b' '\bset_pro_for_tests\b' 'can_use_premium_code' '[Ff]reemius' 'WPMCP_FS_' 'fs_dynamic_init' "^\s*'pro',\s*$" ; do
+#    pro_locked and the 'tier' => 'pro' error payload are here because they
+#    live in files the strip edits in place rather than deletes: if one of
+#    those edits drifted while the others still applied, no Gate::/is_pro
+#    token would be left on the surviving line to catch it.
+for pattern in 'Pro\\Gate' '\bis_pro\b' '\bGate::' '\bpro_active\b' '\bpro_locked\b' 'can_use_premium_code' '[Ff]reemius' 'WPMCP_FS_' 'fs_dynamic_init' "^\s*'pro',\s*$" "'tier'\s*=>\s*'pro'" ; do
   if grep -rqE --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php"; then
     grep -rnE --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php" >&2
     fail "paid/licensing surface \"$pattern\" survived into the $SLUG build"
   fi
 done
+
+# 3b. The same question asked of everything in the zip that is not PHP. The
+#     bundled SKILL.md playbooks ship inside src/ and the agent reads them, so
+#     a document promising that a capability unlocks with a licence is the same
+#     guideline 5 and 9 finding as the code that used to enforce it. Scoped to
+#     src/ and readme.txt on purpose: vendor/ is full of third-party licence
+#     files, and readme.txt's own "License: GPLv2 or later" header is required.
+for pattern in 'pro licen[sc]e' 'pro[ -]tier' '[Pp]remium' 'unlicensed' 'needs? an active .* [Ll]icense' ; do
+  if grep -rqE --exclude='*.php' -- "$pattern" "$STAGE/src" "$STAGE/readme.txt"; then
+    grep -rnE --exclude='*.php' -- "$pattern" "$STAGE/src" "$STAGE/readme.txt" >&2
+    fail "pay-to-unlock copy \"$pattern\" survived into the $SLUG build's documents"
+  fi
+done
+
 if [ -d "$STAGE/vendor/freemius" ]; then fail "the licensing SDK is still vendored"; fi
-# Issue #159 definition of done, checked directly: the gate class and the
-# licensing bootstrap must be absent as paths, not merely unreferenced.
-if [ -e "$STAGE/src/Pro" ]; then fail "src/Pro is still in the $SLUG build"; fi
-if [ -e "$STAGE/src/Freemius" ]; then fail "src/Freemius is still in the $SLUG build"; fi
 if grep -q 'freemius' "$STAGE/composer.json"; then fail "composer.json still requires the licensing SDK"; fi
+
+# 3c. Issue #159 definition of done, checked directly: the gate class and
+#     everything else the strip claims to delete must be absent as paths, not
+#     merely unreferenced. Read straight out of the strip's own REMOVED_PATHS
+#     so the two lists cannot drift apart, and because remove_path() ignores
+#     the return value of unlink()/rmdir(), which makes a partial removal
+#     silent. Run over the stage here and again over the extracted zip below.
+REMOVED_PATHS="$(php -r '
+$src = file_get_contents($argv[1]);
+preg_match("/const REMOVED_PATHS = \[(.*?)\n\];/s", $src, $m) || exit(1);
+preg_match_all("/^\s*\x27([^\x27]+)\x27,\s*$/m", $m[1], $p);
+echo implode("\n", $p[1]), "\n";
+' "$FLAVOR/strip.php")" || fail "could not read REMOVED_PATHS out of the strip script"
+[ -n "$REMOVED_PATHS" ] || fail "the strip script declares no removed paths"
+
+assert_pruned() {
+  local root="$1" label="$2" relative
+  [ -e "$root/src/Pro/Gate.php" ] && fail "src/Pro/Gate.php is still in the $label"
+  while IFS= read -r relative; do
+    [ -n "$relative" ] || continue
+    [ -e "$root/$relative" ] && fail "$relative is still in the $label"
+  done <<< "$REMOVED_PATHS"
+  return 0
+}
+assert_pruned "$STAGE" "$SLUG stage"
 
 # 4. Every WPMCP class the shipped code names must still exist, so a file the
 #    strip removed cannot leave a fatal behind. Resolved against composer's
@@ -151,9 +190,26 @@ BUILD_DIR="$ROOT/build/wporg"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 unzip -q "$ZIP" -d "$BUILD_DIR"
+# The definition of done is worded about the zip, not the checkout, and the
+# zip step selects its own files, so the path assertions are re-run here
+# against what a reviewer would actually download.
+assert_pruned "$BUILD_DIR/$SLUG" "$SLUG zip"
 php "$ROOT/tools/compliance/bin/compliance.php" \
   --profile=wporg-free --artifact --path="$BUILD_DIR/$SLUG" \
   || fail "the compliance engine found blockers in $ZIP"
+
+# 7. The last definition-of-done bullet for issue #159 is that the full and pro
+#    builds still produce their current ability counts. Those counts are pinned
+#    by tests/support/ability-manifest.php and asserted on every CI run by
+#    tests/free/Platform/AbilityManifestTest.php, which reads the checkout. The
+#    only way this build could move them is by editing the checkout instead of
+#    the throwaway stage, so that is what gets checked here.
+if command -v git > /dev/null 2>&1 && git -C "$ROOT" rev-parse --git-dir > /dev/null 2>&1; then
+  if [ -n "$(git -C "$ROOT" status --porcelain -- src wpmcp.php)" ]; then
+    git -C "$ROOT" status --porcelain -- src wpmcp.php >&2
+    fail "the $SLUG build modified the checkout; the full and pro ability counts are no longer trustworthy"
+  fi
+fi
 
 echo "built $ZIP"
 unzip -l "$ZIP" | tail -2
