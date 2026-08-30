@@ -108,8 +108,7 @@ class Code_Store
         $key = self::hash($code);
 
         for ($attempt = 0; $attempt < self::MAX_CAS_ATTEMPTS; $attempt++) {
-            $before = get_option(self::OPTION, []);
-            $before = is_array($before) ? $before : [];
+            $before = self::read_uncached();
 
             if (! isset($before[ $key ])) {
                 return null;
@@ -136,6 +135,41 @@ class Code_Store
     }
 
     /**
+     * Read the store straight off the options row, bypassing the object
+     * cache (issue #182).
+     *
+     * consume() cannot use get_option() here. wpmcp_oauth_codes is
+     * autoloaded, so get_option() serves it from the in-process `alloptions`
+     * blob; every retry in the CAS loop would then compare the same stale
+     * snapshot, no attempt could ever match the row another process just
+     * rewrote, and a valid unredeemed code would be rejected after
+     * MAX_CAS_ATTEMPTS. The compare-and-swap is defined against the row's
+     * real current value, so the read that feeds it has to come from the row.
+     *
+     * @return array The decoded store, or [] when the row is absent.
+     */
+    private static function read_uncached(): array
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Deliberately uncached: this read is the compare half of a compare-and-swap and must observe the row as other processes left it, which the autoloaded-options cache cannot show.
+        $value = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                self::OPTION
+            )
+        );
+
+        if (null === $value) {
+            return [];
+        }
+
+        $stored = maybe_unserialize($value);
+
+        return is_array($stored) ? $stored : [];
+    }
+
+    /**
      * Atomically replace the wpmcp_oauth_codes option's value from $before
      * to $after, but ONLY if the row still holds exactly $before at write
      * time. Returns true if this caller's write won (rows-affected === 1),
@@ -156,6 +190,7 @@ class Code_Store
         $before_value = maybe_serialize($before);
         $after_value  = maybe_serialize($after);
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- update_option() is unconditional last-write-wins and cannot express "write only if the row still holds what I read". This conditional UPDATE takes a MySQL row lock, so at most one concurrent consume() affects a row, which is the single-redemption guarantee. The caches it invalidates are cleared on the winning path below.
         $affected = $wpdb->query(
             $wpdb->prepare(
                 "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
@@ -170,7 +205,13 @@ class Code_Store
         }
 
         if ($affected > 0) {
+            // The row moved behind get_option()'s back. Clearing only the
+            // per-option key is not enough: this option is autoloaded, so
+            // get_option() reads it from the `alloptions` blob, and leaving
+            // that blob stale lets the next issue()/gc() load-modify-save
+            // write the redeemed code straight back into wp_options.
             wp_cache_delete(self::OPTION, 'options');
+            wp_cache_delete('alloptions', 'options');
             return true;
         }
 

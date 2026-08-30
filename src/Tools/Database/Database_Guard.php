@@ -66,6 +66,7 @@ class Database_Guard
         global $wpdb;
         $mode = '';
         if (isset($wpdb) && is_object($wpdb) && method_exists($wpdb, 'get_var')) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Session sql_mode probe; memoized in a static above, and a cross-request cache would be wrong because sql_mode is per connection.
             $mode = (string) $wpdb->get_var('SELECT @@SESSION.sql_mode');
         }
 
@@ -367,6 +368,7 @@ class Database_Guard
                 && in_array(strtolower((string) $row['meta_key']), $meta_keys, true)
                 && array_key_exists('meta_value', $row)
             ) {
+                // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Masking a meta_value column in rows that have already been fetched; this is an array write, not a meta query.
                 $rows[ $index ]['meta_value'] = self::SECRET_MASK;
             }
         }
@@ -390,6 +392,7 @@ class Database_Guard
             return new \WP_Error('unknown_table', 'A table name is required.');
         }
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Table-name validation must run against the live schema; a cached table list would validate against stale state.
         $tables = (array) $wpdb->get_col('SHOW TABLES');
         foreach ($tables as $candidate) {
             if (strtolower((string) $candidate) === strtolower($table)) {
@@ -423,6 +426,128 @@ class Database_Guard
         global $wpdb;
         $protected = apply_filters('wpmcp_db_protected_tables', [$wpdb->users, $wpdb->usermeta]);
         return self::table_is_protected($table, (array) $protected);
+    }
+
+    /**
+     * Invalidate the object-cache entries a raw row write just made stale
+     * (issue #182).
+     *
+     * The row-write tools go straight to $wpdb, so none of the core write
+     * APIs that normally clear these caches ever run. Only users/usermeta
+     * are protected, which leaves wp_options, wp_posts, wp_postmeta and the
+     * term tables writable, and a write to any of them otherwise leaves
+     * get_option()/get_post()/get_post_meta()/get_term() serving the
+     * pre-write value for the rest of the request, and for the life of the
+     * entry under a persistent object cache.
+     *
+     * $context carries whatever the caller knows about which rows moved:
+     * 'rows' (the before-image), 'where' and 'data'. When the affected key
+     * can be derived from it the invalidation is precise; when it cannot,
+     * this falls back to dropping the whole runtime cache, which is
+     * heavy-handed but never wrong. Note wp_options is autoloaded into a
+     * single `alloptions` blob, so the per-option key alone is not enough.
+     *
+     * @param array{rows?: array, where?: array, data?: array} $context
+     */
+    public static function invalidate_caches(string $table, array $context = []): void
+    {
+        global $wpdb;
+
+        $name = strtolower($table);
+
+        if ($name === strtolower((string) $wpdb->options)) {
+            foreach (self::context_values($context, 'option_name') as $option) {
+                wp_cache_delete((string) $option, 'options');
+            }
+            // get_option() reads autoloaded options out of this blob, so the
+            // per-option delete above does not cover them.
+            wp_cache_delete('alloptions', 'options');
+            wp_cache_delete('notoptions', 'options');
+            return;
+        }
+
+        if ($name === strtolower((string) $wpdb->posts)) {
+            $ids = self::context_values($context, 'ID');
+            if ([] === $ids) {
+                self::flush_runtime_cache();
+                return;
+            }
+            foreach ($ids as $id) {
+                clean_post_cache((int) $id);
+            }
+            return;
+        }
+
+        if ($name === strtolower((string) $wpdb->postmeta)) {
+            $ids = self::context_values($context, 'post_id');
+            if ([] === $ids) {
+                self::flush_runtime_cache();
+                return;
+            }
+            foreach ($ids as $id) {
+                wp_cache_delete((int) $id, 'post_meta');
+            }
+            return;
+        }
+
+        $term_tables = [
+            strtolower((string) $wpdb->terms),
+            strtolower((string) $wpdb->term_taxonomy),
+            strtolower((string) $wpdb->term_relationships),
+            strtolower((string) $wpdb->termmeta),
+        ];
+        if (in_array($name, $term_tables, true)) {
+            $ids = self::context_values($context, 'term_id');
+            if ([] === $ids) {
+                self::flush_runtime_cache();
+                return;
+            }
+            foreach ($ids as $id) {
+                clean_term_cache((int) $id);
+            }
+            return;
+        }
+
+        // Unrecognised table (a custom or plugin table): anything could be
+        // memoized against it, so drop the runtime cache rather than guess.
+        self::flush_runtime_cache();
+    }
+
+    /**
+     * Collect the distinct values of $column from a write context, looking
+     * at the before-image rows first and then at the WHERE and data maps.
+     *
+     * @return array<int, scalar>
+     */
+    private static function context_values(array $context, string $column): array
+    {
+        $values = [];
+
+        foreach ((array) ($context['rows'] ?? []) as $row) {
+            if (is_array($row) && isset($row[ $column ])) {
+                $values[] = $row[ $column ];
+            }
+        }
+
+        foreach (['where', 'data'] as $bucket) {
+            $map = (array) ($context[ $bucket ] ?? []);
+            if (isset($map[ $column ]) && is_scalar($map[ $column ])) {
+                $values[] = $map[ $column ];
+            }
+        }
+
+        return array_values(array_unique(array_filter($values, 'is_scalar')));
+    }
+
+    /** Drop the in-request cache without clearing a persistent backend. */
+    private static function flush_runtime_cache(): void
+    {
+        if (function_exists('wp_cache_flush_runtime')) {
+            wp_cache_flush_runtime();
+            return;
+        }
+
+        wp_cache_flush();
     }
 
     /**
@@ -469,6 +594,7 @@ class Database_Guard
         if ([] !== $values) {
             $sql = $wpdb->prepare($sql, $values);
         }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Recoverability before-image must read the live rows immediately before the mutation; any cache defeats the snapshot. $sql is built directly above from a Database_Guard-validated table name plus placeholders, and the values are bound through $wpdb->prepare().
         $rows = $wpdb->get_results($sql, ARRAY_A);
 
         return is_array($rows) ? $rows : [];
@@ -486,6 +612,7 @@ class Database_Guard
     {
         global $wpdb;
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Live schema introspection at snapshot/rollback time; a cached key list could disagree with the current schema. A table identifier cannot be bound with $wpdb->prepare(), so the name is validated by Database_Guard and backticks are stripped before interpolation.
         $rows = $wpdb->get_results(
             'SHOW KEYS FROM `' . str_replace('`', '', $table) . '`',
             ARRAY_A
@@ -513,6 +640,7 @@ class Database_Guard
     {
         global $wpdb;
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Live schema re-validation at rollback time; the whole point is the CURRENT schema, so caching would be wrong. A table identifier cannot be bound with $wpdb->prepare(), so the name is validated by Database_Guard and backticks are stripped before interpolation.
         $rows = $wpdb->get_results(
             'SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '`',
             ARRAY_A
