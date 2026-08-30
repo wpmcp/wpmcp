@@ -234,6 +234,11 @@ without an explicit `manage_options` request naming the slug. It is the same
 capability an administrator already has in wp-admin, exposed to the tool
 surface they chose to connect.
 
+The long-form version of this answer, with the complete file:line list of
+every install, activate and delete site plus the shared guardrails, is
+`docs/wporg/guideline-8-install-abilities.md`. If the reviewer pushes past
+the paragraph above, paste from there.
+
 ### 5.6 "Is there a licensing SDK or paid gating in here?"
 
 No. `src/Pro/`, `src/Freemius/` and the `freemius/wordpress-sdk` composer
