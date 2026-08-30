@@ -7,6 +7,7 @@
  * Requires PHP: 8.1
  * License: GPL-2.0-or-later
  * Text Domain: wpmcp
+ * Domain Path: /languages
  */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 define( 'WPMCP_VERSION', '0.8.0' );
