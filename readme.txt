@@ -46,7 +46,7 @@ WP MCP Pro adds unlimited snapshot history, deep Elementor editing and building,
 
 = Privacy =
 
-The plugin collects nothing about you and sends nothing anywhere on its own. It has no scheduled jobs and no activation-time requests. Every outbound request it can make is listed under "External services" below, and each one happens only while you or your agent are running the tool that needs it. Licensing (Freemius) and WP MCP Cloud sync are opt-in and inactive until you connect them.
+The plugin collects nothing about you and sends nothing anywhere on its own. It has no scheduled jobs and no activation-time requests. Every outbound request it can make is listed under "External services" below, and each one happens only while you or your agent are running the tool that needs it. Licensing (Freemius) and WP MCP Cloud sync are opt-in and inactive until you connect them. On activation Freemius shows its stock opt-in screen, which defaults to off; if you skip it or decline, nothing is ever sent to Freemius.
 
 == External services ==
 
