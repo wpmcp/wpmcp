@@ -289,6 +289,7 @@ use WPMCP\Auth\OAuth_Config;
 use WPMCP\Auth\Oauth_Gc;
 use WPMCP\MCP\Structured_Result;
 use WPMCP\MCP\Server as Mcp_Server;
+use WPMCP\MCP\Stdio_Transport;
 use WPMCP\MCP\Transport_Guard;
 
 // Plugin Check's Direct_File_Access_Check only accepts the bare defined()
@@ -528,6 +529,9 @@ final class Plugin
             // it wp_register_ability() gives us abilities but no MCP
             // transport at all. See WPMCP\MCP\Server.
             Mcp_Server::register();
+            // Stdio MCP transport for WP-CLI-only and local workflows
+            // (issue #77): `wp mcp-stdio serve`. No-op outside WP-CLI.
+            Stdio_Transport::register();
             // structuredContent must serialize as a JSON object. Normalized
             // at the wire boundary only, so tool contracts are unchanged.
             (new Structured_Result())->register();
