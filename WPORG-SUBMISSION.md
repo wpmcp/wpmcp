@@ -246,11 +246,23 @@ premium code"). The readme mentions the add-on once, in a sentence that says
 plainly that nothing in this plugin is locked, reduced or switched off by it.
 
 Because the licensing SDK is removed rather than carved out, its updater is
-gone with it: no file in the zip references `site_transient_update_plugins` or
-any other `Plugin_Updater_Check` marker. That check is a file-content regex
-with no Freemius exclusion and the wp.org run does not skip `vendor/`, so the
-build script gates on it directly, against the staged tree with `vendor/`
-included, and the compliance engine re-checks the extracted zip.
+gone with it: no PHP file in the zip matches any `Plugin_Updater_Check`
+error-level marker, `site_transient_update_plugins` among them.
+`Plugin_Updater_Check` is a file-content regex over PHP files with no Freemius
+exclusion, and the WordPress.org run does not skip `vendor/`, so three
+independent things assert this rather than one:
+
+* `scripts/lib/updater-gate.sh` runs over the tree the build is about to zip,
+  `vendor/` included, and fails the build on any hit. It reads its pattern
+  list from the compliance engine's own rule rather than carrying a second
+  copy, so the two cannot drift apart.
+* The compliance engine then re-runs that rule against the extracted zip. For
+  an artifact scan it covers `vendor/` as well, which it deliberately skips
+  for a development checkout.
+* CI runs WordPress's own Plugin Check against the same extracted zip with
+  `--exclude-directories=.git,node_modules`. The CLI excludes `vendor/` by
+  default and the directory does not, so the override is what makes that run
+  match what a reviewer sees.
 
 ### 5.7 "You have a `vendor/` directory."
 
