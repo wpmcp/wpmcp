@@ -121,10 +121,10 @@ class Memory_Page
         );
         echo '</p>';
 
+        // One literal, however long: make-pot reads the source, so a concatenated
+        // argument produces no string in the .pot file at all.
         echo '<p class="description">' . esc_html__(
-            'Published severity=block entries are enforced by the server: every matching call is refused '
-            . 'before it runs. tool: targets are exact; post_id:/post_type: targets match only calls whose '
-            . 'arguments name that post or type.',
+            'Published severity=block entries are enforced by the server: every matching call is refused before it runs. tool: targets are exact; post_id:/post_type: targets match only calls whose arguments name that post or type.',
             'wpmcp'
         ) . '</p>';
     }

@@ -116,8 +116,11 @@ class Audit_Log_Page
 
         foreach ($ops as $op) {
             $user  = get_userdata((int) $op['user_id']);
-            /* translators: %d: numeric ID of the WordPress user who performed the operation. */
-            $who   = $user ? $user->display_name : sprintf(__('User #%d', 'wpmcp'), (int) $op['user_id']);
+            $who   = $user ? $user->display_name : sprintf(
+                /* translators: %d: the WordPress user id of a deleted or otherwise unknown user. */
+                __('User #%d', 'wpmcp'),
+                (int) $op['user_id']
+            );
             $what  = sprintf('%s (#%d)', $op['tool_name'], (int) $op['object_id']);
 
             echo '<tr>';
@@ -170,18 +173,20 @@ class Audit_Log_Page
             );
             printf('<td>%s</td>', esc_html((string) ($row['tool'] ?? '')));
             printf('<td>%s</td>', esc_html((string) ($row['client'] ?? '')));
-            printf(
-                '<td>%s</td>',
-                empty($row['ok'])
-                    /* translators: %s: machine-readable error code returned by the failed MCP request. */
-                    ? esc_html(sprintf(__('Error: %s', 'wpmcp'), (string) ($row['error_code'] ?? '')))
-                    : esc_html__('OK', 'wpmcp')
+            $outcome = empty($row['ok'])
+                ? sprintf(
+                    /* translators: %s: the machine-readable error code the tool call failed with. */
+                    __('Error: %s', 'wpmcp'),
+                    (string) ($row['error_code'] ?? '')
+                )
+                : __('OK', 'wpmcp');
+            printf('<td>%s</td>', esc_html($outcome));
+            $duration = sprintf(
+                /* translators: %s: how long the tool call took, in milliseconds, formatted for the locale. */
+                __('%s ms', 'wpmcp'),
+                number_format_i18n((int) ($row['duration_ms'] ?? 0))
             );
-            printf(
-                '<td>%s</td>',
-                /* translators: %d: request duration in milliseconds. */
-                esc_html(sprintf(__('%d ms', 'wpmcp'), (int) ($row['duration_ms'] ?? 0)))
-            );
+            printf('<td>%s</td>', esc_html($duration));
             echo '<td>';
             $this->render_undo_link((string) ($row['operation_id'] ?? ''));
             echo '</td></tr>';
