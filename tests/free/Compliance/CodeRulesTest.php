@@ -140,6 +140,92 @@ class CodeRulesTest extends Compliance_Test_Case
         $this->assert_clean($findings);
     }
 
+    /**
+     * PHPCS, and therefore Plugin Check, honours a justified phpcs:ignore, so
+     * a rule that mirrors a sniff has to honour it too. Both the
+     * AlternativeFunctions enumeration and the curl prefix match go through
+     * the same annotation check; without it the remediation this rule prints
+     * ("use a scoped ignore with a justification") would not silence the rule
+     * that printed it.
+     */
+    public function test_a_justified_ignore_suppresses_an_alternative_functions_site(): void
+    {
+        $body = "<?php\nclass Pipes {\n    public function run( \$handle, \$pipes ) {\n";
+        $body .= "        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- proc_open() pipe handle; WP_Filesystem cannot close process pipes.\n";
+        $body .= "        fclose( \$pipes[0] );\n";
+        $body .= "        // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- deliberate SSRF defence; the WP HTTP API has no CURLOPT_RESOLVE equivalent.\n";
+        $body .= "        curl_setopt( \$handle, CURLOPT_RESOLVE, [] );\n    }\n}\n";
+
+        $findings = $this->findings(new Forbidden_Functions_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/pipes.php' => $body,
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    /**
+     * A trailing annotation on the call line itself is the other placement
+     * PHPCS accepts, and the forbidden and discouraged groups carry their own
+     * sniff codes rather than AlternativeFunctions.
+     */
+    public function test_a_justified_ignore_suppresses_the_forbidden_and_discouraged_groups(): void
+    {
+        $body = "<?php\nclass Legacy {\n    public function run() {\n";
+        $body .= "        set_time_limit( 30 ); // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- long-running CLI job, restored below.\n";
+        $body .= "        // phpcs:ignore Generic.PHP.ForbiddenFunctions.Found -- reading the raw map is the only way to see unregistered sidebars.\n";
+        $body .= "        return wp_get_sidebars_widgets();\n    }\n}\n";
+
+        $findings = $this->findings(new Forbidden_Functions_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/legacy.php' => $body,
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    /**
+     * ini_set() is reported by WordPressCS under its own WordPress.PHP.IniSet
+     * sniff as well, so an annotation naming that sniff has to count for the
+     * discouraged group too, or the accepted remediation leaves the rule
+     * shouting.
+     */
+    public function test_an_iniset_annotation_counts_for_the_discouraged_group(): void
+    {
+        $body = "<?php\nclass Transport {\n    public function run() {\n";
+        $body .= "        // phpcs:ignore WordPress.PHP.IniSet.Risky -- request-scoped, restored in the finally block.\n";
+        $body .= "        ini_set( 'zlib.output_compression', '0' );\n    }\n}\n";
+
+        $findings = $this->findings(new Forbidden_Functions_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/transport.php' => $body,
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    /**
+     * The escape hatch must not become a silent mute button: WordPressCS
+     * requires a justification after "--", and an annotation for an unrelated
+     * sniff must not suppress this one either.
+     */
+    public function test_a_bare_or_unrelated_ignore_does_not_suppress_the_site(): void
+    {
+        $body = "<?php\nclass Pipes {\n    public function run( \$pipes, \$handle ) {\n";
+        $body .= "        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose\n";
+        $body .= "        fclose( \$pipes[0] );\n";
+        $body .= "        // phpcs:ignore WordPress.Security.EscapeOutput -- unrelated sniff.\n";
+        $body .= "        curl_setopt( \$handle, CURLOPT_RESOLVE, [] );\n    }\n}\n";
+
+        $findings = $this->findings(new Forbidden_Functions_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/pipes.php' => $body,
+        ]);
+
+        $this->assert_reports($findings, 'fclose() is an error under WordPress.WP.AlternativeFunctions');
+        $this->assert_reports($findings, 'curl_setopt() is an error under WordPress.WP.AlternativeFunctions (curl group)');
+    }
+
     public function test_php_hygiene_reports_heredoc_goto_and_short_tags(): void
     {
         $heredoc = "<?php\nfunction example_markup( \$name ) {\n    \$out = <<<HTML\n<p>Hello</p>\nHTML;\n    goto finish;\n    finish:\n    return \$out;\n}\n";
