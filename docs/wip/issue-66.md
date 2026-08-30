@@ -87,6 +87,15 @@ documents it.
   default-off refusal, confirm refusal, snapshot, and rollback resurrection.
 - `tests/free/Integrations/DispatcherValidationTest.php`: the new `requires`
   hook (top-level error code, handler never reached, catalog `available` flag).
+- `tests/free/Integrations/FormsAdapterConformanceTest.php`: the first slice of
+  the shared conformance suite, data-provided over all nine forms adapters.
+  One contract, run against every adapter: list-operations answers without the
+  host plugin, the list-forms/get-form vocabulary is shared, every op
+  definition is well formed (mode, description, capability, object schema,
+  availability flag), entry reads are scopable by form_id and read-only,
+  entry deletion is uniformly destructive + confirm + manage_options, and an
+  unknown op is a structured top-level error on both halves rather than a
+  fatal.
 
 ## Remaining work (acceptance criteria still open)
 
@@ -95,9 +104,11 @@ documents it.
       CF7's Flamingo-dependent ops. No dedicated regression test exists for the
       pair-level claim across all adapters; that belongs in the conformance
       suite below.
-- [ ] Shared conformance suite: one contract test run against every adapter
-      (same op names, paging shape, guard behavior), with per-plugin fixtures.
-      Not started.
+- [ ] Shared conformance suite: the contract half now exists
+      (`FormsAdapterConformanceTest`, nine adapters). Still missing the
+      per-plugin fixture half, i.e. running the same behavioral scenario
+      (seed a form, seed entries, list, get, delete) against each adapter's
+      own fixtures rather than only against its declared catalog.
 - [ ] PRO adapter pack: no forms adapter overrides `tier()` today. Deciding
       which adapters move to `pro` and updating
       `tests/support/ability-manifest.php` accordingly is untouched work.
