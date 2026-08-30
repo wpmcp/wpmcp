@@ -84,13 +84,17 @@ if ($bad) { fwrite(STDERR, implode("\n", $bad) . "\n"); exit(1); }
 # 3. No paid predicate, no licensing SDK, no pro-tier ability. Text-level on
 #    purpose: a docblock that still talks about licensing is also a finding,
 #    because the reviewer reads those too.
-for pattern in 'Pro\\Gate' '\bis_pro\b' '\bGate::' 'can_use_premium_code' '[Ff]reemius' 'WPMCP_FS_' 'fs_dynamic_init' "^\s*'pro',\s*$" ; do
+for pattern in 'Pro\\Gate' '\bis_pro\b' '\bGate::' '\bpro_active\b' '\bset_pro_for_tests\b' 'can_use_premium_code' '[Ff]reemius' 'WPMCP_FS_' 'fs_dynamic_init' "^\s*'pro',\s*$" ; do
   if grep -rqE --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php"; then
     grep -rnE --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php" >&2
     fail "paid/licensing surface \"$pattern\" survived into the $SLUG build"
   fi
 done
 if [ -d "$STAGE/vendor/freemius" ]; then fail "the licensing SDK is still vendored"; fi
+# Issue #159 definition of done, checked directly: the gate class and the
+# licensing bootstrap must be absent as paths, not merely unreferenced.
+if [ -e "$STAGE/src/Pro" ]; then fail "src/Pro is still in the $SLUG build"; fi
+if [ -e "$STAGE/src/Freemius" ]; then fail "src/Freemius is still in the $SLUG build"; fi
 if grep -q 'freemius' "$STAGE/composer.json"; then fail "composer.json still requires the licensing SDK"; fi
 
 # 4. Every WPMCP class the shipped code names must still exist, so a file the
