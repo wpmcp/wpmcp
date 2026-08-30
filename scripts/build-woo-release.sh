@@ -66,8 +66,45 @@ composer remove freemius/wordpress-sdk --working-dir="$STAGE" --update-no-dev --
 composer dump-autoload --working-dir="$STAGE" --optimize --quiet --no-interaction
 rm -f "$STAGE/composer.json" "$STAGE/composer.lock"
 
-# wp.org's text-domain sniff wants the i18n domain to match the slug.
-find "$STAGE/src" -name '*.php' -exec sed -i '' "s/, 'wpmcp' )/, '$SLUG' )/g; s/, 'wpmcp')/, '$SLUG')/g" {} +
+# wp.org's text-domain sniff wants the i18n domain to match the slug. Two
+# forms occur: the domain inline as the last argument, and the domain alone
+# on its own line as the last argument of a wrapped i18n call. The second
+# form is matched by "own line, no trailing comma", which is what separates
+# it from the admin menu slug argument (src/Plugin.php), also the literal
+# 'wpmcp' but always followed by a comma. The menu slug is deliberately left
+# alone: it is a WordPress-derived identifier that screen ids are built from
+# (see Admin/Announcements.php), so rewriting it breaks those lookups.
+find "$STAGE/src" -name '*.php' -exec sed -i '' \
+  "s/, 'wpmcp' )/, '$SLUG' )/g; s/, 'wpmcp')/, '$SLUG')/g; s/^\([[:space:]]*\)'wpmcp'$/\1'$SLUG'/" {} +
+
+# Belt and braces: fail the build if any i18n call kept the 'wpmcp' domain.
+# The two seds above are line-based, so a future call wrapped differently
+# would silently ship the wrong domain and fail the wp.org sniff instead.
+LEFTOVER_DOMAIN="$(grep -rn --include='*.php' -E \
+  "(^[[:space:]]*'wpmcp'[[:space:]]*$)|(, ?'wpmcp' ?\))" "$STAGE/src" || true)"
+if [ -n "$LEFTOVER_DOMAIN" ]; then
+  echo "ERROR: 'wpmcp' text domain survived the rewrite in the $SLUG build:" >&2
+  echo "$LEFTOVER_DOMAIN" >&2
+  exit 1
+fi
+
+# Coexistence with the full plugin is handled at bootstrap, not by rewriting
+# identifiers. src/flavor-guard.php makes this build stand down whenever
+# 'wpmcp/wpmcp.php' is active, so the two never share a request. A build-time
+# rename of the 'wpmcp_' prefix was tried and reverted: it splits identifiers
+# whose two halves are written differently (the caller's 'wpmcp_restore' vs
+# the registration's 'wp_ajax_wpmcp_restore'), it renames WP_Error codes that
+# are part of the MCP response contract, it leaves the filter names quoted in
+# user-facing exception text pointing at filters that no longer exist, and it
+# orphans the custom tables and options of any install that updates into it.
+grep -q 'flavor-guard.php' "$STAGE/$SLUG.php" || {
+  echo "ERROR: $SLUG.php does not load the flavor coexistence guard" >&2
+  exit 1
+}
+[ -f "$STAGE/src/flavor-guard.php" ] || {
+  echo "ERROR: src/flavor-guard.php missing from the $SLUG build" >&2
+  exit 1
+}
 
 # Belt and braces: fail the build if any real eval/exec call site survived.
 # Token-level check, so strings and comments (e.g. Malware_Audit's pattern
