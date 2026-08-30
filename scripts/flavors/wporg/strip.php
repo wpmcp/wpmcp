@@ -141,9 +141,15 @@ $edits['src/MCP/Registrar.php'] = [
             . "     * lapses after registration cannot keep a pro tool usable. The\n"
             . "     * decision is audited exactly as before.\n",
         "     * Permission decision for one ability invocation: capability +\n"
-            . "     * Governance + identity scope, audited. The paid add-on's\n"
-            . "     * abilities are not part of this build, so there is nothing\n"
-            . "     * here for a payment to unlock.\n",
+            . "     * Governance + identity scope, audited. Those three terms are the\n"
+            . "     * whole decision; there is no fourth.\n",
+        1,
+    ],
+    // declared() is the ability grid's source, so its docblock has to stop
+    // naming a gate this build does not run.
+    [
+        "     * including ones the pro gate or governance then dropped. Display-only\n",
+        "     * including ones governance then dropped. Display-only\n",
         1,
     ],
 ];
@@ -411,6 +417,156 @@ $edits['src/Safety/Snapshot_Store.php'] = [
             . "    public static function prune(int \$keep): int\n",
         1,
     ],
+];
+
+// ------------------------------------------------- prose the strip falsifies
+// Deleting the Registrar tier branch makes a set of statements elsewhere in
+// the tree factually wrong, and guideline 9 treats copy that implies a paid
+// unlock as a finding in its own right. A reviewer greps the zip and reads
+// the docblocks, so every claim about tier- or licence-dependent behaviour of
+// THIS plugin leaves with the mechanism it described.
+// build-wporg-release.sh gate 3c re-derives this from the staged tree.
+
+$edits['src/Integrations/Integration_Dispatcher.php'] = [
+    [
+        " * Layering with the platform gates: the pair's own capability, Governance,\n"
+            . " * identity scope, and pro-tier gates all apply unchanged through\n"
+            . " * Registrar::is_permitted() before a dispatcher ability executes at all.\n",
+        " * Layering with the platform gates: the pair's own capability, Governance,\n"
+            . " * and identity scope all apply unchanged through Registrar::is_permitted()\n"
+            . " * before a dispatcher ability executes at all.\n",
+        1,
+    ],
+    // tier() is the only ability tier in the tree that is not a source
+    // literal, so it is the one thing the "no 'pro' literal" scan cannot see.
+    // Removing it and inlining 'free' at the three construction sites is what
+    // lets gate 3c assert the invariant instead of the vocabulary.
+    [
+        "    /** Tier of the dispatcher pair; Registrar drops 'pro' pairs without a license. */\n"
+            . "    public function tier(): string\n"
+            . "    {\n"
+            . "        return 'free';\n"
+            . "    }\n\n",
+        '',
+        1,
+    ],
+    ["            \$this->tier(),\n", "            'free',\n", 3],
+];
+
+$edits['src/MCP/Server.php'] = [
+    [
+        "     * Registrar, so an ability that was declared but gated away (pro tier\n"
+            . "     * without a licence, governance-disabled, memory-blocked) is absent from\n",
+        "     * Registrar, so an ability that was declared but gated away\n"
+            . "     * (governance-disabled, memory-blocked) is absent from\n",
+        1,
+    ],
+];
+
+$edits['src/MCP/Tool_Exposure.php'] = [
+    [
+        " *    scope + pro-license, audited) if invoked anyway; this class only cuts\n",
+        " *    scope, audited) if invoked anyway; this class only cuts\n",
+        1,
+    ],
+];
+
+$edits['src/Tools/Dispatch/Call_Tool.php'] = [
+    [
+        " *    scope + the live pro-license re-check, with the decision audited under\n",
+        " *    scope, with the decision audited under\n",
+        1,
+    ],
+];
+
+$edits['src/Tools/Dispatch/List_Tools.php'] = [
+    [
+        " * Governance or gated off by tier never registered, so they never appear.\n",
+        " * Governance never registered, so they never appear.\n",
+        1,
+    ],
+];
+
+// The catalog still reports each entry's tier and still filters on it: in this
+// build every value is 'free', so the field withholds nothing. What goes is
+// the copy that names a paid tier the artifact does not contain.
+$edits['src/Tools/Connect/List_Tool_Catalog.php'][] = [
+    " * (name, tier, operation, capability, read/destructive hints); it never\n",
+    " * (name, operation, capability, read/destructive hints); it never\n",
+    1,
+];
+
+$edits['src/Memory/Memory_Config.php'] = [
+    [
+        " *    by default and is intentionally NOT tied to the tools switch, the pro\n"
+            . " *    license, or the connecting identity: a guardrail an administrator\n"
+            . " *    published must keep denying writes even after the memory tools are\n"
+            . " *    switched back off or a license lapses. A guardrail that quietly stops\n",
+        " *    by default and is intentionally NOT tied to the tools switch or to\n"
+            . " *    the connecting identity: a guardrail an administrator published\n"
+            . " *    must keep denying writes even after the memory tools are switched\n"
+            . " *    back off. A guardrail that quietly stops\n",
+        1,
+    ],
+];
+
+$edits['src/Safety/Snapshot_Store.php'][] = [
+    "     * asking a licence gate what the cap is.\n",
+    "     * routing the question through another class.\n",
+    1,
+];
+
+// Elementor's own paid companion plugin is a third-party fact, not a tier of
+// this plugin, but "Pro tier" in a docblock reads the same either way to a
+// reviewer, so it is said in plain words instead.
+$edits['src/Tools/Elementor/Widget_Catalog.php'] = [
+    [
+        " * widget needs ('elementor' for free core, 'elementor-pro' for the page\n"
+            . " * builder's own Pro tier), and a hand-distilled params map. A param spec is:\n",
+        " * widget needs ('elementor' for the core plugin, 'elementor-pro' for the\n"
+            . " * page builder's own paid companion plugin), and a hand-distilled params\n"
+            . " * map. A param spec is:\n",
+        1,
+    ],
+];
+
+$edits['src/Admin/Ability_Grid_Page.php'][] = [
+    " *  - Pro rows are visible when unlicensed but locked; they are never\n"
+        . " *    presented (or written) as enabled without a live license.\n",
+    '',
+    1,
+];
+
+// Skill_Library::is_locked() is rewritten above to answer no for every
+// record, so the branch this copy sits in is unreachable in this build.
+$edits['src/Admin/Skills_Settings_Page.php'] = [
+    [
+        "                            } elseif (! empty(\$skill['locked'])) {\n"
+            . "                                echo esc_html__('Listed, body needs a Pro licence', 'wpmcp');\n",
+        '',
+        1,
+    ],
+];
+
+$edits['src/Plugin.php'][] = [
+    "        // TOOLS are pro: an administrator's published guardrails are enforced\n"
+        . "        // in Registrar::is_permitted() on every tier, and a safety rule must\n"
+        . "        // not stop applying because a license lapsed.\n",
+    "        // TOOLS are not part of this build: an administrator's published\n"
+        . "        // guardrails are enforced in Registrar::is_permitted() regardless,\n"
+        . "        // and a safety rule must not stop applying just because the tools\n"
+        . "        // that author it are absent.\n",
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "     * this plugin's only precedent for a stronger, pro-tier gate is the\n",
+    "     * this plugin's only precedent for a stronger gate is the\n",
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "with each entry\\'s tier (free/pro), operation, required capability, and read-only/destructive hints, plus a per-domain summary count. Optional domain and/or tier filters narrow the result.",
+    "with each entry\\'s tier, operation, required capability, and read-only/destructive hints, plus a per-domain summary count. Optional domain and/or tier filters narrow the result.",
+    1,
 ];
 
 $failures = [];
