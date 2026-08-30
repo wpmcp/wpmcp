@@ -116,6 +116,7 @@ class Audit_Log_Page
 
         foreach ($ops as $op) {
             $user  = get_userdata((int) $op['user_id']);
+            /* translators: %d: numeric ID of the WordPress user who performed the operation. */
             $who   = $user ? $user->display_name : sprintf(__('User #%d', 'wpmcp'), (int) $op['user_id']);
             $what  = sprintf('%s (#%d)', $op['tool_name'], (int) $op['object_id']);
 
@@ -172,11 +173,13 @@ class Audit_Log_Page
             printf(
                 '<td>%s</td>',
                 empty($row['ok'])
+                    /* translators: %s: machine-readable error code returned by the failed MCP request. */
                     ? esc_html(sprintf(__('Error: %s', 'wpmcp'), (string) ($row['error_code'] ?? '')))
                     : esc_html__('OK', 'wpmcp')
             );
             printf(
                 '<td>%s</td>',
+                /* translators: %d: request duration in milliseconds. */
                 esc_html(sprintf(__('%d ms', 'wpmcp'), (int) ($row['duration_ms'] ?? 0)))
             );
             echo '<td>';
