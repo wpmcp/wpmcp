@@ -28,9 +28,23 @@ class Cloud_Config
         return (string) get_option(self::KEY_OPTION, '');
     }
 
+    /**
+     * The credential Cloud_Client should present: the OAuth access token from
+     * the encrypted vault when a bundle exists (issue #135 phase B), falling
+     * back to the phase A API key.
+     */
+    public static function bearer_token(): string
+    {
+        $bundle = Token_Vault::read();
+        if (null !== $bundle && '' !== $bundle['access_token']) {
+            return $bundle['access_token'];
+        }
+        return self::api_key();
+    }
+
     public static function is_configured(): bool
     {
-        return '' !== self::base_url() && '' !== self::api_key();
+        return '' !== self::base_url() && ('' !== self::api_key() || Token_Vault::has_bundle());
     }
 
     public static function set(string $url, string $key): void

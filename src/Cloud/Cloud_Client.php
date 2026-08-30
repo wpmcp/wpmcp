@@ -46,7 +46,7 @@ class Cloud_Client
             'method'  => $method,
             'timeout' => 20,
             'headers' => [
-                'Authorization' => 'Bearer ' . Cloud_Config::api_key(),
+                'Authorization' => 'Bearer ' . Cloud_Config::bearer_token(),
                 'Accept'        => 'application/json',
             ],
         ];
