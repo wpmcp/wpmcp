@@ -69,6 +69,10 @@ const REMOVED_PATHS = [
     'src/Tools/Performance/Curl_Dns_Pin.php',
     // Paid ability whose handler lives inside an otherwise free directory.
     'src/Tools/Media/Stock/Insert_Stock_Image.php',
+    // The builder dialect of build-page is not in this build (issue #162);
+    // its composer goes with it. Build_Page's references to it are edited
+    // out above, in the exact-string pass.
+    'src/Tools/Compose/Elementor_Composer.php',
     // Brand kits (issue #75). Every class under here is reachable only from
     // register_brand_kit_abilities, which this build deletes, and the kit
     // library itself is data rather than a free feature, so the directory
@@ -157,18 +161,189 @@ foreach (
 }
 
 // ---------------------------------------------------------------- Build_Page
-// The Elementor dialect is not gated here, it is simply free.
+// Findings B-06/B-18 (issue #162). The Elementor dialect is not ungated in
+// this build, it is absent: the directory cut composes Gutenberg pages only
+// and the builder dialect ships with the off-directory add-on. So the gate
+// call and its pay-to-unlock message have nothing left to guard, and every
+// code path that composed builder pages goes with them. The removed blocks
+// are copied from the source verbatim as nowdocs so no escaping can drift.
+
+// The whole precondition block: gate, paid copy, Elementor presence check.
+// Page_Spec (edited below) no longer admits the dialect, so none of it
+// remains reachable.
 $edits['src/Tools/Compose/Build_Page.php'][] = [
-    "            if (! Gate::can_use('build-page-builder')) {\n"
-        . "                throw new \\RuntimeException('The builder (Elementor) dialect of build-page is a PRO feature; the free tier composes Gutenberg pages.');\n"
-        . "            }\n",
+    <<<'SRC'
+        if ('elementor' === $spec['dialect']) {
+            if (! Gate::can_use('build-page-builder')) {
+                throw new \RuntimeException('The builder (Elementor) dialect of build-page is a PRO feature; the free tier composes Gutenberg pages.');
+            }
+            if (! class_exists('\\Elementor\\Plugin')) {
+                throw new \RuntimeException('The builder dialect requires Elementor to be active on this site.');
+            }
+        }
+SRC . "\n\n",
     '',
     1,
 ];
 $edits['src/Tools/Compose/Build_Page.php'][] = [
     " * The Gutenberg dialect is free; the builder (Elementor) dialect is gated\n * PRO via Pro\\Gate before any write.\n",
-    " * Both dialects, Gutenberg and the Elementor builder, are free.\n",
+    " * This build composes Gutenberg pages; the builder (Elementor) dialect\n * ships with the off-directory add-on.\n",
     1,
+];
+// handle(): only the Gutenberg composer remains.
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+        if ('elementor' === $spec['dialect']) {
+            $composed = Elementor_Composer::compose($spec['content']);
+            $content  = '';
+        } else {
+            $composed = Block_Composer::compose($spec['content']);
+            $content  = $composed['markup'];
+        }
+SRC . "\n",
+    <<<'SRC'
+        $composed = Block_Composer::compose($spec['content']);
+        $content  = $composed['markup'];
+SRC . "\n",
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+            if ('elementor' === $spec['dialect']) {
+                Elementor_Page_Data::save($post_id, $composed['elements']);
+                update_post_meta($post_id, '_elementor_edit_mode', 'builder');
+            }
+SRC . "\n\n",
+    '',
+    1,
+];
+// inspect(): the widget-type referential check and its helper.
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+            if ('widget' === $node['type'] && 'elementor' === $spec['dialect']) {
+                $problem = $this->widget_problem((string) $node['settings']['widget']);
+                if (null !== $problem) {
+                    $problems[] = $path . ': ' . $problem;
+                }
+            }
+SRC . "\n",
+    '',
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    'function (array $node, string $path) use ($spec, &$problems): void {',
+    'function (array $node, string $path) use (&$problems): void {',
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+    /**
+     * Why a widget type cannot be built here, or null when it can.
+     *
+     * Registration on THIS site stays the authority: a spec must never
+     * compose an element the site cannot render. The curated Widget_Catalog
+     * is consulted only to explain the failure: a widget we know but Elementor
+     * has not registered means its plugin is missing or inactive, which is a
+     * very different fix from a typo, and worth saying out loud.
+     */
+    private function widget_problem(string $widget): ?string
+    {
+        if (Atomic_Prop_Schema::known($widget)) {
+            return null;
+        }
+
+        $registered = class_exists('\\Elementor\\Plugin')
+            && null !== \Elementor\Plugin::instance()->widgets_manager->get_widget_types($widget);
+
+        if ($registered) {
+            return null;
+        }
+
+        $entry = Widget_Catalog::get($widget);
+        if (null !== $entry) {
+            return sprintf(
+                'Elementor widget type "%s" is in the wpmcp catalog but is not registered on this site; it needs %s to be active',
+                $widget,
+                (string) $entry['requires']
+            );
+        }
+
+        return sprintf('unknown Elementor widget type "%s"', $widget);
+    }
+SRC . "\n\n",
+    '',
+    1,
+];
+// dry_run(): only the Gutenberg composer, no widget bookkeeping.
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+        if ('elementor' === $spec['dialect']) {
+            $composed = Elementor_Composer::compose($spec['content']);
+            $markup   = 0;
+        } else {
+            $composed = Block_Composer::compose($spec['content']);
+            $markup   = strlen($composed['markup']);
+        }
+SRC . "\n",
+    <<<'SRC'
+        $composed = Block_Composer::compose($spec['content']);
+        $markup   = strlen($composed['markup']);
+SRC . "\n",
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    "        \$counts  = [];\n        \$depth   = 0;\n        \$unknown = [];\n",
+    "        \$counts = [];\n        \$depth  = 0;\n",
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+        $this->walk($spec['content'], 'content', function (array $node, string $path) use (&$counts, &$depth, &$unknown, $spec): void {
+            $type = 'widget' === $node['type'] && 'elementor' === $spec['dialect']
+                ? 'widget:' . (string) $node['settings']['widget']
+                : $node['type'];
+
+            $counts[ $type ] = ($counts[ $type ] ?? 0) + 1;
+            $depth           = max($depth, substr_count($path, '.children[') + 1);
+
+            if ('widget' === $node['type'] && 'elementor' === $spec['dialect']) {
+                if (null !== $this->widget_problem((string) $node['settings']['widget'])) {
+                    $unknown[] = (string) $node['settings']['widget'];
+                }
+            }
+        });
+SRC . "\n",
+    <<<'SRC'
+        $this->walk($spec['content'], 'content', function (array $node, string $path) use (&$counts, &$depth): void {
+            $counts[ $node['type'] ] = ($counts[ $node['type'] ] ?? 0) + 1;
+            $depth                   = max($depth, substr_count($path, '.children[') + 1);
+        });
+SRC . "\n",
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    "            'unknown_widgets'  => array_values(array_unique(\$unknown)),\n",
+    '',
+    1,
+];
+
+// ----------------------------------------------------------------- Page_Spec
+// The validator stops admitting the dialect at all: an 'elementor' spec is
+// rejected with the same neutral spec.dialect error any unknown dialect gets,
+// long before Build_Page runs. The dead elementor node-validation branches
+// this leaves behind carry no gate and no paid copy; pruning them is
+// follow-up work under issue #162.
+$edits['src/Tools/Compose/Page_Spec.php'] = [
+    [
+        " *   dialect  'gutenberg' (default, free) | 'elementor' (PRO)\n",
+        " *   dialect  'gutenberg' (the builder dialect ships with the add-on)\n",
+        1,
+    ],
+    [
+        "    private const DIALECTS = ['gutenberg', 'elementor'];\n",
+        "    private const DIALECTS = ['gutenberg'];\n",
+        1,
+    ],
 ];
 
 // ----------------------------------------------------------- site context
@@ -342,9 +517,31 @@ $plugin_edits[] = [
         . "     * the Gutenberg dialect is the free tier's builder; the Elementor\n"
         . "     * builder dialect is gated PRO inside the handler via Pro\\Gate, so the\n"
         . "     * one ability serves both tiers with the gate re-checked per call.\n",
-    "     * One-call declarative page composition (issue #57). Both dialects,\n"
-        . "     * the block editor and the Elementor builder, are available to every\n"
-        . "     * install of this plugin.\n",
+    "     * One-call declarative page composition (issue #57). This build\n"
+        . "     * composes block editor (Gutenberg) pages; the Elementor builder\n"
+        . "     * dialect ships with the off-directory add-on.\n",
+    1,
+];
+// The ability's agent-facing description and input schema (issue #162): no
+// dialect choice, no "(PRO)" copy, no elementor enum value in this build.
+$plugin_edits[] = [
+    'dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree. Set dry_run=true',
+    'The spec composes block editor (Gutenberg) markup. Set dry_run=true',
+    1,
+];
+$plugin_edits[] = [
+    'nesting depth, markup size, unknown widget types, atomic props',
+    'nesting depth, markup size, atomic props',
+    1,
+];
+$plugin_edits[] = [
+    ' Elementor dialect types: container, section, column (containers; settings passed to the element verbatim); widget{widget,widget_settings} (leaf).',
+    '',
+    1,
+];
+$plugin_edits[] = [
+    "'dialect' => [ 'type' => 'string', 'enum' => [ 'gutenberg', 'elementor' ] ],",
+    "'dialect' => [ 'type' => 'string', 'enum' => [ 'gutenberg' ] ],",
     1,
 ];
 $plugin_edits[] = [
