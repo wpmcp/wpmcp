@@ -26,6 +26,15 @@ SLUG="wpmcp"
 VERSION="$(sed -n "s/^define( 'WPMCP_VERSION', '\([0-9.]*\)' );/\1/p" "$ROOT/wpmcp.php")"
 [ -n "$VERSION" ] || { echo "could not read WPMCP_VERSION from wpmcp.php" >&2; exit 1; }
 
+# Snapshot the checkout before the build touches anything, so gate 7 can ask
+# whether the BUILD dirtied it rather than whether it was dirty to begin with.
+checkout_state() {
+  if command -v git > /dev/null 2>&1 && git -C "$ROOT" rev-parse --git-dir > /dev/null 2>&1; then
+    git -C "$ROOT" status --porcelain -- src "$SLUG.php"
+  fi
+}
+CHECKOUT_BEFORE="$(checkout_state)"
+
 STAGE_PARENT="$(mktemp -d)"
 STAGE="$STAGE_PARENT/$SLUG"
 trap 'rm -rf "$STAGE_PARENT"' EXIT
@@ -81,53 +90,116 @@ foreach ($it as $f) {
 if ($bad) { fwrite(STDERR, implode("\n", $bad) . "\n"); exit(1); }
 ' "$STAGE/src" || fail "an execution construct survived into the $SLUG build"
 
+# The vocabulary these gates scan for, and the paths they assert are gone,
+# come from scripts/flavors/wporg/policy.php, which is the same file the
+# strip and tests/free/Platform/WporgStripTest.php read. Sharing the list is
+# not trusting the strip: every gate below still re-derives its answer from
+# the staged tree. What it removes is the drift where the release build and
+# CI disagree about what counts as a finding. A malformed entry is a PHP
+# error here rather than a silently skipped pattern.
+policy() {
+  php -r '
+$policy = require $argv[1];
+if (! isset($policy[$argv[2]]) || [] === $policy[$argv[2]]) {
+    fwrite(STDERR, "policy.php declares nothing under " . $argv[2] . "\n");
+    exit(1);
+}
+foreach ($policy[$argv[2]] as $entry) {
+    if (! is_string($entry) || "" === trim($entry) || str_contains($entry, "\n")) {
+        fwrite(STDERR, "policy.php: malformed entry under " . $argv[2] . "\n");
+        exit(1);
+    }
+    echo $entry, "\n";
+}
+' "$FLAVOR/policy.php" "$1"
+}
+
 # 3. No paid predicate, no licensing SDK, no pro-tier ability. Text-level on
 #    purpose: a docblock that still talks about licensing is also a finding,
 #    because the reviewer reads those too.
-#    pro_locked and the 'tier' => 'pro' error payload are here because they
-#    live in files the strip edits in place rather than deletes: if one of
-#    those edits drifted while the others still applied, no Gate::/is_pro
-#    token would be left on the surviving line to catch it.
-for pattern in 'Pro\\Gate' '\bis_pro\b' '\bGate::' '\bpro_active\b' '\bpro_locked\b' 'can_use_premium_code' '[Ff]reemius' 'WPMCP_FS_' 'fs_dynamic_init' "^\s*'pro',\s*$" "'tier'\s*=>\s*'pro'" ; do
+PAID_SOURCE_PATTERNS="$(policy paid_source_patterns)" || fail "could not read the paid-source patterns from policy.php"
+while IFS= read -r pattern; do
+  [ -n "$pattern" ] || continue
   if grep -rqE --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php"; then
     grep -rnE --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php" >&2
     fail "paid/licensing surface \"$pattern\" survived into the $SLUG build"
   fi
-done
+done <<< "$PAID_SOURCE_PATTERNS"
 
 # 3b. The same question asked of everything in the zip that is not PHP. The
 #     bundled SKILL.md playbooks ship inside src/ and the agent reads them, so
 #     a document promising that a capability unlocks with a licence is the same
-#     guideline 5 and 9 finding as the code that used to enforce it. Scoped to
-#     src/ and readme.txt on purpose: vendor/ is full of third-party licence
-#     files, and readme.txt's own "License: GPLv2 or later" header is required.
-for pattern in 'pro licen[sc]e' 'pro[ -]tier' '[Pp]remium' 'unlicensed' 'needs? an active .* [Ll]icense' ; do
-  if grep -rqE --exclude='*.php' -- "$pattern" "$STAGE/src" "$STAGE/readme.txt"; then
-    grep -rnE --exclude='*.php' -- "$pattern" "$STAGE/src" "$STAGE/readme.txt" >&2
+#     guideline 5 and 9 finding as the code that used to enforce it. vendor/ is
+#     out of scope: it is full of third-party licence files.
+DOCUMENT_COPY_PATTERNS="$(policy document_copy_patterns)" || fail "could not read the document-copy patterns from policy.php"
+while IFS= read -r pattern; do
+  [ -n "$pattern" ] || continue
+  if grep -rqE --exclude='*.php' -- "$pattern" "$STAGE/src"; then
+    grep -rnE --exclude='*.php' -- "$pattern" "$STAGE/src" >&2
     fail "pay-to-unlock copy \"$pattern\" survived into the $SLUG build's documents"
   fi
-done
+done <<< "$DOCUMENT_COPY_PATTERNS"
+
+# 3c. readme.txt gets its own, narrower list. Guideline 5 recommends
+#     "add-on plugins, hosted outside of WordPress.org, in order to exclude
+#     the premium code", so a factual pointer at the off-directory add-on is
+#     the recommended remedy rather than a finding, and the required
+#     "License: GPLv2 or later" header and the third-party image-licence URLs
+#     have to survive. What may not appear is copy claiming something in THIS
+#     download is withheld pending payment.
+README_COPY_PATTERNS="$(policy readme_copy_patterns)" || fail "could not read the readme-copy patterns from policy.php"
+while IFS= read -r pattern; do
+  [ -n "$pattern" ] || continue
+  if grep -qE -- "$pattern" "$STAGE/readme.txt"; then
+    grep -nE -- "$pattern" "$STAGE/readme.txt" >&2
+    fail "pay-to-unlock copy \"$pattern\" survived into the $SLUG build's readme"
+  fi
+done <<< "$README_COPY_PATTERNS"
+
+# 3d. Pay-to-unlock copy inside PHP string literals, which is the copy the
+#     agent is actually shown: an Ability description goes out in every
+#     tools/list response, and is far more visible than the SKILL.md prose
+#     3b covers. Gate 3's token patterns cannot see it (a description saying
+#     a dialect is PRO carries no Gate::/is_pro token) and 3b skips PHP, so
+#     this scans the string tokens on their own. Literals rather than lines,
+#     so the docblocks that legitimately discuss third-party paid plugins
+#     (WPML, Elementor Pro) are not swept in.
+STRING_LITERAL_PATTERNS="$(policy string_literal_patterns)" || fail "could not read the string-literal patterns from policy.php"
+php -r '
+$patterns = array_filter(explode("\n", $argv[2]), static fn ($p) => "" !== trim($p));
+$bad = [];
+$it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($argv[1]));
+foreach ($it as $f) {
+    if ($f->getExtension() !== "php") { continue; }
+    foreach (token_get_all(file_get_contents($f->getPathname())) as $t) {
+        if (! is_array($t)) { continue; }
+        if (! in_array($t[0], [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE, T_INLINE_HTML], true)) { continue; }
+        foreach ($patterns as $pattern) {
+            if (preg_match("/" . $pattern . "/", $t[1])) {
+                $bad[] = $f->getPathname() . ":" . $t[2] . " matches " . $pattern;
+            }
+        }
+    }
+}
+if ($bad) { fwrite(STDERR, implode("\n", array_unique($bad)) . "\n"); exit(1); }
+' "$STAGE/src" "$STRING_LITERAL_PATTERNS" || fail "an agent-facing string in the $SLUG build advertises a paid tier"
 
 if [ -d "$STAGE/vendor/freemius" ]; then fail "the licensing SDK is still vendored"; fi
 if grep -q 'freemius' "$STAGE/composer.json"; then fail "composer.json still requires the licensing SDK"; fi
 
-# 3c. Issue #159 definition of done, checked directly: the gate class and
+# 3e. Issue #159 definition of done, checked directly: the gate class and
 #     everything else the strip claims to delete must be absent as paths, not
-#     merely unreferenced. Read straight out of the strip's own REMOVED_PATHS
-#     so the two lists cannot drift apart, and because remove_path() ignores
-#     the return value of unlink()/rmdir(), which makes a partial removal
-#     silent. Run over the stage here and again over the extracted zip below.
-REMOVED_PATHS="$(php -r '
-$src = file_get_contents($argv[1]);
-preg_match("/const REMOVED_PATHS = \[(.*?)\n\];/s", $src, $m) || exit(1);
-preg_match_all("/^\s*\x27([^\x27]+)\x27,\s*$/m", $m[1], $p);
-echo implode("\n", $p[1]), "\n";
-' "$FLAVOR/strip.php")" || fail "could not read REMOVED_PATHS out of the strip script"
-[ -n "$REMOVED_PATHS" ] || fail "the strip script declares no removed paths"
+#     merely unreferenced. Read from the shared policy so the strip and the
+#     assertion cannot drift apart. Run over the stage here and again over
+#     the extracted zip below.
+REMOVED_PATHS="$(policy removed_paths)" || fail "could not read the removed paths from policy.php"
+case "$REMOVED_PATHS" in
+  *src/Pro*) ;;
+  *) fail "policy.php no longer removes src/Pro, which issue #159 requires" ;;
+esac
 
 assert_pruned() {
   local root="$1" label="$2" relative
-  [ -e "$root/src/Pro/Gate.php" ] && fail "src/Pro/Gate.php is still in the $label"
   while IFS= read -r relative; do
     [ -n "$relative" ] || continue
     [ -e "$root/$relative" ] && fail "$relative is still in the $label"
@@ -198,17 +270,18 @@ php "$ROOT/tools/compliance/bin/compliance.php" \
   --profile=wporg-free --artifact --path="$BUILD_DIR/$SLUG" \
   || fail "the compliance engine found blockers in $ZIP"
 
-# 7. The last definition-of-done bullet for issue #159 is that the full and pro
-#    builds still produce their current ability counts. Those counts are pinned
-#    by tests/support/ability-manifest.php and asserted on every CI run by
-#    tests/free/Platform/AbilityManifestTest.php, which reads the checkout. The
-#    only way this build could move them is by editing the checkout instead of
-#    the throwaway stage, so that is what gets checked here.
-if command -v git > /dev/null 2>&1 && git -C "$ROOT" rev-parse --git-dir > /dev/null 2>&1; then
-  if [ -n "$(git -C "$ROOT" status --porcelain -- src wpmcp.php)" ]; then
-    git -C "$ROOT" status --porcelain -- src wpmcp.php >&2
-    fail "the $SLUG build modified the checkout; the full and pro ability counts are no longer trustworthy"
-  fi
+# 7. The build works in a throwaway stage and must never write to the
+#    checkout: the ability counts pinned by tests/support/ability-manifest.php
+#    (and asserted every CI run by AbilityManifestTest, which reads the
+#    checkout) are only trustworthy if this script left src/ alone. Comparing
+#    a before/after snapshot rather than testing for a clean tree is
+#    deliberate: a dirty checkout is the normal state of a developer machine,
+#    and failing on someone's unrelated work in progress would say "the build
+#    modified the checkout" about something the build never touched.
+CHECKOUT_AFTER="$(checkout_state)"
+if [ "$CHECKOUT_BEFORE" != "$CHECKOUT_AFTER" ]; then
+  printf 'before:\n%s\nafter:\n%s\n' "$CHECKOUT_BEFORE" "$CHECKOUT_AFTER" >&2
+  fail "the $SLUG build modified the checkout under src/; the full and pro ability counts are no longer trustworthy"
 fi
 
 echo "built $ZIP"
