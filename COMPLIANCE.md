@@ -77,6 +77,14 @@ Severity is the `wporg-free` profile. `dist` is the same finding's severity unde
 
 ### Blockers
 
+This table is the audit of 0.8.0 as found: every row states the evidence at
+audit time and the prescription, and no row is rewritten as work proceeds. The
+directory build has since delivered many of them (B-01 to B-07, B-16 and B-17
+among others) through `scripts/flavors/wporg/strip.php`; what is actually in a
+given zip is decided by `scripts/build-wporg-release.sh`, whose gates re-derive
+each answer from the staged tree rather than from this document. Issue #161
+delivered B-05 in the source itself, not only in the directory build.
+
 | ID | Rule | Evidence | Fix |
 |---|---|---|---|
 | B-01 | WPORG-05-QUOTA | `src/Pro/Gate.php:54` — `return self::is_pro() ? PHP_INT_MAX : 20;` (dist: best-practice) | Guideline 5: "Functionality may not be disabled after a trial period or quota is met." Delete the branch. The directory build enforces a flat 20 with no `is_pro()` anywhere and no unlimited path in the source. |

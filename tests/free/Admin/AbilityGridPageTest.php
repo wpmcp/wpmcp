@@ -13,15 +13,15 @@ use WPMCP\Tests\Free\Platform\RegisteredAbilities;
 /**
  * Issue #78: the per-ability admin toggle grid.
  *
- * A manage_options screen listing the FULL declared ability surface (the
- * Registrar's declared set — never a hardcoded list), grouped by domain,
- * showing tier, risk hints, and the effective state WITH the layer that
- * decides it. Toggles write through the existing Governance mechanism only
- * (no new bypass), every change is audited with the acting user, pro rows
- * are visible-but-locked when unlicensed, and default-off dangerous
- * abilities (exec, db writes, fs writes) cannot be enabled from the grid
- * while their execution opt-in filter is absent — the filter stays the
- * master gate.
+ * A manage_options screen listing the ability surface this install would
+ * actually register (sourced from the Registrar — never a hardcoded list),
+ * grouped by domain, showing tier, risk hints, and the effective state WITH
+ * the layer that decides it. Toggles write through the existing Governance
+ * mechanism only (no new bypass), every change is audited with the acting
+ * user, an ability whose tier this install cannot run has no row and no write
+ * path at all (issue #161), and default-off dangerous abilities (exec, db
+ * writes, fs writes) cannot be enabled from the grid while their execution
+ * opt-in filter is absent — the filter stays the master gate.
  */
 class AbilityGridPageTest extends \WP_UnitTestCase
 {
@@ -58,6 +58,19 @@ class AbilityGridPageTest extends \WP_UnitTestCase
         return (new Ability_Grid_Page())->rows();
     }
 
+    /** @return string[] every ability name the grid lists, sorted. */
+    private function row_names(): array
+    {
+        $names = [];
+        foreach ($this->rows() as $rows) {
+            foreach ($rows as $row) {
+                $names[] = $row['name'];
+            }
+        }
+        sort($names);
+        return $names;
+    }
+
     private function row(string $name): array
     {
         foreach ($this->rows() as $rows) {
@@ -76,19 +89,54 @@ class AbilityGridPageTest extends \WP_UnitTestCase
 
     public function test_grid_rows_equal_the_registered_ability_surface(): void
     {
-        $names = [];
-        foreach ($this->rows() as $rows) {
-            foreach ($rows as $row) {
-                $names[] = $row['name'];
-            }
-        }
-        sort($names);
+        // Read the manifest FIRST: enumerating it licenses and then restores
+        // the Gate, so a licensed assertion has to be set up after it, not
+        // before, or the grid below would be built unlicensed.
+        $expected = array_keys(RegisteredAbilities::manifest_map());
+
+        // Licensed, so the grid surface matches the full declared manifest;
+        // unlicensed installs simply omit the pro rows (issue #161).
+        Gate::set_pro_for_tests(true);
 
         $this->assertSame(
-            array_keys(RegisteredAbilities::manifest_map()),
-            $names,
+            $expected,
+            $this->row_names(),
             'Grid rows must be exactly the Registrar\'s declared ability surface — not a hardcoded list.'
         );
+    }
+
+    public function test_enumerating_the_manifest_leaves_the_callers_license_alone(): void
+    {
+        Gate::set_pro_for_tests(true);
+        RegisteredAbilities::manifest_map();
+
+        $this->assertTrue(
+            Gate::is_pro(),
+            'The manifest helper must restore the caller\'s licence override, not clear it: '
+            . 'otherwise an assertion passes or fails on statement order alone.'
+        );
+    }
+
+    public function test_the_grid_asks_the_registrar_for_the_tier_rule(): void
+    {
+        // Not a re-statement of the rule: the grid must agree with
+        // Registrar::tier_permitted() ability by ability, in both licence
+        // states, so the read model cannot drift from the registration model.
+        foreach ([false, true] as $licensed) {
+            Gate::set_pro_for_tests($licensed);
+            $names = $this->row_names();
+
+            $seen = 0;
+            foreach (Plugin::instance()->declared_abilities() as $ability) {
+                if (! Registrar::tier_permitted($ability->tier)) {
+                    $this->assertNotContains($ability->name, $names);
+                    continue;
+                }
+                $this->assertContains($ability->name, $names);
+                $seen++;
+            }
+            $this->assertGreaterThan(0, $seen, 'The declared surface must not be empty.');
+        }
     }
 
     public function test_rows_are_grouped_by_the_abilities_own_domain(): void
@@ -146,26 +194,64 @@ class AbilityGridPageTest extends \WP_UnitTestCase
     }
 
     // ---------------------------------------------------------------
-    // Pro tier: visible teaser, never fake-enabled
+    // Pro tier: unavailable abilities are absent, never locked teasers
     // ---------------------------------------------------------------
 
-    public function test_pro_rows_are_visible_but_locked_without_a_license(): void
+    public function test_the_unlicensed_grid_is_exactly_the_free_tier_of_the_manifest(): void
     {
-        $row = $this->row('wpmcp/run-php-snippet');
+        $free = array_keys(array_filter(
+            RegisteredAbilities::manifest_map(),
+            static fn (string $tier): bool => 'free' === $tier
+        ));
+        sort($free);
 
-        $this->assertSame('pro', $row['tier']);
-        $this->assertTrue($row['pro_locked']);
-        $this->assertFalse($row['enabled'], 'An unlicensed pro row must never present as enabled.');
-        $this->assertStringContainsString('pro license', $row['reason']);
+        $this->assertNotEmpty($free, 'The manifest must declare free abilities for this test to mean anything.');
+        $this->assertSame(
+            $free,
+            $this->row_names(),
+            'Unlicensed, the grid must be exactly the free tier: nothing withheld is listed, nothing free is lost.'
+        );
     }
 
-    public function test_pro_rows_unlock_with_a_license(): void
+    public function test_a_named_pro_ability_has_no_row_while_a_named_free_one_does(): void
+    {
+        $names = $this->row_names();
+
+        $this->assertContains('wpmcp/get-page', $names, 'A free ability must still have a row.');
+        $this->assertNotContains(
+            'wpmcp/run-php-snippet',
+            $names,
+            'A withheld pro ability must not render a grid row (issue #161).'
+        );
+        $this->assertNotContains('wpmcp/run-wp-cli', $names);
+    }
+
+    public function test_unlicensed_pro_abilities_have_no_grid_row_at_all(): void
+    {
+        $grid = $this->rows();
+        $this->assertNotEmpty($grid, 'An empty grid would pass the loop below vacuously.');
+
+        foreach ($grid as $rows) {
+            foreach ($rows as $row) {
+                $this->assertNotSame(
+                    'pro',
+                    $row['tier'],
+                    "Unlicensed pro ability {$row['name']} must not render a grid row (issue #161)."
+                );
+                $this->assertArrayNotHasKey('pro_locked', $row);
+                $this->assertStringNotContainsString('pro license', $row['reason']);
+            }
+        }
+    }
+
+    public function test_pro_rows_appear_with_a_license_without_lock_state(): void
     {
         Gate::set_pro_for_tests(true);
 
         $row = $this->row('wpmcp/analyze-seo');
 
-        $this->assertFalse($row['pro_locked']);
+        $this->assertSame('pro', $row['tier']);
+        $this->assertArrayNotHasKey('pro_locked', $row);
         $this->assertStringNotContainsString('pro license', $row['reason']);
     }
 
@@ -239,25 +325,102 @@ class AbilityGridPageTest extends \WP_UnitTestCase
         $this->assertSame([], Governance::ability_toggles());
     }
 
+    public function test_toggling_a_withheld_pro_ability_is_refused_like_an_unknown_one(): void
+    {
+        foreach (['0', '1'] as $enabled) {
+            $result = (new Ability_Grid_Page())->handle_request(
+                $this->post('toggle_ability', ['ability' => 'wpmcp/run-php-snippet', 'enabled' => $enabled])
+            );
+
+            $this->assertArrayHasKey(
+                'error',
+                $result,
+                'A hand-crafted POST must not reach an ability the grid does not list.'
+            );
+        }
+
+        $this->assertSame([], Governance::ability_toggles());
+        $this->assertSame([], Governance_Audit_Log::list(10));
+    }
+
+    public function test_bulk_domain_enable_never_touches_or_names_a_withheld_pro_ability(): void
+    {
+        // The 'code' domain holds a free ability (validate-php-snippet) and a
+        // pro one (run-php-snippet), so the domain still renders unlicensed.
+        $result = (new Ability_Grid_Page())->handle_request(
+            $this->post('toggle_domain', ['domain' => 'code', 'enabled' => '1'])
+        );
+
+        $this->assertArrayNotHasKey('error', $result);
+        $this->assertContains('wpmcp/validate-php-snippet', $result['updated']);
+        $this->assertNotContains('wpmcp/run-php-snippet', $result['updated']);
+        $this->assertNotContains(
+            'wpmcp/run-php-snippet',
+            $result['refused'],
+            'The refused list is printed verbatim on the screen: it must never name a withheld ability.'
+        );
+        $this->assertArrayNotHasKey('wpmcp/run-php-snippet', Governance::ability_toggles());
+    }
+
+    public function test_bulk_domain_enable_writes_the_domain_layer_and_no_withheld_ability_toggle(): void
+    {
+        // Deliberate and documented: "Enable all" clears the DOMAIN layer for
+        // the whole domain, withheld members included, because that is what a
+        // domain control means and the domain layer only ever narrows. What it
+        // must never do is write an ability toggle for, or name, a member this
+        // install cannot register.
+        Governance::set_domain_toggle('code', false);
+
+        (new Ability_Grid_Page())->handle_request(
+            $this->post('toggle_domain', ['domain' => 'code', 'enabled' => '1'])
+        );
+
+        $this->assertSame(
+            true,
+            Governance::domain_toggles()['code'] ?? null,
+            'Enable-all must clear the domain-level narrowing it was asked to clear.'
+        );
+        $this->assertArrayNotHasKey(
+            'wpmcp/run-php-snippet',
+            Governance::ability_toggles(),
+            'No ability toggle may be written for an ability with no row.'
+        );
+
+        // And the withheld ability is still refused everywhere that matters.
+        $this->assertFalse(Registrar::tier_permitted('pro'));
+    }
+
     // ---------------------------------------------------------------
     // Dangerous default-off abilities: the opt-in filter stays master
     // ---------------------------------------------------------------
 
-    public function test_dangerous_rows_carry_a_distinct_warning_and_their_gate_filter(): void
+    /** @param array<string, string> $expected ability name => its opt-in filter. */
+    private function assertDangerousRows(array $expected): void
     {
-        foreach (
-            [
-                'wpmcp/run-wp-cli'      => 'wpmcp_allow_wp_cli',
-                'wpmcp/run-php-snippet' => 'wpmcp_allow_php_exec',
-                'wpmcp/delete-rows'     => 'wpmcp_enable_db_writes',
-                'wpmcp/write-file'      => 'wpmcp_enable_fs_writes',
-            ] as $name => $filter
-        ) {
+        foreach ($expected as $name => $filter) {
             $row = $this->row($name);
             $this->assertTrue($row['dangerous'], "{$name} must carry the dangerous flag.");
             $this->assertSame($filter, $row['gate_filter']);
             $this->assertFalse($row['gate_open'], "{$name}'s opt-in gate must read closed by default.");
         }
+    }
+
+    public function test_dangerous_rows_carry_a_distinct_warning_and_their_gate_filter(): void
+    {
+        $this->assertDangerousRows([
+            'wpmcp/delete-rows' => 'wpmcp_enable_db_writes',
+            'wpmcp/write-file'  => 'wpmcp_enable_fs_writes',
+        ]);
+    }
+
+    public function test_dangerous_pro_rows_carry_the_same_warning_once_licensed(): void
+    {
+        Gate::set_pro_for_tests(true);
+
+        $this->assertDangerousRows([
+            'wpmcp/run-wp-cli'      => 'wpmcp_allow_wp_cli',
+            'wpmcp/run-php-snippet' => 'wpmcp_allow_php_exec',
+        ]);
     }
 
     public function test_grid_refuses_to_enable_a_dangerous_ability_while_its_opt_in_filter_is_absent(): void
@@ -383,10 +546,15 @@ class AbilityGridPageTest extends \WP_UnitTestCase
         $html = ob_get_clean();
 
         $this->assertStringContainsString('wpmcp/get-page', $html);
-        $this->assertStringContainsString('wpmcp/run-php-snippet', $html);
+        $this->assertStringContainsString('wpmcp/delete-rows', $html);
         $this->assertStringContainsString('wpmcp_enable_db_writes', $html);
         foreach (array_keys($this->rows()) as $domain) {
             $this->assertStringContainsString($domain, $html);
         }
+
+        // Issue #161: no withheld ability, and no lock or upsell copy.
+        $this->assertStringNotContainsString('wpmcp/run-php-snippet', $html);
+        $this->assertStringNotContainsString('pro license', $html);
+        $this->assertStringNotContainsString('(locked)', $html);
     }
 }

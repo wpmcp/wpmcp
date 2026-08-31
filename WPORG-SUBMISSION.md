@@ -64,8 +64,18 @@ else. Concretely:
 * `eval()` and `proc_open()` were both pro-tier abilities, so they leave with
   the rest of the paid tier. The directory build contains no execution
   construct at all, checked at token level by the build script.
-* No pay-to-unlock copy survives anywhere, including in the ability grid, which
-  used to render locked rows reading "disabled: no pro license".
+* No pay-to-unlock copy survives anywhere, and the build script proves it
+  rather than asserting it: alongside the identifier greps for `Gate::`,
+  `is_pro` and `Freemius`, it greps the staged tree for the prose itself
+  ("pay to unlock", "pro licence", "upgrade to pro", "upsell") and fails the
+  build on a hit, so an unstripped comment or admin string cannot slip through
+  a check that only looks for code. Two screens carried such copy: the ability
+  grid rendered locked rows reading "disabled: no pro license", which issue
+  #161 removed from the source outright so the grid now lists only the
+  abilities the install would actually register; and the skills screen's
+  "Listed, body needs a Pro licence" cell, an unreachable branch in this build
+  (`Skill_Library::is_locked()` is collapsed to `false`) that the strip script
+  now deletes rather than leaves dead.
 
 **Divergence from the marketing plan worth flagging.** Phase 1 item 10 says to
 "hard-code the unlimited value" for snapshot history. The build ships a flat

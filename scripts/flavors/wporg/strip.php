@@ -106,22 +106,39 @@ const REMOVED_METHODS = [
 $edits = [];
 
 // ---------------------------------------------------------------- Registrar
-// The tier skip stops being a licence question and becomes a statement of
-// fact about this build. Kept rather than deleted so a pro-tier ability that
-// somehow survived the prune still cannot reach the MCP surface.
+// The tier rule lives in exactly one method, Registrar::tier_permitted(), so
+// there is exactly one body to collapse here: registration, execution and the
+// ability grid all call it. It stops being a licence question and becomes a
+// statement of fact about this build. Kept rather than deleted so a pro-tier
+// ability that somehow survived the prune still cannot reach the MCP surface,
+// and still cannot get a row or a write path on the grid.
 $edits['src/MCP/Registrar.php'] = [
     ["use WPMCP\\Pro\\Gate;\n", '', 1],
     [
-        "        if ('pro' === \$a->tier && ! Gate::is_pro()) {\n            return;\n        }\n",
-        "        // The paid tier is a separate add-on plugin, not a locked part of\n"
-            . "        // this one: its abilities are not in this build at all. This is a\n"
-            . "        // belt-and-braces refusal, not a licence check.\n"
-            . "        if ('pro' === \$a->tier) {\n            return;\n        }\n",
-        1,
-    ],
-    [
-        "        \$allowed = ('pro' !== \$a->tier || Gate::is_pro())\n",
-        "        \$allowed = ('pro' !== \$a->tier)\n",
+        "     * Whether this install can run abilities of a given tier.\n"
+            . "     *\n"
+            . "     * The single site of the tier rule. register() (registration),\n"
+            . "     * is_permitted() (execution) and Ability_Grid_Page (the admin read and\n"
+            . "     * write model) all ask here, so those three models cannot drift, and the\n"
+            . "     * directory build has exactly one body to collapse instead of three\n"
+            . "     * hand-copied predicates.\n"
+            . "     */\n"
+            . "    public static function tier_permitted(string \$tier): bool\n"
+            . "    {\n"
+            . "        return 'pro' !== \$tier || Gate::is_pro();\n"
+            . "    }\n",
+        "     * Whether this install can run abilities of a given tier.\n"
+            . "     *\n"
+            . "     * The paid tier is a separate add-on plugin, not a locked part of this\n"
+            . "     * one: its abilities are not in this build at all. This is therefore a\n"
+            . "     * belt-and-braces refusal, not a licence check, and it is kept so that\n"
+            . "     * an ability that somehow survived the prune still cannot register,\n"
+            . "     * execute, or get a row and a write path on the ability grid.\n"
+            . "     */\n"
+            . "    public static function tier_permitted(string \$tier): bool\n"
+            . "    {\n"
+            . "        return 'pro' !== \$tier;\n"
+            . "    }\n",
         1,
     ],
     [
@@ -179,51 +196,53 @@ $edits['src/Tools/Context/Get_Site_Context.php'] = [
 
 // ------------------------------------------------------------- ability grid
 // Guideline 9 prohibits "implying users must pay to unlock included
-// features". With nothing paid in the build there is nothing to imply, so the
-// locked-row state and its copy go.
+// features". The screen no longer has a locked row state at all (issue #161):
+// it lists what this install would actually register, and it asks
+// Registrar::tier_permitted() rather than restating the rule, so there is no
+// Gate reference to remove here. What goes is the prose about a second build
+// and the tier cell, which can only ever read "free" in this one.
 $edits['src/Admin/Ability_Grid_Page.php'] = [
-    ["use WPMCP\\Pro\\Gate;\n", '', 1],
     [
-        "        \$pro_locked = 'pro' === \$a->tier && ! Gate::is_pro();\n        \$explain    = Governance::explain(\$a);\n",
-        "        \$explain    = Governance::explain(\$a);\n",
+        " *  - The grid shows only what this install would actually register. An\n"
+            . " *    ability this install cannot run has no row at all (issue #161): no lock\n"
+            . " *    state, no upsell copy, and no write path. A row exists to be acted on,\n"
+            . " *    and the only rows an admin can act on here are the ones the Registrar\n"
+            . " *    would accept; anything else could only be shown as unavailable, which is\n"
+            . " *    not a state this screen has.\n",
+        " *  - The grid shows only what this install would actually register. This\n"
+            . " *    build has a single tier, so that is every ability it declares: there\n"
+            . " *    is no lock state and no unavailable state on this screen.\n",
         1,
     ],
     [
-        "        if (\$pro_locked) {\n            \$reason = __('disabled: no pro license', 'wpmcp');\n        } elseif (\$explain['enabled']) {\n",
-        "        if (\$explain['enabled']) {\n",
+        "     * Whether this install would register the ability at all.\n"
+            . "     *\n"
+            . "     * This mirrors ONLY Registrar::register()'s tier gate, by calling the\n"
+            . "     * same predicate rather than re-stating it. register() also drops\n"
+            . "     * governance-disabled abilities, and that gate is deliberately NOT\n"
+            . "     * mirrored here: showing a governance-disabled ability together with the\n"
+            . "     * layer that disabled it, so an admin can re-enable it, is the entire\n"
+            . "     * point of this screen. Restoring \"parity\" by adding the governance test\n"
+            . "     * would empty the grid of everything worth acting on.\n",
+        "     * Whether this install would register the ability at all.\n"
+            . "     *\n"
+            . "     * This mirrors ONLY Registrar::register()'s tier gate, by calling the\n"
+            . "     * same predicate rather than re-stating it. Every ability in this build\n"
+            . "     * passes it, so it never removes a row here; it is kept as the one place\n"
+            . "     * that decides, so a stray declaration cannot get a row or a write path.\n"
+            . "     * register() also drops governance-disabled abilities, and that gate is\n"
+            . "     * deliberately NOT mirrored here: showing a governance-disabled ability\n"
+            . "     * together with the layer that disabled it, so an admin can re-enable\n"
+            . "     * it, is the entire point of this screen.\n",
         1,
     ],
-    ["            'pro_locked'  => \$pro_locked,\n", '', 1],
-    ["            'enabled'     => ! \$pro_locked && \$explain['enabled'],\n", "            'enabled'     => \$explain['enabled'],\n", 1],
-    ["        \$is_pro = Gate::is_pro();\n", '', 1],
     [
-        "            <?php if (! \$is_pro) : ?>\n"
-            . "                <p class=\"description\">\n"
-            . "                    <?php echo esc_html__('PRO abilities are listed so you can see the full surface; they stay off until a pro license is active.', 'wpmcp'); ?>\n"
-            . "                </p>\n"
-            . "            <?php endif; ?>\n\n",
-        '',
-        1,
-    ],
-    [
-                "                                <?php if ('pro' === \$row['tier']) : ?>\n"
-        . "                                    <strong><?php echo esc_html__('PRO', 'wpmcp'); ?></strong>\n"
-        . "                                    <?php if (\$row['pro_locked']) : ?>\n"
-        . "                                        <span class=\"description\"><?php echo esc_html__('(locked)', 'wpmcp'); ?></span>\n"
-        . "                                    <?php endif; ?>\n"
-        . "                                <?php else : ?>\n"
-        . "                                    <?php echo esc_html__('free', 'wpmcp'); ?>\n"
-        . "                                <?php endif; ?>\n",
+        "                                <?php if ('pro' === \$row['tier']) : ?>\n"
+            . "                                    <strong><?php echo esc_html__('PRO', 'wpmcp'); ?></strong>\n"
+            . "                                <?php else : ?>\n"
+            . "                                    <?php echo esc_html__('free', 'wpmcp'); ?>\n"
+            . "                                <?php endif; ?>\n",
         "                                <?php echo esc_html__('free', 'wpmcp'); ?>\n",
-        1,
-    ],
-    [
-        "                                    <?php elseif (\$row['pro_locked']) : ?>\n"
-            . "                                        <button type=\"button\" class=\"button button-small\" disabled\n"
-            . "                                            title=\"<?php echo esc_attr__('Requires a pro license.', 'wpmcp'); ?>\">\n"
-            . "                                            <?php echo esc_html__('Enable', 'wpmcp'); ?>\n"
-            . "                                        </button>\n",
-        '',
         1,
     ],
 ];
@@ -263,6 +282,20 @@ $edits['src/Skills/Skill_Library.php'] = [
             . "    {\n"
             . "        return false;\n"
             . "    }\n",
+        1,
+    ],
+];
+
+// The skills admin screen has one lock branch, reachable only when
+// Skill_Library::is_locked() answers yes. It cannot in this build, but an
+// unreachable string is still a string a reviewer reads (guideline 9), so the
+// branch and its copy go rather than being left dead.
+$edits['src/Admin/Skills_Settings_Page.php'] = [
+    [
+        "                            } elseif (! empty(\$skill['locked'])) {\n"
+            . "                                echo esc_html__('Listed, body needs a Pro licence', 'wpmcp');\n"
+            . "                            } else {\n",
+        "                            } else {\n",
         1,
     ],
 ];

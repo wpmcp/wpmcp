@@ -90,6 +90,19 @@ for pattern in 'Pro\\Gate' '\bis_pro\b' '\bGate::' 'can_use_premium_code' '[Ff]r
     fail "paid/licensing surface \"$pattern\" survived into the $SLUG build"
   fi
 done
+# 3b. No pay-to-unlock PROSE. Gate 3's patterns are identifiers, and a
+#     reviewer reads sentences: a docblock or a UI string promising that
+#     something is withheld pending payment is a guideline 9 finding even
+#     when no paid predicate is left to enforce it. This is the gate that
+#     would have caught an unstripped class comment describing the two
+#     builds, which no identifier grep matches.
+for phrase in 'pay.to.unlock' '[Pp]ro licen[cs]e' 'premium licen[cs]e' '[Uu]pgrade to [Pp]ro' 'upsell' 'build we sell' ; do
+  if grep -rqE --include='*.php' -- "$phrase" "$STAGE/src" "$STAGE/$SLUG.php"; then
+    grep -rnE --include='*.php' -- "$phrase" "$STAGE/src" "$STAGE/$SLUG.php" >&2
+    fail "pay-to-unlock copy \"$phrase\" survived into the $SLUG build"
+  fi
+done
+
 if [ -d "$STAGE/vendor/freemius" ]; then fail "the licensing SDK is still vendored"; fi
 if grep -q 'freemius' "$STAGE/composer.json"; then fail "composer.json still requires the licensing SDK"; fi
 
