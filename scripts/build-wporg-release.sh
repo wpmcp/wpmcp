@@ -91,6 +91,25 @@ for pattern in 'Pro\\Gate' '\bis_pro\b' '\bGate::' 'can_use_premium_code' '[Ff]r
   fi
 done
 if [ -d "$STAGE/vendor/freemius" ]; then fail "the licensing SDK is still vendored"; fi
+
+# 3b. The free-tier invariants, re-derived from the staged tree by the same
+#     script tests/free/WporgStripTest.php runs. One copy on purpose: the
+#     scanner used to be duplicated here and in the test, so the copy CI
+#     proved non-vacuous was not the copy that blocked a release, and the two
+#     had already drifted. It covers the registrar naming no tier, every
+#     constructed Ability being literally 'free', no shipped file (PHP,
+#     markdown or readme.txt) claiming licence gating, no reference to a
+#     withheld registration method, and no orphaned private register_*
+#     method holding pruned handlers in the zip.
+#
+#     The drift-guard manifest is passed too, so the ability SET is checked
+#     and not only the tiers: no ability the manifest tiers as paid may
+#     survive under any name, and no free one may go missing because an edit
+#     took out more than it meant to. The manifest is read from the checkout,
+#     never from the stage, and tests/ is not in the zip.
+php "$FLAVOR/assert-free-tier.php" "$STAGE" "$ROOT/tests/support/ability-manifest.php" \
+  || fail "the $SLUG build fails the free-tier invariants"
+
 if grep -q 'freemius' "$STAGE/composer.json"; then fail "composer.json still requires the licensing SDK"; fi
 
 # 4. Every WPMCP class the shipped code names must still exist, so a file the

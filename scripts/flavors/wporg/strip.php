@@ -62,6 +62,16 @@ const REMOVED_PATHS = [
     // the runners, the executor and their ability wrappers do not.
     'src/Tools/Cli/Run_Wp_Cli.php',
     'src/Tools/Cli/Wp_Cli_Executor.php',
+    // Async wp-cli (issue #84) is the same execution surface on a cron hook,
+    // so it leaves with the synchronous tool. Run_Cli_Job defaults its
+    // executor to Wp_Cli_Executor::class, which the line above deletes, so
+    // leaving it behind would ship a hook that fatals when it fires.
+    'src/Tools/Cli/Dispatch_Cli_Job.php',
+    'src/Tools/Cli/Get_Cli_Job.php',
+    'src/Tools/Cli/List_Cli_Jobs.php',
+    'src/Tools/Cli/Cancel_Cli_Job.php',
+    'src/Tools/Cli/Cli_Job_Store.php',
+    'src/Tools/Cli/Run_Cli_Job.php',
     'src/Tools/Code/Run_Php_Snippet.php',
     'src/Tools/Code/Php_Snippet_Runner.php',
     // The only curl_setopt() in the tree. Page_Audit checks class_exists()
@@ -95,6 +105,13 @@ const REMOVED_METHODS = [
     'register_elementor_structural_abilities',
     'register_brand_kit_abilities',
     'register_memory_abilities',
+    // Called only from register_cli_abilities(), which leaves above. Without
+    // this it survives as a private method with no caller, and its four
+    // `new *_Cli_Job()` instantiations hold the whole async wp-cli package
+    // out of the unreferenced-file sweep.
+    'register_cli_job_abilities',
+    // Same shape: its only caller is register_elementor_pro_abilities().
+    'register_global_class_write_abilities',
 ];
 
 /**
@@ -106,22 +123,31 @@ const REMOVED_METHODS = [
 $edits = [];
 
 // ---------------------------------------------------------------- Registrar
-// The tier skip stops being a licence question and becomes a statement of
-// fact about this build. Kept rather than deleted so a pro-tier ability that
-// somehow survived the prune still cannot reach the MCP surface.
+// The tier branch is deleted outright, not rewritten (issue #160): the prune
+// above removes every pro-tier registration and registration site, and the
+// strip aborts if any survives (see the pro-tier scan below), so a runtime
+// tier check would be exactly the "code disabled pending payment" shape that
+// guideline 5 flags. The directory build's Registrar must not mention tiers
+// at all; build-wporg-release.sh gates on that.
 $edits['src/MCP/Registrar.php'] = [
     ["use WPMCP\\Pro\\Gate;\n", '', 1],
     [
-        "        if ('pro' === \$a->tier && ! Gate::is_pro()) {\n            return;\n        }\n",
-        "        // The paid tier is a separate add-on plugin, not a locked part of\n"
-            . "        // this one: its abilities are not in this build at all. This is a\n"
-            . "        // belt-and-braces refusal, not a licence check.\n"
-            . "        if ('pro' === \$a->tier) {\n            return;\n        }\n",
+        "        // Record the declaration BEFORE the tier/governance gates: the\n"
+            . "        // ability grid (issue #78) must list governance-disabled and\n"
+            . "        // unlicensed pro abilities so an admin can see and re-enable them.\n",
+        "        // Record the declaration BEFORE the governance gate: the ability\n"
+            . "        // grid (issue #78) must list governance-disabled abilities so an\n"
+            . "        // admin can see and re-enable them.\n",
         1,
     ],
     [
-        "        \$allowed = ('pro' !== \$a->tier || Gate::is_pro())\n",
-        "        \$allowed = ('pro' !== \$a->tier)\n",
+        "        if ('pro' === \$a->tier && ! Gate::is_pro()) {\n            return;\n        }\n",
+        '',
+        1,
+    ],
+    [
+        "        \$allowed = ('pro' !== \$a->tier || Gate::is_pro())\n            && current_user_can(\$a->capability)\n",
+        "        \$allowed = current_user_can(\$a->capability)\n",
         1,
     ],
     [
@@ -132,8 +158,15 @@ $edits['src/MCP/Registrar.php'] = [
             . "     * lapses after registration cannot keep a pro tool usable. The\n"
             . "     * decision is audited exactly as before.\n",
         "     * Permission decision for one ability invocation: capability +\n"
-            . "     * Governance + identity scope, audited. Pro-tier abilities are not\n"
-            . "     * part of this build, so the tier test can only ever refuse.\n",
+            . "     * Governance + identity scope, then the project-memory guardrail\n"
+            . "     * described below, audited.\n",
+        1,
+    ],
+    // declared() is the ability grid's source, so its docblock has to stop
+    // naming a gate this build does not run.
+    [
+        "     * including ones the pro gate or governance then dropped. Display-only\n",
+        "     * including ones governance then dropped. Display-only\n",
         1,
     ],
 ];
@@ -399,6 +432,323 @@ $edits['src/Safety/Snapshot_Store.php'] = [
             . "        return \$limit > 0 ? \$limit : self::DEFAULT_HISTORY_LIMIT;\n"
             . "    }\n\n"
             . "    public static function prune(int \$keep): int\n",
+        1,
+    ],
+];
+
+// ------------------------------------------------- prose the strip falsifies
+// Deleting the Registrar tier branch makes a set of statements elsewhere in
+// the tree factually wrong, and guideline 9 treats copy that implies a paid
+// unlock as a finding in its own right. A reviewer greps the zip and reads
+// the docblocks, so every claim about tier- or licence-dependent behaviour of
+// THIS plugin leaves with the mechanism it described.
+// build-wporg-release.sh gate 3c re-derives this from the staged tree.
+
+$edits['src/Integrations/Integration_Dispatcher.php'] = [
+    [
+        " * Layering with the platform gates: the pair's own capability, Governance,\n"
+            . " * identity scope, and pro-tier gates all apply unchanged through\n"
+            . " * Registrar::is_permitted() before a dispatcher ability executes at all.\n",
+        " * Layering with the platform gates: the pair's own capability, Governance,\n"
+            . " * and identity scope all apply unchanged through Registrar::is_permitted()\n"
+            . " * before a dispatcher ability executes at all.\n",
+        1,
+    ],
+    // tier() is the only ability tier in the tree that is not a source
+    // literal, so it is the one thing the "no 'pro' literal" scan cannot see.
+    // Removing it and inlining 'free' at the three construction sites is what
+    // lets gate 3c assert the invariant instead of the vocabulary.
+    [
+        "    /** Tier of the dispatcher pair; Registrar drops 'pro' pairs without a license. */\n"
+            . "    public function tier(): string\n"
+            . "    {\n"
+            . "        return 'free';\n"
+            . "    }\n\n",
+        '',
+        1,
+    ],
+    ["            \$this->tier(),\n", "            'free',\n", 3],
+];
+
+$edits['src/MCP/Server.php'] = [
+    [
+        "     * Registrar, so an ability that was declared but gated away (pro tier\n"
+            . "     * without a licence, governance-disabled, memory-blocked) is absent from\n",
+        "     * Registrar, so an ability that was declared but gated away\n"
+            . "     * (governance-disabled, memory-blocked) is absent from\n",
+        1,
+    ],
+];
+
+$edits['src/MCP/Tool_Exposure.php'] = [
+    [
+        " *    scope + pro-license, audited) if invoked anyway; this class only cuts\n",
+        " *    scope, audited) if invoked anyway; this class only cuts\n",
+        1,
+    ],
+];
+
+$edits['src/Tools/Dispatch/Call_Tool.php'] = [
+    [
+        " *    scope + the live pro-license re-check, with the decision audited under\n",
+        " *    scope, with the decision audited under\n",
+        1,
+    ],
+];
+
+$edits['src/Tools/Dispatch/List_Tools.php'] = [
+    [
+        " * Governance or gated off by tier never registered, so they never appear.\n",
+        " * Governance never registered, so they never appear.\n",
+        1,
+    ],
+];
+
+// The catalog still reports each entry's tier and still filters on it: in this
+// build every value is 'free', so the field withholds nothing. What goes is
+// the copy that names a paid tier the artifact does not contain.
+$edits['src/Tools/Connect/List_Tool_Catalog.php'][] = [
+    " * (name, tier, operation, capability, read/destructive hints); it never\n",
+    " * (name, operation, capability, read/destructive hints); it never\n",
+    1,
+];
+
+$edits['src/Memory/Memory_Config.php'] = [
+    [
+        " *    by default and is intentionally NOT tied to the tools switch, the pro\n"
+            . " *    license, or the connecting identity: a guardrail an administrator\n"
+            . " *    published must keep denying writes even after the memory tools are\n"
+            . " *    switched back off or a license lapses. A guardrail that quietly stops\n",
+        " *    by default and is intentionally NOT tied to the tools switch or to\n"
+            . " *    the connecting identity: a guardrail an administrator published\n"
+            . " *    must keep denying writes even after the memory tools are switched\n"
+            . " *    back off. A guardrail that quietly stops\n",
+        1,
+    ],
+];
+
+$edits['src/Safety/Snapshot_Store.php'][] = [
+    "     * asking a licence gate what the cap is.\n",
+    "     * routing the question through another class.\n",
+    1,
+];
+
+// Elementor's own paid companion plugin is a third-party fact, not a tier of
+// this plugin, but "Pro tier" in a docblock reads the same either way to a
+// reviewer, so it is said in plain words instead.
+$edits['src/Tools/Elementor/Widget_Catalog.php'] = [
+    [
+        " * widget needs ('elementor' for free core, 'elementor-pro' for the page\n"
+            . " * builder's own Pro tier), and a hand-distilled params map. A param spec is:\n",
+        " * widget needs ('elementor' for the core plugin, 'elementor-pro' for the\n"
+            . " * page builder's own paid companion plugin), and a hand-distilled params\n"
+            . " * map. A param spec is:\n",
+        1,
+    ],
+];
+
+$edits['src/Admin/Ability_Grid_Page.php'][] = [
+    " *  - Pro rows are visible when unlicensed but locked; they are never\n"
+        . " *    presented (or written) as enabled without a live license.\n",
+    '',
+    1,
+];
+
+// Skill_Library::is_locked() is rewritten above to answer no for every
+// record, so the branch this copy sits in is unreachable in this build.
+$edits['src/Admin/Skills_Settings_Page.php'] = [
+    [
+        "                            } elseif (! empty(\$skill['locked'])) {\n"
+            . "                                echo esc_html__('Listed, body needs a Pro licence', 'wpmcp');\n",
+        '',
+        1,
+    ],
+];
+
+$edits['src/Plugin.php'][] = [
+    "        // TOOLS are pro: an administrator's published guardrails are enforced\n"
+        . "        // in Registrar::is_permitted() on every tier, and a safety rule must\n"
+        . "        // not stop applying because a license lapsed.\n",
+    "        // TOOLS are not part of this build: an administrator's published\n"
+        . "        // guardrails are enforced in Registrar::is_permitted() regardless,\n"
+        . "        // and a safety rule must not stop applying just because the tools\n"
+        . "        // that author it are absent.\n",
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "     * this plugin's only precedent for a stronger, pro-tier gate is the\n",
+    "     * this plugin's only precedent for a stronger gate is the\n",
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "with each entry\\'s tier (free/pro), operation, required capability, and read-only/destructive hints, plus a per-domain summary count. Optional domain and/or tier filters narrow the result.",
+    "with each entry\\'s tier, operation, required capability, and read-only/destructive hints, plus a per-domain summary count. Optional domain and/or tier filters narrow the result.",
+    1,
+];
+
+// ------------------------------------ paid-tier copy in shipped documentation
+// Everything below survived the first pass of this strip because the code it
+// described was already free or already gone: what was left was the prose.
+// A wp.org reviewer greps the zip, so a docblock that names a "PRO" dialect
+// or enumerates withheld paid abilities is a guideline-9 finding on its own.
+// assert-free-tier.php re-derives all of this from the staged tree.
+
+// build-page's Elementor dialect is free in this build, so the two files
+// behind it must stop calling it paid. Build_Page's own docblock and its
+// registered description are handled further up.
+$edits['src/Tools/Compose/Page_Spec.php'] = [
+    [
+        " *   dialect  'gutenberg' (default, free) | 'elementor' (PRO)\n",
+        " *   dialect  'gutenberg' (default) | 'elementor'\n",
+        1,
+    ],
+];
+// The registered build-page description is client-facing text, not a comment:
+// it is what an agent reads in tools/list.
+$edits['src/Plugin.php'][] = [
+    'dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree',
+    'dialect "gutenberg" (default) builds block markup; dialect "elementor" (requires the Elementor plugin) builds an _elementor_data element tree',
+    1,
+];
+$edits['src/Tools/Compose/Elementor_Composer.php'] = [
+    [
+        " * Builder-dialect composition (PRO): turn a validated build-page node tree\n",
+        " * Builder-dialect composition: turn a validated build-page node tree\n",
+        1,
+    ],
+];
+
+// The payload edit above removes 'pro_active' from the response, so the
+// docblock must stop documenting a field this build never returns.
+$edits['src/Tools/Context/Get_Site_Context.php'][] = [
+    " * version/Pro status.\n",
+    " * version.\n",
+    1,
+];
+
+// Two orphaned group docblocks and one enumeration of withheld paid tools.
+$edits['src/Plugin.php'][] = [
+    "    /**\n"
+        . "     * WP MCP Cloud sync (MVP): connect a site to the cloud and push/pull its\n"
+        . "     * builder assets (custom widget + block specs) over a versioned,\n"
+        . "     * backend-agnostic REST contract. All PRO, manage_options, domain 'cloud'.\n"
+        . "     */\n",
+    '',
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "     * Every one of these is PRO at manage_options, domain 'cli', exactly\n"
+        . "     * matching run-wp-cli: dispatching a command asynchronously is the same\n"
+        . "     * capability as running it synchronously, so it must not be reachable\n"
+        . "     * at a lower tier or a weaker capability than the synchronous tool.\n"
+        . "     * dispatch-cli-job is 'create' (it creates a job record),\n"
+        . "     * cancel-cli-job is 'update' (it transitions one), and get-cli-job /\n"
+        . "     * list-cli-jobs are 'read'.\n     *\n",
+    '',
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "     * WooCommerce including get-sales-report (a reporting tool directly\n"
+        . "     * analogous to analytics summaries) are all free-tier. 'pro' tier here is\n"
+        . "     * reserved for a different kind of feature: deep content scoring/analysis\n"
+        . "     * (analyze-seo, analyze-accessibility, check-contrast, extract-content,\n"
+        . "     * see register_analysis_abilities()) and deep Elementor element-tree\n"
+        . "     * editing. Analytics summary/top-pages/GSC-summary/GSC-queries are the\n",
+    "     * WooCommerce including get-sales-report (a reporting tool directly\n"
+        . "     * analogous to analytics summaries) are free, as is everything else in\n"
+        . "     * this build. Analytics summary/top-pages/GSC-summary/GSC-queries are the\n",
+    1,
+];
+
+// The async wp-cli package leaves by path, so its cron wiring has to leave
+// too: Run_Cli_Job::HOOK is a compile-time class constant reference, which
+// fatals at load, not at hook time.
+$edits['src/Plugin.php'][] = [
+    "            // The WP-Cron executor for dispatch-cli-job's scheduled events\n"
+        . "            // (issue #84). It re-runs the FULL wp-cli guard chain before\n"
+        . "            // executing anything, so hooking it here does not by itself let\n"
+        . "            // any queued command run: a job queued while the opt-in gate was\n"
+        . "            // open still fails closed once that gate is shut. See\n"
+        . "            // Run_Cli_Job's docblock.\n"
+        . "            add_action(Run_Cli_Job::HOOK, [new Run_Cli_Job(), 'handle']);\n",
+    '',
+    1,
+];
+
+// ------------------------------------------------- runtime text and dead code
+// The handshake is not a comment: memory_block() is appended to the
+// instructions every connecting client reads, and this build has no
+// memory-recall to call. The block itself stays, because the guardrails it
+// publishes are enforced here on every install.
+$edits['src/MCP/Handshake_Instructions.php'] = [
+    ["        \$lines[] = 'Call memory-recall for the full set and session history.';\n", '', 1],
+];
+
+// Memory_Config keeps the enforcement switch (Registrar reads it) and loses
+// the tools switch, whose three tools left with src/Tools/Memory and whose
+// accessor has no caller left in this build.
+$edits['src/Memory/Memory_Config.php'][] = [
+    " * The two switches of the agent project-memory feature (issue #131), kept\n"
+        . " * deliberately separate because they protect opposite things:\n *\n"
+        . " *  - wpmcp_enable_memory (DEFAULT FALSE) gates the three memory TOOLS\n"
+        . " *    (memory-recall, memory-propose, memory-save-summary), i.e. the paths\n"
+        . " *    an agent can use to read or write the store. Opt-in like every other\n"
+        . " *    non-core capability wpmcp ships.\n *\n"
+        . " *  - wpmcp_memory_enforce (DEFAULT TRUE) gates ENFORCEMENT of the\n",
+    " * The enforcement switch of the agent project-memory feature (issue #131).\n"
+        . " * The tools that author memory entries are not part of this build; the\n"
+        . " * admin screen that publishes them and the server-side enforcement are:\n *\n"
+        . " *  - wpmcp_memory_enforce (DEFAULT TRUE) gates ENFORCEMENT of the\n",
+    1,
+];
+$edits['src/Memory/Memory_Config.php'][] = [
+    "    /** Whether the memory TOOLS may run. Default off (opt-in). */\n"
+        . "    public static function tools_enabled(): bool\n"
+        . "    {\n"
+        . "        return (bool) apply_filters('wpmcp_enable_memory', false);\n"
+        . "    }\n\n",
+    '',
+    1,
+];
+
+// -------------------------------------------- the bundled skill library
+// get-skill returns these bodies verbatim to the connecting client, so they
+// are the most literally "shipped" prose in the tree, and the least like a
+// comment. Three of them describe a licence gate this build does not have and
+// one points an agent at a tool this build deletes.
+$edits['src/Skills/library/wpmcp-governance/SKILL.md'] = [
+    [
+        "scoped identity attached to the connection must include the tool's domain and\n"
+            . "operation, and pro-tier tools re-check the licence on every call.\n",
+        "scoped identity attached to the connection must include the tool's domain and\n"
+            . "operation, and any guardrail the administrator published in project memory\n"
+            . "is applied last and can only narrow the decision.\n",
+        1,
+    ],
+];
+$edits['src/Skills/library/wpmcp-safe-writes/SKILL.md'] = [
+    [
+        "- Anything done through an escape hatch (`wpmcp/run-wp-cli`,\n"
+            . "  `wpmcp/run-php-snippet`). Those run outside the safety net on purpose, they\n"
+            . "  are default-off and development-environment only, and you should say so\n"
+            . "  before proposing them.\n",
+        '',
+        1,
+    ],
+    [
+        "## Free tier history limit\n\n"
+            . "On an unlicensed site the snapshot history is capped at the most recent 20\n"
+            . "operations.",
+        "## History limit\n\n"
+            . "Snapshot history is capped at the most recent 20 operations on every site\n"
+            . "(raise it with the `wpmcp_snapshot_history_limit` filter).",
+        1,
+    ],
+];
+$edits['src/Skills/library/wpmcp-elementor-editing/SKILL.md'] = [
+    [
+        "The Elementor tools are pro tier and require Elementor to be active. If they\n",
+        "The Elementor tools require Elementor to be active. If they\n",
         1,
     ],
 ];
