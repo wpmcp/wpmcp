@@ -7,22 +7,20 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * Block-theme render adapter (issue #70). Planned mechanism: filter the
- * theme's template-part resolution (get_block_templates /
- * pre_get_block_file_template) so a winning wpmcp_template supplies the
- * header/footer part content natively; the 404 part hooks template_include.
+ * Block-theme render adapter (issue #70). The 404 part is served by swapping
+ * the document template, which works in a block theme because a PHP template
+ * returned from `template_include` takes precedence over the block template
+ * canvas. Header and footer in a block theme are template parts, so they get
+ * the native get_block_templates()/pre_get_block_file_template() integration
+ * in the next slice rather than a document swap that would discard the
+ * theme's own page content.
  */
 class Block_Adapter implements Adapter
 {
+    use Renders_Document;
+
     public function supports(): bool
     {
         return function_exists('wp_is_block_theme') && wp_is_block_theme();
-    }
-
-    public function register(string $part_type): void
-    {
-        // TODO(#70): filter block template-part resolution so the winning
-        // template (Template_Resolver::resolve) replaces the theme part.
-        // Failing tests first per the issue's TDD notes; no-op until then.
     }
 }

@@ -294,6 +294,48 @@ $edits['src/Tools/Skills/Get_Skill.php'] = [
     ],
 ];
 
+// ------------------------------------------------------- theme-builder cap
+// Guideline 5's quota clause again, and the same answer as snapshot retention
+// above: the cap does not become a locked feature, it stops existing. This
+// build keeps the whole theme-builder engine and imposes no limit on it, with
+// a filter so a site that wants a smaller working set can impose one on
+// itself. Nothing here is lifted by a payment because there is nothing to
+// lift.
+$edits['src/Tools/ThemeBuilder/Template_Store.php'] = [
+    ["use WPMCP\\Pro\\Gate;\n\n", '', 1],
+    [
+        " * Free tier: the engine ships free with a cap of one template per part type;\n"
+            . " * unlimited templates lift the cap on a licensed site (issue #70 tier split).\n"
+            . " * The cap is one number read from cap_per_type(), which is the single place\n"
+            . " * the wp.org directory build rewrites.\n",
+        " * Every install of this build gets the whole engine with no limit on how\n"
+            . " * many templates a part type may have.\n",
+        1,
+    ],
+    [
+        "    /**\n"
+            . "     * How many templates a site may keep per part type. 0 means unlimited.\n"
+            . "     * One method so the cap has exactly one definition to read, to test, and\n"
+            . "     * for the directory build to rewrite.\n"
+            . "     */\n"
+            . "    public static function cap_per_type(): int\n"
+            . "    {\n"
+            . "        return Gate::is_pro() ? 0 : self::FREE_CAP_PER_TYPE;\n"
+            . "    }\n",
+        "    /**\n"
+            . "     * How many templates a site may keep per part type. 0 means unlimited,\n"
+            . "     * which is what every install of this build gets: one number, no\n"
+            . "     * licence, no tier, nothing a payment changes. Filterable so a site\n"
+            . "     * that wants a smaller working set can hold itself to one for free.\n"
+            . "     */\n"
+            . "    public static function cap_per_type(): int\n"
+            . "    {\n"
+            . "        return max(0, (int) apply_filters('wpmcp_site_part_cap_per_type', 0));\n"
+            . "    }\n",
+        1,
+    ],
+];
+
 // ------------------------------------------------------------- Plugin.php
 $plugin_edits = [
     // Ability-group wiring for the groups that are not in this build.
@@ -356,6 +398,20 @@ $plugin_edits[] = [
         . "     * they serve: this build has no premium skill library to withhold.\n",
     1,
 ];
+$plugin_edits[] = [
+    "     * Engine is free with a cap of one template per part type, read from\n"
+        . "     * Template_Store::cap_per_type(); unlimited templates lift the cap on a\n"
+        . "     * licensed site. manage_options across the group: these templates render\n"
+        . "     * site-wide markup, and the CPT is on Content_Guard's internal list so\n"
+        . "     * the edit_posts content tools cannot reach it either.\n",
+    "     * The whole engine is available to every install of this plugin, with\n"
+        . "     * no limit on how many templates a part type may have.\n"
+        . "     * manage_options across the group: these templates render site-wide\n"
+        . "     * markup, and the CPT is on Content_Guard's internal list so the\n"
+        . "     * edit_posts content tools cannot reach it either.\n",
+    1,
+];
+
 $edits['src/Plugin.php'] = $plugin_edits;
 
 $edits['src/Identity/Identity_Context.php'] = [

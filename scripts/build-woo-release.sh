@@ -36,6 +36,7 @@ rm -rf \
   "$STAGE/src/Tools/Dispatch" \
   "$STAGE/src/Tools/WidgetBuilder" \
   "$STAGE/src/Tools/BlockBuilder" \
+  "$STAGE/src/Tools/ThemeBuilder" \
   "$STAGE/src/Tools/Cloud" \
   "$STAGE/src/Tools/Search" \
   "$STAGE/src/Cloud" \

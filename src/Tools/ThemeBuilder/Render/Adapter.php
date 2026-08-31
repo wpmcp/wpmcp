@@ -8,9 +8,9 @@ if (! defined('ABSPATH')) {
 
 /**
  * A render adapter integrates a resolved theme-builder template into the
- * active theme (issue #70). Two implementations are planned: Block_Adapter
- * (block themes, Gutenberg-template-part-native where possible) and
- * Classic_Adapter (classic themes, hook/output-buffer based).
+ * active theme (issue #70). Two implementations: Block_Adapter (block themes)
+ * and Classic_Adapter (classic themes). Adapters::boot() picks the one whose
+ * supports() answers yes and registers it for every part type.
  */
 interface Adapter
 {

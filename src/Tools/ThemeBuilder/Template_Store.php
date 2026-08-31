@@ -17,8 +17,15 @@ if (! defined('ABSPATH')) {
  * post_content. Active/inactive maps to publish/draft, so creation and status
  * changes are reversible through the standard trash.
  *
- * Free tier: the engine ships free with an enforced cap of one template per
- * part type; unlimited templates are PRO via Pro\Gate (issue #70 tier split).
+ * The post type is deliberately internal: it is on Content_Guard's
+ * INTERNAL_TYPES list, so the generic content tools (which run at edit_posts)
+ * cannot rewrite markup that renders on every page. The only writers are the
+ * abilities in this directory, all of which require manage_options.
+ *
+ * Free tier: the engine ships free with a cap of one template per part type;
+ * unlimited templates lift the cap on a licensed site (issue #70 tier split).
+ * The cap is one number read from cap_per_type(), which is the single place
+ * the wp.org directory build rewrites.
  */
 class Template_Store
 {
@@ -41,22 +48,53 @@ class Template_Store
         }
     }
 
+    /**
+     * How many templates a site may keep per part type. 0 means unlimited.
+     * One method so the cap has exactly one definition to read, to test, and
+     * for the directory build to rewrite.
+     */
+    public static function cap_per_type(): int
+    {
+        return Gate::is_pro() ? 0 : self::FREE_CAP_PER_TYPE;
+    }
+
+    /**
+     * Template markup is rendered with do_blocks() into the header, footer or
+     * 404 body of every matching page, so it is filtered on the way IN rather
+     * than trusted at the render boundary, matching Block_Renderer's
+     * escape-before-output stance for the same class of payload.
+     *
+     * wp_kses_post() is applied unconditionally and explicitly: leaning on
+     * wp_insert_post's own KSES pass would be leaning on nothing, because
+     * kses_init_filters() is skipped for users holding `unfiltered_html`,
+     * which is exactly the single-site administrator this tool requires.
+     * Block delimiter comments survive wp_kses_post(), so block markup is
+     * preserved while scripts and event-handler attributes are not.
+     */
+    public static function sanitize_content(string $content): string
+    {
+        return wp_kses_post($content);
+    }
+
     /** @return int|\WP_Error the new template post id. */
     public static function create(string $part_type, string $title, string $content, array $conditions, int $priority)
     {
         self::ensure_post_type();
 
-        if (! in_array($part_type, self::PART_TYPES, true)) {
-            return new \WP_Error(
-                'wpmcp_invalid_part_type',
-                sprintf('Unknown part type "%s". Valid types: %s.', $part_type, implode(', ', self::PART_TYPES))
-            );
+        $part_type = self::validate_part_type($part_type);
+        if (is_wp_error($part_type)) {
+            return $part_type;
         }
 
-        if (! Gate::is_pro() && count(self::all(false, $part_type)) >= self::FREE_CAP_PER_TYPE) {
+        $cap = self::cap_per_type();
+        if ($cap > 0 && count(self::all(false, $part_type)) >= $cap) {
             return new \WP_Error(
                 'wpmcp_template_cap',
-                sprintf('The free tier allows %d template per part type; upgrade for unlimited templates.', self::FREE_CAP_PER_TYPE)
+                sprintf(
+                    'This site keeps %d template per part type; trash the existing "%s" template first (wpmcp/delete-site-part).',
+                    $cap,
+                    $part_type
+                )
             );
         }
 
@@ -65,12 +103,12 @@ class Template_Store
             return $valid;
         }
 
-        $id = wp_insert_post([
+        $id = wp_insert_post(wp_slash([
             'post_type'    => self::POST_TYPE,
             'post_status'  => 'publish',
             'post_title'   => sanitize_text_field($title),
-            'post_content' => $content,
-        ], true);
+            'post_content' => self::sanitize_content($content),
+        ]), true);
 
         if (is_wp_error($id)) {
             return $id;
@@ -81,6 +119,24 @@ class Template_Store
         update_post_meta($id, '_wpmcp_template_priority', $priority);
 
         return $id;
+    }
+
+    /**
+     * Part type or a WP_Error naming the valid set. Shared by every tool so
+     * a typo ("head") is an error rather than an empty result that reads to
+     * an agent as "nothing matched".
+     *
+     * @return string|\WP_Error
+     */
+    public static function validate_part_type(string $part_type)
+    {
+        if (! in_array($part_type, self::PART_TYPES, true)) {
+            return new \WP_Error(
+                'wpmcp_invalid_part_type',
+                sprintf('Unknown part type "%s". Valid types: %s.', $part_type, implode(', ', self::PART_TYPES))
+            );
+        }
+        return $part_type;
     }
 
     public static function get(int $id): ?array
@@ -102,21 +158,35 @@ class Template_Store
         ];
     }
 
-    /** @return array<int,array> template summaries, optionally filtered by part type. */
-    public static function all(bool $active_only = false, ?string $part_type = null): array
+    /**
+     * @param int $limit -1 (the default) for every row. The resolver drives
+     *                   correctness rather than a display listing, so it must
+     *                   never silently ignore a template; only the
+     *                   agent-facing listing passes a bounded page size.
+     *
+     * @return array<int,array> template summaries, optionally filtered by part type.
+     */
+    public static function all(bool $active_only = false, ?string $part_type = null, int $limit = -1): array
     {
         self::ensure_post_type();
         $query = [
             'post_type'        => self::POST_TYPE,
             'post_status'      => $active_only ? ['publish'] : ['publish', 'draft'],
-            'posts_per_page'   => 200,
+            // phpcs:ignore WordPress.WP.PostsPerPage.posts_per_page_posts_per_page -- Bounded by the per-part-type cap; the resolver must see every candidate or the deterministic winner is a lie.
+            'posts_per_page'   => $limit,
             'orderby'          => 'ID',
             'order'            => 'ASC',
             'suppress_filters' => true,
         ];
-        if (null !== $part_type) {
-            $query['meta_key']   = '_wpmcp_template_type';
-            $query['meta_value'] = $part_type;
+        if (null !== $part_type && '' !== $part_type) {
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- The plugin's own wpmcp_template CPT: a handful of rows, capped per part type.
+            $query['meta_query'] = [
+                [
+                    'key'     => '_wpmcp_template_type',
+                    'value'   => $part_type,
+                    'compare' => '=',
+                ],
+            ];
         }
         $rows = get_posts($query);
 
