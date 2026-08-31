@@ -121,9 +121,19 @@ class Refresh_Token_Store
      * authorization_code exchange); pass the redeemed token's chain_id to
      * continue an existing one (a rotation).
      *
+     * @param int $ttl Per-record lifetime override in seconds, 0 (the
+     *                 default) meaning "use the site-wide ttl()". This
+     *                 exists for the self-issued gateway credential
+     *                 (issue #130), which is a machine credential that must
+     *                 survive a month of gateway idleness. The alternative,
+     *                 the site-wide wpmcp_oauth_refresh_ttl filter, would
+     *                 lengthen every ordinary user session too, which is
+     *                 exactly the wrong blast radius. The override is
+     *                 stored on the record, so it survives rotation only if
+     *                 the rotating caller passes it again.
      * @return string The plaintext token, returned exactly once.
      */
-    public static function issue(string $client_id, int $user_id, string $scope, string $chain_id = ''): string
+    public static function issue(string $client_id, int $user_id, string $scope, string $chain_id = '', int $ttl = 0): string
     {
         $token = 'rt_' . bin2hex(random_bytes(32));
 
@@ -135,10 +145,19 @@ class Refresh_Token_Store
             'chain_id'   => '' !== $chain_id ? $chain_id : self::new_chain_id(),
             'issued_at'  => self::now(),
             'rotated_at' => 0,
+            'ttl'        => max(0, $ttl),
         ];
         self::save($stored);
 
         return $token;
+    }
+
+    /** The lifetime governing one stored record: its own override, else the site-wide ttl(). */
+    private static function record_ttl(array $record): int
+    {
+        $own = (int) ($record['ttl'] ?? 0);
+
+        return $own > 0 ? $own : self::ttl();
     }
 
     /**
@@ -173,7 +192,7 @@ class Refresh_Token_Store
             return ['status' => 'client_mismatch'];
         }
 
-        if ($now > (int) $record['issued_at'] + self::ttl()) {
+        if ($now > (int) $record['issued_at'] + self::record_ttl($record)) {
             unset($stored[ $key ]);
             self::save($stored);
             return ['status' => 'expired'];
@@ -269,11 +288,10 @@ class Refresh_Token_Store
     {
         $stored  = self::load();
         $now     = self::now();
-        $ttl     = self::ttl();
         $removed = 0;
 
         foreach ($stored as $key => $record) {
-            if ($now > (int) ($record['issued_at'] ?? 0) + $ttl) {
+            if ($now > (int) ($record['issued_at'] ?? 0) + self::record_ttl($record)) {
                 unset($stored[ $key ]);
                 $removed++;
             }

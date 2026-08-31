@@ -163,7 +163,10 @@ class Token_Grant
 
         self::audit(true, $client_id);
 
-        return self::mint($client_id, $user_id, (string) $record['scope'], $chain_id);
+        // Carry the record's own lifetime forward, so a long-lived machine
+        // credential (the gateway chain, issue #130) does not silently fall
+        // back to the ordinary session TTL the first time it rotates.
+        return self::mint($client_id, $user_id, (string) $record['scope'], $chain_id, (int) ($record['ttl'] ?? 0));
     }
 
     /**
@@ -173,14 +176,14 @@ class Token_Grant
      *
      * @return array{access_token: string, token_type: string, expires_in: int, scope: string, refresh_token: string}
      */
-    private static function mint(string $client_id, int $user_id, string $scope, string $chain_id): array
+    private static function mint(string $client_id, int $user_id, string $scope, string $chain_id, int $refresh_ttl = 0): array
     {
         return [
             'access_token'  => Token_Store::issue($client_id, $user_id, $scope, $chain_id),
             'token_type'    => 'Bearer',
             'expires_in'    => Token_Store::TTL_SECONDS,
             'scope'         => $scope,
-            'refresh_token' => Refresh_Token_Store::issue($client_id, $user_id, $scope, $chain_id),
+            'refresh_token' => Refresh_Token_Store::issue($client_id, $user_id, $scope, $chain_id, $refresh_ttl),
         ];
     }
 

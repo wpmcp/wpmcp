@@ -28,14 +28,23 @@ class Cloud_Client
         return $this->request('GET', $path);
     }
 
-    /** @return array|\WP_Error */
-    public function post(string $path, array $body)
+    /**
+     * @param array $extra_args Per-request wp_remote_request() overrides.
+     *                          The gateway credential upload (issue #130)
+     *                          uses this to send its one long-lived secret
+     *                          with redirection disabled and TLS verified,
+     *                          because the Requests library re-sends a POST
+     *                          body on a 30x and an http Location would
+     *                          replay that secret in cleartext.
+     * @return array|\WP_Error
+     */
+    public function post(string $path, array $body, array $extra_args = [])
     {
-        return $this->request('POST', $path, $body);
+        return $this->request('POST', $path, $body, $extra_args);
     }
 
     /** @return array|\WP_Error */
-    private function request(string $method, string $path, ?array $body = null)
+    private function request(string $method, string $path, ?array $body = null, array $extra_args = [])
     {
         if (! Cloud_Config::is_configured()) {
             return new \WP_Error('cloud_not_configured', 'Connect to WP MCP Cloud first with cloud-connect (URL + API key).');
@@ -55,7 +64,7 @@ class Cloud_Client
             $args['body']                    = (string) wp_json_encode($body);
         }
 
-        $response = wp_remote_request($url, $args);
+        $response = wp_remote_request($url, array_merge($args, $extra_args));
         if (is_wp_error($response)) {
             return new \WP_Error('cloud_unreachable', 'Could not reach WP MCP Cloud: ' . $response->get_error_message());
         }

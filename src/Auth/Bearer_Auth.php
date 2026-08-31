@@ -33,6 +33,44 @@ if (! defined('ABSPATH')) {
  */
 class Bearer_Auth
 {
+    /**
+     * The record of the bearer token that authenticated THIS request, or
+     * null when the request was not bearer-authenticated.
+     *
+     * resolve() clears it on entry, not only on a failed validation, so the
+     * invariant holds in a process that resolves more than once (WP-CLI, a
+     * wp_set_current_user() re-resolution, a batch or test run): a caller
+     * presenting no token must never inherit the previous caller's record.
+     *
+     * Kept because resolve() returns only the user id: layers above need
+     * the token's client_id to decide what else the caller is (issue #130
+     * looks it up against the stored gateway credential to bind the request
+     * to a named Identity). Deliberately the client_id and scope only,
+     * never the token, and never written from anything but a successful
+     * Token_Store::validate().
+     *
+     * @var array{client_id: string, user_id: int, scope: string}|null
+     */
+    private static ?array $current = null;
+
+    /** @return array{client_id: string, user_id: int, scope: string}|null */
+    public static function current_token(): ?array
+    {
+        return self::$current;
+    }
+
+    /** The client_id that authenticated this request, or '' when none did. */
+    public static function current_client_id(): string
+    {
+        return (string) (self::$current['client_id'] ?? '');
+    }
+
+    /** Test seam: forget the request-scoped token record. */
+    public static function reset_for_tests(): void
+    {
+        self::$current = null;
+    }
+
     public function register(): void
     {
         add_filter('determine_current_user', [self::class, 'resolve'], 20);
@@ -49,6 +87,8 @@ class Bearer_Auth
      */
     public static function resolve($incoming_user_id)
     {
+        self::$current = null;
+
         if (! OAuth_Config::is_enabled()) {
             return $incoming_user_id;
         }
@@ -63,6 +103,24 @@ class Bearer_Auth
             self::audit(false);
             return $incoming_user_id;
         }
+
+        /**
+         * Last refusal on an otherwise valid token, for listeners that know
+         * something about the CALLER this store cannot: issue #130's gateway
+         * credential is only allowed on the MCP transport surface, so it
+         * refuses itself here rather than authenticating an administrator on
+         * /wp/v2/users. A listener may only refuse; it can never turn an
+         * invalid token into a valid one, because this runs after validate().
+         *
+         * @param bool  $accepted Whether the validated token authenticates this request.
+         * @param array $record   { client_id, user_id, scope } of the validated token.
+         */
+        if (! apply_filters('wpmcp_bearer_token_accepted', true, $record)) {
+            self::audit(false);
+            return $incoming_user_id;
+        }
+
+        self::$current = $record;
 
         self::audit(true);
 

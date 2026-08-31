@@ -37,6 +37,8 @@ class BearerAuthTest extends \WP_UnitTestCase
         delete_option(Governance_Audit_Log::OPTION);
         unset($_SERVER['HTTP_AUTHORIZATION']);
         remove_all_filters('wpmcp_oauth_enabled');
+        remove_all_filters('wpmcp_bearer_token_accepted');
+        Bearer_Auth::reset_for_tests();
         parent::tearDown();
     }
 
@@ -161,5 +163,54 @@ class BearerAuthTest extends \WP_UnitTestCase
         $serialized = wp_json_encode($entries);
         $this->assertStringNotContainsString($fingerprint, $serialized);
         $this->assertStringNotContainsString($user->user_pass, $serialized);
+    }
+
+    public function test_a_later_unauthenticated_resolution_does_not_inherit_the_previous_token(): void
+    {
+        add_filter('wpmcp_oauth_enabled', '__return_true');
+        $user_id = self::factory()->user->create(['role' => 'subscriber']);
+        $token   = Token_Store::issue('client_abc', $user_id, 'read');
+
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+        Bearer_Auth::resolve(0);
+        $this->assertSame('client_abc', Bearer_Auth::current_client_id());
+
+        // Same process, second resolution, no header (WP-CLI, a
+        // wp_set_current_user() re-resolution, a batch run): the record of
+        // the previous request's token must not still be standing.
+        unset($_SERVER['HTTP_AUTHORIZATION']);
+        Bearer_Auth::resolve(0);
+
+        $this->assertSame('', Bearer_Auth::current_client_id());
+        $this->assertNull(Bearer_Auth::current_token());
+    }
+
+    public function test_the_disabled_subsystem_also_clears_a_stale_token_record(): void
+    {
+        add_filter('wpmcp_oauth_enabled', '__return_true');
+        $user_id = self::factory()->user->create(['role' => 'subscriber']);
+        $token   = Token_Store::issue('client_abc', $user_id, 'read');
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+        Bearer_Auth::resolve(0);
+
+        remove_all_filters('wpmcp_oauth_enabled');
+        Bearer_Auth::resolve(0);
+
+        $this->assertNull(Bearer_Auth::current_token());
+    }
+
+    public function test_a_listener_may_refuse_a_validated_token_for_this_request_surface(): void
+    {
+        add_filter('wpmcp_oauth_enabled', '__return_true');
+        $user_id = self::factory()->user->create(['role' => 'subscriber']);
+        $token   = Token_Store::issue('client_abc', $user_id, 'read');
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+
+        add_filter('wpmcp_bearer_token_accepted', '__return_false');
+        $resolved = Bearer_Auth::resolve(0);
+        remove_all_filters('wpmcp_bearer_token_accepted');
+
+        $this->assertSame(0, $resolved);
+        $this->assertNull(Bearer_Auth::current_token(), 'A refused token must leave no record behind.');
     }
 }
