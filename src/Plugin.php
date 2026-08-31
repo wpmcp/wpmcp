@@ -86,6 +86,7 @@ use WPMCP\Tools\SEO\Get_SEO_Meta;
 use WPMCP\Tools\SEO\Update_SEO_Meta;
 use WPMCP\Tools\SEO\SEO_Adapter;
 use WPMCP\Tools\SEO\Generate_Schema_Markup;
+use WPMCP\Tools\SEO\Schema_Generator;
 use WPMCP\Tools\SEO\Get_Social_Meta;
 use WPMCP\Tools\I18n\I18n_Adapter;
 use WPMCP\Tools\I18n\List_Languages;
@@ -6022,7 +6023,14 @@ final class Plugin
                     'post_id'     => [ 'type' => 'integer' ],
                     'schema_type' => [
                         'type' => 'string',
-                        'enum' => [ 'Article', 'WebPage', 'LocalBusiness', 'Product' ],
+                        // From SUPPORTED_TYPES on the generator itself: a
+                        // type added there must not stay undiscoverable, and
+                        // one removed must not stay advertised on a schema
+                        // that now throws. (No apostrophes in comments inside
+                        // a register() call: the wp.org strip scans the
+                        // statement text for quotes and one would unbalance
+                        // it.)
+                        'enum' => Schema_Generator::SUPPORTED_TYPES,
                     ],
                 ],
                 'required'   => [ 'post_id' ],

@@ -30,6 +30,16 @@ class Schema_Generator
     /**
      * Option holding the site's business profile for LocalBusiness output.
      * Absent keys are simply omitted from the graph rather than guessed.
+     *
+     * Recognised keys: name, url, telephone, priceRange, openingHours (a
+     * string or a list of strings), street_address, locality, region,
+     * postal_code, country.
+     *
+     * Nothing in this plugin writes the option yet: it is the agent-owned
+     * surface a site operator or an agent sets through the generic option
+     * tools, and where it is silent the LocalBusiness branch falls back to
+     * the site name/URL and the WooCommerce store settings. A dedicated
+     * read/write tool for it is tracked on issue #67.
      */
     public const SITE_PROFILE_OPTION = 'wpmcp_site_profile';
 
@@ -67,7 +77,8 @@ class Schema_Generator
     private static function article(\WP_Post $post): array
     {
         $out = array_merge(self::common($post, 'Article'), [
-            'headline' => (string) $post->post_title,
+            'headline'  => (string) $post->post_title,
+            'publisher' => self::organization(),
         ]);
 
         $out = self::with_dates($out, $post);
@@ -83,32 +94,55 @@ class Schema_Generator
     private static function web_page(\WP_Post $post): array
     {
         return self::with_dates(
-            array_merge(self::common($post, 'WebPage'), ['name' => (string) $post->post_title]),
+            array_merge(self::common($post, 'WebPage'), [
+                'name'      => (string) $post->post_title,
+                'publisher' => self::organization(),
+            ]),
             $post
         );
     }
 
     /**
-     * LocalBusiness needs facts the post record does not carry (address,
-     * phone, opening hours), so it reads the site profile option an agent
-     * fills in first. Anything the profile does not supply is omitted: a
-     * partial LocalBusiness is still valid schema.org, an invented address
-     * is not.
+     * LocalBusiness describes the business, not the page it is rendered on.
+     * The post only supplies `mainEntityOfPage`: taking `name` and `url` from
+     * the post record would emit `"name": "About"` for an About page, which
+     * describes a document rather than a business.
+     *
+     * Facts the post record cannot carry (address, phone, opening hours) come
+     * from the site profile option an agent fills in, and fall back to the
+     * WooCommerce store settings when the profile is empty and the store is
+     * configured, so the branch is reachable on a stock commerce site with no
+     * profile written yet. Anything neither source supplies is omitted: a
+     * partial LocalBusiness is still valid schema.org, an invented address is
+     * not.
      */
     private static function local_business(\WP_Post $post): array
     {
-        $out = array_merge(self::common($post, 'LocalBusiness'), [
-            'name' => (string) $post->post_title,
-        ]);
+        $profile = self::site_profile();
 
-        $profile = get_option(self::SITE_PROFILE_OPTION, []);
-        $profile = is_array($profile) ? $profile : [];
+        $out = self::common($post, 'LocalBusiness');
+
+        $name       = self::profile_string($profile, 'name');
+        $out['name'] = '' !== $name ? $name : (string) get_bloginfo('name');
+
+        $url        = self::profile_string($profile, 'url');
+        $out['url'] = '' !== $url ? $url : (string) home_url('/');
+
+        $store = self::woocommerce_store_fallbacks();
 
         foreach (['telephone', 'priceRange'] as $key) {
-            $value = (string) ($profile[$key] ?? '');
+            $value = self::profile_string($profile, $key);
+            if ('' === $value) {
+                $value = (string) ($store[$key] ?? '');
+            }
             if ('' !== $value) {
                 $out[$key] = $value;
             }
+        }
+
+        $hours = self::opening_hours($profile);
+        if ([] !== $hours) {
+            $out['openingHours'] = $hours;
         }
 
         $address_map = [
@@ -120,7 +154,10 @@ class Schema_Generator
         ];
         $address = [];
         foreach ($address_map as $source => $target) {
-            $value = (string) ($profile[$source] ?? '');
+            $value = self::profile_string($profile, $source);
+            if ('' === $value) {
+                $value = (string) ($store[$target] ?? '');
+            }
             if ('' !== $value) {
                 $address[$target] = $value;
             }
@@ -130,6 +167,91 @@ class Schema_Generator
         }
 
         return $out;
+    }
+
+    /** The site profile option, always as an array. */
+    private static function site_profile(): array
+    {
+        $profile = get_option(self::SITE_PROFILE_OPTION, []);
+
+        return is_array($profile) ? $profile : [];
+    }
+
+    /**
+     * One profile value as a trimmed string. The option is agent-written, so
+     * a value can be anything: casting an array with (string) emits the
+     * literal "Array" into the graph plus a PHP warning, so non-scalars are
+     * treated as absent.
+     */
+    private static function profile_string(array $profile, string $key): string
+    {
+        $value = $profile[$key] ?? null;
+
+        return is_scalar($value) ? trim((string) $value) : '';
+    }
+
+    /**
+     * openingHours accepts either a single specification or a list of them
+     * ("Mo-Fr 09:00-17:00"). A scalar profile value becomes a one-item list;
+     * a list keeps only its scalar entries.
+     */
+    private static function opening_hours(array $profile): array
+    {
+        $value = $profile['openingHours'] ?? $profile['opening_hours'] ?? null;
+
+        if (is_scalar($value)) {
+            $value = trim((string) $value);
+
+            return '' === $value ? [] : [$value];
+        }
+
+        if (! is_array($value)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($value as $entry) {
+            if (! is_scalar($entry)) {
+                continue;
+            }
+            $entry = trim((string) $entry);
+            if ('' !== $entry) {
+                $out[] = $entry;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Address and phone from the WooCommerce store settings, used only where
+     * the site profile is silent. These are plain options, so no WooCommerce
+     * classes are touched and nothing breaks when the plugin is absent: the
+     * options simply do not exist and every key stays empty.
+     */
+    private static function woocommerce_store_fallbacks(): array
+    {
+        $street = trim((string) get_option('woocommerce_store_address', ''));
+        $line_2 = trim((string) get_option('woocommerce_store_address_2', ''));
+        if ('' !== $line_2) {
+            $street = '' === $street ? $line_2 : $street . ', ' . $line_2;
+        }
+
+        // WooCommerce stores country and region as one "US:CA" pair.
+        $country = trim((string) get_option('woocommerce_default_country', ''));
+        $region  = '';
+        if (str_contains($country, ':')) {
+            [$country, $region] = array_pad(explode(':', $country, 2), 2, '');
+        }
+
+        return [
+            'streetAddress'   => $street,
+            'addressLocality' => trim((string) get_option('woocommerce_store_city', '')),
+            'addressRegion'   => $region,
+            'postalCode'      => trim((string) get_option('woocommerce_store_postcode', '')),
+            'addressCountry'  => $country,
+            'telephone'       => trim((string) get_option('woocommerce_store_phone', '')),
+        ];
     }
 
     /**
@@ -214,7 +336,13 @@ class Schema_Generator
     /**
      * Fields shared by every supported type: context, type, url,
      * mainEntityOfPage, description (the plugin-curated SEO description when
-     * usable, else the excerpt), primary image, and publisher (the site).
+     * usable, else the excerpt) and primary image. All of those are
+     * Thing-level in schema.org, so they are valid on every supported type.
+     *
+     * `publisher` is deliberately not here: schema.org scopes it to
+     * CreativeWork, so it belongs to Article and WebPage only. Attaching it
+     * to LocalBusiness or Product emits an out-of-domain property and makes
+     * the graph invalid.
      */
     private static function common(\WP_Post $post, string $type): array
     {
@@ -236,8 +364,6 @@ class Schema_Generator
         if (is_string($image) && '' !== $image) {
             $out['image'] = $image;
         }
-
-        $out['publisher'] = self::organization();
 
         return $out;
     }

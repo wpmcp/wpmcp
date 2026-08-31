@@ -24,20 +24,8 @@ class Get_Social_Meta
     public function handle(array $args): array
     {
         $post_id = (int) ($args['post_id'] ?? 0);
-        if ($post_id <= 0) {
-            throw new \InvalidArgumentException('A post id is required.');
-        }
 
-        $post = get_post($post_id);
-        if (! $post instanceof \WP_Post) {
-            throw new \InvalidArgumentException('Post not found: ' . (int) $post_id);
-        }
-
-        if ('publish' !== $post->post_status && ! current_user_can('read_post', $post_id)) {
-            throw new \RuntimeException(
-                'You do not have permission to read post ' . (int) $post_id . '.'
-            );
-        }
+        Post_Access::assert_readable($post_id);
 
         return array_merge(['post_id' => $post_id], SEO_Adapter::get_social_meta($post_id));
     }

@@ -39,24 +39,13 @@ class Generate_Schema_Markup
     public function handle(array $args): array
     {
         $post_id = (int) ($args['post_id'] ?? 0);
-        if ($post_id <= 0) {
-            throw new \InvalidArgumentException('A post id is required.');
-        }
-
-        $post = get_post($post_id);
-        if (! $post instanceof \WP_Post) {
-            throw new \InvalidArgumentException('Post not found: ' . (int) $post_id);
-        }
 
         // edit_posts is a surface-level capability, not a per-post one. A
-        // proposal for an unpublished or private post returns its title,
-        // description, dates and author, so the caller must be able to read
-        // that post directly, matching Search_Content's own check.
-        if ('publish' !== $post->post_status && ! current_user_can('read_post', $post_id)) {
-            throw new \RuntimeException(
-                'You do not have permission to read post ' . (int) $post_id . '.'
-            );
-        }
+        // proposal for an unpublished, private or password-protected post
+        // returns its title, description, dates and author, so the caller
+        // must be able to read that post directly. Post_Access is the one
+        // gate the whole SEO group shares.
+        Post_Access::assert_readable($post_id);
 
         $type = (string) ($args['schema_type'] ?? 'Article');
 

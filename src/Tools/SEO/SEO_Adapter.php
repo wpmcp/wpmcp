@@ -99,6 +99,17 @@ class SEO_Adapter
         'twitter_image'       => '_seopress_social_twitter_img',
     ];
 
+    /**
+     * Which OpenGraph field each Twitter field falls back to when the active
+     * plugin mirrors one onto the other. Same pairing on all three mapped
+     * plugins.
+     */
+    private const TWITTER_OG_FALLBACKS = [
+        'twitter_title'       => 'og_title',
+        'twitter_description' => 'og_description',
+        'twitter_image'       => 'og_image',
+    ];
+
     /** Test seam: force the detected plugin. Guarded by WPMCP_TESTING. */
     private static ?string $active_override = null;
 
@@ -118,6 +129,21 @@ class SEO_Adapter
         if (null !== self::$active_override) {
             return self::$active_override;
         }
+
+        return self::detect_active_plugin();
+    }
+
+    /**
+     * The same detection, ignoring the test seam: what the real environment
+     * has installed, whatever a test has forced for itself.
+     *
+     * Public because the test harness's wpmcp_seo_plugin() gates on it. That
+     * helper used to restate the checks and had drifted to knowing only
+     * Yoast and RankMath, which makes a test skip itself on a SEOPress or
+     * SureRank leg while the code it covers is live: a silent green.
+     */
+    public static function detect_active_plugin(): string
+    {
         if (defined('WPSEO_VERSION') || class_exists('WPSEO_Options')) {
             return 'yoast';
         }
@@ -392,10 +418,30 @@ class SEO_Adapter
     /**
      * Read the per-post social (OG/Twitter) overrides for the active plugin.
      *
-     * Returns ['supported' => true, 'fields' => [...]] where mapped, or a
-     * structured ['supported' => false, 'reason' => ...] where the active
-     * plugin has no verified per-post social map yet: issue #67 requires
-     * unsupported combinations to be reported, not thrown.
+     * Returns ['supported' => true, 'fields' => [...], 'sources' => [...]]
+     * where mapped, or a structured ['supported' => false, 'reason' => ...]
+     * where the active plugin has no verified per-post social map yet: issue
+     * #67 requires unsupported combinations to be reported, not thrown.
+     *
+     * The SEO group answers "unsupported" with this payload rather than the
+     * WP_Error / `unsupported_*` code the builder tools use, because the
+     * issue asks for structured unsupported responses instead of errors: an
+     * agent reading social fields on The SEO Framework has asked a sensible
+     * question about a real post, and the honest answer is "this plugin does
+     * not store that", not a failure. Every caller in this group uses this
+     * one shape.
+     *
+     * `fields` is the resolved state, not the raw postmeta. All three mapped
+     * plugins fall back to the OpenGraph values when a Twitter field is
+     * empty (RankMath gates that on rank_math_twitter_use_facebook, which
+     * defaults on), so returning the bare meta would report
+     * `twitter_title: ''` for a post whose rendered Twitter card does have a
+     * title. `sources` says where each value came from, so an agent can still
+     * tell an explicit override from an inherited one before writing:
+     *
+     * - 'override'  the field is set in the plugin's own postmeta key
+     * - 'inherited' empty here, resolved from the corresponding og_ field
+     * - 'absent'    nothing set, and nothing to inherit
      *
      * TODO(#67): update_social_meta() write path through Safe_Mutation, and
      * term-level variants of both.
@@ -420,11 +466,47 @@ class SEO_Adapter
             ];
         }
 
-        $fields = [];
+        $fields  = [];
+        $sources = [];
         foreach ($maps[$active] as $field => $key) {
-            $fields[$field] = (string) get_post_meta($post_id, $key, true);
+            $fields[$field]  = (string) get_post_meta($post_id, $key, true);
+            $sources[$field] = '' === $fields[$field] ? 'absent' : 'override';
         }
 
-        return ['supported' => true, 'plugin' => $active, 'fields' => $fields];
+        if (self::twitter_mirrors_og($active, $post_id)) {
+            foreach (self::TWITTER_OG_FALLBACKS as $twitter => $og) {
+                if ('' === $fields[$twitter] && '' !== $fields[$og]) {
+                    $fields[$twitter]  = $fields[$og];
+                    $sources[$twitter] = 'inherited';
+                }
+            }
+        }
+
+        return [
+            'supported' => true,
+            'plugin'    => $active,
+            'fields'    => $fields,
+            'sources'   => $sources,
+        ];
+    }
+
+    /**
+     * Whether the active plugin renders the Twitter card from the OpenGraph
+     * fields when the Twitter ones are empty.
+     *
+     * Yoast and SEOPress always do. RankMath makes it a per-post switch,
+     * `rank_math_twitter_use_facebook`, stored as 'on'/'off' and defaulting
+     * to on: an unset value means the mirror is active, which is the state of
+     * every post on a stock install, so an absent meta must read as true.
+     */
+    private static function twitter_mirrors_og(string $active, int $post_id): bool
+    {
+        if ('rankmath' !== $active) {
+            return true;
+        }
+
+        $flag = get_post_meta($post_id, 'rank_math_twitter_use_facebook', true);
+
+        return 'off' !== (string) $flag;
     }
 }

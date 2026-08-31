@@ -107,6 +107,41 @@ class GenerateSchemaMarkupTest extends \WP_UnitTestCase
         $this->assertSame('Pre-publish', $decoded['headline']);
     }
 
+    /**
+     * A password-protected post is published, so a status-only check lets it
+     * through. The generated graph carries the raw post_excerpt and the SEO
+     * meta description, neither of which goes through the blanking
+     * post_password_required() normally applies, so the password would be
+     * bypassed for any edit_posts holder.
+     */
+    public function test_a_password_protected_post_is_refused(): void
+    {
+        $owner = $this->factory()->user->create(['role' => 'author']);
+        $id    = $this->post([
+            'post_password' => 'hunter2',
+            'post_excerpt'  => 'The secret excerpt.',
+            'post_author'   => $owner,
+        ]);
+
+        wp_set_current_user($this->factory()->user->create(['role' => 'author']));
+
+        $this->expectException(\RuntimeException::class);
+        (new Generate_Schema_Markup())->handle(['post_id' => $id]);
+    }
+
+    /** An editor, who can read it in wp-admin anyway, still gets the graph. */
+    public function test_an_editor_may_generate_for_a_protected_post(): void
+    {
+        $id = $this->post(['post_password' => 'hunter2', 'post_title' => 'Members only']);
+
+        wp_set_current_user($this->factory()->user->create(['role' => 'editor']));
+
+        $out = (new Generate_Schema_Markup())->handle(['post_id' => $id]);
+
+        $decoded = json_decode($out['json_ld'], true);
+        $this->assertSame('Members only', $decoded['headline']);
+    }
+
     public function test_registered_pro_with_a_stable_name(): void
     {
         $map = RegisteredAbilities::manifest_map();
