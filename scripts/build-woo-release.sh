@@ -27,7 +27,6 @@ sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/readme.txt" > 
 # Prune the domains the 'woocommerce' flavor never registers.
 rm -rf \
   "$STAGE/src/Tools/Elementor" \
-  "$STAGE/src/Tools/Builders" \
   "$STAGE/src/Tools/ACF" \
   "$STAGE/src/Tools/I18n" \
   "$STAGE/src/Tools/Rest" \
@@ -41,6 +40,21 @@ rm -rf \
   "$STAGE/src/Cloud" \
   "$STAGE/src/Tools/Memory" \
   "$STAGE/src/Integrations"
+
+# src/Tools/Builders is NOT removed by path, for the same reason the wp.org
+# strip stopped removing it: Builder_Detector is a plain postmeta reader with
+# no paid gating in it, and a kept group reads through it (the free
+# get-page-snapshot in the 'context' group, issue #81). Removing the
+# directory whole left get-page-snapshot registered in this zip and fatal
+# with a class-not-found on its first call. The paid part is the ability
+# wrappers, which go below along with the content readers that only those
+# wrappers and the pruned search index use.
+rm -f \
+  "$STAGE/src/Tools/Builders/Detect_Builder.php" \
+  "$STAGE/src/Tools/Builders/Get_Builder_Content.php" \
+  "$STAGE/src/Tools/Builders/Update_Builder_Content.php" \
+  "$STAGE/src/Tools/Builders/Bricks_Content.php" \
+  "$STAGE/src/Tools/Builders/Divi_Content.php"
 
 # NOTE: src/Memory and src/Admin/Memory_Page.php deliberately STAY. The three
 # agent-facing memory tools are dropped with the group above, but published

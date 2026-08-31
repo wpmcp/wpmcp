@@ -150,7 +150,7 @@ class GetPageSnapshotTest extends \WP_UnitTestCase
         $snap = $this->tool->handle(['post_id' => $id]);
 
         $this->assertTrue($snap['truncated']);
-        $this->assertLessThan(600000, strlen((string) wp_json_encode($snap)));
+        $this->assertLessThanOrEqual(Get_Page_Snapshot::MAX_BYTES, strlen((string) wp_json_encode($snap)));
     }
 
     // ---------------------------------------------------- heavy sections
@@ -234,21 +234,6 @@ class GetPageSnapshotTest extends \WP_UnitTestCase
         $this->tool->handle(['post_id' => $id]);
     }
 
-    public function test_password_protected_content_is_not_extracted(): void
-    {
-        $id = $this->post([
-            'post_password' => 'hunter2',
-            'post_content'  => '<h1>Members only</h1><img src="/secret.png" alt="">',
-        ]);
-
-        $snap = $this->tool->handle(['post_id' => $id]);
-
-        $this->assertSame([], $snap['outline']);
-        $this->assertSame(0, $snap['media']['image_count']);
-        $this->assertSame('none', $snap['content_coverage']['source']);
-        $this->assertFalse($snap['content_coverage']['complete']);
-    }
-
     public function test_a_missing_post_is_rejected(): void
     {
         $this->expectException(\InvalidArgumentException::class);
@@ -313,5 +298,245 @@ class GetPageSnapshotTest extends \WP_UnitTestCase
         $this->assertSame($id, $snap['post_id']);
         $this->assertSame('Kept', $snap['outline'][0]['text']);
         $this->assertSame(1, $snap['seo_lite']['h1_count']);
+    }
+
+    // ------------------------------------------------ byte budget (issue #81)
+
+    public function test_the_byte_budget_holds_when_the_overlay_alone_blows_it(): void
+    {
+        // Nothing to shed from the inventories: a one-paragraph page whose
+        // overlay section alone is 400 KB. The only way to fit the budget is
+        // to drop the overlay's own contribution.
+        $id = $this->post(['post_content' => '<p>Small page.</p>']);
+
+        add_filter('wpmcp_page_snapshot_sections', static function (array $s): array {
+            $s['seo_audit'] = ['blob' => str_repeat('z', 400000)];
+            return $s;
+        });
+
+        $snap = $this->tool->handle(['post_id' => $id, 'sections' => ['seo_audit']]);
+
+        $this->assertLessThanOrEqual(
+            Get_Page_Snapshot::MAX_BYTES,
+            strlen((string) wp_json_encode($snap)),
+            'the byte budget must bound an overlay that appends after the caps'
+        );
+        $this->assertTrue($snap['truncated']);
+        $this->assertContains('seo_audit', $snap['sections']['dropped']);
+        // The core digest survives the shedding.
+        $this->assertSame($id, $snap['post_id']);
+        $this->assertArrayHasKey('seo_lite', $snap);
+    }
+
+    public function test_the_byte_budget_holds_when_a_heavy_section_blows_it(): void
+    {
+        $id = $this->post(['post_content' => '<p>Small page.</p>']);
+        update_post_meta($id, '_elementor_edit_mode', 'builder');
+        update_post_meta($id, '_elementor_data', wp_json_encode([[
+            'id'       => 'a',
+            'elType'   => 'section',
+            'settings' => ['padding_tablet' => str_repeat('q', 400000)],
+        ]]));
+
+        $snap = $this->tool->handle(['post_id' => $id, 'sections' => ['global_tokens']]);
+
+        $this->assertLessThanOrEqual(Get_Page_Snapshot::MAX_BYTES, strlen((string) wp_json_encode($snap)));
+        $this->assertSame($id, $snap['post_id']);
+    }
+
+    // --------------------------------------------------- section reporting
+
+    public function test_unknown_section_names_are_reported_rather_than_silently_ignored(): void
+    {
+        $id   = $this->post(['post_content' => '<p>Hi</p>']);
+        $snap = $this->tool->handle(['post_id' => $id, 'sections' => ['global_tokens', 'seo_audit']]);
+
+        $this->assertSame(['global_tokens'], $snap['sections']['rendered']);
+        $this->assertSame(['seo_audit'], $snap['sections']['unknown'], 'a section no build could render must say so');
+    }
+
+    // ------------------------------------------------------ global tokens
+
+    public function test_background_color_preset_classes_report_the_slug_not_the_suffix(): void
+    {
+        $id = $this->post([
+            'post_content' => '<p class="has-pale-pink-background-color has-vivid-red-color '
+                . 'has-large-font-size has-midnight-gradient-background">Hi</p>',
+        ]);
+
+        $snap = $this->tool->handle(['post_id' => $id, 'sections' => ['global_tokens']]);
+
+        $colors = $snap['global_tokens']['theme_presets']['color'];
+        $this->assertContains('pale-pink', $colors, 'has-pale-pink-background-color is the pale-pink color preset');
+        $this->assertContains('vivid-red', $colors);
+        $this->assertNotContains('pale-pink-background', $colors);
+        $this->assertContains('large', $snap['global_tokens']['theme_presets']['font-size']);
+        $this->assertContains('midnight', $snap['global_tokens']['theme_presets']['gradient']);
+    }
+
+    // ------------------------------------------------ responsive overrides
+
+    public function test_bricks_responsive_overrides_count_colon_suffixed_keys(): void
+    {
+        $id   = $this->post(['post_content' => '']);
+        $tree = [[
+            'id'       => 'abc',
+            'name'     => 'section',
+            'settings' => [
+                '_padding'                  => ['top' => 10],
+                '_padding:tablet_portrait'  => ['top' => 5],
+                '_padding:mobile_portrait'  => ['top' => 2],
+                '_typography:mobile_portrait' => ['font-size' => 12],
+            ],
+        ]];
+        update_post_meta($id, '_bricks_page_content_2', wp_json_encode($tree));
+
+        $snap = $this->tool->handle(['post_id' => $id, 'sections' => ['responsive_overrides']]);
+
+        $this->assertSame('bricks', $snap['builder']);
+        $this->assertTrue($snap['responsive_overrides']['supported']);
+        $this->assertSame(1, $snap['responsive_overrides']['breakpoints']['tablet_portrait']);
+        $this->assertSame(2, $snap['responsive_overrides']['breakpoints']['mobile_portrait']);
+    }
+
+    // -------------------------------------------------- content coverage
+
+    public function test_an_elementor_page_with_leftover_post_content_still_declares_incomplete_coverage(): void
+    {
+        // The normal state of a page converted to a builder: post_content
+        // still holds the pre-conversion markup, which is NOT what renders.
+        $id = $this->post([
+            'post_content' => '<h1>Stale classic heading</h1><img src="/old.png" alt="old"><a href="/old">Old</a>',
+        ]);
+        update_post_meta($id, '_elementor_edit_mode', 'builder');
+        update_post_meta($id, '_elementor_data', wp_json_encode([['id' => 'a', 'elType' => 'section']]));
+
+        $snap = $this->tool->handle(['post_id' => $id]);
+
+        $this->assertSame('elementor', $snap['builder']);
+        $this->assertFalse(
+            $snap['content_coverage']['complete'],
+            'leftover post_content is not the elementor page body, so coverage is not complete'
+        );
+        $this->assertContains('outline', $snap['content_coverage']['unmeasured']);
+        $this->assertTrue(
+            $snap['content_coverage']['stale_post_content'],
+            'the digest must say the inventory came from stale post_content'
+        );
+    }
+
+    public function test_divi_coverage_names_seo_lite_as_unmeasured_too(): void
+    {
+        $id = $this->post(['post_content' => '[et_pb_section][et_pb_text]Hi[/et_pb_text][/et_pb_section]']);
+        update_post_meta($id, '_et_pb_use_builder', 'on');
+
+        $snap = $this->tool->handle(['post_id' => $id]);
+
+        $this->assertSame('divi', $snap['builder']);
+        $this->assertContains('seo_lite', $snap['content_coverage']['unmeasured']);
+    }
+
+    // -------------------------------------------------------- read gate
+
+    public function test_a_published_post_of_a_non_public_type_still_needs_the_read_gate(): void
+    {
+        register_post_type('wpmcp_test_private', [
+            'public'          => false,
+            'capability_type' => 'post',
+            'map_meta_cap'    => true,
+            'capabilities'    => [
+                'edit_posts'           => 'manage_options',
+                'edit_others_posts'    => 'manage_options',
+                'edit_published_posts' => 'manage_options',
+                'read_private_posts'   => 'manage_options',
+            ],
+        ]);
+        $id = $this->post(['post_type' => 'wpmcp_test_private', 'post_content' => '<h1>Guardrail</h1>']);
+
+        wp_set_current_user(self::factory()->user->create(['role' => 'contributor']));
+
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->tool->handle(['post_id' => $id]);
+        } finally {
+            unregister_post_type('wpmcp_test_private');
+        }
+    }
+
+    // ------------------------------------------- password protected posts
+
+    public function test_a_protected_post_withholds_every_content_derived_section(): void
+    {
+        $author = self::factory()->user->create(['role' => 'author']);
+        $id     = $this->post([
+            'post_author'   => $author,
+            'post_password' => 'hunter2',
+            'post_content'  => "<!-- wp:paragraph --><p class=\"has-vivid-red-color\">Members only</p><!-- /wp:paragraph -->",
+        ]);
+
+        // A caller who can edit content in general but not THIS post.
+        wp_set_current_user(self::factory()->user->create(['role' => 'contributor']));
+
+        $snap = $this->tool->handle([
+            'post_id'  => $id,
+            'sections' => ['global_tokens', 'responsive_overrides'],
+        ]);
+
+        $this->assertSame('none', $snap['content_coverage']['source']);
+        $this->assertSame([], $snap['outline']);
+        $this->assertSame(0, $snap['structure']['word_count']);
+        $this->assertArrayNotHasKey('block_counts', $snap['structure'], 'a withheld body must not be block-counted');
+        $this->assertSame([], $snap['global_tokens']['theme_presets'], 'a withheld body must not be regexed for tokens');
+        $this->assertSame([], $snap['responsive_overrides']['breakpoints']);
+    }
+
+    public function test_a_caller_who_can_edit_the_protected_post_still_gets_its_digest(): void
+    {
+        // The password prompt is a visitor-facing cookie check, not a
+        // capability. An editor of the post reads the body through
+        // wpmcp/get-post anyway, so withholding it here only made the digest
+        // inconsistent with the surface it summarizes.
+        $id = $this->post([
+            'post_password' => 'hunter2',
+            'post_content'  => '<h1>Members only</h1>',
+        ]);
+
+        $snap = $this->tool->handle(['post_id' => $id]);
+
+        $this->assertSame('post_content', $snap['content_coverage']['source']);
+        $this->assertSame('Members only', $snap['outline'][0]['text']);
+    }
+
+    // ------------------------------------------------------ overlay seam
+
+    public function test_an_overlay_cannot_rewrite_a_heavy_section_the_caller_asked_for(): void
+    {
+        $id = $this->post(['post_content' => '<p class="has-vivid-red-color">Hi</p>']);
+
+        add_filter('wpmcp_page_snapshot_sections', static function (array $s): array {
+            $s['global_tokens'] = ['theme_presets' => ['color' => ['forged']]];
+            $s['truncated']     = true;
+            return $s;
+        });
+
+        $snap = $this->tool->handle(['post_id' => $id, 'sections' => ['global_tokens']]);
+
+        $this->assertContains('vivid-red', $snap['global_tokens']['theme_presets']['color']);
+        $this->assertNotContains('forged', $snap['global_tokens']['theme_presets']['color']);
+    }
+
+    public function test_an_overlay_truncation_flag_is_not_reset_by_the_core(): void
+    {
+        $id = $this->post(['post_content' => '<p>Hi</p>']);
+
+        add_filter('wpmcp_page_snapshot_sections', static function (array $s): array {
+            $s['seo_audit'] = ['truncated_its_own_list' => true];
+            $s['truncated'] = true;
+            return $s;
+        });
+
+        $snap = $this->tool->handle(['post_id' => $id, 'sections' => ['seo_audit']]);
+
+        $this->assertTrue($snap['truncated'], "an overlay's own truncation must survive");
     }
 }
