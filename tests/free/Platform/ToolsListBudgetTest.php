@@ -100,8 +100,12 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
         // 44-widget catalog is consumed by a FIXED generic set, so adding a
         // cataloged widget must never add a tool. New tools here are per-feature,
         // never per-widget, and stay well under the catalog size.
+        //
+        // 60 -> 61 for compile-custom-widget (issue #72). Per-feature, not
+        // per-widget: one ability compiles ANY stored spec, so the count is
+        // still independent of how many widgets exist, cataloged or custom.
         $this->assertLessThanOrEqual(
-            60,
+            61,
             count($elementor),
             'The Elementor tool surface must stay a fixed set of generic, per-feature tools; '
             . 'widgets belong in the catalog data, not in new per-widget abilities.'

@@ -147,6 +147,20 @@ class Rollback_Service
      */
     private static function apply_option_snapshot(array $snapshot): void
     {
+        // A compiled-widget snapshot carries the single manifest entry it
+        // changed plus the generated file's previous bytes. Restoring those
+        // together is the only correct undo: putting the whole option back
+        // would revert every other widget compiled since, and putting the old
+        // hash back against the new bytes would leave the widget inert.
+        if (! empty($snapshot['data']['compiled_widget']) && is_array($snapshot['data']['compiled_widget'])
+            && class_exists('\\WPMCP\\Tools\\WidgetBuilder\\Compiler\\Compiled_Widget_Manifest')
+        ) {
+            \WPMCP\Tools\WidgetBuilder\Compiler\Compiled_Widget_Manifest::restore(
+                $snapshot['data']['compiled_widget']
+            );
+            return;
+        }
+
         $name = (string) $snapshot['data']['name'];
         if ($snapshot['data']['existed']) {
             update_option($name, $snapshot['data']['value']);

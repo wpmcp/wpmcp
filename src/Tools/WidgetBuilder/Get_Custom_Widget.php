@@ -7,7 +7,13 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * Read one custom widget's stored spec by id. Read-only.
+ * Read one custom widget's stored spec by id, plus its compiled state.
+ *
+ * The compiled block is not decoration: a compiled class takes precedence over
+ * the spec when the widget registers, so `stale` (the stored spec no longer
+ * compiles to the bytes the manifest vouches for) is the difference between
+ * the spec an agent just wrote and the template the site is actually
+ * rendering. Read-only.
  */
 class Get_Custom_Widget
 {
@@ -23,6 +29,7 @@ class Get_Custom_Widget
             'widget_id' => $id,
             'status'    => get_post_status($id),
             'spec'      => $spec,
+            'compiled'  => Compiler\Compiled_Widget_Manifest::status_for($id, $spec),
         ];
     }
 }
