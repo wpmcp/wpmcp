@@ -166,8 +166,69 @@ class DispatcherValidationTest extends \WP_UnitTestCase
 
         $ops = array_column($this->integration->catalog()['operations'], null, 'name');
 
-        $this->assertFalse($ops['needs-dependency']['available']);
-        $this->assertTrue($ops['ping']['available']);
+        $this->assertFalse($ops['needs-dependency']['dependency_met']);
+        $this->assertTrue($ops['ping']['dependency_met']);
+        $this->assertArrayNotHasKey(
+            'available',
+            $ops['ping'],
+            'Per-op dependency state is dependency_met; "available" is the top-level host-plugin flag and must not be overloaded'
+        );
+    }
+
+    /**
+     * A dependency gate is the one place that must never degrade to
+     * permissive. 'requires' => self::check() (the RESULT, not the callable)
+     * is an easy misreading, and treating it as satisfied would delete the
+     * gate and let the handler fatal on the very class it was guarding, while
+     * the catalog still advertised the op as ready.
+     */
+    public function test_a_non_callable_requires_fails_closed(): void
+    {
+        $out = $this->integration->handle_read([ 'operation' => 'broken-requires' ]);
+
+        $this->assertArrayNotHasKey('result', $out);
+        $this->assertSame('dependency_check_invalid', $out['error']['code']);
+        $this->assertSame('broken-requires', $out['error']['data']['operation']);
+        $this->assertSame([], Fixture_Integration::$calls, 'The handler must never run behind an unverifiable gate');
+
+        $ops = array_column($this->integration->catalog()['operations'], null, 'name');
+        $this->assertFalse($ops['broken-requires']['dependency_met']);
+    }
+
+    /**
+     * list-operations is the one op promised to answer for every integration,
+     * so a dependency check that throws must degrade to "unavailable" rather
+     * than take the whole catalog down with it.
+     */
+    public function test_a_throwing_requires_is_unavailable_not_fatal(): void
+    {
+        $out = $this->integration->handle_read([ 'operation' => 'list-operations' ]);
+
+        $this->assertArrayNotHasKey('error', $out);
+        $ops = array_column($out['result']['operations'], null, 'name');
+        $this->assertFalse($ops['throwing-requires']['dependency_met']);
+        $this->assertTrue($ops['ping']['dependency_met'], 'One broken gate must not poison the rest of the catalog');
+
+        $refused = $this->integration->handle_read([ 'operation' => 'throwing-requires' ]);
+        $this->assertSame('dependency_unavailable', $refused['error']['code']);
+        $this->assertSame([], Fixture_Integration::$calls);
+    }
+
+    /**
+     * A handler-raised refusal belongs on the dispatcher's top-level error
+     * channel. Wrapped in a success envelope it is indistinguishable from an
+     * empty result, which is exactly the anti-pattern the 'requires' hook was
+     * added to remove.
+     */
+    public function test_a_handler_refusal_surfaces_as_a_top_level_error(): void
+    {
+        $out = $this->integration->handle_read([ 'operation' => 'refusing-op' ]);
+
+        $this->assertArrayNotHasKey('result', $out);
+        $this->assertSame('scope_unresolved', $out['error']['code']);
+        $this->assertSame('Refusing to answer unscoped.', $out['error']['message']);
+        $this->assertSame(7, $out['error']['data']['form_id'], 'The refusal carries its own data');
+        $this->assertSame('refusing-op', $out['error']['data']['operation']);
     }
 
     public function test_unavailable_integration_returns_structured_error_not_fatal(): void

@@ -20,24 +20,36 @@ if (! defined('ABSPATH')) {
  * flamingo_unavailable error when Flamingo is not active.
  *
  * Entries are user data (issue #66): every entry op sits behind an extra
- * manage_options capability on top of the pair's own capability, matching
- * Flamingo, which maps all of its inbound-message caps to edit_users, i.e.
- * administrators only. Deletion is destructive (confirm:true), default-off
- * until the site opts in via wpmcp_integration_op_enabled, and reversible: a
- * Flamingo entry is an ordinary flamingo_inbound post, so it is snapshotted
- * (row, meta, terms) before deletion and can be resurrected at its original id
- * with rollback-operation, exactly like the MetForm adapter's entry delete.
+ * edit_users capability on top of the pair's own capability, which is the cap
+ * Flamingo itself maps every inbound-message capability to. edit_users rather
+ * than manage_options is deliberate: under is_multisite() core's map_meta_cap
+ * turns edit_users into manage_network_users (super admins only) while a site
+ * administrator keeps manage_options, so manage_options would have let a site
+ * admin read and delete submissions Flamingo's own UI denies them.
+ *
+ * Deletion is destructive (confirm:true), default-off until the site opts in
+ * via wpmcp_integration_op_enabled, and reversible: a Flamingo entry is an
+ * ordinary flamingo_inbound post, so it is snapshotted (row, meta, terms)
+ * before deletion and can be resurrected at its original id with
+ * rollback-operation, exactly like the MetForm adapter's entry delete. Note
+ * that reversibility and erasure are in tension and this adapter picks
+ * reversibility: the snapshot holds a verbatim plaintext copy of the
+ * submission until Snapshot_Store prunes it, so a delete is NOT a GDPR
+ * erasure, and the op description says so in as many words. What the snapshot
+ * is NOT is a way around the capability gate: Rollback_Service refuses to
+ * restore a flamingo_inbound snapshot without edit_users, so the guard is not
+ * one-way even though rollback-operation itself is an edit_posts ability.
  */
 class Contact_Form_7_Integration extends Integration_Dispatcher
 {
     /**
-     * Extra capability guarding submission (PII) operations. Flamingo maps
-     * flamingo_edit_inbound_messages / flamingo_delete_inbound_messages to
-     * edit_users, so entry access is administrator-only in the host plugin;
-     * manage_options is the same administrator-only bar and is what the
-     * Forminator, MetForm, and SureForms adapters use for entry deletion.
+     * Extra capability guarding submission (PII) operations: exactly the cap
+     * Flamingo maps flamingo_edit_inbound_messages and
+     * flamingo_delete_inbound_messages to, so wpmcp can never be a looser door
+     * onto the same data than the host plugin's own UI. On multisite this is
+     * strictly narrower than manage_options (see the class docblock).
      */
-    private const ENTRY_CAPABILITY = 'manage_options';
+    private const ENTRY_CAPABILITY = 'edit_users';
 
     /** CF7 post meta holding the Flamingo channel binding for a form. */
     private const CHANNEL_META = '_flamingo';
@@ -73,10 +85,15 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
         ];
     }
 
-    /** Whether Flamingo (CF7's own submission store) is active. */
+    /**
+     * Whether Flamingo (CF7's own submission store) is active. Filterable so a
+     * site can force the entry ops off wholesale (a policy of "agents never
+     * touch submissions" is cheaper to express here than op by op), and so the
+     * suite can cover the Flamingo-absent path without unloading a class.
+     */
     private static function has_flamingo(): bool
     {
-        return class_exists('Flamingo_Inbound_Message');
+        return (bool) apply_filters('wpmcp_contactform7_flamingo_active', class_exists('Flamingo_Inbound_Message'));
     }
 
     /**
@@ -128,13 +145,21 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
 
     /**
      * Resolve a CF7 form id to the Flamingo channel query args that scope a
-     * listing to exactly that form. CF7 binds a form to its channel by TERM ID
-     * in the form's _flamingo post meta, and the channel slug can diverge from
-     * the form slug (wp_insert_term dedupe suffix, or the contact-form-7
-     * fallback), so the term id is authoritative and the slug is only a
-     * fallback. Returns null when the scope cannot be resolved: the caller
-     * must then answer empty rather than run an unscoped query, which would
-     * silently return every form's submissions.
+     * listing to exactly that form.
+     *
+     * CF7 binds a form to its channel by TERM ID in the form's _flamingo post
+     * meta, written on the form's first submission. The term id is the ONLY
+     * trustworthy binding: the channel slug is seeded from the form's name()
+     * but wp_insert_term/wp_unique_term_slug suffixes it on collision and
+     * wpcf7_flamingo_update_channel re-slugs it on rename, so one form's
+     * name() can be another form's channel slug. Falling back to the slug
+     * would therefore be a way to hand back a DIFFERENT form's submissions to
+     * a caller who asked for this one, and a form with entries but no meta is
+     * precisely the case where that is most likely.
+     *
+     * So this fails closed and returns null whenever the term id is absent;
+     * the caller turns that into a top-level error rather than an unscoped
+     * query or an empty list that reads like "no submissions".
      */
     private static function channel_query(int $form_id): ?array
     {
@@ -144,11 +169,7 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
         }
         $meta       = get_post_meta($form_id, self::CHANNEL_META, true);
         $channel_id = is_array($meta) ? (int) ($meta['channel'] ?? 0) : 0;
-        if ($channel_id > 0) {
-            return [ 'channel_id' => $channel_id ];
-        }
-        $slug = (string) $form->name();
-        return '' === $slug ? null : [ 'channel' => $slug ];
+        return $channel_id > 0 ? [ 'channel_id' => $channel_id ] : null;
     }
 
     protected function operations(): array
@@ -194,20 +215,37 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
                 'mode'         => 'read',
                 'capability'   => self::ENTRY_CAPABILITY,
                 'requires'     => static fn () => self::requires_flamingo(),
-                'description'  => 'List Flamingo-stored submissions, newest first, with paging (page_size default 20, max 100) and a status filter (inbox, the default, plus spam and trash, which Flamingo keeps out of the default listing). Optionally scoped to one form via form_id, resolved through the form\'s Flamingo channel term. Requires the Flamingo plugin and the manage_options capability because submissions are user data',
+                'description'  => 'List a form\'s Flamingo-stored submissions, newest first, with paging (page_size default 20, max 100, plus offset) and a status filter (inbox, the default, plus spam and trash, which Flamingo keeps out of the default listing). form_id is required and is resolved to the form\'s Flamingo channel term; a form whose channel binding is missing is refused rather than answered with an unscoped listing. Requires the Flamingo plugin and the edit_users capability because submissions are user data',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
                         'form_id'   => [ 'type' => 'integer', 'minimum' => 1 ],
-                        'page'      => [ 'type' => 'integer', 'minimum' => 1 ],
                         'page_size' => [ 'type' => 'integer', 'minimum' => 1, 'maximum' => 100 ],
+                        'offset'    => [ 'type' => 'integer', 'minimum' => 0 ],
                         'status'    => [ 'type' => 'string', 'enum' => [ 'inbox', 'spam', 'trash' ] ],
                     ],
+                    'required'   => [ 'form_id' ],
                 ],
                 'handler'      => function (array $args): array {
                     $page_size = (int) ($args['page_size'] ?? 20);
-                    $page      = max(1, (int) ($args['page'] ?? 1));
+                    $offset    = max(0, (int) ($args['offset'] ?? 0));
                     $status    = (string) ($args['status'] ?? 'inbox');
+
+                    // form_id is REQUIRED, matching every other forms adapter:
+                    // an unscoped listing would dump every form's submissions
+                    // site-wide, which is not a thing an agent should be able
+                    // to ask for by omission.
+                    $scope = self::channel_query((int) $args['form_id']);
+                    if (null === $scope) {
+                        // Fail closed on the dispatcher's own error channel.
+                        // An empty success envelope would be indistinguishable
+                        // from "this form has no submissions".
+                        throw new Operation_Error(
+                            'unresolved_form_channel',
+                            'That form has no resolvable Flamingo channel (the form does not exist, or it has never received a submission, so Contact Form 7 has not written its _flamingo channel binding yet). Refusing rather than returning another form\'s submissions or an unscoped listing.',
+                            [ 'form_id' => (int) $args['form_id'] ]
+                        );
+                    }
 
                     // Flamingo's find() injects offset => 0 by default, and
                     // WP_Query prefers a numeric offset over paged when it
@@ -216,24 +254,13 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
                     // is passed explicitly because find() defaults to 'any'
                     // while count() defaults to 'publish', which would make
                     // the total disagree with the page.
-                    $query = [
+                    $query = $scope + [
                         'posts_per_page' => $page_size,
-                        'offset'         => ($page - 1) * $page_size,
+                        'offset'         => $offset,
                         'orderby'        => 'date',
                         'order'          => 'DESC',
                         'post_status'    => self::STATUSES[ $status ] ?? self::STATUSES['inbox'],
                     ];
-
-                    if (! empty($args['form_id'])) {
-                        $scope = self::channel_query((int) $args['form_id']);
-                        if (null === $scope) {
-                            // Never fall through to an unscoped query: that
-                            // would hand back every form's submissions to a
-                            // caller who explicitly asked for one form.
-                            return [ 'entries' => [], 'total' => 0, 'reason' => 'unresolved_form_channel' ];
-                        }
-                        $query += $scope;
-                    }
 
                     $messages = (array) \Flamingo_Inbound_Message::find($query);
                     $out      = [];
@@ -243,9 +270,19 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
                         }
                     }
 
+                    // The count MUST NOT carry the page window. Flamingo's
+                    // count() forwards its args straight to WP_Query, and
+                    // WP_Query::set_found_posts() returns early on an empty
+                    // result set, so counting with the offset of a page past
+                    // the last one reports total 0 instead of the real total.
+                    // Dropping the window also stops the same tax+status query
+                    // running twice per call.
+                    $count_query = $query;
+                    unset($count_query['offset'], $count_query['posts_per_page']);
+
                     return [
                         'entries' => $out,
-                        'total'   => (int) \Flamingo_Inbound_Message::count($query),
+                        'total'   => (int) \Flamingo_Inbound_Message::count($count_query),
                     ];
                 },
             ],
@@ -253,7 +290,7 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
                 'mode'         => 'read',
                 'capability'   => self::ENTRY_CAPABILITY,
                 'requires'     => static fn () => self::requires_flamingo(),
-                'description'  => 'Read one Flamingo-stored submission in full: subject, sender, channel, submitted fields, and meta. Requires the Flamingo plugin and the manage_options capability because submissions are user data',
+                'description'  => 'Read one Flamingo-stored submission in full: subject, sender, channel, submitted fields, and meta. Requires the Flamingo plugin and the edit_users capability (the cap Flamingo itself gates inbound messages behind) because submissions are user data',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
@@ -275,7 +312,7 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
                 'enabled_by_default' => false,
                 'capability'         => self::ENTRY_CAPABILITY,
                 'requires'           => static fn () => self::requires_flamingo(),
-                'description'        => 'Delete one Flamingo-stored submission. Default-off (opt in via the wpmcp_integration_op_enabled filter), requires confirm:true, the Flamingo plugin, and the manage_options capability. Reversible: a Flamingo entry is a flamingo_inbound post, so it is snapshotted (row, postmeta, channel terms) before deletion and can be resurrected at its original id with rollback-operation using the returned operation_id',
+                'description'        => 'Delete one Flamingo-stored submission. Default-off (opt in via the wpmcp_integration_op_enabled filter), requires confirm:true, the Flamingo plugin, and the edit_users capability. Reversible: a Flamingo entry is a flamingo_inbound post, so it is snapshotted (row, postmeta, channel terms) before deletion and can be resurrected at its original id with rollback-operation using the returned operation_id. Deletion is therefore NOT erasure: the snapshot keeps a verbatim plaintext copy of the submission (name, email, remote IP, message body) until Snapshot_Store prunes it. Restoring it is held to the same edit_users bar as deleting it (rollback-operation is otherwise an edit_posts ability), but the plaintext copy still exists, so use a real erasure tool if the goal is to destroy the data',
                 'input_schema'       => [
                     'type'       => 'object',
                     'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
@@ -292,10 +329,21 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
                         'deleted'  => (bool) wp_delete_post($entry_id, true),
                     ];
                 },
-                'snapshot'           => fn (array $args) => [
-                    'object_type' => 'post',
-                    'object_id'   => (int) $args['entry_id'],
-                ],
+                // Only name a snapshot target for an id that is actually a
+                // Flamingo entry. The snapshot callable runs BEFORE the
+                // handler's post-type guard, so returning a target
+                // unconditionally would capture and persist a full copy of any
+                // unrelated post (row, meta, terms) on a call the handler then
+                // refuses as not_found, and a later rollback-operation on that
+                // operation_id would silently revert that unrelated post.
+                'snapshot'           => static function (array $args): ?array {
+                    $entry_id = (int) $args['entry_id'];
+                    $post     = get_post($entry_id);
+                    if (! $post instanceof \WP_Post || self::entry_post_type() !== $post->post_type) {
+                        return null;
+                    }
+                    return [ 'object_type' => 'post', 'object_id' => $entry_id ];
+                },
             ],
         ];
     }

@@ -179,8 +179,10 @@ abstract class Integration_Dispatcher
 
     /**
      * The operation catalog: every op with mode, description, capability,
-     * enabled state, confirm requirement, and input schema, plus whether the
-     * host plugin is currently available.
+     * enabled state, confirm requirement, input schema, and whether its own
+     * 'requires' dependency is satisfied (per-op 'dependency_met'), plus the
+     * top-level 'available' saying whether the HOST plugin is loaded. The two
+     * answer different questions and are deliberately named differently.
      */
     public function catalog(): array
     {
@@ -193,7 +195,7 @@ abstract class Integration_Dispatcher
                 'capability'       => $def['capability'] ?? $this->capability(),
                 'enabled'          => $this->is_op_enabled($name, $def),
                 'requires_confirm' => 'destructive' === ($def['mode'] ?? ''),
-                'available'        => true === self::op_requirement($def),
+                'dependency_met'   => true === self::op_requirement($def),
                 'input_schema'     => $def['input_schema'] ?? [ 'type' => 'object' ],
             ];
         }
@@ -288,11 +290,23 @@ abstract class Integration_Dispatcher
             ]);
         }
 
-        if ('read' === $channel) {
-            return $this->ok($op, ($def['handler'])($op_args));
-        }
+        try {
+            if ('read' === $channel) {
+                return $this->ok($op, ($def['handler'])($op_args));
+            }
 
-        return $this->run_write($op, $def, $op_args, (string) ($args['session_id'] ?? 'default'));
+            return $this->run_write($op, $def, $op_args, (string) ($args['session_id'] ?? 'default'));
+        } catch (Operation_Error $e) {
+            // A handler-raised refusal belongs on the SAME top-level error
+            // channel as the dispatcher's own guards. Returning it inside the
+            // success envelope would leave an agent unable to tell a refusal
+            // from an empty result.
+            return $this->error(
+                $e->error_code(),
+                $e->getMessage(),
+                $e->error_data() + [ 'operation' => $op ]
+            );
+        }
     }
 
     /**
@@ -334,10 +348,29 @@ abstract class Integration_Dispatcher
      */
     private static function op_requirement(array $def)
     {
-        if (! isset($def['requires']) || ! is_callable($def['requires'])) {
+        if (! isset($def['requires'])) {
             return true;
         }
-        $out = ($def['requires'])();
+        if (! is_callable($def['requires'])) {
+            // Fail CLOSED. A present-but-malformed gate (the easy misreading is
+            // 'requires' => self::check(), which stores the RESULT rather than
+            // the callable) must not silently delete the gate and let the
+            // handler fatal on a class the dependency was meant to guarantee.
+            return [
+                'code'    => 'dependency_check_invalid',
+                'message' => 'This operation declares a dependency check that is not callable, so the dependency cannot be verified and the operation is refused.',
+            ];
+        }
+        try {
+            $out = ($def['requires'])();
+        } catch (\Throwable $e) {
+            // list-operations must answer for every integration, host plugin or
+            // not, so a throwing check degrades to "unavailable", never a fatal.
+            return [
+                'code'    => 'dependency_unavailable',
+                'message' => sprintf('This operation\'s dependency check could not complete: %s', $e->getMessage()),
+            ];
+        }
         return true === $out ? true : (array) $out;
     }
 

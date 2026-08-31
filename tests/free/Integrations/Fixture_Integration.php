@@ -3,6 +3,7 @@
 namespace WPMCP\Tests\Free\Integrations;
 
 use WPMCP\Integrations\Integration_Dispatcher;
+use WPMCP\Integrations\Operation_Error;
 
 /**
  * Test-only concrete integration exercising every framework surface: read,
@@ -115,6 +116,40 @@ class Fixture_Integration extends Integration_Dispatcher
                 'handler'      => function (array $args) {
                     self::$calls[] = [ 'needs-dependency', $args ];
                     return [ 'done' => true ];
+                },
+            ],
+            'broken-requires' => [
+                'mode'         => 'read',
+                'description'  => 'An op whose dependency gate was written wrong',
+                'input_schema' => [ 'type' => 'object', 'properties' => [] ],
+                // NOT a callable: this is the easy misreading of the docblock,
+                // 'requires' => self::check(), which stores the RESULT. The
+                // gate must fail CLOSED rather than silently vanish.
+                'requires'     => true,
+                'handler'      => function (array $args) {
+                    self::$calls[] = [ 'broken-requires', $args ];
+                    return [ 'done' => true ];
+                },
+            ],
+            'throwing-requires' => [
+                'mode'         => 'read',
+                'description'  => 'An op whose dependency gate throws',
+                'input_schema' => [ 'type' => 'object', 'properties' => [] ],
+                'requires'     => static function (): bool {
+                    throw new \RuntimeException('the companion plugin blew up');
+                },
+                'handler'      => function (array $args) {
+                    self::$calls[] = [ 'throwing-requires', $args ];
+                    return [ 'done' => true ];
+                },
+            ],
+            'refusing-op'    => [
+                'mode'         => 'read',
+                'description'  => 'A read whose handler refuses rather than answering',
+                'input_schema' => [ 'type' => 'object', 'properties' => [] ],
+                'handler'      => function (array $args) {
+                    self::$calls[] = [ 'refusing-op', $args ];
+                    throw new Operation_Error('scope_unresolved', 'Refusing to answer unscoped.', [ 'form_id' => 7 ]);
                 },
             ],
             'nuke'           => [

@@ -134,12 +134,26 @@ if (! function_exists('wpforms')) {
 }
 
 // ---- Flamingo: Flamingo_Inbound_Message -------------------------------------
-// Faithful double of Flamingo 2.x's inbound-message model. Visibility is
-// deliberately identical to the real plugin: $found_items is PRIVATE static and
-// there is NO get_instance(), so any integration reaching for either fatals in
-// the suite exactly as it would in production. Storage is real flamingo_inbound
-// posts queried through WP_Query, so paging, offset handling, channel scoping,
-// post_status defaults, and the snapshot/rollback path are genuinely exercised.
+// Double of Flamingo 2.x's inbound-message model, matched to the real plugin on
+// every surface the CF7 adapter touches, and honest about the rest.
+//
+// Matched: $found_items is PRIVATE static and there is NO get_instance(), so an
+// integration reaching for either fatals in the suite exactly as in production;
+// $id is private with a __get() shim, so only id() is a supported read; find()
+// defaults to orderby => ID / order => ASC and post_status => 'any'; count()
+// defaults post_status to 'publish' and, like the real one, does NOT reset
+// posts_per_page or drop offset, so the out-of-range-page found_posts trap is
+// reproduced rather than papered over; the constructor does not validate the
+// post type. Storage is real flamingo_inbound posts queried through WP_Query,
+// so paging, offset handling, channel scoping, post_status defaults, and the
+// snapshot/rollback path are genuinely exercised.
+//
+// NOT reproduced (the adapter reads none of it): the real save()/__construct()
+// also split field values into per-key `_field_{key}` postmeta with `_fields`
+// holding nulls; the real find() additionally accepts `s`, `hash`, and a
+// caller-supplied tax_query and appends channel_id ALONGSIDE channel rather
+// than treating them as alternatives; and $spam is also true when the akismet
+// meta says so, which seed() does model but only via that meta key.
 if (! class_exists('Flamingo_Inbound_Message')) {
     class Flamingo_Inbound_Message
     {
@@ -149,7 +163,9 @@ if (! class_exists('Flamingo_Inbound_Message')) {
 
         private static $found_items = 0;
 
-        public $id;
+        /** Private in the real plugin; readable only through id() or __get(). */
+        private $id;
+
         public $post_status;
         public $channel;
         public $channel_id;
@@ -200,6 +216,9 @@ if (! class_exists('Flamingo_Inbound_Message')) {
             update_post_meta($id, '_from_email', (string) ($args['from_email'] ?? ''));
             update_post_meta($id, '_fields', (array) ($args['fields'] ?? []));
             update_post_meta($id, '_meta', (array) ($args['meta'] ?? []));
+            if (isset($args['akismet'])) {
+                update_post_meta($id, '_akismet', (array) $args['akismet']);
+            }
             if (! empty($args['channel'])) {
                 wp_set_object_terms($id, [ (int) $args['channel'] ], self::channel_taxonomy);
             }
@@ -211,8 +230,8 @@ if (! class_exists('Flamingo_Inbound_Message')) {
             $defaults = [
                 'posts_per_page' => 10,
                 'offset'         => 0,
-                'orderby'        => 'date',
-                'order'          => 'DESC',
+                'orderby'        => 'ID',
+                'order'          => 'ASC',
                 'post_status'    => 'any',
                 'channel'        => '',
                 'channel_id'     => 0,
@@ -252,9 +271,13 @@ if (! class_exists('Flamingo_Inbound_Message')) {
         public static function count($args = '')
         {
             // Flamingo's count() re-runs find() and, unlike find(), defaults
-            // post_status to 'publish' rather than 'any'.
+            // post_status to 'publish' rather than 'any'. Note what it does
+            // NOT do, faithfully reproduced here: it does not reset
+            // posts_per_page and it does not strip offset, so a caller that
+            // passes its page window straight through gets found_posts from a
+            // query that WP_Query::set_found_posts() abandons on an empty
+            // result set, i.e. total 0 for any page past the last one.
             $args = wp_parse_args($args, [ 'post_status' => 'publish' ]);
-            $args['posts_per_page'] = 1;
             self::find($args);
             return absint(self::$found_items);
         }
@@ -274,7 +297,9 @@ if (! class_exists('Flamingo_Inbound_Message')) {
             $this->from_email = (string) get_post_meta($post->ID, '_from_email', true);
             $this->fields = (array) get_post_meta($post->ID, '_fields', true);
             $this->meta = (array) get_post_meta($post->ID, '_meta', true);
-            $this->spam = self::spam_status === $post->post_status;
+            $akismet    = get_post_meta($post->ID, '_akismet', true);
+            $this->spam = self::spam_status === $post->post_status
+                || (is_array($akismet) && ! empty($akismet['spam']));
 
             $terms = wp_get_object_terms($post->ID, self::channel_taxonomy);
             if (! is_wp_error($terms) && ! empty($terms)) {
@@ -286,6 +311,12 @@ if (! class_exists('Flamingo_Inbound_Message')) {
         public function id()
         {
             return $this->id;
+        }
+
+        /** Flamingo's own shim for the private $id. */
+        public function __get($name)
+        {
+            return 'id' === $name ? $this->id : null;
         }
     }
 }
