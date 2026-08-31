@@ -12,7 +12,8 @@ if (! defined('ABSPATH')) {
  *
  * Backed by a single wpmcp_oauth_refresh_tokens option, a map of the
  * SHA-256 hash of the token to its bound record:
- * { client_id, user_id, scope, chain_id, issued_at, rotated_at }.
+ * { client_id, user_id, scope, chain_id, issued_at, rotated_at,
+ * pass_fingerprint }.
  * Storage properties match Token_Store and Code_Store exactly: the
  * plaintext token is returned once at issuance and never persisted, so a
  * leaked options row cannot be replayed.
@@ -89,10 +90,28 @@ class Refresh_Token_Store
         return null !== self::$clock_override ? (int) (self::$clock_override)() : time();
     }
 
-    /** Refresh token lifetime in seconds, filterable. Floored at one minute. */
-    public static function ttl(): int
+    /** Scope stamped on gateway refresh tokens (Gateway_Credential::SCOPE). */
+    public const GATEWAY_SCOPE = 'gateway';
+
+    /**
+     * Refresh token lifetime in seconds, filterable. Floored at one minute.
+     *
+     * Gateway tokens (issue #142) get a second, narrower filter on top:
+     * `wpmcp_gateway_refresh_ttl` receives the general value and may shorten
+     * or lengthen it for the proxy credential alone, so an operator can run
+     * a 30-day interactive session and a 24-hour gateway credential without
+     * the two settings fighting. The literal scope string is used rather
+     * than a use-statement so src/Auth keeps no dependency on src/Gateway.
+     */
+    public static function ttl(string $scope = ''): int
     {
-        return max(60, (int) apply_filters('wpmcp_oauth_refresh_ttl', self::TTL_SECONDS));
+        $ttl = max(60, (int) apply_filters('wpmcp_oauth_refresh_ttl', self::TTL_SECONDS));
+
+        if (self::GATEWAY_SCOPE === $scope) {
+            $ttl = max(60, (int) apply_filters('wpmcp_gateway_refresh_ttl', $ttl));
+        }
+
+        return $ttl;
     }
 
     /**
@@ -122,19 +141,30 @@ class Refresh_Token_Store
      * continue an existing one (a rotation).
      *
      * @return string The plaintext token, returned exactly once.
+     *
+     * @throws \InvalidArgumentException When $user_id does not resolve to a
+     *         user, so the token could not be bound to a credential state.
      */
     public static function issue(string $client_id, int $user_id, string $scope, string $chain_id = ''): string
     {
+        // May be null when the user does not resolve (synthetic ids in the
+        // store's own unit tests, a user deleted between authorisation and
+        // issuance). A null is stored as "unbound", not as a value to
+        // compare against, and redeem() adopts the real fingerprint the
+        // first time the user does resolve -- see the binding block there.
+        $fingerprint = Token_Store::pass_fingerprint($user_id);
+
         $token = 'rt_' . bin2hex(random_bytes(32));
 
         $stored                      = self::load();
         $stored[ self::hash($token) ] = [
-            'client_id'  => $client_id,
-            'user_id'    => $user_id,
-            'scope'      => $scope,
-            'chain_id'   => '' !== $chain_id ? $chain_id : self::new_chain_id(),
-            'issued_at'  => self::now(),
-            'rotated_at' => 0,
+            'client_id'        => $client_id,
+            'user_id'          => $user_id,
+            'scope'            => $scope,
+            'chain_id'         => '' !== $chain_id ? $chain_id : self::new_chain_id(),
+            'issued_at'        => self::now(),
+            'rotated_at'       => 0,
+            'pass_fingerprint' => $fingerprint,
         ];
         self::save($stored);
 
@@ -155,7 +185,9 @@ class Refresh_Token_Store
      * @return array{status: string, record?: array} status is one of
      *         'ok' (fresh, rotated now), 'grace' (rotated already but
      *         within the window), 'unknown', 'expired', 'client_mismatch',
-     *         or 'reuse_detected' (chain revoked as a side effect).
+     *         'credential_changed' (the bound user was deleted or changed
+     *         their password; chain revoked as a side effect), or
+     *         'reuse_detected' (chain revoked as a side effect).
      */
     public static function redeem(string $token, string $client_id = ''): array
     {
@@ -173,7 +205,7 @@ class Refresh_Token_Store
             return ['status' => 'client_mismatch'];
         }
 
-        if ($now > (int) $record['issued_at'] + self::ttl()) {
+        if ($now > (int) $record['issued_at'] + self::ttl((string) ($record['scope'] ?? ''))) {
             unset($stored[ $key ]);
             self::save($stored);
             return ['status' => 'expired'];
@@ -181,21 +213,64 @@ class Refresh_Token_Store
 
         $rotated_at = (int) ($record['rotated_at'] ?? 0);
 
+        // Reuse detection runs FIRST, before the credential-binding check
+        // below. A burned token presented after a password change is still
+        // a reuse event, and it is the one case the #133 alarm exists for
+        // (leaked token, owner reacts by changing their password); letting
+        // 'credential_changed' win would take the dedicated
+        // oauth/refresh-reuse audit row out of the governance log in
+        // exactly that scenario. Both outcomes revoke the chain, so
+        // reporting the more serious one costs nothing.
+        if (0 !== $rotated_at && $now > $rotated_at + self::grace()) {
+            self::revoke_chain((string) ($record['chain_id'] ?? ''));
+            return ['status' => 'reuse_detected'];
+        }
+
+        // Credential binding (issue #142). Access tokens already die on a
+        // password change or account deletion via Token_Store's
+        // fingerprint check, but a refresh token lives 30 days and mints
+        // fresh access tokens for that whole window, so without this a
+        // password change would not actually end the session it is
+        // supposed to end.
+        //
+        // Absent and null are both "unbound" and take the same path
+        // deliberately: there is no action that would differ between them,
+        // and denying on a null would turn a momentary user-lookup failure
+        // into a whole-chain revocation. What must NOT happen is an
+        // unbound record staying unbound forever, and it does not: see
+        // ADOPTION below. A token whose user cannot be resolved at all is
+        // still refused a grant by Token_Grant::refresh(), which checks
+        // get_userdata() before minting.
+        $current = Token_Store::pass_fingerprint((int) ($record['user_id'] ?? 0));
+        $bound   = $record['pass_fingerprint'] ?? null;
+
+        if (is_string($bound)) {
+            if (null === $current || ! hash_equals($bound, $current)) {
+                self::revoke_chain((string) ($record['chain_id'] ?? ''));
+                return ['status' => 'credential_changed'];
+            }
+        } elseif (null !== $current) {
+            // ADOPTION, and the reason the upgrade window is not left open.
+            // An unbound record is either pre-#142 or one whose user did not
+            // resolve at issuance. Revoking it outright would log every
+            // existing session out on deploy, so instead the current
+            // fingerprint is stamped on the first successful redeem: the
+            // session in flight survives, and every password change AFTER
+            // this moment kills it like any post-#142 token.
+            $stored[ $key ]['pass_fingerprint'] = $current;
+            $record['pass_fingerprint']         = $current;
+            self::save($stored);
+        }
+
         if (0 === $rotated_at) {
             $stored[ $key ]['rotated_at'] = $now;
             self::save($stored);
             return ['status' => 'ok', 'record' => $record];
         }
 
-        if ($now <= $rotated_at + self::grace()) {
-            // Deliberately does not re-stamp rotated_at: the window is
-            // anchored to the FIRST rotation and cannot be walked forward.
-            return ['status' => 'grace', 'record' => $record];
-        }
-
-        self::revoke_chain((string) ($record['chain_id'] ?? ''));
-
-        return ['status' => 'reuse_detected'];
+        // Deliberately does not re-stamp rotated_at: the window is anchored
+        // to the FIRST rotation and cannot be walked forward.
+        return ['status' => 'grace', 'record' => $record];
     }
 
     /**
@@ -269,11 +344,10 @@ class Refresh_Token_Store
     {
         $stored  = self::load();
         $now     = self::now();
-        $ttl     = self::ttl();
         $removed = 0;
 
         foreach ($stored as $key => $record) {
-            if ($now > (int) ($record['issued_at'] ?? 0) + $ttl) {
+            if ($now > (int) ($record['issued_at'] ?? 0) + self::ttl((string) ($record['scope'] ?? ''))) {
                 unset($stored[ $key ]);
                 $removed++;
             }

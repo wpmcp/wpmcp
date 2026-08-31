@@ -165,6 +165,26 @@ class Token_Store
         return $removed;
     }
 
+    /** Revoke every access token bound to a client. Returns the number removed. */
+    public static function revoke_for_client(string $client_id): int
+    {
+        $stored  = self::load();
+        $removed = 0;
+
+        foreach ($stored as $key => $record) {
+            if ((string) ($record['client_id'] ?? '') === $client_id) {
+                unset($stored[ $key ]);
+                $removed++;
+            }
+        }
+
+        if ($removed > 0) {
+            self::save($stored);
+        }
+
+        return $removed;
+    }
+
     /** Whether any access token is currently bound to a client. */
     public static function has_tokens_for_client(string $client_id): bool
     {
@@ -207,12 +227,15 @@ class Token_Store
 
     /**
      * A SHA-256 fingerprint of the user's current password hash, or null if
-     * the user no longer exists. Never the raw user_pass itself; used only
+     * the user no longer exists. Public since issue #142 so
+     * Refresh_Token_Store can bind long-lived gateway refresh tokens to the
+     * same credential state, using one definition of "fingerprint" rather
+     * than two that could drift apart. Never the raw user_pass itself; used only
      * to detect "this user still exists and their credentials have not
      * changed since token issuance" (issue #43 C1/C2). Never returned from
      * validate(), never logged.
      */
-    private static function pass_fingerprint(int $user_id): ?string
+    public static function pass_fingerprint(int $user_id): ?string
     {
         $user = get_userdata($user_id);
         if (false === $user) {

@@ -340,7 +340,7 @@ final class Plugin
             'compose', 'woocommerce', 'menu', 'seo', 'linking', 'redirects',
             'meta', 'diagnostics', 'cron', 'maintenance', 'context', 'block',
             'structure', 'taxonomy', 'export', 'backup', 'analysis', 'connect',
-            'governance', 'skills',
+            'governance', 'skills', 'gateway',
         ],
     ];
 
@@ -2115,6 +2115,7 @@ final class Plugin
             'widget_builder' => fn () => $this->register_widget_builder_abilities($registrar),
             'block_builder'  => fn () => $this->register_block_builder_abilities($registrar),
             'cloud'          => fn () => $this->register_cloud_abilities($registrar),
+            'gateway'        => fn () => $this->register_gateway_abilities($registrar),
             'search'         => fn () => $this->register_search_abilities($registrar),
             'skills'         => fn () => $this->register_skills_abilities($registrar),
             'memory'         => fn () => $this->register_memory_abilities($registrar),
@@ -2270,6 +2271,62 @@ final class Plugin
             'skills',
             'read'
         ));
+    }
+
+    /**
+     * Site-local gateway credential lifecycle (issue #142, phase 1 of #130).
+     *
+     * Its own group, NOT part of 'cloud', and free tier. That looks odd for
+     * a credential whose consumer is the multi-site proxy, and it is
+     * deliberate: 'cloud' is pruned from the wp.org build
+     * (scripts/flavors/wporg/strip.php drops src/Tools/Cloud and this
+     * method's cloud sibling entirely) and excluded from the WooCommerce
+     * vertical's FLAVOR_GROUPS. A credential that can be minted on a build
+     * but not revoked on it is a security hole, and the issue's requirement
+     * is explicit that revocation works locally with no network. So the
+     * whole lifecycle lives where every flavor can reach it.
+     *
+     * All manage_options, domain 'gateway'. None of these touch the
+     * network, so provisioning and revocation work with the cloud
+     * unreachable.
+     */
+    private function register_gateway_abilities(Registrar $registrar): void
+    {
+        $tools = [
+            ['gateway-provision', 'create', new \WPMCP\Tools\Gateway\Gateway_Provision(), 'Provision (or rotate) the site-local gateway credential. Returns client_id, client_secret and refresh_token plaintext exactly once; any previous gateway credential stops working immediately. The credential is NOT scope-limited: it carries the capabilities of the user who provisions it. Requires confirm: true', ['confirm' => ['type' => 'boolean']], ['confirm'], true, false],
+            ['gateway-status', 'read', new \WPMCP\Tools\Gateway\Gateway_Status(), 'Report whether the site-local gateway credential is provisioned, its client_id, and whether OAuth is enabled at all. Never returns token material. Read-only', [], [], null, null],
+            ['gateway-revoke', 'delete', new \WPMCP\Tools\Gateway\Gateway_Revoke(), 'Revoke the site-local gateway credential: removes the gateway client and every token bound to it. Local-only and idempotent. Requires confirm: true', ['confirm' => ['type' => 'boolean']], ['confirm'], true, true],
+        ];
+
+        // The last two slots are the destructive and idempotent hint
+        // overrides, and both defaults are wrong here. 'create' would
+        // derive destructive: false for gateway-provision, but the call
+        // irreversibly kills the previous client secret, every refresh
+        // token bound to it and every access token already minted from it;
+        // MCP clients use destructiveHint for auto-approval, so the
+        // derived value invites an agent to retry it over a live proxy
+        // credential. 'delete' would derive idempotent: false for
+        // gateway-revoke, which is documented and tested as safe to call
+        // repeatedly.
+        foreach ($tools as [$name, $op, $handler, $desc, $props, $required, $destructive, $idempotent]) {
+            $schema = [ 'type' => 'object', 'properties' => $props ];
+            if ([] !== $required) {
+                $schema['required'] = $required;
+            }
+            $registrar->register(new Ability(
+                'wpmcp/' . $name,
+                'free',
+                $desc,
+                $schema,
+                [$handler, 'handle'],
+                'manage_options',
+                'gateway',
+                $op,
+                null,
+                $destructive,
+                $idempotent
+            ));
+        }
     }
 
     private function register_cloud_abilities(Registrar $registrar): void
