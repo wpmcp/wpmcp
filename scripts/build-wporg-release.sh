@@ -126,6 +126,22 @@ foreach ($it as $f) {
 if ($missing) { fwrite(STDERR, implode("\n", array_unique($missing)) . "\n"); exit(1); }
 ' "$STAGE" || fail "the $SLUG build names a class it does not ship"
 
+# 4b. The same tree read structurally rather than through the classmap: every
+#     WPMCP class the staged code names is declared under src/ (including the
+#     aliased, grouped and string-callable forms), no tool class survived the
+#     strip with no reference path left into it, and the abilities the stage
+#     still registers carry the names and tiers the manifest pins. Gate 4
+#     answers "does it autoload"; this answers "is it still wired".
+#
+#     The manifest is passed explicitly because the stage ships no tests/
+#     directory (gate 5 below fails if it does), so the ability third would
+#     otherwise silently skip and this gate would report success for a check
+#     it never ran. Under --strict a missing manifest is a hard failure, so a
+#     path typo here fails loudly rather than degrading.
+php "$ROOT/bin/check-ability-drift.php" --strict \
+  --manifest "$ROOT/tests/support/ability-manifest.php" "$STAGE" \
+  || fail "registration drift in the $SLUG build"
+
 # 5. Packaging hygiene: no dotfiles, no development directories, no build
 #    scripts. File_Type_Check errors on all three, and ".sh" is on its
 #    application-file list, so this script must never be inside its own zip.
