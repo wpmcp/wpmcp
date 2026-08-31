@@ -116,6 +116,46 @@ class TemplateRoundTripTest extends Structural_Harness
         $this->assertSame('cannot_read_template', $out->get_error_code());
     }
 
+    public function test_import_honors_an_explicit_template_type_over_the_envelope(): void
+    {
+        $source = self::factory()->post->create([
+            'post_type'  => 'elementor_library',
+            'post_title' => 'Header source',
+        ]);
+        update_post_meta($source, '_elementor_template_type', 'header');
+        update_post_meta($source, '_elementor_data', wp_json_encode($this->default_tree()));
+
+        $export = (new Export_Template())->handle(['template_id' => $source]);
+        $this->assertIsArray($export);
+        $this->assertSame('header', $export['type']);
+
+        $imported = (new Import_Template())->handle([
+            'export'        => $export,
+            'template_type' => 'footer',
+        ]);
+        $this->assertIsArray($imported);
+        $this->assertSame('footer', $imported['template_type']);
+        $this->assertSame(
+            'footer',
+            get_post_meta((int) $imported['template_id'], '_elementor_template_type', true)
+        );
+    }
+
+    public function test_import_reports_an_envelope_that_carries_no_conditions_or_page_settings(): void
+    {
+        $source = self::factory()->post->create(['post_type' => 'elementor_library']);
+        update_post_meta($source, '_elementor_template_type', 'page');
+        update_post_meta($source, '_elementor_data', wp_json_encode($this->default_tree()));
+
+        $export   = (new Export_Template())->handle(['template_id' => $source]);
+        $imported = (new Import_Template())->handle(['export' => $export]);
+
+        $this->assertIsArray($imported);
+        $this->assertSame([], $imported['conditions']);
+        $this->assertFalse($imported['page_settings']);
+        $this->assertSame([], Elementor_Template_Data::conditions((int) $imported['template_id']));
+    }
+
     public function test_export_rejects_a_non_template_post(): void
     {
         $post_id = self::factory()->post->create();

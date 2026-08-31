@@ -38,12 +38,19 @@ the remaining acceptance-criteria gaps.
   - bounds the query at 200 candidates and reports `total` / `truncated`,
     matching the windowing convention the other Elementor read tools use.
 - Tests: `tests/pro/Elementor/TemplateRoundTripTest.php` (round trip with id
-  regeneration, conditions and page settings surviving, unreadable-draft
-  refusal) and `tests/pro/Elementor/ResolveThemeTemplateTest.php` (13 cases
-  covering conditionless candidates, specificity ordering, exact-id includes,
-  exclude behavior with and without context, location-to-type expansion, draft
-  candidates, truncation reporting). `TemplatesTest` gained three malformed
-  envelope cases and its id assertion now reflects regeneration.
+  regeneration, conditions and page settings surviving, an envelope carrying
+  neither, an explicit `template_type` overriding the envelope's, unreadable
+  draft refusal) and `tests/pro/Elementor/ResolveThemeTemplateTest.php` (16
+  cases covering conditionless candidates, specificity ordering and its exact
+  scale, exact-id includes, exclude behavior with and without context and the
+  `excluded_by` report, post_type derived from post_id alone, part-array
+  conditions, location-to-type expansion, draft candidates, truncation
+  reporting). `TemplatesTest` gained three malformed envelope cases and its id
+  assertion now reflects regeneration.
+- Specificity is the number of condition parts after the verb
+  (`include/general` = 1, `include/singular/post` = 2,
+  `include/singular/post/12` = 3), which is what the class docblock always
+  claimed; the scoring was one higher than that and is now pinned by a test.
 - `tests/support/ability-manifest.php` regenerated (304/91 -> 306/93) and the
   Elementor tool ceiling in `ToolsListBudgetTest` raised 60 -> 62 deliberately
   for the two new per-feature read tools.
@@ -60,6 +67,11 @@ the remaining acceptance-criteria gaps.
 - Resolver: delegate to Elementor Pro's ThemeBuilder conditions manager when it
   is loaded, keeping the meta scoring as the free-Elementor fallback.
   `Template_Conditions` already has the Pro accessor for the write side.
+  Deliberately not done in this slice: Pro's `get_documents_for_location()`
+  resolves against the *global* query, so delegating without first standing up
+  a query for the requested `post_id` would answer for whatever request the
+  MCP call happens to run inside. Doing that safely is its own slice, and it
+  cannot be covered here (the test environment has free Elementor only).
 - Verify "applying a template reproduces the structure" end to end against a
   live Elementor install (apply-template exists, is snapshotted and regenerates
   ids, and is covered by TemplatesTest; what is missing is the library-UI pass).

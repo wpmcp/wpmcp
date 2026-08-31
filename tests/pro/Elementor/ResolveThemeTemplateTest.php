@@ -183,6 +183,53 @@ class ResolveThemeTemplateTest extends Structural_Harness
         $this->assertFalse($out['truncated']);
     }
 
+    public function test_post_id_alone_supplies_the_post_type_context(): void
+    {
+        // A caller that only knows the target id should get the same answer as
+        // one that spells the post type out; the resolver derives it.
+        $target = self::factory()->post->create(['post_type' => 'post']);
+        $posts  = $this->make_theme_template('single', ['include/singular/post'], 'Posts');
+        $pages  = $this->make_theme_template('single', ['include/singular/page'], 'Pages');
+
+        $out = (new Resolve_Theme_Template())->handle([
+            'location' => 'single',
+            'post_id'  => $target,
+        ]);
+
+        $this->assertSame('post', $out['context']['post_type']);
+        $this->assertSame($target, $out['context']['post_id']);
+        $this->assertSame($posts, $out['winner']);
+        $this->assertSame(-1, $this->candidate($out, $pages)['score']);
+    }
+
+    public function test_conditions_stored_as_part_arrays_are_scored(): void
+    {
+        // Conditions written by hand (or by an older Pro release) can arrive as
+        // arrays of parts rather than slash strings; both shapes must score.
+        $tid = $this->make_theme_template('header', [['include', 'singular', 'post']], 'Array parts');
+
+        $out = (new Resolve_Theme_Template())->handle([
+            'location'  => 'header',
+            'post_type' => 'post',
+        ]);
+
+        $this->assertSame($tid, $out['winner']);
+        $this->assertSame(2, $this->candidate($out, $tid)['score']);
+    }
+
+    public function test_a_matching_exclude_names_the_condition_that_disqualified_it(): void
+    {
+        $tid = $this->make_theme_template('header', ['include/general', 'exclude/singular/page']);
+
+        $out = (new Resolve_Theme_Template())->handle([
+            'location'  => 'header',
+            'post_type' => 'page',
+        ]);
+
+        $this->assertNull($out['winner']);
+        $this->assertSame('exclude/singular/page', $this->candidate($out, $tid)['excluded_by']);
+    }
+
     /** @return array<string,mixed> */
     private function candidate(array $out, int $template_id): array
     {

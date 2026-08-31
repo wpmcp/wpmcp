@@ -17,7 +17,7 @@ if (! defined('ABSPATH')) {
  *
  * - a template with no conditions is displayed nowhere (score -1);
  * - among matching `include` conditions the most specific one wins, where
- *   specificity is the number of condition parts (`include/general` = 1,
+ *   specificity is the number of parts after the verb (`include/general` = 1,
  *   `include/singular/post` = 2, `include/singular/post/12` = 3);
  * - an `exclude` knocks the candidate out only when it actually matches the
  *   requested context. A template carrying `include/general` plus
@@ -178,9 +178,11 @@ class Resolve_Theme_Template
                 continue;
             }
             if (! $this->contradicted($parts, $context)) {
-                // Specificity counts the whole condition, verb included, so
-                // include/general scores 1 and include/singular/post scores 2.
-                $best = max($best, count($parts) + 1);
+                // Specificity is the number of parts after the verb, so
+                // include/general scores 1, include/singular/post 2 and
+                // include/singular/post/12 3. A bare `include` scores 0: still
+                // eligible, but beaten by anything that names a target.
+                $best = max($best, count($parts));
             }
         }
 
