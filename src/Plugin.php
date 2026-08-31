@@ -392,6 +392,13 @@ final class Plugin
             add_action('init', ['\\WPMCP\\Tools\\BlockBuilder\\Block_Spec_Store', 'ensure_post_type'], 5);
             add_action('init', ['\\WPMCP\\Tools\\BlockBuilder\\Block_Registry', 'register'], 20);
         }
+        // Theme-builder site parts (issue #70): register the wpmcp_template
+        // CPT on init and boot the render adapters on wp, once the main query
+        // exists and the winning template for this request can be resolved.
+        if ($this->group_enabled('theme_builder')) {
+            add_action('init', ['\\WPMCP\\Tools\\ThemeBuilder\\Template_Store', 'ensure_post_type']);
+            add_action('wp', ['\\WPMCP\\Tools\\ThemeBuilder\\Render\\Adapters', 'boot']);
+        }
         // Content search index (issue #83): keep it correct incrementally on
         // every save/delete so search-content never reads stale copy. Gated
         // with its ability group so a flavor that drops the group also drops
@@ -2114,6 +2121,7 @@ final class Plugin
             'integration'    => fn () => $this->register_integration_abilities($registrar),
             'widget_builder' => fn () => $this->register_widget_builder_abilities($registrar),
             'block_builder'  => fn () => $this->register_block_builder_abilities($registrar),
+            'theme_builder'  => fn () => $this->register_theme_builder_abilities($registrar),
             'cloud'          => fn () => $this->register_cloud_abilities($registrar),
             'search'         => fn () => $this->register_search_abilities($registrar),
             'skills'         => fn () => $this->register_skills_abilities($registrar),
@@ -2367,6 +2375,136 @@ final class Plugin
             'content',
             'update'
         ));
+    }
+
+    /**
+     * Theme-builder site parts (issue #70, scoped v1): templates for header,
+     * footer, and 404 assignable to contexts by include/exclude conditions,
+     * with deterministic winner resolution (specificity > priority > id).
+     *
+     * Named `site-part` rather than `template` on purpose: the Elementor
+     * group already owns create-theme-template / list-theme-templates /
+     * apply-template, and an agent holding both surfaces has to be able to
+     * tell them apart from the tool name alone.
+     *
+     * Engine is free with a cap of one template per part type, read from
+     * Template_Store::cap_per_type(); unlimited templates lift the cap on a
+     * licensed site. manage_options across the group: these templates render
+     * site-wide markup, and the CPT is on Content_Guard's internal list so
+     * the edit_posts content tools cannot reach it either.
+     */
+    private function register_theme_builder_abilities(Registrar $registrar): void
+    {
+        $part_type      = [
+            'type' => 'string',
+            'enum' => \WPMCP\Tools\ThemeBuilder\Template_Store::PART_TYPES,
+        ];
+        $rule_schema    = [
+            'type'       => 'object',
+            'properties' => [
+                'type'  => [
+                    'type' => 'string',
+                    'enum' => array_keys(\WPMCP\Tools\ThemeBuilder\Condition_Schema::RULE_TYPES),
+                ],
+                // Post type slug for post_type, post id for singular (omit
+                // for any singular). The other rule types take no value.
+                'value' => ['type' => ['string', 'integer']],
+            ],
+            'required'   => ['type'],
+        ];
+        $conditions_schema = [
+            'type'        => 'object',
+            'description' => 'Shows when an include rule matches and no exclude rule does.',
+            'properties'  => [
+                'include' => ['type' => 'array', 'items' => $rule_schema],
+                'exclude' => ['type' => 'array', 'items' => $rule_schema],
+            ],
+            'required'    => ['include'],
+        ];
+        $context_schema    = [
+            'type'       => 'object',
+            'properties' => [
+                'is_front_page' => ['type' => 'boolean'],
+                'is_404'        => ['type' => 'boolean'],
+                'is_search'     => ['type' => 'boolean'],
+                'is_archive'    => ['type' => 'boolean'],
+                'is_singular'   => ['type' => 'boolean'],
+                'post_type'     => ['type' => 'string'],
+                'post_id'       => ['type' => 'integer'],
+            ],
+        ];
+        $template_id       = ['type' => 'integer'];
+
+        $tools = [
+            [
+                'create-site-part',
+                'create',
+                new \WPMCP\Tools\ThemeBuilder\Create_Site_Part(),
+                'Create a built-in site part (header, footer, or 404 template) with include/exclude display conditions. Not the Elementor theme-template tools. One per part type; wpmcp/delete-site-part frees the slot',
+                [
+                    'part_type'  => $part_type,
+                    'title'      => ['type' => 'string'],
+                    // Block markup; filtered with wp_kses_post on save.
+                    'content'    => ['type' => 'string'],
+                    'conditions' => $conditions_schema,
+                    // Tie-break between equally specific matches; higher wins.
+                    'priority'   => ['type' => 'integer'],
+                ],
+                ['part_type', 'title', 'conditions'],
+            ],
+            [
+                'list-site-parts',
+                'read',
+                new \WPMCP\Tools\ThemeBuilder\List_Site_Parts(),
+                'List the built-in site parts (id, part type, title, conditions, priority, status), optionally filtered by part type. Read-only',
+                ['part_type' => $part_type],
+                [],
+            ],
+            [
+                'resolve-site-part',
+                'read',
+                new \WPMCP\Tools\ThemeBuilder\Resolve_Site_Part(),
+                'Report which site part wins for a context (specificity > priority > id), with every considered template and why. Read-only',
+                ['part_type' => $part_type, 'context' => $context_schema],
+                ['part_type'],
+            ],
+            [
+                'set-site-part-status',
+                'update',
+                new \WPMCP\Tools\ThemeBuilder\Set_Site_Part_Status(),
+                'Activate (publish) or deactivate (draft) a site part. Only active ones are resolved. Snapshot-first',
+                [
+                    'template_id' => $template_id,
+                    'status'      => ['type' => 'string', 'enum' => ['publish', 'draft']],
+                ],
+                ['template_id', 'status'],
+            ],
+            [
+                'delete-site-part',
+                'delete',
+                new \WPMCP\Tools\ThemeBuilder\Delete_Site_Part(),
+                'Trash a site part, freeing its per-part-type slot. Snapshot-first: the returned operation_id rolls it back',
+                ['template_id' => $template_id],
+                ['template_id'],
+            ],
+        ];
+
+        foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
+            $schema = [ 'type' => 'object', 'properties' => $props ];
+            if ([] !== $required) {
+                $schema['required'] = $required;
+            }
+            $registrar->register(new Ability(
+                'wpmcp/' . $name,
+                'free',
+                $desc,
+                $schema,
+                [$handler, 'handle'],
+                'manage_options',
+                'theme',
+                $op
+            ));
+        }
     }
 
     /**

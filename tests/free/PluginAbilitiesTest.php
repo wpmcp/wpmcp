@@ -22,7 +22,7 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
     public function test_all_free_abilities_register_by_default(): void
     {
         $registrar = Plugin::instance()->registrar();
-        $this->assertCount(213, $registrar->all());
+        $this->assertCount(218, $registrar->all());
     }
 
     public function test_no_pro_tier_ability_registers_without_a_license(): void
@@ -66,6 +66,33 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertSame('read', $abilities['wpmcp/list-operations']->operation);
         $this->assertSame('core', $abilities['wpmcp/rollback-operation']->domain);
         $this->assertSame('update', $abilities['wpmcp/rollback-operation']->operation);
+    }
+
+    public function test_theme_builder_abilities_are_tagged_theme_domain(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        foreach (
+            [
+                'wpmcp/create-site-part'     => 'create',
+                'wpmcp/list-site-parts'      => 'read',
+                'wpmcp/resolve-site-part'    => 'read',
+                'wpmcp/set-site-part-status' => 'update',
+                'wpmcp/delete-site-part'     => 'delete',
+            ] as $name => $operation
+        ) {
+            $this->assertArrayHasKey($name, $abilities);
+            $this->assertSame('theme', $abilities[$name]->domain, $name);
+            $this->assertSame($operation, $abilities[$name]->operation, $name);
+            // The engine is free; only the per-part-type cap is a tier thing.
+            $this->assertSame('free', $abilities[$name]->tier, $name);
+            // These templates render site-wide markup, so no edit_posts caller
+            // may write one.
+            $this->assertSame('manage_options', $abilities[$name]->capability, $name);
+        }
+
+        $this->assertTrue($abilities['wpmcp/resolve-site-part']->read_only_hint);
+        $this->assertTrue($abilities['wpmcp/delete-site-part']->destructive_hint);
     }
 
     public function test_content_abilities_are_tagged_content_domain(): void

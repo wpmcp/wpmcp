@@ -57,6 +57,13 @@ class FlavorTest extends \WP_UnitTestCase
         $this->assertNotContains('wpmcp/create-custom-widget', $names);
         $this->assertNotContains('wpmcp/create-custom-block', $names);
 
+        // Theme-builder site parts (issue #70): the group is not in
+        // FLAVOR_GROUPS['woocommerce'] and build-woo-release.sh prunes
+        // src/Tools/ThemeBuilder, so the gate and the artifact stay in sync.
+        $this->assertNotContains('wpmcp/create-site-part', $names);
+        $this->assertNotContains('wpmcp/resolve-site-part', $names);
+        $this->assertNotContains('wpmcp/delete-site-part', $names);
+
         // Guarded execution: no eval()/proc_open call sites may ship at all.
         $this->assertNotContains('wpmcp/run-php-snippet', $names);
         $this->assertNotContains('wpmcp/run-wp-cli', $names);
@@ -136,6 +143,8 @@ class FlavorTest extends \WP_UnitTestCase
         $widget_reg  = ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Registry', 'register'];
         $block_cpt   = ['\\WPMCP\\Tools\\BlockBuilder\\Block_Spec_Store', 'ensure_post_type'];
         $block_reg   = ['\\WPMCP\\Tools\\BlockBuilder\\Block_Registry', 'register'];
+        $theme_cpt   = ['\\WPMCP\\Tools\\ThemeBuilder\\Template_Store', 'ensure_post_type'];
+        $theme_boot  = ['\\WPMCP\\Tools\\ThemeBuilder\\Render\\Adapters', 'boot'];
 
         // Clear what the suite bootstrap's boot() already wired so absence
         // is observable.
@@ -143,6 +152,8 @@ class FlavorTest extends \WP_UnitTestCase
         remove_action('elementor/widgets/register', $widget_reg);
         remove_action('init', $block_cpt, 5);
         remove_action('init', $block_reg, 20);
+        remove_action('init', $theme_cpt);
+        remove_action('wp', $theme_boot);
 
         Plugin::set_flavor_for_tests('woocommerce');
         Plugin::instance()->register_builder_runtime_hooks();
@@ -150,6 +161,8 @@ class FlavorTest extends \WP_UnitTestCase
         $this->assertFalse(has_action('elementor/widgets/register', $widget_reg));
         $this->assertFalse(has_action('init', $block_cpt));
         $this->assertFalse(has_action('init', $block_reg));
+        $this->assertFalse(has_action('init', $theme_cpt));
+        $this->assertFalse(has_action('wp', $theme_boot));
 
         // Default flavor restores the hooks, which also leaves global state
         // exactly as the bootstrap set it up.
@@ -159,6 +172,8 @@ class FlavorTest extends \WP_UnitTestCase
         $this->assertSame(10, has_action('elementor/widgets/register', $widget_reg));
         $this->assertSame(5, has_action('init', $block_cpt));
         $this->assertSame(20, has_action('init', $block_reg));
+        $this->assertSame(10, has_action('init', $theme_cpt));
+        $this->assertSame(10, has_action('wp', $theme_boot));
     }
 
     /** @return string[] declared ability names under the given flavor. */
