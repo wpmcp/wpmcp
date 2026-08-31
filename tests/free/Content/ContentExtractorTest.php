@@ -1,19 +1,12 @@
 <?php
 
-namespace WPMCP\Tests\Pro\Analysis;
+namespace WPMCP\Tests\Free\Content;
 
-use WPMCP\Pro\Gate;
-use WPMCP\Tools\Analysis\Content_Extractor;
+use WPMCP\Tools\Content\Content_Extractor;
 
 class ContentExtractorTest extends \WP_UnitTestCase
 {
     private array $created = [];
-
-    protected function setUp(): void
-    {
-        parent::setUp();
-        Gate::set_pro_for_tests(true);
-    }
 
     protected function tearDown(): void
     {
@@ -21,7 +14,6 @@ class ContentExtractorTest extends \WP_UnitTestCase
             wp_delete_post($id, true);
         }
         $this->created = [];
-        Gate::set_pro_for_tests(null);
         parent::tearDown();
     }
 

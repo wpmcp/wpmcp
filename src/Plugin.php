@@ -12,6 +12,7 @@ use WPMCP\Tools\Maintenance\Get_Maintenance_Status;
 use WPMCP\Tools\Maintenance\Enable_Maintenance;
 use WPMCP\Tools\Maintenance\Disable_Maintenance;
 use WPMCP\Tools\Context\Get_Site_Context;
+use WPMCP\Tools\Context\Get_Page_Snapshot;
 use WPMCP\Tools\Rest\List_Rest_Routes;
 use WPMCP\Tools\Rest\Call_Rest;
 use WPMCP\Tools\Blocks\List_Block_Types;
@@ -2865,8 +2866,9 @@ final class Plugin
     }
 
     /**
-     * Register the site-context orientation tool as a free-tier ability
-     * (parity gap tracked in issue #19).
+     * Register the free-tier orientation reads: get-site-context (the site
+     * level, parity gap tracked in issue #19) and get-page-snapshot (the page
+     * level, issue #81).
      *
      * Gated at edit_posts, a low bar reflecting that this is orientation
      * data for an agent (site identity, versions, theme, content model,
@@ -2887,6 +2889,42 @@ final class Plugin
                 'properties' => [],
             ],
             [$get_site_context, 'handle'],
+            'edit_posts',
+            'context',
+            'read'
+        ));
+
+        // get-page-snapshot (issue #81): the page-level counterpart, and a
+        // FREE ability, which is why it is registered here rather than with
+        // the pro analysis suite. The wp.org build deletes src/Tools/Analysis
+        // and register_analysis_abilities whole, so a free tool registered
+        // there would vanish from the only build free users install;
+        // tests/free/Platform/WporgFreeSurfaceTest.php gates that. Its pro
+        // overlay sections attach via the wpmcp_page_snapshot_sections
+        // filter, so this build renders it without any pro code present.
+        $get_page_snapshot = new Get_Page_Snapshot();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-page-snapshot',
+            'free',
+            'One-call normalized page digest for a post: structure summary with counts, content outline in document order, media and link inventory, builder detection (elementor/bricks/divi/gutenberg/classic), and SEO-lite signals. Content is read from stored post_content, so for Elementor/Bricks/Divi pages the content_coverage block reports which sections could not be measured rather than returning misleading zeros. Heavy sections (global_tokens, responsive_overrides) are excluded by default and opt-in via the sections param. Response size is bounded by item, string, and byte caps. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'  => [ 'type' => 'integer' ],
+                    'sections' => [
+                        // Deliberately not an enum: the built-in heavy
+                        // sections are global_tokens and responsive_overrides,
+                        // but unknown names are passed through to the
+                        // wpmcp_page_snapshot_sections filter so a pro overlay
+                        // can have its own opt-in section name.
+                        'type'  => 'array',
+                        'items' => [ 'type' => 'string' ],
+                    ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$get_page_snapshot, 'handle'],
             'edit_posts',
             'context',
             'read'
