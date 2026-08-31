@@ -27,6 +27,13 @@ class MetFormIntegrationTest extends \WP_UnitTestCase
         register_post_type('metform-entry', [ 'public' => true, 'label' => 'Entries' ]);
         $this->integration = new MetForm_Integration();
 
+        // Issue #66: delete-entry is default-off for every forms adapter, so
+        // the deletion tests below opt in the way a site would. The
+        // off-by-default contract itself is asserted in
+        // test_delete_entry_is_off_by_default and in the shared conformance
+        // suite; WP_UnitTestCase restores hooks between tests.
+        add_filter('wpmcp_integration_op_enabled', static fn ($enabled, $integration, $op) => ('metform' === $integration && 'delete-entry' === $op) ? true : $enabled, 10, 3);
+
         $this->form_id = self::factory()->post->create([
             'post_type'  => 'metform-form',
             'post_title' => 'Signup',
@@ -287,5 +294,27 @@ class MetFormIntegrationTest extends \WP_UnitTestCase
         );
         $this->assertTrue($ops['delete-entry']['requires_confirm']);
         $this->assertSame('manage_options', $ops['delete-entry']['capability']);
+    }
+
+    public function test_delete_entry_is_off_by_default(): void
+    {
+        remove_all_filters('wpmcp_integration_op_enabled');
+
+        $ops = array_column($this->integration->catalog()['operations'], null, 'name');
+        $this->assertFalse($ops['delete-entry']['enabled'], 'Issue #66: entry deletion ships off');
+
+        $out = $this->integration->handle_write([
+            'operation' => 'delete-entry',
+            'args'      => $this->delete_entry_args(),
+            'confirm'   => true,
+        ]);
+
+        $this->assertSame('operation_disabled', $out['error']['code']);
+    }
+
+    /** @return array<string, int> the args a valid delete-entry call takes here. */
+    private function delete_entry_args(): array
+    {
+        return [ 'entry_id' => $this->entry_id ];
     }
 }

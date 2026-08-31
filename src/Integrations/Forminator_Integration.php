@@ -204,9 +204,13 @@ class Forminator_Integration extends Integration_Dispatcher
                 },
             ],
             'delete-entry' => [
-                'mode'         => 'destructive',
-                'capability'   => 'manage_options',
-                'description'  => 'Permanently delete one Forminator submission via Forminator_API::delete_entry. Requires confirm:true. NOT reversible: Forminator entries live in Forminator\'s own tables, which WP MCP cannot snapshot, so the response carries recoverable:false and rollback-operation cannot bring the submission back',
+                'mode'               => 'destructive',
+                // Issue #66: entry deletion is off by default across every
+                // forms adapter. A site opts in with the
+                // wpmcp_integration_op_enabled filter.
+                'enabled_by_default' => false,
+                'capability'         => 'manage_options',
+                'description'  => 'Permanently delete one Forminator submission via Forminator_API::delete_entry. Default-off (opt in via the wpmcp_integration_op_enabled filter); requires confirm:true. NOT reversible: Forminator entries live in Forminator\'s own tables, which WP MCP cannot snapshot, so the response carries recoverable:false and rollback-operation cannot bring the submission back',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
