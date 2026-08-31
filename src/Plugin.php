@@ -36,6 +36,13 @@ use WPMCP\Tools\Export\Import_Content;
 use WPMCP\Tools\Analysis\Check_Contrast;
 use WPMCP\Tools\Code\Validate_Php_Snippet;
 use WPMCP\Tools\Code\Run_Php_Snippet;
+use WPMCP\Tools\Code\Create_Php_Snippet;
+use WPMCP\Tools\Code\List_Php_Snippets;
+use WPMCP\Tools\Code\Get_Php_Snippet;
+use WPMCP\Tools\Code\Update_Php_Snippet;
+use WPMCP\Tools\Code\Delete_Php_Snippet;
+use WPMCP\Tools\Code\Activate_Php_Snippet;
+use WPMCP\Tools\Code\Deactivate_Php_Snippet;
 use WPMCP\Tools\Cli\Run_Wp_Cli;
 use WPMCP\Tools\Cli\Dispatch_Cli_Job;
 use WPMCP\Tools\Cli\Get_Cli_Job;
@@ -2510,6 +2517,146 @@ final class Plugin
             'code',
             'read'
         ));
+
+        $this->register_snippet_store_abilities($registrar);
+    }
+
+    /**
+     * PHP snippet lifecycle store (issue #85): snippets as stored,
+     * inactive-by-default objects around the existing
+     * Php_Snippet_Guard/Php_Snippet_Validator surface. Everything here is
+     * free tier: it stores and reads PHP source and never executes any of
+     * it. Deactivation lives here too, deliberately ungated, so an
+     * activated snippet can always be revoked. ACTIVATION is the pro,
+     * exec-gated half and is registered in
+     * register_php_exec_abilities() instead, next to run-php-snippet whose
+     * gate chain it shares.
+     *
+     * Every write is snapshot-first via Safe_Mutation with object_type
+     * 'php_snippet', i.e. PER RECORD (Snapshot::capture_php_snippet()).
+     * Snapshotting the whole store option instead would mean rolling back
+     * one snippet's creation deleted every snippet created after it.
+     *
+     * The static validator gates create/update, but it is an advisory
+     * speed-bump, not a security boundary, and the descriptions say so:
+     * a caller holding manage_options can defeat a line-based regex
+     * denylist trivially. Capability, enablement and environment are the
+     * real gates. Gated at manage_options like the other code tools.
+     */
+    private function register_snippet_store_abilities(Registrar $registrar): void
+    {
+        $create_php_snippet   = new Create_Php_Snippet();
+        $list_php_snippets    = new List_Php_Snippets();
+        $get_php_snippet      = new Get_Php_Snippet();
+        $update_php_snippet   = new Update_Php_Snippet();
+        $delete_php_snippet     = new Delete_Php_Snippet();
+        $deactivate_php_snippet = new Deactivate_Php_Snippet();
+
+        $registrar->register(new Ability(
+            'wpmcp/create-php-snippet',
+            'free',
+            'Store a named PHP snippet as an inactive, reviewable object in the plugin\'s PHP snippet store (this is stored PHP source, NOT an Elementor custom-code post: see create-code-snippet for those). The code is statically checked first and never executed; syntax errors or critical findings block creation, but that check is an advisory speed-bump a caller who already holds manage_options can trivially evade, not a security boundary. Snippets are always created inactive; activation is a separate governed operation behind the PHP execution gate. Snapshot-first and reversible per snippet',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'name'       => [ 'type' => 'string' ],
+                    'code'       => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'name', 'code' ],
+            ],
+            [$create_php_snippet, 'handle'],
+            'manage_options',
+            'code',
+            'create'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/list-php-snippets',
+            'free',
+            'List STORED PHP SNIPPETS as summaries (id, name, status, static-check flag, timestamps) without code bodies. This is the PHP snippet store, not Elementor custom code (see list-code-snippets). Read-only, never executes anything',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$list_php_snippets, 'handle'],
+            'manage_options',
+            'code',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/get-php-snippet',
+            'free',
+            'Fetch one STORED PHP SNIPPET by id: code, status (active/inactive), and the last static-check report. This is the PHP snippet store, not Elementor custom code (see get-code-snippet). The stored report records what the checker said when the code was written; it is advisory bookkeeping, not proof the code is safe. Read-only, never executes anything',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [$get_php_snippet, 'handle'],
+            'manage_options',
+            'code',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/update-php-snippet',
+            'free',
+            'Update a stored PHP snippet\'s name and/or code. New code is re-checked statically and never executed; syntax errors or critical findings block the update, though that check is an advisory speed-bump an authorized caller can trivially evade, not a security boundary. A code change forces the snippet back to inactive pending re-activation. Snapshot-first and reversible per snippet',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'         => [ 'type' => 'string' ],
+                    'name'       => [ 'type' => 'string' ],
+                    'code'       => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [$update_php_snippet, 'handle'],
+            'manage_options',
+            'code',
+            'update'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/delete-php-snippet',
+            'free',
+            'Delete a stored PHP snippet by id (the PHP snippet store, not an Elementor custom-code post: see delete-code-snippet). Snapshot-first and reversible per snippet through the normal rollback flow, so undoing it restores this snippet without disturbing the others; never executes anything',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'         => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [$delete_php_snippet, 'handle'],
+            'manage_options',
+            'code',
+            'delete'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/deactivate-php-snippet',
+            'free',
+            'Deactivate a stored PHP snippet by id (the reverse of activate-php-snippet): marks it inactive so nothing can run it. Deliberately NOT gated on the PHP execution opt-in, so an activated snippet can always be revoked even after the execution gate is closed. Snapshot-first and reversible; never executes anything',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'         => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [$deactivate_php_snippet, 'handle'],
+            'manage_options',
+            'code',
+            'update'
+        ));
     }
 
     /**
@@ -2682,7 +2829,8 @@ final class Plugin
      */
     private function register_php_exec_abilities(Registrar $registrar): void
     {
-        $run_php_snippet = new Run_Php_Snippet();
+        $run_php_snippet      = new Run_Php_Snippet();
+        $activate_php_snippet = new Activate_Php_Snippet();
 
         $registrar->register(new Ability(
             'wpmcp/run-php-snippet',
@@ -2696,6 +2844,34 @@ final class Plugin
                 'required'   => [ 'code' ],
             ],
             [$run_php_snippet, 'handle'],
+            'manage_options',
+            'code',
+            'update'
+        ));
+
+        // activate-php-snippet (issue #85) is registered HERE, with the
+        // executor, rather than beside its free CRUD siblings, for two
+        // reasons. It is the exec gate's ability: it consumes
+        // Php_Snippet_Guard::assert_execution_allowed(), the same chain
+        // run-php-snippet clears. And every pro ability must live in a
+        // method the wp.org strip deletes wholesale
+        // (scripts/flavors/wporg/strip.php REMOVED_METHODS), or the
+        // directory build's own "no 'pro' tier in this zip" gate fails on
+        // the leftover literal. The free store CRUD stays where it is and
+        // ships in that build; the activation surface does not.
+        $registrar->register(new Ability(
+            'wpmcp/activate-php-snippet',
+            'pro',
+            'Activate a STORED PHP SNIPPET by id (the wpmcp/*-php-snippet store, not Elementor custom code). Distinct governed operation: snippets are always created inactive. Refuses unless PHP snippet execution is explicitly enabled (WPMCP_ALLOW_PHP_EXEC constant or wpmcp_allow_php_exec filter, default off) and the environment permits it, the same gate chain run-php-snippet clears. The stored code is re-checked by the static validator first, but that check is an advisory speed-bump an authorized caller can trivially evade, not a security boundary: capability, enablement and environment are the real gates. Activation only flips the status flag and never executes the snippet. Every attempt, allowed or refused, is written to the governance audit trail. Snapshot-first and reversible',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'         => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [$activate_php_snippet, 'handle'],
             'manage_options',
             'code',
             'update'

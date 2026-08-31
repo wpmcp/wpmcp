@@ -105,17 +105,10 @@ class Run_Php_Snippet
      */
     private function guard(string $code): void
     {
-        if (! Php_Snippet_Guard::is_enabled()) {
-            throw new \RuntimeException(
-                'PHP execution is disabled. Enable it with the WPMCP_ALLOW_PHP_EXEC constant or the wpmcp_allow_php_exec filter. This grants remote code execution to any manage_options caller; only enable it on a development or staging environment you control.'
-            );
-        }
-
-        if (! Php_Snippet_Guard::is_allowed_on_environment()) {
-            throw new \RuntimeException(
-                'PHP execution is refused on this environment. Production and any unrecognized/unknown environment are refused by default (fail closed); set WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION or the wpmcp_allow_php_exec_on_production filter to override.'
-            );
-        }
+        // Enablement + environment live in Php_Snippet_Guard as one shared
+        // assertion so activate-php-snippet (issue #85) cannot drift away
+        // from this chain; see Php_Snippet_Guard::assert_execution_allowed().
+        Php_Snippet_Guard::assert_execution_allowed();
 
         $validation = Php_Snippet_Validator::validate($code);
         if (! $validation['safe']) {

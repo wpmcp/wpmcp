@@ -40,6 +40,15 @@ class Option_Guard
         'nonce_salt',
         'secure_auth_key',
         'secure_auth_salt',
+        // The stored PHP snippet corpus (issue #85). Its 'status' and
+        // 'validation' fields are the bookkeeping the activation flow
+        // writes, and update-option / get-option are not the right door to
+        // either: rewriting them would let a caller blank a validation
+        // report or flip a snippet to active outside Php_Snippet_Guard, and
+        // reading them back through the generic option reader dumps PHP
+        // source into a tool response that never expected it. The snippet
+        // tools are the only supported way in.
+        'wpmcp_php_snippets',
     ];
 
     /** Substrings (case-insensitive) that mark an option name as sensitive. */
