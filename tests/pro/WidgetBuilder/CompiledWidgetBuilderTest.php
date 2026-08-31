@@ -785,6 +785,45 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
         }
     }
 
+    // ---- spec create/update/delete are operations in history ---------------
+
+    public function test_spec_update_status_and_delete_are_operations_in_history(): void
+    {
+        $id = $this->create();
+
+        $spec             = $this->valid_spec();
+        $spec['template'] = '<section>{{heading}} v2</section>';
+        $updated          = (new \WPMCP\Tools\WidgetBuilder\Update_Custom_Widget())->handle(['widget_id' => $id, 'spec' => $spec]);
+        $this->assertNotEmpty($updated['operation_id'], 'update-custom-widget must be undoable');
+
+        $status = (new Set_Widget_Status())->handle(['widget_id' => $id, 'status' => 'draft']);
+        $this->assertNotEmpty($status['operation_id'], 'set-widget-status must be undoable');
+
+        $deleted = (new Delete_Custom_Widget())->handle(['widget_id' => $id]);
+        $this->assertNotEmpty($deleted['operation_id'], 'delete-custom-widget must be undoable');
+        $this->assertNotSame($updated['operation_id'], $deleted['operation_id']);
+    }
+
+    /** Undoing an update must put the previous spec back on the post. */
+    public function test_undoing_a_spec_update_restores_the_previous_spec(): void
+    {
+        $id       = $this->create();
+        $original = \WPMCP\Tools\WidgetBuilder\Widget_Spec_Store::get($id);
+
+        $spec             = $this->valid_spec();
+        $spec['template'] = '<section>{{heading}} v2</section>';
+        $out              = (new \WPMCP\Tools\WidgetBuilder\Update_Custom_Widget())->handle(['widget_id' => $id, 'spec' => $spec]);
+
+        $row = \WPMCP\Safety\Snapshot_Store::get_by_operation($out['operation_id']);
+        $this->assertIsArray($row, 'the update must have left a snapshot to restore from');
+
+        \WPMCP\Safety\Rollback_Service::apply_snapshot($row['snapshot']);
+        $this->assertSame(
+            $original['template'],
+            \WPMCP\Tools\WidgetBuilder\Widget_Spec_Store::get($id)['template']
+        );
+    }
+
     private function all_control_types_spec(): array
     {
         $controls = [];

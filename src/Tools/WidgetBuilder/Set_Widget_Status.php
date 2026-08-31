@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\WidgetBuilder;
 
+use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Tools\WidgetBuilder\Compiler\Compile_Custom_Widget;
 use WPMCP\Tools\WidgetBuilder\Compiler\Compiled_Widget_Manifest;
 
@@ -37,7 +38,18 @@ class Set_Widget_Status
         }
 
         $status = 'draft' === ($args['status'] ?? '') ? 'draft' : 'publish';
-        wp_update_post(['ID' => $id, 'post_status' => $status]);
+        $run    = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'set-widget-status',
+                'args'        => $args,
+            ],
+            static function () use ($id, $status): void {
+                wp_update_post(['ID' => $id, 'post_status' => $status]);
+            }
+        );
 
         $enable   = 'publish' === $status;
         $compiled = null;
@@ -57,7 +69,12 @@ class Set_Widget_Status
             $compiled = $enable;
         }
 
-        $out = ['widget_id' => $id, 'status' => $status, 'compiled_enabled' => $compiled];
+        $out = [
+            'widget_id'        => $id,
+            'status'           => $status,
+            'compiled_enabled' => $compiled,
+            'operation_id'     => $run['operation_id'],
+        ];
         if (null !== $note) {
             $out['note'] = $note;
         }
