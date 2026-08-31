@@ -31,7 +31,9 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
         Gate::set_pro_for_tests(true);
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
 
-        $this->sandbox = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-widget-sandbox-' . wp_generate_password(8, false);
+        // Inside wp-content on purpose: sandbox_dir() confines the filter, so
+        // a value outside the install is ignored (see the test for it below).
+        $this->sandbox = rtrim(WP_CONTENT_DIR, '/') . '/wpmcp-widget-sandbox-' . wp_generate_password(8, false);
         add_filter('wpmcp_compiled_widgets_dir', function () {
             return $this->sandbox;
         });
@@ -110,6 +112,17 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
             'dynamic method'        => ['dynamic method', '<?php $m = "run"; $o->$m();'],
             'dynamic static'        => ['dynamic static', '<?php $m = "run"; Foo::$m();'],
             'dynamic new'           => ['dynamic new', '<?php $c = "Foo"; $o = new $c();'],
+            // STATIC / METHOD / new dispatch with a LITERAL callee. The
+            // dangerous name is a plain identifier here, but it sits after
+            // `::`, `->` or `new`, so a lint that treats those operators as
+            // "not a call" never looks at it at all.
+            'static call'           => ['static call', '<?php Evil::system("id");'],
+            'nullsafe method call'  => ['nullsafe method call', '<?php $o?->system("id");'],
+            'method call'           => ['method call', '<?php $o->system("id");'],
+            'literal new'           => ['literal new', '<?php $o = new Evil("id");'],
+            'new on $this method'   => ['new on $this method', '<?php class X { function f() { return new Evil(); } }'],
+            'this method not in allowlist' => ['this method not in allowlist', '<?php class X { function f() { $this->system("id"); } }'],
+            'foreign static const'  => ['foreign static const', '<?php echo Evil::NAME;'],
             // String-callable dispatch: "system" is only ever a string literal.
             'array_map callable'    => ['array_map callable', '<?php array_map("system", $x);'],
             'add_action callable'   => ['add_action callable', '<?php add_action("init", "system");'],
@@ -183,7 +196,9 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
         $source = Widget_Compiler::compile($this->valid_spec(), 7);
         $this->assertIsString($source);
 
-        $this->assertStringContainsString("echo esc_html((string) (\$settings['heading'] ?? ''));", $source);
+        // The fallback is the control's declared default, exactly as
+        // Widget_Renderer does it, so the two render paths cannot diverge.
+        $this->assertStringContainsString("echo esc_html((string) (\$settings['heading'] ?? 'Hi'));", $source);
         $this->assertStringContainsString("echo wp_kses_post((string) (\$settings['body'] ?? ''));", $source);
         $this->assertStringContainsString("echo esc_url((string) (\$settings['link'] ?? ''));", $source);
         // No echo of a setting anywhere without an escaper around it.
@@ -467,8 +482,317 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
         (new Set_Widget_Status())->handle(['widget_id' => $id, 'status' => 'publish']);
         $this->assertTrue(Compiled_Widget_Manifest::get($id)['enabled']);
 
+        // Trashing the spec stops the class loading through POST STATUS, and
+        // deliberately leaves the manifest flag alone: that is what makes the
+        // generic restore-post ability a complete undo rather than a restore
+        // that silently drops the widget onto the dynamic render path.
         (new Delete_Custom_Widget())->handle(['widget_id' => $id]);
-        $this->assertFalse(Compiled_Widget_Manifest::get($id)['enabled'], 'deleting the spec disables the class');
+        $this->assertSame([], Compiled_Widget_Manifest::load_enabled(), 'a trashed spec must not load its class');
+        $this->assertTrue(Compiled_Widget_Manifest::get($id)['enabled'], 'the entry is kept enabled so restore-post is a complete undo');
+
+        wp_untrash_post($id);
+        wp_update_post(['ID' => $id, 'post_status' => 'publish']);
+        $this->assertArrayHasKey($id, Compiled_Widget_Manifest::load_enabled(), 'restoring the spec brings the compiled class back');
+    }
+
+    // ---- the execution gate -------------------------------------------------
+
+    /**
+     * The gate that matters. Gating only the WRITE would mean a widget
+     * compiled while the feature was on keeps being require()'d on every
+     * editor and front-end render after the site turns the opt-in back off,
+     * which makes "PRO-only and default-off" false for the execution site.
+     */
+    public function test_compiled_php_stops_executing_when_the_opt_in_is_turned_off(): void
+    {
+        $id  = $this->create();
+        $out = (new Compile_Custom_Widget())->handle(['widget_id' => $id]);
+        $this->assertIsArray($out, is_wp_error($out) ? $out->get_error_message() : '');
+        $this->assertArrayHasKey($id, Compiled_Widget_Manifest::load_enabled());
+
+        remove_filter('wpmcp_enable_widget_compiler', '__return_true');
+
+        $this->assertFalse(Compiled_Widget_Manifest::execution_allowed());
+        $this->assertSame([], Compiled_Widget_Manifest::load_enabled(), 'the opt-in gates the require, not just the write');
+        // The artifacts are untouched; only execution stopped.
+        $this->assertFileExists(Compiled_Widget_Manifest::path_for($out['file']));
+        $this->assertTrue(Compiled_Widget_Manifest::get($id)['enabled']);
+    }
+
+    public function test_compiled_php_stops_executing_when_pro_lapses(): void
+    {
+        $id  = $this->create();
+        $out = (new Compile_Custom_Widget())->handle(['widget_id' => $id]);
+        $this->assertIsArray($out);
+
+        Gate::set_pro_for_tests(false);
+        $this->assertFalse(Compiled_Widget_Manifest::execution_allowed());
+        $this->assertSame([], Compiled_Widget_Manifest::load_enabled(), 'a lapsed licence must stop the require');
+    }
+
+    public function test_pro_gate_blocks_the_compile_tool(): void
+    {
+        $id = $this->create();
+        Gate::set_pro_for_tests(false);
+
+        $this->expectException(\RuntimeException::class);
+        (new Compile_Custom_Widget())->handle(['widget_id' => $id]);
+    }
+
+    public function test_disallow_file_edit_blocks_the_compile_tool(): void
+    {
+        $id = $this->create();
+        add_filter('wpmcp_disallow_file_edit_for_tests', '__return_true');
+        $blocked = \WPMCP\Tools\Filesystem\Filesystem_Guard::check_writes(true, true);
+        remove_filter('wpmcp_disallow_file_edit_for_tests', '__return_true');
+        $this->assertInstanceOf(\WP_Error::class, $blocked);
+
+        // Route it through the handler with the capability removed, which is
+        // the same gate Filesystem_Guard::writes_allowed() enforces.
+        wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
+        $out = (new Compile_Custom_Widget())->handle(['widget_id' => $id]);
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame([], Compiled_Widget_Manifest::read(), 'a blocked compile writes no manifest entry');
+        $this->assertFalse(is_file(Compiled_Widget_Manifest::path_for(Widget_Compiler::file_name_for($id))));
+    }
+
+    // ---- sandbox confinement ------------------------------------------------
+
+    public function test_sandbox_dir_ignores_a_filter_pointing_outside_wp_content(): void
+    {
+        remove_all_filters('wpmcp_compiled_widgets_dir');
+        add_filter('wpmcp_compiled_widgets_dir', static function () {
+            return rtrim(sys_get_temp_dir(), '/') . '/wpmcp-escape-attempt';
+        });
+
+        $this->assertSame(
+            trailingslashit(WP_CONTENT_DIR) . Compiled_Widget_Manifest::DIR_NAME,
+            Compiled_Widget_Manifest::sandbox_dir(),
+            'a filter must not be able to relocate generated PHP outside the install'
+        );
+    }
+
+    // ---- the allowlist may not drift wider than the emitter -----------------
+
+    public function test_allowed_calls_is_not_wider_than_what_the_emitter_produces(): void
+    {
+        $spec = $this->all_control_types_spec();
+        $id   = $this->create($spec);
+
+        $source = Widget_Compiler::compile(Widget_Spec::normalize($spec), $id);
+        $this->assertIsString($source, is_wp_error($source) ? $source->get_error_message() : '');
+
+        foreach (Generated_Code_Lint::ALLOWED_CALLS as $fn) {
+            $this->assertStringContainsString(
+                $fn . '(',
+                $source,
+                "{$fn}() is in the allowlist but the emitter never produces it; the allowlist has drifted wider than the emitter"
+            );
+        }
+        foreach (Generated_Code_Lint::ALLOWED_METHODS as $method) {
+            $this->assertStringContainsString('$this->' . $method . '(', $source);
+        }
+    }
+
+    // ---- the two forms of one spec must not diverge -------------------------
+
+    /**
+     * The compiled render used $settings[$key] ?? '' while Widget_Renderer
+     * falls back to the control's declared default, so a widget rendered
+     * before anything was saved came out empty compiled and defaulted
+     * dynamically. Same spec, same output, both ways.
+     */
+    public function test_compiled_render_matches_the_dynamic_renderer_when_settings_are_missing(): void
+    {
+        $spec = [
+            'name'     => 'defaults-box',
+            'title'    => 'Defaults Box',
+            'controls' => [
+                ['name' => 'heading', 'type' => 'text', 'label' => 'Heading', 'default' => 'Hello & welcome'],
+                ['name' => 'link', 'type' => 'url', 'label' => 'Link', 'default' => 'https://example.test/a b'],
+            ],
+            'template' => '<h2>{{heading}}</h2><a href="{{link}}">go</a>',
+        ];
+        $id     = $this->create($spec);
+        $source = Widget_Compiler::compile(Widget_Spec::normalize($spec), $id);
+        $this->assertIsString($source);
+
+        foreach ($spec['controls'] as $control) {
+            $this->assertStringContainsString(
+                var_export($control['default'], true),
+                $source,
+                'the control default must be the fallback in the emitted render, as it is in Widget_Renderer'
+            );
+        }
+
+        $dynamic = \WPMCP\Tools\WidgetBuilder\Widget_Renderer::render(Widget_Spec::normalize($spec), []);
+        $this->assertStringContainsString(esc_html('Hello & welcome'), $dynamic);
+        $this->assertStringContainsString(esc_html('Hello & welcome'), $this->render_compiled($source, $id));
+        $this->assertSame($dynamic, $this->render_compiled($source, $id));
+    }
+
+    /**
+     * Evaluate the emitted render body in isolation (no Elementor), which is
+     * the only way to compare the two render paths byte for byte.
+     */
+    private function render_compiled(string $source, int $id): string
+    {
+        $start = strpos($source, 'protected function render()');
+        $this->assertNotFalse($start);
+        $body = substr($source, (int) strpos($source, '{', $start) + 1);
+        $body = substr($body, 0, (int) strrpos($body, '}'));
+        $body = substr($body, 0, (int) strrpos($body, '}'));
+        $body = str_replace('$this->get_settings_for_display()', '[]', $body);
+
+        ob_start();
+        eval($body);
+        return (string) ob_get_clean();
+    }
+
+    // ---- undo restores the widget, not just the manifest row ----------------
+
+    public function test_capture_and_restore_put_back_bytes_and_hash_together(): void
+    {
+        $id  = $this->create();
+        $out = (new Compile_Custom_Widget())->handle(['widget_id' => $id]);
+        $this->assertIsArray($out);
+
+        $path     = Compiled_Widget_Manifest::path_for($out['file']);
+        $original = (string) file_get_contents($path);
+        $snapshot = Compiled_Widget_Manifest::capture($id, $out['file']);
+
+        // Simulate a recompile: new bytes on disk, new hash in the manifest.
+        file_put_contents($path, "<?php\n// a later compile\n");
+        $entry         = Compiled_Widget_Manifest::get($id);
+        $entry['hash'] = hash('sha256', (string) file_get_contents($path));
+        $this->assertTrue(Compiled_Widget_Manifest::put($entry));
+
+        Compiled_Widget_Manifest::restore($snapshot);
+
+        $this->assertSame($original, (string) file_get_contents($path), 'undo must restore the FILE, not only the option');
+        $this->assertSame($out['hash'], Compiled_Widget_Manifest::get($id)['hash']);
+        $this->assertArrayHasKey($id, Compiled_Widget_Manifest::load_enabled(), 'a restored widget must actually load again');
+    }
+
+    public function test_restore_touches_only_its_own_widget(): void
+    {
+        $a = $this->create();
+        $this->assertIsArray((new Compile_Custom_Widget())->handle(['widget_id' => $a]));
+        $snapshot = Compiled_Widget_Manifest::capture($a, Widget_Compiler::file_name_for($a));
+
+        $other         = $this->valid_spec();
+        $other['name'] = 'second-box';
+        $b             = $this->create($other);
+        $this->assertIsArray((new Compile_Custom_Widget())->handle(['widget_id' => $b]));
+
+        Compiled_Widget_Manifest::restore($snapshot);
+
+        $this->assertNotNull(Compiled_Widget_Manifest::get($b), 'undoing compile A must not revert compile B');
+        $this->assertArrayHasKey($b, Compiled_Widget_Manifest::load_enabled());
+    }
+
+    public function test_a_first_compile_undoes_to_no_file_and_no_entry(): void
+    {
+        $id       = $this->create();
+        $file     = Widget_Compiler::file_name_for($id);
+        $snapshot = Compiled_Widget_Manifest::capture($id, $file);
+        $this->assertNull($snapshot['entry']);
+        $this->assertNull($snapshot['bytes']);
+
+        $this->assertIsArray((new Compile_Custom_Widget())->handle(['widget_id' => $id]));
+        Compiled_Widget_Manifest::restore($snapshot);
+
+        $this->assertNull(Compiled_Widget_Manifest::get($id));
+        $this->assertFalse(is_file(Compiled_Widget_Manifest::path_for($file)));
+    }
+
+    // ---- the spec store is the source of truth ------------------------------
+
+    public function test_updating_a_spec_disables_its_stale_compiled_class(): void
+    {
+        $id  = $this->create();
+        $this->assertIsArray((new Compile_Custom_Widget())->handle(['widget_id' => $id]));
+
+        $spec             = $this->valid_spec();
+        $spec['template'] = '<section>{{heading}} v2</section>';
+        $out              = (new \WPMCP\Tools\WidgetBuilder\Update_Custom_Widget())->handle(['widget_id' => $id, 'spec' => $spec]);
+
+        $this->assertTrue($out['compiled_disabled'], 'an accepted update must not silently keep rendering the old template');
         $this->assertSame([], Compiled_Widget_Manifest::load_enabled());
+    }
+
+    public function test_read_tools_surface_compiled_and_stale_state(): void
+    {
+        $id = $this->create();
+        $this->assertFalse((new \WPMCP\Tools\WidgetBuilder\Get_Custom_Widget())->handle(['widget_id' => $id])['compiled']['compiled']);
+
+        $this->assertIsArray((new Compile_Custom_Widget())->handle(['widget_id' => $id]));
+        $fresh = (new \WPMCP\Tools\WidgetBuilder\Get_Custom_Widget())->handle(['widget_id' => $id])['compiled'];
+        $this->assertTrue($fresh['compiled']);
+        $this->assertTrue($fresh['loading']);
+        $this->assertFalse($fresh['stale'], 'a freshly compiled widget is not stale');
+
+        // Change the spec directly (bypassing the tool that disables the
+        // class) so the compiled class really is stale AND still winning.
+        $spec             = $this->valid_spec();
+        $spec['template'] = '<section>{{heading}} v2</section>';
+        \WPMCP\Tools\WidgetBuilder\Widget_Spec_Store::update($id, $spec);
+
+        $stale = (new \WPMCP\Tools\WidgetBuilder\Get_Custom_Widget())->handle(['widget_id' => $id])['compiled'];
+        $this->assertTrue($stale['stale'], 'the stale compiled class is what actually renders; a read tool must say so');
+
+        $listed = (new \WPMCP\Tools\WidgetBuilder\List_Custom_Widgets())->handle([]);
+        $this->assertTrue($listed['widgets'][0]['compiled']['compiled']);
+    }
+
+    // ---- retention ----------------------------------------------------------
+
+    public function test_permanently_deleting_a_spec_purges_the_generated_file(): void
+    {
+        $id  = $this->create();
+        $out = (new Compile_Custom_Widget())->handle(['widget_id' => $id]);
+        $this->assertIsArray($out);
+        $path = Compiled_Widget_Manifest::path_for($out['file']);
+        $this->assertFileExists($path);
+
+        \WPMCP\Tools\WidgetBuilder\Widget_Registry::purge_on_delete($id);
+
+        $this->assertNull(Compiled_Widget_Manifest::get($id), 'a permanently deleted spec leaves no manifest entry');
+        $this->assertFalse(is_file($path), 'a permanently deleted spec leaves no generated PHP behind');
+    }
+
+    // ---- manifest hardening -------------------------------------------------
+
+    public function test_manifest_rejects_a_class_name_not_tied_to_its_own_spec_id(): void
+    {
+        $entry          = $this->entry(41);
+        $entry['class'] = 'WPMCP_Compiled_Widget_99_Promo_Box';
+        $this->assertNull(Compiled_Widget_Manifest::validate_entry(41, $entry), 'a class bound to another spec id is not this entry');
+
+        $entry['class'] = 'WP_User';
+        $this->assertNull(Compiled_Widget_Manifest::validate_entry(41, $entry), 'a bare identifier could bind a spec to any declared class');
+    }
+
+    public function test_control_types_report_compilable_from_the_table(): void
+    {
+        $out = (new \WPMCP\Tools\WidgetBuilder\List_Control_Types())->handle([]);
+        foreach ($out['control_types'] as $row) {
+            $this->assertSame(
+                in_array($row['escaper'], Generated_Code_Lint::ALLOWED_CALLS, true),
+                $row['compilable'],
+                "compilable for {$row['type']} must be derived, not hardcoded"
+            );
+        }
+    }
+
+    private function all_control_types_spec(): array
+    {
+        $controls = [];
+        $template = '';
+        foreach (array_keys(Widget_Spec::CONTROL_TYPES) as $type) {
+            $controls[] = ['name' => $type . '_field', 'type' => $type, 'label' => ucfirst($type), 'default' => 'd'];
+            $template  .= '<span>{{' . $type . '_field}}</span>';
+        }
+        return ['name' => 'every-type', 'title' => 'Every Type', 'controls' => $controls, 'template' => $template];
     }
 }

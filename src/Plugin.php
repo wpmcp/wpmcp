@@ -385,6 +385,8 @@ final class Plugin
         if ($this->group_enabled('widget_builder')) {
             add_action('init', ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Spec_Store', 'ensure_post_type']);
             add_action('elementor/widgets/register', ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Registry', 'register']);
+            // A permanently deleted spec must not leave generated PHP behind.
+            add_action('before_delete_post', ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Registry', 'purge_on_delete'], 10, 2);
         }
         // Data-driven custom Gutenberg block builder: register the wpmcp_block
         // CPT and register active specs as real blocks via register_block_type.

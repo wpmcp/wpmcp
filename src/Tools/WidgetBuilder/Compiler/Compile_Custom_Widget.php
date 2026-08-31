@@ -28,9 +28,14 @@ if (! defined('ABSPATH')) {
  * The write itself is lint-then-write-then-record: Generated_Code_Lint must
  * pass before a byte reaches disk, the file is written to a temp name and
  * renamed into place so a half-written file is never loadable, and the
- * manifest entry (hash + class + enabled) is recorded through Safe_Mutation so
- * the compile is an operation in history and the previous manifest state is
- * restorable.
+ * manifest entry (hash + class + enabled) is recorded through Safe_Mutation,
+ * with the previous entry and the previous file bytes attached to the
+ * snapshot, so the compile is an operation in history and undoing it restores
+ * the previous widget (not merely the previous manifest row).
+ *
+ * Gates 1 and 2 also guard the EXECUTION site, not just this write: see
+ * Compiled_Widget_Manifest::execution_allowed(). Turning the opt-in filter off
+ * makes already-compiled files inert.
  */
 class Compile_Custom_Widget
 {
@@ -102,6 +107,14 @@ class Compile_Custom_Widget
             return new \WP_Error('wpmcp_widget_sandbox_unwritable', 'Refusing to write a compiled widget through a symlink.');
         }
 
+        // Capture the entry AND the bytes it vouches for BEFORE the rename
+        // overwrites them. A recompile replaces widget-<id>.php in place, so
+        // without this the previous good file is simply gone: an undo would
+        // restore the old hash against the new bytes (widget silently inert),
+        // and the failure path below would delete a file the surviving
+        // manifest entry still points at.
+        $previous = Compiled_Widget_Manifest::capture($widget_id, $file);
+
         $written = self::write_atomic($path, $source);
         if (is_wp_error($written)) {
             return $written;
@@ -120,11 +133,15 @@ class Compile_Custom_Widget
         $recorded = null;
         $out      = Safe_Mutation::run(
             [
-                'object_type' => 'option',
-                'object_id'   => Compiled_Widget_Manifest::OPTION,
-                'session_id'  => 'default',
-                'tool_name'   => 'compile-custom-widget',
-                'args'        => ['widget_id' => $widget_id],
+                'object_type'         => 'option',
+                'object_id'           => Compiled_Widget_Manifest::OPTION,
+                'session_id'          => 'default',
+                'tool_name'           => 'compile-custom-widget',
+                'args'                => ['widget_id' => $widget_id],
+                // Undo this compile only, bytes and hash together. Restoring
+                // the whole option would also revert every other widget
+                // compiled since the snapshot.
+                'extra_snapshot_data' => ['compiled_widget' => $previous],
             ],
             static function () use ($entry, &$recorded): void {
                 $recorded = Compiled_Widget_Manifest::put($entry);
@@ -132,7 +149,10 @@ class Compile_Custom_Widget
         );
 
         if (is_wp_error($recorded)) {
-            @unlink($path);
+            // Put back exactly what was there. Unlinking unconditionally
+            // would destroy a working compiled widget whose manifest entry
+            // survived this failed recompile.
+            Compiled_Widget_Manifest::restore($previous);
             return $recorded;
         }
 
@@ -152,8 +172,12 @@ class Compile_Custom_Widget
 
     /**
      * Write via a temp file plus rename, so the loader never sees a
-     * half-written class and an interrupted compile leaves the previous file
-     * (which still matches the previous manifest hash) intact.
+     * half-written class: a compile interrupted BEFORE the rename leaves the
+     * previous file, which still matches the previous manifest hash, intact.
+     *
+     * After the rename the previous bytes are gone, so crash-safety past that
+     * point is not the rename's doing: it comes from the capture the caller
+     * takes first, which both the failure path and the undo restore from.
      *
      * @return true|\WP_Error
      */

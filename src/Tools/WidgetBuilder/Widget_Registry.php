@@ -15,10 +15,13 @@ if (! defined('ABSPATH')) {
  *
  * A spec that has been compiled (issue #72, PRO and opt-in) is registered from
  * its generated class instead, loaded by Compiled_Widget_Manifest only when the
- * file's hash still matches the manifest option. Compilation adds a third
- * execution site to the plugin (a require of plugin-generated PHP from a
- * protected wp-content sandbox); it is never reached unless a site turns the
- * compiler on, and the AI still never authors PHP. See docs/wip/issue-72.md.
+ * spec post is still published AND the file's hash still matches the manifest
+ * option. Compilation adds a third execution site to the plugin (a require of
+ * plugin-generated PHP from a protected wp-content sandbox). That site is
+ * gated at the point of execution, not only at the point of writing: with the
+ * wpmcp_enable_widget_compiler opt-in off, or without PRO,
+ * Compiled_Widget_Manifest::load_enabled() returns nothing and every generated
+ * file is inert. The AI still never authors PHP. See docs/wip/issue-72.md.
  */
 class Widget_Registry
 {
@@ -59,6 +62,23 @@ class Widget_Registry
             $widget->set_spec($spec);
             $widgets_manager->register($widget);
         }
+    }
+
+    /**
+     * Permanently deleting a spec purges its compiled artifacts.
+     *
+     * Trashing is reversible so it only stops the class loading (post status);
+     * a permanent delete is not, so leaving widget-<id>.php on disk with a
+     * manifest entry nothing will ever load again is just accumulation. Hooked
+     * on before_delete_post so it runs while the post type is still readable.
+     */
+    public static function purge_on_delete($post_id, $post = null): void
+    {
+        $post_id = (int) $post_id;
+        if (Widget_Spec_Store::POST_TYPE !== get_post_type($post_id)) {
+            return;
+        }
+        Compiler\Compiled_Widget_Manifest::purge($post_id);
     }
 
     /** Resolve an active spec by its machine name (used when Elementor rebuilds a widget). */

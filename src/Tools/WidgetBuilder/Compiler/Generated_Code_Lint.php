@@ -31,8 +31,15 @@ if (! defined('ABSPATH')) {
  *     ($o->$m(), C::$$m), dynamic instantiation (new $c), and complex string
  *     interpolation.
  *  3. Every call-position identifier - plain, qualified or fully qualified -
- *     must be in ALLOWED_CALLS. Method and static calls on $this / self /
- *     parent are the Elementor widget API and are allowed by shape.
+ *     must be in ALLOWED_CALLS.
+ *  4. Calls that are not free-function calls are allowlisted too, by RECEIVER
+ *     as well as by name: `->` and `?->` are accepted only on a literal $this
+ *     receiver, `::` only on self / static / parent, and the method named must
+ *     be in ALLOWED_METHODS. `new` is rejected outright, because the emitter
+ *     never instantiates anything. Checking only the shape of the operator and
+ *     not the receiver would let `Evil::system('id')`, `$o->system('id')` and
+ *     `new Evil('id')` through, which is the same string-callable-dispatch
+ *     family layer 3 exists to close.
  */
 class Generated_Code_Lint
 {
@@ -41,16 +48,30 @@ class Generated_Code_Lint
      * Everything the emitter produces is here; anything else is a bug.
      */
     public const ALLOWED_CALLS = [
-        // Output escaping, straight from Widget_Spec::CONTROL_TYPES.
-        'esc_html', 'esc_attr', 'esc_url', 'esc_textarea', 'wp_kses_post',
-        // Coercion and the guards the file preamble / render body use.
-        'floatval', 'is_array', 'defined', 'class_exists', 'function_exists',
+        // Every distinct escaper in Widget_Spec::CONTROL_TYPES, and nothing
+        // else: an allowlist wider than the emitter's actual output is the
+        // failure mode this class's whole argument is against, so the suite
+        // asserts this list against what compiling really emits.
+        'esc_html', 'esc_attr', 'esc_url', 'wp_kses_post',
+        // The guards the file preamble and the render body use.
+        'is_array', 'defined', 'class_exists',
     ];
+
+    /**
+     * The complete set of methods generated code may call, and only ever on
+     * $this: the four Elementor Widget_Base entry points the emitter uses.
+     */
+    public const ALLOWED_METHODS = [
+        'start_controls_section', 'add_control', 'end_controls_section',
+        'get_settings_for_display',
+    ];
+
+    /** Receivers a `::` may appear on. The emitter emits none; this is a floor. */
+    private const STATIC_RECEIVERS = ['self', 'static', 'parent'];
 
     /** Tokens that make the identifier after them a declaration, not a call. */
     private const DECLARATION_BEFORE = [
-        T_FUNCTION, T_CONST, T_CLASS, T_INTERFACE, T_TRAIT, T_NEW,
-        T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR, T_DOUBLE_COLON,
+        T_FUNCTION, T_CONST, T_CLASS, T_INTERFACE, T_TRAIT,
     ];
 
     /**
@@ -134,10 +155,26 @@ class Generated_Code_Lint
                 continue;
             }
 
-            // new {$expr} / $obj->{$expr}() - dynamic dispatch via a block.
-            if (in_array($id, [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR, T_DOUBLE_COLON, T_NEW], true)) {
+            // The emitter never instantiates anything, so `new` of ANY class
+            // is a generator bug. Allowing it by shape (as "not a call") is
+            // what let `new Evil('id')` through.
+            if (T_NEW === $id) {
+                return self::rejected('object instantiation (new)');
+            }
+
+            // Member access. The receiver decides, not the operator: only
+            // $this-> and self:: / static:: / parent:: are the widget API.
+            if (in_array($id, [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR, T_DOUBLE_COLON], true)) {
                 if (! is_array($next) && '{' === $next) {
                     return self::rejected('dynamic method / class reference');
+                }
+                if (T_DOUBLE_COLON === $id) {
+                    $receiver = is_array($prev) ? strtolower((string) $prev[1]) : '';
+                    if (! in_array($receiver, self::STATIC_RECEIVERS, true)) {
+                        return self::rejected('static access on a receiver other than self/static/parent');
+                    }
+                } elseif (! is_array($prev) || T_VARIABLE !== $prev[0] || '$this' !== $prev[1]) {
+                    return self::rejected('member access on a receiver other than $this');
                 }
                 continue;
             }
@@ -150,6 +187,23 @@ class Generated_Code_Lint
             if (is_array($prev) && in_array($prev[0], self::DECLARATION_BEFORE, true)) {
                 continue;
             }
+
+            // A member name. Its receiver was already checked when the
+            // operator token was visited, so all that is left is the name: a
+            // property/constant read is fine, a CALL must be in the method
+            // allowlist.
+            $is_member = is_array($prev) && in_array(
+                $prev[0],
+                [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR, T_DOUBLE_COLON],
+                true
+            );
+            if ($is_member) {
+                if (! is_array($next) && '(' === $next && ! in_array(strtolower($text), self::ALLOWED_METHODS, true)) {
+                    return self::rejected($text . '() is not in the generated-code method allowlist');
+                }
+                continue;
+            }
+
             if (is_array($next) || '(' !== $next) {
                 continue;
             }

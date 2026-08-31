@@ -201,15 +201,25 @@ class Widget_Compiler
                 continue;
             }
             $escaper = $controls[$key]['escaper'];
-            $body   .= '        echo ' . $escaper . '((string) (' . self::settings_read($key) . "));\n";
+            $body   .= '        echo ' . $escaper . '((string) (' . self::settings_read($key, $controls[$key]['default']) . "));\n";
         }
 
         return $body;
     }
 
-    private static function settings_read(string $key): string
+    /**
+     * Read one setting, falling back to the control's declared default.
+     *
+     * The default is part of the fallback, not just of the Elementor control
+     * definition, because Widget_Renderer does the same
+     * ($settings[$name] ?? ($control['default'] ?? '')). A compiled widget
+     * that fell back to '' would render empty exactly where the dynamic widget
+     * renders the default, and the two forms of one spec would diverge on the
+     * first render before anything is saved.
+     */
+    private static function settings_read(string $key, string $default): string
     {
-        return '$settings[' . self::lit($key) . '] ?? \'\'';
+        return '$settings[' . self::lit($key) . '] ?? ' . self::lit($default);
     }
 
     /**
