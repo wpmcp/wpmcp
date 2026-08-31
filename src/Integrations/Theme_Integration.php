@@ -39,8 +39,18 @@ if (! defined('ABSPATH')) {
  *    it returns, so it can never open them.
  *  - wpmcp_theme_mod_value_rules (array<string, mixed>): key => validator for
  *    filter-added keys, seeded with VALUE_RULES. A rule is either one of the
- *    built-in rule names (see validate_value()), a list of literal allowed
- *    values, or a callable(mixed $value): mixed returning null to refuse.
+ *    built-in rule names (see evaluate()), a LIST of literal allowed
+ *    values, or a callable(mixed $value): mixed returning null to refuse. The
+ *    core VALUE_RULES entries are forced back on top of whatever the filter
+ *    returns, so a pack that replaces the map instead of merging into it can
+ *    add rules for its own keys but can never strip the sanitizer off a core
+ *    key. Array-callables (['My_Class', 'check']) are NOT a supported rule
+ *    shape: every array is an enum, in both the check and the explanation.
+ *    Pass a Closure or a function-name string instead.
+ *  - wpmcp_theme_is_block_theme (bool): overrides wp_is_block_theme() when
+ *    deciding which written mods to report in `ineffective`. Present so a
+ *    site (or a test) can correct the block-theme verdict for a theme core
+ *    misclassifies; it changes reported output, not what is written.
  *
  * Three guard layers on a set-mods key, in order:
  *  - STRUCTURAL_KEYS is a hard refusal evaluated BEFORE the allowlist filter,
@@ -52,13 +62,23 @@ if (! defined('ABSPATH')) {
  *  - The presentation allowlist (core logo/header/background mods), which is
  *    exactly what get-mods advertises as `allowlist`/`writable`. There is no
  *    hidden prefix rule: every writable key is enumerated.
- *  - A per-key validator. Core registers these settings in the Customizer
+ *  - A per-key validator, which FAILS CLOSED. A key with no registered rule
+ *    is refused (reason no_validator), and a string rule that is neither a
+ *    built-in name nor a callable is refused (reason unknown_rule). There is
+ *    no permissive "looks inert" fallback: guard layer 2 can be widened by a
+ *    filter, and a widened key with no validator would otherwise be the one
+ *    hole in the whole chain. Core registers these settings in the Customizer
  *    with sanitizers for a reason: header_textcolor is echoed bare by the
  *    header_textcolor() template tag inside a <style> block and
  *    background_color reaches _custom_background_cb() through
  *    maybe_hash_hex_color(), which returns invalid input unchanged. A value
  *    that fails its validator is REFUSED (reason invalid_value), never
  *    coerced, so the agent learns it wrote nothing.
+ *
+ * Passing null as a value is an explicit CLEAR: the key is routed through
+ * remove_theme_mod() and reported in `cleared` rather than `updated`. It is a
+ * distinct sentinel from the empty string, which image_url treats as a
+ * meaningful stored value.
  */
 class Theme_Integration extends Integration_Dispatcher
 {
@@ -69,8 +89,8 @@ class Theme_Integration extends Integration_Dispatcher
      */
     private const STRUCTURAL_KEYS = [
         'nav_menu_locations' => 'Assign menu locations with wpmcp/assign-menu-to-location instead.',
-        'sidebars_widgets'   => 'Place widgets with wpmcp/add-widget, wpmcp/update-widget, and wpmcp/list-sidebar-widgets instead.',
-        'custom_css_post_id' => 'Manage the Additional CSS post with wpmcp/add-custom-css and wpmcp/get-custom-css instead.',
+        'sidebars_widgets'   => 'Inspect sidebars with wpmcp/list-sidebar-widgets; placing and updating widgets (wpmcp/add-widget, wpmcp/update-widget) requires the pro tier.',
+        'custom_css_post_id' => 'Managing the Additional CSS post (wpmcp/add-custom-css, wpmcp/get-custom-css) requires the pro tier; on the free tier edit Additional CSS in the Customizer.',
     ];
 
     /**
@@ -131,20 +151,6 @@ class Theme_Integration extends Integration_Dispatcher
 
     /** Upper bound on one set-mods batch, so a call cannot bloat the autoloaded option. */
     private const MAX_VALUES = 50;
-
-    /** Key fragments whose theme_mod values are masked on the read half. */
-    private const SECRET_KEY_PARTS = [
-        'pass',
-        'secret',
-        'token',
-        'key',
-        'auth',
-        'nonce',
-        'credential',
-        'cookie',
-        'signature',
-        'licen',
-    ];
 
     /** Theme slug => framework name, for get-theme-context framework detection. */
     private const FRAMEWORKS = [
@@ -216,7 +222,7 @@ class Theme_Integration extends Integration_Dispatcher
             ],
             'set-mods'          => [
                 'mode'               => 'write',
-                'description'        => 'Set allowlisted presentation theme_mod values (core logo/header/background mods; extend via the wpmcp_theme_mod_allowlist filter). Structural keys are always refused, and a value that fails its per-key validator is refused rather than coerced. Snapshotted on the theme_mods option; restorable with rollback-operation. Disabled by default (site opts in via the wpmcp_enable_theme_write filter)',
+                'description'        => 'Set allowlisted presentation theme_mod values (core logo/header/background mods; extend via the wpmcp_theme_mod_allowlist filter). Pass null as a value to clear that mod. Structural keys are always refused; a key with no registered validator is refused; a value that fails its validator is refused rather than coerced. Snapshotted on the theme_mods option; restorable with rollback-operation. Disabled by default (site opts in via the wpmcp_enable_theme_write filter)',
                 'enabled_by_default' => (bool) apply_filters('wpmcp_enable_theme_write', false),
                 'input_schema'       => [
                     'type'       => 'object',
@@ -247,14 +253,35 @@ class Theme_Integration extends Integration_Dispatcher
     private function snapshot_target(array $values): ?array
     {
         foreach ($values as $key => $value) {
-            if (null !== $this->accepted_value((string) $key, $value)) {
+            $key = (string) $key;
+            if (null === $value ? $this->is_writable_key($key) : $this->evaluate($key, $value)['ok']) {
                 return [
                     'object_type' => 'option',
-                    'object_id'   => 'theme_mods_' . get_stylesheet(),
+                    'object_id'   => $this->mods_option(),
                 ];
             }
         }
         return null;
+    }
+
+    /**
+     * The option set_theme_mod()/get_theme_mods() actually read and write.
+     * Core keys them off the UNFILTERED get_option('stylesheet')
+     * (wp-includes/theme.php), while get_stylesheet() passes that value
+     * through the `stylesheet` filter. On any site that filters `stylesheet`
+     * the two diverge, and a snapshot taken against the filtered name would
+     * restore a different option than the one the write mutated: rollback
+     * would report success having reverted nothing.
+     */
+    private function mods_option(): string
+    {
+        return 'theme_mods_' . get_option('stylesheet');
+    }
+
+    /** Whether $key survives guard layers 1 and 2 (structural, then allowlist). */
+    private function is_writable_key(string $key): bool
+    {
+        return ! isset(self::STRUCTURAL_KEYS[ $key ]) && in_array($key, $this->allowlist(), true);
     }
 
     private function theme_context(): array
@@ -332,10 +359,13 @@ class Theme_Integration extends Integration_Dispatcher
     }
 
     /**
-     * Theme mods for the active theme. Values are masked by key the way
-     * Request_Log::redact() masks captured payloads: commercial themes park
-     * API keys, tokens and license keys in theme mods, and handing those to a
-     * model verbatim is a credential leak, not a read.
+     * Theme mods for the active theme. Values go through the SHARED
+     * Request_Log::redact() primitive rather than a local copy of it:
+     * commercial themes park API keys, tokens and license keys in theme mods,
+     * and handing those to a model verbatim is a credential leak, not a read.
+     * Using the shared helper also means values are truncated and stored
+     * objects collapse to '[object]', both of which a hand-rolled masker in
+     * this class had drifted away from.
      *
      * `writable` is the effective allowlist (what set-mods accepts), NOT just
      * the stored keys, so an allowlisted key that has never been set still
@@ -355,57 +385,21 @@ class Theme_Integration extends Integration_Dispatcher
             }
         }
 
+        $masked   = Request_Log::redact($mods);
         $redacted = [];
-        $masked   = $this->redact($mods, $redacted);
+        foreach (array_keys($mods) as $key) {
+            if (Request_Log::is_secret_key((string) $key)) {
+                $redacted[] = (string) $key;
+            }
+        }
 
         return [
-            'stylesheet'       => get_stylesheet(),
+            'stylesheet'       => get_option('stylesheet'),
             'mods'             => $masked,
             'writable'         => $allowlist,
             'writable_present' => $present,
-            'allowlist'        => $allowlist,
             'redacted'         => $redacted,
         ];
-    }
-
-    /**
-     * Recursive key-based masking, same convention and mask string as
-     * Request_Log::redact(). Structure is preserved so the agent still sees
-     * the shape of a theme's settings, just not its secrets.
-     *
-     * @param array<mixed>      $values
-     * @param array<int,string> $redacted Collects the top-level masked keys.
-     * @return array<mixed>
-     */
-    private function redact(array $values, array &$redacted, int $depth = 0): array
-    {
-        $out = [];
-        foreach ($values as $key => $value) {
-            if ($this->is_secret_key((string) $key)) {
-                $out[ $key ] = Request_Log::REDACTED;
-                if (0 === $depth) {
-                    $redacted[] = (string) $key;
-                }
-                continue;
-            }
-            if (is_array($value)) {
-                $out[ $key ] = $depth >= 4 ? '[array]' : $this->redact($value, $redacted, $depth + 1);
-                continue;
-            }
-            $out[ $key ] = $value;
-        }
-        return $out;
-    }
-
-    private function is_secret_key(string $key): bool
-    {
-        $key = strtolower($key);
-        foreach (self::SECRET_KEY_PARTS as $part) {
-            if (false !== strpos($key, $part)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -419,6 +413,7 @@ class Theme_Integration extends Integration_Dispatcher
     private function set_mods(array $values): array
     {
         $updated     = [];
+        $cleared     = [];
         $refused     = [];
         $ineffective = [];
         $allowlist   = $this->allowlist();
@@ -446,17 +441,33 @@ class Theme_Integration extends Integration_Dispatcher
                 continue;
             }
 
-            $accepted = $this->accepted_value($key, $value, true);
-            if (null === $accepted) {
+            // null is the explicit clear sentinel. It skips the validators
+            // (there is nothing to validate) and routes through
+            // remove_theme_mod(), so an agent that can set custom_logo can
+            // also remove it, the way the Customizer allows.
+            if (null === $value) {
+                remove_theme_mod($key);
+                if ('header_image' === $key) {
+                    remove_theme_mod('header_image_data');
+                }
+                $cleared[] = $key;
+                continue;
+            }
+
+            $verdict = $this->evaluate($key, $value, true);
+            if (! $verdict['ok']) {
                 $refused[] = [
                     'key'    => $key,
-                    'reason' => 'invalid_value',
-                    'detail' => $this->rule_detail($key),
+                    'reason' => $verdict['reason'],
+                    'detail' => $verdict['detail'],
                 ];
                 continue;
             }
 
-            set_theme_mod($key, $accepted['value']);
+            set_theme_mod($key, $verdict['value']);
+            if ('header_image' === $key) {
+                $this->sync_header_image_data($verdict['value']);
+            }
             $updated[] = $key;
 
             if ($block_theme && in_array($key, self::BLOCK_THEME_INERT, true)) {
@@ -465,8 +476,9 @@ class Theme_Integration extends Integration_Dispatcher
         }
 
         return [
-            'stylesheet'  => get_stylesheet(),
+            'stylesheet'  => get_option('stylesheet'),
             'updated'     => $updated,
+            'cleared'     => $cleared,
             'refused'     => $refused,
             'ineffective' => $ineffective,
             'notes'       => $ineffective
@@ -491,142 +503,216 @@ class Theme_Integration extends Integration_Dispatcher
         return array_values(array_unique($allowlist));
     }
 
-    /** @return array<string, mixed> key => rule, filterable for framework packs. */
+    /**
+     * key => rule, filterable so framework packs can describe their own keys.
+     *
+     * The core VALUE_RULES entries are merged back on TOP of whatever the
+     * filter returns, mirroring what allowlist() does with STRUCTURAL_KEYS: a
+     * pack that returns its own map instead of array_merge-ing into the one
+     * it was handed would otherwise silently strip the sanitizers off
+     * header_textcolor and background_color, the two keys core echoes
+     * unescaped inside a <style> block.
+     *
+     * @return array<string, mixed>
+     */
     private function value_rules(): array
     {
-        return (array) apply_filters('wpmcp_theme_mod_value_rules', self::VALUE_RULES);
+        $filtered = (array) apply_filters('wpmcp_theme_mod_value_rules', self::VALUE_RULES);
+        return array_merge($filtered, self::VALUE_RULES);
     }
 
     /**
-     * The value that would actually be stored for $key, or null when the key
-     * is not writable or the value fails its validator. Returns a one-element
-     * wrapper ['value' => ...] so a legitimately falsy stored value (0, '',
-     * false) is not confused with a refusal.
+     * Decide what would really be stored for $key, as a structured verdict.
      *
-     * @return array{value: mixed}|null
+     * A verdict is ['ok' => true, 'value' => mixed] or
+     * ['ok' => false, 'reason' => string, 'detail' => string]. The wrapper
+     * exists so a legitimately falsy stored value (0, '', false) is never
+     * confused with a refusal, and so the refusal REASON travels with the
+     * decision instead of being re-derived by a second, drift-prone pass over
+     * the rule.
+     *
+     * Dispatch order, with the refusal EXPLANATION produced by the same
+     * branch that made the decision, so the two can never disagree (the
+     * earlier split between accepted_value() and rule_detail() had already
+     * drifted into a fatal on Closure rules and an "Array to string
+     * conversion" warning on array rules):
+     *   1. array  -> enum of literal allowed values;
+     *   2. non-string callable (Closure, invokable object) -> custom validator;
+     *   3. built-in rule name;
+     *   4. string that is callable -> custom validator by function name;
+     *   5. any other string -> unknown_rule;
+     *   6. no rule at all -> no_validator.
+     *
+     * Steps 3 and 4 are in that order deliberately: several built-in names
+     * (header_textcolor) collide with real WordPress functions and would
+     * otherwise be invoked as callables.
+     *
+     * @return array{ok: bool, value?: mixed, reason?: string, detail?: string}
      */
-    private function accepted_value(string $key, $value, bool $allowlist_checked = false): ?array
+    private function evaluate(string $key, $value, bool $allowlist_checked = false): array
     {
-        if (! $allowlist_checked) {
-            if (isset(self::STRUCTURAL_KEYS[ $key ]) || ! in_array($key, $this->allowlist(), true)) {
-                return null;
-            }
+        if (! $allowlist_checked && ! $this->is_writable_key($key)) {
+            return $this->refuse($key, 'not_allowlisted', 'Key is not in the theme-mod allowlist reported by get-mods.');
         }
 
         $rules = $this->value_rules();
         $rule  = $rules[ $key ] ?? null;
 
-        // Order matters: a rule NAME is matched before callables, because
-        // several of the built-in names (header_textcolor) collide with real
-        // WordPress functions and would otherwise be invoked as callables.
         if (is_array($rule)) {
-            return in_array($value, $rule, true) ? [ 'value' => $value ] : null;
+            return in_array($value, $rule, true)
+                ? [ 'ok' => true, 'value' => $value ]
+                : $this->refuse($key, 'invalid_value', sprintf(
+                    'accepts only one of %s.',
+                    implode(', ', array_map('strval', $rule))
+                ));
         }
 
         if (null !== $rule && ! is_string($rule) && is_callable($rule)) {
-            $out = $rule($value);
-            return null === $out ? null : [ 'value' => $out ];
+            return $this->apply_callable_rule($key, $rule, $value);
         }
 
-        switch ((string) $rule) {
+        if (is_string($rule)) {
+            $built_in = $this->apply_builtin_rule($key, $rule, $value);
+            if (null !== $built_in) {
+                return $built_in;
+            }
+            if (is_callable($rule)) {
+                return $this->apply_callable_rule($key, $rule, $value);
+            }
+            return $this->refuse($key, 'unknown_rule', sprintf(
+                'is registered with the rule "%s", which is neither a built-in rule name nor a callable. Fix the wpmcp_theme_mod_value_rules entry.',
+                $rule
+            ));
+        }
+
+        // Guard layer 3 fails CLOSED. wpmcp_theme_mod_allowlist can widen
+        // guard layer 2, so a widened key with no validator is precisely the
+        // case that must not be waved through: these values are echoed by
+        // themes without escaping, and no generic "looks inert" sniff is a
+        // substitute for knowing what the key means.
+        return $this->refuse($key, 'no_validator', 'has no registered validator, so nothing can vouch for the value. Register one with the wpmcp_theme_mod_value_rules filter.');
+    }
+
+    /** @return array{ok: false, reason: string, detail: string} */
+    private function refuse(string $key, string $reason, string $explanation): array
+    {
+        return [
+            'ok'     => false,
+            'reason' => $reason,
+            'detail' => sprintf('Value refused: "%s" %s', $key, $explanation),
+        ];
+    }
+
+    /**
+     * Run a custom validator. It refuses by returning null; anything else is
+     * the value to store.
+     *
+     * @param callable $rule
+     * @return array{ok: bool, value?: mixed, reason?: string, detail?: string}
+     */
+    private function apply_callable_rule(string $key, $rule, $value): array
+    {
+        $out = $rule($value);
+        return null === $out
+            ? $this->refuse($key, 'invalid_value', 'was refused by the custom validator registered for it through wpmcp_theme_mod_value_rules.')
+            : [ 'ok' => true, 'value' => $out ];
+    }
+
+    /**
+     * The built-in rules, mirroring how core registers these same settings on
+     * the Customizer. Returns null when $rule is not a built-in NAME at all,
+     * which is what lets evaluate() fall through to the callable and
+     * unknown_rule branches instead of silently accepting.
+     *
+     * @return array{ok: bool, value?: mixed, reason?: string, detail?: string}|null
+     */
+    private function apply_builtin_rule(string $key, string $rule, $value): ?array
+    {
+        switch ($rule) {
             case 'hex_no_hash':
-                if (! is_string($value)) {
-                    return null;
-                }
-                $hex = sanitize_hex_color_no_hash($value);
-                return null === $hex || '' === $hex ? null : [ 'value' => $hex ];
+                $hex = is_string($value) ? sanitize_hex_color_no_hash($value) : null;
+                return null === $hex || '' === $hex
+                    ? $this->refuse($key, 'invalid_value', 'must be a hex color such as aabbcc (core stores it without the leading #, and emits it unescaped inside a <style> block).')
+                    : [ 'ok' => true, 'value' => $hex ];
 
             case 'header_textcolor':
-                if (! is_string($value)) {
-                    return null;
-                }
                 if ('blank' === $value) {
-                    return [ 'value' => 'blank' ];
+                    return [ 'ok' => true, 'value' => 'blank' ];
                 }
-                $hex = sanitize_hex_color_no_hash($value);
-                return null === $hex || '' === $hex ? null : [ 'value' => $hex ];
+                $hex = is_string($value) ? sanitize_hex_color_no_hash($value) : null;
+                return null === $hex || '' === $hex
+                    ? $this->refuse($key, 'invalid_value', 'must be a hex color such as aabbcc, or the literal "blank".')
+                    : [ 'ok' => true, 'value' => $hex ];
 
             case 'attachment_id':
+                $bad = $this->refuse($key, 'invalid_value', 'must be the ID of an attachment that exists on this site (pass null to clear it).');
                 if (! is_int($value) && ! (is_string($value) && ctype_digit($value))) {
-                    return null;
+                    return $bad;
                 }
                 $id = (int) $value;
                 if ($id <= 0) {
-                    return null;
+                    return $bad;
                 }
                 $post = get_post($id);
                 if (! $post || 'attachment' !== $post->post_type) {
-                    return null;
+                    return $bad;
                 }
-                return [ 'value' => $id ];
+                return [ 'ok' => true, 'value' => $id ];
 
             case 'image_url':
+                $bad = $this->refuse($key, 'invalid_value', 'must be an absolute http(s) URL, an empty string, "remove-header", or "random-default-image" (pass null to clear it).');
                 if (! is_string($value)) {
-                    return null;
+                    return $bad;
                 }
                 if ('' === $value || 'remove-header' === $value || 'random-default-image' === $value) {
-                    return [ 'value' => $value ];
+                    return [ 'ok' => true, 'value' => $value ];
                 }
                 $url = esc_url_raw($value, [ 'http', 'https' ]);
-                return '' === $url ? null : [ 'value' => $url ];
-        }
-
-        // Filter-added key with no registered rule: accept only inert data.
-        // Anything carrying markup is refused rather than silently stripped,
-        // because these values are echoed by themes without escaping.
-        return $this->is_inert_value($value) ? [ 'value' => $value ] : null;
-    }
-
-    /** Scalars (and flat arrays of them) free of markup and control characters. */
-    private function is_inert_value($value, int $depth = 0): bool
-    {
-        if (is_array($value)) {
-            if ($depth >= 2) {
-                return false;
-            }
-            foreach ($value as $item) {
-                if (! $this->is_inert_value($item, $depth + 1)) {
-                    return false;
+                if ('' === $url) {
+                    return $bad;
                 }
-            }
-            return true;
+                // esc_url_raw() only vets the PROTOCOL, so it happily returns
+                // protocol-relative (//evil.tld/x.png), root-relative (/x.png)
+                // and fragment (#x) values. The refusal text promises an
+                // http(s) URL; enforce exactly that.
+                $scheme = wp_parse_url($url, PHP_URL_SCHEME);
+                return in_array($scheme, [ 'http', 'https' ], true)
+                    ? [ 'ok' => true, 'value' => $url ]
+                    : $bad;
         }
-        if (is_bool($value) || is_int($value) || is_float($value) || null === $value) {
-            return true;
-        }
-        if (! is_string($value)) {
-            return false;
-        }
-        return $value === wp_strip_all_tags($value)
-            && false === strpos($value, '<')
-            && false === strpos($value, '>')
-            && ! preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', $value);
+
+        return null;
     }
 
-    /** Agent-facing explanation of what a key's validator wanted. */
-    private function rule_detail(string $key): string
+    /**
+     * Keep header_image_data in step with header_image.
+     *
+     * Core's Custom_Image_Header always writes the two together, and
+     * get_custom_header() / the_header_image_tag() read the companion for
+     * attachment_id, width and height. Writing header_image alone leaves them
+     * describing the PREVIOUS image against the new URL, so either refresh
+     * the companion from the attachment the URL resolves to, or drop it.
+     */
+    private function sync_header_image_data(string $url): void
     {
-        $rule = $this->value_rules()[ $key ] ?? null;
-
-        if (is_array($rule) && ! is_callable($rule)) {
-            return sprintf(
-                'Value refused: "%s" accepts only one of %s.',
-                $key,
-                implode(', ', array_map('strval', $rule))
-            );
+        if ('' === $url || 'remove-header' === $url || 'random-default-image' === $url) {
+            remove_theme_mod('header_image_data');
+            return;
         }
 
-        switch ((string) $rule) {
-            case 'hex_no_hash':
-                return sprintf('Value refused: "%s" must be a hex color such as aabbcc (core stores it without the leading #, and emits it unescaped inside a <style> block).', $key);
-            case 'header_textcolor':
-                return sprintf('Value refused: "%s" must be a hex color such as aabbcc, or the literal "blank".', $key);
-            case 'attachment_id':
-                return sprintf('Value refused: "%s" must be the ID of an attachment that exists on this site.', $key);
-            case 'image_url':
-                return sprintf('Value refused: "%s" must be an http(s) URL, an empty string, "remove-header", or "random-default-image".', $key);
+        $id = attachment_url_to_postid($url);
+        if ($id <= 0) {
+            remove_theme_mod('header_image_data');
+            return;
         }
 
-        return sprintf('Value refused: "%s" has no registered validator, so it accepts only markup-free scalars (or a flat array of them). Register a validator with the wpmcp_theme_mod_value_rules filter.', $key);
+        $meta = wp_get_attachment_metadata($id);
+        set_theme_mod('header_image_data', (object) [
+            'attachment_id' => $id,
+            'url'           => $url,
+            'thumbnail_url' => $url,
+            'width'         => (int) ($meta['width'] ?? 0),
+            'height'        => (int) ($meta['height'] ?? 0),
+        ]);
     }
 }
