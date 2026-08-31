@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 304,
+    'total'     => 306,
     'free'      => 213,
-    'pro'       => 91,
+    'pro'       => 93,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -102,6 +102,7 @@ return [
         'wpmcp/enable-maintenance' => 'free',
         'wpmcp/export-content' => 'free',
         'wpmcp/export-page' => 'pro',
+        'wpmcp/export-template' => 'pro',
         'wpmcp/extract-content' => 'pro',
         'wpmcp/find-broken-links' => 'free',
         'wpmcp/find-element' => 'pro',
@@ -252,6 +253,7 @@ return [
         'wpmcp/reorder-elements' => 'pro',
         'wpmcp/reorder-global-classes' => 'pro',
         'wpmcp/resize-media' => 'free',
+        'wpmcp/resolve-theme-template' => 'pro',
         'wpmcp/restore-revision' => 'free',
         'wpmcp/rollback-brand-kit' => 'pro',
         'wpmcp/rollback-operation' => 'free',
