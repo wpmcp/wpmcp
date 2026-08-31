@@ -2147,8 +2147,14 @@ final class Plugin
             return;
         }
 
-        $style_doc = sprintf(
-            'An optional flat "style" object (%s) becomes a local v4 style class on the element; an unknown key or an unusable value is an error, not a silent drop. ',
+        // The full key set is enumerated once, on add-atomic-widget, and the
+        // other three point at it. Repeating ~40 keys in four descriptions cost
+        // most of a kilobyte of every tools/list payload
+        // (tests/free/Platform/ToolsListBudgetTest.php).
+        $style_doc = 'An optional flat "style" object (color, background_color, font_size, padding, gap, width, ... see add-atomic-widget for the full key set, plus a raw "props" escape hatch) becomes a local v4 style class on the element; an unknown key or an unusable value is an error, not a silent drop. ';
+
+        $style_doc_full = sprintf(
+            'An optional flat "style" object becomes a local v4 style class on the element. Keys: %s, plus a raw "props" object for anything else. An unknown key or an unusable value is an error, not a silent drop. ',
             implode(', ', Atomic_Styles::style_keys())
         );
 
@@ -2205,7 +2211,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-atomic-widget',
             'pro',
-            'Add an Elementor 4.0+ atomic widget (elType widget with an e-* widgetType such as e-heading, e-paragraph, e-button, e-image) to a page. Friendly params (title, content, text, image_url, alt, link) are converted to typed $$type props for known types; any type also accepts raw $$type-wrapped settings. ' . $style_doc . 'Requires expected_hash. Undoable via rollback-operation',
+            'Add an Elementor 4.0+ atomic widget (elType widget with an e-* widgetType such as e-heading, e-paragraph, e-button, e-image) to a page. Friendly params (title, content, text, image_url, alt, link) are converted to typed $$type props for known types; any type also accepts raw $$type-wrapped settings. ' . $style_doc_full . 'Requires expected_hash. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4810,7 +4816,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-elementor-version',
             'pro',
-            'Report the Elementor and Elementor Pro version, whether atomic elements (Elementor 4.0+) are supported (supports_atomic), and whether the atomic write tools add-flexbox/add-div-block/add-atomic-widget/update-atomic-widget are actually on this site\'s tool list (atomic_tools_registered) - they register only on a builder that can render atomic elements, so call this first rather than assuming they exist. Read-only',
+            'Report the Elementor and Elementor Pro version, whether atomic elements (Elementor 4.0+) are supported (supports_atomic), and whether the four atomic write tools are on this site\'s tool list (atomic_tools_registered) - they register only on a builder that can render atomic elements, so call this before assuming they exist. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
