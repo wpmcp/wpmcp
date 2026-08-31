@@ -5,6 +5,7 @@ namespace WPMCP\Tests\Pro\Cloud;
 use WPMCP\Auth\Bearer_Auth;
 use WPMCP\Auth\Client_Store;
 use WPMCP\Auth\Refresh_Token_Store;
+use WPMCP\Auth\Token_Grant;
 use WPMCP\Auth\Token_Store;
 use WPMCP\Cloud\Cloud_Client;
 use WPMCP\Cloud\Gateway_Credential;
@@ -34,7 +35,7 @@ use WPMCP\Tools\Cloud\Gateway_Status;
  */
 class GatewayCredentialTest extends \WP_UnitTestCase
 {
-    /** @var array<int,array{url:string,method:string}> */
+    /** @var array<int,array{url:string,method:string,args:array}> */
     private array $requests = [];
 
     private int $admin_id = 0;
@@ -70,7 +71,8 @@ class GatewayCredentialTest extends \WP_UnitTestCase
         remove_all_filters('wpmcp_current_identity');
         Identity_Context::set_current_for_tests(null);
         Bearer_Auth::reset_for_tests();
-        unset($_SERVER['HTTP_AUTHORIZATION']);
+        unset($_SERVER['HTTP_AUTHORIZATION'], $_GET['rest_route']);
+        $_SERVER['REQUEST_URI'] = '/';
         delete_option('wpmcp_cloud_url');
         delete_option('wpmcp_cloud_key');
         delete_option(Gateway_Credential::OPTION);
@@ -80,7 +82,11 @@ class GatewayCredentialTest extends \WP_UnitTestCase
 
     public function fake_http($pre, $args, $url)
     {
-        $this->requests[] = ['url' => $url, 'method' => strtoupper((string) ($args['method'] ?? 'GET'))];
+        $this->requests[] = [
+            'url'    => $url,
+            'method' => strtoupper((string) ($args['method'] ?? 'GET')),
+            'args'   => is_array($args) ? $args : [],
+        ];
 
         return [
             'headers'  => [],
@@ -93,7 +99,7 @@ class GatewayCredentialTest extends \WP_UnitTestCase
     /** @return array The provision() success payload, failing the test on WP_Error. */
     private function provision(string $identity = 'Agency Editor'): array
     {
-        $result = Gateway_Credential::provision($this->admin_id, $identity, true);
+        $result = Gateway_Credential::provision($this->admin_id, $identity, true, true);
         $this->assertNotWPError($result);
         return $result;
     }
@@ -253,25 +259,51 @@ class GatewayCredentialTest extends \WP_UnitTestCase
         );
 
         Gateway_Credential::register();
+        $this->on_mcp_route();
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
 
         $this->assertSame($this->admin_id, Bearer_Auth::resolve(0));
         $this->assertSame('Agency Editor', Identity_Context::current());
     }
 
-    public function test_a_forged_gateway_scope_on_another_client_grants_no_identity(): void
+    public function test_a_forged_gateway_scope_only_ever_narrows_the_forger(): void
     {
         $this->provision();
 
-        // A self-registered DCR client cannot promote itself by asking for the
-        // gateway scope: the binding is looked up from the stored client_id.
+        // A self-registered DCR client can ask for the gateway scope, and
+        // asking buys it nothing: an identity narrows what
+        // Registrar::is_permitted() allows, it never grants, and claiming the
+        // gateway scope also drags the forger inside the gateway's own
+        // surface restriction.
         $forged = Token_Store::issue('client_someone_else', $this->admin_id, 'wpmcp:gateway identity:Agency Editor');
 
         Gateway_Credential::register();
+        $this->on_mcp_route();
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $forged;
 
         $this->assertSame($this->admin_id, Bearer_Auth::resolve(0));
-        $this->assertNull(Identity_Context::current(), 'The scope string must not be a self-asserted privilege claim.');
+        $this->assertSame('Agency Editor', Identity_Context::current());
+
+        // ... and it cannot use the claim to reach the rest of the site.
+        Bearer_Auth::reset_for_tests();
+        $this->on_core_rest_route();
+        $this->assertSame(0, Bearer_Auth::resolve(0));
+    }
+
+    public function test_a_forged_scope_naming_no_real_identity_is_denied_not_unrestricted(): void
+    {
+        $this->provision();
+
+        $forged = Token_Store::issue('client_someone_else', $this->admin_id, 'wpmcp:gateway identity:No Such Identity');
+
+        Gateway_Credential::register();
+        $this->on_mcp_route();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $forged;
+
+        Bearer_Auth::resolve(0);
+
+        $this->assertSame('No Such Identity', Identity_Context::current());
+        $this->assertNull(Identity_Store::get('No Such Identity'), 'An unresolvable identity denies in Governance.');
     }
 
     public function test_is_provisioned_self_heals_when_the_client_row_is_gone(): void
@@ -284,6 +316,9 @@ class GatewayCredentialTest extends \WP_UnitTestCase
 
         $this->assertFalse(Gateway_Credential::is_provisioned());
         $this->assertNull(Gateway_Credential::record());
+
+        Gateway_Credential::prune();
+        $this->assertFalse(get_option(Gateway_Credential::OPTION, false));
     }
 
     public function test_gateway_refresh_token_outlives_the_ordinary_thirty_day_ceiling(): void
@@ -364,6 +399,7 @@ class GatewayCredentialTest extends \WP_UnitTestCase
         $this->assertNotWPError($result);
         $this->assertTrue($result['provisioned']);
         $this->assertTrue($result['uploaded']);
+        $this->assertSame('ok', $result['upload_status']);
         $this->assertNotEmpty($result['refresh_token']);
         $this->assertSame(
             'https://cloud.example/wpmcp-cloud/v1/gateway/credential',
@@ -382,11 +418,374 @@ class GatewayCredentialTest extends \WP_UnitTestCase
 
     public function test_revoke_tool_reports_whether_there_was_anything_to_kill(): void
     {
-        $this->assertFalse((new Gateway_Revoke())->handle([])['was_provisioned']);
+        $this->assertFalse((new Gateway_Revoke())->handle(['confirm' => true])['was_provisioned']);
 
         $this->provision();
 
-        $this->assertTrue((new Gateway_Revoke())->handle([])['was_provisioned']);
+        $result = (new Gateway_Revoke())->handle(['confirm' => true]);
+        $this->assertTrue($result['was_provisioned']);
         $this->assertFalse(Gateway_Credential::is_provisioned());
+    }
+
+    /** Put the request on the MCP transport surface the gateway is allowed to use. */
+    private function on_mcp_route(): void
+    {
+        $_SERVER['REQUEST_URI'] = '/wp-json/mcp/wpmcp/mcp';
+    }
+
+    /** Put the request on a core REST route the gateway credential must not reach. */
+    private function on_core_rest_route(): void
+    {
+        $_SERVER['REQUEST_URI'] = '/wp-json/wp/v2/users?context=edit';
+    }
+
+    /** A live gateway access token on the recorded chain. */
+    private function gateway_access_token(array $credential): string
+    {
+        return Token_Store::issue(
+            $credential['client_id'],
+            $this->admin_id,
+            $credential['scope'],
+            Gateway_Credential::record()['chain_id']
+        );
+    }
+
+    // ------------------------------------------------------- blast radius
+
+    public function test_the_gateway_token_does_not_authenticate_on_core_rest_routes(): void
+    {
+        $credential = $this->provision();
+        $access     = $this->gateway_access_token($credential);
+
+        Gateway_Credential::register();
+        $this->on_core_rest_route();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
+
+        $this->assertSame(
+            0,
+            Bearer_Auth::resolve(0),
+            'A gateway credential must not be an administrator on /wp/v2/users.'
+        );
+        $this->assertSame('', Bearer_Auth::current_client_id());
+    }
+
+    public function test_the_gateway_token_does_not_authenticate_off_the_rest_api_entirely(): void
+    {
+        $credential = $this->provision();
+        $access     = $this->gateway_access_token($credential);
+
+        Gateway_Credential::register();
+        $_SERVER['REQUEST_URI']        = '/wp-admin/admin-ajax.php?action=whatever';
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
+
+        $this->assertSame(0, Bearer_Auth::resolve(0), 'admin-ajax is not the gateway surface.');
+    }
+
+    public function test_an_ordinary_oauth_token_still_authenticates_anywhere(): void
+    {
+        $client = Client_Store::create(['Some MCP Client'], ['https://example.test/cb'], 'dcr');
+        $access = Token_Store::issue($client['client_id'], $this->admin_id, 'openid');
+
+        Gateway_Credential::register();
+        $this->on_core_rest_route();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
+
+        $this->assertSame(
+            $this->admin_id,
+            Bearer_Auth::resolve(0),
+            'The surface restriction is for the gateway credential only, not for OAuth as a whole.'
+        );
+    }
+
+    // ------------------------------------------------- identity fails closed
+
+    public function test_the_identity_survives_the_loss_of_the_bookkeeping_option(): void
+    {
+        $credential = $this->provision();
+        $access     = $this->gateway_access_token($credential);
+
+        // The option is mutable bookkeeping; losing it must not promote a live
+        // gateway token from identity-scoped to full administrator.
+        delete_option(Gateway_Credential::OPTION);
+
+        Gateway_Credential::register();
+        $this->on_mcp_route();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
+
+        $this->assertSame($this->admin_id, Bearer_Auth::resolve(0));
+        $this->assertSame('Agency Editor', Identity_Context::current());
+    }
+
+    public function test_a_gateway_token_whose_identity_was_deleted_denies_rather_than_promotes(): void
+    {
+        $credential = $this->provision();
+        $access     = $this->gateway_access_token($credential);
+
+        delete_option(Gateway_Credential::OPTION);
+        Identity_Store::delete('Agency Editor');
+
+        Gateway_Credential::register();
+        $this->on_mcp_route();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
+
+        Bearer_Auth::resolve(0);
+
+        $current = Identity_Context::current();
+        $this->assertNotNull($current, 'A null identity is the unrestricted case; a gateway token must never land there.');
+        $this->assertNull(Identity_Store::get((string) $current), 'An unresolvable identity is a deny in Governance.');
+    }
+
+    public function test_a_gateway_token_carrying_no_resolvable_name_gets_the_deny_sentinel(): void
+    {
+        $credential = $this->provision();
+
+        // Bookkeeping with the identity stripped out and a scope that names
+        // nothing: the shape a half-written option would leave behind.
+        $record = get_option(Gateway_Credential::OPTION);
+        $record['identity'] = '';
+        update_option(Gateway_Credential::OPTION, $record);
+
+        $access = Token_Store::issue(
+            $credential['client_id'],
+            $this->admin_id,
+            Gateway_Credential::SCOPE_PREFIX,
+            $record['chain_id']
+        );
+
+        Gateway_Credential::register();
+        $this->on_mcp_route();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
+
+        Bearer_Auth::resolve(0);
+
+        $current = Identity_Context::current();
+        $this->assertSame(Gateway_Credential::UNBOUND_IDENTITY, $current);
+        $this->assertNull(Identity_Store::get((string) $current), 'The sentinel must not resolve, so governance denies.');
+    }
+
+    // ------------------------------------------------------ refusal paths
+
+    public function test_provision_refuses_while_oauth_is_disabled(): void
+    {
+        remove_all_filters('wpmcp_oauth_enabled');
+        add_filter('wpmcp_oauth_enabled', '__return_false');
+
+        $result = Gateway_Credential::provision($this->admin_id, 'Agency Editor', true, true);
+
+        $this->assertWPError($result);
+        $this->assertSame('gateway_oauth_disabled', $result->get_error_code());
+        $this->assertSame([], get_option(Client_Store::OPTION, []), 'Nothing may be minted for a credential that cannot work.');
+    }
+
+    public function test_provision_refuses_to_replace_a_live_credential_without_replace(): void
+    {
+        $first = $this->provision();
+
+        $result = Gateway_Credential::provision($this->admin_id, 'Agency Editor', true);
+
+        $this->assertWPError($result);
+        $this->assertSame('gateway_already_provisioned', $result->get_error_code());
+        $this->assertSame(
+            $first['client_id'],
+            Gateway_Credential::record()['client_id'],
+            'A refused re-provision must leave the live credential alone.'
+        );
+        $this->assertSame('ok', Refresh_Token_Store::redeem($first['refresh_token'], $first['client_id'])['status']);
+    }
+
+    public function test_reprovisioning_at_the_client_cap_leaves_the_previous_credential_intact(): void
+    {
+        $first = $this->provision();
+
+        // A store already at its cap must refuse BEFORE the destructive part
+        // of provisioning runs, or a re-provision bricks a working gateway.
+        add_filter('wpmcp_oauth_max_clients', '__return_zero');
+        delete_option(Client_Store::OPTION);
+
+        $result = Gateway_Credential::provision($this->admin_id, 'Agency Editor', true, true);
+        remove_all_filters('wpmcp_oauth_max_clients');
+
+        $this->assertWPError($result);
+        $this->assertSame('gateway_client_cap', $result->get_error_code());
+        $this->assertSame(
+            'ok',
+            Refresh_Token_Store::redeem($first['refresh_token'], $first['client_id'])['status'],
+            'The previous chain must survive a refusal.'
+        );
+    }
+
+    public function test_every_refusal_path_is_audited(): void
+    {
+        wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
+        Gateway_Credential::provision($this->admin_id, 'Agency Editor', true, true);
+        wp_set_current_user($this->admin_id);
+
+        Gateway_Credential::provision($this->admin_id, 'Agency Editor', false, true);
+        Gateway_Credential::provision(999999, 'Agency Editor', true, true);
+
+        $denials = array_values(array_filter(
+            Governance_Audit_Log::list(),
+            static fn ($e) => 'cloud/gateway-credential-provision' === $e['ability'] && ! $e['allowed']
+        ));
+        $reasons = array_column($denials, 'reason');
+
+        $this->assertCount(3, $denials, 'Every refusal leaves a trace, especially the forbidden caller.');
+        $this->assertStringContainsString('forbidden', implode(' ', $reasons));
+        $this->assertStringContainsString('consent_required', implode(' ', $reasons));
+        $this->assertStringContainsString('unknown_user', implode(' ', $reasons));
+    }
+
+    public function test_revoke_refuses_a_caller_without_manage_options(): void
+    {
+        $credential = $this->provision();
+        wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
+
+        $result = Gateway_Credential::revoke();
+
+        $this->assertWPError($result);
+        $this->assertSame('gateway_forbidden', $result->get_error_code());
+        $this->assertTrue(Gateway_Credential::is_provisioned());
+        $this->assertSame('ok', Refresh_Token_Store::redeem($credential['refresh_token'], $credential['client_id'])['status']);
+    }
+
+    public function test_revoke_tool_requires_an_explicit_confirm(): void
+    {
+        $this->provision();
+
+        $result = (new Gateway_Revoke())->handle([]);
+
+        $this->assertWPError($result);
+        $this->assertSame('gateway_confirm_required', $result->get_error_code());
+        $this->assertTrue(Gateway_Credential::is_provisioned());
+    }
+
+    // ---------------------------------------------- revoke ordering + counts
+
+    public function test_revoke_kills_live_tokens_even_when_the_client_row_is_gone(): void
+    {
+        $credential = $this->provision();
+        $access     = $this->gateway_access_token($credential);
+
+        // Oauth_Gc reaped the client row; the access token is still live, and
+        // a self-heal that deletes the bookkeeping first would strand it.
+        delete_option(Client_Store::OPTION);
+
+        $killed = Gateway_Credential::revoke();
+
+        $this->assertIsInt($killed);
+        $this->assertGreaterThan(0, $killed);
+        $this->assertNull(Token_Store::validate($access), 'A missing client row must not save a live token from the kill switch.');
+        $this->assertSame('unknown', Refresh_Token_Store::redeem($credential['refresh_token'])['status']);
+    }
+
+    public function test_record_is_a_pure_read(): void
+    {
+        $this->provision();
+        delete_option(Client_Store::OPTION);
+
+        Gateway_Credential::record();
+
+        $this->assertIsArray(
+            get_option(Gateway_Credential::OPTION, null),
+            'Reading the record must not write to the options table.'
+        );
+    }
+
+    public function test_revoke_tool_reports_how_much_it_killed(): void
+    {
+        $credential = $this->provision();
+        $this->gateway_access_token($credential);
+
+        $result = (new Gateway_Revoke())->handle(['confirm' => true]);
+
+        $this->assertTrue($result['was_provisioned']);
+        $this->assertGreaterThan(0, $result['killed']);
+    }
+
+    // ------------------------------------------------------------- upload
+
+    public function test_upload_refuses_to_follow_a_redirect_and_pins_tls(): void
+    {
+        $credential = $this->provision();
+
+        $this->assertTrue(Gateway_Credential::upload(new Cloud_Client(), $credential));
+
+        $args = $this->requests[0]['args'] ?? [];
+        $this->assertSame(0, $args['redirection'] ?? null, 'A 30x must not replay the secret at a new location.');
+        $this->assertTrue($args['sslverify'] ?? null);
+    }
+
+    public function test_upload_says_not_connected_rather_than_insecure_when_there_is_no_cloud(): void
+    {
+        $credential = $this->provision();
+        delete_option('wpmcp_cloud_url');
+        delete_option('wpmcp_cloud_key');
+        $this->requests = [];
+
+        $result = Gateway_Credential::upload(new Cloud_Client(), $credential);
+
+        $this->assertWPError($result);
+        $this->assertSame('gateway_cloud_not_configured', $result->get_error_code());
+        $this->assertSame([], $this->requests);
+    }
+
+    public function test_provision_tool_reports_a_skipped_upload_distinctly(): void
+    {
+        $result = (new Gateway_Provision())->handle([
+            'identity' => 'Agency Editor',
+            'consent'  => true,
+            'upload'   => false,
+        ]);
+
+        $this->assertSame('skipped', $result['upload_status']);
+        $this->assertFalse($result['uploaded']);
+        $this->assertSame([], $this->requests);
+    }
+
+    // ------------------------------------------- the credential end to end
+
+    public function test_the_provisioned_credential_actually_refreshes_and_keeps_its_ttl(): void
+    {
+        $credential = $this->provision();
+
+        $tokens = Token_Grant::exchange([
+            'grant_type'    => 'refresh_token',
+            'client_id'     => $credential['client_id'],
+            'client_secret' => $credential['client_secret'],
+            'refresh_token' => $credential['refresh_token'],
+        ]);
+
+        $this->assertNotWPError($tokens);
+        $this->assertStringStartsWith('at_', $tokens['access_token']);
+        $this->assertStringStartsWith('rt_', $tokens['refresh_token']);
+        $this->assertSame($credential['scope'], $tokens['scope']);
+
+        // The rotated record must still carry the gateway lifetime, or the
+        // credential quietly becomes a 30-day one the first time it refreshes.
+        Refresh_Token_Store::set_clock_override(static fn () => time() + (Refresh_Token_Store::TTL_SECONDS * 2));
+        $status = Refresh_Token_Store::redeem($tokens['refresh_token'], $credential['client_id'])['status'];
+        Refresh_Token_Store::set_clock_override(null);
+
+        $this->assertSame('ok', $status, 'The ten-year TTL must survive rotation.');
+    }
+
+    public function test_a_rotated_access_token_still_resolves_the_bound_identity(): void
+    {
+        $credential = $this->provision();
+
+        $tokens = Token_Grant::exchange([
+            'grant_type'    => 'refresh_token',
+            'client_id'     => $credential['client_id'],
+            'client_secret' => $credential['client_secret'],
+            'refresh_token' => $credential['refresh_token'],
+        ]);
+        $this->assertNotWPError($tokens);
+
+        Gateway_Credential::register();
+        $this->on_mcp_route();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $tokens['access_token'];
+
+        $this->assertSame($this->admin_id, Bearer_Auth::resolve(0));
+        $this->assertSame('Agency Editor', Identity_Context::current());
     }
 }

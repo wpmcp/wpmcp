@@ -22,6 +22,10 @@ if (! defined('ABSPATH')) {
  * years, so provisioning is refused outright until the caller states, in the
  * call itself, that the site owner agreed to that. Gateway_Credential
  * re-checks it rather than trusting this layer.
+ *
+ * 'replace' is the second gate and also defaults to false: re-provisioning
+ * destroys a live credential irreversibly, which is the same class of write
+ * as delete-post, so it is refused unless the caller says so explicitly.
  */
 class Gateway_Provision
 {
@@ -29,30 +33,36 @@ class Gateway_Provision
     {
         $identity = isset($args['identity']) ? (string) $args['identity'] : '';
         $consent  = ! empty($args['consent']);
+        $replace  = ! empty($args['replace']);
         $upload   = ! isset($args['upload']) || ! empty($args['upload']);
 
-        $credential = Gateway_Credential::provision(get_current_user_id(), $identity, $consent);
+        $credential = Gateway_Credential::provision(get_current_user_id(), $identity, $consent, $replace);
         if (is_wp_error($credential)) {
             return $credential;
         }
 
-        $uploaded = false;
-        $warning  = '';
+        // 'skipped' and 'failed' are different outcomes and a bare boolean
+        // plus an empty warning string cannot tell them apart, which leaves
+        // the caller unable to know whether the cloud has the credential.
+        $status  = 'skipped';
+        $warning = '';
         if ($upload) {
             $result = Gateway_Credential::upload(new Cloud_Client(), $credential);
             if (is_wp_error($result)) {
                 // The credential is already live locally; a failed upload is
                 // reported, not fatal, so the operator still gets the
                 // once-only plaintext and can hand it over another way.
+                $status  = 'failed';
                 $warning = $result->get_error_message();
             } else {
-                $uploaded = true;
+                $status = 'ok';
             }
         }
 
         return [
             'provisioned'   => true,
-            'uploaded'      => $uploaded,
+            'uploaded'      => 'ok' === $status,
+            'upload_status' => $status,
             'warning'       => $warning,
             'identity'      => $identity,
             'client_id'     => $credential['client_id'],

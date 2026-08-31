@@ -41,7 +41,8 @@ class Client_Store
     /** Hard cap on total registered clients, filterable via wpmcp_oauth_max_clients. */
     public const MAX_CLIENTS = 100;
 
-    private static function max_clients(): int
+    /** The live registration cap. Public so a caller can refuse BEFORE it does something destructive. */
+    public static function max_clients(): int
     {
         return (int) apply_filters('wpmcp_oauth_max_clients', self::MAX_CLIENTS);
     }
