@@ -13,6 +13,17 @@ use WPMCP\Integrations\Ninja_Forms_Integration;
 use WPMCP\Integrations\SureForms_Integration;
 use WPMCP\Integrations\WPForms_Integration;
 
+// Every host-plugin double this suite depends on, required HERE rather than
+// inherited from whichever sibling test file happens to run first. Without
+// these the availability-dependent assertions below silently degrade into
+// skips, and the "runs over all nine adapters" claim stops being true.
+require_once __DIR__ . '/../../support/forms-stubs.php';
+require_once __DIR__ . '/../../support/gfapi-stub.php';
+require_once __DIR__ . '/../../support/ninjaforms-stubs.php';
+require_once __DIR__ . '/../../support/fluentforms-stubs.php';
+require_once __DIR__ . '/../../support/forminator-stubs.php';
+require_once __DIR__ . '/../../support/sureforms-stubs.php';
+
 /**
  * Shared conformance suite for the forms adapters (issue #66): one contract,
  * run against every adapter, independent of whether its host plugin is
@@ -40,13 +51,14 @@ class FormsAdapterConformanceTest extends \WP_UnitTestCase
     }
 
     /**
-     * list-operations is the reserved op that must answer for every adapter
-     * whether or not the host plugin is loaded, so an agent can always
-     * discover the surface without risking a fatal.
+     * list-operations is the reserved op that must answer for every adapter,
+     * so an agent can always discover the surface without risking a fatal.
+     * The genuinely host-plugin-absent case is
+     * test_catalog_still_answers_when_the_host_plugin_is_absent below.
      *
      * @dataProvider adapters
      */
-    public function test_catalog_answers_without_the_host_plugin(string $class): void
+    public function test_catalog_answers_for_every_adapter(string $class): void
     {
         $integration = new $class();
 
@@ -56,6 +68,56 @@ class FormsAdapterConformanceTest extends \WP_UnitTestCase
         $this->assertSame($integration->integration(), $out['result']['integration']);
         $this->assertIsBool($out['result']['available']);
         $this->assertNotEmpty($out['result']['operations']);
+    }
+
+    /**
+     * The host-plugin-absent path for real, using a subclass that forces
+     * is_available() false rather than hoping the double is not loaded: the
+     * catalog must still answer with the full op list and available:false, and
+     * every other op must be a structured integration_unavailable error.
+     *
+     * @dataProvider adapters
+     */
+    public function test_catalog_still_answers_when_the_host_plugin_is_absent(string $class): void
+    {
+        $integration = new class ($class) extends Integration_Dispatcher {
+            private Integration_Dispatcher $inner;
+
+            public function __construct(string $class)
+            {
+                $this->inner = new $class();
+            }
+
+            public function integration(): string
+            {
+                return $this->inner->integration();
+            }
+
+            public function is_available(): bool
+            {
+                return false;
+            }
+
+            protected function operations(): array
+            {
+                return \Closure::bind(
+                    fn () => $this->operations(),
+                    $this->inner,
+                    $this->inner
+                )();
+            }
+        };
+
+        $out = $integration->handle_read([ 'operation' => 'list-operations' ]);
+        $this->assertArrayNotHasKey('error', $out);
+        $this->assertFalse($out['result']['available'], 'available means the HOST PLUGIN is loaded');
+        $this->assertNotEmpty($out['result']['operations'], 'The surface stays discoverable without the plugin');
+
+        foreach ([ 'handle_read', 'handle_write' ] as $half) {
+            $refused = $integration->{$half}([ 'operation' => 'list-forms' ]);
+            $this->assertArrayNotHasKey('result', $refused, "{$half} must not answer without the host plugin");
+            $this->assertSame('integration_unavailable', $refused['error']['code']);
+        }
     }
 
     /** @dataProvider adapters */
@@ -70,6 +132,32 @@ class FormsAdapterConformanceTest extends \WP_UnitTestCase
         $this->assertSame([ 'form_id' ], $ops['get-form']['input_schema']['required']);
     }
 
+    /**
+     * One paging vocabulary across the pack. Adapters that page entries do it
+     * with page_size + offset; a second idiom (page, per_page, limit...) makes
+     * an agent guess, so it is a conformance failure, not a style choice.
+     *
+     * @dataProvider adapters
+     */
+    public function test_entry_paging_uses_one_shared_vocabulary(string $class): void
+    {
+        $ops = self::catalog_ops(new $class());
+
+        if (! isset($ops['list-entries'])) {
+            $this->assertTrue(true, 'Adapter offers no entry listing');
+            return;
+        }
+
+        $props = $ops['list-entries']['input_schema']['properties'];
+        foreach ([ 'page', 'per_page', 'paged', 'limit' ] as $forbidden) {
+            $this->assertArrayNotHasKey($forbidden, $props, "list-entries must not introduce a second paging idiom ({$forbidden})");
+        }
+        if (isset($props['offset']) || isset($props['page_size'])) {
+            $this->assertArrayHasKey('offset', $props, 'Paging is page_size + offset');
+            $this->assertArrayHasKey('page_size', $props, 'Paging is page_size + offset');
+        }
+    }
+
     /** @dataProvider adapters */
     public function test_every_op_definition_is_well_formed(string $class): void
     {
@@ -78,7 +166,7 @@ class FormsAdapterConformanceTest extends \WP_UnitTestCase
             $this->assertNotEmpty($op['description'], "{$name} needs a description an agent can act on");
             $this->assertNotEmpty($op['capability'], "{$name} must resolve to a capability");
             $this->assertSame('object', $op['input_schema']['type'] ?? null, "{$name} must take an object of args");
-            $this->assertIsBool($op['available'], "{$name} must report dependency availability");
+            $this->assertIsBool($op['dependency_met'], "{$name} must report whether its own dependency check passes");
         }
     }
 
@@ -99,7 +187,11 @@ class FormsAdapterConformanceTest extends \WP_UnitTestCase
         }
 
         $this->assertSame('read', $ops['list-entries']['mode']);
-        $this->assertArrayHasKey('form_id', $ops['list-entries']['input_schema']['properties']);
+        $this->assertContains(
+            'form_id',
+            $ops['list-entries']['input_schema']['required'] ?? [],
+            'An entry listing must be scoped to one form: an optional form_id means an omitted one dumps every form\'s submissions'
+        );
         $this->assertArrayHasKey('get-entry', $ops, 'An adapter that lists entries must be able to read one');
         $this->assertSame('read', $ops['get-entry']['mode']);
         // Forminator keeps entries in per-form custom tables, so it also
@@ -125,7 +217,20 @@ class FormsAdapterConformanceTest extends \WP_UnitTestCase
 
         $this->assertSame('destructive', $ops['delete-entry']['mode']);
         $this->assertTrue($ops['delete-entry']['requires_confirm']);
-        $this->assertSame('manage_options', $ops['delete-entry']['capability']);
+        $this->assertFalse(
+            $ops['delete-entry']['enabled'],
+            'Issue #66: entry deletion is off by default and the site opts in with wpmcp_integration_op_enabled'
+        );
+        $this->assertContains(
+            $ops['delete-entry']['capability'],
+            [ 'manage_options', 'edit_users' ],
+            'Entry deletion must sit behind an administrator-only capability, never the pair\'s own edit_posts'
+        );
+        $this->assertNotSame(
+            (new $class())->capability(),
+            $ops['delete-entry']['capability'],
+            'A per-op guard that equals the pair capability is not a guard'
+        );
         $this->assertContains('entry_id', $ops['delete-entry']['input_schema']['required']);
     }
 
@@ -138,15 +243,17 @@ class FormsAdapterConformanceTest extends \WP_UnitTestCase
     public function test_unknown_operation_is_a_structured_error_on_both_halves(string $class): void
     {
         $integration = new $class();
-        if (! $integration->is_available()) {
-            $this->markTestSkipped('Host plugin absent; availability is asserted separately.');
-        }
+        // No skipping. When the host plugin is genuinely absent the contract
+        // is still a structured top-level error, just a different code, and
+        // that is the case worth covering rather than stepping over.
+        $expected = $integration->is_available() ? 'unknown_operation' : 'integration_unavailable';
 
         foreach ([ 'handle_read', 'handle_write' ] as $half) {
             $out = $integration->{$half}([ 'operation' => 'no-such-op' ]);
 
             $this->assertArrayNotHasKey('result', $out, "{$half} must not wrap a refusal in a success envelope");
-            $this->assertSame('unknown_operation', $out['error']['code']);
+            $this->assertSame($expected, $out['error']['code']);
+            $this->assertNotEmpty($out['error']['message']);
         }
     }
 
