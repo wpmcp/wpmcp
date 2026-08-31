@@ -77,13 +77,21 @@ Severity is the `wporg-free` profile. `dist` is the same finding's severity unde
 
 ### Blockers
 
+This table is the audit of 0.8.0 as found: every row states the evidence at
+audit time and the prescription, and no row is rewritten as work proceeds. The
+directory build has since delivered many of them (B-01 to B-07, B-16 and B-17
+among others) through `scripts/flavors/wporg/strip.php`; what is actually in a
+given zip is decided by `scripts/build-wporg-release.sh`, whose gates re-derive
+each answer from the staged tree rather than from this document. Issue #161
+delivered B-05 in the source itself, not only in the directory build.
+
 | ID | Rule | Evidence | Fix |
 |---|---|---|---|
 | B-01 | WPORG-05-QUOTA | `src/Pro/Gate.php:54` — `return self::is_pro() ? PHP_INT_MAX : 20;` (dist: best-practice) | Guideline 5: "Functionality may not be disabled after a trial period or quota is met." Delete the branch. The directory build enforces a flat 20 with no `is_pro()` anywhere and no unlimited path in the source. |
 | B-02 | WPORG-05-QUOTA | `src/Pro/Gate.php:52` — `history_limit()` (dist: best-practice) | Same change as B-01. Also update the four call sites that consume it: `src/Safety/Safe_Mutation.php:42`, `src/Tools/Compose/Build_Page.php:227`, `src/Tools/Packages/Switch_Theme.php:62`, `src/Tools/Media/Media_Import_Snapshot.php:43`. |
 | B-03 | WPORG-05-TRIALWARE | `src/Pro/Gate.php:33`, `:44`, `:47`, `:49`, `:54` (dist: best-practice) | Delete `Pro\Gate` from the directory build. It is the whole gating mechanism. |
 | B-04 | WPORG-05-TRIALWARE | `src/MCP/Registrar.php:37`, `:66` (dist: best-practice) | The registrar must not receive pro abilities at all in the directory build. Prune the manifest at build time the way `scripts/flavors/woocommerce/` prunes ability groups, rather than filtering by tier at runtime. |
-| B-05 | WPORG-05-TRIALWARE | `src/Admin/Ability_Grid_Page.php:171`, `:256` at audit time (dist: best-practice) | Remove the `$pro_locked` row state. A grid that renders 73 rows as "disabled: no pro license" is guideline 9's "implying users must pay to unlock included features" rendered literally. Done in issue #161: the state, the "(locked)" cell, the disabled Enable button and the teaser paragraph are gone from the source, and the grid now lists only the abilities the install would actually register, so there is no withheld row to label. The directory build additionally collapses `Ability_Grid_Page::is_available()` to `true`, since one tier makes the predicate constant. |
+| B-05 | WPORG-05-TRIALWARE | `src/Admin/Ability_Grid_Page.php:171`, `:256` (dist: best-practice) | Remove the `$pro_locked` row state. A grid that renders 73 rows as "disabled: no pro license" is guideline 9's "implying users must pay to unlock included features" rendered literally. |
 | B-06 | WPORG-05-TRIALWARE | `src/Tools/Compose/Build_Page.php:56` — `Gate::can_use('build-page-builder')` (dist: best-practice) | Remove the Elementor dialect from the directory build entirely, not the check around it. |
 | B-07 | WPORG-05-TRIALWARE | `src/Tools/Media/Stock/Insert_Stock_Image.php:27` (dist: best-practice) | Same: the ability leaves the build. |
 | B-08 | WPORG-06-LICENSING | `src/Freemius/Bootstrap.php:64` — `'anonymous_mode' => true` (dist: best-practice) | Guideline 7 requires "explicit and authorized consent... commonly done via an 'opt in' method". `anonymous_mode` suppresses the SDK's stock opt-in screen, so the SDK can reach `api.freemius.com` with no consent step the user ever saw. Set it false and ship the stock, default-off opt-in, or drop the SDK from the directory build. |
@@ -196,7 +204,7 @@ The specifics:
 
 - `src/Pro/Gate.php:54` reads `return self::is_pro() ? PHP_INT_MAX : 20;`. The unlimited-history code path is present in the zip and switched off by payment. That is "functionality may not be disabled after a... quota is met", verbatim, and fork-and-flip-the-constant is precisely what the 2018 post says users are entitled to do.
 - 13 further paid-state branches (B-03 through B-07) gate capabilities whose implementations are in the same zip.
-- 73 pro abilities out of 260 are registered-or-not by tier at `src/MCP/Registrar.php:37`, and `src/Admin/Ability_Grid_Page.php:171` rendered the withheld ones as "disabled: no pro license" — guideline 9's "implying users must pay to unlock included features", literally. (B-05 has since been fixed; see its row above. The rest of this section describes 0.8.0 as audited.)
+- 73 pro abilities out of 260 are registered-or-not by tier at `src/MCP/Registrar.php:37`, and `src/Admin/Ability_Grid_Page.php:171` renders the withheld ones as "disabled: no pro license" — guideline 9's "implying users must pay to unlock included features", literally.
 - The Freemius SDK in this configuration unlocks only locally-present code, which is guideline 6's named prohibition, and `anonymous_mode => true` at `src/Freemius/Bootstrap.php:64` additionally bypasses the consent step guideline 7 requires.
 
 The compliant restructuring, and the one we should take:

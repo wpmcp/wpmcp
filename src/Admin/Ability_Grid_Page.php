@@ -7,35 +7,33 @@ use WPMCP\Governance\Governance;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Governance\Opt_In_Gates;
 use WPMCP\MCP\Ability;
+use WPMCP\MCP\Registrar;
 use WPMCP\Plugin;
-use WPMCP\Pro\Gate;
 
 if (! defined('ABSPATH')) {
     exit;
 }
 
 /**
- * The per-ability toggle grid (issue #78): the full declared MCP surface,
- * grouped by domain, with per-ability and bulk per-domain enable/disable.
+ * The per-ability toggle grid (issue #78): the MCP surface this install
+ * registers, grouped by domain, with per-ability and bulk per-domain
+ * enable/disable.
  *
- * Sources rows from the Registrar's declared set — never a hardcoded list —
- * so the grid can never drift from what the plugin actually ships. Each row
- * shows tier, risk hints, and the effective state WITH the governance layer
- * that decides it (Governance::explain()).
+ * Sources rows from the Registrar — never a hardcoded list — so the grid can
+ * never drift from what this install actually runs. Each row shows tier, risk
+ * hints, and the effective state WITH the governance layer that decides it
+ * (Governance::explain()).
  *
  * Trust rules:
  *  - Every write goes through Governance::set_ability_toggle() /
  *    set_domain_toggle() — the existing narrowing mechanism, no bypass —
  *    and lands in the governance audit log with the acting user.
- *  - The grid is a view of the surface this install would actually register,
- *    not of the surface that exists somewhere. An ability whose tier this
- *    install cannot run is absent from it entirely (issue #161) rather than
- *    listed and locked: no lock state, no upsell copy, and no write path.
- *    This is deliberate for BOTH builds. The directory build has one tier, so
- *    there is nothing to withhold; the build we sell ourselves would otherwise
- *    have to render a row for an ability the Registrar refuses to register,
- *    and the only honest label for that row is the pay-to-unlock copy this
- *    screen must not carry.
+ *  - The grid shows only what this install would actually register. An
+ *    ability this install cannot run has no row at all (issue #161): no lock
+ *    state, no upsell copy, and no write path. A row exists to be acted on,
+ *    and the only rows an admin can act on here are the ones the Registrar
+ *    would accept; anything else could only be shown as unavailable, which is
+ *    not a state this screen has.
  *  - Default-off dangerous abilities (exec, db writes, fs writes) CANNOT be
  *    enabled here while their execution opt-in filter is absent: the filter
  *    (see Opt_In_Gates) stays the master gate, and the grid refuses rather
@@ -114,6 +112,16 @@ class Ability_Grid_Page
      * Enable clears the domain-level toggle AND writes an explicit enable
      * per ability — except gate-closed dangerous ones, which are refused
      * exactly like a per-ability enable would be.
+     *
+     * The per-ability writes cover only the listed members: an ability this
+     * install cannot register is never named, enabled, or refused (issue
+     * #161). The domain-level write is domain-wide by construction, which is
+     * what a domain control means: it clears the domain layer for the whole
+     * domain, including members this install does not list. That is
+     * deliberate and safe here, because the domain layer only ever narrows —
+     * clearing it grants nothing on its own, and every unlisted member is
+     * still refused by Registrar::tier_permitted() at registration and again
+     * at execution.
      */
     private function toggle_domain(array $post): array
     {
@@ -156,14 +164,13 @@ class Ability_Grid_Page
     }
 
     /**
-     * The grid model: domain => rows, sourced from the Registrar's declared
-     * surface. Each row carries name, tier, operation, risk hints, the
-     * opt-in gate state, and the effective enabled state with the layer
-     * that decided it.
+     * The grid model: domain => rows. Each row carries name, tier,
+     * operation, risk hints, the opt-in gate state, and the effective
+     * enabled state with the layer that decided it.
      *
      * Sourced from declared_by_name(), so the grid lists only what this
      * install would actually register (issue #161): abilities it cannot run
-     * are absent rather than shown as a locked or upsell row.
+     * are absent rather than listed in a state nobody can act on.
      *
      * @return array<string, array<int, array>>
      */
@@ -234,14 +241,23 @@ class Ability_Grid_Page
     }
 
     /**
-     * Whether this install would actually register the ability, i.e. the same
-     * predicate Registrar::register() applies. It lives here once so the read
-     * model (rows()) and the write model (toggle_ability(), toggle_domain())
-     * cannot drift: an ability with no row must also have no write path.
+     * Whether this install would register the ability at all.
+     *
+     * This mirrors ONLY Registrar::register()'s tier gate, by calling the
+     * same predicate rather than re-stating it. register() also drops
+     * governance-disabled abilities, and that gate is deliberately NOT
+     * mirrored here: showing a governance-disabled ability together with the
+     * layer that disabled it, so an admin can re-enable it, is the entire
+     * point of this screen. Restoring "parity" by adding the governance test
+     * would empty the grid of everything worth acting on.
+     *
+     * Applied in declared_by_name(), which both rows() and the write paths
+     * read, so the read model and the write model cannot drift: an ability
+     * with no row must also have no write path.
      */
     private function is_available(Ability $a): bool
     {
-        return 'pro' !== $a->tier || Gate::is_pro();
+        return Registrar::tier_permitted($a->tier);
     }
 
     /**

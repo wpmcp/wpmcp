@@ -13,15 +13,15 @@ use WPMCP\Tests\Free\Platform\RegisteredAbilities;
 /**
  * Issue #78: the per-ability admin toggle grid.
  *
- * A manage_options screen listing the FULL declared ability surface (the
- * Registrar's declared set — never a hardcoded list), grouped by domain,
- * showing tier, risk hints, and the effective state WITH the layer that
- * decides it. Toggles write through the existing Governance mechanism only
- * (no new bypass), every change is audited with the acting user, pro rows
- * whose tier is unavailable have no row at all (issue #161), and default-off dangerous
- * abilities (exec, db writes, fs writes) cannot be enabled from the grid
- * while their execution opt-in filter is absent — the filter stays the
- * master gate.
+ * A manage_options screen listing the ability surface this install would
+ * actually register (sourced from the Registrar — never a hardcoded list),
+ * grouped by domain, showing tier, risk hints, and the effective state WITH
+ * the layer that decides it. Toggles write through the existing Governance
+ * mechanism only (no new bypass), every change is audited with the acting
+ * user, an ability whose tier this install cannot run has no row and no write
+ * path at all (issue #161), and default-off dangerous abilities (exec, db
+ * writes, fs writes) cannot be enabled from the grid while their execution
+ * opt-in filter is absent — the filter stays the master gate.
  */
 class AbilityGridPageTest extends \WP_UnitTestCase
 {
@@ -89,23 +89,54 @@ class AbilityGridPageTest extends \WP_UnitTestCase
 
     public function test_grid_rows_equal_the_registered_ability_surface(): void
     {
+        // Read the manifest FIRST: enumerating it licenses and then restores
+        // the Gate, so a licensed assertion has to be set up after it, not
+        // before, or the grid below would be built unlicensed.
+        $expected = array_keys(RegisteredAbilities::manifest_map());
+
         // Licensed, so the grid surface matches the full declared manifest;
         // unlicensed installs simply omit the pro rows (issue #161).
         Gate::set_pro_for_tests(true);
 
-        $names = [];
-        foreach ($this->rows() as $rows) {
-            foreach ($rows as $row) {
-                $names[] = $row['name'];
-            }
-        }
-        sort($names);
-
         $this->assertSame(
-            array_keys(RegisteredAbilities::manifest_map()),
-            $names,
+            $expected,
+            $this->row_names(),
             'Grid rows must be exactly the Registrar\'s declared ability surface — not a hardcoded list.'
         );
+    }
+
+    public function test_enumerating_the_manifest_leaves_the_callers_license_alone(): void
+    {
+        Gate::set_pro_for_tests(true);
+        RegisteredAbilities::manifest_map();
+
+        $this->assertTrue(
+            Gate::is_pro(),
+            'The manifest helper must restore the caller\'s licence override, not clear it: '
+            . 'otherwise an assertion passes or fails on statement order alone.'
+        );
+    }
+
+    public function test_the_grid_asks_the_registrar_for_the_tier_rule(): void
+    {
+        // Not a re-statement of the rule: the grid must agree with
+        // Registrar::tier_permitted() ability by ability, in both licence
+        // states, so the read model cannot drift from the registration model.
+        foreach ([false, true] as $licensed) {
+            Gate::set_pro_for_tests($licensed);
+            $names = $this->row_names();
+
+            $seen = 0;
+            foreach (Plugin::instance()->declared_abilities() as $ability) {
+                if (! Registrar::tier_permitted($ability->tier)) {
+                    $this->assertNotContains($ability->name, $names);
+                    continue;
+                }
+                $this->assertContains($ability->name, $names);
+                $seen++;
+            }
+            $this->assertGreaterThan(0, $seen, 'The declared surface must not be empty.');
+        }
     }
 
     public function test_rows_are_grouped_by_the_abilities_own_domain(): void
@@ -329,6 +360,34 @@ class AbilityGridPageTest extends \WP_UnitTestCase
             'The refused list is printed verbatim on the screen: it must never name a withheld ability.'
         );
         $this->assertArrayNotHasKey('wpmcp/run-php-snippet', Governance::ability_toggles());
+    }
+
+    public function test_bulk_domain_enable_writes_the_domain_layer_and_no_withheld_ability_toggle(): void
+    {
+        // Deliberate and documented: "Enable all" clears the DOMAIN layer for
+        // the whole domain, withheld members included, because that is what a
+        // domain control means and the domain layer only ever narrows. What it
+        // must never do is write an ability toggle for, or name, a member this
+        // install cannot register.
+        Governance::set_domain_toggle('code', false);
+
+        (new Ability_Grid_Page())->handle_request(
+            $this->post('toggle_domain', ['domain' => 'code', 'enabled' => '1'])
+        );
+
+        $this->assertSame(
+            true,
+            Governance::domain_toggles()['code'] ?? null,
+            'Enable-all must clear the domain-level narrowing it was asked to clear.'
+        );
+        $this->assertArrayNotHasKey(
+            'wpmcp/run-php-snippet',
+            Governance::ability_toggles(),
+            'No ability toggle may be written for an ability with no row.'
+        );
+
+        // And the withheld ability is still refused everywhere that matters.
+        $this->assertFalse(Registrar::tier_permitted('pro'));
     }
 
     // ---------------------------------------------------------------

@@ -20,6 +20,11 @@ use WPMCP\Pro\Gate;
  * original Registrar and the Gate — the live registry is untouched because
  * Registrar only calls wp_register_ability() inside a real
  * wp_abilities_api_init action window.
+ *
+ * The Gate restore puts back the CALLER'S override, not null. A test that
+ * licensed itself and then asked for the manifest used to be silently
+ * unlicensed for everything after that call, which made assertions pass or
+ * fail on statement order alone.
  */
 final class RegisteredAbilities
 {
@@ -32,13 +37,16 @@ final class RegisteredAbilities
         // deprecated in PHP 8.5.
         $original = $prop->getValue($plugin);
 
+        $gate_prop     = new \ReflectionProperty(Gate::class, 'test_override');
+        $gate_original = $gate_prop->getValue();
+
         $prop->setValue($plugin, new Registrar());
         Gate::set_pro_for_tests(true);
         try {
             $plugin->register_abilities();
             return $plugin->registrar()->all();
         } finally {
-            Gate::set_pro_for_tests(null);
+            Gate::set_pro_for_tests($gate_original);
             $prop->setValue($plugin, $original);
         }
     }
