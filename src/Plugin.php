@@ -56,6 +56,10 @@ use WPMCP\Admin\Memory_Page;
 use WPMCP\Admin\Redirect_Suggestion_Controller;
 use WPMCP\Admin\Redirects_Page;
 use WPMCP\Admin\Skills_Settings_Page;
+use WPMCP\Pro\Chat\Chat_Page;
+use WPMCP\Pro\Chat\Chat_Rest_Controller;
+use WPMCP\Pro\Chat\Conversation_Store;
+use WPMCP\Pro\Gate;
 use WPMCP\Memory\Memory_Store;
 use WPMCP\Skills\Skills_Module;
 use WPMCP\Tools\Skills\Get_Skill;
@@ -476,6 +480,26 @@ final class Plugin
             // Endpoints::register() itself no-ops unless OAuth_Config::is_enabled()
             // (default false), so this hook registration is always safe to add.
             add_action('rest_api_init', [new OAuth_Endpoints(), 'register']);
+            // In-admin AI chat (issue #73, PRO). The conversation CPT and the
+            // purge that destroys conversations with their owner register
+            // unconditionally, for the same reason the memory CPT above does:
+            // a safety rule must not stop applying because a license lapsed.
+            // If the type were unregistered on a lapsed install, the existing
+            // conversations would become orphan rows that no deletion path
+            // still claims. Only the routes and the screen are tier-gated.
+            add_action('init', [Conversation_Store::class, 'register_post_type'], 5);
+            Conversation_Store::register_user_deletion_hooks();
+            // The route hook resolves the tier inside the callback and
+            // self-no-ops, so no object is constructed at plugin load. That
+            // matters here: the controller's Key_Vault needs aes-256-gcm, and
+            // building it eagerly would turn an unsupported host into a
+            // site-wide fatal instead of one unavailable feature.
+            add_action('rest_api_init', static function (): void {
+                if (! Gate::is_pro()) {
+                    return;
+                }
+                (new Chat_Rest_Controller())->register_routes();
+            });
             // Resolves a valid OAuth Bearer token to its bound WP user via
             // determine_current_user, so Registrar's existing capability
             // checks work for OAuth callers with no change to Registrar
@@ -671,6 +695,22 @@ final class Plugin
             Skills_Settings_Page::SLUG,
             [new Skills_Settings_Page(), 'render']
         );
+
+        // In-admin AI chat (issue #73): the chat drives the same governed
+        // ability surface as external MCP clients under the admin's own
+        // identity, so viewing the screen is manage_options like the rest.
+        // The entry appears only where the feature can actually run: no dead
+        // menu item and no locked screen on installs without it.
+        if (Gate::is_pro()) {
+            add_submenu_page(
+                'wpmcp',
+                __('wpmcp: Chat', 'wpmcp'),
+                __('Chat', 'wpmcp'),
+                'manage_options',
+                Chat_Page::SLUG,
+                [new Chat_Page(), 'render']
+            );
+        }
 
         // Agent memory (issue #131). The target is the wpmcp_memory CPT list
         // table, not a bespoke screen: approving a proposal is WordPress's own

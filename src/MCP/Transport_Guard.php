@@ -29,7 +29,7 @@ if (! defined('ABSPATH')) {
  *     can produce one; WordPress itself emits HTML for _doing_it_wrong().
  *     display_errors is forced off for the remainder of the request as
  *     soon as we know the route is ours. Errors still reach the log: this
- *     suppresses the *display* channel only, and only on our two route
+ *     suppresses the *display* channel only, and only on our three route
  *     families, so a developer debugging a theme is unaffected.
  *
  *  3. STALE SITE URL. After a domain migration, a connector configured
@@ -44,7 +44,7 @@ if (! defined('ABSPATH')) {
  * scopes the no-store headers to the MCP route only (leaving OAuth token
  * responses cacheable, which is the more dangerous of the two, since a
  * cached token response is a credential served to the wrong caller), and
- * its host guard returns a bare message. Ours covers both route families,
+ * its host guard returns a bare message. Ours covers all three route families,
  * returns a machine-readable `expected_host` / `endpoint` payload the
  * client can act on, and is exercised by the connection self-test so an
  * admin can see the headers land before an agent ever connects.
@@ -61,6 +61,14 @@ class Transport_Guard
 
     /** This plugin's OAuth 2.1 route prefix (see Auth\Endpoints). */
     public const OAUTH_ROUTE_PREFIX = '/wpmcp/v1/oauth';
+
+    /**
+     * The in-admin chat route prefix. Guarded for the same reason as the
+     * OAuth surface, only more so: GET /wpmcp/v1/chat/key
+     * returns provider-key status, and a cached credential-adjacent response
+     * is the worse of the two failure modes this guard exists to prevent.
+     */
+    public const CHAT_ROUTE_PREFIX = '/wpmcp/v1/chat';
 
     public const MISMATCH_CODE = 'wpmcp_site_url_mismatch';
 
@@ -99,10 +107,18 @@ class Transport_Guard
         return str_starts_with($route, self::OAUTH_ROUTE_PREFIX);
     }
 
+    /** Whether a REST route belongs to the in-admin chat surface. */
+    public static function is_chat_route(string $route): bool
+    {
+        return str_starts_with($route, self::CHAT_ROUTE_PREFIX);
+    }
+
     /** Whether a REST route is one this guard is responsible for at all. */
     public static function is_guarded_route(string $route): bool
     {
-        return self::is_mcp_route($route) || self::is_oauth_route($route);
+        return self::is_mcp_route($route)
+            || self::is_oauth_route($route)
+            || self::is_chat_route($route);
     }
 
     /**
