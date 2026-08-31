@@ -146,4 +146,24 @@ class CloudAuthResolutionTest extends \WP_UnitTestCase
             $this->assertStringStartsWith('https://new-cloud.example', $request['url']);
         }
     }
+
+    public function test_a_token_only_connection_that_cannot_refresh_errors_instead_of_sending_an_empty_bearer(): void
+    {
+        Cloud_Credentials::replace([
+            'base_url'          => 'https://cloud.example',
+            'access_token'      => 'stale-access',
+            'refresh_token'     => 'rt-1',
+            'access_expires_at' => time() - 10,
+        ]);
+        // Inside the rejection backoff the refresher deliberately returns
+        // nothing, and there is no API key behind it.
+        update_option(Token_Refresher::HEALTH_OPTION, ['rejected_at' => time()], false);
+
+        $out = (new Cloud_Client())->get('/me');
+
+        $this->assertWPError($out);
+        $this->assertSame('cloud_not_authenticated', $out->get_error_code());
+        $this->assertStringContainsString('cloud-connect', $out->get_error_message());
+        $this->assertSame([], $this->requests, 'no request may go out with an empty bearer credential');
+    }
 }

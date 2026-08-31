@@ -330,4 +330,119 @@ class TokenRefresherTest extends \WP_UnitTestCase
         $this->assertSame('rt-1', $seen['body']['refresh_token']);
         $this->assertSame('application/x-www-form-urlencoded', $seen['headers']['Content-Type']);
     }
+
+    // ---- rotated-token and persistence safety -------------------------------
+
+    public function test_a_grant_with_an_empty_refresh_token_keeps_the_stored_one(): void
+    {
+        $this->seed_stale();
+
+        $token = $this->refresher([
+            'access_token'  => 'new-access',
+            'refresh_token' => '',
+            'expires_in'    => 3600,
+        ])->ensure_fresh_access_token();
+
+        $this->assertSame('new-access', $token);
+        // An empty rotation would permanently disable refresh.
+        $this->assertSame('rt-1', Cloud_Credentials::all(true)['refresh_token']);
+    }
+
+    public function test_a_refresh_whose_persist_fails_is_not_reported_as_success(): void
+    {
+        $this->seed_stale();
+
+        $block = static fn () => '';
+        add_filter('pre_update_option_' . Cloud_Credentials::OPTION, $block, 10, 1);
+
+        try {
+            $token = $this->refresher([
+                'access_token'  => 'new-access',
+                'refresh_token' => 'rt-2',
+                'expires_in'    => 3600,
+            ])->ensure_fresh_access_token();
+        } finally {
+            remove_filter('pre_update_option_' . Cloud_Credentials::OPTION, $block, 10);
+        }
+
+        // The cloud already burned rt-1 and we could not store rt-2. Handing
+        // back a token nobody persisted just hides a dead connection.
+        $this->assertNull($token);
+    }
+
+    // ---- transient backoff --------------------------------------------------
+
+    public function test_a_transient_failure_backs_off_before_the_next_attempt(): void
+    {
+        $this->seed_stale();
+
+        $refresher = $this->refresher(new \WP_Error('cloud_unavailable', 'HTTP 503'));
+        $this->assertNull($refresher->ensure_fresh_access_token());
+        $this->assertCount(1, $this->sent);
+
+        // Without a short backoff every subsequent cloud call pays a GET_LOCK
+        // plus a 20s HTTP timeout before the real request, indefinitely.
+        $this->assertNull($refresher->ensure_fresh_access_token());
+        $this->assertCount(1, $this->sent, 'a failure seconds ago must not be retried on the very next request');
+    }
+
+    public function test_the_transient_backoff_does_not_apply_to_a_reconnected_bundle(): void
+    {
+        $this->seed_stale();
+        $this->assertNull($this->refresher(new \WP_Error('cloud_unavailable', 'HTTP 503'))->ensure_fresh_access_token());
+
+        // A reconnect stores a different refresh token: the previous token's
+        // failure says nothing about this one.
+        $this->seed_stale(['refresh_token' => 'rt-reconnected']);
+
+        $token = $this->refresher([
+            'access_token'  => 'new-access',
+            'refresh_token' => 'rt-2',
+            'expires_in'    => 3600,
+        ])->ensure_fresh_access_token();
+
+        $this->assertSame('new-access', $token);
+    }
+
+    // ---- client authentication ---------------------------------------------
+
+    public function test_a_stored_client_secret_is_sent_with_the_grant(): void
+    {
+        // The cloud's token endpoint is this plugin's own, and it authenticates
+        // the client before it ever looks at the refresh token.
+        $this->seed_stale(['client_secret' => 'cs-1']);
+
+        $this->refresher([
+            'access_token'  => 'new-access',
+            'refresh_token' => 'rt-2',
+            'expires_in'    => 3600,
+        ])->ensure_fresh_access_token();
+
+        $this->assertSame('cs-1', $this->sent[0]['body']['client_secret'] ?? null);
+    }
+
+    public function test_no_client_secret_field_is_sent_when_the_vault_has_none(): void
+    {
+        $this->seed_stale();
+
+        $this->refresher([
+            'access_token'  => 'new-access',
+            'refresh_token' => 'rt-2',
+            'expires_in'    => 3600,
+        ])->ensure_fresh_access_token();
+
+        $this->assertArrayNotHasKey('client_secret', $this->sent[0]['body'], 'a public client sends no secret at all, not an empty one');
+    }
+
+    public function test_the_token_endpoint_and_the_api_share_one_base_url_convention(): void
+    {
+        // Both constants hang off Cloud_Config::base_url(), so exactly one of
+        // them carrying a /wp-json prefix would mean at most one of the two
+        // could ever resolve against a real backend.
+        $this->assertStringStartsNotWith('/wp-json', \WPMCP\Cloud\Cloud_Client::TOKEN_PATH);
+        $this->assertSame(
+            'https://cloud.example/wpmcp/v1/oauth/token',
+            'https://cloud.example' . \WPMCP\Cloud\Cloud_Client::TOKEN_PATH
+        );
+    }
 }

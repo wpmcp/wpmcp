@@ -4,6 +4,7 @@ namespace WPMCP\Tests\Pro\Cloud;
 
 use WPMCP\Cloud\Cloud_Config;
 use WPMCP\Cloud\Cloud_Credentials;
+use WPMCP\Cloud\Token_Refresher;
 
 /**
  * Issue #141 phase 1: the encrypted cloud credential vault.
@@ -107,5 +108,63 @@ class CloudCredentialsTest extends \WP_UnitTestCase
         $wpdb->update($wpdb->options, ['option_value' => $rotated], ['option_name' => Cloud_Credentials::OPTION]);
 
         $this->assertSame('rotated', Cloud_Credentials::all(true)['api_key']);
+    }
+
+    public function test_connecting_over_legacy_plaintext_options_removes_them(): void
+    {
+        // The reconnect path: a legacy connected site runs cloud-connect, so
+        // the vault is WRITTEN before anything ever reads it and the read-path
+        // migration never fires. The plaintext key must still not survive.
+        update_option('wpmcp_cloud_url', 'https://cloud.example');
+        update_option('wpmcp_cloud_key', 'legacy-key');
+
+        Cloud_Config::set('https://cloud.example', 'new-key');
+
+        $this->assertFalse(get_option('wpmcp_cloud_key'), 'the plaintext api key must not survive a connect');
+        $this->assertFalse(get_option('wpmcp_cloud_url'));
+        $this->assertSame('new-key', Cloud_Config::api_key());
+    }
+
+    public function test_write_reports_failure_when_the_sealed_blob_does_not_read_back(): void
+    {
+        $block = static fn () => '';
+        add_filter('pre_update_option_' . Cloud_Credentials::OPTION, $block, 10, 1);
+
+        try {
+            $this->assertFalse(Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'k']));
+            $this->assertFalse(Cloud_Credentials::merge(['api_key' => 'k']));
+        } finally {
+            remove_filter('pre_update_option_' . Cloud_Credentials::OPTION, $block, 10);
+        }
+    }
+
+    public function test_replace_clears_a_stale_refresh_health_marker(): void
+    {
+        // The phase 2 connect flow writes a token bundle through replace()
+        // directly, without going through the Cloud_Config facade. A brand-new
+        // bundle must not inherit the previous one's rejection backoff.
+        update_option(Token_Refresher::HEALTH_OPTION, ['rejected_at' => time()], false);
+
+        Cloud_Credentials::replace([
+            'base_url'      => 'https://cloud.example',
+            'refresh_token' => 'rt-new',
+            'client_id'     => 'client-1',
+        ]);
+
+        $this->assertFalse(get_option(Token_Refresher::HEALTH_OPTION));
+        $this->assertFalse(Token_Refresher::is_unhealthy());
+    }
+
+    public function test_forced_read_sees_the_option_after_it_was_cached_as_absent(): void
+    {
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'k']);
+
+        // Stand in for a request that read the vault before it existed: the
+        // options cache remembers the miss in its notoptions entry, which a
+        // plain cache delete does not clear.
+        wp_cache_delete(Cloud_Credentials::OPTION, 'options');
+        wp_cache_set('notoptions', [Cloud_Credentials::OPTION => true], 'options');
+
+        $this->assertSame('k', Cloud_Credentials::all(true)['api_key'] ?? null);
     }
 }

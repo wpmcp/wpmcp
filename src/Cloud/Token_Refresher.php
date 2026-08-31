@@ -42,6 +42,12 @@ if (! defined('ABSPATH')) {
  * The unhealthy marker is not decorative either: while it is set the engine
  * backs off instead of re-presenting a refresh token the cloud has already
  * rejected, cloud-status reports it, and cloud-connect clears it.
+ *
+ * Transient failures get their own, much shorter backoff (RETRY_TRANSIENT).
+ * Without it a cloud that is simply down turns every single cloud tool call
+ * into a 5s GET_LOCK plus a 20s HTTP POST before the real request, forever,
+ * and concurrent workers serialize on that lock. The marker is fingerprinted
+ * on the refresh token it failed for, so a reconnect is never made to wait.
  */
 class Token_Refresher
 {
@@ -54,6 +60,11 @@ class Token_Refresher
 
     /** Seconds to stop re-presenting a refresh token the cloud rejected. */
     public const UNHEALTHY_BACKOFF = 900;
+
+    /** Short backoff after a transient refresh failure (cloud down, 5xx, invalid_client). */
+    public const RETRY_TRANSIENT = 'wpmcp_cloud_refresh_retry';
+
+    public const RETRY_BACKOFF = 60;
 
     /** @var callable(string,int):?bool acquire a named mutex; null when the lock subsystem is unusable */
     private $lock;
@@ -92,6 +103,35 @@ class Token_Refresher
     }
 
     /**
+     * Reset every refresh-failure state. Called whenever a new credential set
+     * is stored (Cloud_Credentials::replace()) and on a successful refresh, so
+     * a fresh bundle never inherits the old one's backoff.
+     */
+    public static function clear_health(): void
+    {
+        delete_option(self::HEALTH_OPTION);
+        delete_transient(self::RETRY_TRANSIENT);
+    }
+
+    /**
+     * True while a recent TRANSIENT failure for this exact refresh token is
+     * still inside its short backoff. Distinct from is_unhealthy(): that one
+     * means "the cloud says this token is dead", this one means "asking again
+     * right now is just latency".
+     */
+    private static function is_backed_off(array $bundle): bool
+    {
+        $marker = get_transient(self::RETRY_TRANSIENT);
+        return is_string($marker) && '' !== $marker && hash_equals($marker, self::fingerprint($bundle));
+    }
+
+    /** Identifies the bundle a failure belongs to without storing the secret. */
+    private static function fingerprint(array $bundle): string
+    {
+        return hash('sha256', (string) ($bundle['refresh_token'] ?? ''));
+    }
+
+    /**
      * Ensure a usable access token, refreshing if stale. Returns the access
      * token, or null when no token auth is available (caller falls back to
      * the API key).
@@ -105,10 +145,11 @@ class Token_Refresher
         if (self::is_fresh($bundle)) {
             return (string) $bundle['access_token'];
         }
-        if (self::is_unhealthy()) {
-            // The cloud already rejected this refresh token. Do not take the
-            // lock and do not re-present it on every request until the backoff
-            // expires or the site reconnects.
+        if (self::is_unhealthy() || self::is_backed_off($bundle)) {
+            // Either the cloud already rejected this refresh token, or the
+            // last attempt failed transiently seconds ago. Do not take the
+            // lock and do not spend another 20s HTTP timeout on every request
+            // until the backoff expires or the site reconnects.
             return null;
         }
 
@@ -141,16 +182,31 @@ class Token_Refresher
     private function refresh(array $bundle)
     {
         $presented = (string) ($bundle['refresh_token'] ?? '');
-        $response  = ($this->transport)((string) ($bundle['base_url'] ?? ''), [
+        $grant     = [
             'grant_type'    => 'refresh_token',
             'refresh_token' => $presented,
             'client_id'     => (string) ($bundle['client_id'] ?? ''),
-        ]);
+        ];
+        // Every client this plugin's own token endpoint knows about is a
+        // confidential one (Auth\Client_Store::create() has no public-client
+        // mode and Auth\Token_Grant::exchange() verifies the secret before it
+        // dispatches to the refresh branch), so a stored secret must go on the
+        // wire or the grant comes back invalid_client. It is omitted, rather
+        // than sent empty, when the phase 2 connect flow registers this site
+        // as a public PKCE client.
+        $secret = (string) ($bundle['client_secret'] ?? '');
+        if ('' !== $secret) {
+            $grant['client_secret'] = $secret;
+        }
+
+        $response = ($this->transport)((string) ($bundle['base_url'] ?? ''), $grant);
 
         if (is_wp_error($response) || ! is_array($response)) {
             // Transient (network error, 5xx, rate limit, an OAuth error that
             // is about the request rather than the token). Bundle untouched,
-            // connection not marked unhealthy.
+            // connection not marked unhealthy, but backed off briefly so the
+            // next cloud call does not pay the timeout again.
+            self::back_off($bundle);
             return null;
         }
 
@@ -170,17 +226,41 @@ class Token_Refresher
         if ('' === $access || $expires_in <= 0) {
             // A 2xx that is not actually a grant. Treat as transient rather
             // than merging an empty token over working credentials.
+            self::back_off($bundle);
             return null;
         }
 
+        // Coalesce the rotated refresh token on emptiness, not just on null:
+        // a grant that carries refresh_token: "" would otherwise overwrite the
+        // working token with nothing and permanently disable refresh.
+        $rotated = (string) ($response['refresh_token'] ?? '');
+        if ('' === $rotated) {
+            $rotated = $presented;
+        }
+
         // Success: merge onto the FRESHEST stored bundle, not our stale copy.
-        Cloud_Credentials::merge([
+        $persisted = Cloud_Credentials::merge([
             'access_token'      => $access,
-            'refresh_token'     => (string) ($response['refresh_token'] ?? $presented),
+            'refresh_token'     => $rotated,
             'access_expires_at' => time() + $expires_in,
         ]);
-        delete_option(self::HEALTH_OPTION);
+        if (! $persisted) {
+            // The cloud has already burned the presented refresh token and we
+            // could not store its replacement. Reporting success would hand
+            // out an access token nobody stored and re-present the dead token
+            // on the next request; back off and report failure instead.
+            self::back_off($bundle);
+            return null;
+        }
+
+        self::clear_health();
         return $access;
+    }
+
+    /** Mark a short backoff for this bundle after a transient failure. */
+    private static function back_off(array $bundle): void
+    {
+        set_transient(self::RETRY_TRANSIENT, self::fingerprint($bundle), self::RETRY_BACKOFF);
     }
 
     /**

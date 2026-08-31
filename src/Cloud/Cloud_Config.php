@@ -52,13 +52,16 @@ class Cloud_Config
      * refresh token or client id would make Cloud_Client prefer a foreign
      * bearer token over the key just supplied, and hand the old refresh token
      * to the newly supplied URL.
+     *
+     * Clearing the refresh health state is Cloud_Credentials::replace()'s job,
+     * not this facade's, so every caller that stores a credential set (this
+     * one today, the phase 2 PKCE connect flow tomorrow) gets it.
      */
-    public static function set(string $url, string $key): void
+    public static function set(string $url, string $key): bool
     {
-        Cloud_Credentials::replace([
+        return Cloud_Credentials::replace([
             'base_url' => esc_url_raw(rtrim($url, '/')),
             'api_key'  => sanitize_text_field($key),
         ]);
-        delete_option(Token_Refresher::HEALTH_OPTION);
     }
 }
