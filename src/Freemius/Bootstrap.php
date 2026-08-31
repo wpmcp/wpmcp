@@ -57,11 +57,9 @@ class Bootstrap
             'premium_slug'        => 'wpmcp-pro',
             'has_addons'          => false,
             'has_paid_plans'      => true,
-            // Privacy-first defaults: wpmcp does not force telemetry opt-in.
-            // anonymous_mode skips the Freemius connect/opt-in gate on activation,
-            // matching our "no telemetry by default" positioning.
+            // Privacy-first defaults: explicit default-off opt-in for compliance with wp.org Guideline 7.
             'is_live'             => true,
-            'anonymous_mode'      => true,
+            'anonymous_mode'      => false,
             'menu'                => [
                 // Nest Freemius pages under the existing top-level wpmcp admin menu.
                 'slug'    => 'wpmcp',

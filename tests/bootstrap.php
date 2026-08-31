@@ -4,6 +4,10 @@ if ( ! defined( 'WPMCP_TESTING' ) ) {
     define( 'WPMCP_TESTING', true );
 }
 
+if ( ! defined( 'ABSPATH' ) ) {
+    define( 'ABSPATH', dirname( __DIR__ ) . '/' );
+}
+
 $_tests_dir = getenv( 'WP_TESTS_DIR' ) ?: rtrim( sys_get_temp_dir(), '/' ) . '/wordpress-tests-lib';
 
 require_once dirname( __DIR__ ) . '/vendor/autoload.php';

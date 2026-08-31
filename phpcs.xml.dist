@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <ruleset name="wpmcp">
-    <description>PSR-12, adapted for WordPress-idiomatic code: snake_case class/method names and intentional plugin-bootstrap side effects (ABSPATH guards) are allowed.</description>
+    <description>PSR-12 and WordPressCS standards for WP MCP.</description>
 
     <file>src</file>
     <!-- Dev-only tooling, linted to the same standard as the plugin. -->
@@ -15,5 +15,19 @@
         <exclude name="PSR1.Methods.CamelCapsMethodName.NotCamelCaps"/>
         <!-- Plugin bootstrap files legitimately mix an ABSPATH-guard side effect with symbol declaration. -->
         <exclude name="PSR1.Files.SideEffects.FoundWithSymbols"/>
+    </rule>
+
+    <!-- WordPress Coding Standards (Security, DB, and Alternative Functions) -->
+    <rule ref="WordPress.Security"/>
+    <rule ref="WordPress.DB"/>
+    <rule ref="WordPress.WP.AlternativeFunctions"/>
+    <rule ref="WordPress.WP.DiscouragedFunctions"/>
+    <rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+        <properties>
+            <property name="prefixes" type="array">
+                <element value="wpmcp"/>
+                <element value="WPMCP"/>
+            </property>
+        </properties>
     </rule>
 </ruleset>

@@ -39,7 +39,15 @@ This plugin is complete for WooCommerce stores. The full WP MCP plugin adds page
 
 = Privacy =
 
-No telemetry. The plugin makes no calls home.
+The plugin collects nothing about you and sends nothing anywhere on its own. It has no scheduled jobs and no activation-time requests. Every outbound request it can make is listed under "External services" below, and each one happens only while you or your agent are running the tool that needs it.
+
+== External services ==
+
+* api.wordpress.org - core file checksums, fetched by scan-security so modified core files can be reported. Sends the WordPress version and site locale. Privacy policy: https://wordpress.org/about/privacy/
+* api.openverse.org - stock image search, when the Openverse provider is used. Sends the search terms and paging. No key needed. Terms: https://openverse.org/terms
+* api.pexels.com - stock image search, when the Pexels provider is used and you have saved a Pexels key. Sends the search terms, paging and your key. Terms: https://www.pexels.com/terms-of-service/ Privacy policy: https://www.pexels.com/privacy-policy/
+* api.unsplash.com - stock image search, when the Unsplash provider is used and you have saved an Unsplash key. Sends the search terms, paging and your key. Terms: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
+* import-stock-image downloads from a fixed allowlist of image CDNs (images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org, staticflickr.com). analyze-performance fetches the URL you give it, refusing private, loopback and reserved addresses. The connection self-test calls this site's own URL.
 
 == Installation ==
 

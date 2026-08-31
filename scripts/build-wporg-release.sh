@@ -79,7 +79,7 @@ foreach ($it as $f) {
     }
 }
 if ($bad) { fwrite(STDERR, implode("\n", $bad) . "\n"); exit(1); }
-' "$STAGE/src" || fail "an execution construct survived into the $SLUG build"
+' "$STAGE" || fail "an execution construct survived into the $SLUG build"
 
 # 3. No paid predicate, no licensing SDK, no pro-tier ability. Text-level on
 #    purpose: a docblock that still talks about licensing is also a finding,

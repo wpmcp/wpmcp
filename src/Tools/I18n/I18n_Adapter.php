@@ -99,6 +99,7 @@ class I18n_Adapter
             // WPML's modern API returns translation elements keyed by language
             // code, each exposing an ->element_id (the translated post id).
             $element_type = 'post_' . get_post_type($post_id);
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Third-party plugin (WPML) public hook.
             $elements     = apply_filters('wpml_get_element_translations', null, $post_id, $element_type);
             $map          = [];
             foreach ((array) $elements as $code => $element) {
@@ -157,6 +158,7 @@ class I18n_Adapter
             // WPML stores element language details via this action. Best-effort
             // and untested against a real WPML install (WPML is a paid plugin,
             // not installable from wordpress.org, so it is absent here).
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Third-party plugin (WPML) public hook.
             do_action(
                 'wpml_set_element_language_details',
                 [
@@ -196,6 +198,7 @@ class I18n_Adapter
             foreach ($lang_to_post_id as $lang_code => $post_id) {
                 $post_id      = (int) $post_id;
                 $element_type = 'post_' . get_post_type($post_id);
+                // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Third-party plugin (WPML) public hook.
                 do_action(
                     'wpml_set_element_language_details',
                     [
@@ -206,6 +209,7 @@ class I18n_Adapter
                     ]
                 );
                 if (null === $trid && function_exists('apply_filters')) {
+                    // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Third-party plugin (WPML) public hook.
                     $trid = apply_filters('wpml_element_trid', null, $post_id, $element_type);
                 }
             }

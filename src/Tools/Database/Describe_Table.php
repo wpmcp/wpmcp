@@ -1,5 +1,8 @@
 <?php
 
+// phpcs:disable WordPress.DB.PreparedSQL.NotPrepared -- Validated table name is stripped of backticks and checked via Database_Guard::valid_table().
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Read-only table schema inspection.
+
 namespace WPMCP\Tools\Database;
 
 if (! defined('ABSPATH')) {

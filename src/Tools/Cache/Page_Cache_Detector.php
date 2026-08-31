@@ -137,6 +137,7 @@ class Page_Cache_Detector
                 'constants' => ['LSCWP_V'],
                 'clear'     => static function (): void {
                     if (function_exists('do_action')) {
+                        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Third-party plugin (LiteSpeed Cache) public hook.
                         do_action('litespeed_purge_all');
                     }
                 },

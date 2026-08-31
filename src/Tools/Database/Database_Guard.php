@@ -1,5 +1,9 @@
 <?php
 
+// phpcs:disable WordPress.DB.PreparedSQL.NotPrepared -- Database_Guard validates and sanitizes SQL identifiers via allowlists, tokenizers, and AST analysis; see is_read_only_sql() and validate_table().
+// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Identifiers and validated clauses cannot be prepared with placeholders.
+// phpcs:disable PluginCheck.Security.DirectDB.UnescapedDBParameter -- Table and column identifiers are validated against schema allowlists.
+
 namespace WPMCP\Tools\Database;
 
 if (! defined('ABSPATH')) {

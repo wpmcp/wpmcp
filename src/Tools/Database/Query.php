@@ -1,5 +1,8 @@
 <?php
 
+// phpcs:disable WordPress.DB.PreparedSQL.NotPrepared -- Raw SQL is comprehensively validated as read-only by Database_Guard::is_read_only_sql().
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Dynamic read-only query runner tool.
+
 namespace WPMCP\Tools\Database;
 
 if (! defined('ABSPATH')) {

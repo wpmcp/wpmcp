@@ -57,7 +57,8 @@ rm -f \
   "$STAGE/src/Tools/Code/Run_Php_Snippet.php" \
   "$STAGE/src/Tools/Code/Php_Snippet_Runner.php" \
   "$STAGE/src/Tools/Code/Php_Snippet_Validator.php" \
-  "$STAGE/src/Tools/Code/Validate_Php_Snippet.php"
+  "$STAGE/src/Tools/Code/Validate_Php_Snippet.php" \
+  "$STAGE/src/Tools/Media/Stock/Insert_Stock_Image.php"
 
 # This build never calls Freemius (free-only, no license checks needed;
 # Pro\Gate fails closed without the SDK).
@@ -74,18 +75,22 @@ find "$STAGE/src" -name '*.php' -exec sed -i '' "s/, 'wpmcp' )/, '$SLUG' )/g; s/
 # descriptions) do not false-positive.
 php -r '
 $bad = [];
+$names = ["proc_open", "shell_exec", "passthru", "popen", "exec", "system", "pcntl_exec", "create_function", "str_rot13", "move_uploaded_file", "assert"];
 $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($argv[1]));
 foreach ($it as $f) {
     if ($f->getExtension() !== "php") { continue; }
-    foreach (token_get_all(file_get_contents($f->getPathname())) as $t) {
+    $tokens = token_get_all(file_get_contents($f->getPathname()));
+    foreach ($tokens as $i => $t) {
         if (!is_array($t)) { continue; }
-        if ($t[0] === T_EVAL || ($t[0] === T_STRING && in_array(strtolower($t[1]), ["proc_open", "shell_exec", "passthru", "popen"], true))) {
-            $bad[] = $f->getPathname() . ":" . $t[2] . " " . (is_string($t[1]) ? $t[1] : "eval");
-        }
+        if ($t[0] === T_EVAL) { $bad[] = $f->getPathname() . ":" . $t[2] . " eval"; continue; }
+        if ($t[0] !== T_STRING || !in_array(strtolower($t[1]), $names, true)) { continue; }
+        $prev = $tokens[$i - 1] ?? null;
+        if (is_array($prev) && in_array($prev[0], [T_OBJECT_OPERATOR, T_DOUBLE_COLON, T_FUNCTION, T_NULLSAFE_OBJECT_OPERATOR], true)) { continue; }
+        $bad[] = $f->getPathname() . ":" . $t[2] . " " . $t[1];
     }
 }
 if ($bad) { fwrite(STDERR, implode("\n", $bad) . "\n"); exit(1); }
-' "$STAGE/src" || { echo "ERROR: execution call site found in the $SLUG build" >&2; exit 1; }
+' "$STAGE" || { echo "ERROR: execution construct found in the $SLUG build" >&2; exit 1; }
 
 mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/$SLUG-$VERSION.zip"

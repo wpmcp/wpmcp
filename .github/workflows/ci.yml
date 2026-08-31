@@ -65,7 +65,6 @@ jobs:
         with: { php-version: '8.3', coverage: none }
       - run: composer install --no-interaction
       - name: Compliance, distribution profile (source tree)
-        continue-on-error: true
         run: composer compliance
       - name: Build the directory zip and gate it
         run: bash scripts/build-wporg-release.sh

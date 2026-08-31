@@ -4,6 +4,10 @@
 
 namespace WPMCP;
 
+if (! defined('ABSPATH')) {
+    exit;
+}
+
 use WPMCP\Admin\Audit_Log_Page;
 use WPMCP\Admin\History_Page;
 use WPMCP\Admin\Restore_Controller;
@@ -653,8 +657,8 @@ final class Plugin
         // manage_options decision, like the rest.
         add_submenu_page(
             'wpmcp',
-            'wpmcp: Redirects',
-            'Redirects',
+            __('wpmcp: Redirects', 'wpmcp'),
+            __('Redirects', 'wpmcp'),
             'manage_options',
             Redirects_Page::SLUG,
             [new Redirects_Page(), 'render']
@@ -665,8 +669,8 @@ final class Plugin
         // connecting agent is told about how to work on this site.
         add_submenu_page(
             'wpmcp',
-            'wpmcp: Agent Skills',
-            'Skills',
+            __('wpmcp: Agent Skills', 'wpmcp'),
+            __('Skills', 'wpmcp'),
             'manage_options',
             Skills_Settings_Page::SLUG,
             [new Skills_Settings_Page(), 'render']
@@ -681,8 +685,8 @@ final class Plugin
         if ($memory) {
             add_submenu_page(
                 'wpmcp',
-                'wpmcp: Agent Memory',
-                Memory_Page::badged('Memory', $pending),
+                __('wpmcp: Agent Memory', 'wpmcp'),
+                Memory_Page::badged(__('Memory', 'wpmcp'), $pending),
                 'manage_options',
                 Memory_Page::submenu_slug()
             );

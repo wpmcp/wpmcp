@@ -1,5 +1,7 @@
 <?php
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Internal exception messages for caller debugging.
+
 namespace WPMCP\Tools\Blocks;
 
 use WPMCP\Safety\Safe_Mutation;

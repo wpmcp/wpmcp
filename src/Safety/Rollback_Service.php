@@ -3,6 +3,7 @@
 // phpcs:disable PSR1.Files.SideEffects.FoundWithSymbols -- ABSPATH guard is an intentional side effect.
 // phpcs:disable Squiz.Classes.ValidClassName.NotCamelCaps -- WP-style snake_case class name is intentional (matches brief's public interface).
 // phpcs:disable PSR1.Methods.CamelCapsMethodName.NotCamelCaps -- WP-style snake_case method names are intentional (matches brief's public interface).
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Internal rollback mutation exception messages for caller debugging.
 
 namespace WPMCP\Safety;
 

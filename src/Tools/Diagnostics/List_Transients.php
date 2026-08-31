@@ -1,5 +1,8 @@
 <?php
 
+// phpcs:disable WordPress.DB.PreparedSQL.NotPrepared -- Dynamically parameterized LIKE query with wpdb->esc_like and explicit placeholders.
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct read-only transient enumeration from options table.
+
 namespace WPMCP\Tools\Diagnostics;
 
 if (! defined('ABSPATH')) {

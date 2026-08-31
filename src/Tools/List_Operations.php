@@ -1,5 +1,9 @@
 <?php
 
+// phpcs:disable WordPress.DB.PreparedSQL.NotPrepared -- Parameterized WHERE clauses and custom snapshot table identifier are prepared via $params.
+// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table identifier is sanitized from Snapshot_Store::table_name().
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct read-only custom table query.
+
 namespace WPMCP\Tools;
 
 use WPMCP\Plugin;
