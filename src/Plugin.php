@@ -480,20 +480,20 @@ final class Plugin
             // Endpoints::register() itself no-ops unless OAuth_Config::is_enabled()
             // (default false), so this hook registration is always safe to add.
             add_action('rest_api_init', [new OAuth_Endpoints(), 'register']);
-            // In-admin AI chat (issue #73, PRO). Both hooks resolve the tier
-            // inside the callback and self-no-op when the feature cannot run,
-            // so a free install pays a closure call and nothing else, and no
-            // object is constructed at plugin load. That matters here: the
-            // controller's Key_Vault needs aes-256-gcm, and building it
-            // eagerly would turn an unsupported host into a site-wide fatal
-            // instead of one unavailable feature.
-            add_action('init', static function (): void {
-                if (! Gate::is_pro()) {
-                    return;
-                }
-                Conversation_Store::register_post_type();
-            }, 5);
-            add_action('wp_delete_user', [Conversation_Store::class, 'purge_for_user']);
+            // In-admin AI chat (issue #73, PRO). The conversation CPT and the
+            // purge that destroys conversations with their owner register
+            // unconditionally, for the same reason the memory CPT above does:
+            // a safety rule must not stop applying because a license lapsed.
+            // If the type were unregistered on a lapsed install, the existing
+            // conversations would become orphan rows that no deletion path
+            // still claims. Only the routes and the screen are tier-gated.
+            add_action('init', [Conversation_Store::class, 'register_post_type'], 5);
+            Conversation_Store::register_user_deletion_hooks();
+            // The route hook resolves the tier inside the callback and
+            // self-no-ops, so no object is constructed at plugin load. That
+            // matters here: the controller's Key_Vault needs aes-256-gcm, and
+            // building it eagerly would turn an unsupported host into a
+            // site-wide fatal instead of one unavailable feature.
             add_action('rest_api_init', static function (): void {
                 if (! Gate::is_pro()) {
                     return;

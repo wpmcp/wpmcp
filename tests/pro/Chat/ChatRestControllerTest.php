@@ -256,4 +256,119 @@ class ChatRestControllerTest extends \WP_UnitTestCase
 
         $this->assertCount(1, $this->store->get_messages($conversation_id, $this->admin_id));
     }
+
+    /**
+     * The retry this key exists for comes from a client that never saw the
+     * response, so it has NO conversation_id to send back. The existing test
+     * above passes one, which is the case the client cannot be in when it
+     * matters. Without a lookup scoped to (user, client_message_id) across the
+     * user's conversations, this opens a second conversation every time and
+     * leaves an orphan post behind.
+     */
+    public function test_a_retried_first_turn_with_no_conversation_id_reuses_the_conversation(): void
+    {
+        wp_set_current_user($this->admin_id);
+        $this->vault->store_key($this->admin_id, 'sk-test-key-abcd');
+
+        $first = $this->controller->send_message($this->request([
+            'message'           => 'first turn',
+            'client_message_id' => 'first-turn-1',
+        ]));
+        $conversation_id = (int) $first->get_data()['conversation_id'];
+
+        $retry = $this->controller->send_message($this->request([
+            'message'           => 'first turn',
+            'client_message_id' => 'first-turn-1',
+        ]));
+
+        $this->assertSame($conversation_id, (int) $retry->get_data()['conversation_id']);
+        $this->assertCount(1, $this->store->get_messages($conversation_id, $this->admin_id));
+        $this->assertCount(
+            1,
+            get_posts([
+                'post_type'   => Conversation_Store::POST_TYPE,
+                'author'      => $this->admin_id,
+                'post_status' => 'any',
+                'numberposts' => -1,
+                'fields'      => 'ids',
+            ]),
+            'The retry left an orphan conversation behind.'
+        );
+    }
+
+    /**
+     * maxLength in the arg schema is measured with mb_strlen by
+     * rest_validate_value_from_schema, so a byte-counting check here would
+     * reject a legitimate multibyte message the schema advertises as fine.
+     */
+    public function test_a_multibyte_message_under_the_character_limit_is_accepted(): void
+    {
+        wp_set_current_user($this->admin_id);
+        $this->vault->store_key($this->admin_id, 'sk-test-key-abcd');
+
+        // Three bytes per character: well past the byte limit, well under the
+        // character limit the schema states.
+        $text = str_repeat('あ', Chat_Rest_Controller::MAX_MESSAGE_LENGTH - 1);
+        $this->assertGreaterThan(Chat_Rest_Controller::MAX_MESSAGE_LENGTH, strlen($text));
+
+        $response = $this->controller->send_message($this->request(['message' => $text]));
+        $this->assertSame(202, $response->get_status());
+    }
+
+    // ------------------------------------------------------------ read path
+
+    public function test_a_conversation_is_readable_and_deletable_by_its_owner_only(): void
+    {
+        wp_set_current_user($this->admin_id);
+        $this->vault->store_key($this->admin_id, 'sk-test-key-abcd');
+        $id = (int) $this->controller->send_message($this->request(['message' => 'mine']))
+            ->get_data()['conversation_id'];
+
+        $read = $this->controller->get_conversation($this->read_request($id));
+        $this->assertSame(200, $read->get_status());
+        $this->assertSame('mine', $read->get_data()['messages'][0]['content']);
+
+        $list = $this->controller->list_conversations()->get_data()['conversations'];
+        $this->assertSame([$id], array_column($list, 'id'));
+
+        wp_set_current_user($this->other_admin_id);
+        $this->assertSame(404, $this->controller->get_conversation($this->read_request($id))->get_status());
+        $this->assertSame(404, $this->controller->delete_conversation($this->read_request($id))->get_status());
+        $this->assertSame([], $this->controller->list_conversations()->get_data()['conversations']);
+
+        wp_set_current_user($this->admin_id);
+        $this->assertSame(200, $this->controller->delete_conversation($this->read_request($id))->get_status());
+        $this->assertNull(get_post($id));
+    }
+
+    private function read_request(int $conversation_id): \WP_REST_Request
+    {
+        $request = new \WP_REST_Request('GET', '/wpmcp/v1/chat/conversations/' . $conversation_id);
+        $request->set_param('conversation_id', $conversation_id);
+        return $request;
+    }
+
+    /**
+     * A lost meta write is a storage fault. Answering it with the 404 that
+     * means "no such conversation" sends the client hunting for a
+     * conversation that is sitting right there.
+     */
+    public function test_a_failed_history_write_is_reported_as_a_storage_failure_not_a_missing_conversation(): void
+    {
+        wp_set_current_user($this->admin_id);
+        $this->vault->store_key($this->admin_id, 'sk-test-key-abcd');
+        $id = (int) $this->controller->send_message($this->request(['message' => 'one']))
+            ->get_data()['conversation_id'];
+
+        $fail = static fn () => false;
+        add_filter('update_post_metadata', $fail, 10, 0);
+        $response = $this->controller->send_message($this->request([
+            'message'         => 'two',
+            'conversation_id' => $id,
+        ]));
+        remove_filter('update_post_metadata', $fail, 10);
+
+        $this->assertSame(500, $response->get_status());
+        $this->assertSame('store_failed', $response->get_data()['error']);
+    }
 }

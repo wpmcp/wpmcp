@@ -34,12 +34,27 @@ place a reviewer looks for the design record, next to
 ## This slice
 
 - `src/Pro/Chat/Conversation_Store.php`: private CPT `wpmcp_chat_convo`,
-  owner-scoped read/append (no cross-admin reads), history bounded by both
-  message count and serialized bytes, `wp_slash()`ed writes so backslashes in
-  code snippets and tool arguments survive, idempotent appends keyed on an
-  optional client message id, and conversations deleted with their owner
-  (`delete_with_user` plus a `wp_delete_user` purge) so a user deletion that
-  reassigns content cannot hand one admin another admin's provider exchange.
+  owner-scoped read/append (no cross-admin reads), history bounded by message
+  count, by serialized bytes measured on the slashed array that is actually
+  written, and per entry so one oversized tool result cannot park above the
+  ceiling. Writes are `wp_slash()`ed so backslashes in code snippets and tool
+  arguments survive. Appends are idempotent on an optional client message id,
+  and that id is also indexed as its own meta key so the lookup works across
+  a user's conversations, which is the only form of it a retrying client can
+  use. Ownership is defended in three independent places, because each covers
+  a hole the others do not:
+  - every primitive capability narrowed to `manage_options` and
+    `can_export => false`, since `WP_Query` skips the private-post permission
+    clause on the `'any'` status branch and the default `capability_type`
+    `'post'` would hand every Editor `read_others_posts` over conversations;
+  - `wpmcp_chat_convo` listed in `Content_Guard` and `List_Post_Types`
+    internal types, so the generic content tools are not a second read path;
+  - a purge on `delete_user` / `wpmu_delete_user` / `remove_user_from_blog`.
+    `delete_with_user` alone does NOT cover the reassigning deletion: core
+    reads that flag only when `$reassign === null`, and the reassign branch is
+    a raw `UPDATE wp_posts SET post_author`. `delete_user` fires before that
+    UPDATE, which is what makes the purge win. There is no `wp_delete_user`
+    action; the earlier draft hooked one and therefore purged nothing.
 - `src/Pro/Chat/Chat_Rest_Controller.php`: REST routes under `wpmcp/v1`:
   - `POST/GET/DELETE /chat/key`: Key_Vault management, with a length bound on
     the key and a 503 rather than a fatal on hosts without aes-256-gcm.
@@ -47,23 +62,38 @@ place a reviewer looks for the design record, next to
     and the route answers 202 `provider_turn_not_implemented`. Key presence is
     read through `Key_Vault::get_status()`, never `get_key()`, so a rotated
     `wp_salt('auth')` or a tampered ciphertext returns 409 with a
-    machine-readable `key_status` instead of an uncaught exception.
+    machine-readable `key_status` instead of an uncaught exception. Length
+    bounds are measured in characters with `mb_strlen`, the unit the schema's
+    `maxLength` uses, so a multibyte message under the advertised limit is not
+    rejected. A lost meta write answers 500 `store_failed`, not the 404 that
+    means the conversation does not exist.
+  - `GET /chat/conversations`, `GET|DELETE /chat/conversations/<id>`: the read
+    and delete paths, owner-scoped with the same answer for "not yours" and
+    "does not exist". Without them the store would be write-only and its
+    per-user scoping would be asserted but never observable.
   - Every route: `manage_options` AND `Gate::is_pro()`, per request.
   - Dependencies are built lazily inside the callbacks. `Key_Vault`'s
     constructor throws when aes-256-gcm is missing, so eager construction from
     a hook would fatal a whole site over a feature it cannot use.
-- `src/Pro/Chat/Chat_Page.php`: `wpmcp-chat` submenu mount point. Under
-  `src/Pro` so the WordPress.org build does not contain the screen at all, and
-  registered only when the feature can run: no dead menu entry, no locked
-  screen, no upsell copy anywhere in that build.
+- `src/Pro/Chat/Chat_Page.php`: `wpmcp-chat` submenu. Renders the provider-key
+  management the `/chat/key` routes already back, so the entry does something
+  the day it appears; a screen whose only content is "not available yet" is a
+  dead entry with extra steps. Under `src/Pro` so the WordPress.org build does
+  not contain the screen at all: no locked screen, no upsell copy in that
+  build. The conversation view arrives with the executor slice.
 - `src/MCP/Transport_Guard.php`: `/wpmcp/v1/chat` joins the guarded prefixes,
   so the no-store/LiteSpeed/X-Accel-Buffering headers and the display_errors
   suppression cover a GET route that reports provider-key status.
 - `scripts/flavors/wporg/strip.php`: exact-string removals for the chat
-  imports, the two runtime hooks and the submenu registration, so the
-  directory build never names a class it does not ship.
-- Wiring in `src/Plugin.php` (init CPT at priority 5, `wp_delete_user` purge,
-  rest_api_init routes, admin_menu), all tier-resolved inside the callback.
+  imports, the runtime hooks, the submenu registration, and the
+  `Transport_Guard` chat prefix constant, classifier and docblock, so the
+  directory build neither names a class it does not ship nor describes a route
+  it cannot register.
+- Wiring in `src/Plugin.php`: the CPT registration and the user-deletion purge
+  are UNGATED, on the same reasoning as the memory CPT ten lines above ("a
+  safety rule must not stop applying because a license lapsed"). A lapsed
+  license must not strand existing conversations as unregistered, reassignable
+  posts. Only `rest_api_init` and the submenu resolve `Gate::is_pro()`.
 
 ## Deliberately NOT in this slice
 
@@ -92,9 +122,15 @@ comes back with the executor, minting from a server-stored proposal.
 6. Server-authored prompt test proving advertised inventory matches the
    active governed set.
 7. SSRF-guarded web fetch tool exposure rules.
-8. Chat client bundle (admin JS) and editor embeds.
-9. Adversarial security review: key storage, approval-gate bypass,
-   prompt-injection-to-destructive-call paths.
+8. Chat client bundle (admin JS) and editor embeds. The key form on the chat
+   screen is inline script; the executor slice replaces it with a registered
+   bundle.
+9. A per-user cap on the number of conversations. The idempotency lookup now
+   prevents the retry path from minting orphans, but nothing bounds ordinary
+   accumulation.
+10. Adversarial security review: key storage, approval-gate bypass,
+    prompt-injection-to-destructive-call paths. Two rounds done on this slice;
+    the executor needs its own.
 
 ## Acceptance criteria status (issue #73)
 

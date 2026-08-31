@@ -29,7 +29,7 @@ if (! defined('ABSPATH')) {
  *     can produce one; WordPress itself emits HTML for _doing_it_wrong().
  *     display_errors is forced off for the remainder of the request as
  *     soon as we know the route is ours. Errors still reach the log: this
- *     suppresses the *display* channel only, and only on our two route
+ *     suppresses the *display* channel only, and only on our three route
  *     families, so a developer debugging a theme is unaffected.
  *
  *  3. STALE SITE URL. After a domain migration, a connector configured
@@ -44,7 +44,7 @@ if (! defined('ABSPATH')) {
  * scopes the no-store headers to the MCP route only (leaving OAuth token
  * responses cacheable, which is the more dangerous of the two, since a
  * cached token response is a credential served to the wrong caller), and
- * its host guard returns a bare message. Ours covers both route families,
+ * its host guard returns a bare message. Ours covers all three route families,
  * returns a machine-readable `expected_host` / `endpoint` payload the
  * client can act on, and is exercised by the connection self-test so an
  * admin can see the headers land before an agent ever connects.

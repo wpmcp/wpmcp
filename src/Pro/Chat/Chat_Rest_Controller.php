@@ -13,8 +13,10 @@ if (! defined('ABSPATH')) {
  *
  * SCOPE OF THIS SLICE, stated plainly so nobody reads a guarantee into it
  * that the code does not yet make: this controller manages the per-user
- * provider key and the private conversation store. It does NOT execute
- * abilities, and there is no provider turn yet.
+ * provider key and the private conversation store, including the read and
+ * delete paths for a conversation, so the store is exercisable end to end
+ * and its per-user scoping is observable rather than merely asserted. It
+ * does NOT execute abilities, and there is no provider turn yet.
  *
  * The design the executor slice will implement (and which nothing here
  * anticipates by minting credentials early): tool calls proposed by the model
@@ -33,13 +35,18 @@ class Chat_Rest_Controller
     public const REST_NAMESPACE = 'wpmcp/v1';
 
     /**
-     * Upper bound on one user message. Large enough for a pasted file, small
-     * enough that a single caller cannot drive the conversation meta row into
-     * megabytes in a handful of requests.
+     * Upper bound on one user message, in CHARACTERS, not bytes.
+     *
+     * The unit is stated because both halves of the check have to agree on
+     * it: rest_validate_value_from_schema measures a schema maxLength with
+     * mb_strlen, so a byte-counting strlen() here would reject a legitimate
+     * multibyte message well under the advertised limit. Byte pressure on the
+     * stored row is bounded separately, and in bytes, by the conversation
+     * store's own per-entry and per-history caps.
      */
     public const MAX_MESSAGE_LENGTH = 32768;
 
-    /** Provider keys are short; anything longer is not a key. */
+    /** Provider keys are short; anything longer is not a key. Characters, as above. */
     public const MAX_API_KEY_LENGTH = 512;
 
     /**
@@ -97,6 +104,32 @@ class Chat_Rest_Controller
             ],
         ]);
 
+        // Read paths. Without them /chat/message would be write-only: the
+        // store would accumulate private posts that nothing could retrieve,
+        // and no caller could verify the ownership scoping it depends on.
+        register_rest_route(self::REST_NAMESPACE, '/chat/conversations', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'list_conversations'],
+            'permission_callback' => [$this, 'permission_check'],
+        ]);
+
+        register_rest_route(
+            self::REST_NAMESPACE,
+            '/chat/conversations/(?P<conversation_id>[0-9]+)',
+            [
+                [
+                    'methods'             => 'GET',
+                    'callback'            => [$this, 'get_conversation'],
+                    'permission_callback' => [$this, 'permission_check'],
+                ],
+                [
+                    'methods'             => 'DELETE',
+                    'callback'            => [$this, 'delete_conversation'],
+                    'permission_callback' => [$this, 'permission_check'],
+                ],
+            ]
+        );
+
         register_rest_route(self::REST_NAMESPACE, '/chat/message', [
             'methods'             => 'POST',
             'callback'            => [$this, 'send_message'],
@@ -135,7 +168,7 @@ class Chat_Rest_Controller
         if ($key === '') {
             return new \WP_REST_Response(['stored' => false, 'error' => 'empty_key'], 400);
         }
-        if (strlen($key) > self::MAX_API_KEY_LENGTH) {
+        if (mb_strlen($key, 'UTF-8') > self::MAX_API_KEY_LENGTH) {
             return new \WP_REST_Response(['stored' => false, 'error' => 'key_too_long'], 400);
         }
         try {
@@ -202,11 +235,22 @@ class Chat_Rest_Controller
         }
 
         $text = (string) $request->get_param('message');
-        if (strlen($text) > self::MAX_MESSAGE_LENGTH) {
+        if (mb_strlen($text, 'UTF-8') > self::MAX_MESSAGE_LENGTH) {
             return new \WP_REST_Response(['error' => 'message_too_long'], 400);
         }
 
         $conversation_id = (int) $request->get_param('conversation_id');
+        $client_id       = (string) $request->get_param('client_message_id');
+
+        if ($conversation_id === 0 && $client_id !== '') {
+            // The retry this idempotency key exists for is precisely the one
+            // from a client that never saw the response, so it has no
+            // conversation_id to send back. Dedupe scoped to a single
+            // conversation would miss it and open a second conversation with
+            // the same message in it, leaving an orphan behind every time.
+            $conversation_id = $this->store()->find_by_client_id($user_id, $client_id);
+        }
+
         if ($conversation_id === 0) {
             $conversation_id = $this->store()->create($user_id);
             if ($conversation_id === 0) {
@@ -214,13 +258,18 @@ class Chat_Rest_Controller
             }
         }
 
-        $client_id = (string) $request->get_param('client_message_id');
-        $ok        = $this->store()->append_message($conversation_id, $user_id, [
+        $ok = $this->store()->append_message($conversation_id, $user_id, [
             'role'      => 'user',
             'content'   => $text,
             'client_id' => $client_id,
         ]);
         if (! $ok) {
+            if ($this->store()->last_append_error() === Conversation_Store::APPEND_WRITE_FAILED) {
+                // A lost write is a storage fault, not an authorization
+                // result. Reporting it as a missing conversation would send
+                // the client hunting for a conversation that is right there.
+                return new \WP_REST_Response(['error' => 'store_failed'], 500);
+            }
             // Ownership mismatch or unknown conversation: fail closed with no
             // detail about whether the conversation exists for someone else.
             return new \WP_REST_Response(['error' => 'invalid_conversation'], 404);
@@ -234,5 +283,45 @@ class Chat_Rest_Controller
             'history_trimmed' => $this->store()->last_append_trimmed(),
             'pending'         => 'provider_turn_not_implemented',
         ], 202);
+    }
+
+    /**
+     * Lists the calling admin's own conversations. There is deliberately no
+     * parameter that could widen this to another user: a conversation can
+     * contain another admin's provider exchange, so there is no admin-wide
+     * view of them anywhere in this surface.
+     */
+    public function list_conversations(): \WP_REST_Response
+    {
+        return new \WP_REST_Response([
+            'conversations' => $this->store()->list_for_user(get_current_user_id()),
+        ]);
+    }
+
+    /** Returns one conversation's history, for its owner only. */
+    public function get_conversation(\WP_REST_Request $request): \WP_REST_Response
+    {
+        $user_id = get_current_user_id();
+        $id      = (int) $request->get_param('conversation_id');
+        if (! $this->store()->is_owned_by($id, $user_id)) {
+            // Same answer whether the conversation does not exist or belongs
+            // to someone else: the difference is itself information.
+            return new \WP_REST_Response(['error' => 'invalid_conversation'], 404);
+        }
+        return new \WP_REST_Response([
+            'conversation_id' => $id,
+            'messages'        => $this->store()->get_messages($id, $user_id),
+        ]);
+    }
+
+    /** Force-deletes one conversation, for its owner only. */
+    public function delete_conversation(\WP_REST_Request $request): \WP_REST_Response
+    {
+        $user_id = get_current_user_id();
+        $id      = (int) $request->get_param('conversation_id');
+        if (! $this->store()->delete($id, $user_id)) {
+            return new \WP_REST_Response(['error' => 'invalid_conversation'], 404);
+        }
+        return new \WP_REST_Response(['deleted' => true]);
     }
 }

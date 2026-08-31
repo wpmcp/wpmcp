@@ -42,7 +42,7 @@ class TransportGuardTest extends \WP_UnitTestCase
         return (string) wp_parse_url(home_url(), PHP_URL_HOST);
     }
 
-    public function test_route_classification_covers_mcp_and_oauth_only(): void
+    public function test_route_classification_covers_mcp_oauth_and_chat(): void
     {
         $this->assertTrue(Transport_Guard::is_mcp_route('/mcp/wpmcp-server'));
         $this->assertTrue(Transport_Guard::is_oauth_route('/wpmcp/v1/oauth/token'));

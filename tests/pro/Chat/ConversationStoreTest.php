@@ -140,8 +140,113 @@ class ConversationStoreTest extends \WP_UnitTestCase
 
         $messages = $this->store->get_messages($id, $this->owner_id);
         $this->assertLessThan(200, count($messages));
-        $this->assertLessThanOrEqual(262144, strlen(serialize($messages)));
+        $this->assertLessThanOrEqual(262144, strlen(serialize(wp_slash($messages))));
         $this->assertTrue($this->store->last_append_trimmed());
+    }
+
+    /**
+     * The cap has to be measured on the SLASHED array, because slashed is
+     * what update_post_meta stores. Backslash- and quote-heavy content, which
+     * is exactly what the slashing exists for, serializes to roughly twice
+     * the unslashed size, so an unslashed measurement lets the real row run
+     * to about double the stated ceiling.
+     */
+    public function test_the_byte_cap_bounds_the_slashed_row_that_is_actually_written(): void
+    {
+        $id    = $this->store->create($this->owner_id);
+        $chunk = str_repeat('\\"', 20000);
+
+        for ($i = 0; $i < 20; $i++) {
+            $this->store->append_message($id, $this->owner_id, ['role' => 'user', 'content' => $chunk]);
+        }
+
+        $raw = get_post_meta($id, '_wpmcp_chat_messages', true);
+        $this->assertLessThanOrEqual(262144, strlen(serialize(wp_slash($raw))));
+    }
+
+    /**
+     * MAX_MESSAGES and the byte cap both trim from the front, and the loop
+     * never drops the only remaining entry, so neither can bound a single
+     * oversized message. Only the REST user turn has a length limit, and the
+     * assistant/tool appends the executor slice will make do not go through
+     * it, so the per-entry bound has to live in the store.
+     */
+    public function test_one_oversized_entry_is_bounded_by_the_store_not_by_the_rest_limit(): void
+    {
+        $id = $this->store->create($this->owner_id);
+
+        $this->assertTrue($this->store->append_message($id, $this->owner_id, [
+            'role'    => 'tool',
+            'content' => str_repeat('t', 1048576),
+        ]));
+
+        $messages = $this->store->get_messages($id, $this->owner_id);
+        $this->assertLessThanOrEqual(262144, strlen(serialize(wp_slash($messages))));
+        $this->assertStringEndsWith('[truncated]', $messages[0]['content']);
+    }
+
+    public function test_the_dedupe_return_preserves_the_original_appends_trim_flag(): void
+    {
+        $id    = $this->store->create($this->owner_id);
+        $chunk = str_repeat('x', 60000);
+        for ($i = 0; $i < 9; $i++) {
+            $this->store->append_message($id, $this->owner_id, ['role' => 'user', 'content' => $chunk]);
+        }
+        $this->store->append_message($id, $this->owner_id, [
+            'role'      => 'user',
+            'content'   => $chunk,
+            'client_id' => 'trimmed-turn',
+        ]);
+        $this->assertTrue($this->store->last_append_trimmed());
+
+        // The retry must not report the trim the original append caused as if
+        // it had not happened.
+        $this->store->append_message($id, $this->owner_id, [
+            'role'      => 'user',
+            'content'   => $chunk,
+            'client_id' => 'trimmed-turn',
+        ]);
+        $this->assertTrue($this->store->last_append_trimmed());
+    }
+
+    /**
+     * append_message() returns a single false for three unrelated conditions.
+     * The caller has to be able to tell a lost write from an authorization
+     * result, or a storage fault gets reported to the client as a
+     * conversation that does not exist.
+     */
+    public function test_append_distinguishes_authorization_from_a_lost_write(): void
+    {
+        $id = $this->store->create($this->owner_id);
+
+        $this->store->append_message($id, $this->other_admin_id, ['role' => 'user', 'content' => 'x']);
+        $this->assertSame(Conversation_Store::APPEND_FORBIDDEN, $this->store->last_append_error());
+
+        $this->store->append_message($id, $this->owner_id, ['role' => 'system', 'content' => 'x']);
+        $this->assertSame(Conversation_Store::APPEND_INVALID_ROLE, $this->store->last_append_error());
+
+        $fail = static fn () => false;
+        add_filter('update_post_metadata', $fail, 10, 0);
+        $ok = $this->store->append_message($id, $this->owner_id, ['role' => 'user', 'content' => 'x']);
+        remove_filter('update_post_metadata', $fail, 10);
+
+        $this->assertFalse($ok);
+        $this->assertSame(Conversation_Store::APPEND_WRITE_FAILED, $this->store->last_append_error());
+    }
+
+    public function test_a_client_id_is_findable_across_the_users_conversations(): void
+    {
+        $mine = $this->store->create($this->owner_id);
+        $this->store->append_message($mine, $this->owner_id, [
+            'role'      => 'user',
+            'content'   => 'x',
+            'client_id' => 'cross-1',
+        ]);
+
+        $this->assertSame($mine, $this->store->find_by_client_id($this->owner_id, 'cross-1'));
+        // Scoped per user: another admin's identical id must not resolve here.
+        $this->assertSame(0, $this->store->find_by_client_id($this->other_admin_id, 'cross-1'));
+        $this->assertSame(0, $this->store->find_by_client_id($this->owner_id, 'never-seen'));
     }
 
     public function test_conversations_are_purged_with_their_owner(): void
@@ -162,6 +267,9 @@ class ConversationStoreTest extends \WP_UnitTestCase
         $this->assertFalse($object->public);
         $this->assertFalse($object->publicly_queryable);
         $this->assertFalse($object->show_in_rest);
+        // Covers the deletion that reassigns nothing. Core reads this flag
+        // only when $reassign is null, so the reassigning deletion is the
+        // purge hook's job, exercised in ConversationLifecycleTest.
         $this->assertTrue($object->delete_with_user);
     }
 }

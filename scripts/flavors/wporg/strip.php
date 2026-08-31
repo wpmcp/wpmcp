@@ -369,20 +369,20 @@ $plugin_edits[] = [
     1,
 ];
 $plugin_edits[] = [
-    "            // In-admin AI chat (issue #73, PRO). Both hooks resolve the tier\n"
-        . "            // inside the callback and self-no-op when the feature cannot run,\n"
-        . "            // so a free install pays a closure call and nothing else, and no\n"
-        . "            // object is constructed at plugin load. That matters here: the\n"
-        . "            // controller's Key_Vault needs aes-256-gcm, and building it\n"
-        . "            // eagerly would turn an unsupported host into a site-wide fatal\n"
-        . "            // instead of one unavailable feature.\n"
-        . "            add_action('init', static function (): void {\n"
-        . "                if (! Gate::is_pro()) {\n"
-        . "                    return;\n"
-        . "                }\n"
-        . "                Conversation_Store::register_post_type();\n"
-        . "            }, 5);\n"
-        . "            add_action('wp_delete_user', [Conversation_Store::class, 'purge_for_user']);\n"
+    "            // In-admin AI chat (issue #73, PRO). The conversation CPT and the\n"
+        . "            // purge that destroys conversations with their owner register\n"
+        . "            // unconditionally, for the same reason the memory CPT above does:\n"
+        . "            // a safety rule must not stop applying because a license lapsed.\n"
+        . "            // If the type were unregistered on a lapsed install, the existing\n"
+        . "            // conversations would become orphan rows that no deletion path\n"
+        . "            // still claims. Only the routes and the screen are tier-gated.\n"
+        . "            add_action('init', [Conversation_Store::class, 'register_post_type'], 5);\n"
+        . "            Conversation_Store::register_user_deletion_hooks();\n"
+        . "            // The route hook resolves the tier inside the callback and\n"
+        . "            // self-no-ops, so no object is constructed at plugin load. That\n"
+        . "            // matters here: the controller's Key_Vault needs aes-256-gcm, and\n"
+        . "            // building it eagerly would turn an unsupported host into a\n"
+        . "            // site-wide fatal instead of one unavailable feature.\n"
         . "            add_action('rest_api_init', static function (): void {\n"
         . "                if (! Gate::is_pro()) {\n"
         . "                    return;\n"
@@ -414,6 +414,49 @@ $plugin_edits[] = [
 ];
 
 $edits['src/Plugin.php'] = $plugin_edits;
+
+// The chat surface is add-on-only, so the directory build must not carry the
+// guard constant, the classifier or the docblock that name a route it cannot
+// register: the wp.org tree should never describe a paid endpoint.
+$edits['src/MCP/Transport_Guard.php'] = [
+    [
+        "    /**\n"
+            . "     * The in-admin chat route prefix. Guarded for the same reason as the\n"
+            . "     * OAuth surface, only more so: GET /wpmcp/v1/chat/key\n"
+            . "     * returns provider-key status, and a cached credential-adjacent response\n"
+            . "     * is the worse of the two failure modes this guard exists to prevent.\n"
+            . "     */\n"
+            . "    public const CHAT_ROUTE_PREFIX = '/wpmcp/v1/chat';\n\n",
+        '',
+        1,
+    ],
+    [
+        '    /** Whether a REST route belongs to the in-admin chat surface. */' . "\n"
+            . '    public static function is_chat_route(string $route): bool' . "\n"
+            . '    {' . "\n"
+            . '        return str_starts_with($route, self::CHAT_ROUTE_PREFIX);' . "\n"
+            . '    }' . "\n\n",
+        '',
+        1,
+    ],
+    [
+        '        return self::is_mcp_route($route)' . "\n"
+            . '            || self::is_oauth_route($route)' . "\n"
+            . '            || self::is_chat_route($route);',
+        '        return self::is_mcp_route($route) || self::is_oauth_route($route);',
+        1,
+    ],
+    [
+        " *     suppresses the *display* channel only, and only on our three route\n",
+        " *     suppresses the *display* channel only, and only on our two route\n",
+        1,
+    ],
+    [
+        " * its host guard returns a bare message. Ours covers all three route families,",
+        " * its host guard returns a bare message. Ours covers both route families,",
+        1,
+    ],
+];
 
 $edits['src/Identity/Identity_Context.php'] = [
     [
