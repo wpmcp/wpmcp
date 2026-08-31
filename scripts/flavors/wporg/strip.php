@@ -360,6 +360,33 @@ $plugin_edits[] = [
         . "     * they serve: this build has no premium skill library to withhold.\n",
     1,
 ];
+// The PHP snippet store (issue #85) ships here; ACTIVATING a stored snippet
+// does not, so neither may the prose that points a reviewer (or an agent) at
+// an ability and a method this zip does not contain. Deactivation itself
+// stays and is not a no-op: a site that ran the full plugin and then swapped
+// to this build can still carry an active snippet in wp_options, and
+// revoking it must never require reinstalling the paid surface.
+$plugin_edits[] = [
+    "     * free tier: it stores and reads PHP source and never executes any of\n"
+        . "     * it. Deactivation lives here too, deliberately ungated, so an\n"
+        . "     * activated snippet can always be revoked. ACTIVATION is the pro,\n"
+        . "     * exec-gated half and is registered in\n"
+        . "     * register_php_exec_abilities() instead, next to run-php-snippet whose\n"
+        . "     * gate chain it shares.\n",
+    "     * free tier: it stores and reads PHP source, and NOTHING IN THIS BUILD\n"
+        . "     * CAN EXECUTE ANY OF IT. There is no activation ability here and no\n"
+        . "     * snippet runner, so 'inactive' is the only status this build can\n"
+        . "     * write. Deactivation stays anyway: a site that carried an active\n"
+        . "     * snippet from another build must be able to clear the flag without\n"
+        . "     * installing anything.\n",
+    1,
+];
+$plugin_edits[] = [
+    "            'Deactivate a stored PHP snippet by id (the reverse of activate-php-snippet): marks it inactive so nothing can run it. Deliberately NOT gated on the PHP execution opt-in, so an activated snippet can always be revoked even after the execution gate is closed. Snapshot-first and reversible; never executes anything',",
+    "            'Deactivate a stored PHP snippet by id: marks it inactive. This build cannot execute a stored snippet at all and has no way to activate one, so this only ever clears a flag left behind by another install. Snapshot-first and reversible; never executes anything',",
+    1,
+];
+
 $edits['src/Plugin.php'] = $plugin_edits;
 
 $edits['src/Identity/Identity_Context.php'] = [
@@ -403,6 +430,60 @@ $edits['src/Safety/Snapshot_Store.php'] = [
             . "        return \$limit > 0 ? \$limit : self::DEFAULT_HISTORY_LIMIT;\n"
             . "    }\n\n"
             . "    public static function prune(int \$keep): int\n",
+        1,
+    ],
+];
+
+// ------------------------------------------------------- Php_Snippet_Guard
+// The guard ships (Governance\Opt_In_Gates and Safety\Rollback_Service both
+// reference it) but the two surfaces its docblock names as callers do not.
+// Rollback_Service is the one real caller left here: it consults the gate
+// before it will restore a snippet record as ACTIVE.
+$edits['src/Tools/Code/Php_Snippet_Guard.php'] = [
+    [
+        " * Security core for the guarded PHP snippet executor (issue #45). This is\n"
+            . " * the single most dangerous feature in the plugin: running arbitrary PHP is\n"
+            . " * remote code execution by definition, and it cannot be sandboxed in-process\n"
+            . " * or made undoable. Every guard Run_Php_Snippet relies on lives here as a\n"
+            . " * pure, independently testable check, mirroring Wp_Cli_Guard's shape:\n"
+            . " * enable/disable and environment refusal live here; Run_Php_Snippet composes\n"
+            . " * these checks and is the only caller that ever actually evaluates a\n"
+            . " * snippet.\n"
+            . " *\n"
+            . " * This tool is the ONE explicit escape hatch outside the snapshot/rollback\n"
+            . " * safety model: its effects are not captured and not undoable, and enabling\n"
+            . " * it grants RCE to anyone who can call it with manage_options. The product's\n"
+            . " * \"AI physically can't wreck your site\" promise holds only because this is\n"
+            . " * default-off, dev-only, and must be deliberately enabled.\n",
+        " * The PHP snippet execution gate (issue #45). THIS BUILD SHIPS NO PHP\n"
+            . " * EXECUTOR AND NO ABILITY THAT RUNS PHP, so nothing here can evaluate\n"
+            . " * anything; the checks are kept because Safety\\Rollback_Service asks\n"
+            . " * them before it will restore a stored PHP snippet record as ACTIVE,\n"
+            . " * and because Governance\\Opt_In_Gates names the same enablement flag.\n"
+            . " *\n"
+            . " * Both checks fail closed: execution is off unless deliberately\n"
+            . " * enabled, and refused outright on production or on any environment\n"
+            . " * that cannot be positively identified as local, development or\n"
+            . " * staging. Keeping that answer available with nothing to run is what\n"
+            . " * stops an undo from quietly re-arming a snippet an operator turned\n"
+            . " * off.\n",
+        1,
+    ],
+    [
+        "     * The execution gate chain, in order, as ONE shared refusal. Both\n"
+            . "     * surfaces that can put a snippet on the path to running call this:\n"
+            . "     * Run_Php_Snippet::guard() before it evaluates anything, and\n"
+            . "     * Activate_Php_Snippet before it marks a stored snippet active. It\n"
+            . "     * lives here rather than being re-typed at each call site so a third\n"
+            . "     * gate added to this chain applies to every such surface at once,\n"
+            . "     * which is the drift the split between \"execution\" and\n"
+            . "     * \"exec-adjacent\" would otherwise invite.\n",
+        "     * The execution gate chain, in order, as ONE shared refusal. Every\n"
+            . "     * surface that can put a snippet on the path to running asks this\n"
+            . "     * one question rather than re-typing the checks, so a third gate\n"
+            . "     * added here applies to all of them at once. In this build the only\n"
+            . "     * such surface is Safety\\Rollback_Service, which refuses to restore\n"
+            . "     * a snippet record as ACTIVE while this chain would refuse.\n",
         1,
     ],
 ];

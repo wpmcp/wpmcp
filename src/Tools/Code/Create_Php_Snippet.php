@@ -68,6 +68,12 @@ class Create_Php_Snippet
             'updated_at' => $now,
         ];
 
+        // Aggregate bound, checked before the snapshot: see
+        // Php_Snippet_Store::assert_total_within_limit(). The per-snippet and
+        // per-count caps alone multiply out past what the database will
+        // accept in one option row.
+        Php_Snippet_Store::assert_total_within_limit($snippet['id'], $snippet);
+
         $out = Safe_Mutation::run(
             [
                 'object_type' => 'php_snippet',

@@ -15,6 +15,10 @@ if (! defined('ABSPATH')) {
  * same caveat spelled out there: the validator is an advisory speed-bump an
  * authorized caller can trivially evade, not a security boundary.
  *
+ * An omitted argument leaves that field alone; an argument that is present
+ * but blank is refused rather than treated as omitted, so a rename cannot
+ * quietly report success while the old code stays put.
+ *
  * A code change also forces the snippet back to INACTIVE: edited code has not
  * been re-approved for activation, so it must re-enter the governed
  * activation flow. Status cannot be set here at all; that is
@@ -38,8 +42,22 @@ class Update_Php_Snippet
             throw new \RuntimeException("No stored snippet with id \"{$id}\".");
         }
 
-        $has_name = array_key_exists('name', $args) && '' !== trim((string) $args['name']);
-        $has_code = array_key_exists('code', $args) && '' !== trim((string) $args['code']);
+        // "Key absent" and "key present but blank" are DIFFERENT requests and
+        // are kept apart deliberately. Collapsing them made {id, name, code:
+        // ""} a silent rename that reported success while leaving the old
+        // code in place, and made {id, code: "   "} fail with the misleading
+        // "provide a name and/or code". Absent means leave the field alone;
+        // present-but-blank is a bad argument, exactly as it is in
+        // Create_Php_Snippet.
+        $has_name = array_key_exists('name', $args);
+        $has_code = array_key_exists('code', $args);
+
+        if ($has_name && '' === trim((string) $args['name'])) {
+            throw new \InvalidArgumentException('A snippet name cannot be blank. Omit "name" to leave it unchanged.');
+        }
+        if ($has_code && '' === trim((string) $args['code'])) {
+            throw new \InvalidArgumentException('A snippet\'s code cannot be blank. Omit "code" to leave it unchanged, or delete the snippet.');
+        }
         if (! $has_name && ! $has_code) {
             throw new \InvalidArgumentException('Provide a new name and/or code to update.');
         }
@@ -66,6 +84,15 @@ class Update_Php_Snippet
             $fields['validation'] = $validation;
             $fields['status']     = Php_Snippet_Store::STATUS_INACTIVE;
         }
+
+        // Aggregate bound, checked against the record as it would be stored
+        // and BEFORE Safe_Mutation snapshots anything: a write the database
+        // would reject must not come back with an operation_id claiming it
+        // landed.
+        Php_Snippet_Store::assert_total_within_limit(
+            $id,
+            array_merge((array) Php_Snippet_Store::get($id), $fields)
+        );
 
         $snippet = null;
 

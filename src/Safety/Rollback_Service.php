@@ -376,6 +376,35 @@ class Rollback_Service
      * again. Every other object type, and posts without a 'files' key,
      * never reach that branch, so this is purely additive.
      */
+    /**
+     * Every object_type apply_snapshot() below actually knows how to restore.
+     * List_Operations reads this rather than keeping its own copy: the copy
+     * had gone stale for six object types at once, so every one of those
+     * operations was reported to agents (and to the audit-log screen's
+     * Restore button) as un-rollbackable while the tools that wrote them
+     * reported recoverable: true. Add a branch below, get the listing for
+     * free.
+     *
+     * @return string[]
+     */
+    public static function restorable_object_types(): array
+    {
+        return [
+            'post',
+            'option',
+            'user',
+            'comment',
+            'wc_order',
+            'db_rows',
+            'redirect',
+            'term',
+            'php_snippet',
+            'page_build',
+            'media_import',
+            'elementor_global_classes',
+        ];
+    }
+
     public static function apply_snapshot(array $snapshot): void
     {
         if ('option' === $snapshot['object_type']) {
@@ -881,12 +910,24 @@ class Rollback_Service
      *
      * Two cases, and only the one captured record is touched either way, so
      * snippets created or edited after this operation survive the rollback:
-     *  - the id existed: put the captured record back verbatim, including
-     *    its prior status. Restoring a record that was ACTIVE at capture
-     *    time restores exactly what the operator had; it does not grant
-     *    anything, because nothing executes from the status flag without
-     *    re-clearing Php_Snippet_Guard at call time.
+     *  - the id existed: put the captured record back, with ONE deliberate
+     *    departure from verbatim, below.
      *  - the id did not exist: the write created it, so remove it.
+     *
+     * THE STATUS FLAG IS CLAMPED, NOT RESTORED BLINDLY. rollback-operation
+     * and rollback-session are free abilities, are not in Opt_In_Gates, and
+     * do not consult the PHP execution gate. Restoring a captured
+     * status='active' verbatim would therefore let any manage_options caller
+     * undo a deactivate-php-snippet (or an update that forced a snippet back
+     * to inactive) and re-arm the snippet with wpmcp_allow_php_exec closed,
+     * on production, sidestepping the entire reason activate-php-snippet is a
+     * distinct governed operation. So an ACTIVE capture is only restored as
+     * active when Php_Snippet_Guard::assert_execution_allowed() passes right
+     * now; otherwise it comes back INACTIVE. An undo that cannot re-arm an
+     * exec-adjacent flag is still a correct undo: every other field is
+     * restored exactly, and re-activation goes back through the governed
+     * path. This does not depend on "nothing executes from the status flag
+     * yet", which stops being true the moment the documented executor lands.
      */
     private static function apply_php_snippet_snapshot(array $snapshot): void
     {
@@ -910,7 +951,33 @@ class Rollback_Service
             throw new Mutation_Failed('Rollback refused: the captured PHP snippet record is missing or malformed.');
         }
 
+        $record['status'] = self::restorable_snippet_status($record);
+
         \WPMCP\Tools\Code\Php_Snippet_Store::save($record);
+    }
+
+    /**
+     * The status a restored snippet record may come back with. See
+     * apply_php_snippet_snapshot(): anything other than a captured 'active'
+     * is restored as-is, and a captured 'active' survives only while the
+     * shared execution gate would allow an activation to be performed
+     * through activate-php-snippet right now.
+     */
+    private static function restorable_snippet_status(array $record): string
+    {
+        $captured = (string) ($record['status'] ?? \WPMCP\Tools\Code\Php_Snippet_Store::STATUS_INACTIVE);
+
+        if (\WPMCP\Tools\Code\Php_Snippet_Store::STATUS_ACTIVE !== $captured) {
+            return $captured;
+        }
+
+        try {
+            \WPMCP\Tools\Code\Php_Snippet_Guard::assert_execution_allowed();
+        } catch (\Throwable $e) {
+            return \WPMCP\Tools\Code\Php_Snippet_Store::STATUS_INACTIVE;
+        }
+
+        return \WPMCP\Tools\Code\Php_Snippet_Store::STATUS_ACTIVE;
     }
 
     private static function apply_redirect_snapshot(array $snapshot): void

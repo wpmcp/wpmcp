@@ -236,8 +236,21 @@ add-on and their files are removed by
 `scripts/flavors/wporg/strip.php`, and the no-`eval`/no-`proc_open` token gate
 above still runs over the finished tree. Every write requires `manage_options`,
 every snippet is stored inactive, and the store is on the option denylist so
-the generic option tools cannot reach it. Concretely: this is a place to keep
-and review a snippet a human will decide about, not a way to execute one.
+the generic option tools cannot reach it.
+
+That option is not the only copy, so we will name the other one too. Every
+snippet write is snapshot-first, and the snapshot serializes the whole record,
+source included, into the `before_blob` column of the plugin's own
+`wp_wpmcp_snapshots` table. That is what makes a snippet edit or deletion
+undoable, and it is the same mechanism every other write in the plugin uses.
+The copy is short-lived (the table prunes to the most recent operations,
+twenty by default) and no tool reads it back: `list-operations` selects only
+the metadata columns and never the blob, and the only consumer is the rollback
+path, which writes the record back into the option it came from. Still no
+execution anywhere in that loop.
+
+Concretely: this is a place to keep and review a snippet a human will decide
+about, not a way to execute one.
 
 ### 5.5 "This can install and activate plugins. Isn't that guideline 8?"
 

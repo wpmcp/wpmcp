@@ -57,6 +57,16 @@ class Php_Snippet_Store
     public const DEFAULT_MAX_SNIPPETS   = 200;
     public const DEFAULT_MAX_CODE_BYTES = 65536;
 
+    /**
+     * Aggregate cap on the whole option. The per-snippet and per-count caps
+     * multiply out to roughly 12.8 MB in ONE option row that is read and
+     * rewritten on every CRUD call, which is past the point where a default
+     * MySQL max_allowed_packet rejects the write. Bounding the total is what
+     * actually keeps the store writable; the other two caps only bound its
+     * shape.
+     */
+    public const DEFAULT_MAX_TOTAL_BYTES = 1048576;
+
     /** @return array<string, array> All well-formed stored snippets keyed by id. */
     public static function all(): array
     {
@@ -88,15 +98,54 @@ class Php_Snippet_Store
     }
 
     /**
+     * The option exactly as stored, malformed entries included. all() is the
+     * READ path and filters; this is the WRITE path's base, and it must not,
+     * or an entry all() rejects would be destroyed by the next unrelated
+     * write. "Filtered rather than fatalled on" is a promise about reading.
+     */
+    private static function raw(): array
+    {
+        $snippets = get_option(self::OPTION_NAME, []);
+
+        return is_array($snippets) ? $snippets : [];
+    }
+
+    /**
+     * Persist the whole option and REFUSE TO REPORT SUCCESS IF IT DID NOT
+     * LAND. update_option() returns false both for a rejected write (past
+     * MySQL's max_allowed_packet, for instance) and for a value that did not
+     * change, so the no-op case is settled here first and only a genuine
+     * change is required to return true. A silently dropped write that still
+     * hands back an operation_id is the failure mode
+     * Snapshot_Store::save()'s own docblock exists to prevent.
+     */
+    private static function persist(array $snippets): void
+    {
+        if (self::raw() === $snippets) {
+            return;
+        }
+
+        if (! update_option(self::OPTION_NAME, $snippets, false)) {
+            throw new \RuntimeException(
+                'Refusing to report success: the snippet store write did not persist. The most likely cause is the stored size exceeding the database packet limit; lower wpmcp_php_snippet_max_total_bytes or delete a snippet.'
+            );
+        }
+    }
+
+    /**
      * Insert or replace one snippet record. Callers are responsible for
      * wrapping this in Safe_Mutation (object_type 'php_snippet', object_id
      * the snippet id) so the write is snapshotted and reversible.
+     *
+     * Mutates ONE key of the raw option rather than writing back the filtered
+     * read: a malformed sibling record is tolerated on read and must survive
+     * an unrelated write instead of being quietly purged by it.
      */
     public static function save(array $snippet): void
     {
-        $snippets                 = self::all();
+        $snippets                 = self::raw();
         $snippets[$snippet['id']] = $snippet;
-        update_option(self::OPTION_NAME, $snippets, false);
+        self::persist($snippets);
     }
 
     /**
@@ -128,12 +177,16 @@ class Php_Snippet_Store
         return self::update_fields($id, ['status' => $status]);
     }
 
-    /** Remove one snippet record; same Safe_Mutation expectation as save(). */
+    /**
+     * Remove one snippet record; same Safe_Mutation expectation as save().
+     * Same raw() base as save(), for the same reason: deleting snippet A must
+     * not also delete a malformed sibling B that all() happens to reject.
+     */
     public static function delete(string $id): void
     {
-        $snippets = self::all();
+        $snippets = self::raw();
         unset($snippets[$id]);
-        update_option(self::OPTION_NAME, $snippets, false);
+        self::persist($snippets);
     }
 
     /** Whether a snippet id exists in the store. */
@@ -152,6 +205,32 @@ class Php_Snippet_Store
     public static function max_code_bytes(): int
     {
         return max(1, (int) apply_filters('wpmcp_php_snippet_max_code_bytes', self::DEFAULT_MAX_CODE_BYTES));
+    }
+
+    /** Maximum serialized size, in bytes, of the whole snippet store option. */
+    public static function max_total_bytes(): int
+    {
+        return max(1, (int) apply_filters('wpmcp_php_snippet_max_total_bytes', self::DEFAULT_MAX_TOTAL_BYTES));
+    }
+
+    /**
+     * Refuse a write that would push the whole option past the aggregate cap.
+     * Called by create and update with the record they are about to store, so
+     * the refusal happens BEFORE Safe_Mutation snapshots anything: a write
+     * rejected here leaves no operation_id claiming it happened.
+     */
+    public static function assert_total_within_limit(string $id, array $snippet): void
+    {
+        $snippets       = self::raw();
+        $snippets[$id]  = $snippet;
+        $size           = strlen(maybe_serialize($snippets));
+        $limit          = self::max_total_bytes();
+
+        if ($size > $limit) {
+            throw new \RuntimeException(
+                sprintf('Refusing to store snippet: the snippet store would be %d bytes, over the %d byte total limit (filter wpmcp_php_snippet_max_total_bytes). Delete a snippet first.', $size, $limit)
+            );
+        }
     }
 
     /**

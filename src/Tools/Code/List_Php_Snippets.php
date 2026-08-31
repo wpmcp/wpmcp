@@ -25,7 +25,13 @@ class List_Php_Snippets
 
         foreach (Php_Snippet_Store::all() as $id => $snippet) {
             $summaries[] = [
-                'id'         => (string) ($snippet['id'] ?? $id),
+                // The ARRAY KEY, not the record's own 'id' field. They agree
+                // for every record this plugin writes, but a hand edit or a
+                // partial restore can leave them disagreeing, and the key is
+                // what get/update/delete-php-snippet actually look a snippet
+                // up by. Reporting the field would list a snippet under an id
+                // no other tool can resolve.
+                'id'         => (string) $id,
                 'name'       => (string) ($snippet['name'] ?? ''),
                 'status'     => (string) ($snippet['status'] ?? Php_Snippet_Store::STATUS_INACTIVE),
                 'safe'       => (bool) ($snippet['validation']['safe'] ?? false),
