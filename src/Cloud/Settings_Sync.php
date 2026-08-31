@@ -33,6 +33,13 @@ if (! defined('ABSPATH')) {
  *    stock/API keys. They are absent from the allowlist by construction, and
  *    Option_Guard::is_denylisted() is re-checked on write as a second fence.
  *
+ * apply() MERGES rather than replaces, and it narrows rather than widens: the
+ * governance toggle map is merged per dimension (see coerce_governance()) and a
+ * payload that would switch wpmcp_mcp_exposure back ON against an operator who
+ * turned it off is refused outright. Both follow from the same rule the whole
+ * governance layer is built on -- a remote party may take agent access away,
+ * never hand it back.
+ *
  * apply() is the paid-cloud entitlement (Pro\Gate), requires manage_options,
  * re-filters the incoming blob against the same allowlist, and coerces every
  * value to the exact shape its owner expects, so a tampered or stale cloud
@@ -79,9 +86,14 @@ class Settings_Sync
      * Apply a synced payload.
      *
      * @param array<string,mixed> $payload
+     * @param string               $session_id Threaded into the Safe_Mutation
+     *                                         snapshot so the audit trail
+     *                                         attributes the write to the
+     *                                         session that asked for it, like
+     *                                         every other option writer.
      * @return array{applied:string[],skipped:array<int,array{key:string,reason:string}>,operation_ids:string[]}|\WP_Error
      */
-    public static function apply(array $payload)
+    public static function apply(array $payload, string $session_id = 'default')
     {
         if (! Gate::is_pro()) {
             return new \WP_Error(
@@ -114,7 +126,7 @@ class Settings_Sync
                 continue;
             }
 
-            $coerced = self::coerce(self::ALLOWLIST[$option], $value);
+            $coerced = self::coerce(self::ALLOWLIST[$option], $value, $option);
             if (! $coerced['ok']) {
                 $skipped[] = ['key' => $option, 'reason' => $coerced['reason']];
                 continue;
@@ -131,9 +143,16 @@ class Settings_Sync
                 [
                     'object_type' => 'option',
                     'object_id'   => $option,
-                    'session_id'  => 'default',
-                    'tool_name'   => 'cloud-sync-settings',
-                    'args'        => [$option => $value],
+                    'session_id'  => $session_id,
+                    // The APPLIER, not the read-only preview tool. History and
+                    // the audit surfaces read this string; naming
+                    // cloud-sync-settings here would report an option write as
+                    // coming from a tool that never writes anything.
+                    'tool_name'   => 'cloud-apply-settings',
+                    // The coerced value, which is what update_option() below
+                    // actually stores. Hashing the raw payload would make the
+                    // recorded args describe something that was never written.
+                    'args'        => [$option => $next],
                 ],
                 static function () use ($option, $next): void {
                     update_option($option, $next);
@@ -161,7 +180,7 @@ class Settings_Sync
      * @param mixed $value
      * @return array{ok:bool,reason?:string,value?:mixed}
      */
-    private static function coerce(string $type, $value): array
+    private static function coerce(string $type, $value, string $option = ''): array
     {
         switch ($type) {
             case 'exposure_mode':
@@ -174,13 +193,24 @@ class Settings_Sync
                 if (! is_scalar($value)) {
                     return ['ok' => false, 'reason' => 'invalid flag value'];
                 }
-                return ['ok' => true, 'value' => self::truthy($value) ? '1' : '0'];
+                $on = self::truthy($value);
+                // Narrowing only, matching what Exposure itself is: a kill
+                // switch that other governance layers AND with. A cloud payload
+                // may turn the MCP surface OFF on a fleet, never back on -- an
+                // operator who killed agent access at the site must not have it
+                // silently restored by a stale or tampered blob.
+                if (Exposure::OPTION === $option && $on && ! Exposure::is_enabled()) {
+                    return ['ok' => false, 'reason' => 'settings sync may switch MCP exposure off, never back on'];
+                }
+                return ['ok' => true, 'value' => $on ? '1' : '0'];
 
             case 'checkbox_flag':
                 if (! is_scalar($value)) {
                     return ['ok' => false, 'reason' => 'invalid flag value'];
                 }
-                return ['ok' => true, 'value' => self::truthy($value) ? '1' : ''];
+                // Delegate to the owner's own normalizer rather than restating
+                // its truthiness table, so the two cannot drift.
+                return ['ok' => true, 'value' => Skills_Module::sanitize($value)];
 
             case 'governance_toggles':
                 return self::coerce_governance($value);
@@ -194,6 +224,16 @@ class Settings_Sync
      * else in the blob is dropped, and a non-bool decision is normalized, so
      * Governance::explain()'s strict `false ===` checks always see real bools.
      *
+     * MERGE, not replace, and the choice is deliberate. coerce_governance()
+     * always emits all three dimensions, so a straight overwrite would let a
+     * payload carrying only domain toggles silently wipe the target's ability-
+     * and operation-level disables. That contradicts export()'s own promise
+     * that applying a payload "never silently resets a target site's choices",
+     * and it re-enables abilities an operator turned off at the site, which is
+     * the one direction the narrowing model does not allow anything to move
+     * on its own. A dimension absent from the payload is therefore left
+     * untouched; a name present in the payload wins for that name only.
+     *
      * @param mixed $value
      * @return array{ok:bool,reason?:string,value?:mixed}
      */
@@ -203,9 +243,22 @@ class Settings_Sync
             return ['ok' => false, 'reason' => 'governance settings must be a toggle map'];
         }
 
+        $stored = get_option(Governance::OPTION, []);
+        $stored = is_array($stored) ? $stored : [];
+
         $out = ['ability' => [], 'domain' => [], 'operation' => []];
         foreach (array_keys($out) as $dimension) {
-            $entries = $value[$dimension] ?? [];
+            $existing = isset($stored[$dimension]) && is_array($stored[$dimension]) ? $stored[$dimension] : [];
+            foreach ($existing as $name => $enabled) {
+                if (is_string($name) && '' !== $name && is_scalar($enabled)) {
+                    $out[$dimension][$name] = self::truthy($enabled);
+                }
+            }
+
+            if (! array_key_exists($dimension, $value)) {
+                continue;
+            }
+            $entries = $value[$dimension];
             if (! is_array($entries)) {
                 return ['ok' => false, 'reason' => "governance {$dimension} toggles must be a map"];
             }

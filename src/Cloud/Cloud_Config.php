@@ -65,10 +65,33 @@ class Cloud_Config
         if (null === $bundle || '' === $bundle['access_token']) {
             return null;
         }
-        if ('' !== $bundle['issuer'] && rtrim($bundle['issuer'], '/') !== self::base_url()) {
+        if ('' !== $bundle['issuer'] && self::normalize($bundle['issuer']) !== self::base_url()) {
             return null;
         }
         if ($bundle['expires_at'] > 0 && $bundle['expires_at'] <= time()) {
+            return null;
+        }
+
+        return $bundle;
+    }
+
+    /**
+     * The vault bundle when it belongs to the cloud this site points at,
+     * regardless of expiry. This is the "may we rotate it?" view, as distinct
+     * from live_bundle()'s "may we put it on the wire as-is?": an expired
+     * bundle is precisely the one that needs refreshing, but a bundle from
+     * another issuer must not be refreshed at all, because the refresh grant
+     * goes to that issuer.
+     *
+     * @return array{access_token:string,refresh_token:string,expires_at:int,issuer:string}|null
+     */
+    public static function refreshable_bundle(): ?array
+    {
+        $bundle = Token_Vault::read();
+        if (null === $bundle) {
+            return null;
+        }
+        if ('' !== $bundle['issuer'] && self::normalize($bundle['issuer']) !== self::base_url()) {
             return null;
         }
 
@@ -88,7 +111,31 @@ class Cloud_Config
     public static function set(string $url, string $key): void
     {
         Token_Vault::clear();
-        update_option(self::URL_OPTION, esc_url_raw(rtrim($url, '/')));
+        self::set_url($url);
         update_option(self::KEY_OPTION, sanitize_text_field($key));
+    }
+
+    /**
+     * Write the cloud URL WITHOUT clearing the vault.
+     *
+     * Cloud_Oauth::exchange() needs exactly this: it has just minted a bundle
+     * for $url and must point the site at that cloud so live_bundle()'s issuer
+     * check passes, but calling set() would destroy the token it is about to
+     * store. Both the option and the bundle issuer go through normalize(), so
+     * the issuer comparison cannot drift on punctuation.
+     */
+    public static function set_url(string $url): void
+    {
+        update_option(self::URL_OPTION, self::normalize($url));
+    }
+
+    /**
+     * The one normalization used for BOTH sides of the issuer comparison.
+     * esc_url_raw plus a trailing-slash trim, in that order, so
+     * "https://cloud.example/" and "https://cloud.example" are one value.
+     */
+    public static function normalize(string $url): string
+    {
+        return rtrim(esc_url_raw(rtrim(trim($url), '/')), '/');
     }
 }

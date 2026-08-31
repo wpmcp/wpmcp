@@ -45,9 +45,30 @@ class Cloud_Oauth
      */
     public static function begin(string $cloud_url)
     {
-        $cloud_url = rtrim($cloud_url, '/');
+        $cloud_url = Cloud_Config::normalize($cloud_url);
         if ('' === $cloud_url) {
             return new \WP_Error('missing_cloud_url', 'A cloud url is required to start the OAuth connect.');
+        }
+
+        // This string becomes a link an admin is told to click and, minutes
+        // later, the host a PKCE verifier is POSTed to, so it is validated
+        // before it is persisted rather than at use time.
+        //
+        // Structural validation, deliberately not wp_http_validate_url(): that
+        // helper resolves the host and refuses private ranges, which would make
+        // the check depend on the resolver and would lock out a self-hosted
+        // cloud on an internal network. What actually matters here is the
+        // shape: https, because the authorization code and the verifier both
+        // cross this connection, a real host, and no embedded credentials.
+        $parts = wp_parse_url($cloud_url);
+        if (! is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+            return new \WP_Error('invalid_cloud_url', 'The cloud url must be an absolute url with a scheme and a host.');
+        }
+        if ('https' !== strtolower((string) $parts['scheme'])) {
+            return new \WP_Error('invalid_cloud_url', 'The cloud url must use https; OAuth carries the authorization code and PKCE verifier over it.');
+        }
+        if (isset($parts['user']) || isset($parts['pass'])) {
+            return new \WP_Error('invalid_cloud_url', 'The cloud url must not embed credentials.');
         }
 
         $verifier  = self::random_token(48);
@@ -99,7 +120,7 @@ class Cloud_Oauth
             return new \WP_Error('oauth_state_expired', 'The pending OAuth connect expired; start over with cloud-connect.');
         }
 
-        $cloud_url = rtrim((string) ($pending['url'] ?? ''), '/');
+        $cloud_url = Cloud_Config::normalize((string) ($pending['url'] ?? ''));
         $verifier  = (string) ($pending['verifier'] ?? '');
         delete_option(self::STATE_OPTION);
 
@@ -118,7 +139,14 @@ class Cloud_Oauth
             return $tokens;
         }
 
-        Token_Vault::store($tokens['access_token'], $tokens['refresh_token'], $tokens['expires_at'], $cloud_url);
+        // Point the site at the cloud we actually authenticated against BEFORE
+        // sealing the bundle. Without this an OAuth-only connect leaves
+        // wpmcp_cloud_url empty, so live_bundle()'s issuer check rejects the
+        // token that was just minted and is_configured() may still be false;
+        // and set_url() rather than Cloud_Config::set(), because set() clears
+        // the vault and would destroy the bundle on the next line.
+        Cloud_Config::set_url($cloud_url);
+        Token_Vault::store($tokens['access_token'], $tokens['refresh_token'], $tokens['expires_at'], Cloud_Config::base_url());
 
         return true;
     }
@@ -134,7 +162,21 @@ class Cloud_Oauth
     public static function refresh(string $stale_access_token = '')
     {
         return Token_Vault::with_refresh_lock(static function (array $bundle) {
-            $issuer = '' !== $bundle['issuer'] ? $bundle['issuer'] : Cloud_Config::base_url();
+            $issuer = '' !== $bundle['issuer'] ? Cloud_Config::normalize($bundle['issuer']) : Cloud_Config::base_url();
+
+            // The refresh token is a long-lived credential; it must never leave
+            // for a host the site is not currently configured against. A bundle
+            // whose issuer no longer matches is exactly the one live_bundle()
+            // already refuses to put on the wire, so refreshing it would ship
+            // the strongest half of the credential to the host whose weaker
+            // half we declined to send.
+            if ('' === $issuer || $issuer !== Cloud_Config::base_url()) {
+                return new \WP_Error(
+                    'cloud_issuer_mismatch',
+                    'The stored cloud token bundle was issued by a different cloud than this site is configured against; reconnect with cloud-connect.'
+                );
+            }
+
             if ('' === $bundle['refresh_token']) {
                 return new \WP_Error('cloud_no_refresh_token', 'The stored cloud token bundle has no refresh token; reconnect.');
             }
@@ -170,10 +212,13 @@ class Cloud_Oauth
             [
                 'timeout' => 20,
                 'headers' => [
-                    'Content-Type' => 'application/json',
+                    // RFC 6749 section 4.1.3, carried forward by OAuth 2.1: the
+                    // token endpoint takes form encoding, not JSON. Passing the
+                    // array lets WP_Http build the body.
+                    'Content-Type' => 'application/x-www-form-urlencoded',
                     'Accept'       => 'application/json',
                 ],
-                'body'    => (string) wp_json_encode($body),
+                'body'    => $body,
             ]
         );
 

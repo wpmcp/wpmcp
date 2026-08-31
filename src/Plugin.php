@@ -672,6 +672,12 @@ final class Plugin
             [new Skills_Settings_Page(), 'render']
         );
 
+        // Hidden landing page for the cloud OAuth redirect (issue #135). Not a
+        // menu entry: Cloud_Oauth::redirect_uri() points at it, and without a
+        // registered page WordPress serves the redirect a permissions error and
+        // the connect can never complete.
+        \WPMCP\Admin\Cloud_Callback_Page::register();
+
         // Agent memory (issue #131). The target is the wpmcp_memory CPT list
         // table, not a bespoke screen: approving a proposal is WordPress's own
         // pending -> publish flow, with its list table, nonces, capability
@@ -2275,12 +2281,13 @@ final class Plugin
     private function register_cloud_abilities(Registrar $registrar): void
     {
         $tools = [
-            ['cloud-connect', 'update', new \WPMCP\Tools\Cloud\Cloud_Connect(), 'Connect this site to WP MCP Cloud: store the cloud url + api key and verify them by fetching the account. Returns the account on success', ['url' => ['type' => 'string'], 'key' => ['type' => 'string']], ['url', 'key']],
+            ['cloud-connect', 'update', new \WPMCP\Tools\Cloud\Cloud_Connect(), 'Connect this site to WP MCP Cloud. With url only, starts the PKCE OAuth flow and returns an authorize url a site administrator must open in a browser to finish it. With url + key, stores the api key and verifies it by fetching the account', ['url' => ['type' => 'string'], 'key' => ['type' => 'string']], ['url']],
             ['cloud-status', 'read', new \WPMCP\Tools\Cloud\Cloud_Status(), 'Report whether this site is connected to WP MCP Cloud, and where. Read-only', [], []],
             ['cloud-list-assets', 'read', new \WPMCP\Tools\Cloud\Cloud_List_Assets(), 'List the assets (widget/block specs) in this site\'s WP MCP Cloud account. Read-only', [], []],
             ['cloud-push-assets', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Assets(), 'Push this site\'s custom widget and block specs up to WP MCP Cloud (backup + reuse across sites). Optionally filter by type (widget|block)', ['types' => ['type' => 'array']], []],
             ['cloud-pull-assets', 'create', new \WPMCP\Tools\Cloud\Cloud_Pull_Assets(), 'Pull the builder assets from this site\'s WP MCP Cloud account and recreate them locally as custom widget/block specs (each validated before it is stored)', [], []],
-            ['cloud-sync-settings', 'read', new \WPMCP\Tools\Cloud\Cloud_Sync_Settings(), 'Preview the settings-sync payload: the allowlisted governance settings (safety toggles, tool/domain enablement, exposure mode; never secrets) that would sync to WP MCP Cloud. Read-only', [], []],
+            ['cloud-sync-settings', 'read', new \WPMCP\Tools\Cloud\Cloud_Sync_Settings(), 'Preview the settings-sync payload: the allowlisted governance posture (ability/domain/operation governance toggles, MCP exposure switch, tool-exposure mode, agent-skills switch; never secrets) that would sync to WP MCP Cloud. The code-level safety gates (db writes, php exec, cli allowlist) are filters with no stored option and cannot sync. Read-only', [], []],
+            ['cloud-apply-settings', 'update', new \WPMCP\Tools\Cloud\Cloud_Apply_Settings(), 'Apply a governance posture produced by cloud-sync-settings on another site. Re-filtered against the same allowlist and coerced per option; governance toggles merge rather than replace, and MCP exposure can only be switched off, never back on. Each write takes a rollback snapshot', ['settings' => ['type' => 'object'], 'session_id' => ['type' => 'string']], ['settings']],
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {

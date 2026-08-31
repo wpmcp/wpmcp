@@ -33,17 +33,59 @@ Landed:
   points at, falling back to the phase A API key otherwise.
   `Cloud_Config::set()` clears the vault, so reconnecting never ships the
   previous cloud's token to a new host.
-- `Cloud_Client::request()`: a 401 with a bundle present triggers one
-  `Cloud_Oauth::refresh()` and exactly one replay.
+- `Cloud_Client::request()`: a 401 triggers one `Cloud_Oauth::refresh()` and
+  exactly one replay, gated on `Cloud_Config::refreshable_bundle()` (a bundle
+  whose issuer still matches the configured cloud), and forwarding the
+  presented credential only when it IS the vault's token.
+- `src/Admin/Cloud_Callback_Page.php`: the redirect target the redirect_uri
+  names, registered as a hidden submenu, calling `exchange()` on the inbound
+  `code`/`state`. The OAuth state parameter is the CSRF token for this hop
+  (the authorization server has never seen a WordPress nonce); `manage_options`
+  is still required.
+- `cloud-connect` upgraded: url with no key starts the PKCE flow and returns an
+  authorize URL a human must open; url + key keeps the phase A path.
+
+Review fixes in this branch:
+- `Option_Guard` now refuses `wpmcp_cloud_key`, `wpmcp_cloud_oauth_state`,
+  `wpmcp_cloud_token_bundle` and `wpmcp_cloud_token_refresh_lock` by exact name,
+  plus `refresh_token` / `token_bundle` / `oauth_state` by pattern. Before this
+  the registered `wpmcp/get-option` ability read the live PKCE code_verifier and
+  state straight out of the database.
+- `exchange()` writes the cloud URL it authenticated against via the new
+  `Cloud_Config::set_url()` (which, unlike `set()`, does not clear the vault),
+  so an OAuth-only connect leaves the site configured and `live_bundle()`'s
+  issuer check passes. Both sides of that comparison go through one
+  `Cloud_Config::normalize()`.
+- `refresh()` refuses a bundle whose issuer is not the configured cloud: the
+  refresh token must never go to a host `live_bundle()` already declined to
+  send the weaker access token to.
+- The refresh mutex no longer deadlocks on a lock row stamped in the future.
+  A future timestamp made `time() - $held` negative, which is always below the
+  TTL, pinning the loser branch forever and making the steal unreachable.
+  Non-timestamp rows are treated the same way, and the compare-and-set steal now
+  matches on the row's raw bytes so it can actually reclaim them.
+- A losing worker whose winner released the lock in the gap retries the acquire
+  once instead of reporting a race that is over.
+- `with_refresh_lock()` ignores the presented token when the entry bundle is not
+  itself live. With a phase A API key present, `bearer_token()` falls back to
+  that key whenever the bundle expires, so the "did somebody rotate for me?"
+  comparison was measuring the vault's token against an API key: trivially
+  different, reported as a completed rotation, and the expired bundle never
+  rotated at all.
+- `Token_Vault::status()` returns missing / valid / key_rotated / corrupted, so
+  the fingerprint envelope's stated purpose (rotation is distinguishable from
+  tampering) is realized rather than computed and discarded.
+- `begin()` validates the cloud URL (absolute, https, no embedded credentials)
+  before persisting the pending record. Structural validation rather than
+  `wp_http_validate_url()`, which resolves the host and refuses private ranges
+  and so would lock out a self-hosted cloud.
+- The token endpoint is form encoded per RFC 6749 section 4.1.3, not JSON.
 
 Remaining:
 - Cloud backend `/oauth/authorize` and `/oauth/token` endpoints. Everything
   plugin-side is written against the contract and covered by tests with faked
-  HTTP, but there is no server answering it yet.
-- Admin callback page (`wpmcp-cloud-callback`) that calls `exchange()`; the
-  redirect_uri names it but no `add_submenu_page()` registers it yet.
-- cloud-connect tool upgrade: start the OAuth flow instead of accepting a raw
-  key, keeping the API key as the fallback until the backend ships.
+  HTTP, but there is no server answering it yet, so the API key stays as the
+  working fallback.
 
 ## Step 2: settings sync over a curated allowlist (engine landed, transport pending)
 
@@ -69,14 +111,30 @@ Landed:
   cannot poison a known option with a wrong-typed value. Each write goes
   through `Safe_Mutation::run()` with object_type `option`, so a synced posture
   is undoable with rollback-operation; the operation ids are returned.
-- `wpmcp/cloud-sync-settings` tool (read-only preview) registered in
+- `wpmcp/cloud-sync-settings` (read-only preview) and `wpmcp/cloud-apply-settings`
+  (the write half, driving `Settings_Sync::apply()`) registered in
   `Plugin::register_cloud_abilities()`, with the ability manifest regenerated.
+
+Review fixes in this branch:
+- `apply()` MERGES the governance toggle map per dimension instead of replacing
+  it. `coerce_governance()` always emits all three dimensions, so a payload
+  carrying only domain toggles used to wipe the target's ability- and
+  operation-level disables, contradicting `export()`'s own promise and
+  re-enabling abilities an operator had turned off.
+- `wpmcp_mcp_exposure` narrows only: sync may switch the master MCP kill switch
+  OFF across a fleet, never back on. A remote party may take agent access away,
+  never hand it back.
+- The Safe_Mutation context no longer misattributes provenance. `tool_name` is
+  `cloud-apply-settings` (the applier) rather than `cloud-sync-settings` (a
+  read-only preview tool that never writes), `session_id` is threaded in from
+  the caller like every other Safe_Mutation caller, and the hashed args are the
+  coerced value that was actually stored.
+- `checkbox_flag` calls `Skills_Module::sanitize()` instead of restating its
+  truthiness table.
 
 Remaining:
 - Cloud `/settings` GET/PUT contract in Cloud_Client callers, and the push tool
-  that drives it.
-- An apply tool exposing `Settings_Sync::apply()` over MCP (the engine and its
-  gating are done; only the ability registration is missing).
+  that drives it (both halves of the local engine are now reachable over MCP).
 - Identity sync minus secrets (names/roles only).
 
 ## Step 3: marketplace (not started)
@@ -88,22 +146,39 @@ moderation are cloud backend scope.
 
 ## Tests
 
-`tests/pro/Cloud/CloudPhaseBTest.php` covers the vault (round trip, ciphertext
-is not plaintext, tampered blob, rotated key fingerprint, clear), the refresh
-mutex (rotation, loser-with-a-finished-winner, loser-while-in-flight, stale
-lock steal), credential selection (live token, expired bundle, foreign issuer,
-reconnect clears the vault), the OAuth flow (authorize request shape, state
-mismatch, expired state, exchange seals the bundle, refresh rotates), and
-settings sync (allowlist contents, export, apply filtering/coercion/rollback/
-entitlement/capability) plus the preview tool.
+`tests/pro/Cloud/CloudPhaseBTest.php`, 55 tests, covers the vault (round trip,
+ciphertext is not plaintext, tampered blob, rotated key fingerprint, the
+status() accessor, clear), the refresh mutex (rotation, loser-with-a-finished-
+winner, loser-while-in-flight, stale lock steal, a future-stamped lock, a
+non-timestamp lock row), credential selection (live token, expired bundle,
+foreign issuer, reconnect clears the vault, and the phase A regression where an
+expired bundle must still rotate while an API key is present), the OAuth flow
+(authorize request shape, URL validation, form encoding, state mismatch,
+expired state, exchange seals the bundle and configures the site, refresh
+rotates, refresh refuses a foreign issuer), the production entry points
+(cloud-connect starting the flow, the admin callback completing it, the
+redirect_uri naming a page that exists, the apply ability), the option guard
+refusing every cloud credential option through the real `Get_Option` handler,
+and settings sync (allowlist contents, export, apply filtering, coercion,
+governance merge, exposure narrowing, provenance, rollback, entitlement,
+capability) plus the preview tool.
+
+Known unrelated noise: the shared suite has pre-existing order-dependent
+pollution. `BrandKitsTest` and several Elementor structural tests fail on this
+branch's merge base too, and the same combined filter fails a different subset
+of tests on the base commit than it does here.
 
 ## Definition of done tracking
 
-- [ ] PKCE OAuth connect end to end (vault, mutex, authorize/exchange/refresh
-      and the 401 retry landed and tested; cloud endpoints, admin callback page
-      and the cloud-connect tool upgrade pending)
-- [ ] Settings sync push/apply (allowlist engine, validation, Safe_Mutation and
-      preview tool landed; `/settings` transport and the apply ability pending)
-- [ ] Marketplace browse/install as inactive validated drafts
+- [x] PKCE OAuth connect end to end, plugin-side: vault, mutex,
+      authorize/exchange/refresh, the 401 retry, the admin callback page and the
+      cloud-connect upgrade all landed and tested. The cloud's own
+      `/oauth/authorize` and `/oauth/token` endpoints are backend scope and do
+      not exist yet, so the flow cannot be exercised against a live server.
+- [x] Settings sync over the curated allowlist, re-filtered on apply, reachable
+      over MCP through `cloud-sync-settings` (read) and `cloud-apply-settings`
+      (write). Identity sync minus secrets and the `/settings` transport are
+      still open.
+- [ ] Marketplace browse/install as inactive validated drafts (not started)
 - [x] Settings sync gated as the paid-cloud entitlement (`Pro\Gate` plus
       `manage_options` enforced in `Settings_Sync::apply()`)

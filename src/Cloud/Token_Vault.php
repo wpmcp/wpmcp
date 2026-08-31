@@ -35,8 +35,11 @@ if (! defined('ABSPATH')) {
  * runs INSERT ... ON DUPLICATE KEY UPDATE, which succeeds for every writer.)
  * A worker that loses the lock re-reads the vault: if the winner already
  * rotated, that bundle is adopted as this call's success; if it has not
- * finished yet, the caller gets a retryable cloud_refresh_race error rather
- * than the stale access token it came in with.
+ * finished yet, the caller gets a cloud_refresh_race error rather than the
+ * stale access token it came in with. That error means "come back", not "give
+ * up": nothing here retries on the caller's behalf, and Cloud_Client
+ * deliberately surfaces the original 401 instead of blocking a request while a
+ * peer finishes rotating.
  */
 class Token_Vault
 {
@@ -116,6 +119,35 @@ class Token_Vault
         ];
     }
 
+    /**
+     * Why read() came back empty, mirroring Pro\Chat\Key_Vault::get_status().
+     * The fingerprint envelope exists precisely so "the operator rotated
+     * AUTH_KEY" is distinguishable from "somebody edited the blob"; without an
+     * accessor that distinction was computed and then thrown away.
+     *
+     * @return string one of missing|valid|key_rotated|corrupted
+     */
+    public static function status(): string
+    {
+        $raw = (string) get_option(self::OPTION, '');
+        if ('' === $raw) {
+            return 'missing';
+        }
+        if (0 !== strpos($raw, self::PREFIX)) {
+            return 'corrupted';
+        }
+
+        $parts = explode(':', $raw, 3);
+        if (3 !== count($parts)) {
+            return 'corrupted';
+        }
+        if (! hash_equals(self::fingerprint(), $parts[1])) {
+            return 'key_rotated';
+        }
+
+        return null !== self::read() ? 'valid' : 'corrupted';
+    }
+
     public static function clear(): void
     {
         delete_option(self::OPTION);
@@ -132,12 +164,19 @@ class Token_Vault
      * and must return the new one (or WP_Error).
      *
      * $stale_access_token is the token the caller actually presented and had
-     * refused. It, not the bundle read on entry, is what "did somebody else
-     * already rotate for me?" must be measured against: by the time a losing
-     * worker gets here the winner may already have written, and comparing
-     * against a fresh read would then compare the winner's bundle with itself.
-     * Callers that have no particular token in hand pass '' and fall back to
-     * whatever is in the vault right now.
+     * refused. When it is genuinely one of the vault's own live tokens it, not
+     * the bundle read on entry, is what "did somebody else already rotate for
+     * me?" is measured against: by the time a losing worker gets here the
+     * winner may already have written, and comparing against a fresh read
+     * would then compare the winner's bundle with itself.
+     *
+     * It is IGNORED when the entry bundle is not itself live, because then the
+     * credential the caller presented cannot have come from this vault. That
+     * is the phase A case: bearer_token() falls back to wpmcp_cloud_key
+     * whenever the bundle is expired, Cloud_Client hands that API key back as
+     * $stale_access_token, and comparing the vault's token against an API key
+     * is trivially "not equal" -- which used to report a rotation that never
+     * happened and left the expired bundle in place forever.
      *
      * @param callable(array):(array|\WP_Error) $rotate
      * @return array|\WP_Error the bundle now in the vault
@@ -149,26 +188,33 @@ class Token_Vault
             return new \WP_Error('cloud_no_token', 'No cloud token bundle stored; run cloud-connect first.');
         }
 
-        $stale = '' !== $stale_access_token ? $stale_access_token : $bundle['access_token'];
+        $stale = self::rotation_marker($bundle, $stale_access_token);
 
-        $acquired = self::acquire_lock();
-        if (! $acquired) {
-            $held_since = self::lock_held_since();
-            if (null !== $held_since && (time() - $held_since) < self::LOCK_TTL) {
+        if (! self::acquire_lock()) {
+            $row        = self::lock_row();
+            $held_since = self::held_since($row);
+
+            if (null === $row) {
+                // The winner released the lock in the window between our failed
+                // INSERT IGNORE and this read. Nobody holds it now, so this is
+                // not a race: take it rather than reporting a spurious one.
+                if (! self::acquire_lock()) {
+                    return new \WP_Error('cloud_refresh_race', 'A cloud token refresh is already in progress; retry the request.');
+                }
+            } elseif ((time() - $held_since) < self::LOCK_TTL) {
                 // Loser path. Only the winner's *finished* rotation counts as
                 // our success; an unchanged bundle means the winner is still
                 // in flight, and returning it would hand the caller the same
                 // token that just 401'd.
                 $current = self::read();
-                if (null !== $current && $current['access_token'] !== $stale) {
+                if (self::already_rotated($current, $stale)) {
                     return $current;
                 }
                 return new \WP_Error('cloud_refresh_race', 'A cloud token refresh is already in progress; retry the request.');
-            }
-
-            // The lock row exists but is older than the TTL (or unreadable):
-            // steal it with a compare-and-set so only one stealer wins.
-            if (! self::steal_lock($held_since)) {
+            } elseif (! self::steal_lock($row)) {
+                // The lock row is older than the TTL (or carries a value we do
+                // not trust to age out): steal it with a compare-and-set on the
+                // exact bytes we observed, so only one stealer wins.
                 return new \WP_Error('cloud_refresh_race', 'A cloud token refresh is already in progress; retry the request.');
             }
         }
@@ -177,7 +223,7 @@ class Token_Vault
             // Re-read under the lock: another request may have rotated between
             // our first read and acquiring the lock.
             $current = self::read();
-            if (null !== $current && $current['access_token'] !== $stale) {
+            if (self::already_rotated($current, $stale)) {
                 return $current;
             }
 
@@ -197,10 +243,38 @@ class Token_Vault
         }
     }
 
+    /**
+     * The token a completed rotation must differ from. See with_refresh_lock().
+     *
+     * @param array{access_token:string,expires_at:int} $bundle bundle read on entry
+     */
+    private static function rotation_marker(array $bundle, string $stale_access_token): string
+    {
+        $entry = (string) $bundle['access_token'];
+        $live  = '' !== $entry && (0 === (int) $bundle['expires_at'] || (int) $bundle['expires_at'] > time());
+
+        return ('' !== $stale_access_token && $live) ? $stale_access_token : $entry;
+    }
+
+    /**
+     * True only when the vault now holds a token that is both real and
+     * different from the one we came in with. An empty marker can never prove
+     * a rotation: it means the entry bundle had no access token at all.
+     *
+     * @param array{access_token:string}|null $current
+     */
+    private static function already_rotated(?array $current, string $marker): bool
+    {
+        return '' !== $marker
+            && null !== $current
+            && '' !== $current['access_token']
+            && $current['access_token'] !== $marker;
+    }
+
     /** True while some worker holds the refresh mutex. */
     public static function is_refresh_locked(): bool
     {
-        return null !== self::lock_held_since();
+        return null !== self::lock_row();
     }
 
     /**
@@ -248,11 +322,11 @@ class Token_Vault
      * the row still carries the timestamp we observed, so concurrent stealers
      * cannot both win. A lock whose value we could not read is left alone.
      */
-    private static function steal_lock(?int $held_since): bool
+    private static function steal_lock(?string $held_row): bool
     {
         global $wpdb;
 
-        if (null === $held_since) {
+        if (null === $held_row) {
             return false;
         }
 
@@ -262,7 +336,7 @@ class Token_Vault
                 "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
                 (string) time(),
                 self::LOCK_OPTION,
-                (string) $held_since
+                $held_row
             )
         );
 
@@ -277,8 +351,12 @@ class Token_Vault
         self::flush_lock_cache();
     }
 
-    /** @return int|null unix time the lock was taken, or null when unheld/unreadable. */
-    private static function lock_held_since(): ?int
+    /**
+     * The lock row's raw bytes, or null when unheld. Raw rather than parsed
+     * because steal_lock()'s compare-and-set has to match what is actually
+     * stored: a value we normalized on the way out would never equal the row.
+     */
+    private static function lock_row(): ?string
     {
         global $wpdb;
 
@@ -287,16 +365,28 @@ class Token_Vault
             $wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::LOCK_OPTION)
         );
 
-        if (null === $value) {
-            return null;
-        }
+        return null === $value ? null : (string) $value;
+    }
 
-        // A lock row that does not parse as a timestamp is still a held lock;
-        // date it to now so it ages out through the TTL rather than being
-        // stolen instantly (a 0 would read as "held since 1970").
-        $held = (int) $value;
+    /**
+     * Unix time a held lock is treated as taken.
+     *
+     * A value that is not a plausible PAST timestamp is dated to expiry, not to
+     * now. Garbage would otherwise read as "held since 1970" and be stolen
+     * instantly, and -- the reason this is not cosmetic -- a FUTURE timestamp
+     * (clock skew between web nodes, or a planted value) makes time() - $held
+     * negative, which is always below the TTL: the loser branch would then be
+     * pinned forever and steal_lock() unreachable, so every refresh on the site
+     * returns cloud_refresh_race until somebody deletes the row by hand.
+     * Treating both as already expired routes them to the compare-and-set
+     * steal, which is safe because it still matches on the exact stored bytes.
+     */
+    private static function held_since(?string $row): int
+    {
+        $held = (int) $row;
+        $now  = time();
 
-        return $held > 0 ? $held : time();
+        return ($held > 0 && $held <= $now) ? $held : ($now - self::LOCK_TTL);
     }
 
     /** Direct SQL bypasses the options cache; keep the two in step. */

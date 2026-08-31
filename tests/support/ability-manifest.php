@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 305,
+    'total'     => 306,
     'free'      => 213,
-    'pro'       => 92,
+    'pro'       => 93,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -46,6 +46,7 @@ return [
         'wpmcp/cancel-cli-job' => 'pro',
         'wpmcp/check-contrast' => 'pro',
         'wpmcp/clear-cache' => 'free',
+        'wpmcp/cloud-apply-settings' => 'pro',
         'wpmcp/cloud-connect' => 'pro',
         'wpmcp/cloud-list-assets' => 'pro',
         'wpmcp/cloud-pull-assets' => 'pro',
