@@ -119,18 +119,16 @@ class DefaultSeederTest extends \WP_UnitTestCase
         );
     }
 
-    public function test_shipped_defaults_disable_gateway_provision_and_nothing_else(): void
+    public function test_shipped_defaults_disable_nothing_today(): void
     {
-        // The execution-gated abilities (wpmcp_enable_db_writes & co.) keep
-        // their own opt-in filters as the master gate and are deliberately
-        // absent here. The one entry that IS shipped is gateway-provision
-        // (issue #142): it mints a credential that is not scope-enforced,
-        // so an upgrading site must opt in rather than inherit it enabled.
-        // gateway-revoke is NOT in the map on purpose -- revocation must
-        // stay reachable without flipping a governance toggle first.
+        // Today's dangerous abilities are already default-off via their
+        // execution opt-in filters (wpmcp_enable_db_writes & co.), so the
+        // shipped seeder map intentionally disables nothing — it exists so
+        // FUTURE dangerous abilities can arrive off for upgraders. This
+        // also pins "no ability-manifest churn from seeding".
         Default_Seeder::seed();
 
-        $this->assertSame(['wpmcp/gateway-provision' => false], Governance::ability_toggles());
-        $this->assertGreaterThanOrEqual(2, Default_Seeder::applied_version());
+        $this->assertSame([], Governance::ability_toggles());
+        $this->assertGreaterThanOrEqual(1, Default_Seeder::applied_version());
     }
 }

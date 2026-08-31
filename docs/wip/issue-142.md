@@ -110,11 +110,6 @@ and none is recoverable afterwards.
     the previous secret and every token bound to it, and `delete` would
     publish `idempotentHint: false` for a tool documented and tested as
     idempotent. MCP clients use these for auto-approval.
-- `Default_Seeder` version 2 ships `wpmcp/gateway-provision` DISABLED for
-  upgraders. It mints a 30-day credential that is not scope-enforced, so a
-  site opts in rather than inheriting it on. `gateway-status` and
-  `gateway-revoke` are deliberately NOT seeded off: revocation must never
-  need a governance toggle flipped first.
 - `Client_Cap_Reached extends \RuntimeException`, thrown by
   `Client_Store::create()`, so the one ordinary operational failure is
   distinguishable from a broken invariant without message matching. Every
@@ -152,6 +147,22 @@ and none is recoverable afterwards.
   access token. Restricting the grant itself would break them. What the
   gateway needs is a policy layered on top, not a narrowing of the shared
   grant.
+- **`gateway-provision` is NOT seeded off via `Default_Seeder`.** It was
+  the obvious answer to "a credential-minting tool ships enabled to every
+  upgrading install", and it was tried and backed out. Two reasons. First,
+  it is already gated by something stronger: the tool refuses outright
+  unless `OAuth_Config::is_enabled()`, which is OFF by default and can
+  only be turned on by a site owner editing wp-config.php or adding a
+  filter. On a default install the tool is inert, and the opt-in is a
+  deliberate act, not a checkbox an agent can flip. Second, a governance
+  disable removes the ability from `Registrar::all()`, which is the same
+  surface `AbilityManifestTest` and `PluginAbilitiesTest` pin; seeding one
+  off makes the registered-ability surface depend on whether the seeder
+  has run yet in a given process, which is exactly the "no ability-
+  manifest churn from seeding" property `Default_Seeder`'s own docblock
+  says it is preserving. If a governance default is still wanted, it
+  belongs with `Governance\Opt_In_Gates` (where the exec/db/fs write tools
+  live) rather than with the seeder.
 - **`Safe_Mutation` does not wrap the gateway tools.** A snapshot of
   `wpmcp_oauth_clients` holds only a secret hash, so restoring it cannot
   restore a usable credential; and undoing a revoke would resurrect token
