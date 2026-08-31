@@ -62,6 +62,16 @@ const REMOVED_PATHS = [
     // the runners, the executor and their ability wrappers do not.
     'src/Tools/Cli/Run_Wp_Cli.php',
     'src/Tools/Cli/Wp_Cli_Executor.php',
+    // Async wp-cli (issue #84) is the same execution surface on a cron hook,
+    // so it leaves with the synchronous tool. Run_Cli_Job defaults its
+    // executor to Wp_Cli_Executor::class, which the line above deletes, so
+    // leaving it behind would ship a hook that fatals when it fires.
+    'src/Tools/Cli/Dispatch_Cli_Job.php',
+    'src/Tools/Cli/Get_Cli_Job.php',
+    'src/Tools/Cli/List_Cli_Jobs.php',
+    'src/Tools/Cli/Cancel_Cli_Job.php',
+    'src/Tools/Cli/Cli_Job_Store.php',
+    'src/Tools/Cli/Run_Cli_Job.php',
     'src/Tools/Code/Run_Php_Snippet.php',
     'src/Tools/Code/Php_Snippet_Runner.php',
     // The only curl_setopt() in the tree. Page_Audit checks class_exists()
@@ -95,6 +105,13 @@ const REMOVED_METHODS = [
     'register_elementor_structural_abilities',
     'register_brand_kit_abilities',
     'register_memory_abilities',
+    // Called only from register_cli_abilities(), which leaves above. Without
+    // this it survives as a private method with no caller, and its four
+    // `new *_Cli_Job()` instantiations hold the whole async wp-cli package
+    // out of the unreferenced-file sweep.
+    'register_cli_job_abilities',
+    // Same shape: its only caller is register_elementor_pro_abilities().
+    'register_global_class_write_abilities',
 ];
 
 /**
@@ -141,8 +158,8 @@ $edits['src/MCP/Registrar.php'] = [
             . "     * lapses after registration cannot keep a pro tool usable. The\n"
             . "     * decision is audited exactly as before.\n",
         "     * Permission decision for one ability invocation: capability +\n"
-            . "     * Governance + identity scope, audited. Those three terms are the\n"
-            . "     * whole decision; there is no fourth.\n",
+            . "     * Governance + identity scope, then the project-memory guardrail\n"
+            . "     * described below, audited.\n",
         1,
     ],
     // declared() is the ability grid's source, so its docblock has to stop
@@ -567,6 +584,173 @@ $edits['src/Plugin.php'][] = [
     "with each entry\\'s tier (free/pro), operation, required capability, and read-only/destructive hints, plus a per-domain summary count. Optional domain and/or tier filters narrow the result.",
     "with each entry\\'s tier, operation, required capability, and read-only/destructive hints, plus a per-domain summary count. Optional domain and/or tier filters narrow the result.",
     1,
+];
+
+// ------------------------------------ paid-tier copy in shipped documentation
+// Everything below survived the first pass of this strip because the code it
+// described was already free or already gone: what was left was the prose.
+// A wp.org reviewer greps the zip, so a docblock that names a "PRO" dialect
+// or enumerates withheld paid abilities is a guideline-9 finding on its own.
+// assert-free-tier.php re-derives all of this from the staged tree.
+
+// build-page's Elementor dialect is free in this build, so the two files
+// behind it must stop calling it paid. Build_Page's own docblock and its
+// registered description are handled further up.
+$edits['src/Tools/Compose/Page_Spec.php'] = [
+    [
+        " *   dialect  'gutenberg' (default, free) | 'elementor' (PRO)\n",
+        " *   dialect  'gutenberg' (default) | 'elementor'\n",
+        1,
+    ],
+];
+// The registered build-page description is client-facing text, not a comment:
+// it is what an agent reads in tools/list.
+$edits['src/Plugin.php'][] = [
+    'dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree',
+    'dialect "gutenberg" (default) builds block markup; dialect "elementor" (requires the Elementor plugin) builds an _elementor_data element tree',
+    1,
+];
+$edits['src/Tools/Compose/Elementor_Composer.php'] = [
+    [
+        " * Builder-dialect composition (PRO): turn a validated build-page node tree\n",
+        " * Builder-dialect composition: turn a validated build-page node tree\n",
+        1,
+    ],
+];
+
+// The payload edit above removes 'pro_active' from the response, so the
+// docblock must stop documenting a field this build never returns.
+$edits['src/Tools/Context/Get_Site_Context.php'][] = [
+    " * version/Pro status.\n",
+    " * version.\n",
+    1,
+];
+
+// Two orphaned group docblocks and one enumeration of withheld paid tools.
+$edits['src/Plugin.php'][] = [
+    "    /**\n"
+        . "     * WP MCP Cloud sync (MVP): connect a site to the cloud and push/pull its\n"
+        . "     * builder assets (custom widget + block specs) over a versioned,\n"
+        . "     * backend-agnostic REST contract. All PRO, manage_options, domain 'cloud'.\n"
+        . "     */\n",
+    '',
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "     * Every one of these is PRO at manage_options, domain 'cli', exactly\n"
+        . "     * matching run-wp-cli: dispatching a command asynchronously is the same\n"
+        . "     * capability as running it synchronously, so it must not be reachable\n"
+        . "     * at a lower tier or a weaker capability than the synchronous tool.\n"
+        . "     * dispatch-cli-job is 'create' (it creates a job record),\n"
+        . "     * cancel-cli-job is 'update' (it transitions one), and get-cli-job /\n"
+        . "     * list-cli-jobs are 'read'.\n     *\n",
+    '',
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "     * WooCommerce including get-sales-report (a reporting tool directly\n"
+        . "     * analogous to analytics summaries) are all free-tier. 'pro' tier here is\n"
+        . "     * reserved for a different kind of feature: deep content scoring/analysis\n"
+        . "     * (analyze-seo, analyze-accessibility, check-contrast, extract-content,\n"
+        . "     * see register_analysis_abilities()) and deep Elementor element-tree\n"
+        . "     * editing. Analytics summary/top-pages/GSC-summary/GSC-queries are the\n",
+    "     * WooCommerce including get-sales-report (a reporting tool directly\n"
+        . "     * analogous to analytics summaries) are free, as is everything else in\n"
+        . "     * this build. Analytics summary/top-pages/GSC-summary/GSC-queries are the\n",
+    1,
+];
+
+// The async wp-cli package leaves by path, so its cron wiring has to leave
+// too: Run_Cli_Job::HOOK is a compile-time class constant reference, which
+// fatals at load, not at hook time.
+$edits['src/Plugin.php'][] = [
+    "            // The WP-Cron executor for dispatch-cli-job's scheduled events\n"
+        . "            // (issue #84). It re-runs the FULL wp-cli guard chain before\n"
+        . "            // executing anything, so hooking it here does not by itself let\n"
+        . "            // any queued command run: a job queued while the opt-in gate was\n"
+        . "            // open still fails closed once that gate is shut. See\n"
+        . "            // Run_Cli_Job's docblock.\n"
+        . "            add_action(Run_Cli_Job::HOOK, [new Run_Cli_Job(), 'handle']);\n",
+    '',
+    1,
+];
+
+// ------------------------------------------------- runtime text and dead code
+// The handshake is not a comment: memory_block() is appended to the
+// instructions every connecting client reads, and this build has no
+// memory-recall to call. The block itself stays, because the guardrails it
+// publishes are enforced here on every install.
+$edits['src/MCP/Handshake_Instructions.php'] = [
+    ["        \$lines[] = 'Call memory-recall for the full set and session history.';\n", '', 1],
+];
+
+// Memory_Config keeps the enforcement switch (Registrar reads it) and loses
+// the tools switch, whose three tools left with src/Tools/Memory and whose
+// accessor has no caller left in this build.
+$edits['src/Memory/Memory_Config.php'][] = [
+    " * The two switches of the agent project-memory feature (issue #131), kept\n"
+        . " * deliberately separate because they protect opposite things:\n *\n"
+        . " *  - wpmcp_enable_memory (DEFAULT FALSE) gates the three memory TOOLS\n"
+        . " *    (memory-recall, memory-propose, memory-save-summary), i.e. the paths\n"
+        . " *    an agent can use to read or write the store. Opt-in like every other\n"
+        . " *    non-core capability wpmcp ships.\n *\n"
+        . " *  - wpmcp_memory_enforce (DEFAULT TRUE) gates ENFORCEMENT of the\n",
+    " * The enforcement switch of the agent project-memory feature (issue #131).\n"
+        . " * The tools that author memory entries are not part of this build; the\n"
+        . " * admin screen that publishes them and the server-side enforcement are:\n *\n"
+        . " *  - wpmcp_memory_enforce (DEFAULT TRUE) gates ENFORCEMENT of the\n",
+    1,
+];
+$edits['src/Memory/Memory_Config.php'][] = [
+    "    /** Whether the memory TOOLS may run. Default off (opt-in). */\n"
+        . "    public static function tools_enabled(): bool\n"
+        . "    {\n"
+        . "        return (bool) apply_filters('wpmcp_enable_memory', false);\n"
+        . "    }\n\n",
+    '',
+    1,
+];
+
+// -------------------------------------------- the bundled skill library
+// get-skill returns these bodies verbatim to the connecting client, so they
+// are the most literally "shipped" prose in the tree, and the least like a
+// comment. Three of them describe a licence gate this build does not have and
+// one points an agent at a tool this build deletes.
+$edits['src/Skills/library/wpmcp-governance/SKILL.md'] = [
+    [
+        "scoped identity attached to the connection must include the tool's domain and\n"
+            . "operation, and pro-tier tools re-check the licence on every call.\n",
+        "scoped identity attached to the connection must include the tool's domain and\n"
+            . "operation, and any guardrail the administrator published in project memory\n"
+            . "is applied last and can only narrow the decision.\n",
+        1,
+    ],
+];
+$edits['src/Skills/library/wpmcp-safe-writes/SKILL.md'] = [
+    [
+        "- Anything done through an escape hatch (`wpmcp/run-wp-cli`,\n"
+            . "  `wpmcp/run-php-snippet`). Those run outside the safety net on purpose, they\n"
+            . "  are default-off and development-environment only, and you should say so\n"
+            . "  before proposing them.\n",
+        '',
+        1,
+    ],
+    [
+        "## Free tier history limit\n\n"
+            . "On an unlicensed site the snapshot history is capped at the most recent 20\n"
+            . "operations.",
+        "## History limit\n\n"
+            . "Snapshot history is capped at the most recent 20 operations on every site\n"
+            . "(raise it with the `wpmcp_snapshot_history_limit` filter).",
+        1,
+    ],
+];
+$edits['src/Skills/library/wpmcp-elementor-editing/SKILL.md'] = [
+    [
+        "The Elementor tools are pro tier and require Elementor to be active. If they\n",
+        "The Elementor tools require Elementor to be active. If they\n",
+        1,
+    ],
 ];
 
 $failures = [];

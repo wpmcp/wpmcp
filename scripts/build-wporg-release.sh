@@ -92,71 +92,24 @@ for pattern in 'Pro\\Gate' '\bis_pro\b' '\bGate::' 'can_use_premium_code' '[Ff]r
 done
 if [ -d "$STAGE/vendor/freemius" ]; then fail "the licensing SDK is still vendored"; fi
 
-# 3b. The registrar itself must not branch on (or even mention) ability tiers
-#     in this build (issue #160). This covers exactly one file: the wider
-#     invariant is gate 3c's job, and the prose is gate 3d's. grep exits 2 on
-#     a missing file and `if` reads that as "clean", so the file's existence
-#     is asserted first rather than assumed.
-[ -f "$STAGE/src/MCP/Registrar.php" ] || fail "Registrar.php is missing from the $SLUG build"
-if grep -qi 'tier' "$STAGE/src/MCP/Registrar.php"; then
-  grep -ni 'tier' "$STAGE/src/MCP/Registrar.php" >&2
-  fail "Registrar.php still references ability tiers in the $SLUG build"
-fi
+# 3b. The free-tier invariants, re-derived from the staged tree by the same
+#     script tests/free/WporgStripTest.php runs. One copy on purpose: the
+#     scanner used to be duplicated here and in the test, so the copy CI
+#     proved non-vacuous was not the copy that blocked a release, and the two
+#     had already drifted. It covers the registrar naming no tier, every
+#     constructed Ability being literally 'free', no shipped file (PHP,
+#     markdown or readme.txt) claiming licence gating, no reference to a
+#     withheld registration method, and no orphaned private register_*
+#     method holding pruned handlers in the zip.
+#
+#     The drift-guard manifest is passed too, so the ability SET is checked
+#     and not only the tiers: no ability the manifest tiers as paid may
+#     survive under any name, and no free one may go missing because an edit
+#     took out more than it meant to. The manifest is read from the checkout,
+#     never from the stage, and tests/ is not in the zip.
+php "$FLAVOR/assert-free-tier.php" "$STAGE" "$ROOT/tests/support/ability-manifest.php" \
+  || fail "the $SLUG build fails the free-tier invariants"
 
-# 3c. Every Ability this build constructs is free, at token level. Deleting
-#     the registrar's runtime tier refusal removed the last backstop, and the
-#     "'pro'," text scan in gate 3 only sees tiers written as source literals:
-#     Integration_Dispatcher used to pass a computed tier() into three Ability
-#     constructors, which no literal scan could ever read. This gate asserts
-#     the invariant instead of the vocabulary, so a tier that is computed,
-#     inherited or overridden fails the build rather than shipping.
-php -r '
-$bad = [];
-$it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($argv[1]));
-foreach ($it as $f) {
-    if ($f->getExtension() !== "php") { continue; }
-    $tokens = token_get_all(file_get_contents($f->getPathname()));
-    $count = count($tokens);
-    for ($i = 0; $i < $count; $i++) {
-        if (!is_array($tokens[$i]) || $tokens[$i][0] !== T_NEW) { continue; }
-        $name = ""; $j = $i + 1;
-        for (; $j < $count; $j++) {
-            $t = $tokens[$j];
-            if (is_array($t) && $t[0] === T_WHITESPACE) { continue; }
-            if (is_array($t) && in_array($t[0], [T_STRING, T_NS_SEPARATOR, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)) { $name .= $t[1]; continue; }
-            break;
-        }
-        $short = strrchr($name, "\\");
-        if (($short === false ? $name : substr($short, 1)) !== "Ability") { continue; }
-        if (!isset($tokens[$j]) || $tokens[$j] !== "(") { continue; }
-        // Second top-level argument of the constructor call.
-        $depth = 0; $args = []; $cur = "";
-        for ($k = $j; $k < $count; $k++) {
-            $text = is_array($tokens[$k]) ? $tokens[$k][1] : $tokens[$k];
-            if (in_array($text, ["(", "[", "{"], true)) { $depth++; if ($depth === 1) { continue; } }
-            elseif (in_array($text, [")", "]", "}"], true)) { $depth--; if ($depth === 0) { $args[] = trim($cur); break; } }
-            elseif ($text === "," && $depth === 1) { $args[] = trim($cur); $cur = ""; continue; }
-            $cur .= $text;
-        }
-        if (count($args) < 2 || $args[1] === "\x27free\x27") { continue; }
-        $bad[] = $f->getPathname() . ":" . $tokens[$i][2] . " tier is " . $args[1];
-    }
-}
-if ($bad) { fwrite(STDERR, implode("\n", $bad) . "\n"); exit(1); }
-' "$STAGE/src" || fail "the $SLUG build constructs an Ability whose tier is not the literal 'free'"
-
-# 3d. No shipped file may describe licence- or tier-dependent behaviour of
-#     THIS plugin, because the reviewer reads the docblocks too and every one
-#     of these statements is now false. Patterns are chosen to have no
-#     innocent reading: a stock-image license field, the GPL header and a note
-#     that WPML is a paid plugin do not match any of them. Tree-wide, not
-#     one file, because the claims were spread across eleven of them.
-for pattern in 'pro[- ]tier' 'pro[- ]gat(e|ing)' 'pro[- ]licen[cs]e' 'unlicensed' 'without a (live )?licen[cs]e' 'licen[cs]e (that )?laps' 'payment to unlock' 'licen[cs]e gate' ; do
-  if grep -rqiE --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php"; then
-    grep -rniE --include='*.php' -- "$pattern" "$STAGE/src" "$STAGE/$SLUG.php" >&2
-    fail "a shipped file describes licence gating the $SLUG build does not have (\"$pattern\")"
-  fi
-done
 if grep -q 'freemius' "$STAGE/composer.json"; then fail "composer.json still requires the licensing SDK"; fi
 
 # 4. Every WPMCP class the shipped code names must still exist, so a file the
