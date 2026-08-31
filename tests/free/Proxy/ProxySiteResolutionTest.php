@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tests\Free\Proxy;
 
+use PHPUnit\Framework\TestCase;
+
 use function WPMCP\Proxy\describe_http_failure;
 use function WPMCP\Proxy\resolve_sites;
 use function WPMCP\Proxy\select_site;
@@ -13,7 +15,7 @@ use function WPMCP\Proxy\select_site;
  * WPMCP_PROXY_NO_RUN) and exercises the pure functions with env snapshots,
  * never putenv().
  */
-class ProxySiteResolutionTest extends \WP_UnitTestCase
+class ProxySiteResolutionTest extends TestCase
 {
     public static function setUpBeforeClass(): void
     {

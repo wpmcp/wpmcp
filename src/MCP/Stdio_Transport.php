@@ -2,6 +2,7 @@
 
 namespace WPMCP\MCP;
 
+use WPMCP\Memory\Memory_Store;
 use WPMCP\Safety\Operation_Context;
 
 if (! defined('ABSPATH')) {
@@ -43,10 +44,18 @@ if (! defined('ABSPATH')) {
  *     (issue #133), so the display channel is suppressed before the first
  *     read and protocol output is written with fwrite() rather than echo.
  *
- * The loop is long-lived, which per-request state does not expect: the
- * object cache and Operation_Context are reset between messages so option
- * writes (a revoked ability, a flipped exposure mode) and the rate-limit
- * counter are observed instead of frozen at process start.
+ * The loop is long-lived, which per-request state does not expect, so
+ * Operation_Context and the memoized reads behind the permission chain are
+ * reset between messages (see reset_per_message_state). What that does and
+ * does not buy is worth stating precisely, because the obvious claim is
+ * wrong: abilities are registered once, at process start, and
+ * Registrar::register() skips governance-disabled ones at registration
+ * time, so the ADVERTISED tool list is fixed for the life of the process
+ * (which is why capabilities advertise listChanged:false). What is
+ * re-evaluated per message is everything inside the call path: compact-mode
+ * exposure, the Governance and project-memory gates, capability checks and
+ * the rate-limit budget. A mid-process revocation therefore still denies at
+ * execute, which is the half that matters for safety.
  */
 class Stdio_Transport
 {
@@ -85,15 +94,13 @@ class Stdio_Transport
 
         $context_error = self::user_context_error();
         if (null !== $context_error) {
-            if (class_exists('WP_CLI')) {
-                \WP_CLI::error($context_error);
-                return;
-            }
-            fwrite(STDERR, $context_error . "\n");
-            return;
+            // register() only ever wires this as a WP-CLI callback, and
+            // WP_CLI::error() halts, so there is no second exit path to
+            // write here.
+            \WP_CLI::error($context_error);
         }
 
-        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- stdio transport: the protocol stream IS php://stdin. WP_Filesystem has no equivalent and would not be a filesystem operation here.
         $stdin = fopen('php://stdin', 'r');
         if (false === $stdin) {
             return;
@@ -113,14 +120,30 @@ class Stdio_Transport
                 continue;
             }
 
-            $response = $transport->handle_request($request);
+            // A throwing tool costs one HTTP request on the other
+            // transport; here it would cost the whole session, and the
+            // client would block forever on a request id that never gets
+            // an answer. WP_Ability::execute() does not catch Throwable on
+            // the WordPress versions this plugin targets, and
+            // Registrar::throttled() re-throws deliberately, so the loop
+            // owns the last line of defence.
+            try {
+                $response = $transport->handle_request($request);
+            } catch (\Throwable $e) {
+                $response = self::error_response(
+                    $request['id'] ?? null,
+                    -32603,
+                    'Internal error: ' . $e->getMessage()
+                );
+            }
+
             if (null !== $response) {
                 self::emit($response);
             }
 
             self::reset_per_message_state();
         }
-        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- pairs with the fopen above; closing php://stdin is not a filesystem operation.
         fclose($stdin);
     }
 
@@ -155,8 +178,11 @@ class Stdio_Transport
         $method = isset($request['method']) ? (string) $request['method'] : '';
 
         // JSON-RPC 2.0 defines a notification as a request with no id at
-        // all; the method prefix is only a fast path for the common case.
-        if (str_starts_with($method, 'notifications/') || ! array_key_exists('id', $request)) {
+        // all, and that is the whole rule. Adding "or the method starts
+        // with notifications/" would silently drop an id-bearing request of
+        // such a method, leaving a synchronous client blocked forever on a
+        // response that is never written.
+        if (! array_key_exists('id', $request)) {
             return null;
         }
 
@@ -167,7 +193,10 @@ class Stdio_Transport
             case 'initialize':
                 return self::result_response($id, $this->initialize_result($params));
             case 'ping':
-                return self::result_response($id, []);
+                // stdClass, not []: an empty PHP array serializes as a JSON
+                // array and the MCP spec requires an object here. Same trap
+                // Structured_Result exists to prevent three lines below.
+                return self::result_response($id, new \stdClass());
             case 'tools/list':
                 return self::result_response($id, [ 'tools' => $this->list_tools() ]);
             case 'tools/call':
@@ -187,7 +216,10 @@ class Stdio_Transport
             'protocolVersion' => self::negotiate_protocol_version($params),
             'capabilities'    => [ 'tools' => [ 'listChanged' => false ] ],
             'serverInfo'      => [
-                'name'    => Server::SERVER_ID,
+                // The name the adapter is handed in Server::create_server(),
+                // not the server id: clients key config and display off
+                // serverInfo.name, so the two transports must not disagree.
+                'name'    => Server::SERVER_NAME,
                 'version' => defined('WPMCP_VERSION') ? WPMCP_VERSION : '0.0.0',
             ],
         ];
@@ -288,8 +320,22 @@ class Stdio_Transport
             return self::error_response($id, -32602, sprintf('Unknown tool: %s', $tool_name));
         }
 
-        $input  = is_array($params['arguments'] ?? null) ? $params['arguments'] : [];
-        $result = $ability->execute($input);
+        $input = is_array($params['arguments'] ?? null) ? $params['arguments'] : [];
+
+        // The adapter's ToolsHandler::call_tool() catches Throwable and
+        // returns an isError CallToolResult, so the HTTP route survives a
+        // throwing tool. WP_Ability::execute() does not catch Throwable on
+        // the WordPress versions this plugin targets, and
+        // Registrar::throttled() re-throws on purpose, so parity here has
+        // to be written rather than assumed.
+        try {
+            $result = $ability->execute($input);
+        } catch (\Throwable $e) {
+            return self::result_response($id, [
+                'isError' => true,
+                'content' => [ [ 'type' => 'text', 'text' => $e->getMessage() ] ],
+            ]);
+        }
 
         if (is_wp_error($result)) {
             return self::result_response($id, [
@@ -303,9 +349,20 @@ class Stdio_Transport
         // object, never a top-level list or scalar.
         $normalized = Structured_Result::normalize($result);
 
+        // Unchecked, a false from wp_json_encode (invalid UTF-8 in a tool
+        // result, depth overflow) casts to '' and the text block silently
+        // becomes empty while structuredContent still claims a payload.
+        $text = wp_json_encode($normalized);
+        if (false === $text) {
+            return self::result_response($id, [
+                'isError' => true,
+                'content' => [ [ 'type' => 'text', 'text' => 'Tool result could not be serialized as JSON.' ] ],
+            ]);
+        }
+
         return self::result_response($id, [
             'isError'           => false,
-            'content'           => [ [ 'type' => 'text', 'text' => (string) wp_json_encode($normalized) ] ],
+            'content'           => [ [ 'type' => 'text', 'text' => $text ] ],
             'structuredContent' => $normalized,
         ]);
     }
@@ -366,27 +423,55 @@ class Stdio_Transport
     }
 
     /**
-     * Per-request state that a long-lived loop would otherwise freeze:
-     * option-backed gates (Governance, exposure) and the rate-limit
-     * transient are read through the non-persistent object cache, so
-     * without a flush a revoked ability stays callable for the life of the
-     * process.
+     * Drops the memoized reads a long-lived loop would otherwise freeze, so
+     * an option written by another process (a revoked ability, a flipped
+     * exposure mode, a newly published guardrail) is observed on the next
+     * message rather than at the next restart.
+     *
+     * Deliberately NOT wp_cache_flush(). On a site running a persistent
+     * object-cache drop-in that wipes the whole shared cache, once per
+     * JSON-RPC message, for every other process on the site; it would also
+     * delete the transient-backed rate-limit counter (Rate_Limiter::PREFIX
+     * transients live in the object cache when one is present), which is
+     * the one piece of per-client state the loop most needs to keep. The
+     * plugin treats wp_cache_flush() as an explicit, operator-invoked
+     * destructive action (Tools\Cache\Clear_Cache); doing it implicitly is
+     * not this transport's call to make.
+     *
+     * So: flush the process-local cache only when it IS process-local, and
+     * otherwise delete the narrow option keys the gates read through (the
+     * same targeted pattern as Auth\Code_Store). Statics that no cache
+     * layer can reach are reset by hand; Memory_Store::$rules_cache is one,
+     * and it backs a severity=block guardrail.
      */
     private static function reset_per_message_state(): void
     {
         Operation_Context::reset();
 
-        if (function_exists('wp_cache_flush')) {
-            wp_cache_flush();
+        Memory_Store::flush_rules_cache();
+
+        $persistent = function_exists('wp_using_ext_object_cache') && wp_using_ext_object_cache();
+
+        if (! $persistent) {
+            if (function_exists('wp_cache_flush')) {
+                wp_cache_flush();
+            }
+            return;
+        }
+
+        if (function_exists('wp_cache_delete')) {
+            wp_cache_delete('alloptions', 'options');
+            wp_cache_delete('notoptions', 'options');
         }
     }
 
     /**
-     * @param mixed               $id     Request id.
-     * @param array<string,mixed> $result Result payload.
+     * @param mixed $id     Request id.
+     * @param mixed $result Result payload (an array, or stdClass where the
+     *                      spec requires an empty JSON object).
      * @return array<string,mixed>
      */
-    private static function result_response($id, array $result): array
+    private static function result_response($id, $result): array
     {
         return [ 'jsonrpc' => self::JSONRPC, 'id' => $id, 'result' => $result ];
     }
@@ -409,8 +494,25 @@ class Stdio_Transport
     /** @param array<string,mixed> $response Response to write to stdout. */
     private static function emit(array $response): void
     {
+        $json = wp_json_encode($response);
+
+        // Unchecked, a false here writes a bare newline and the client
+        // waits forever on a request id that will never be answered. Core
+        // handles the analogous case on the HTTP route by turning the
+        // encode failure into a 500 rest_encode_error; the stdio equivalent
+        // is an internal-error envelope carrying the same id.
+        if (false === $json) {
+            $json = wp_json_encode(
+                self::error_response($response['id'] ?? null, -32603, 'Response could not be serialized as JSON.')
+            );
+        }
+        if (false === $json) {
+            return;
+        }
+
         // fwrite, not echo: WP-CLI's output layer can buffer and interleave,
         // and one interleaved byte desynchronizes the framing.
-        fwrite(STDOUT, wp_json_encode($response) . "\n");
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- stdio transport: STDOUT is the protocol stream, not a file. WP_Filesystem has no equivalent.
+        fwrite(STDOUT, $json . "\n");
     }
 }

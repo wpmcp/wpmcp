@@ -37,6 +37,14 @@ class Server
     public const SERVER_ID = 'wpmcp-server';
     public const NAMESPACE = 'mcp';
 
+    /**
+     * The server_name the adapter reports as serverInfo.name on the
+     * handshake. Distinct from SERVER_ID (which is the registry key and the
+     * route), and shared with Stdio_Transport so the two transports do not
+     * identify themselves differently to the same client.
+     */
+    public const SERVER_NAME = 'wpmcp';
+
     public static function register(): void
     {
         // Suppress the adapter's own default server. It publishes generic
@@ -90,7 +98,7 @@ class Server
             self::SERVER_ID,
             self::NAMESPACE,
             self::SERVER_ID,
-            'wpmcp',
+            self::SERVER_NAME,
             __('AI builds and edits your WordPress site, and physically cannot wreck it.', 'wpmcp'),
             defined('WPMCP_VERSION') ? WPMCP_VERSION : '0.0.0',
             [ HttpTransport::class ],

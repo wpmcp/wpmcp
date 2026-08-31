@@ -1,14 +1,16 @@
 #!/usr/bin/env php
 <?php
+
 /**
  * wpmcp stdio-to-HTTP proxy (issue #77).
  *
  * Zero-dependency bridge for MCP clients that only speak stdio: reads
  * newline-delimited JSON-RPC from stdin, forwards each message to a
  * WordPress site's /wp-json/mcp/wpmcp-server endpoint with application
- * password auth, and writes the response back to stdout. No Composer, no
- * WordPress load: plain PHP streams only, so its test file can run without
- * a WP test install.
+ * password auth, and writes the response back to stdout. No Composer and no
+ * WordPress load at RUNTIME: plain PHP streams only. (Its test files live in
+ * the plugin's suite and are ordinary PHPUnit test cases, since nothing in
+ * this file touches a WordPress API.)
  *
  * This is a REPO-ONLY tool: the release zips (scripts/build-release.sh,
  * scripts/build-wporg-release.sh, scripts/build-woo-release.sh) stage only
@@ -140,6 +142,7 @@ function select_site(array $sites, array $env): array
  * refuses application-password auth over non-SSL, so a plain http:// site
  * both leaks the credential and 401s with a message blaming the password.
  *
+ * @param string                                            $name Site name, for the error message.
  * @param array{url:string,user:string,app_password:string} $site Candidate site.
  * @param array<string,string>                              $env  Environment snapshot.
  * @return array{url:string,user:string,app_password:string}
@@ -174,6 +177,23 @@ function validate_site(string $name, array $site, array $env): array
     }
 
     return $site;
+}
+
+/**
+ * True when a response body is a JSON-RPC envelope the client can act on.
+ *
+ * The MCP Adapter deliberately carries protocol errors on 4xx statuses
+ * (McpErrorFactory::mcp_error_to_http_status maps METHOD_NOT_FOUND,
+ * TOOL_NOT_FOUND and SESSION_NOT_FOUND to 404, INVALID_REQUEST to 400 and
+ * PERMISSION_DENIED to 403), so status alone cannot decide whether a body is
+ * worth forwarding.
+ */
+function is_jsonrpc_envelope(string $body): bool
+{
+    $decoded = json_decode(trim($body), true);
+
+    return is_array($decoded)
+        && (array_key_exists('error', $decoded) || array_key_exists('result', $decoded));
 }
 
 /**
@@ -334,6 +354,18 @@ function forward(array $site, string $body, array $extra = []): array
         ));
     }
     if ($status >= 400) {
+        // A real JSON-RPC error must reach the client with its own code and
+        // message. Replacing it with a synthetic -32000 "failed with HTTP
+        // 404" is worse than useless: every MCP client probes resources/list
+        // and prompts/list straight after initialize, both of which the
+        // adapter answers METHOD_NOT_FOUND on 404, so the very first thing
+        // a normal session would see is a transport error that is not one.
+        // It also made describe_http_failure() blame the application
+        // password for an adapter-level UNAUTHORIZED. Only a body that is
+        // not a JSON-RPC envelope becomes a transport diagnosis.
+        if (is_jsonrpc_envelope($response)) {
+            return [ 'body' => $response, 'headers' => $raw ];
+        }
         throw new \RuntimeException(describe_http_failure($status, $site['url']));
     }
 
@@ -392,7 +424,78 @@ function error_line($request, string $message): ?string
     ]);
 }
 
-/** The stdio loop. Separated so tests can include this file without running it. */
+/**
+ * The message pump: reads newline-delimited JSON-RPC from $in, forwards each
+ * message to $site, writes each response to $out.
+ *
+ * Extracted from main() so the loop itself is testable over a pair of
+ * in-memory streams. Everything that decides what reaches the client lives
+ * here (notification suppression, one-line reframing, error envelopes), and
+ * a seam that tests cannot drive is a seam that is not covered.
+ *
+ * @param resource                                          $in      Input stream.
+ * @param resource                                          $out     Output stream.
+ * @param array{url:string,user:string,app_password:string} $site    Selected site.
+ * @param array<string,string>                              $env     Environment snapshot.
+ * @param Session|null                                      $session Session state (a fresh one when omitted).
+ */
+function pump($in, $out, array $site, array $env, ?Session $session = null): void
+{
+    $session = $session ?? new Session();
+
+    while (false !== ($line = fgets($in))) {
+        $line = trim($line);
+        if ('' === $line) {
+            continue;
+        }
+
+        $request = json_decode($line, true);
+        $method  = is_array($request) && isset($request['method']) ? (string) $request['method'] : '';
+
+        // JSON-RPC 2.0: a notification is a message with no id at all, and
+        // anything written back for one is a protocol violation. This is not
+        // theoretical here: the adapter answers a notification with HTTP 202
+        // and a body of literally "null", which is valid JSON, so without
+        // this guard the first thing a client reads after its
+        // notifications/initialized is a bare "null" line.
+        $is_notification = ! is_array($request) || ! array_key_exists('id', $request);
+
+        try {
+            debug_log($env, '-> ' . substr($line, 0, 200));
+            $result = forward($site, $line, 'initialize' === $method ? [] : $session->headers());
+            debug_log($env, '<- ' . substr($result['body'], 0, 200));
+
+            if ('initialize' === $method) {
+                $session->learn($result['headers'], json_decode($result['body'], true));
+                debug_log($env, 'session: ' . (string) $session->id);
+            }
+
+            if ($is_notification || '' === trim($result['body']) || 'null' === trim($result['body'])) {
+                continue;
+            }
+
+            $out_line = one_line_response($result['body']);
+            if (null === $out_line) {
+                fwrite(STDERR, '[wpmcp-proxy] non-JSON response body: ' . substr($result['body'], 0, 500) . "\n");
+                $error = error_line($request, 'The site returned a body that is not JSON-RPC.');
+                if (null !== $error) {
+                    fwrite($out, $error . "\n");
+                }
+                continue;
+            }
+
+            fwrite($out, $out_line . "\n");
+        } catch (\RuntimeException $e) {
+            fwrite(STDERR, '[wpmcp-proxy] ' . $e->getMessage() . "\n");
+            $error = error_line($request, $e->getMessage());
+            if (null !== $error) {
+                fwrite($out, $error . "\n");
+            }
+        }
+    }
+}
+
+/** The stdio entry point. Separated so tests can include this file without running it. */
 function main(): int
 {
     $env = [];
@@ -409,51 +512,13 @@ function main(): int
 
     debug_log($env, 'proxying to ' . $site['url'] . ENDPOINT_PATH);
 
-    $session = new Session();
-    $stdin   = fopen('php://stdin', 'r');
-
-    while (false !== ($line = fgets($stdin))) {
-        $line = trim($line);
-        if ('' === $line) {
-            continue;
-        }
-
-        $request = json_decode($line, true);
-        $method  = is_array($request) && isset($request['method']) ? (string) $request['method'] : '';
-
-        try {
-            debug_log($env, '-> ' . substr($line, 0, 200));
-            $result = forward($site, $line, 'initialize' === $method ? [] : $session->headers());
-            debug_log($env, '<- ' . substr($result['body'], 0, 200));
-
-            if ('initialize' === $method) {
-                $session->learn($result['headers'], json_decode($result['body'], true));
-                debug_log($env, 'session: ' . (string) $session->id);
-            }
-
-            if ('' === trim($result['body'])) {
-                continue;
-            }
-
-            $out = one_line_response($result['body']);
-            if (null === $out) {
-                fwrite(STDERR, '[wpmcp-proxy] non-JSON response body: ' . substr($result['body'], 0, 500) . "\n");
-                $error = error_line($request, 'The site returned a body that is not JSON-RPC.');
-                if (null !== $error) {
-                    fwrite(STDOUT, $error . "\n");
-                }
-                continue;
-            }
-
-            fwrite(STDOUT, $out . "\n");
-        } catch (\RuntimeException $e) {
-            fwrite(STDERR, '[wpmcp-proxy] ' . $e->getMessage() . "\n");
-            $error = error_line($request, $e->getMessage());
-            if (null !== $error) {
-                fwrite(STDOUT, $error . "\n");
-            }
-        }
+    $stdin = fopen('php://stdin', 'r');
+    if (false === $stdin) {
+        fwrite(STDERR, "[wpmcp-proxy] could not open stdin.\n");
+        return 1;
     }
+
+    pump($stdin, STDOUT, $site, $env);
     fclose($stdin);
 
     return 0;

@@ -74,7 +74,11 @@ class StdioTransportTest extends \WP_UnitTestCase
         $this->assertSame('2.0', $response['jsonrpc']);
         $this->assertSame(1, $response['id']);
         $this->assertArrayHasKey('result', $response);
-        $this->assertSame('wpmcp-server', $response['result']['serverInfo']['name']);
+        // The name the adapter reports on the HTTP handshake, not the
+        // server id: a client keying config off serverInfo.name must see
+        // the same string on both transports.
+        $this->assertSame(\WPMCP\MCP\Server::SERVER_NAME, $response['result']['serverInfo']['name']);
+        $this->assertSame('wpmcp', $response['result']['serverInfo']['name']);
     }
 
     /**
@@ -307,5 +311,164 @@ class StdioTransportTest extends \WP_UnitTestCase
 
         $this->as_administrator();
         $this->assertNull(Stdio_Transport::user_context_error());
+    }
+
+    /**
+     * A request naming a notifications/ method but carrying an id is still a
+     * request. Answering nothing leaves a synchronous client blocked on a
+     * response that is never written, so the id, not the method name, is the
+     * whole rule.
+     */
+    public function test_an_id_bearing_notifications_method_still_gets_a_response(): void
+    {
+        $response = $this->transport->handle_request([
+            'jsonrpc' => '2.0',
+            'id'      => 7,
+            'method'  => 'notifications/initialized',
+        ]);
+
+        $this->assertNotNull($response, 'A message with an id must always be answered.');
+        $this->assertSame(7, $response['id']);
+        $this->assertSame(-32601, $response['error']['code']);
+    }
+
+    /**
+     * ping's result must be a JSON object. An empty PHP array encodes as
+     * [], which is exactly the invalid shape Structured_Result exists to
+     * prevent elsewhere in this class.
+     */
+    public function test_ping_result_serializes_as_a_json_object(): void
+    {
+        $response = $this->transport->handle_request([
+            'jsonrpc' => '2.0',
+            'id'      => 3,
+            'method'  => 'ping',
+        ]);
+
+        $this->assertStringContainsString('"result":{}', (string) wp_json_encode($response));
+    }
+
+    /**
+     * A tool that throws must cost one tool call, not the session. The HTTP
+     * route gets this from the adapter's ToolsHandler, which catches
+     * Throwable and returns an isError CallToolResult; WP_Ability::execute()
+     * does not, so the stdio route has to do it itself.
+     */
+    public function test_a_throwing_tool_becomes_a_tool_error_not_a_dead_process(): void
+    {
+        $this->as_administrator();
+
+        // wp_register_ability() only accepts registrations inside the
+        // registry's own init window, so open one. Clearing the hook first
+        // is what AbilityRegistrySmokeTest does and is not optional: firing
+        // it with the plugin's own Registrar still attached re-registers
+        // every shipped ability and trips the duplicate-registration
+        // notice. WP_UnitTestCase restores the original hooks in tearDown.
+        remove_all_actions('wp_abilities_api_init');
+        add_action('wp_abilities_api_init', static function (): void {
+            wp_register_ability('wpmcp/stdio-thrower', [
+                'label'               => 'Stdio thrower',
+                'description'         => 'Throws, for the transport test.',
+                'category'            => 'wpmcp',
+                'input_schema'        => [ 'type' => 'object' ],
+                'meta'                => [ 'show_in_rest' => true ],
+                'execute_callback'    => static function () {
+                    throw new \RuntimeException('tool exploded');
+                },
+                'permission_callback' => '__return_true',
+            ]);
+        });
+        do_action('wp_abilities_api_init');
+
+        if (! wp_has_ability('wpmcp/stdio-thrower')) {
+            $this->markTestSkipped('The Abilities API would not accept a test ability here.');
+        }
+
+        try {
+            $response = $this->transport->handle_request([
+                'jsonrpc' => '2.0',
+                'id'      => 11,
+                'method'  => 'tools/call',
+                'params'  => [ 'name' => 'wpmcp-stdio-thrower', 'arguments' => [] ],
+            ]);
+        } finally {
+            wp_unregister_ability('wpmcp/stdio-thrower');
+        }
+
+        $this->assertArrayHasKey('result', $response, 'A throwing tool must not become a JSON-RPC fault.');
+        $this->assertTrue($response['result']['isError']);
+        $this->assertStringContainsString('tool exploded', $response['result']['content'][0]['text']);
+    }
+
+    /**
+     * The per-message reset must not wipe a persistent object cache. It used
+     * to call wp_cache_flush() unconditionally, which on a site running a
+     * drop-in deletes the whole shared cache once per JSON-RPC message,
+     * including the transient the rate limiter counts in (transients live in
+     * the object cache when one is present), so per-client rate limiting was
+     * disabled on this transport entirely.
+     */
+    public function test_the_per_message_reset_does_not_flush_a_persistent_object_cache(): void
+    {
+        $was = wp_using_ext_object_cache();
+        wp_using_ext_object_cache(true);
+
+        wp_cache_set('stdio-reset-canary', 'kept', 'wpmcp-test');
+
+        $reset = new \ReflectionMethod(Stdio_Transport::class, 'reset_per_message_state');
+        $reset->setAccessible(true);
+
+        try {
+            $reset->invoke(null);
+            $this->assertSame(
+                'kept',
+                wp_cache_get('stdio-reset-canary', 'wpmcp-test'),
+                'A persistent cache must survive a message boundary.'
+            );
+        } finally {
+            wp_using_ext_object_cache($was);
+            wp_cache_delete('stdio-reset-canary', 'wpmcp-test');
+        }
+    }
+
+    /**
+     * The rate-limit budget has to keep counting across message boundaries,
+     * which is the behavior the flush above was destroying.
+     */
+    public function test_the_rate_limit_counter_survives_the_per_message_reset(): void
+    {
+        $reset = new \ReflectionMethod(Stdio_Transport::class, 'reset_per_message_state');
+        $reset->setAccessible(true);
+
+        $key   = 'stdio-reset-' . wp_generate_uuid4();
+        $first = Rate_Limiter::check($key);
+
+        $reset->invoke(null);
+
+        $second = Rate_Limiter::check($key);
+
+        $this->assertSame(
+            $first['remaining'] - 1,
+            $second['remaining'],
+            'The counter must keep counting across the per-message reset.'
+        );
+    }
+
+    /**
+     * The reset must drop Memory_Store's plain static memo too. No object
+     * cache reaches a static property, so a guardrail published mid-session
+     * would otherwise stay invisible for the life of the process.
+     */
+    public function test_the_per_message_reset_drops_the_memoized_memory_rules(): void
+    {
+        $memo = new \ReflectionProperty(\WPMCP\Memory\Memory_Store::class, 'rules_cache');
+        $memo->setAccessible(true);
+        $memo->setValue(null, [ [ 'entry' => 'stale' ] ]);
+
+        $reset = new \ReflectionMethod(Stdio_Transport::class, 'reset_per_message_state');
+        $reset->setAccessible(true);
+        $reset->invoke(null);
+
+        $this->assertNull($memo->getValue(), 'A memoized block rule must not survive a message boundary.');
     }
 }
