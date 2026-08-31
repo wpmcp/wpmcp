@@ -2131,16 +2131,19 @@ final class Plugin
     /**
      * The Elementor 4.0+ atomic write tools (issue #62).
      *
-     * Registered only when the active builder ships the atomic-widgets module
+     * Registered only when the active builder can render atomic elements
      * (Atomic_Element::registration_supported()); detect-elementor-version is
-     * registered unconditionally elsewhere and reports the same predicate as
-     * `atomic_tools_registered`, so a caller can learn why these are absent.
-     * Public so the conditional registration itself is testable against a
-     * fresh Registrar rather than only the predicate behind it.
+     * registered alongside them unconditionally and reports what this pass
+     * decided as `atomic_tools_registered`, so a caller can learn why these are
+     * absent. Private, and reached only from register_elementor_abilities(), so
+     * it stays behind the same group_enabled('elementor') check as every other
+     * Elementor ability, matching register_acf_abilities() and the other
+     * conditional groups.
      */
-    public function register_atomic_elementor_abilities(Registrar $registrar): void
+    private function register_atomic_elementor_abilities(Registrar $registrar): void
     {
         if (! Atomic_Element::registration_supported()) {
+            Atomic_Element::note_registration(false);
             return;
         }
 
@@ -2246,6 +2249,11 @@ final class Plugin
             'elementor',
             'update'
         ));
+
+        // Read the answer back off the Registrar rather than restating the
+        // predicate: register() also drops abilities the pro gate or governance
+        // withholds, and detect-elementor-version reports this field.
+        Atomic_Element::note_registration(null !== $registrar->get('wpmcp/add-atomic-widget'));
     }
 
     /**
@@ -4802,7 +4810,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-elementor-version',
             'pro',
-            'Report the Elementor and Elementor Pro version and whether atomic elements (Elementor 4.0+) are supported, so a caller can choose between the classic widget/container tools and the atomic tools (add-flexbox, add-div-block, add-atomic-widget). Read-only',
+            'Report the Elementor and Elementor Pro version, whether atomic elements (Elementor 4.0+) are supported (supports_atomic), and whether the atomic write tools add-flexbox/add-div-block/add-atomic-widget/update-atomic-widget are actually on this site\'s tool list (atomic_tools_registered) - they register only on a builder that can render atomic elements, so call this first rather than assuming they exist. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -4813,9 +4821,9 @@ final class Plugin
             'read'
         ));
 
-        // Atomic write tools register only when the active builder ships the
-        // atomic-widgets module (issue #62); detect-elementor-version stays
-        // registered, and reports the same predicate, so a caller can learn
+        // Atomic write tools register only when the active builder can render
+        // atomic elements (issue #62); detect-elementor-version stays
+        // registered, and reports what this pass decided, so a caller can learn
         // why they are absent.
         $this->register_atomic_elementor_abilities($registrar);
 

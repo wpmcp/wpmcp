@@ -26,10 +26,10 @@ class Detect_Elementor_Version
             'elementor_version'     => $core,
             'elementor_pro_version' => $pro,
             'supports_atomic'       => $atomic,
-            // The write tools are gated on the filterable registration
-            // predicate, not on raw support, so report the predicate that
-            // actually decided whether they are on the tool list (issue #62).
-            'atomic_tools_registered' => Atomic_Element::registration_supported(),
+            // What registration actually decided, read back off the Registrar
+            // during the registration pass, so this field cannot claim a tool
+            // the pro gate or governance dropped is on the list (issue #62).
+            'atomic_tools_registered' => Atomic_Element::registration_outcome(),
             'recommended_mode'      => $atomic ? 'atomic' : 'legacy',
         ];
     }

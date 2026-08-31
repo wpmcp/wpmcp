@@ -327,11 +327,19 @@ class Element_Tree
 
     /**
      * Reduce a tree to the shape this plugin is responsible for (id, elType,
-     * widgetType, settings, children, and any atomic `styles` blob), ignoring
-     * keys Elementor's own save adds or normalizes (isInner, isLocked). Used
-     * by the verify step to prove the stored tree is the intended tree.
+     * widgetType, settings, children), ignoring keys Elementor's own save adds
+     * or normalizes (isInner, isLocked). Used by the verify step to prove the
+     * stored tree is the intended tree.
+     *
+     * $with_styles adds the atomic `styles` blob to the comparison. It is
+     * opt-in, and only Atomic_Element::write() opts in: that path writes the
+     * meta raw, so the blob round-trips exactly. The classic tools here
+     * persist through Document::save(), which drops atomic data when the
+     * Editor-V4 experiment is off, so comparing `styles` on that path would
+     * turn any classic edit to a page containing an atomic element into a
+     * mutation_failed rollback.
      */
-    public static function normalize(array $elements): array
+    public static function normalize(array $elements, bool $with_styles = false): array
     {
         $out = [];
 
@@ -344,7 +352,7 @@ class Element_Tree
                 'id'       => (string) ($element['id'] ?? ''),
                 'elType'   => (string) ($element['elType'] ?? ''),
                 'settings' => is_array($element['settings'] ?? null) ? $element['settings'] : [],
-                'elements' => self::normalize(is_array($element['elements'] ?? null) ? $element['elements'] : []),
+                'elements' => self::normalize(is_array($element['elements'] ?? null) ? $element['elements'] : [], $with_styles),
             ];
 
             if ('widget' === $node['elType']) {
@@ -353,10 +361,10 @@ class Element_Tree
 
             // Atomic elements carry their local style classes in `styles`,
             // which is load-bearing data (an element's `classes` ref points
-            // into it), so it has to be part of the verified round trip.
-            // Only when non-empty, so classic elements, which never have the
-            // key, keep their existing normalized shape.
-            if (! empty($element['styles']) && is_array($element['styles'])) {
+            // into it), so the raw atomic write verifies it too. Only when
+            // non-empty, so classic elements, which never have the key, keep
+            // their existing normalized shape.
+            if ($with_styles && ! empty($element['styles']) && is_array($element['styles'])) {
                 $node['styles'] = $element['styles'];
             }
 

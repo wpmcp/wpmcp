@@ -73,30 +73,44 @@ class AbilityManifestTest extends \WP_UnitTestCase
     }
 
     /**
-     * The four Elementor atomic write tools register only on Elementor 4.0+
-     * (issue #62), so the pinned surface describes an atomic-capable
-     * environment. On an older builder the surface legitimately differs;
-     * say so instead of reporting it as drift.
+     * The four Elementor atomic write tools register only on a builder that can
+     * render atomic elements (issue #62), so the pinned manifest describes an
+     * atomic-capable environment. On an older builder those four names are
+     * legitimately absent - and only those four. Subtract them rather than
+     * skipping, so every other ability addition, removal or re-tier is still
+     * reported as drift on any install.
+     *
+     * @param array<string,string> $expected name => tier
+     *
+     * @return array<string,string>
      */
-    private function skip_unless_atomic_tools_register(): void
+    private static function without_conditional_abilities(array $expected): array
     {
-        if (! \WPMCP\Tools\Elementor\Atomic_Element::registration_supported()) {
-            $this->markTestSkipped(
-                'The ability manifest pins an Elementor 4.0+ environment; this install does not register '
-                . 'the atomic write tools, so the surface is expected to differ. Install Elementor 4.x '
-                . '(bin/install-test-plugins.sh) to assert the pinned surface.'
-            );
+        if (\WPMCP\Tools\Elementor\Atomic_Element::registration_supported()) {
+            return $expected;
         }
+
+        foreach (self::CONDITIONAL_ABILITIES as $name) {
+            unset($expected[$name]);
+        }
+
+        return $expected;
     }
+
+    /** Abilities whose registration depends on the host builder (issue #62). */
+    private const CONDITIONAL_ABILITIES = [
+        'wpmcp/add-flexbox',
+        'wpmcp/add-div-block',
+        'wpmcp/add-atomic-widget',
+        'wpmcp/update-atomic-widget',
+    ];
 
     public function test_registered_abilities_match_manifest_names_and_tiers(): void
     {
-        $this->skip_unless_atomic_tools_register();
-
         $manifest = self::load_manifest();
 
         $this->assertSame(
-            $manifest['abilities'],
+            self::without_conditional_abilities($manifest['abilities']),
             RegisteredAbilities::manifest_map(),
             'Registered ability surface drifted from tests/support/ability-manifest.php. ' .
             'If the change is intentional, run `composer manifest:regenerate` and commit the diff.'
@@ -105,15 +119,18 @@ class AbilityManifestTest extends \WP_UnitTestCase
 
     public function test_total_free_and_pro_counts_match_manifest(): void
     {
-        $this->skip_unless_atomic_tools_register();
-
         $manifest = self::load_manifest();
-        $actual   = RegisteredAbilities::manifest_map();
-        $tiers    = array_count_values($actual);
+        $expected = self::without_conditional_abilities($manifest['abilities']);
+        $missing  = count($manifest['abilities']) - count($expected);
 
-        $this->assertSame($manifest['total'], count($actual), 'Total registered-ability count drifted.');
+        $actual = RegisteredAbilities::manifest_map();
+        $tiers  = array_count_values($actual);
+
+        // The four conditional abilities are all pro, so a builder that cannot
+        // register them moves the pro and total counts and nothing else.
+        $this->assertSame($manifest['total'] - $missing, count($actual), 'Total registered-ability count drifted.');
         $this->assertSame($manifest['free'], $tiers['free'] ?? 0, 'Free-tier ability count drifted.');
-        $this->assertSame($manifest['pro'], $tiers['pro'] ?? 0, 'Pro-tier ability count drifted.');
+        $this->assertSame($manifest['pro'] - $missing, $tiers['pro'] ?? 0, 'Pro-tier ability count drifted.');
     }
 
     /**

@@ -159,8 +159,13 @@ class AtomicElementsTest extends Structural_Harness
 
         $props = $widget['styles'][$class_id]['variants'][0]['props'];
         $this->assertSame('#112233', $props['color']['value']);
-        $this->assertSame(32.0, $props['font-size']['value']['size']);
-        $this->assertSame(8.0, $props['padding']['value']['block-start']['value']['size']);
+        // Read back through `_elementor_data`, so the numbers have been through
+        // json_encode(), which writes a whole float as `32` and decodes it as an
+        // int. Compare by value, not by type, or the assertion is about PHP's
+        // JSON encoder rather than about the style that was stored.
+        $this->assertEquals(32, $props['font-size']['value']['size']);
+        $this->assertSame('px', $props['font-size']['value']['unit']);
+        $this->assertEquals(8, $props['padding']['value']['block-start']['value']['size']);
     }
 
     public function test_add_atomic_widget_refuses_an_unusable_style_value(): void
@@ -228,7 +233,7 @@ class AtomicElementsTest extends Structural_Harness
         $class_id  = $container['settings']['classes']['value'][0];
         $props     = $container['styles'][$class_id]['variants'][0]['props'];
 
-        $this->assertSame(16.0, $props['gap']['value']['size']);
+        $this->assertEquals(16, $props['gap']['value']['size']);
         $this->assertSame('column', $props['flex-direction']['value']);
     }
 

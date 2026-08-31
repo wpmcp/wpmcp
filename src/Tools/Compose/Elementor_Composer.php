@@ -55,6 +55,16 @@ class Elementor_Composer
             $settings    = (array) ($node['settings']['widget_settings'] ?? []);
 
             if (Atomic_Prop_Schema::known($widget_type)) {
+                // build-page composes, it does not gate: an atomic node on a
+                // builder that cannot render atomic elements is still written,
+                // but the caller is told rather than left to discover a blank
+                // section. The atomic write tools refuse outright instead
+                // (Atomic_Element::require_supported); build-page has classic
+                // siblings in the same tree that must still land.
+                if (! \WPMCP\Tools\Elementor\Atomic_Element::is_supported()) {
+                    $warnings[] = $path . ': "' . $widget_type . '" is an Elementor 4.0+ atomic widget, and this builder cannot render atomic elements. It was written as composed, but will not display until Elementor 4 is active.';
+                }
+
                 $mapped   = Atomic_Props::map($widget_type, $settings);
                 $settings = $mapped['settings'];
 

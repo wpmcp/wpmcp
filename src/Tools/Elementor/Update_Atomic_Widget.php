@@ -39,6 +39,20 @@ class Update_Atomic_Widget
             return new \WP_Error('element_not_found', "No element found with id '{$element_id}'.");
         }
 
+        // Typed atomic props and a `styles` blob mean nothing to the classic v3
+        // renderer, so decorating a classic widget or container with them would
+        // report success for styling that never appears. Refuse by name.
+        if (! Atomic_Element::is_atomic_node($element)) {
+            return new \WP_Error(
+                'not_an_atomic_element',
+                sprintf(
+                    "Element '%s' is %s, a classic (v3) element: use update-widget or update-container. update-atomic-widget only edits Elementor 4.0+ atomic elements.",
+                    $element_id,
+                    Atomic_Element::describe_node($element)
+                )
+            );
+        }
+
         if (is_array($args['settings'] ?? null) && [] !== $args['settings']) {
             $patch = $args['settings'];
         } else {

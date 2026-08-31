@@ -21,29 +21,105 @@ if (! defined('ABSPATH')) {
  */
 class Atomic_Element
 {
-    /** Whether this Elementor install ships the atomic-widgets module (v4.0+). */
-    public static function is_supported(): bool
+    /** Element types that are atomic containers in Elementor's v4 builder. */
+    private const ATOMIC_CONTAINERS = ['e-flexbox', 'e-div-block'];
+
+    /** Test-only override of the capability probe (see set_supported_for_tests). */
+    private static ?bool $supported_for_tests = null;
+
+    /**
+     * Force the atomic capability on or off for a test, or null to go back to
+     * probing the live builder. Matches Gate::set_pro_for_tests(): a seam, not
+     * a site override, so there is exactly one authority on whether these
+     * tools may run and it is the builder itself.
+     */
+    public static function set_supported_for_tests(?bool $supported): void
     {
-        return defined('ELEMENTOR_VERSION')
-            && version_compare(ELEMENTOR_VERSION, '4.0.0', '>=')
-            && class_exists('\\Elementor\\Modules\\AtomicWidgets\\Module');
+        self::$supported_for_tests = $supported;
+        self::$registration_outcome = null;
+    }
+
+    /** What registration actually decided, or null before registration ran. */
+    private static ?bool $registration_outcome = null;
+
+    /**
+     * Record whether the atomic write tools survived a registration pass.
+     * Called by Plugin::register_elementor_abilities() with the answer read
+     * back off the Registrar, so it accounts for everything that can drop an
+     * ability (the pro gate, governance) and not only the builder predicate.
+     */
+    public static function note_registration(bool $registered): void
+    {
+        self::$registration_outcome = $registered;
     }
 
     /**
-     * Whether the atomic write tools should register at all (issue #62): the
-     * builder version gate, overridable by tests or site code via filter.
+     * Whether the atomic write tools are on the live tool list. Falls back to
+     * the registration predicate only when registration has not run in this
+     * request, so the discoverability path cannot claim a tool exists that the
+     * registrar dropped.
+     */
+    public static function registration_outcome(): bool
+    {
+        return self::$registration_outcome ?? self::registration_supported();
+    }
+
+    /**
+     * Whether this Elementor install can render atomic (v4) elements.
+     *
+     * Elementor 4.0+ ships the atomic-widgets module unconditionally. Some
+     * 3.3x builds ship it behind the Editor-V4 experiment, and when a site has
+     * that experiment on the module is loaded and these tools work, so support
+     * is not decided by version number alone.
+     */
+    public static function is_supported(): bool
+    {
+        if (defined('WPMCP_TESTING') && WPMCP_TESTING && null !== self::$supported_for_tests) {
+            return self::$supported_for_tests;
+        }
+
+        if (! defined('ELEMENTOR_VERSION') || ! class_exists('\\Elementor\\Modules\\AtomicWidgets\\Module')) {
+            return false;
+        }
+
+        if (version_compare(ELEMENTOR_VERSION, '4.0.0', '>=')) {
+            return true;
+        }
+
+        return self::atomic_module_loaded();
+    }
+
+    /** Whether Elementor actually loaded the atomic-widgets module this request. */
+    private static function atomic_module_loaded(): bool
+    {
+        if (! class_exists('\\Elementor\\Plugin')) {
+            return false;
+        }
+
+        try {
+            $modules = \Elementor\Plugin::instance()->modules_manager ?? null;
+
+            return null !== $modules && null !== $modules->get_modules('atomic-widgets');
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether the atomic write tools should register at all (issue #62).
+     * Registration and the per-call guard read the same predicate, so a
+     * registered tool can never be one that refuses every call.
      */
     public static function registration_supported(): bool
     {
-        return (bool) apply_filters('wpmcp_elementor_atomic_supported', self::is_supported());
+        return self::is_supported();
     }
 
     /**
      * Null when this install can render atomic elements, a WP_Error when it
-     * cannot. Registration is gated on the filterable registration_supported(),
-     * whose documented purpose is a test/site override, so every atomic write
-     * re-checks the real capability: a forced-open gate on a legacy builder
-     * must fail the call rather than write elements Elementor cannot render.
+     * cannot. Re-checked inside every atomic write, not only at registration,
+     * because a site can activate or downgrade Elementor between the init hook
+     * that registered the tool and the call that runs it.
      *
      * @return \WP_Error|null
      */
@@ -60,6 +136,36 @@ class Atomic_Element
                 defined('ELEMENTOR_VERSION') ? 'Elementor ' . ELEMENTOR_VERSION : 'no Elementor'
             )
         );
+    }
+
+    /**
+     * Whether a stored node is an atomic (v4) element: an atomic container, or
+     * a widget whose widgetType is one of Elementor's `e-` atomic types. The
+     * atomic tools refuse anything else rather than decorating a classic
+     * element with typed props and a `styles` blob its renderer ignores.
+     */
+    public static function is_atomic_node(array $node): bool
+    {
+        $el_type = (string) ($node['elType'] ?? '');
+
+        if (in_array($el_type, self::ATOMIC_CONTAINERS, true) || 0 === strpos($el_type, 'e-')) {
+            return true;
+        }
+
+        return 'widget' === $el_type && 0 === strpos((string) ($node['widgetType'] ?? ''), 'e-');
+    }
+
+    /**
+     * The kind of element a node is, for an error message that names what the
+     * caller actually pointed at.
+     */
+    public static function describe_node(array $node): string
+    {
+        $el_type = (string) ($node['elType'] ?? 'unknown');
+
+        return 'widget' === $el_type
+            ? sprintf('widget "%s"', (string) ($node['widgetType'] ?? 'unknown'))
+            : sprintf('"%s"', $el_type);
     }
 
     public static function container(string $el_type, array $settings): array
@@ -132,7 +238,11 @@ class Atomic_Element
     public static function write(int $post_id, array $elements, string $tool_name, array $args)
     {
         $operation_id = wp_generate_uuid4();
-        $intended     = Element_Tree::normalize($elements);
+        // Compare what the JSON meta can actually represent: wp_json_encode
+        // writes a float 32.0 as `32`, which decodes back as int, so an
+        // intended tree built in PHP is never identical to the stored one
+        // until both sides have been through the same encoder.
+        $intended = Element_Tree::normalize(self::as_stored($elements), true);
 
         try {
             Safe_Mutation::run(
@@ -150,7 +260,7 @@ class Atomic_Element
                 },
                 function () use ($post_id, $intended) {
                     clean_post_cache($post_id);
-                    return Element_Tree::normalize(Elementor_Page_Data::get($post_id)) === $intended;
+                    return Element_Tree::normalize(Elementor_Page_Data::get($post_id), true) === $intended;
                 }
             );
         } catch (Mutation_Failed $e) {
@@ -165,5 +275,13 @@ class Atomic_Element
             'post_id'      => $post_id,
             'data_hash'    => Element_Tree::data_hash($post_id),
         ];
+    }
+
+    /** The tree as `_elementor_data` will hold it, after a JSON round trip. */
+    private static function as_stored(array $elements): array
+    {
+        $decoded = json_decode((string) wp_json_encode($elements), true);
+
+        return is_array($decoded) ? $decoded : $elements;
     }
 }

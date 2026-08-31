@@ -360,14 +360,20 @@ class Global_Class_Schema
      * against what was submitted and any dropped key fails the call. That is
      * the difference between "your hover shadow was saved" and the truth.
      *
+     * $subject names what the caller authored, so the atomic element tools can
+     * report "style" where they never asked for a global class.
+     *
      * @return array|\WP_Error
      */
-    public static function validate_item(array $item)
+    public static function validate_item(array $item, string $subject = 'global class')
     {
         if (! self::is_supported()) {
             return new \WP_Error(
                 'schema_unavailable',
-                'Elementor\'s v4 style schema is unavailable, so a global class cannot be validated before writing.'
+                sprintf(
+                    'Elementor\'s v4 style schema is unavailable, so a %s cannot be validated before writing.',
+                    $subject
+                )
             );
         }
 
@@ -377,7 +383,7 @@ class Global_Class_Schema
         if (! $result->is_valid()) {
             return new \WP_Error(
                 'invalid_class',
-                'Elementor rejected this global class: ' . $result->errors()->to_string()
+                sprintf('Elementor rejected this %s: ', $subject) . $result->errors()->to_string()
             );
         }
 
