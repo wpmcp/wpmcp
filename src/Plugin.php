@@ -38,7 +38,6 @@ use WPMCP\Tools\Code\Validate_Php_Snippet;
 use WPMCP\Tools\Code\Run_Php_Snippet;
 use WPMCP\Tools\CustomCode\Add_Scoped_Css;
 use WPMCP\Tools\CustomCode\Add_Custom_Js;
-use WPMCP\Tools\CustomCode\Custom_Code_Renderer;
 use WPMCP\Tools\Cli\Run_Wp_Cli;
 use WPMCP\Tools\Cli\Dispatch_Cli_Job;
 use WPMCP\Tools\Cli\Get_Cli_Job;
@@ -375,7 +374,9 @@ final class Plugin
 
     /**
      * Boot-time runtime hook wiring for the flavor-gated feature groups: the
-     * data-driven widget/block builders and agent project memory.
+     * data-driven widget/block builders, the content search index, stored
+     * custom CSS/JS output (delegated to
+     * register_custom_code_runtime_hooks()), and agent project memory.
      * Flavor-gated with the matching ability groups: vertical builds prune
      * these classes' files from the zip, so the hooks must not reference
      * them there. Public so tests can exercise the gating directly (boot()
@@ -402,26 +403,14 @@ final class Plugin
         if ($this->group_enabled('search')) {
             (new Index_Hooks())->register();
         }
+        // Stored custom CSS/JS output (issue #63), gated on its own group.
+        $this->register_custom_code_runtime_hooks();
         // Agent project memory (issue #131): the wpmcp_memory CPT is the
         // store AND the approval queue, so it is registered here rather than
         // lazily from the tools. Note this runs even though the three memory
         // TOOLS are pro: an administrator's published guardrails are enforced
         // in Registrar::is_permitted() on every tier, and a safety rule must
         // not stop applying because a license lapsed.
-        // Stored custom CSS/JS output (issue #63). This lives here, not in
-        // register_custom_code_abilities(), for two reasons: ability
-        // registration runs on wp_abilities_api_init, which fires lazily on
-        // first registry access and is never reached on a plain front-end
-        // page view (so stored code would never render for a visitor), and
-        // registration is a pure catalog operation replayed in wp-admin and
-        // against throwaway Registrars in tests, which must not acquire a
-        // permanent front-end output side effect. Gated on the group, not on
-        // Gate::is_pro(): a lapsed license must not silently strip CSS a site
-        // already depends on, the same reasoning the memory hooks carry
-        // below. Stored JS has its own gate inside the renderer.
-        if ($this->group_enabled('custom_code')) {
-            Custom_Code_Renderer::boot();
-        }
         if ($this->group_enabled('memory')) {
             add_action('init', [Memory_Store::class, 'ensure_post_type'], 5);
             (new Memory_Page())->register_hooks();
@@ -432,6 +421,44 @@ final class Plugin
             add_action('transition_post_status', [Memory_Store::class, 'flush_rules_cache_on_transition'], 10, 3);
             add_action('deleted_post', [Memory_Store::class, 'flush_rules_cache_on_delete'], 10, 2);
         }
+    }
+
+    /**
+     * Front-end output wiring for stored custom CSS/JS (issue #63).
+     *
+     * Its own method rather than another branch inside
+     * register_builder_runtime_hooks() for two reasons. The wp.org flavor
+     * deletes whole methods by name, so a method is the unit that build can
+     * remove cleanly, comment and all; and a test that wants to assert the
+     * renderer got wired can call THIS instead of replaying the whole runtime
+     * hook set, which re-registers the search index and memory-page hooks on
+     * fresh instances WordPress cannot dedupe and leaks duplicated save_post
+     * and deleted_post handlers into every test that runs after it.
+     *
+     * The wiring lives here, not in register_custom_code_abilities(), for two
+     * more reasons: ability registration runs on wp_abilities_api_init, which
+     * fires lazily on first registry access and is never reached on a plain
+     * front-end page view (so stored code would never render for a visitor),
+     * and registration is a pure catalog operation replayed in wp-admin and
+     * against throwaway Registrars in tests, which must not acquire a
+     * permanent front-end output side effect.
+     *
+     * Gated on the group, not on Gate::is_pro(): a lapsed license must not
+     * silently strip CSS a site already depends on, the same reasoning the
+     * memory hooks carry. Stored JS has its own gate inside the renderer.
+     *
+     * Custom_Code_Renderer is named as a STRING callable, matching the widget
+     * and block builder branches above: vertical builds prune that file from
+     * the zip, so no shipped build should carry a static reference to a class
+     * it does not contain.
+     */
+    public function register_custom_code_runtime_hooks(): void
+    {
+        if (! $this->group_enabled('custom_code')) {
+            return;
+        }
+
+        call_user_func(['\\WPMCP\\Tools\\CustomCode\\Custom_Code_Renderer', 'boot']);
     }
     public function boot(): void
     {
@@ -2723,7 +2750,9 @@ final class Plugin
     /**
      * Register the custom CSS/JS injection tools (issue #63) as PRO-tier
      * abilities. add-scoped-css stores sanitized CSS scoped to ONE
-     * post/page in the plugin's own option-backed store, snapshot-first
+     * post/page - or, with element_id, to ONE element on that page, by
+     * prefixing the .elementor-element-<id> class the builder already renders
+     * - in the plugin's own option-backed store, snapshot-first
      * via Safe_Mutation, so every write is reversible; site-wide CSS
      * deliberately stays with the existing wpmcp/add-custom-css ability
      * (Elementor group, core Additional CSS storage), so agents have one
@@ -2744,7 +2773,8 @@ final class Plugin
      * on top of the manage_options ability gate.
      *
      * Front-end output of the stored code is NOT wired here: see
-     * Custom_Code_Renderer::boot() in register_builder_runtime_hooks().
+     * register_custom_code_runtime_hooks(), reached from
+     * register_builder_runtime_hooks().
      */
     private function register_custom_code_abilities(Registrar $registrar): void
     {
@@ -2754,12 +2784,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-scoped-css',
             'pro',
-            'Store a custom CSS block scoped to one post/page (post_id required); it renders in wp_head only when that exact post is viewed. Pass either a full css fragment, or a selector plus bare css declarations to be wrapped as "selector { declarations }". APPENDS to the page block that is already stored; pass replace=true to overwrite it instead. For site-wide CSS use add-custom-css instead. Requires edit_css (unfiltered_html) in addition to manage_options. The CSS is sanitized before storage and again at render (markup, expression()/behavior, script-capable URL schemes, @import and data: URLs are rejected, including when spelled with escape sequences or split by a comment). Each page block is its own snapshotted option, so rollback-operation reverts exactly this page and leaves other pages untouched',
+            'Store a custom CSS block scoped to one post/page (post_id required); it renders in wp_head only when that exact post is viewed. Pass either a full css fragment, or a selector plus bare css declarations to be wrapped as "selector { declarations }". Add element_id (an Elementor element id) to narrow the scope from the page to ONE element on it: the declarations are prefixed with .elementor-element-<id>, and a selector given alongside reads as a descendant of that element. APPENDS to the page block that is already stored; pass replace=true to overwrite it instead. For site-wide CSS use add-custom-css instead. Requires edit_css (unfiltered_html) in addition to manage_options. The CSS is sanitized before storage and again at render (markup, expression()/behavior, script-capable URL schemes, @import and data: URLs are rejected, including when spelled with escape sequences or split by a comment). Each page block is its own snapshotted option, so rollback-operation reverts exactly this page and leaves other pages untouched',
             [
                 'type'       => 'object',
                 'properties' => [
                     'css'        => [ 'type' => 'string' ],
                     'selector'   => [ 'type' => 'string' ],
+                    'element_id' => [ 'type' => 'string' ],
                     'post_id'    => [ 'type' => 'integer' ],
                     'replace'    => [ 'type' => 'boolean' ],
                     'session_id' => [ 'type' => 'string' ],

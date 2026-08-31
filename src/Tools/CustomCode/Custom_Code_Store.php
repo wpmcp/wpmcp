@@ -48,6 +48,17 @@ class Custom_Code_Store
     /** Per-post CSS block option prefix; the full name is prefix . post_id. */
     public const POST_OPTION_PREFIX = 'wpmcp_custom_code_post_';
 
+    /**
+     * Ceiling on one page's stored block, in bytes. set_css() APPENDS by
+     * default, so without a cap an agent retrying a failing call - or looping
+     * on one - grows a single autoload=false option without bound, and the
+     * only way back is a raw option edit. 256 KB is far beyond any hand-written
+     * page stylesheet while still being a number a wp_options row can carry.
+     * Hitting it is an error, never a silent truncation: half a stylesheet is
+     * worse than none, because it still parses.
+     */
+    public const MAX_CSS_BYTES = 262144;
+
     /** The option name holding $post_id's CSS block. */
     public static function post_option(int $post_id): string
     {
@@ -80,12 +91,30 @@ class Custom_Code_Store
         $current = self::read_css($post_id);
         $next    = ($replace || '' === trim($current)) ? $css : trim($current . "\n" . $css);
 
+        if (strlen($next) > self::MAX_CSS_BYTES) {
+            throw new \InvalidArgumentException(sprintf(
+                'The CSS block for this page would grow to %d bytes, past the %d byte limit. Pass replace=true to overwrite the stored block instead of appending to it.',
+                strlen($next),
+                self::MAX_CSS_BYTES
+            ));
+        }
+
         update_option(self::post_option($post_id), $next, false);
 
         return $next;
     }
 
-    /** Remove $post_id's CSS block entirely. */
+    /**
+     * Remove $post_id's CSS block entirely. Wired to 'deleted_post' in
+     * Custom_Code_Renderer::boot(), which is the only reason it is not dead
+     * code while the remove-scoped-css ability is still outstanding.
+     *
+     * Post ids are REUSED: after a database restore or a WXR import
+     * WordPress hands the same integer to a different post, so an orphaned
+     * wpmcp_custom_code_post_<id> option does not sit idle, it re-attaches
+     * itself to whatever takes the id next. That makes the cleanup a
+     * correctness rule rather than housekeeping.
+     */
     public static function delete_css(int $post_id): void
     {
         delete_option(self::post_option($post_id));

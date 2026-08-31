@@ -23,12 +23,18 @@ if (! defined('ABSPATH')) {
  * strip CSS a site is already relying on, the same reasoning Memory_Store's
  * runtime hooks are registered under. JS output has its own gate below.
  *
- * Defense in depth: CSS is re-run through Css_Sanitizer at print time, so a
- * payload that reached the option by some other route (direct DB edit,
- * another plugin) still cannot break out of the <style> element. A block the
- * sanitizer now rejects is dropped from output AND logged, so an operator
- * chasing "my CSS stopped rendering" after a sanitizer rule change has
- * something to find.
+ * CSS is re-run through Css_Sanitizer at print time. That is a SECOND CHANCE
+ * at a value that reached the option by some other route - a direct DB edit,
+ * another plugin, an older build of this one - and not an independent
+ * barrier: it is the same decision run against the same rules, so anything
+ * the write path would accept it accepts too. A block the sanitizer now
+ * rejects is dropped from output AND logged, so an operator chasing "my CSS
+ * stopped rendering" after a sanitizer rule change has something to find.
+ *
+ * boot() also owns one non-output hook, 'deleted_post', because it is the
+ * only wiring in this group that runs on every request. See
+ * Custom_Code_Store::delete_css() for why an orphaned block is a correctness
+ * problem rather than housekeeping.
  */
 class Custom_Code_Renderer
 {
@@ -43,6 +49,12 @@ class Custom_Code_Renderer
 
         add_action('wp_head', [self::class, 'print_css'], 101);
         add_action('wp_footer', [self::class, 'print_js'], 101);
+        // Store lifecycle, not output, but this is the one place that runs on
+        // every request for this group. A page's CSS block must not outlive
+        // the page: post ids are reused after a restore or an import, so an
+        // orphaned wpmcp_custom_code_post_<id> option would re-attach itself
+        // to whatever post takes the id next.
+        add_action('deleted_post', [Custom_Code_Store::class, 'delete_css']);
     }
 
     /** Test seam: let a test re-boot the renderer against fresh hooks. */
@@ -70,7 +82,7 @@ class Custom_Code_Renderer
                 '[wpmcp] Stored custom CSS for post %d was dropped at render: %s',
                 $post_id,
                 $e->getMessage()
-            ));
+            )); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
             return;
         }
 
@@ -111,7 +123,7 @@ class Custom_Code_Renderer
         $data = Custom_Code_Store::read();
         $js   = isset($data['js']['site']) ? (string) $data['js']['site'] : '';
 
-        if ('' === trim($js) || preg_match('#</\s*script#i', $js)) {
+        if ('' === trim($js) || Custom_Js_Guard::has_breakout($js)) {
             return;
         }
 

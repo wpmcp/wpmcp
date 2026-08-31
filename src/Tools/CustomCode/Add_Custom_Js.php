@@ -19,7 +19,9 @@ if (! defined('ABSPATH')) {
  *                                                   governance filter)
  *  2. Custom_Js_Guard::current_user_can_inject()  - unfiltered_html required
  *                                                   on top of manage_options
- *  3. the snippet must not contain a </script> breakout
+ *  3. the snippet must not contain a sequence that breaks out of the
+ *     <script> element it is printed in (</script>, and the <!-- / <script
+ *     pair that opens script-data double-escaped state)
  *
  * Unlike run-php-snippet the WRITE stays inside the snapshot/rollback
  * model: it routes through Safe_Mutation on the store option, so the
@@ -47,11 +49,12 @@ class Add_Custom_Js
     public function handle(array $args): array
     {
         $js = isset($args['js']) ? (string) $args['js'] : '';
-        if ('' === trim($js)) {
-            $this->audit(false, self::REASON_EMPTY);
-            throw new \InvalidArgumentException('A js value is required.');
-        }
 
+        // Everything, input validation included, happens inside guard(): the
+        // opt-in gate has to answer first. Checking the payload up here meant
+        // an install that never opened the gate replied to an empty payload
+        // with "A js value is required.", which tells the caller the gate is
+        // open and the tool is live when neither is true.
         $this->guard($js);
 
         $out = Safe_Mutation::run(
@@ -93,9 +96,15 @@ class Add_Custom_Js
             );
         }
 
-        if (preg_match('#</\s*script#i', $js)) {
+        if ('' === trim($js)) {
+            $this->audit(false, self::REASON_EMPTY);
+
+            throw new \InvalidArgumentException('A js value is required.');
+        }
+
+        if (Custom_Js_Guard::has_breakout($js)) {
             $this->refuse(
-                'The JS was rejected: it contains a </script> breakout sequence.',
+                'The JS was rejected: it contains a sequence that would break out of the <script> element it is printed in (</script>, <script, or <!--).',
                 self::REASON_SCRIPT_BREAKOUT
             );
         }

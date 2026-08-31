@@ -7,6 +7,7 @@ use WPMCP\Pro\Gate;
 use WPMCP\Tools\CustomCode\Add_Custom_Js;
 use WPMCP\Tools\CustomCode\Add_Scoped_Css;
 use WPMCP\Tools\CustomCode\Custom_Code_Renderer;
+use WPMCP\Tools\CustomCode\Custom_Code_Store;
 
 /**
  * The custom_code group (issue #63) is PRO tier, matching the run-php-snippet
@@ -102,6 +103,16 @@ class CustomCodeAbilitiesRegistrationTest extends \WP_UnitTestCase
     /**
      * The complement of the test above: the plugin's runtime hook wiring - the
      * path that DOES run on a front-end request - is what boots the renderer.
+     *
+     * Calls register_custom_code_runtime_hooks() rather than the whole
+     * register_builder_runtime_hooks(). Replaying the latter in-process
+     * re-runs `(new Index_Hooks())->register()` and
+     * `(new Memory_Page())->register_hooks()` on FRESH instances, which
+     * WordPress cannot recognise as duplicates of the ones the suite
+     * bootstrap already added, so every test that ran afterwards carried
+     * doubled save_post/deleted_post indexing hooks. That made unrelated
+     * Search and Memory tests order-dependent for the sake of an assertion
+     * about three lines of wiring.
      */
     public function test_runtime_hooks_boot_the_renderer(): void
     {
@@ -109,9 +120,31 @@ class CustomCodeAbilitiesRegistrationTest extends \WP_UnitTestCase
         remove_action('wp_head', [Custom_Code_Renderer::class, 'print_css'], 101);
         remove_action('wp_footer', [Custom_Code_Renderer::class, 'print_js'], 101);
 
-        \WPMCP\Plugin::instance()->register_builder_runtime_hooks();
+        \WPMCP\Plugin::instance()->register_custom_code_runtime_hooks();
 
         $this->assertSame(101, has_action('wp_head', [Custom_Code_Renderer::class, 'print_css']));
         $this->assertSame(101, has_action('wp_footer', [Custom_Code_Renderer::class, 'print_js']));
+        $this->assertSame(10, has_action('deleted_post', [Custom_Code_Store::class, 'delete_css']));
+    }
+
+    /**
+     * The renderer branch is reached from the full runtime hook set too, not
+     * only from the narrow method the test above calls. Asserted by proxy on
+     * the source so this does not have to replay the hook set and leak
+     * duplicated indexing hooks into the rest of the suite.
+     */
+    public function test_the_full_runtime_hook_set_reaches_the_custom_code_branch(): void
+    {
+        $method = new \ReflectionMethod(\WPMCP\Plugin::class, 'register_builder_runtime_hooks');
+        $source = implode(
+            '',
+            array_slice(
+                file((string) $method->getFileName()),
+                $method->getStartLine() - 1,
+                $method->getEndLine() - $method->getStartLine() + 1
+            )
+        );
+
+        $this->assertStringContainsString('register_custom_code_runtime_hooks()', $source);
     }
 }

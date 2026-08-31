@@ -124,6 +124,159 @@ class AddScopedCssTest extends \WP_UnitTestCase
         }
     }
 
+    /**
+     * The wrap is "selector { declarations }", so a declarations string that
+     * closes the block itself escapes the scope the ability advertises. A
+     * stray '}' already failed the sanitizer's brace COUNT, but as
+     * "unbalanced braces" - an error about the CSS rather than about the
+     * contract the caller broke, which is the one thing it needed to say.
+     * Both brace characters are now named by the same guard.
+     */
+    public function test_rejects_a_brace_of_either_kind_in_declarations(): void
+    {
+        $post = self::factory()->post->create();
+
+        foreach (
+            [
+                'color: red; } .evil { position: fixed; top: 0; left: 0 ',
+                'color: red; } .evil',
+            ] as $declarations
+        ) {
+            try {
+                $this->store($post, $declarations, ['selector' => '.a']);
+                $this->fail('Declarations that escape the selector scope should have been rejected.');
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString('bare declarations without braces', $e->getMessage());
+            }
+        }
+
+        $this->assertSame('', Custom_Code_Store::read_css($post));
+    }
+
+    /**
+     * The end-to-end shape of the stored-XSS threat model: whatever the write
+     * path accepted, the bytes the renderer prints inside <style> must not
+     * contain a </style> the HTML tokenizer would honour. A payload parked
+     * inside a CSS comment is invisible to the CSS parser and to a canonical
+     * form built by stripping comments, but not to the tokenizer.
+     */
+    public function test_no_accepted_css_can_close_the_style_element(): void
+    {
+        $post = self::factory()->post->create();
+
+        foreach (
+            [
+                '.a { color: red; } /* </style><script>alert(1)</script> */',
+                '.a{content:"/*"}</style><script>alert(1)</script>.b{content:"*/"}',
+            ] as $payload
+        ) {
+            $rejected = false;
+            try {
+                $this->store($post, $payload);
+            } catch (\InvalidArgumentException $e) {
+                $rejected = true;
+            }
+
+            $this->go_to(get_permalink($post));
+            ob_start();
+            Custom_Code_Renderer::print_css();
+            $printed = (string) ob_get_clean();
+
+            // Rejecting on write is the expected outcome, but the assertion
+            // that matters is about the bytes: however the payload was
+            // handled, the printed element must close exactly once, at its
+            // own </style>.
+            $this->assertTrue($rejected, 'The payload reached storage: ' . $payload);
+            $this->assertLessThanOrEqual(
+                1,
+                preg_match_all('#</\s*style#i', $printed),
+                'A stored block closed the <style> element early: ' . $printed
+            );
+        }
+    }
+
+    /**
+     * The issue's first acceptance criterion asks for ELEMENT-level CSS as
+     * well as page-level. An element_id scopes the declarations to one
+     * Elementor element on that page by prefixing the Elementor class the
+     * builder already renders on it, so the block is still a plain stylesheet
+     * in this plugin's own store: no builder settings are written, which
+     * keeps the write inside the one-option-per-rolled-back-block model and
+     * out of a builder's postmeta that another tool may be mid-edit on.
+     */
+    public function test_element_scope_wraps_the_declarations_in_the_element_selector(): void
+    {
+        $post = self::factory()->post->create();
+
+        $out = $this->store($post, 'color: red;', ['element_id' => 'a1b2c3d']);
+
+        $this->assertSame('element', $out['scope']);
+        $this->assertSame('a1b2c3d', $out['element_id']);
+        $this->assertSame('.elementor-element-a1b2c3d { color: red; }', Custom_Code_Store::read_css($post));
+    }
+
+    /** An element_id plus a selector reads as a descendant of the element. */
+    public function test_element_scope_composes_with_a_selector(): void
+    {
+        $post = self::factory()->post->create();
+
+        $this->store($post, 'color: red;', ['element_id' => 'a1b2c3d', 'selector' => 'h2']);
+
+        $this->assertSame('.elementor-element-a1b2c3d h2 { color: red; }', Custom_Code_Store::read_css($post));
+    }
+
+    /**
+     * Element-scoped CSS has to RENDER, not just persist; and it renders on
+     * the page it was scoped to, through the same wp_head path page-scoped
+     * CSS uses.
+     */
+    public function test_element_scoped_css_renders_on_that_page(): void
+    {
+        $post = self::factory()->post->create();
+        $this->store($post, 'color: red;', ['element_id' => 'a1b2c3d']);
+
+        $this->go_to(get_permalink($post));
+        ob_start();
+        Custom_Code_Renderer::print_css();
+        $printed = (string) ob_get_clean();
+
+        $this->assertStringContainsString('.elementor-element-a1b2c3d { color: red; }', $printed);
+    }
+
+    /**
+     * The element id goes into a selector, so it is an injection point: it is
+     * allowlisted to the alphabet Elementor actually issues rather than being
+     * escaped after the fact.
+     */
+    public function test_rejects_an_element_id_outside_the_allowed_alphabet(): void
+    {
+        $post = self::factory()->post->create();
+
+        foreach (['a1b2c3d { } .evil', 'a1b2c3d"', '../x', ''] as $element_id) {
+            try {
+                $this->store($post, 'color: red;', ['element_id' => $element_id]);
+                $this->fail('Expected a refusal for element_id ' . var_export($element_id, true));
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString('element_id', $e->getMessage());
+            }
+        }
+
+        $this->assertSame('', Custom_Code_Store::read_css($post));
+    }
+
+    /**
+     * With an element_id the css is bare declarations, exactly as it is with
+     * a selector: a '}' in it would close the element block and let the rest
+     * apply to the whole page.
+     */
+    public function test_element_scope_refuses_declarations_carrying_a_brace(): void
+    {
+        $post = self::factory()->post->create();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->store($post, 'color: red; } .evil { position: fixed', ['element_id' => 'a1b2c3d']);
+    }
+
     public function test_requires_an_existing_post(): void
     {
         $this->expectException(\InvalidArgumentException::class);

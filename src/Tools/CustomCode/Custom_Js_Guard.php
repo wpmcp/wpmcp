@@ -39,4 +39,24 @@ class Custom_Js_Guard
     {
         return current_user_can('unfiltered_html');
     }
+
+    /**
+     * Sequences that must never appear in a snippet printed as the raw text
+     * of a <script> element. "</script" is the obvious one. "<!--" and
+     * "<script" matter for a subtler reason: together they put the HTML
+     * tokenizer into script-data DOUBLE-escaped state, where the renderer's
+     * own "</script>" no longer closes the element, so the rest of the page
+     * is swallowed as script data and the document never finishes. That
+     * needs unfiltered_html to reach, so it is a robustness rule rather than
+     * a privilege boundary - but a snippet that silently breaks every page
+     * it renders on is not something this tool should be able to store.
+     *
+     * Lives on the guard, not on Add_Custom_Js, because the renderer applies
+     * the same rule and the guard is the one class in this namespace that
+     * every build ships (Opt_In_Gates references it).
+     */
+    public static function has_breakout(string $js): bool
+    {
+        return 1 === preg_match('#</\s*script|<\s*script|<!--#i', $js);
+    }
 }

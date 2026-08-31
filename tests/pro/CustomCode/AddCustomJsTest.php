@@ -142,6 +142,63 @@ class AddCustomJsTest extends \WP_UnitTestCase
     }
 
     /**
+     * The documented refusal order is gate FIRST. Running the input-validation
+     * check ahead of guard() meant a site that never opened the opt-in gate
+     * answered an empty payload with "A js value is required." - which tells
+     * the caller the gate is open and the tool is live, when neither is true.
+     */
+    public function test_gate_is_checked_before_an_empty_payload(): void
+    {
+        try {
+            $this->tool->handle(['js' => '   ']);
+            $this->fail('Expected a refusal.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('disabled', $e->getMessage());
+        }
+
+        $rows = $this->audit_rows();
+        $this->assertCount(1, $rows);
+        $this->assertSame(Add_Custom_Js::REASON_GATE_CLOSED, $rows[0]['reason']);
+    }
+
+    /**
+     * "<!--" followed by "<script" puts the HTML tokenizer into script-data
+     * double-escaped state, where the renderer's own "</script>" no longer
+     * closes the element and the rest of the page is swallowed as script
+     * data. Checking only for "</script>" missed it.
+     */
+    public function test_refuses_a_script_data_double_escape(): void
+    {
+        $this->open_gate();
+
+        foreach (['x=1;<!--<script>', 'x="<!--"; y="<script";'] as $payload) {
+            try {
+                $this->tool->handle(['js' => $payload]);
+                $this->fail('Expected a refusal for ' . $payload);
+            } catch (\RuntimeException $e) {
+                $this->assertSame(Add_Custom_Js::REASON_SCRIPT_BREAKOUT, $this->audit_rows()[0]['reason']);
+            }
+
+            $this->assertSame([], Custom_Code_Store::read());
+            delete_option(Governance_Audit_Log::OPTION);
+        }
+    }
+
+    /**
+     * The render-time twin of the check above, for a snippet that reached the
+     * option some other way (direct DB edit, an older build of this plugin).
+     */
+    public function test_renderer_drops_a_stored_double_escape(): void
+    {
+        $this->open_gate();
+        update_option(Custom_Code_Store::OPTION, ['js' => ['site' => 'x=1;<!--<script>']], false);
+
+        ob_start();
+        Custom_Code_Renderer::print_js();
+        $this->assertSame('', (string) ob_get_clean());
+    }
+
+    /**
      * The gate is not only a write gate: closing it must also stop rendering
      * a snippet that was stored while it was open, or "turn it off" would be
      * a lie for every visitor already being served the snippet.

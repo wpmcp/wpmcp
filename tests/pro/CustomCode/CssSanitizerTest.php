@@ -62,6 +62,24 @@ class CssSanitizerTest extends \WP_UnitTestCase
 
             // An unterminated comment hides its tail from analysis.
             'unterminated comment'   => ['a{color:red} /* @import url("//evil.example/x.css");'],
+
+            // Payloads parked INSIDE a terminated comment, or between two
+            // comment markers that live inside CSS strings. canonicalize()
+            // deletes both spans, so the canonical form is spotless while the
+            // RAW text - which is what gets stored and echoed - still carries
+            // a literal "</style>". The HTML tokenizer that closes a <style>
+            // element has never heard of CSS comments or CSS strings, so the
+            // breakout fires even though the CSS parser sees nothing.
+            'comment wrapped breakout'   => ['.a { color: red; } /* </style><script>alert(1)</script> */'],
+            'comment wrapped markup'     => ['.a { color: red; } /* <img src=x onerror=alert(1)> */'],
+            'breakout between strings'   => ['.a{content:"/*"}</style><script>alert(1)</script>.b{content:"*/"}'],
+
+            // A CSS line continuation (backslash + newline) is REMOVED by the
+            // CSS parser, so it splits a keyword exactly the way a comment
+            // does. Decoding it to a literal newline instead left both of
+            // these accepted.
+            'javascript continuation'    => ["a{background:url(\"java\\\nscript:alert(1)\")}"],
+            'expression continuation'    => ["a{width:expres\\\nsion(alert(1))}"],
         ];
     }
 
