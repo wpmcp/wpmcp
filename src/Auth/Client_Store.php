@@ -32,7 +32,9 @@ if (! defined('ABSPATH')) {
  *
  * A record is { client_id, client_secret_hash, client_name, redirect_uris,
  * created_at, fingerprint }, plus reused_at once a registration has been
- * deduped onto it.
+ * deduped onto it, plus (issue #142) protected once protect() has marked
+ * the row exempt from the orphan sweep and rotated_at once rotate_secret()
+ * has re-minted its secret.
  */
 class Client_Store
 {
@@ -74,7 +76,7 @@ class Client_Store
      * @return array{client_id: string, client_secret: string} The plaintext
      *               secret, returned exactly once.
      *
-     * @throws \RuntimeException When the client cap (MAX_CLIENTS) is reached.
+     * @throws Client_Cap_Reached When the client cap (MAX_CLIENTS) is reached.
      */
     public static function create(array $client_name, array $redirect_uris, string $registrar_key = ''): array
     {
@@ -99,7 +101,7 @@ class Client_Store
         }
 
         if (count($stored) >= self::max_clients()) {
-            throw new \RuntimeException('OAuth client registration cap reached.');
+            throw new Client_Cap_Reached('OAuth client registration cap reached.');
         }
 
         $client_id     = self::generate_token('client_');
@@ -143,7 +145,7 @@ class Client_Store
      * registering caller closes that, and the fallback when the caller key
      * differs is simply today's behaviour (a brand new client row).
      */
-    public static function registration_fingerprint(string $name, array $uris, string $registrar_key): string
+    private static function registration_fingerprint(string $name, array $uris, string $registrar_key): string
     {
         $sorted = $uris;
         sort($sorted);
@@ -247,7 +249,7 @@ class Client_Store
      * publicly registered row can never be selected here. URI order is
      * irrelevant: registration_fingerprint() sorts both sides.
      */
-    public static function find_by_registration(string $name, array $redirect_uris, string $registrar_key = ''): ?array
+    public static function find_by_registration(string $name, array $redirect_uris, string $registrar_key): ?array
     {
         $all = self::find_all_by_registration($name, $redirect_uris, $registrar_key);
 
@@ -264,7 +266,7 @@ class Client_Store
      *
      * @return array<int, array> Records, in stored order.
      */
-    public static function find_all_by_registration(string $name, array $redirect_uris, string $registrar_key = ''): array
+    public static function find_all_by_registration(string $name, array $redirect_uris, string $registrar_key): array
     {
         $uris = array_values(array_unique(array_map('strval', $redirect_uris)));
         $want = self::registration_fingerprint($name, $uris, $registrar_key);

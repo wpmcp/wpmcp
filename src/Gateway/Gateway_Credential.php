@@ -1,6 +1,6 @@
 <?php
 
-namespace WPMCP\Cloud;
+namespace WPMCP\Gateway;
 
 use WPMCP\Auth\Client_Store;
 use WPMCP\Auth\Refresh_Token_Store;
@@ -19,6 +19,13 @@ if (! defined('ABSPATH')) {
  * "gateway". Everything here is locally-first by design; no method in this
  * class performs network I/O, so provisioning and (crucially) revocation
  * work with the cloud unreachable. Cloud upload and consent are phase 3.
+ *
+ * WHY NOT src/Cloud. It reads like cloud code, but the build strips say
+ * otherwise: scripts/build-woo-release.sh deletes src/Cloud wholesale from
+ * the WooCommerce zip, and the 'gateway' ability group ships on every
+ * flavor (Plugin::FLAVOR_GROUPS) precisely so a credential can always be
+ * revoked locally. Keeping this class in src/Cloud would make all three
+ * gateway tools a class-not-found fatal on that build.
  *
  * WHAT A CREDENTIAL IS. The proxy redeems it at the token endpoint, and
  * Token_Grant::exchange() authenticates EVERY grant type (refresh_token
@@ -136,6 +143,22 @@ class Gateway_Credential
     {
         $client    = self::ensure_client();
         $client_id = (string) $client['client_id'];
+
+        // Converge on ONE gateway client before rotating. create()'s dedup
+        // only recycles a row that holds no tokens, so a store can hold
+        // more than one row carrying the gateway fingerprint (deprovision()
+        // sweeps all of them for the same reason). Rotating only the row
+        // ensure_client() happened to resolve would leave the twin alive
+        // with its old secret and its old tokens, which is exactly the
+        // "a previously issued credential is dead immediately" property
+        // this method promises.
+        foreach (Client_Store::find_all_by_registration(self::CLIENT_NAME, [self::REDIRECT_URI], self::REGISTRAR_KEY) as $record) {
+            $other = (string) $record['client_id'];
+            if ($other === $client_id) {
+                continue;
+            }
+            Client_Store::revoke($other);
+        }
 
         // Rotate rather than accumulate: any previously issued gateway
         // credential is dead the moment a new one is provisioned. That

@@ -43,6 +43,18 @@ class Default_Seeder
      */
     private const DEFAULT_DISABLED = [
         1 => [],
+        // Issue #142. gateway-provision mints a 30-day credential that is
+        // recorded with scope 'gateway' but NOT scope-enforced anywhere in
+        // the request path yet, so it carries the full capabilities of the
+        // user who provisions it. That is exactly the "future dangerous
+        // ability" this map was built for: an upgrading site gets it OFF
+        // and turns it on when it actually stands up a proxy.
+        //
+        // gateway-status (read-only) and gateway-revoke stay ON on
+        // purpose. Revocation must never need a governance toggle flipped
+        // first: a site owner reacting to a leaked credential has to be
+        // able to kill it immediately.
+        2 => ['wpmcp/gateway-provision'],
     ];
 
     /** @var array<int, string[]>|null */

@@ -5,7 +5,7 @@ namespace WPMCP\Tests\Free\Gateway;
 use WPMCP\Auth\Client_Store;
 use WPMCP\Auth\Refresh_Token_Store;
 use WPMCP\Auth\Token_Store;
-use WPMCP\Cloud\Gateway_Credential;
+use WPMCP\Gateway\Gateway_Credential;
 use WPMCP\Tools\Gateway\Gateway_Provision;
 use WPMCP\Tools\Gateway\Gateway_Revoke;
 use WPMCP\Tools\Gateway\Gateway_Status;
@@ -21,11 +21,17 @@ class GatewayToolsTest extends \WP_UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        remove_all_filters('wpmcp_oauth_enabled');
+        // Provisioning refuses outright when the OAuth subsystem is off,
+        // which is the default, so every test that expects a credential
+        // opts in first. The one that asserts the refusal removes it.
+        add_filter('wpmcp_oauth_enabled', '__return_true');
         $this->reset();
     }
 
     protected function tearDown(): void
     {
+        remove_all_filters('wpmcp_oauth_enabled');
         wp_set_current_user(0);
         $this->reset();
         parent::tearDown();
@@ -50,11 +56,72 @@ class GatewayToolsTest extends \WP_UnitTestCase
     {
         $this->as_admin();
 
-        $result = (new Gateway_Provision())->handle([]);
+        // InvalidArgumentException, matching every other confirm gate in
+        // the repo (Delete_Post, Delete_Plugin, Delete_File): one refusal
+        // shape, one Request_Log outcome.
+        try {
+            (new Gateway_Provision())->handle([]);
+            $this->fail('the confirm gate should have refused');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('confirm:true', $e->getMessage());
+        }
+
+        $this->assertSame(0, Client_Store::count(), 'a refused call provisions nothing');
+    }
+
+    public function test_provision_refuses_when_oauth_is_disabled(): void
+    {
+        // The credential would be structurally unredeemable: with OAuth off
+        // there is no token endpoint and Bearer_Auth accepts nothing.
+        remove_all_filters('wpmcp_oauth_enabled');
+        $this->as_admin();
+
+        $result = (new Gateway_Provision())->handle(['confirm' => true]);
 
         $this->assertWPError($result);
-        $this->assertSame('confirmation_required', $result->get_error_code());
-        $this->assertSame(0, Client_Store::count(), 'a refused call provisions nothing');
+        $this->assertSame('oauth_disabled', $result->get_error_code());
+        $this->assertSame(0, Client_Store::count(), 'nothing is provisioned by a refused call');
+        $this->assertFalse(Gateway_Credential::is_provisioned());
+    }
+
+    public function test_status_reports_oauth_state_so_provisioned_is_not_read_alone(): void
+    {
+        $this->as_admin();
+        (new Gateway_Provision())->handle(['confirm' => true]);
+
+        $enabled = (new Gateway_Status())->handle([]);
+        $this->assertTrue($enabled['oauth_enabled']);
+        $this->assertTrue($enabled['usable']);
+
+        remove_all_filters('wpmcp_oauth_enabled');
+        $disabled = (new Gateway_Status())->handle([]);
+        $this->assertTrue($disabled['provisioned'], 'turning OAuth off does not delete the rows');
+        $this->assertFalse($disabled['oauth_enabled']);
+        $this->assertFalse($disabled['usable']);
+    }
+
+    public function test_provision_warns_that_the_scope_is_not_enforced(): void
+    {
+        $this->as_admin();
+
+        $result = (new Gateway_Provision())->handle(['confirm' => true]);
+
+        $this->assertFalse($result['scope_enforced']);
+        $this->assertStringContainsString('NOT enforced', $result['note']);
+    }
+
+    public function test_revoke_works_with_oauth_disabled(): void
+    {
+        // Revocation must never require the subsystem to be on: a site
+        // owner reacting to a leak has to be able to kill the credential.
+        $this->as_admin();
+        (new Gateway_Provision())->handle(['confirm' => true]);
+        remove_all_filters('wpmcp_oauth_enabled');
+
+        $result = (new Gateway_Revoke())->handle(['confirm' => true]);
+
+        $this->assertTrue($result['revoked']);
+        $this->assertFalse($result['provisioned']);
     }
 
     public function test_provision_returns_the_credential_once(): void
@@ -95,7 +162,7 @@ class GatewayToolsTest extends \WP_UnitTestCase
         $after = $status->handle([]);
         $this->assertTrue($after['provisioned']);
         $this->assertSame($credential['client_id'], $after['client_id']);
-        $this->assertSame(['provisioned', 'client_id'], array_keys($after));
+        $this->assertSame(['provisioned', 'client_id', 'oauth_enabled', 'usable'], array_keys($after));
         $this->assertStringNotContainsString($credential['refresh_token'], (string) wp_json_encode($after));
         $this->assertStringNotContainsString($credential['client_secret'], (string) wp_json_encode($after));
     }
@@ -105,10 +172,13 @@ class GatewayToolsTest extends \WP_UnitTestCase
         $this->as_admin();
         (new Gateway_Provision())->handle(['confirm' => true]);
 
-        $result = (new Gateway_Revoke())->handle([]);
+        try {
+            (new Gateway_Revoke())->handle([]);
+            $this->fail('the confirm gate should have refused');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('confirm:true', $e->getMessage());
+        }
 
-        $this->assertWPError($result);
-        $this->assertSame('confirmation_required', $result->get_error_code());
         $this->assertTrue(Gateway_Credential::is_provisioned(), 'a refused revoke kills nothing');
     }
 

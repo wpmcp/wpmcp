@@ -49,10 +49,26 @@ and none is recoverable afterwards.
   bound user was deleted or changed their password. Without this a 30-day
   refresh token would keep minting access tokens across a password change,
   since `Token_Store`'s own fingerprint check only covers the 1h access
-  token. Records predating this keep their old behaviour rather than being
-  invalidated wholesale by an upgrade. `Token_Grant::refresh()` maps the
-  new status onto the same flat `invalid_grant`, so there is no oracle.
-- `WPMCP\Cloud\Gateway_Credential` (src/Cloud/Gateway_Credential.php):
+  token. `Token_Grant::refresh()` maps the new status onto the same flat
+  `invalid_grant`, so there is no oracle. Two properties that took a
+  second pass to get right:
+  - **The upgrade window is closed, not left open.** An unbound record
+    (pre-#142, or one whose user did not resolve at issuance) is not
+    exempt forever: it ADOPTS the current fingerprint on its first
+    successful redeem. Nobody is logged out by the deploy, and every
+    password change after that point kills the token like any other.
+  - **Reuse detection is evaluated BEFORE the binding check.** A burned
+    token replayed after the owner reacts to a leak by changing their
+    password satisfies both conditions; reporting `credential_changed`
+    would take the dedicated `oauth/refresh-reuse` audit row (#133) out of
+    the governance log in exactly the scenario it exists for. Both
+    outcomes revoke the chain, so reporting the more serious one is free.
+- `Refresh_Token_Store::ttl()` takes a scope: gateway-scoped tokens get a
+  second filter, `wpmcp_gateway_refresh_ttl`, layered over the store-wide
+  `wpmcp_oauth_refresh_ttl` (issue task 3). `redeem()` and `gc()` resolve
+  the TTL per record, so a short gateway credential and a long interactive
+  session coexist.
+- `WPMCP\Gateway\Gateway_Credential` (src/Gateway/Gateway_Credential.php):
   - `ensure_client()` idempotent: resolves by stored option, then by
     non-creating fingerprint lookup, and only then creates; the clients
     store never grows from re-provisioning. Throws rather than returning
@@ -61,10 +77,14 @@ and none is recoverable afterwards.
     return it.
   - `issue_for_user(int $user_id)` returns
     `{client_id, client_secret, refresh_token}`, each plaintext appearing
-    exactly once. Rotation is total: access tokens (`Token_Store`),
-    refresh tokens, and the client secret are all replaced, so the
-    previous credential is dead immediately rather than surviving until
-    its access tokens lapse.
+    exactly once. Rotation is total: any DUPLICATE gateway client row is
+    revoked first (the same convergence `deprovision()` does, and for the
+    same reason: `create()`'s dedup can leave two rows, and rotating only
+    the resolved one would leave the twin alive with its old secret and
+    its own live tokens), then access tokens (`Token_Store`), refresh
+    tokens, and the client secret are all replaced. The previous
+    credential is dead immediately rather than surviving until its access
+    tokens lapse.
   - `deprovision()` local-only and convergent: it sweeps the client id
     recorded in the option BEFORE deleting the option (that pointer is the
     only way to reach tokens left behind in a half-revoked state), then
@@ -72,16 +92,49 @@ and none is recoverable afterwards.
 - MCP tools in src/Tools/Gateway/, registered as their own free-tier
   `gateway` group in Plugin.php (manage_options, Governance + audit apply):
   - `gateway-provision` (requires `confirm: true`, credential once,
-    returns a `client_cap_reached` WP_Error instead of a fatal when the
-    clients store is full)
-  - `gateway-status` (provisioned flag + client_id, never token material)
+    refuses with `oauth_disabled` when `OAuth_Config::is_enabled()` is
+    false, returns a `client_cap_reached` WP_Error when the clients store
+    is full and a distinct `gateway_provision_failed` for a broken store
+    invariant)
+  - `gateway-status` (provisioned flag + client_id + `oauth_enabled` +
+    `usable`, never token material)
   - `gateway-revoke` (requires `confirm: true` like every other
-    destructive tool, idempotent, local-only, and reports
-    `provisioned` re-evaluated after the teardown rather than assumed)
-- Tests: tests/free/Gateway/GatewayCredentialTest.php and
-  tests/free/Gateway/GatewayToolsTest.php (19 tests), covering redeemability
-  end to end through `Token_Grant`, idempotency, total rotation,
-  password-change invalidation, lookalike-client rejection, gc survival,
+    destructive tool, idempotent, local-only, deliberately NOT gated on
+    OAuth being enabled, and reports `provisioned` re-evaluated after the
+    teardown rather than assumed)
+  - Both confirm gates throw `\InvalidArgumentException`, the repo
+    convention (Delete_Post, Delete_Plugin, Delete_File), so one class of
+    refusal produces one `Request_Log` outcome shape.
+  - Annotation hints are overridden rather than derived: `create` would
+    publish `destructiveHint: false` for a call that irreversibly kills
+    the previous secret and every token bound to it, and `delete` would
+    publish `idempotentHint: false` for a tool documented and tested as
+    idempotent. MCP clients use these for auto-approval.
+- `Default_Seeder` version 2 ships `wpmcp/gateway-provision` DISABLED for
+  upgraders. It mints a 30-day credential that is not scope-enforced, so a
+  site opts in rather than inheriting it on. `gateway-status` and
+  `gateway-revoke` are deliberately NOT seeded off: revocation must never
+  need a governance toggle flipped first.
+- `Client_Cap_Reached extends \RuntimeException`, thrown by
+  `Client_Store::create()`, so the one ordinary operational failure is
+  distinguishable from a broken invariant without message matching. Every
+  existing `catch (\RuntimeException)` keeps working.
+- `Gateway_Credential` lives in **src/Gateway/**, not src/Cloud.
+  `scripts/build-woo-release.sh` deletes `src/Cloud` wholesale from the
+  WooCommerce zip while the `gateway` group is whitelisted for that
+  flavor, so the class would have been a class-not-found fatal on every
+  gateway tool call in that build. `FlavorTest` now pins both halves: the
+  three tools register under `woocommerce`, and no directory the woo
+  prune list removes contains a class a woo-registered handler reaches.
+- Tests: tests/free/Gateway/GatewayCredentialTest.php,
+  tests/free/Gateway/GatewayToolsTest.php and
+  tests/free/Auth/RefreshTokenBindingTest.php, plus the two new
+  `FlavorTest` cases, covering redeemability end to end through
+  `Token_Grant` and on through `Bearer_Auth::resolve()` and
+  `Registrar::is_permitted()`, idempotency, total rotation including a
+  duplicate row, password-change and account-deletion invalidation,
+  pre-#142 adoption, reuse-beats-binding ordering, the gateway TTL filter,
+  the OAuth-disabled refusal, lookalike-client rejection, gc survival,
   half-revoked convergence, and both confirm gates.
 
 ## Deliberate departures from the issue text
@@ -103,14 +156,15 @@ and none is recoverable afterwards.
   `wpmcp_oauth_clients` holds only a secret hash, so restoring it cannot
   restore a usable credential; and undoing a revoke would resurrect token
   rows a site owner just killed. Re-provisioning is the recovery path.
-  Documented at the tool class docblocks.
+  Documented at the tool class docblocks. The cost is real and worth
+  naming: these writes carry no `operation_id`, so they do not appear as
+  an undo point in the history UI. The tool CALL is still recorded by
+  `Request_Log` like every other dispatch, so the forensic trail exists;
+  what is absent is a restore point, and a restore point for this data
+  would be actively harmful.
 
 ## Remaining work
 
-- Per-issue TTL so the gateway refresh token can honor
-  `wpmcp_gateway_refresh_ttl` independently of the store-wide
-  `wpmcp_oauth_refresh_ttl`. `Refresh_Token_Store` currently has one TTL
-  for all refresh tokens.
 - A gateway-specific policy on top of the existing refresh grant (see
   above): what the gateway client may do that an ordinary client may not,
   and vice versa.

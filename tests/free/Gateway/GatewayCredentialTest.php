@@ -6,7 +6,7 @@ use WPMCP\Auth\Client_Store;
 use WPMCP\Auth\Refresh_Token_Store;
 use WPMCP\Auth\Token_Grant;
 use WPMCP\Auth\Token_Store;
-use WPMCP\Cloud\Gateway_Credential;
+use WPMCP\Gateway\Gateway_Credential;
 
 /**
  * The site-local gateway credential lifecycle (issue #142, phase 1 of
@@ -251,5 +251,91 @@ class GatewayCredentialTest extends \WP_UnitTestCase
 
         $this->assertSame(0, Client_Store::count());
         $this->assertFalse(Gateway_Credential::is_provisioned());
+    }
+
+    public function test_reprovisioning_kills_a_duplicate_gateway_client_too(): void
+    {
+        // deprovision() sweeps every fingerprint match because create()'s
+        // dedup can legitimately leave two rows; issue_for_user() has to
+        // converge the same way, or the twin survives a rotation with a
+        // still-valid secret and its own live tokens.
+        $user_id = $this->admin();
+        $first   = Gateway_Credential::issue_for_user($user_id);
+
+        $clients = get_option(Client_Store::OPTION);
+        $twin    = $clients[ $first['client_id'] ];
+        $twin['client_id']      = 'client_twin';
+        $clients['client_twin'] = $twin;
+        update_option(Client_Store::OPTION, $clients);
+        Refresh_Token_Store::issue('client_twin', $user_id, Gateway_Credential::SCOPE);
+        Token_Store::issue('client_twin', $user_id, Gateway_Credential::SCOPE);
+
+        $second = Gateway_Credential::issue_for_user($user_id);
+
+        $this->assertNull(Client_Store::get('client_twin'), 'the duplicate row must not survive a rotation');
+        $this->assertSame(1, Client_Store::count());
+        $this->assertFalse(Refresh_Token_Store::has_tokens_for_client('client_twin'));
+        $this->assertFalse(Token_Store::has_tokens_for_client('client_twin'));
+        $this->assertNotSame('client_twin', $second['client_id']);
+    }
+
+    public function test_the_gateway_refresh_ttl_filter_narrows_only_gateway_tokens(): void
+    {
+        // Issue #142 task 3: a gateway-specific TTL that can be set without
+        // shortening ordinary interactive sessions.
+        $user_id = $this->admin();
+        $gateway = Refresh_Token_Store::issue('client_a', $user_id, Gateway_Credential::SCOPE);
+        $normal  = Refresh_Token_Store::issue('client_a', $user_id, 'read');
+
+        add_filter('wpmcp_gateway_refresh_ttl', fn () => 60);
+        Refresh_Token_Store::set_clock_override(fn () => time() + 3600);
+
+        try {
+            $this->assertSame('expired', Refresh_Token_Store::redeem($gateway)['status']);
+            $this->assertSame('ok', Refresh_Token_Store::redeem($normal)['status']);
+        } finally {
+            Refresh_Token_Store::set_clock_override(null);
+            remove_all_filters('wpmcp_gateway_refresh_ttl');
+        }
+    }
+
+    public function test_a_gateway_access_token_authenticates_and_passes_is_permitted(): void
+    {
+        // Definition of done: the access token minted via the refresh grant
+        // has to go the whole way, not merely validate in the store.
+        add_filter('wpmcp_oauth_enabled', '__return_true');
+
+        try {
+            $user_id    = $this->admin();
+            $credential = Gateway_Credential::issue_for_user($user_id);
+
+            $granted = Token_Grant::exchange([
+                'grant_type'    => 'refresh_token',
+                'client_id'     => $credential['client_id'],
+                'client_secret' => $credential['client_secret'],
+                'refresh_token' => $credential['refresh_token'],
+            ]);
+            $this->assertIsArray($granted, 'the credential must be redeemable');
+
+            wp_set_current_user(0);
+            $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $granted['access_token'];
+
+            try {
+                $resolved = \WPMCP\Auth\Bearer_Auth::resolve(null);
+                $this->assertSame($user_id, $resolved, 'Bearer_Auth must resolve the bound user');
+
+                wp_set_current_user($user_id);
+                $registrar = new \WPMCP\MCP\Registrar();
+                \WPMCP\Plugin::instance()->register_abilities_into($registrar);
+                $ability = $registrar->get('wpmcp/get-page');
+                $this->assertNotNull($ability, 'wpmcp/get-page should be registered');
+                $this->assertTrue($registrar->is_permitted($ability));
+            } finally {
+                unset($_SERVER['HTTP_AUTHORIZATION']);
+                wp_set_current_user(0);
+            }
+        } finally {
+            remove_all_filters('wpmcp_oauth_enabled');
+        }
     }
 }

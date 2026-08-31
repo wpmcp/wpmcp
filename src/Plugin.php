@@ -2293,12 +2293,22 @@ final class Plugin
     private function register_gateway_abilities(Registrar $registrar): void
     {
         $tools = [
-            ['gateway-provision', 'create', new \WPMCP\Tools\Gateway\Gateway_Provision(), 'Provision (or rotate) the site-local gateway credential. Returns client_id, client_secret and refresh_token plaintext exactly once; any previous gateway credential stops working immediately. Requires confirm: true', ['confirm' => ['type' => 'boolean']], ['confirm']],
-            ['gateway-status', 'read', new \WPMCP\Tools\Gateway\Gateway_Status(), 'Report whether the site-local gateway credential is provisioned, and its client_id. Never returns token material. Read-only', [], []],
-            ['gateway-revoke', 'delete', new \WPMCP\Tools\Gateway\Gateway_Revoke(), 'Revoke the site-local gateway credential: removes the gateway client and every token bound to it. Local-only and idempotent. Requires confirm: true', ['confirm' => ['type' => 'boolean']], ['confirm']],
+            ['gateway-provision', 'create', new \WPMCP\Tools\Gateway\Gateway_Provision(), 'Provision (or rotate) the site-local gateway credential. Returns client_id, client_secret and refresh_token plaintext exactly once; any previous gateway credential stops working immediately. The credential is NOT scope-limited: it carries the capabilities of the user who provisions it. Requires confirm: true', ['confirm' => ['type' => 'boolean']], ['confirm'], true, false],
+            ['gateway-status', 'read', new \WPMCP\Tools\Gateway\Gateway_Status(), 'Report whether the site-local gateway credential is provisioned, its client_id, and whether OAuth is enabled at all. Never returns token material. Read-only', [], [], null, null],
+            ['gateway-revoke', 'delete', new \WPMCP\Tools\Gateway\Gateway_Revoke(), 'Revoke the site-local gateway credential: removes the gateway client and every token bound to it. Local-only and idempotent. Requires confirm: true', ['confirm' => ['type' => 'boolean']], ['confirm'], true, true],
         ];
 
-        foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
+        // The last two slots are the destructive and idempotent hint
+        // overrides, and both defaults are wrong here. 'create' would
+        // derive destructive: false for gateway-provision, but the call
+        // irreversibly kills the previous client secret, every refresh
+        // token bound to it and every access token already minted from it;
+        // MCP clients use destructiveHint for auto-approval, so the
+        // derived value invites an agent to retry it over a live proxy
+        // credential. 'delete' would derive idempotent: false for
+        // gateway-revoke, which is documented and tested as safe to call
+        // repeatedly.
+        foreach ($tools as [$name, $op, $handler, $desc, $props, $required, $destructive, $idempotent]) {
             $schema = [ 'type' => 'object', 'properties' => $props ];
             if ([] !== $required) {
                 $schema['required'] = $required;
@@ -2311,7 +2321,10 @@ final class Plugin
                 [$handler, 'handle'],
                 'manage_options',
                 'gateway',
-                $op
+                $op,
+                null,
+                $destructive,
+                $idempotent
             ));
         }
     }
