@@ -7,54 +7,85 @@
  * which needs a full WP test environment. This script runs in any CI job (and
  * against a staged build tree) and catches three drift modes:
  *
- *   1. Named-class drift: any WPMCP class named anywhere under src/ (import,
- *      aliased import, group import, `new \WPMCP\...`, `Foo::` static, or a
- *      string callable) that no longer has a declaration on disk. This is the
- *      shape a strip step or a deleted tool leaves behind, and it fatals at
- *      load or on the hook.
+ *   1. Named-class drift: any WPMCP class named anywhere under src/ or in a
+ *      root entry file (import, aliased import, group import, comma-separated
+ *      import, `new \WPMCP\...`, `Foo::` static, or a string callable) that no
+ *      longer has a declaration on disk. This is the shape a strip step or a
+ *      deleted tool leaves behind, and it fatals at load or on the hook.
  *   2. Unreachable tools: a class file under src/Tools that is not reachable
  *      from any registration root (the plugin entry files, plus anything named
- *      from outside src/: scripts, flavors, tools, bin, tests). Reachability is
- *      a graph walk, so a dead cluster of tools that only reference each other
- *      is still reported.
+ *      from outside src/: scripts, tools, bin). tests/ is deliberately not a
+ *      root. Reachability is a graph walk, so a dead cluster of tools that
+ *      only reference each other is still reported. An import with no call
+ *      site in the importing file is not an edge: a tool dropped from the
+ *      registrar but left with a stale `use` line is the drift, not the alibi.
  *   3. Ability drift: the ability name/tier literals in `new Ability(...)`
  *      calls, diffed against tests/support/ability-manifest.php. Catches an
  *      ability renamed or silently re-tiered without regenerating the manifest.
  *
  * References are matched on PHP tokens with comments discarded, so a class
  * mentioned only in a docblock does not count as wiring, and Get_Post_Meta
- * does not satisfy Get_Post.
+ * does not satisfy Get_Post. Only the last segment of a qualified name is
+ * indexed as a class reference, so a namespace segment does not keep a
+ * same-named class alive.
  *
- * Usage: php bin/check-ability-drift.php [--strict] [root]
+ * Known limit, stated rather than implied: the ability check is one
+ * directional. It walks the names it finds in code, so an ability still
+ * pinned in the manifest but no longer registered anywhere passes here. Only
+ * 251 of the pinned abilities are registered with literal name and tier; the
+ * table-driven rest (cloud, integrations) are invisible to a static read.
+ * Both gaps stay the runtime AbilityManifestTest's job.
  *
- * Missing declarations and ability drift always fail (exit 1). Unreachable
- * tools are warnings by default and fail with --strict.
+ * Usage: php bin/check-ability-drift.php [--strict] [--manifest PATH]
+ *                                        [--no-manifest] [root]
+ *
+ * Missing declarations, unparsed use statements and ability drift always fail
+ * (exit 1). Unreachable tools are warnings by default and fail with --strict.
+ * Under --strict a missing manifest is a failure too: a guard that reports
+ * success for a third it never ran is worse than one that did not run.
  */
 
-$argvRest = array_values(array_filter(
-    array_slice($argv, 1),
-    static fn($a) => '--strict' !== $a
-));
-$strict = in_array('--strict', $argv, true);
-$root   = rtrim($argvRest[0] ?? dirname(__DIR__), '/');
+$strict      = false;
+$noManifest  = false;
+$manifestArg = null;
+$positional  = [];
+$args        = array_slice($argv, 1);
+for ($i = 0, $n = count($args); $i < $n; $i++) {
+    $a = $args[$i];
+    if ('--strict' === $a) {
+        $strict = true;
+    } elseif ('--no-manifest' === $a) {
+        $noManifest = true;
+    } elseif (str_starts_with($a, '--manifest=')) {
+        $manifestArg = substr($a, strlen('--manifest='));
+    } elseif ('--manifest' === $a) {
+        $manifestArg = $args[++$i] ?? '';
+    } else {
+        $positional[] = $a;
+    }
+}
+$root = rtrim($positional[0] ?? dirname(__DIR__), '/');
 
 if (! is_dir($root . '/src')) {
     fwrite(STDERR, "check-ability-drift: no src/ directory under {$root}\n");
     exit(1);
 }
 
+$ownRepo = realpath($root) === realpath(dirname(__DIR__));
+
 /**
  * Tool classes that are legitimately not reachable from a registration root:
  * wired at runtime through a path this static walk cannot see, or landed
- * deliberately ahead of their consumer. Each entry carries its reason. An
- * empty allowlist is the goal; a name parked here without a reason is drift
- * wearing a hat.
+ * deliberately ahead of their consumer. Keyed on the src-relative path so a
+ * future class that merely shares a short name is not silenced too. Each entry
+ * carries its reason, and a stale entry is itself reported: an empty allowlist
+ * is the goal, and a name parked here without a reason is drift wearing a hat.
  *
- * @var array<string,string> class short name => why it is exempt
+ * @var array<string,string> src-relative path => why it is exempt
  */
 $knownUnreachable = [
-    'Url_Rewriter' => 'landed ahead of its consumers (restore and migration) '
-        . 'deliberately and under test; see '
+    'src/Tools/Backup/Url_Rewriter.php' => 'landed ahead of its consumers '
+        . '(restore and migration) deliberately and under test; see '
         . 'docs/superpowers/specs/2026-08-13-site-backup-archive-format.md',
 ];
 
@@ -90,34 +121,83 @@ $phpFiles = static function (string $dir): array {
 };
 
 /**
- * Identifiers a file names in code, comments discarded. Qualified names are
- * split so both the short name and every namespace segment land in the set,
- * and class-name string literals ('WPMCP\\Tools\\X') are decoded.
+ * Class references a file makes in code: comments discarded, namespace
+ * declarations discarded, import statements discarded, and only the last
+ * segment of a qualified name kept.
+ *
+ * Dropping imports is deliberate. A `use` line is a declaration of intent, not
+ * a call: a tool deleted from the registrar and left with its import still in
+ * place has no registration path into it, and counting the import as an edge
+ * is exactly how that drift hides. A class actually used shows up again at its
+ * call site, so nothing genuinely wired is lost.
+ *
+ * Dropping every segment but the last is deliberate too: the "Content" in
+ * WPMCP\Tools\Content\Get_Post is a namespace, not a reference to a class
+ * named Content.
  *
  * @return array<string,true>
  */
 $identifiers = static function (string $code): array {
-    $out = [];
-    foreach (@token_get_all($code) as $token) {
-        if (! is_array($token)) {
+    $sig = [];
+    foreach (@token_get_all($code) as $t) {
+        if (
+            is_array($t)
+            && (T_WHITESPACE === $t[0] || T_COMMENT === $t[0] || T_DOC_COMMENT === $t[0])
+        ) {
             continue;
         }
-        [$id, $text] = $token;
-        if (T_COMMENT === $id || T_DOC_COMMENT === $id) {
+        $sig[] = $t;
+    }
+
+    $out   = [];
+    $depth = 0;
+    $skip  = false;   // inside a top-level import statement
+    for ($i = 0, $n = count($sig); $i < $n; $i++) {
+        $t = $sig[$i];
+        if (! is_array($t)) {
+            if ('{' === $t) {
+                $depth++;
+            } elseif ('}' === $t) {
+                $depth--;
+            } elseif (';' === $t) {
+                $skip = false;
+            }
             continue;
         }
+        [$id, $text] = $t;
+
+        // `use` at depth 0 is an import unless it is a closure's `use (...)`.
+        // Inside a class body it is a trait use, which is a real reference.
+        if (T_USE === $id && 0 === $depth) {
+            $next = $sig[$i + 1] ?? null;
+            if (! (is_string($next) && '(' === $next)) {
+                $skip = true;
+            }
+            continue;
+        }
+        if (T_NAMESPACE === $id) {
+            if (isset($sig[$i + 1]) && is_array($sig[$i + 1])) {
+                $i++;  // the namespace name itself is not a class reference
+            }
+            continue;
+        }
+        if ($skip) {
+            continue;
+        }
+
         if (T_CONSTANT_ENCAPSED_STRING === $id) {
             $literal = stripslashes(substr($text, 1, -1));
             if (false === stripos($literal, 'WPMCP\\')) {
                 continue;
             }
-            foreach (explode('\\', $literal) as $part) {
-                if ('' !== $part) {
-                    $out[$part] = true;
-                }
+            $parts = explode('\\', $literal);
+            $last  = (string) end($parts);
+            if ('' !== $last) {
+                $out[$last] = true;
             }
             continue;
         }
+
         $isName = T_STRING === $id
             || (defined('T_NAME_QUALIFIED') && T_NAME_QUALIFIED === $id)
             || (defined('T_NAME_FULLY_QUALIFIED') && T_NAME_FULLY_QUALIFIED === $id)
@@ -125,10 +205,10 @@ $identifiers = static function (string $code): array {
         if (! $isName) {
             continue;
         }
-        foreach (explode('\\', $text) as $part) {
-            if ('' !== $part) {
-                $out[$part] = true;
-            }
+        $parts = explode('\\', $text);
+        $last  = (string) end($parts);
+        if ('' !== $last) {
+            $out[$last] = true;
         }
     }
     return $out;
@@ -149,18 +229,74 @@ $stripComments = static function (string $code): string {
     return $out;
 };
 
-$failures = [];
-$warnings = [];
+/**
+ * Every WPMCP class name a `use` statement imports, in any spelling PHP
+ * accepts: plain, aliased, comma-separated, and group (with or without a
+ * sub-namespace segment). Returns the parsed names plus the count of WPMCP
+ * import statements this parser could not consume, which is a parser gap and
+ * therefore a failure rather than a silent pass.
+ *
+ * @return array{0:list<string>,1:int}
+ */
+$parseImports = static function (string $code): array {
+    $names    = [];
+    $unparsed = 0;
+    if (! preg_match_all('/^[ \t]*use\s+([^;]+);/m', $code, $stmts, PREG_SET_ORDER)) {
+        return [$names, 0];
+    }
+    foreach ($stmts as $stmt) {
+        $clause = trim($stmt[1]);
+        if (false === stripos($clause, 'WPMCP')) {
+            continue;
+        }
+        // `use function ...` / `use const ...` name callables, not classes.
+        if (preg_match('/^(function|const)\s/i', $clause)) {
+            continue;
+        }
+        $before = count($names);
+        if (preg_match('/^(.*?)\\\\\{([^}]*)\}$/s', $clause, $gm)) {
+            $prefix = trim(ltrim($gm[1], '\\'));
+            foreach (explode(',', $gm[2]) as $item) {
+                $item = trim(preg_replace('/\s+as\s+[A-Za-z0-9_]+$/i', '', trim($item)));
+                if ('' !== $item) {
+                    $names[] = rtrim($prefix, '\\') . '\\' . $item;
+                }
+            }
+        } else {
+            foreach (explode(',', $clause) as $item) {
+                $item = trim(preg_replace('/\s+as\s+[A-Za-z0-9_]+$/i', '', trim($item)));
+                $item = ltrim($item, '\\');
+                if ('' !== $item && preg_match('/^WPMCP(\\\\[A-Za-z0-9_]+)+$/', $item)) {
+                    $names[] = $item;
+                }
+            }
+        }
+        if (count($names) === $before) {
+            $unparsed++;
+        }
+    }
+    return [$names, $unparsed];
+};
+
+$undeclared        = [];
+$unparsedUses      = [];
+$abilityFailures   = [];
+$allowlistFailures = [];
+$warnings          = [];
 
 // ---------------------------------------------------------------- class index
 // Authoritative for whatever tree we were pointed at: every class, interface,
 // trait and enum actually declared under src/.
-$srcFiles  = $phpFiles($root . '/src');
-$sources   = [];
-$idents    = [];
-$declared  = [];  // FQCN (lowercased) => file
-$shortToF  = [];  // short name => list of FQCN
-foreach ($srcFiles as $path) {
+$srcFiles   = $phpFiles($root . '/src');
+$entryFiles = array_values(array_filter(glob($root . '/*.php') ?: [], 'is_file'));
+// The entry file is the one file where a dangling class fatals at load, and
+// the wp.org flavor regenerates it, so it is scanned as well as seeded from.
+$scanFiles  = array_merge($srcFiles, $entryFiles);
+$sources    = [];
+$idents     = [];
+$declared   = [];  // FQCN (lowercased) => file
+$shortToF   = [];  // short name => list of FQCN
+foreach ($scanFiles as $path) {
     $code           = (string) file_get_contents($path);
     $sources[$path] = $stripComments($code);
     $idents[$path]  = $identifiers($code);
@@ -170,43 +306,24 @@ foreach ($srcFiles as $path) {
     }
     if (preg_match_all('/^\s*(?:final\s+|abstract\s+|readonly\s+)*(?:class|interface|trait|enum)\s+([A-Za-z0-9_]+)/m', $sources[$path], $cm)) {
         foreach ($cm[1] as $short) {
-            $fqcn                            = $ns . $short;
-            $declared[strtolower($fqcn)]     = $path;
-            $shortToF[$short][]              = $fqcn;
+            $fqcn                        = $ns . $short;
+            $declared[strtolower($fqcn)] = $path;
+            $shortToF[$short][]          = $fqcn;
         }
     }
 }
 
 // -------------------------------------------------- 1. named classes resolve
 $namedCount = 0;
-foreach ($srcFiles as $path) {
+foreach ($scanFiles as $path) {
     $code  = $sources[$path];
-    $named = [];
+    $rel   = substr($path, strlen($root) + 1);
 
-    // Plain and aliased imports.
-    preg_match_all('/^\s*use\s+(WPMCP\\\\[A-Za-z0-9_\\\\]+)(?:\s+as\s+[A-Za-z0-9_]+)?\s*;/m', $code, $uses);
-    $named = array_merge($named, $uses[1]);
-    $matchedUseLines = count($uses[1]);
-
-    // Group imports: use WPMCP\Tools\{A, B as C};
-    if (preg_match_all('/^\s*use\s+(WPMCP\\\\[A-Za-z0-9_\\\\]*)\\\\\{([^}]+)\}\s*;/m', $code, $groups, PREG_SET_ORDER)) {
-        foreach ($groups as $g) {
-            $matchedUseLines++;
-            foreach (explode(',', $g[2]) as $item) {
-                $item = trim(preg_replace('/\s+as\s+[A-Za-z0-9_]+$/i', '', trim($item)));
-                if ('' !== $item) {
-                    $named[] = rtrim($g[1], '\\') . '\\' . $item;
-                }
-            }
-        }
-    }
-
-    // A `use WPMCP\...` line the two patterns above did not consume is a
-    // parser gap, not a pass: say so loudly rather than dropping it.
-    $totalUseLines = preg_match_all('/^\s*use\s+WPMCP\\\\/m', $code);
-    if ($totalUseLines > $matchedUseLines) {
-        $failures[] = 'unparsed WPMCP use statement in ' . substr($path, strlen($root) + 1)
-            . ' (' . ($totalUseLines - $matchedUseLines) . ' of ' . $totalUseLines . ' unmatched)';
+    [$imported, $unparsed] = $parseImports($code);
+    $named                 = $imported;
+    if ($unparsed > 0) {
+        $unparsedUses[] = 'unparsed WPMCP use statement in ' . $rel
+            . ' (' . $unparsed . ' unmatched)';
     }
 
     // Direct instantiation, statics/::class, and string callables.
@@ -222,11 +339,13 @@ foreach ($srcFiles as $path) {
 
     // A class named only behind a class_exists()/interface_exists() probe is
     // optional by construction: the guard is the code saying it may be absent,
-    // so its absence is not a fatal waiting to happen.
+    // so its absence is not a fatal waiting to happen. Both spellings count,
+    // the `::class` form and the string literal, so the guarded key is
+    // normalised exactly the way the string-callable key above is.
     $guarded = [];
-    if (preg_match_all('/(?:class_exists|interface_exists|trait_exists|enum_exists)\s*\(\s*[\'"]?\\\\?(WPMCP(?:\\\\{1,2}[A-Za-z0-9_]+)+)/', $code, $gm)) {
+    if (preg_match_all('/(?:class_exists|interface_exists|trait_exists|enum_exists)\s*\(\s*[\'"]?\\\\{0,2}(WPMCP(?:\\\\{1,2}[A-Za-z0-9_]+)+)/', $code, $gm)) {
         foreach ($gm[1] as $g) {
-            $guarded[strtolower(str_replace('\\\\\\\\', '\\\\', $g))] = true;
+            $guarded[strtolower(str_replace('\\\\', '\\', $g))] = true;
         }
     }
 
@@ -237,13 +356,14 @@ foreach ($srcFiles as $path) {
             continue;
         }
         if (! isset($declared[strtolower($fqcn)])) {
-            $rel = str_replace('\\', '/', substr($fqcn, strlen('WPMCP\\')));
-            $failures[] = 'named but not declared on disk: ' . $fqcn
-                . ' (from ' . substr($path, strlen($root) + 1) . ', expected src/' . $rel . '.php)';
+            $expect       = str_replace('\\', '/', substr($fqcn, strlen('WPMCP\\')));
+            $undeclared[] = 'named but not declared on disk: ' . $fqcn
+                . ' (from ' . $rel . ', expected src/' . $expect . '.php)';
         }
     }
 }
-$failures = array_values(array_unique($failures));
+$undeclared   = array_values(array_unique($undeclared));
+$unparsedUses = array_values(array_unique($unparsedUses));
 
 // ------------------------------------------- 2. tools reachable from a root
 // Roots are the production wiring paths: the plugin entry files, plus any
@@ -253,8 +373,8 @@ $failures = array_values(array_unique($failures));
 // product, which is exactly the drift this check exists to see.
 $queue   = [];
 $seedIds = [];
-foreach (glob($root . '/*.php') ?: [] as $entry) {
-    $seedIds[] = $identifiers((string) file_get_contents($entry));
+foreach ($entryFiles as $entry) {
+    $seedIds[] = $idents[$entry];
 }
 foreach (['scripts', 'tools', 'bin'] as $dir) {
     foreach ($phpFiles($root . '/' . $dir) as $path) {
@@ -302,18 +422,34 @@ foreach (array_keys($tools) as $path) {
     if (isset($reached[$path])) {
         continue;
     }
-    $short = basename($path, '.php');
-    if (isset($knownUnreachable[$short])) {
+    $rel = substr($path, strlen($root) + 1);
+    if (isset($knownUnreachable[$rel])) {
         continue;
     }
-    $warnings[] = 'tool class not reachable from any registration root: '
-        . substr($path, strlen($root) + 1);
+    $warnings[] = 'tool class not reachable from any registration root: ' . $rel;
 }
 sort($warnings);
 
+// The allowlist has to expire on its own. An entry that is wired again has
+// stopped being an exemption; one whose file is gone is a name nobody removed.
+foreach ($knownUnreachable as $rel => $reason) {
+    $abs = $root . '/' . $rel;
+    if (! is_file($abs)) {
+        if ($ownRepo) {
+            $allowlistFailures[] = 'unreachable allowlist entry no longer exists, '
+                . 'remove it from bin/check-ability-drift.php: ' . $rel;
+        }
+        continue;
+    }
+    if (isset($reached[$abs])) {
+        $allowlistFailures[] = 'unreachable allowlist entry is reachable now, '
+            . 'remove it from bin/check-ability-drift.php: ' . $rel;
+    }
+}
+
 // --------------------------------------------- 3. ability names/tiers pinned
 $abilities   = [];
-$manifestSay = 'skipped (no tests/support/ability-manifest.php)';
+$manifestSay = '';
 foreach ($sources as $path => $code) {
     if (preg_match_all('/new\s+Ability\s*\(\s*(\'[^\']*\'|"[^"]*")\s*,\s*(\'[^\']*\'|"[^"]*")/', $code, $am, PREG_SET_ORDER)) {
         foreach ($am as $a) {
@@ -321,38 +457,69 @@ foreach ($sources as $path => $code) {
         }
     }
 }
-$manifestFile = $root . '/tests/support/ability-manifest.php';
-if (is_file($manifestFile)) {
+$manifestFile = $manifestArg ?? ($root . '/tests/support/ability-manifest.php');
+$unknown      = 0;
+$retiered     = 0;
+if ($noManifest) {
+    $manifestSay = 'skipped (--no-manifest)';
+} elseif (! is_file($manifestFile)) {
+    $manifestSay = 'not found at ' . $manifestFile;
+    if ($strict) {
+        $abilityFailures[] = 'ability manifest not found at ' . $manifestFile
+            . ' (pass --manifest PATH, or --no-manifest to run without the'
+            . ' ability check)';
+    } else {
+        $manifestSay .= ' (skipped)';
+    }
+} else {
     $manifest = require $manifestFile;
-    $pinned   = $manifest['abilities'] ?? [];
-    $unknown  = 0;
-    $retiered = 0;
-    foreach ($abilities as $name => $tier) {
-        if (! isset($pinned[$name])) {
-            if (in_array($name, $multisiteOnlyAbilities, true)) {
+    if (
+        ! is_array($manifest)
+        || ! isset($manifest['abilities'])
+        || ! is_array($manifest['abilities'])
+    ) {
+        $manifestSay       = 'unreadable';
+        $abilityFailures[] = 'ability manifest unreadable: ' . $manifestFile
+            . ' (expected an array with an "abilities" map; run'
+            . ' composer manifest:regenerate)';
+    } else {
+        $pinned = $manifest['abilities'];
+        foreach ($abilities as $name => $tier) {
+            if (! isset($pinned[$name])) {
+                if (in_array($name, $multisiteOnlyAbilities, true)) {
+                    continue;
+                }
+                $abilityFailures[] = "ability registered but not in the manifest: {$name}"
+                    . ' (rename or add? run composer manifest:regenerate)';
+                $unknown++;
                 continue;
             }
-            $failures[] = "ability registered but not in the manifest: {$name}"
-                . ' (rename or add? run composer manifest:regenerate)';
-            $unknown++;
-            continue;
+            if ($pinned[$name] !== $tier) {
+                $abilityFailures[] = "ability re-tiered without regenerating the manifest: {$name}"
+                    . " (code says {$tier}, manifest says {$pinned[$name]})";
+                $retiered++;
+            }
         }
-        if ($pinned[$name] !== $tier) {
-            $failures[] = "ability re-tiered without regenerating the manifest: {$name}"
-                . " (code says {$tier}, manifest says {$pinned[$name]})";
-            $retiered++;
-        }
+        $manifestSay = sprintf(
+            '%d literal registrations vs %d pinned, %d unknown, %d re-tiered',
+            count($abilities),
+            count($pinned),
+            $unknown,
+            $retiered
+        );
     }
-    $manifestSay = sprintf(
-        '%d literal registrations vs %d pinned, %d unknown, %d re-tiered',
-        count($abilities),
-        count($pinned),
-        $unknown,
-        $retiered
-    );
 }
 
 // ------------------------------------------------------------------- report
+$abilityFailures   = array_values(array_unique($abilityFailures));
+$allowlistFailures = array_values(array_unique($allowlistFailures));
+$failures          = array_merge(
+    $undeclared,
+    $unparsedUses,
+    $allowlistFailures,
+    $abilityFailures
+);
+
 foreach ($failures as $f) {
     fwrite(STDERR, "FAIL: {$f}\n");
 }
@@ -361,10 +528,14 @@ foreach ($warnings as $w) {
 }
 
 printf(
-    "check-ability-drift: %d class references checked, %d tool classes scanned, %d undeclared, %d unreachable; abilities: %s\n",
+    "check-ability-drift: %d class references checked, %d tool classes scanned, "
+    . "%d undeclared, %d unparsed use, %d stale allowlist, %d unreachable; "
+    . "abilities: %s\n",
     $namedCount,
     count($tools),
-    count($failures),
+    count($undeclared),
+    count($unparsedUses),
+    count($allowlistFailures),
     count($warnings),
     $manifestSay
 );
