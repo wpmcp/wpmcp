@@ -122,4 +122,35 @@ class ConversationLifecycleTest extends \WP_UnitTestCase
         $names = array_column($rows['post_types'] ?? $rows, 'name');
         $this->assertNotContains(Conversation_Store::POST_TYPE, $names);
     }
+
+    /**
+     * list-posts takes an arbitrary post_type at capability edit_posts and
+     * defaults to status 'any', and WP_Query skips its private-post
+     * permission clause on that branch. Without an explicit guard this is a
+     * second read path over every user's conversations, weaker than the one
+     * the store enforces.
+     */
+    public function test_list_posts_cannot_enumerate_another_users_conversations(): void
+    {
+        $id = $this->store->create($this->owner_id, 'my private exchange');
+        $this->store->append_message($id, $this->owner_id, ['role' => 'user', 'content' => 'secret']);
+
+        wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
+
+        $result = (new \WPMCP\Tools\Content\List_Posts())->handle([
+            'post_type' => Conversation_Store::POST_TYPE,
+            'status'    => 'any',
+        ]);
+        $this->assertSame([], $result['posts']);
+        $this->assertSame(0, $result['total']);
+    }
+
+    /** The same for the single-post read: a conversation is not content. */
+    public function test_get_post_refuses_a_conversation(): void
+    {
+        $id = $this->store->create($this->owner_id, 'my private exchange');
+
+        $this->expectException(\InvalidArgumentException::class);
+        (new \WPMCP\Tools\Content\Get_Post())->handle(['post_id' => $id]);
+    }
 }

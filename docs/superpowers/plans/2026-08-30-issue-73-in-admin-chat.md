@@ -48,7 +48,11 @@ place a reviewer looks for the design record, next to
     clause on the `'any'` status branch and the default `capability_type`
     `'post'` would hand every Editor `read_others_posts` over conversations;
   - `wpmcp_chat_convo` listed in `Content_Guard` and `List_Post_Types`
-    internal types, so the generic content tools are not a second read path;
+    internal types, plus a `Content_Guard::is_agent_readable_post_type()`
+    check in `List_Posts` and `Get_Post`, so the generic content tools are not
+    a second, weaker read path. The internal-types list alone was not enough:
+    `List_Posts` never consulted it, and it takes an arbitrary `post_type` at
+    capability `edit_posts` with status `'any'`;
   - a purge on `delete_user` / `wpmu_delete_user` / `remove_user_from_blog`.
     `delete_with_user` alone does NOT cover the reassigning deletion: core
     reads that flag only when `$reassign === null`, and the reassign branch is

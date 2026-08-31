@@ -34,6 +34,32 @@ class Content_Guard
         'wpmcp_chat_convo',
     ];
 
+    /**
+     * Post types that hold plugin-internal per-user data and are therefore
+     * never content an agent may read, whatever capability the caller holds.
+     *
+     * Separate from INTERNAL_TYPES because that list is about writes, and
+     * some of it (attachment) is legitimately readable. This list is about
+     * reads: a chat conversation is one admin's private exchange with their
+     * own model, and list-posts (capability edit_posts, arbitrary post_type,
+     * default status 'any') would otherwise enumerate every user's.
+     * WP_Query does not help here: it skips its private-post permission
+     * clause on the 'any' status branch, so post_status bounds nothing.
+     *
+     * Named as literals: the chat store lives outside the content tools and
+     * the directory build does not ship it, so this list must not depend on
+     * a class constant.
+     */
+    private const PRIVATE_TYPES = [
+        'wpmcp_chat_convo',
+    ];
+
+    /** Whether the content tools may read a post of this type at all. */
+    public static function is_agent_readable_post_type(string $post_type): bool
+    {
+        return ! in_array($post_type, self::PRIVATE_TYPES, true);
+    }
+
     public static function is_writable_post_type(string $post_type): bool
     {
         if ('' === $post_type || ! post_type_exists($post_type)) {
