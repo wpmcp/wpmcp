@@ -147,6 +147,7 @@ No. Nothing here requires registration. Stock image search with Pexels or Unspla
 
 = {{VERSION}} =
 * First directory release.
+* Snapshot retention is one flat number for every install (20), raisable or lowerable for free through the `wpmcp_snapshot_history_limit` filter.
 * MCP server on the core Abilities API, with a snapshot before every write and one-click or whole-session rollback.
 * Six governance layers, an audit log, scoped identities and OAuth 2.1.
 * Block editor, Elementor composition, store, custom field, SEO and forms integrations.

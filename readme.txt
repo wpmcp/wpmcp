@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, claude, automation
 Requires at least: 6.9
 Tested up to: 6.9
 Requires PHP: 8.1
-Stable tag: 0.8.0
+Stable tag: 0.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -89,7 +89,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 == Changelog ==
 
 = 0.8.1 =
-* Snapshot retention is now one flat number for every install (`Snapshot_Store::DEFAULT_HISTORY_LIMIT`, 20), raisable or lowerable for free through the new `wpmcp_snapshot_history_limit` filter. The paid unlimited-history branch is gone.
+* Snapshot retention is now one flat number for every install (`Snapshot_Store::DEFAULT_HISTORY_LIMIT`, 20), raisable or lowerable for free through the new `wpmcp_snapshot_history_limit` filter (any whole number of 1 or more; anything else falls back to 20). The paid unlimited-history branch is gone.
+* Upgrading sites keep the history they already have. If your snapshot table is deeper than 20, nothing is deleted until you either set the filter or use the "trim history" button in the admin notice.
+* Pruning now deletes at most 200 snapshots per write, so a site with a deep history catches up over several writes instead of inside one request.
 
 = 0.8.0 =
 * Launch release.
@@ -102,7 +104,7 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 == Upgrade Notice ==
 
 = 0.8.1 =
-Snapshot history is now capped at 20 operations on every install. Sites running 0.8.0 with a Pro licence kept unlimited history, and the first write after this upgrade prunes everything past the newest 20, including the file backups behind those older snapshots. If you need deeper history, set it before you upgrade, or before the next write:
+Snapshot history is now the same 20 operations on every install, free and Pro alike. Nothing is deleted on upgrade: a site that already has a deeper history keeps it until you choose, either through the admin notice or the filter:
 `add_filter( 'wpmcp_snapshot_history_limit', fn() => 500 );`
 
 = 0.8.0 =

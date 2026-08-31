@@ -79,8 +79,8 @@ Severity is the `wporg-free` profile. `dist` is the same finding's severity unde
 
 | ID | Rule | Evidence | Fix |
 |---|---|---|---|
-| B-01 | WPORG-05-QUOTA | `src/Pro/Gate.php:54` — `return self::is_pro() ? PHP_INT_MAX : 20;` (dist: best-practice) | Guideline 5: "Functionality may not be disabled after a trial period or quota is met." Delete the branch. The directory build enforces a flat 20 with no `is_pro()` anywhere and no unlimited path in the source. |
-| B-02 | WPORG-05-QUOTA | `src/Pro/Gate.php:52` — `history_limit()` (dist: best-practice) | Same change as B-01. Also update the four call sites that consume it: `src/Safety/Safe_Mutation.php:42`, `src/Tools/Compose/Build_Page.php:227`, `src/Tools/Packages/Switch_Theme.php:62`, `src/Tools/Media/Media_Import_Snapshot.php:43`. |
+| B-01 | WPORG-05-QUOTA | RESOLVED in issue #158. Was `src/Pro/Gate.php:54` — `return self::is_pro() ? PHP_INT_MAX : 20;` | The branch is deleted in source, not stripped at build time. `Snapshot_Store::history_limit()` returns one flat cap for every install, raisable for free through `wpmcp_snapshot_history_limit`. |
+| B-02 | WPORG-05-QUOTA | RESOLVED in issue #158. Was `src/Pro/Gate.php:52` — `history_limit()` | `Gate::history_limit()` no longer exists. Every call site calls `Snapshot_Store::prune()`, which defaults to the flat cap. `tests/pro/GateTest.php` asserts the Gate owns no cap and that `src/Safety/Snapshot_Store.php` contains no paid predicate. |
 | B-03 | WPORG-05-TRIALWARE | `src/Pro/Gate.php:33`, `:44`, `:47`, `:49`, `:54` (dist: best-practice) | Delete `Pro\Gate` from the directory build. It is the whole gating mechanism. |
 | B-04 | WPORG-05-TRIALWARE | `src/MCP/Registrar.php:37`, `:66` (dist: best-practice) | The registrar must not receive pro abilities at all in the directory build. Prune the manifest at build time the way `scripts/flavors/woocommerce/` prunes ability groups, rather than filtering by tier at runtime. |
 | B-05 | WPORG-05-TRIALWARE | `src/Admin/Ability_Grid_Page.php:171`, `:256` (dist: best-practice) | Remove the `$pro_locked` row state. A grid that renders 73 rows as "disabled: no pro license" is guideline 9's "implying users must pay to unlock included features" rendered literally. |
@@ -190,11 +190,11 @@ The test is not "is there an upsell" and not "is there a licensing SDK". The tes
 
 ### Our conclusion
 
-**As shipped, wpmcp 0.8.0 is in the prohibited category and would be rejected on guideline 5.**
+**As shipped, wpmcp 0.8.0 is in the prohibited category and would be rejected on guideline 5.** (B-01 and B-02, the snapshot quota, are resolved in 0.8.1 by issue #158; the rest of this section still stands.)
 
 The specifics:
 
-- `src/Pro/Gate.php:54` reads `return self::is_pro() ? PHP_INT_MAX : 20;`. The unlimited-history code path is present in the zip and switched off by payment. That is "functionality may not be disabled after a... quota is met", verbatim, and fork-and-flip-the-constant is precisely what the 2018 post says users are entitled to do.
+- `src/Pro/Gate.php:54` used to read `return self::is_pro() ? PHP_INT_MAX : 20;`: an unlimited-history code path present in the zip and switched off by payment. That is "functionality may not be disabled after a... quota is met", verbatim, and fork-and-flip-the-constant is precisely what the 2018 post says users are entitled to do. Resolved in 0.8.1 (issue #158): the branch is gone from source and retention is one flat, filterable number on every install.
 - 13 further paid-state branches (B-03 through B-07) gate capabilities whose implementations are in the same zip.
 - 73 pro abilities out of 260 are registered-or-not by tier at `src/MCP/Registrar.php:37`, and `src/Admin/Ability_Grid_Page.php:171` renders the withheld ones as "disabled: no pro license" — guideline 9's "implying users must pay to unlock included features", literally.
 - The Freemius SDK in this configuration unlocks only locally-present code, which is guideline 6's named prohibition, and `anonymous_mode => true` at `src/Freemius/Bootstrap.php:64` additionally bypasses the consent step guideline 7 requires.

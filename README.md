@@ -219,7 +219,7 @@ Discovery is deliberately cheap: `list-skills` returns slug, name, a one-line de
 
 The free plugin (this repo) is fully functional: the safety engine, Gutenberg editing, one-click rollback, and snapshot history.
 
-Snapshot history is not a tier: `Snapshot_Store::history_limit()` returns the same flat cap (`DEFAULT_HISTORY_LIMIT`, 20) on every install, and the `wpmcp_snapshot_history_limit` filter raises or lowers it for free on any site. Pro (planned, via [Freemius](https://freemius.com/)) adds Elementor deep editing, change previews, and priority support. The Pro gate (`WPMCP\Pro\Gate`) and Freemius bootstrap are wired from day one; the plugin degrades gracefully when the Pro SDK is absent.
+Snapshot history is not a tier: `Snapshot_Store::history_limit()` returns the same flat cap (`DEFAULT_HISTORY_LIMIT`, 20) on every install, and the `wpmcp_snapshot_history_limit` filter raises or lowers it for free on any site (any whole number of 1 or more; a non-numeric or out-of-range return falls back to 20, since 0 would let the snapshots table grow without bound). A site that upgrades with a history deeper than the cap keeps it: the existing depth is recorded once as a floor and held until the owner sets the filter or acknowledges the admin notice, and pruning never deletes more than `PRUNE_BATCH_LIMIT` rows per write. Pro (planned, via [Freemius](https://freemius.com/)) adds Elementor deep editing, change previews, and priority support. The Pro gate (`WPMCP\Pro\Gate`) and Freemius bootstrap are wired from day one; the plugin degrades gracefully when the Pro SDK is absent.
 
 Freemius is opt-in only at the integration level: `anonymous_mode` is enabled by default (see `WPMCP\Freemius\Bootstrap::config()`), so no telemetry opt-in gate is forced on activation. Going live on Pro requires two steps: register the plugin on freemius.com and fill `WPMCP_FS_ID` / `WPMCP_FS_PUBLIC_KEY` in `wpmcp.php`, then vendor the Freemius SDK at `vendor/freemius/start.php`.
 
@@ -235,7 +235,7 @@ Freemius is opt-in only at the integration level: `anonymous_mode` is enabled by
 
 ## Known limitations
 
-Snapshot history keeps the last 20 operations on every install, which can bound how far `rollback-session` reaches on very large agent runs; raise it with the `wpmcp_snapshot_history_limit` filter. Snapshot capture currently covers post content, title, status, meta, and taxonomy terms, but not every post field (e.g. excerpt, parent). Force-deleting media (or deleting without `MEDIA_TRASH` enabled) restores the media record on rollback but not the physical file bytes, until issue #24 lands; media force-delete is disabled by default. Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
+Snapshot history keeps the last 20 operations on every install, which can bound how far `rollback-session` reaches on very large agent runs; raise it with the `wpmcp_snapshot_history_limit` filter (minimum 1). Snapshot capture currently covers post content, title, status, meta, and taxonomy terms, but not every post field (e.g. excerpt, parent). Force-deleting media (or deleting without `MEDIA_TRASH` enabled) restores the media record on rollback but not the physical file bytes, until issue #24 lands; media force-delete is disabled by default. Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
 
 ## Development
 

@@ -58,7 +58,7 @@ class Switch_Theme
             );
             $operation_ids[] = $operation_id;
         }
-        Snapshot_Store::prune(Snapshot_Store::history_limit());
+        Snapshot_Store::prune();
 
         switch_theme($stylesheet);
 

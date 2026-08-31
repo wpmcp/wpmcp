@@ -140,9 +140,12 @@ $edits['src/MCP/Registrar.php'] = [
 
 // ------------------------------------------------------- snapshot retention
 // Guideline 5's quota clause is satisfied in source (issue #158): every call
-// site already reads Snapshot_Store::history_limit(), a flat cap with a
-// filter so a site can raise it for free. Nothing to rewrite here; the
-// residual-Gate scan after the edit loop is what keeps it that way.
+// site calls Snapshot_Store::prune(), which defaults to a flat cap with a
+// filter so a site can raise it for free. Nothing to rewrite here. Gate 3 in
+// scripts/build-wporg-release.sh is what keeps it that way: it fails the
+// build on any surviving `Pro\Gate`, `is_pro` or `Gate::` in the staged
+// src/ and root plugin file, so an upstream refactor that reintroduces a
+// paid predicate breaks the build loudly instead of shipping a gated zip.
 
 // ---------------------------------------------------------------- Build_Page
 // The Elementor dialect is not gated here, it is simply free.
@@ -400,10 +403,10 @@ foreach ($edits as $relative => $file_edits) {
 }
 
 /**
- * Snapshot retention (issue #158) is no longer rewritten here, so the only
- * thing standing between an upstream refactor and a gated zip is this check.
- * Both halves of the flat cap have to be present in the staged source: the
- * constant and the accessor that reads it.
+ * Snapshot retention (issue #158) is no longer rewritten here, so the check
+ * is a positive one: both halves of the flat cap have to be present in the
+ * staged source, the constant and the accessor that reads it. The absence of
+ * a paid predicate is gate 3's job in scripts/build-wporg-release.sh.
  */
 $snapshot_store = $stage . '/src/Safety/Snapshot_Store.php';
 if (is_file($snapshot_store)) {
@@ -465,24 +468,6 @@ const SWEPT_DIRECTORIES = ['src/Tools/Elementor', 'src/Tools/Builders'];
 
 $swept = sweep_unreferenced($stage, SWEPT_DIRECTORIES);
 $applied += count($swept);
-
-/**
- * The paid tier leaves by path (src/Pro is in REMOVED_PATHS), so any Gate::
- * call still standing after every edit, removal and sweep above would only
- * fatal at runtime inside the free zip. Since snapshot retention (issue #158)
- * is no longer rewritten by an exact-string edit, this scan is what keeps the
- * file header's promise that a refactor upstream breaks the build loudly
- * instead of silently shipping a gated zip.
- */
-foreach (scan_php_files($stage . '/src') as $php_file) {
-    if (preg_match('/\bGate::/', (string) file_get_contents($php_file))) {
-        $failures[] = sprintf(
-            '%s: a Gate:: call survived the strip, but src/Pro is removed by path',
-            ltrim(str_replace($stage, '', $php_file), '/')
-        );
-    }
-}
-
 
 if ([] !== $failures) {
     fwrite(STDERR, "wp.org strip failed:\n  " . implode("\n  ", $failures) . "\n");
@@ -796,21 +781,4 @@ function prune_unused_imports(string $stage): int
         }
     }
     return $removed;
-}
-
-/** Every .php file under $directory, as absolute paths. */
-function scan_php_files(string $directory): array
-{
-    if (! is_dir($directory)) {
-        return [];
-    }
-    $files = [];
-    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory));
-    foreach ($iterator as $file) {
-        if ($file instanceof SplFileInfo && 'php' === $file->getExtension()) {
-            $files[] = $file->getPathname();
-        }
-    }
-    sort($files);
-    return $files;
 }

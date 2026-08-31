@@ -64,14 +64,19 @@ class GateTest extends \WP_UnitTestCase
             'Gate must not own a snapshot cap: a quota lifted by payment is what guideline 5 rejects.'
         );
 
-        Gate::set_pro_for_tests(false);
-        $free = Snapshot_Store::history_limit();
+        // The property actually being defended: no paid predicate anywhere in
+        // the file that owns the cap. A free/pro comparison could not fail,
+        // because the class names no gate at all, which is the point.
+        $source = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Safety/Snapshot_Store.php');
+        foreach (['Gate::', 'is_pro', 'Pro\\Gate', 'can_use_premium_code'] as $paid_predicate) {
+            $this->assertStringNotContainsString(
+                $paid_predicate,
+                $source,
+                'Snapshot retention must not consult paid state: guideline 5 rejects a quota a licence lifts.'
+            );
+        }
 
-        Gate::set_pro_for_tests(true);
-        $pro = Snapshot_Store::history_limit();
-
-        $this->assertSame(Snapshot_Store::DEFAULT_HISTORY_LIMIT, $free);
-        $this->assertSame($free, $pro);
+        $this->assertSame(Snapshot_Store::DEFAULT_HISTORY_LIMIT, Snapshot_Store::history_limit());
     }
 
     public function test_is_pro_falls_back_safely_without_freemius_sdk(): void

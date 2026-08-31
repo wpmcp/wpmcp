@@ -179,7 +179,7 @@ class Global_Classes_Store
             $tool_name,
             hash('sha256', (string) wp_json_encode($args))
         );
-        Snapshot_Store::prune(Snapshot_Store::history_limit());
+        Snapshot_Store::prune();
 
         try {
             self::persist($items, $order);

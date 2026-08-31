@@ -39,7 +39,7 @@ class Media_Import_Snapshot
             $tool_name,
             hash('sha256', (string) wp_json_encode($args))
         );
-        Snapshot_Store::prune(Snapshot_Store::history_limit());
+        Snapshot_Store::prune();
 
         return $operation_id;
     }
