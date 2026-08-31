@@ -69,6 +69,13 @@ const REMOVED_PATHS = [
     'src/Tools/Performance/Curl_Dns_Pin.php',
     // Paid ability whose handler lives inside an otherwise free directory.
     'src/Tools/Media/Stock/Insert_Stock_Image.php',
+    // Same shape for the SEO group (issue #67): the post-meta surface stays
+    // free, so the directory cannot go whole, but the schema generation and
+    // extended social vocabulary are paid. Schema_Generator has no caller
+    // once Generate_Schema_Markup is gone, so it goes with it.
+    'src/Tools/SEO/Generate_Schema_Markup.php',
+    'src/Tools/SEO/Schema_Generator.php',
+    'src/Tools/SEO/Get_Social_Meta.php',
     // Brand kits (issue #75). Every class under here is reachable only from
     // register_brand_kit_abilities, which this build deletes, and the kit
     // library itself is data rather than a free feature, so the directory
@@ -335,6 +342,26 @@ $plugin_edits[] = [
 // the local it was assigned to.
 $plugin_edits[] = ["        \$insert_stock_image  = new Insert_Stock_Image();\n", '', 1];
 
+// Same for the two inline pro SEO abilities (issue #67): remove_pro_abilities()
+// takes the register() calls, these take the locals and the comments that
+// describe the tiering.
+$plugin_edits[] = [
+    "        // Schema generation (issue #67): a proposal (read) tool that builds\n"
+        . "        // JSON-LD from the post's own record, so it is useful even with no\n"
+        . "        // SEO plugin active and registers unconditionally like get-seo-status.\n"
+        . "        \$generate_schema = new Generate_Schema_Markup();\n\n",
+    '',
+    1,
+];
+$plugin_edits[] = [
+    "        // Extended vocabulary (issue #67): per-post OG/Twitter reads in one\n"
+        . "        // neutral field set. Plugins whose social storage is not mapped yet\n"
+        . "        // answer with a structured \"unsupported\", never an error.\n"
+        . "        \$get_social_meta = new Get_Social_Meta();\n\n",
+    '',
+    1,
+];
+
 // Documentation the reviewer reads too: a build with no licence gate must not
 // describe one.
 $plugin_edits[] = [
@@ -348,6 +375,36 @@ $plugin_edits[] = [
     1,
 ];
 $plugin_edits[] = [
+    "     * Register the SEO tool group. Mixed tiers since issue #67: the\n"
+        . "     * post-meta surface (get-seo-status, get-seo-meta, update-seo-meta) is\n"
+        . "     * free, and the generation and extended-vocabulary tools\n"
+        . "     * (generate-schema-markup, get-social-meta) declare tier 'pro', which the\n"
+        . "     * Registrar enforces centrally rather than each handler re-checking.\n"
+        . "     *\n"
+        . "     * get-seo-status is registered unconditionally: it must be reachable to\n"
+        . "     * report \"no SEO plugin active\" at all, and it does not touch any\n"
+        . "     * plugin-specific postmeta so it has nothing to degrade.\n"
+        . "     * generate-schema-markup registers unconditionally for the same reason:\n"
+        . "     * it builds the graph from the post's own record, so it works on a site\n"
+        . "     * with no SEO plugin at all. get-seo-meta, update-seo-meta and\n"
+        . "     * get-social-meta are registered conditionally on SEO_Adapter detecting a\n"
+        . "     * supported plugin, following the same conditional-registration pattern\n"
+        . "     * as the ACF tool group: no supported plugin has a free/pro split of its\n"
+        . "     * own to key off, so plugin absence is the only signal, and skipping\n"
+        . "     * keeps these out of the catalog on sites running none of them.\n",
+    "     * Register the SEO tools as free-tier abilities.\n"
+        . "     *\n"
+        . "     * get-seo-status is registered unconditionally: it must be reachable to\n"
+        . "     * report \"no SEO plugin active\" at all, and it does not touch any\n"
+        . "     * plugin-specific postmeta so it has nothing to degrade. get-seo-meta and\n"
+        . "     * update-seo-meta are registered conditionally on SEO_Adapter detecting a\n"
+        . "     * supported plugin, following the same conditional-registration pattern\n"
+        . "     * as the ACF tool group: no supported plugin has a free/pro split of its\n"
+        . "     * own to key off, so plugin absence is the only signal, and skipping\n"
+        . "     * keeps these out of the catalog on sites running none of them.\n",
+    1,
+];
+$plugin_edits[] = [
     "     * Both tools are FREE and read-only. Tiering happens per skill document\n"
         . "     * (`tier: pro` in its frontmatter, enforced in Get_Skill through\n"
         . "     * Pro\\Gate), not at the surface, so a premium skill library can drop into\n"
@@ -357,6 +414,166 @@ $plugin_edits[] = [
     1,
 ];
 $edits['src/Plugin.php'] = $plugin_edits;
+
+// The SEO group is mixed-tier, so its directory cannot go whole: the
+// post-meta surface stays free while the extended social vocabulary is paid.
+// Get_Social_Meta.php is in REMOVED_PATHS above, and these take the adapter
+// code behind it (the three key maps, the Twitter/OG fallback pairing, and
+// get_social_meta() itself) so the free build carries no unreachable pro
+// logic and the comment about the vocabulary being paid stays true.
+$edits['src/Tools/SEO/SEO_Adapter.php'] = [
+    [
+        "    // Extended vocabulary (issue #67): per-post OG/Twitter overrides for the\n"
+        . "    // plugins that store them as flat postmeta. The SEO Framework derives its\n"
+        . "    // social fields rather than storing a full per-post set, and SureRank\n"
+        . "    // packs them into the serialized _surerank_meta array, so both need\n"
+        . "    // dedicated branches. Until a plugin has a verified map here,\n"
+        . "    // get_social_meta() reports it as unsupported rather than guessing.\n"
+        . "    // TODO(#67): SEO Framework / SureRank social maps + write path.\n"
+        . "    private const YOAST_SOCIAL_KEYS = [\n"
+        . "        'og_title'            => '_yoast_wpseo_opengraph-title',\n"
+        . "        'og_description'      => '_yoast_wpseo_opengraph-description',\n"
+        . "        'og_image'            => '_yoast_wpseo_opengraph-image',\n"
+        . "        'twitter_title'       => '_yoast_wpseo_twitter-title',\n"
+        . "        'twitter_description' => '_yoast_wpseo_twitter-description',\n"
+        . "        'twitter_image'       => '_yoast_wpseo_twitter-image',\n"
+        . "    ];\n"
+        . "\n"
+        . "    private const RANKMATH_SOCIAL_KEYS = [\n"
+        . "        'og_title'            => 'rank_math_facebook_title',\n"
+        . "        'og_description'      => 'rank_math_facebook_description',\n"
+        . "        'og_image'            => 'rank_math_facebook_image',\n"
+        . "        'twitter_title'       => 'rank_math_twitter_title',\n"
+        . "        'twitter_description' => 'rank_math_twitter_description',\n"
+        . "        'twitter_image'       => 'rank_math_twitter_image',\n"
+        . "    ];\n"
+        . "\n"
+        . "    private const SEOPRESS_SOCIAL_KEYS = [\n"
+        . "        'og_title'            => '_seopress_social_fb_title',\n"
+        . "        'og_description'      => '_seopress_social_fb_desc',\n"
+        . "        'og_image'            => '_seopress_social_fb_img',\n"
+        . "        'twitter_title'       => '_seopress_social_twitter_title',\n"
+        . "        'twitter_description' => '_seopress_social_twitter_desc',\n"
+        . "        'twitter_image'       => '_seopress_social_twitter_img',\n"
+        . "    ];\n"
+        . "\n",
+        '',
+        1,
+    ],
+    [
+        "    /**\n"
+        . "     * Which OpenGraph field each Twitter field falls back to when the active\n"
+        . "     * plugin mirrors one onto the other. Same pairing on all three mapped\n"
+        . "     * plugins.\n"
+        . "     */\n"
+        . "    private const TWITTER_OG_FALLBACKS = [\n"
+        . "        'twitter_title'       => 'og_title',\n"
+        . "        'twitter_description' => 'og_description',\n"
+        . "        'twitter_image'       => 'og_image',\n"
+        . "    ];\n"
+        . "\n",
+        '',
+        1,
+    ],
+    [
+        "    /**\n"
+        . "     * Read the per-post social (OG/Twitter) overrides for the active plugin.\n"
+        . "     *\n"
+        . "     * Returns ['supported' => true, 'fields' => [...], 'sources' => [...]]\n"
+        . "     * where mapped, or a structured ['supported' => false, 'reason' => ...]\n"
+        . "     * where the active plugin has no verified per-post social map yet: issue\n"
+        . "     * #67 requires unsupported combinations to be reported, not thrown.\n"
+        . "     *\n"
+        . "     * The SEO group answers \"unsupported\" with this payload rather than the\n"
+        . "     * WP_Error / `unsupported_*` code the builder tools use, because the\n"
+        . "     * issue asks for structured unsupported responses instead of errors: an\n"
+        . "     * agent reading social fields on The SEO Framework has asked a sensible\n"
+        . "     * question about a real post, and the honest answer is \"this plugin does\n"
+        . "     * not store that\", not a failure. Every caller in this group uses this\n"
+        . "     * one shape.\n"
+        . "     *\n"
+        . "     * `fields` is the resolved state, not the raw postmeta. All three mapped\n"
+        . "     * plugins fall back to the OpenGraph values when a Twitter field is\n"
+        . "     * empty (RankMath gates that on rank_math_twitter_use_facebook, which\n"
+        . "     * defaults on), so returning the bare meta would report\n"
+        . "     * `twitter_title: ''` for a post whose rendered Twitter card does have a\n"
+        . "     * title. `sources` says where each value came from, so an agent can still\n"
+        . "     * tell an explicit override from an inherited one before writing:\n"
+        . "     *\n"
+        . "     * - 'override'  the field is set in the plugin's own postmeta key\n"
+        . "     * - 'inherited' empty here, resolved from the corresponding og_ field\n"
+        . "     * - 'absent'    nothing set, and nothing to inherit\n"
+        . "     *\n"
+        . "     * TODO(#67): update_social_meta() write path through Safe_Mutation, and\n"
+        . "     * term-level variants of both.\n"
+        . "     */\n"
+        . "    public static function get_social_meta(int \$post_id): array\n"
+        . "    {\n"
+        . "        \$active = self::active_plugin();\n"
+        . "\n"
+        . "        \$maps = [\n"
+        . "            'yoast'    => self::YOAST_SOCIAL_KEYS,\n"
+        . "            'rankmath' => self::RANKMATH_SOCIAL_KEYS,\n"
+        . "            'seopress' => self::SEOPRESS_SOCIAL_KEYS,\n"
+        . "        ];\n"
+        . "\n"
+        . "        if (! isset(\$maps[\$active])) {\n"
+        . "            return [\n"
+        . "                'supported' => false,\n"
+        . "                'plugin'    => \$active,\n"
+        . "                'reason'    => '' === \$active\n"
+        . "                    ? 'No supported SEO plugin is active.'\n"
+        . "                    : 'Per-post social fields are not mapped for this plugin yet.',\n"
+        . "            ];\n"
+        . "        }\n"
+        . "\n"
+        . "        \$fields  = [];\n"
+        . "        \$sources = [];\n"
+        . "        foreach (\$maps[\$active] as \$field => \$key) {\n"
+        . "            \$fields[\$field]  = (string) get_post_meta(\$post_id, \$key, true);\n"
+        . "            \$sources[\$field] = '' === \$fields[\$field] ? 'absent' : 'override';\n"
+        . "        }\n"
+        . "\n"
+        . "        if (self::twitter_mirrors_og(\$active, \$post_id)) {\n"
+        . "            foreach (self::TWITTER_OG_FALLBACKS as \$twitter => \$og) {\n"
+        . "                if ('' === \$fields[\$twitter] && '' !== \$fields[\$og]) {\n"
+        . "                    \$fields[\$twitter]  = \$fields[\$og];\n"
+        . "                    \$sources[\$twitter] = 'inherited';\n"
+        . "                }\n"
+        . "            }\n"
+        . "        }\n"
+        . "\n"
+        . "        return [\n"
+        . "            'supported' => true,\n"
+        . "            'plugin'    => \$active,\n"
+        . "            'fields'    => \$fields,\n"
+        . "            'sources'   => \$sources,\n"
+        . "        ];\n"
+        . "    }\n"
+        . "\n"
+        . "    /**\n"
+        . "     * Whether the active plugin renders the Twitter card from the OpenGraph\n"
+        . "     * fields when the Twitter ones are empty.\n"
+        . "     *\n"
+        . "     * Yoast and SEOPress always do. RankMath makes it a per-post switch,\n"
+        . "     * `rank_math_twitter_use_facebook`, stored as 'on'/'off' and defaulting\n"
+        . "     * to on: an unset value means the mirror is active, which is the state of\n"
+        . "     * every post on a stock install, so an absent meta must read as true.\n"
+        . "     */\n"
+        . "    private static function twitter_mirrors_og(string \$active, int \$post_id): bool\n"
+        . "    {\n"
+        . "        if ('rankmath' !== \$active) {\n"
+        . "            return true;\n"
+        . "        }\n"
+        . "\n"
+        . "        \$flag = get_post_meta(\$post_id, 'rank_math_twitter_use_facebook', true);\n"
+        . "\n"
+        . "        return 'off' !== (string) \$flag;\n"
+        . "    }\n",
+        '',
+        1,
+    ],
+];
 
 $edits['src/Identity/Identity_Context.php'] = [
     [

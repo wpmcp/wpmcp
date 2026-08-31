@@ -85,6 +85,9 @@ use WPMCP\Tools\SEO\Get_SEO_Status;
 use WPMCP\Tools\SEO\Get_SEO_Meta;
 use WPMCP\Tools\SEO\Update_SEO_Meta;
 use WPMCP\Tools\SEO\SEO_Adapter;
+use WPMCP\Tools\SEO\Generate_Schema_Markup;
+use WPMCP\Tools\SEO\Schema_Generator;
+use WPMCP\Tools\SEO\Get_Social_Meta;
 use WPMCP\Tools\I18n\I18n_Adapter;
 use WPMCP\Tools\I18n\List_Languages;
 use WPMCP\Tools\I18n\Get_Post_Translations;
@@ -5969,16 +5972,23 @@ final class Plugin
     }
 
     /**
-     * Register the SEO tools as free-tier abilities.
+     * Register the SEO tool group. Mixed tiers since issue #67: the
+     * post-meta surface (get-seo-status, get-seo-meta, update-seo-meta) is
+     * free, and the generation and extended-vocabulary tools
+     * (generate-schema-markup, get-social-meta) declare tier 'pro', which the
+     * Registrar enforces centrally rather than each handler re-checking.
      *
      * get-seo-status is registered unconditionally: it must be reachable to
      * report "no SEO plugin active" at all, and it does not touch any
-     * plugin-specific postmeta so it has nothing to degrade. get-seo-meta and
-     * update-seo-meta are registered conditionally on SEO_Adapter detecting
-     * Yoast or RankMath, following the same conditional-registration pattern
-     * as the ACF tool group: neither plugin has a free/pro split of its own
-     * to key off, so plugin absence is the only signal, and skipping keeps
-     * these two out of the catalog on sites running neither plugin.
+     * plugin-specific postmeta so it has nothing to degrade.
+     * generate-schema-markup registers unconditionally for the same reason:
+     * it builds the graph from the post's own record, so it works on a site
+     * with no SEO plugin at all. get-seo-meta, update-seo-meta and
+     * get-social-meta are registered conditionally on SEO_Adapter detecting a
+     * supported plugin, following the same conditional-registration pattern
+     * as the ACF tool group: no supported plugin has a free/pro split of its
+     * own to key off, so plugin absence is the only signal, and skipping
+     * keeps these out of the catalog on sites running none of them.
      */
     private function register_seo_abilities(Registrar $registrar): void
     {
@@ -5998,12 +6008,67 @@ final class Plugin
             'read'
         ));
 
+        // Schema generation (issue #67): a proposal (read) tool that builds
+        // JSON-LD from the post's own record, so it is useful even with no
+        // SEO plugin active and registers unconditionally like get-seo-status.
+        $generate_schema = new Generate_Schema_Markup();
+
+        $registrar->register(new Ability(
+            'wpmcp/generate-schema-markup',
+            'pro',
+            'Generate schema.org JSON-LD for a post (Article, WebPage, LocalBusiness or Product) from its title, dates, author, excerpt or SEO description, featured image, permalink, and, for Product, its WooCommerce record. Proposal only: returns the encoded JSON-LD, writes nothing',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'     => [ 'type' => 'integer' ],
+                    'schema_type' => [
+                        'type' => 'string',
+                        // From SUPPORTED_TYPES on the generator itself: a
+                        // type added there must not stay undiscoverable, and
+                        // one removed must not stay advertised on a schema
+                        // that now throws. (No apostrophes in comments inside
+                        // a register() call: the wp.org strip scans the
+                        // statement text for quotes and one would unbalance
+                        // it.)
+                        'enum' => Schema_Generator::SUPPORTED_TYPES,
+                    ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$generate_schema, 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
+        ));
+
         if ('' === SEO_Adapter::active_plugin()) {
             return;
         }
 
         $get_seo_meta    = new Get_SEO_Meta();
         $update_seo_meta = new Update_SEO_Meta();
+
+        // Extended vocabulary (issue #67): per-post OG/Twitter reads in one
+        // neutral field set. Plugins whose social storage is not mapped yet
+        // answer with a structured "unsupported", never an error.
+        $get_social_meta = new Get_Social_Meta();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-social-meta',
+            'pro',
+            'Read a post\'s OpenGraph and Twitter card overrides (title, description, image) via the active SEO plugin\'s postmeta keys, in one neutral field set. Returns a structured unsupported response for plugins whose per-post social storage is not mapped',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$get_social_meta, 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
+        ));
 
         $registrar->register(new Ability(
             'wpmcp/get-seo-meta',
