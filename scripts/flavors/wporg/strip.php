@@ -139,22 +139,13 @@ $edits['src/MCP/Registrar.php'] = [
 ];
 
 // ------------------------------------------------------- snapshot retention
-// Guideline 5's quota clause. The cap becomes flat and unconditional, with a
-// filter so a site can raise it for free: nothing here is lifted by a payment.
-foreach (
-    [
-    'src/Safety/Safe_Mutation.php',
-    'src/Tools/Compose/Build_Page.php',
-    'src/Tools/Packages/Switch_Theme.php',
-    'src/Tools/Media/Media_Import_Snapshot.php',
-    // Reachable from the free build through List_Global_Classes, which stays:
-    // the read is free, only the write tools around it are the add-on.
-    'src/Tools/Elementor/Global_Classes_Store.php',
-    ] as $path
-) {
-    $edits[$path][] = ["use WPMCP\\Pro\\Gate;\n", '', 1];
-    $edits[$path][] = ['Snapshot_Store::prune(Gate::history_limit());', 'Snapshot_Store::prune(Snapshot_Store::history_limit());', 1];
-}
+// Guideline 5's quota clause is satisfied in source (issue #158): every call
+// site calls Snapshot_Store::prune(), which defaults to a flat cap with a
+// filter so a site can raise it for free. Nothing to rewrite here. Gate 3 in
+// scripts/build-wporg-release.sh is what keeps it that way: it fails the
+// build on any surviving `Pro\Gate`, `is_pro` or `Gate::` in the staged
+// src/ and root plugin file, so an upstream refactor that reintroduces a
+// paid predicate breaks the build loudly instead of shipping a gated zip.
 
 // ---------------------------------------------------------------- Build_Page
 // The Elementor dialect is not gated here, it is simply free.
@@ -382,27 +373,6 @@ $edits['src/Tools/Connect/List_Tool_Catalog.php'] = [
     ],
 ];
 
-// ------------------------------------------------------------- Snapshot_Store
-// The flat cap the four call sites above now read.
-$edits['src/Safety/Snapshot_Store.php'] = [
-    [
-        "    public static function prune(int \$keep): int\n",
-        "    /**\n"
-            . "     * How many snapshots a site keeps. One number for every install: no\n"
-            . "     * licence, no tier, nothing a payment changes. Filterable so a site\n"
-            . "     * that wants deeper history can have it for free, which is the\n"
-            . "     * difference guideline 5 draws between a product decision and a lock.\n"
-            . "     */\n"
-            . "    public static function history_limit(): int\n"
-            . "    {\n"
-            . "        \$limit = (int) apply_filters('wpmcp_snapshot_history_limit', self::DEFAULT_HISTORY_LIMIT);\n"
-            . "        return \$limit > 0 ? \$limit : self::DEFAULT_HISTORY_LIMIT;\n"
-            . "    }\n\n"
-            . "    public static function prune(int \$keep): int\n",
-        1,
-    ],
-];
-
 $failures = [];
 $applied = 0;
 
@@ -432,10 +402,20 @@ foreach ($edits as $relative => $file_edits) {
     file_put_contents($path, $contents);
 }
 
-/** DEFAULT_HISTORY_LIMIT has to exist for the new accessor to read it. */
+/**
+ * Snapshot retention (issue #158) is no longer rewritten here, so the check
+ * is a positive one: both halves of the flat cap have to be present in the
+ * staged source, the constant and the accessor that reads it. The absence of
+ * a paid predicate is gate 3's job in scripts/build-wporg-release.sh.
+ */
 $snapshot_store = $stage . '/src/Safety/Snapshot_Store.php';
-if (is_file($snapshot_store) && ! str_contains((string) file_get_contents($snapshot_store), 'DEFAULT_HISTORY_LIMIT =')) {
-    $failures[] = 'src/Safety/Snapshot_Store.php: DEFAULT_HISTORY_LIMIT is not declared in the source';
+if (is_file($snapshot_store)) {
+    $snapshot_source = (string) file_get_contents($snapshot_store);
+    foreach (['DEFAULT_HISTORY_LIMIT =', 'function history_limit()'] as $needle) {
+        if (! str_contains($snapshot_source, $needle)) {
+            $failures[] = sprintf('src/Safety/Snapshot_Store.php: %s is not present in the source', $needle);
+        }
+    }
 }
 
 /** Delete the pro-only method declarations from Plugin.php, docblock included. */

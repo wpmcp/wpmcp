@@ -383,7 +383,7 @@ class Build_Page
             'build-page',
             hash('sha256', (string) wp_json_encode($args))
         );
-        Snapshot_Store::prune(Gate::history_limit());
+        Snapshot_Store::prune();
     }
 
     /** Undo a partial build: delete everything created so far, newest first. */

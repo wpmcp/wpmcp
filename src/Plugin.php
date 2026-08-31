@@ -51,6 +51,7 @@ use WPMCP\Tools\Analysis\Fix_Link_Text;
 use WPMCP\Admin\Handshake_Settings_Page;
 use WPMCP\Admin\Connection_Page;
 use WPMCP\Admin\Announcements;
+use WPMCP\Admin\Snapshot_Retention_Notice;
 use WPMCP\Admin\Ability_Grid_Page;
 use WPMCP\Admin\Memory_Page;
 use WPMCP\Admin\Redirect_Suggestion_Controller;
@@ -509,6 +510,10 @@ final class Plugin
             // notices on wpmcp screens only, never site-wide. 24h transient
             // cache, per-user dismissal, silent on any cloud failure.
             Announcements::register();
+            // Snapshot retention (issue #158): an install that arrives with
+            // a deeper history than the flat cap keeps it until the owner
+            // decides, and this is the notice that asks.
+            Snapshot_Retention_Notice::register();
             // Compact tool-surface mode (issue #79): in compact mode the
             // adapter's advertised tools/list collapses to the meta-tools
             // plus connection basics. Exposure-only — registration and

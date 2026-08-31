@@ -5,7 +5,6 @@ namespace WPMCP\Tools\Packages;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Snapshot;
 use WPMCP\Safety\Snapshot_Store;
-use WPMCP\Pro\Gate;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -59,7 +58,7 @@ class Switch_Theme
             );
             $operation_ids[] = $operation_id;
         }
-        Snapshot_Store::prune(Gate::history_limit());
+        Snapshot_Store::prune();
 
         switch_theme($stylesheet);
 
