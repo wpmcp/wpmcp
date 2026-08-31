@@ -307,4 +307,103 @@ class AtomicElementsTest extends Structural_Harness
         $this->assertInstanceOf(\WP_Error::class, $out);
         $this->assertSame('element_not_found', $out->get_error_code());
     }
+
+    // ---- the styles blob must not break the classic verifier ----------------
+
+    /**
+     * A page can hold an atomic element with a non-empty `styles` blob next to
+     * classic (v3) elements, and the classic tools verify their writes with the
+     * same Element_Tree::normalize() the atomic write path uses.
+     *
+     * Those classic tools persist through Document::save(), which drops atomic
+     * data when the Editor-V4 experiment is off, so if normalize() compared
+     * `styles` on that path every classic edit to such a page would verify
+     * false and roll the whole page back with mutation_failed. normalize()
+     * therefore carries `styles` only when asked, and only the raw atomic write
+     * asks: this test is the regression guard for that decision.
+     */
+    public function test_a_classic_widget_update_survives_an_atomic_sibling_with_styles(): void
+    {
+        $post_id = $this->make_page([
+            [
+                'id'       => 'cont001',
+                'elType'   => 'container',
+                'settings' => ['flex_direction' => 'column'],
+                'elements' => [
+                    [
+                        'id'         => 'wid0001',
+                        'elType'     => 'widget',
+                        'settings'   => ['title' => 'Hello'],
+                        'elements'   => [],
+                        'widgetType' => 'heading',
+                    ],
+                ],
+                'isInner'  => false,
+            ],
+            [
+                'id'       => 'flex001',
+                'elType'   => 'e-flexbox',
+                'settings' => [
+                    'classes' => ['$$type' => 'classes', 'value' => ['e-flex001-abcdef0']],
+                ],
+                'elements' => [],
+                'styles'   => [
+                    'e-flex001-abcdef0' => [
+                        'id'       => 'e-flex001-abcdef0',
+                        'type'     => 'class',
+                        'label'    => 'local',
+                        'variants' => [
+                            [
+                                'meta'  => ['breakpoint' => 'desktop', 'state' => null],
+                                'props' => ['color' => ['$$type' => 'color', 'value' => '#111111']],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $out = (new \WPMCP\Tools\Elementor\Update_Widget())->handle([
+            'post_id'       => $post_id,
+            'expected_hash' => $this->data_hash($post_id),
+            'element_id'    => 'wid0001',
+            'params'        => ['title' => 'Renamed'],
+        ]);
+
+        $this->assertIsArray($out, 'A classic update on a page holding an atomic styles blob must not fail verification.');
+        $this->assertSame('Renamed', $this->find_in($this->tree($post_id), 'wid0001')['settings']['title']);
+    }
+
+    /**
+     * The opt-in itself, pinned directly: the default comparison shape ignores
+     * `styles` and the atomic write path's shape carries it. Without this, a
+     * later "just always compare styles" simplification would look harmless.
+     */
+    public function test_normalize_carries_styles_only_when_asked(): void
+    {
+        $tree = [[
+            'id'       => 'flex001',
+            'elType'   => 'e-flexbox',
+            'settings' => [],
+            'elements' => [],
+            'styles'   => ['e-flex001-abcdef0' => ['id' => 'e-flex001-abcdef0', 'type' => 'class', 'variants' => []]],
+        ]];
+
+        $this->assertArrayNotHasKey('styles', \WPMCP\Tools\Elementor\Element_Tree::normalize($tree)[0]);
+        $this->assertArrayHasKey('styles', \WPMCP\Tools\Elementor\Element_Tree::normalize($tree, true)[0]);
+    }
+
+    /** An empty blob is not a difference, so classic elements keep their shape. */
+    public function test_normalize_ignores_an_empty_styles_blob_even_when_asked(): void
+    {
+        $tree = [[
+            'id'       => 'flex001',
+            'elType'   => 'e-flexbox',
+            'settings' => [],
+            'elements' => [],
+            'styles'   => [],
+        ]];
+
+        $this->assertArrayNotHasKey('styles', \WPMCP\Tools\Elementor\Element_Tree::normalize($tree, true)[0]);
+    }
 }

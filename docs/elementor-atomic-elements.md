@@ -115,3 +115,9 @@ when the Editor-V4 experiment is off, so `Element_Tree::normalize()` leaves
 `styles` out of the comparison by default. Only `Atomic_Element::write()` opts
 in. Otherwise a classic edit to a page containing an atomic element would roll
 the whole page back.
+
+That opt-in is pinned by
+`tests/pro/Elementor/AtomicElementsTest::test_a_classic_widget_update_survives_an_atomic_sibling_with_styles`,
+which runs update-widget on a page holding an atomic element with a non-empty
+`styles` blob: with the comparison made unconditional the classic write fails
+verification and the page is rolled back, so the guard has teeth.
