@@ -47,7 +47,10 @@ class Assign_Menu_To_Location
             throw new \RuntimeException('Menu not found.');
         }
 
-        $option_name = 'theme_mods_' . get_stylesheet();
+        // set_theme_mod()/get_theme_mods() key this option off the UNFILTERED
+        // get_option('stylesheet'), not the filtered get_stylesheet(), so the
+        // snapshot must name the same option the write lands on.
+        $option_name = 'theme_mods_' . get_option('stylesheet');
 
         $out = Safe_Mutation::run(
             [

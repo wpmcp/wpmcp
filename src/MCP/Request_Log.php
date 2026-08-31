@@ -61,6 +61,7 @@ class Request_Log
         'credential',
         'cookie',
         'signature',
+        'licen',
     ];
 
     private static ?int $clock_override = null;
@@ -178,7 +179,7 @@ class Request_Log
         return $out;
     }
 
-    private static function is_secret_key(string $key): bool
+    public static function is_secret_key(string $key): bool
     {
         $key = strtolower($key);
         foreach (self::SECRET_KEY_PARTS as $part) {
