@@ -152,7 +152,8 @@ class Rollback_Service
         // together is the only correct undo: putting the whole option back
         // would revert every other widget compiled since, and putting the old
         // hash back against the new bytes would leave the widget inert.
-        if (! empty($snapshot['data']['compiled_widget']) && is_array($snapshot['data']['compiled_widget'])
+        if (
+            ! empty($snapshot['data']['compiled_widget']) && is_array($snapshot['data']['compiled_widget'])
             && class_exists('\\WPMCP\\Tools\\WidgetBuilder\\Compiler\\Compiled_Widget_Manifest')
         ) {
             \WPMCP\Tools\WidgetBuilder\Compiler\Compiled_Widget_Manifest::restore(

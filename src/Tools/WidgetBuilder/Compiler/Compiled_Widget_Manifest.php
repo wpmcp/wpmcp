@@ -203,7 +203,8 @@ class Compiled_Widget_Manifest
         // already declared (or let two entries share one class name), and the
         // loader would then register that pre-existing class as the widget.
         $class = isset($entry['class']) && is_string($entry['class']) ? $entry['class'] : '';
-        if (1 !== preg_match('/^WPMCP_Compiled_Widget_(\d+)_[A-Za-z0-9_]+$/', $class, $m)
+        if (
+            1 !== preg_match('/^WPMCP_Compiled_Widget_(\d+)_[A-Za-z0-9_]+$/', $class, $m)
             || (int) $m[1] !== $spec_id
         ) {
             return null;
