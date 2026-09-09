@@ -94,6 +94,66 @@ class EdgeCasesTest extends Compliance_Test_Case
         $this->assert_reports($licensing, 'the Freemius SDK is vendored into this tree');
     }
 
+    /**
+     * The Freemius loop is a named-SDK probe. Plugin_Updater_Check has no
+     * vendor carve-out at all, so an extracted zip has to be scanned whole:
+     * any dependency's updater is an error, not only the licensing SDK's.
+     */
+    public function test_a_non_freemius_vendor_updater_is_an_error_in_an_artifact_scan(): void
+    {
+        $findings = $this->findings(new Updater_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'vendor/acme/sdk/updates.php' => "<?php\nadd_filter( 'site_transient_update_plugins', 'acme_inject' );\n",
+        ]);
+
+        $this->assert_reports($findings, 'site_transient_update_plugins');
+        $this->assert_reports($findings, 'no vendor carve-out');
+        $this->assertSame('vendor/acme/sdk/updates.php', $findings[0]->file());
+    }
+
+    public function test_a_vendored_plugin_update_checker_file_is_reported_in_an_artifact_scan(): void
+    {
+        $findings = $this->findings(new Updater_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'vendor/acme/puc/plugin-update-checker.php' => "<?php\nclass Checker {}\n",
+        ]);
+
+        $this->assert_reports($findings, 'plugin-update-checker.php must not ship');
+    }
+
+    /**
+     * Plugin_Updater_Check compiles its patterns with /i, and so does this
+     * rule, so a case variant is still an error at wordpress.org.
+     */
+    public function test_a_vendored_updater_marker_is_matched_case_insensitively(): void
+    {
+        $findings = $this->findings(new Updater_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'vendor/acme/sdk/updates.php' => "<?php\n// SITE_TRANSIENT_UPDATE_PLUGINS is still the same marker.\n",
+        ]);
+
+        $this->assert_reports($findings, 'SITE_TRANSIENT_UPDATE_PLUGINS');
+    }
+
+    /**
+     * A development checkout's vendor tree is full of dependencies that never
+     * ship, so the whole-vendor scan is artifact-only. The named-SDK probe
+     * still runs, because a vendored licensing SDK is a finding either way.
+     */
+    public function test_the_whole_vendor_scan_is_skipped_for_a_development_checkout(): void
+    {
+        $findings = $this->findings(
+            new Updater_Rule(),
+            [
+                'example-toolkit.php' => $this->main_file(),
+                'vendor/acme/sdk/updates.php' => "<?php\nadd_filter( 'site_transient_update_plugins', 'acme_inject' );\n",
+            ],
+            Profile::wporg_free()->with_options(['artifact' => false])
+        );
+
+        $this->assert_clean($findings);
+    }
+
     public function test_files_under_only_walks_the_directory_it_is_given(): void
     {
         $root = $this->make_plugin([

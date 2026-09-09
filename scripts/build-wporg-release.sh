@@ -135,12 +135,24 @@ for unwanted in tests test node_modules .github scripts; do
 done
 true
 
+# 6. No updater surface anywhere in what is about to be zipped, vendor/
+#    included. Gate 3 already fails on a surviving vendor/freemius or a
+#    composer.json that still requires the SDK, so for Freemius this is
+#    belt and braces; what it adds is coverage of any *other* dependency
+#    that ships an updater, which nothing upstream of here would notice.
+#    The pattern list is Updater_Rule::UPDATER_PATTERNS, read at run time so
+#    the gate and the compliance engine cannot drift; the Update URI header
+#    arm of the same rule is covered by gate 7. Runs after the packaging
+#    prune, so the tree it scans is the zip's contents.
+bash "$ROOT/scripts/lib/updater-gate.sh" "$STAGE" \
+  || fail "an updater surface survived into the $SLUG build"
+
 mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
 rm -f "$ZIP"
 (cd "$STAGE_PARENT" && zip -rq "$ZIP" "$SLUG" -x "*.DS_Store")
 
-# 6. The compliance engine, in the profile that models the directory, run
+# 7. The compliance engine, in the profile that models the directory, run
 #    against the extracted zip rather than the checkout. This is the check
 #    that decides whether the artifact is submittable.
 BUILD_DIR="$ROOT/build/wporg"
