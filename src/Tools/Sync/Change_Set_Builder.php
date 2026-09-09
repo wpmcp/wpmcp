@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Sync;
 
+use WPMCP\Pro\Gate;
 use WPMCP\Safety\Snapshot_Store;
 
 if (! defined('ABSPATH')) {
@@ -23,8 +24,8 @@ if (! defined('ABSPATH')) {
  * Three things this builder is deliberately careful about, because a change
  * set that lies is worse than no change set at all:
  *
- * 1. Truncation. Safe_Mutation prunes the ledger to the licence's history
- *    limit after every write (20 rows on free), so a long build session's
+ * 1. Truncation. Safe_Mutation prunes the ledger to the site's history
+ *    limit after every write (20 rows by default), so a long build session's
  *    earliest rows may already be gone. The builder compares the marker
  *    against the surviving floor and reports `truncated` rather than
  *    handing back a silently partial set.
@@ -177,8 +178,8 @@ class Change_Set_Builder
     /**
      * Is this change set provably incomplete?
      *
-     * Safe_Mutation::run() calls Snapshot_Store::prune(Gate::history_limit())
-     * after every mutation, and the free tier keeps 20 rows, so a build
+     * Safe_Mutation::run() prunes the ledger to the history limit after
+     * every mutation, and the default limit is 20 rows, so a build
      * session with more mutations than that has already lost its earliest
      * ledger rows by the time anyone asks for a change set. A partial set
      * pushed to production as if it were complete is precisely the failure
@@ -192,7 +193,7 @@ class Change_Set_Builder
         $floor  = Snapshot_Store::min_id();
         $reason = null;
 
-        if (isset($marker['session_id']) && Snapshot_Store::row_count() >= \WPMCP\Pro\Gate::history_limit()) {
+        if (isset($marker['session_id']) && Snapshot_Store::row_count() >= Gate::history_limit()) {
             // A session marker is bounded by session_id, not by id, so there
             // is no way to know how many of its rows once existed. What IS
             // knowable is that the ledger is sitting at its retention cap,

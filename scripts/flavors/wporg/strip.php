@@ -156,6 +156,13 @@ foreach (
     $edits[$path][] = ['Snapshot_Store::prune(Gate::history_limit());', 'Snapshot_Store::prune(Snapshot_Store::history_limit());', 1];
 }
 
+// The change-set builder (issue #192) reads the same cap to report ledger
+// truncation honestly. Same flat number, same accessor, no tier in it.
+$edits['src/Tools/Sync/Change_Set_Builder.php'] = [
+    ["use WPMCP\\Pro\\Gate;\n", '', 1],
+    ['Snapshot_Store::row_count() >= Gate::history_limit()', 'Snapshot_Store::row_count() >= Snapshot_Store::history_limit()', 1],
+];
+
 // ---------------------------------------------------------------- Build_Page
 // The Elementor dialect is not gated here, it is simply free.
 $edits['src/Tools/Compose/Build_Page.php'][] = [
