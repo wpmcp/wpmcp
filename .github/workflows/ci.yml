@@ -97,13 +97,11 @@ jobs:
   # dependency surface is covered by the compliance engine's packaging rules,
   # not by this job.
   #
-  # Still advisory (continue-on-error) until the first run's findings are
-  # triaged into an explicit ignore-codes baseline, in the same way the
-  # compliance job above was only flipped to a hard gate once main was known
-  # green in both profiles.
+  # Hard gate. The first run's findings were triaged into the explicit
+  # ignore-codes baseline below, the same way the compliance job above was
+  # only flipped to a hard gate once main was known green in both profiles.
   plugin-check:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v5
       - uses: shivammathur/setup-php@v2
@@ -121,6 +119,14 @@ jobs:
         uses: wordpress/plugin-check-action@v1
         with:
           build-dir: ./build/wporg/wpmcp
-          # TODO(#185): triage the first run and record the pre-existing
-          # findings as an explicit ignore-codes baseline here, then drop
-          # continue-on-error so this becomes a hard gate.
+          # Pre-existing findings from the first triaged run (#185), carried
+          # as an explicit baseline so the job is a hard gate for everything
+          # else. The WordPressCS codes are also counted per sniff in
+          # .phpcs-baseline.json, so `composer lint:wpcs` ratchets them down;
+          # remove a code from this list once its count reaches zero.
+          # Single line, no spaces: the action splits this value unquoted.
+          #   EscapeOutput.ExceptionNotEscaped   178 sites, messages never echoed
+          #   PreparedSQL.NotPrepared             26 sites, identifier interpolation
+          #   DirectDB.UnescapedDBParameter       11 sites, the same queries
+          #   SuppressFilters                      2 sites, Memory_Store get_posts()
+          ignore-codes: WordPress.Security.EscapeOutput.ExceptionNotEscaped,WordPress.DB.PreparedSQL.NotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters

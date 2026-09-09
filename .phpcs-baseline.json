@@ -19,13 +19,10 @@
         "WordPress.PHP.IniSet.display_errors_Disallowed": 1,
         "WordPress.PHP.NoSilencedErrors.Discouraged": 19,
         "WordPress.Security.EscapeOutput.ExceptionNotEscaped": 180,
-        "WordPress.Security.EscapeOutput.OutputNotEscaped": 1,
         "WordPress.Security.NonceVerification.Recommended": 7,
         "WordPress.Security.ValidatedSanitizedInput.InputNotSanitized": 11,
         "WordPress.Security.ValidatedSanitizedInput.MissingUnslash": 4,
         "WordPress.WP.AlternativeFunctions.curl_curl_setopt": 1,
-        "WordPress.WP.AlternativeFunctions.file_system_operations_fclose": 3,
-        "WordPress.WP.I18n.MissingTranslatorsComment": 3,
-        "WordPress.WP.I18n.NonSingularStringLiteralText": 1
+        "WordPress.WP.AlternativeFunctions.file_system_operations_fclose": 3
     }
 }
