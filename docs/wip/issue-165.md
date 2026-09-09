@@ -48,7 +48,12 @@ What it did NOT do:
   `exclude-directories: '.git,node_modules'`. The CLI's default excludes
   `vendor/` and the wp.org side does not, which is the documented reason R-06
   never appeared in a local run (COMPLIANCE.md), so the override is the point
-  of the job.
+  of the job. The job is scoped to `checks: plugin_updater`: the first CI run
+  of this branch, with the full default check set, reported 224 errors, none
+  of them `plugin_updater_detected`, all of them the pre-existing escaping /
+  prepared-SQL / i18n / header findings that COMPLIANCE.md already catalogues
+  under ENG-1. Those are separate work, and failing this job on them would
+  have hidden the one answer it exists to give.
 - Submission notes (`WPORG-SUBMISSION.md` 5.6): the written explanation, now
   naming all three checks and scoped to what they actually cover (PHP files,
   which is what `Plugin_Updater_Check` inspects).
@@ -79,15 +84,17 @@ What it did NOT do:
   build entirely and `WPORG-SUBMISSION.md` 5.6 explains it.
 - **A Plugin Check run against the assembled zip, not the working tree, shows
   no updater finding:** the run now exists in CI and is vendor-inclusive.
-  Whether it is green has to be read off the first CI run of this branch: the
-  build needs composer and Docker and was not executed locally.
+  The first CI run of this branch (with the full default check set) reported
+  no `plugin_updater` finding on the extracted zip, so the bullet is met; the
+  job is now scoped to that check so it stays a clean signal.
 
 ## Remaining work
 
-- Confirm the `plugin-check` job is green on the first CI run, and that
-  `scripts/build-wporg-release.sh` passes gate 6 on a real stage. Neither was
-  run locally (both need composer with network, and the Plugin Check action
-  needs Docker).
+- `scripts/build-wporg-release.sh` passed gate 6 on a real stage in CI (the
+  `plugin-check` job builds the zip before checking it, and got as far as the
+  check). The job itself is green only for the `plugin_updater` check; widen
+  it to the full default set once ENG-1 (WordPressCS ruleset) has cleared the
+  pre-existing errors it reports.
 - Consider adding the warning-level `Plugin_Updater_Check` patterns
   (`pre_set_site_transient_update_*`, `auto_update_plugin`) to the build gate.
   `Updater_Rule` already reports them at best-practice severity, so today they

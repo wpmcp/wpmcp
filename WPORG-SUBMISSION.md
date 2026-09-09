@@ -259,10 +259,10 @@ independent things assert this rather than one:
 * The compliance engine then re-runs that rule against the extracted zip. For
   an artifact scan it covers `vendor/` as well, which it deliberately skips
   for a development checkout.
-* CI runs WordPress's own Plugin Check against the same extracted zip with
-  `--exclude-directories=.git,node_modules`. The CLI excludes `vendor/` by
-  default and the directory does not, so the override is what makes that run
-  match what a reviewer sees.
+* CI runs WordPress's own Plugin Check (`plugin_updater` check) against the
+  same extracted zip with `--exclude-directories=.git,node_modules`. The CLI
+  excludes `vendor/` by default and the directory does not, so the override
+  is what makes that run match what a reviewer sees.
 
 ### 5.7 "You have a `vendor/` directory."
 
