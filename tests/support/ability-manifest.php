@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 304,
-    'free'      => 213,
+    'total'     => 307,
+    'free'      => 216,
     'pro'       => 91,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -100,6 +100,7 @@ return [
         'wpmcp/edit-comment' => 'free',
         'wpmcp/edit-file' => 'free',
         'wpmcp/enable-maintenance' => 'free',
+        'wpmcp/execute-site-ability' => 'free',
         'wpmcp/export-content' => 'free',
         'wpmcp/export-page' => 'pro',
         'wpmcp/extract-content' => 'pro',
@@ -154,6 +155,7 @@ return [
         'wpmcp/get-seo-meta' => 'free',
         'wpmcp/get-seo-status' => 'free',
         'wpmcp/get-settings' => 'free',
+        'wpmcp/get-site-ability' => 'free',
         'wpmcp/get-site-context' => 'free',
         'wpmcp/get-skill' => 'free',
         'wpmcp/get-term' => 'free',
@@ -214,6 +216,7 @@ return [
         'wpmcp/list-shortcodes' => 'free',
         'wpmcp/list-sidebar-widgets' => 'free',
         'wpmcp/list-sidebars' => 'free',
+        'wpmcp/list-site-abilities' => 'free',
         'wpmcp/list-skills' => 'free',
         'wpmcp/list-tables' => 'free',
         'wpmcp/list-taxonomies' => 'free',
