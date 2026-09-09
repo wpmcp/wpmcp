@@ -114,6 +114,12 @@ final class Profile
                     'src/Tools/Code/Php_Snippet_Runner.php' => ['eval'],
                     'src/Tools/Cli/Wp_Cli_Executor.php' => ['proc_open'],
                 ],
+                // Copy that tells the user a shipped feature is paid is the
+                // user-facing face of the gating WPORG-05-TRIALWARE is
+                // downgraded to above; it cannot outrank the gate it
+                // describes. The admin-notice half of WPORG-11 is guideline
+                // 11 and keeps its severity.
+                'pay_to_unlock_copy' => Severity::BEST_PRACTICE,
             ]
         );
     }
@@ -166,6 +172,16 @@ final class Profile
         $allowlist = (array) $this->option('exec_allowlist', []);
         $allowed = $allowlist[$relative_path] ?? [];
         return in_array(strtolower($construct), array_map('strtolower', (array) $allowed), true);
+    }
+
+    /**
+     * Severity for copy that tells the user to pay for a feature already in
+     * the zip, or null to leave it at the owning rule's default.
+     */
+    public function pay_to_unlock_copy_severity(): ?string
+    {
+        $severity = $this->option('pay_to_unlock_copy');
+        return is_string($severity) ? $severity : null;
     }
 
     /**
