@@ -93,9 +93,16 @@ class ChatRestControllerTest extends \WP_UnitTestCase
 
     public function test_registers_key_and_message_routes_but_no_approval_minting_route(): void
     {
-        $server = rest_get_server();
-        $this->controller->register_routes();
-        $routes = $server->get_routes();
+        // register_rest_route() is only valid inside rest_api_init (WordPress
+        // raises a _doing_it_wrong notice otherwise, which WP_UnitTestCase
+        // turns into a failure), so register through the action exactly as
+        // the plugin wiring in Plugin.php does.
+        global $wp_rest_server;
+        $wp_rest_server = new \WP_REST_Server();
+        add_action('rest_api_init', [$this->controller, 'register_routes']);
+        do_action('rest_api_init', $wp_rest_server);
+        remove_action('rest_api_init', [$this->controller, 'register_routes']);
+        $routes = $wp_rest_server->get_routes();
 
         $this->assertArrayHasKey('/wpmcp/v1/chat/key', $routes);
         $this->assertArrayHasKey('/wpmcp/v1/chat/message', $routes);
