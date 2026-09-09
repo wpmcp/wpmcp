@@ -24,7 +24,11 @@
  * autoloader exists.
  */
 
-if (! defined('ABSPATH') && ! defined('WPMCP_TESTING')) {
+// Plugin Check's Direct_File_Access_Check only accepts the bare defined()
+// test; an extra conjunct makes it report the file as unprotected. The test
+// bootstrap runs inside the WP test lib, which defines ABSPATH, so the guard
+// needs no test escape hatch (same as src/Plugin.php).
+if (! defined('ABSPATH')) {
     exit;
 }
 
