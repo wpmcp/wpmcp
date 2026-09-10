@@ -49,6 +49,8 @@ class BootstrapTest extends \WP_UnitTestCase
         // so without override_exact every wpmcp submenu (History, Audit Log,
         // Handshake, Connection, Abilities, Redirects, Skills, Memory) would
         // disappear from every admin screen until someone opts in or skips.
+        // With it, only the activation URL (admin.php?page=wpmcp, the History
+        // page) is swapped for the connect screen; the rest stay reachable.
         $config = Bootstrap::config();
 
         $this->assertSame('wpmcp', $config['menu']['slug']);

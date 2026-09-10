@@ -219,13 +219,13 @@ Discovery is deliberately cheap: `list-skills` returns slug, name, a one-line de
 
 The free plugin (this repo) is fully functional: the safety engine, Gutenberg editing, one-click rollback, and the last 20 operations of history.
 
-Pro (planned, via [Freemius](https://freemius.com/)) will add unlimited history and session rollback, Elementor deep editing, change previews, and priority support. The Pro gate (`WPMCP\Pro\Gate`) and Freemius bootstrap are wired from day one; the plugin degrades gracefully when the Pro SDK is absent.
+Pro (via [Freemius](https://freemius.com/)) adds unlimited history and session rollback, Elementor deep editing, change previews, and priority support. The Pro gate (`WPMCP\Pro\Gate`) and Freemius bootstrap are wired; the plugin degrades gracefully when the Pro SDK is absent.
 
-Freemius consent is an explicit, default-off opt-in: `anonymous_mode` is `false` (see `WPMCP\Freemius\Bootstrap::config()`), so the SDK ships its stock connect screen with the Skip link intact (`enable_anonymous` is pinned `true` for that reason), and nothing is sent until someone affirmatively opts in. Because the config nests Freemius under the plugin's own top-level `wpmcp` menu, `override_exact` is pinned `true` as well: without it the SDK's activation-mode takeover removes the whole wpmcp menu and its submenus on every admin screen until the opt-in is answered.
+Freemius consent is an explicit, default-off opt-in: `anonymous_mode` is `false` (see `WPMCP\Freemius\Bootstrap::config()`), so the SDK ships its stock connect screen with the Skip link intact (`enable_anonymous` is pinned `true` for that reason), and nothing is sent until someone affirmatively opts in. Because the config nests Freemius under the plugin's own top-level `wpmcp` menu, `override_exact` is pinned `true` as well: without it the SDK's activation-mode takeover removes the whole wpmcp menu and its submenus on every admin screen until the opt-in is answered. The activation URL is `admin.php?page=wpmcp`, the History page, so that one screen shows the connect page until the opt-in is answered or skipped; every other wpmcp submenu stays reachable meanwhile.
 
 This applies to the self-hosted zip only. The WordPress.org build carries no licensing SDK at all: `scripts/flavors/wporg/strip.php` removes `src/Freemius` and `scripts/build-wporg-release.sh` composer-removes `freemius/wordpress-sdk`, with build gates that fail if either survives.
 
-Going live on Pro requires two steps: register the plugin on freemius.com and fill `WPMCP_FS_ID` / `WPMCP_FS_PUBLIC_KEY` in `wpmcp.php`, then vendor the Freemius SDK at `vendor/freemius/start.php`.
+Credentials are already wired: `wpmcp.php` defines `WPMCP_FS_ID` and `WPMCP_FS_PUBLIC_KEY`, and the SDK arrives through composer (`freemius/wordpress-sdk`, found by `Bootstrap::locate_sdk()` at `vendor/freemius/wordpress-sdk/start.php`). The connect-screen icon is pinned to `assets/wpmcp-icon.svg`, so `scripts/build-release.sh` stages `assets/` alongside `src/` and fails the build if any `assets/` path referenced from `src/` is missing from the zip.
 
 ## Roadmap
 

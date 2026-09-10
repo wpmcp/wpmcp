@@ -89,9 +89,12 @@ class Bootstrap
                 // remove_all_submenu_items(). Freemius hooks admin_menu at
                 // WP_FS__LOWEST_PRIORITY, after our priority-10 registration,
                 // so the takeover always wins. override_exact confines it to
-                // the activation URL, leaving History, Audit Log, Handshake,
-                // Connection, Abilities, Redirects, Skills and Memory reachable
-                // while the opt-in is still pending.
+                // the activation URL. That URL is admin.php?page=wpmcp, which
+                // is the History page (the top-level entry and its first
+                // submenu), so History is the one screen the connect page
+                // replaces until the opt-in is answered or skipped. Audit Log,
+                // Handshake, Connection, Abilities, Redirects, Skills and
+                // Memory stay reachable from every admin screen meanwhile.
                 'override_exact' => true,
             ],
         ];
@@ -192,7 +195,8 @@ class Bootstrap
 
         wpmcp_fs();
 
-        // Pin the connect-screen icon to a shipped asset. Left unset, the SDK's
+        // Pin the connect-screen icon to a shipped asset (scripts/build-release.sh
+        // stages assets/ and gates on this path). Left unset, the SDK's
         // get_local_icon_url() finds no local icon, and on localhost installs
         // falls through to fetch_remote_icon_url() (and plugins_api) while
         // rendering the opt-in screen: an outbound request made before the user
