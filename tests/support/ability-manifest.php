@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 307,
-    'free'      => 216,
+    'total'     => 308,
+    'free'      => 217,
     'pro'       => 91,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -255,6 +255,7 @@ return [
         'wpmcp/reorder-global-classes' => 'pro',
         'wpmcp/resize-media' => 'free',
         'wpmcp/restore-revision' => 'free',
+        'wpmcp/restore-site-backup' => 'free',
         'wpmcp/rollback-brand-kit' => 'pro',
         'wpmcp/rollback-operation' => 'free',
         'wpmcp/rollback-session' => 'free',

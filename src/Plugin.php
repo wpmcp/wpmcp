@@ -192,6 +192,7 @@ use WPMCP\Tools\Backup\Cancel_Backup_Job;
 use WPMCP\Tools\Backup\Run_Backup_Job;
 use WPMCP\Tools\Backup\Get_Backup_Manifest;
 use WPMCP\Tools\Backup\Delete_Backup_Archive;
+use WPMCP\Tools\Backup\Restore_Site_Backup;
 use WPMCP\Tools\Governance\Get_Governance_Settings;
 use WPMCP\Tools\Governance\Update_Governance_Settings;
 use WPMCP\Tools\Governance\List_Governance_Audit_Log;
@@ -3592,18 +3593,28 @@ final class Plugin
      * artifact and flips the job's status, so a backup on a large site does
      * not have to complete within a single MCP request/response cycle.
      *
-     * All four are gated at manage_options, matching Export's and Cron's
+     * All seven are gated at manage_options, matching Export's and Cron's
      * capability (both are comparable site-operations-level tool groups, and
      * this plugin's only precedent for a stronger, pro-tier gate is the
      * Elementor deep-editing tools specifically, not "heavy" operations in
-     * general). trigger-backup is 'create' (it creates a job record) and
+     * general). trigger-backup is 'create' (it creates a job record),
      * cancel-backup-job is 'update' (it transitions an existing job's
-     * status); get-backup-status and list-backup-jobs are 'read'.
+     * status), delete-backup-archive is 'delete'; get-backup-status,
+     * list-backup-jobs and get-backup-manifest are 'read'.
      *
      * The backup job itself only reads site data and writes a backup
      * artifact file plus the wpmcp_backup_jobs option: it never mutates user
-     * content, so none of these are routed through Safe_Mutation and none
-     * touch the safety core.
+     * content, so none of the job tools are routed through Safe_Mutation and
+     * none touch the safety core.
+     *
+     * restore-site-backup is the exception and is deliberately NOT routed
+     * through Safe_Mutation either: a whole-database replace is outside the
+     * per-object model Snapshot_Store captures, so a snapshot could not
+     * undo it. Its rollback mechanism is the pre-restore database safety
+     * archive the execution path takes before writing (issue #190). It is
+     * registered with destructive=true and dry_run defaulting to true; in
+     * this build only the dry_run compatibility report is implemented and
+     * a real restore is refused.
      */
     private function register_backup_abilities(Registrar $registrar): void
     {
@@ -3613,6 +3624,7 @@ final class Plugin
         $cancel_backup_job  = new Cancel_Backup_Job();
         $get_backup_manifest   = new Get_Backup_Manifest();
         $delete_backup_archive = new Delete_Backup_Archive();
+        $restore_site_backup   = new Restore_Site_Backup();
 
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
@@ -3711,6 +3723,27 @@ final class Plugin
             'manage_options',
             'backup',
             'delete'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/restore-site-backup',
+            'free',
+            'Compatibility check for restoring a site-backup archive (job_id or path) onto this site. dry_run defaults to TRUE and returns a report without touching anything: manifest format and format_version, archive scope (only all or database archives carry a dump), table prefix, multisite, WordPress version, BLOB-table warnings. This release implements only the dry_run report: dry_run=false runs the same gate and is then refused as not implemented (the execution path with pre-restore safety archive, maintenance mode and statement-by-statement import has not shipped). include_files (default false) is refused unless the archive scope is all. Paths outside the site-backup directory are refused',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'job_id'        => [ 'type' => 'integer' ],
+                    'path'          => [ 'type' => 'string' ],
+                    'include_files' => [ 'type' => 'boolean' ],
+                    'dry_run'       => [ 'type' => 'boolean' ],
+                ],
+            ],
+            [$restore_site_backup, 'handle'],
+            'manage_options',
+            'backup',
+            'update',
+            false,
+            true,
+            true
         ));
     }
 
