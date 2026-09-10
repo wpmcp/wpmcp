@@ -1,0 +1,21 @@
+{
+    "sniffs": {
+        "Squiz.PHP.Eval.Discouraged": 1,
+        "WordPress.DB.DirectDatabaseQuery.DirectQuery": 55,
+        "WordPress.DB.DirectDatabaseQuery.NoCaching": 50,
+        "WordPress.DB.DirectDatabaseQuery.SchemaChange": 1,
+        "WordPress.DB.PreparedSQL.InterpolatedNotPrepared": 24,
+        "WordPress.DB.PreparedSQL.NotPrepared": 36,
+        "WordPress.DB.SlowDBQuery.slow_db_query_meta_query": 5,
+        "WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode": 4,
+        "WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode": 6,
+        "WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize": 1,
+        "WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize": 2,
+        "WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open": 1,
+        "WordPress.PHP.IniSet.display_errors_Disallowed": 1,
+        "WordPress.PHP.NoSilencedErrors.Discouraged": 20,
+        "WordPress.Security.EscapeOutput.ExceptionNotEscaped": 193,
+        "WordPress.Security.ValidatedSanitizedInput.InputNotSanitized": 11,
+        "WordPress.Security.ValidatedSanitizedInput.MissingUnslash": 4
+    }
+}

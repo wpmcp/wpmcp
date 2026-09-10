@@ -33,9 +33,11 @@ class List_Operations
 
         $sql = "SELECT operation_id, session_id, tool_name, object_type, object_id, user_id, created_at "
             . "FROM {$table} {$where_sql} ORDER BY id DESC LIMIT %d";
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- identifiers come from the store, every value is bound by prepare() when there is one.
         $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge($params, [$limit])), ARRAY_A);
 
         $count_sql   = "SELECT COUNT(*) FROM {$table} {$where_sql}";
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- identifiers come from the store, every value is bound by prepare() when there is one.
         $total_count = $params ? (int) $wpdb->get_var($wpdb->prepare($count_sql, $params)) : (int) $wpdb->get_var($count_sql);
 
         $abilities_by_tool = $this->abilities_by_tool_name();
