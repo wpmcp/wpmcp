@@ -51,6 +51,25 @@ class ExportContentTest extends \WP_UnitTestCase
         return $handler;
     }
 
+    /**
+     * Install a handler that records every errstr it is given and claims the
+     * error. Stands in for a monitoring plugin's global handler installed
+     * before the tool runs; the caller must restore_error_handler() it.
+     *
+     * @return array{0: callable, 1: array<int, string>} handler and, by reference, the messages it saw
+     */
+    private function install_recording_handler(array &$seen): callable
+    {
+        $recorder = static function (int $errno, string $errstr) use (&$seen): bool {
+            $seen[] = $errstr;
+
+            return true;
+        };
+        set_error_handler($recorder);
+
+        return $recorder;
+    }
+
     private function minimal_wxr(string $title = 'Injected'): string
     {
         return "<?xml version=\"1.0\"?>\n<rss version=\"2.0\"><channel><item><title>{$title}</title></item></channel></rss>";
@@ -126,35 +145,160 @@ class ExportContentTest extends \WP_UnitTestCase
         );
     }
 
-    public function test_the_installed_handler_only_swallows_the_headers_already_sent_warning(): void
+    public function test_the_installed_handler_swallows_only_the_headers_warning_and_chains_the_rest(): void
     {
+        $seen     = [];
         $verdicts = [];
+        $recorder = $this->install_recording_handler($seen);
 
-        $out = (new Export_Content(function () use (&$verdicts): void {
-            $handler = $this->current_error_handler();
-            $this->assertIsCallable($handler);
+        try {
+            $out = (new Export_Content(function () use (&$verdicts): void {
+                $handler = $this->current_error_handler();
+                $this->assertIsCallable($handler);
 
-            // Call the installed handler directly rather than triggering real
-            // warnings: what matters is which errstr values it claims.
-            $verdicts['headers'] = $handler(
-                E_WARNING,
-                'Cannot modify header information - headers already sent by (output started at /x.php:1)',
-                '/x.php',
-                1
-            );
-            $verdicts['other'] = $handler(
-                E_WARNING,
-                'fopen(/nope/nope): Failed to open stream: No such file or directory',
-                '/x.php',
-                2
-            );
+                // Call the installed handler directly rather than triggering
+                // real warnings: what matters is which errstr values it
+                // claims itself and which it hands to the previous handler.
+                $verdicts['headers'] = $handler(
+                    E_WARNING,
+                    'Cannot modify header information - headers already sent by (output started at /x.php:1)',
+                    '/x.php',
+                    1
+                );
+                $verdicts['other'] = $handler(
+                    E_WARNING,
+                    'fopen(/nope/nope): Failed to open stream: No such file or directory',
+                    '/x.php',
+                    2
+                );
 
-            echo $this->minimal_wxr();
-        }))->handle([]);
-        $this->cleanup_files[] = $out['file'];
+                echo $this->minimal_wxr();
+            }))->handle([]);
+            $this->cleanup_files[] = $out['file'];
+        } finally {
+            $this->assertSame($recorder, $this->current_error_handler(), 'The pre-existing handler is not back on top after handle().');
+            restore_error_handler();
+        }
 
-        $this->assertTrue($verdicts['headers'], 'The headers-already-sent warning should be suppressed.');
-        $this->assertFalse($verdicts['other'], 'Unrelated warnings must fall through to PHP\'s normal handling.');
+        $this->assertTrue($verdicts['headers'], 'The headers-already-sent warning should be claimed by the suppressor.');
+        $this->assertTrue($verdicts['other'], 'The previous handler claimed the unrelated warning, so the suppressor must report it handled.');
+        $this->assertSame(
+            ['fopen(/nope/nope): Failed to open stream: No such file or directory'],
+            $seen,
+            'Only the unrelated warning may reach the previously installed handler.'
+        );
+    }
+
+    public function test_the_installed_handler_defers_to_php_when_there_was_no_previous_handler(): void
+    {
+        $verdict = null;
+
+        // A null frame on top means "no user handler": the suppressor is then
+        // installed with nothing to chain to and must return false so PHP's
+        // own handling and error log still see the warning.
+        set_error_handler(null);
+
+        try {
+            $out = (new Export_Content(function () use (&$verdict): void {
+                $verdict = ($this->current_error_handler())(E_WARNING, 'fopen(/nope): Failed to open stream', '/x.php', 1);
+                echo $this->minimal_wxr();
+            }))->handle([]);
+            $this->cleanup_files[] = $out['file'];
+        } finally {
+            $this->assertNull($this->current_error_handler(), 'The suppressor (or a stray handler) survived handle().');
+            restore_error_handler();
+        }
+
+        $this->assertFalse($verdict);
+    }
+
+    public function test_leaves_a_pre_existing_handler_installed_when_the_exporter_pops_one_frame_too_many(): void
+    {
+        $before_handler = $this->current_error_handler();
+        $seen           = [];
+        $recorder       = $this->install_recording_handler($seen);
+
+        try {
+            $out = (new Export_Content(function (): void {
+                // A hook that calls restore_error_handler() without having
+                // installed anything: this pops the suppressor itself. A
+                // blind unwind would then keep popping and strip the handler
+                // that was installed before the tool ran.
+                restore_error_handler();
+                echo $this->minimal_wxr();
+            }))->handle([]);
+            $this->cleanup_files[] = $out['file'];
+
+            $this->assertSame($recorder, $this->current_error_handler(), 'The pre-existing handler was popped by the unwind.');
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame($before_handler, $this->current_error_handler(), 'The stack beneath the pre-existing handler was disturbed.');
+    }
+
+    public function test_removes_its_own_handler_when_the_exporter_leaves_a_null_frame_on_top(): void
+    {
+        $before_handler = $this->current_error_handler();
+        $seen           = [];
+        $recorder       = $this->install_recording_handler($seen);
+
+        try {
+            $out = (new Export_Content(function (): void {
+                // set_error_handler(null) with no matching restore leaves a
+                // null frame above the suppressor; stopping at the first null
+                // would leave the suppressor live under it.
+                set_error_handler(null);
+                echo $this->minimal_wxr();
+            }))->handle([]);
+            $this->cleanup_files[] = $out['file'];
+
+            $this->assertSame($recorder, $this->current_error_handler(), 'The suppressor survived under the null frame.');
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame($before_handler, $this->current_error_handler());
+    }
+
+    /**
+     * @dataProvider provide_exporters_that_disturb_the_handler_stack
+     */
+    public function test_restores_the_stack_when_installed_over_a_null_frame(callable $misbehave): void
+    {
+        $before_handler = $this->current_error_handler();
+
+        // Installed over a null frame the suppressor's "previous" is null, so
+        // a null on top after the export is ambiguous (stack bottom, or a
+        // frame the exporter left). Both variants must leave the stack as it
+        // was: a null on top with the original handler beneath it.
+        set_error_handler(null);
+
+        try {
+            $out = (new Export_Content(function () use ($misbehave): void {
+                $misbehave();
+                echo $this->minimal_wxr();
+            }))->handle([]);
+            $this->cleanup_files[] = $out['file'];
+
+            $this->assertNull($this->current_error_handler(), 'The suppressor (or a stray handler) survived handle().');
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame($before_handler, $this->current_error_handler(), 'The handler beneath the null frame was popped.');
+    }
+
+    public function provide_exporters_that_disturb_the_handler_stack(): array
+    {
+        return [
+            'pops one frame too many'   => [static function (): void {
+                restore_error_handler();
+            }],
+            'leaves a null frame on top' => [static function (): void {
+                set_error_handler(null);
+            }],
+        ];
     }
 
     public function test_captures_its_own_buffer_when_the_exporter_leaves_a_nested_buffer_open(): void
@@ -176,6 +320,29 @@ class ExportContentTest extends \WP_UnitTestCase
         $this->assertStringNotContainsString('stray buffer content', $xml);
         $this->assertSame(1, $out['item_count']);
         $this->assertSame($before_level, ob_get_level());
+    }
+
+    public function test_throws_instead_of_capturing_the_callers_buffer_when_the_exporter_closes_its_own(): void
+    {
+        $before_level = ob_get_level();
+        $dir_before   = glob(trailingslashit(\WPMCP\Tools\Export\Export_Dir::path()) . 'wpmcp-export-*.xml') ?: [];
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('closed an output buffer it did not open');
+
+        try {
+            (new Export_Content(function (): void {
+                echo $this->minimal_wxr();
+                // A hook that closes a buffer it did not open: this is the
+                // tool's capture buffer. An unchecked ob_get_clean() would
+                // then consume the caller's buffer as the export payload.
+                ob_end_clean();
+            }))->handle([]);
+        } finally {
+            $this->assertSame($before_level, ob_get_level(), 'The caller\'s buffer was consumed.');
+            $dir_after = glob(trailingslashit(\WPMCP\Tools\Export\Export_Dir::path()) . 'wpmcp-export-*.xml') ?: [];
+            $this->assertSame(count($dir_before), count($dir_after), 'An export file was written anyway.');
+        }
     }
 
     public function test_throws_instead_of_writing_a_file_when_the_export_produces_no_xml(): void
@@ -207,19 +374,38 @@ class ExportContentTest extends \WP_UnitTestCase
         }))->handle([]);
     }
 
-    public function test_leaves_response_headers_as_they_were_before_the_export(): void
+    public function test_claims_the_headers_already_sent_warning_from_export_wps_own_header_calls(): void
     {
-        $before = headers_list();
+        // The header snapshot/restore branch is only observable under a SAPI
+        // that records headers; the CLI SAPI does not (headers_list() is
+        // always empty there), so it is verified against a REST dispatch, not
+        // here. What the CLI does exercise is the other half: once output has
+        // been flushed, header() raises the exact warning the suppressor
+        // exists to claim, and nothing else may see it.
+        if (! headers_sent()) {
+            $this->markTestSkipped('header() only warns after output has been flushed; nothing to observe under this SAPI.');
+        }
 
-        $out = (new Export_Content(function (): void {
-            // export_wp() unconditionally sends these two.
-            header('Content-Type: text/xml; charset=UTF-8');
-            header('Content-Disposition: attachment; filename=wp-export.xml');
-            echo $this->minimal_wxr();
-        }))->handle([]);
-        $this->cleanup_files[] = $out['file'];
+        $seen     = [];
+        $recorder = $this->install_recording_handler($seen);
 
-        $this->assertSame($before, headers_list(), 'export_wp() headers leaked onto the response.');
+        try {
+            $out = (new Export_Content(function (): void {
+                // export_wp() unconditionally sends these two.
+                header('Content-Type: text/xml; charset=UTF-8');
+                header('Content-Disposition: attachment; filename=wp-export.xml');
+                echo $this->minimal_wxr();
+            }))->handle([]);
+            $this->cleanup_files[] = $out['file'];
+        } finally {
+            restore_error_handler();
+        }
+
+        $xml = file_get_contents($out['file']);
+        $this->assertStringNotContainsString('Cannot modify header information', $xml, 'The header warning was printed into the export.');
+        $this->assertStringNotContainsString('Warning', $xml);
+        $this->assertSame([], $seen, 'The header warning must be claimed by the suppressor, not chained to the previous handler.');
+        $this->assertSame($out['size'], strlen($this->minimal_wxr()));
     }
 
     public function test_the_injected_exporter_receives_the_sanitized_export_args(): void
