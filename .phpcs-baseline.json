@@ -7,8 +7,6 @@
         "WordPress.DB.PreparedSQL.InterpolatedNotPrepared": 24,
         "WordPress.DB.PreparedSQL.NotPrepared": 36,
         "WordPress.DB.SlowDBQuery.slow_db_query_meta_query": 5,
-        "WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound": 2,
-        "WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound": 6,
         "WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode": 4,
         "WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode": 6,
         "WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize": 1,
