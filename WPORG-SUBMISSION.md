@@ -119,6 +119,18 @@ start. "WP" itself trips a warning that Plugin Check's own source annotates
 "it's allowed, but shows a warning"; thousands of `wp-*` slugs exist and it is
 tolerated in practice.
 
+That exact string is the `Plugin Name` header and the readme title in both
+`scripts/flavors/wporg/wpmcp.php` / `readme.txt` (the files this zip is staged
+from) and the root `wpmcp.php` / `readme.txt` that the self-hosted zip ships,
+so the same install keeps its name whichever artifact it came from. The
+WooCommerce vertical deliberately carries its own name, `WP MCP for
+WooCommerce`, because it is a separate slug; the trailing "for WooCommerce" is
+the only form guideline 17 permits for that mark.
+`tests/free/Release/ReleaseHeadersTest.php` fails if any of the three pairs
+drifts apart or a name picks up a term `Trademark_Rule` rejects, and
+`scripts/build-woo-release.sh` runs that same rule over the pair it stages at
+build time.
+
 **Short description** (145 characters, plain text, no markup):
 
 ```

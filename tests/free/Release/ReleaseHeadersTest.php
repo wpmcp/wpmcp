@@ -2,7 +2,10 @@
 
 namespace WPMCP\Tests\Free\Release;
 
+use WPMCP\Compliance\Profile;
+use WPMCP\Compliance\Rule_Context;
 use WPMCP\Compliance\Rules\Trademark_Rule;
+use WPMCP\Compliance\Severity;
 
 /**
  * The compatibility headers that ship are spread over four files: the root
@@ -18,6 +21,13 @@ use WPMCP\Compliance\Rules\Trademark_Rule;
  * TESTED_UP_TO_FLOOR is the pin. Raise it when a WordPress major ships and the
  * smoke pass against it is recorded in docs/release-checklist.md; the run goes
  * red until every shipped header follows.
+ *
+ * The display name is gated here too (issue #168, findings B-19 and L-04).
+ * Each shipped readme has a loader beside it whose Plugin Name header must be
+ * byte-identical to the readme title, or Plugin Check reports
+ * mismatched_plugin_name against whichever zip it is handed, and neither may
+ * carry a restricted term other than in the trailing "for <mark>" form that
+ * guideline 17 permits.
  */
 class ReleaseHeadersTest extends \WP_UnitTestCase
 {
@@ -39,6 +49,26 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
     private const SHIPPED_LOADERS = [
         'scripts/flavors/wporg/wpmcp.php',
     ];
+
+    /**
+     * The loader whose Plugin Name header each shipped readme's title has to
+     * match, keyed by the readme. Keyed that way so this list and
+     * SHIPPED_READMES cannot describe different artifacts:
+     * test_every_shipped_readme_has_a_loader_in_the_name_gate holds the keys
+     * to SHIPPED_READMES.
+     */
+    private const SHIPPED_NAME_PAIRS = [
+        'readme.txt' => 'wpmcp.php',
+        'scripts/flavors/wporg/readme.txt' => 'scripts/flavors/wporg/wpmcp.php',
+        'scripts/flavors/woocommerce/readme.txt' => 'scripts/flavors/woocommerce/wpmcp-for-woocommerce.php',
+    ];
+
+    /**
+     * The two artifacts that install into the same wpmcp/ directory under the
+     * same text domain: the directory zip and the self-hosted zip. A divergent
+     * Plugin Name between them renames the plugin on update.
+     */
+    private const WPMCP_SLUG_LOADERS = ['wpmcp.php', 'scripts/flavors/wporg/wpmcp.php'];
 
     /**
      * Terms guideline 12 bars from a tag list on top of the vendor marks:
@@ -119,6 +149,47 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         $tags = array_map('trim', explode(',', strtolower($this->readme_header($relative, 'Tags'))));
 
         return array_values(array_filter($tags, static fn (string $tag): bool => '' !== $tag));
+    }
+
+    /** The `=== Title ===` line, which is the listing's display name. */
+    private function readme_title(string $relative): string
+    {
+        $block = $this->readme_header_block($relative);
+        $matched = preg_match('/^===\s*(.+?)\s*===\s*$/m', $block, $matches);
+        $this->assertSame(1, $matched, $relative . ' has no === title === line at the top of its header block');
+
+        return $matches[1];
+    }
+
+    /**
+     * Trademark_Rule run over a display name, on a two-file plugin tree that
+     * is otherwise clean, so the findings that come back are about the name.
+     * The tree carries the name as both the header and the readme title, the
+     * way the shipped pairs do once parity holds.
+     *
+     * @return \WPMCP\Compliance\Finding[]
+     */
+    private function trademark_findings_for_name(string $name): array
+    {
+        $root = rtrim(sys_get_temp_dir(), '/') . '/name-gate-' . bin2hex(random_bytes(6));
+        mkdir($root, 0777, true);
+        $slug = basename($root);
+        $main_file = $root . '/' . $slug . '.php';
+        $readme = $root . '/readme.txt';
+
+        file_put_contents(
+            $main_file,
+            "<?php\n/**\n * Plugin Name: {$name}\n * Version: 1.0.0\n * Text Domain: {$slug}\n */\n"
+        );
+        file_put_contents($readme, "=== {$name} ===\nStable tag: 1.0.0\n\nShort description.\n");
+
+        try {
+            return (new Trademark_Rule())->check(Rule_Context::for_path($root, Profile::wporg_free()));
+        } finally {
+            unlink($main_file);
+            unlink($readme);
+            rmdir($root);
+        }
     }
 
     private function loader_header(string $relative, string $header): string
@@ -239,6 +310,96 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
                 $readme . ' is a flavor readme the build can ship but SHIPPED_READMES does not gate it'
             );
         }
+    }
+
+    /**
+     * Every readme the header tests gate is also in the name gate, and vice
+     * versa, so a flavor added to one list cannot be forgotten by the other.
+     */
+    public function test_every_shipped_readme_has_a_loader_in_the_name_gate(): void
+    {
+        $this->assertSame(
+            self::SHIPPED_READMES,
+            array_keys(self::SHIPPED_NAME_PAIRS),
+            'SHIPPED_NAME_PAIRS must pair exactly the readmes SHIPPED_READMES lists, in the same order'
+        );
+    }
+
+    /**
+     * Plugin Check reads the Plugin Name header and the readme title of
+     * whichever zip it is handed and reports mismatched_plugin_name when they
+     * differ. Each of the three builds stages a different pair, so each pair
+     * has to agree with itself.
+     */
+    public function test_plugin_name_header_and_readme_title_are_byte_identical(): void
+    {
+        foreach (self::SHIPPED_NAME_PAIRS as $readme => $loader) {
+            $this->assertSame(
+                $this->loader_header($loader, 'Plugin Name'),
+                $this->readme_title($readme),
+                sprintf("Plugin Check reports mismatched_plugin_name when these differ:\n  %s\n  %s", $loader, $readme)
+            );
+        }
+    }
+
+    /**
+     * The leading "WP" is deliberate and tolerated: Plugin Check warns on it,
+     * and Trademark_Rule marks that finding best-practice (its
+     * severity_override(), which no profile promotes to blocker; the
+     * `distribution` profile that `composer compliance` runs prints it at
+     * reviewer-discretion). WPORG-SUBMISSION.md records it as an accepted
+     * cost. Anything the rule does not mark that way, "wordpress" included,
+     * is a hard Plugin Check failure and must not ship.
+     */
+    public function test_no_shipped_display_name_carries_a_restricted_term(): void
+    {
+        foreach (self::SHIPPED_NAME_PAIRS as $loader) {
+            $name = $this->loader_header($loader, 'Plugin Name');
+
+            $hard = [];
+            foreach ($this->trademark_findings_for_name($name) as $finding) {
+                if (Severity::BEST_PRACTICE !== $finding->severity_override()) {
+                    $hard[] = $finding->message();
+                }
+            }
+
+            $this->assertSame([], $hard, $loader . ' ships a display name Trademark_Rule rejects');
+            $this->assertStringNotContainsStringIgnoringCase('wordpress', $name, $loader);
+        }
+    }
+
+    public function test_the_two_wpmcp_slug_artifacts_share_one_display_name(): void
+    {
+        $names = [];
+        foreach (self::WPMCP_SLUG_LOADERS as $loader) {
+            $names[$loader] = $this->loader_header($loader, 'Plugin Name');
+        }
+
+        $this->assertCount(
+            1,
+            array_unique($names),
+            'the directory zip and the self-hosted zip install into the same wpmcp/ directory under the same '
+            . 'text domain, so a divergent Plugin Name renames the plugin on update: ' . wp_json_encode($names)
+        );
+    }
+
+    /**
+     * The name WPORG-SUBMISSION.md tells the submitter to paste into the form
+     * is read from its fenced block under "**Plugin name**", the same way the
+     * tag list is, so the document and the submitted zip cannot drift apart.
+     */
+    public function test_the_documented_submission_name_is_the_name_that_ships(): void
+    {
+        $doc = $this->contents(self::SUBMISSION_DOC);
+
+        preg_match('/^\*\*Plugin name\*\*[^\n]*(?:\n[^\n`]*)*\n```[^\n]*\n(.+?)\n```/m', $doc, $matches);
+        $this->assertNotEmpty($matches, self::SUBMISSION_DOC . ' no longer has a fenced name block under **Plugin name**');
+
+        $this->assertSame(
+            trim($matches[1]),
+            $this->loader_header(self::SHIPPED_NAME_PAIRS[self::WPORG_LISTING_README], 'Plugin Name'),
+            'the name pasted into the submission form has to be the name in the submitted zip'
+        );
     }
 
     /** No trademark or restricted term survives in a shipped tag list. */
