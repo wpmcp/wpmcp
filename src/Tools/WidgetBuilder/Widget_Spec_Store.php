@@ -20,6 +20,10 @@ if (! defined('ABSPATH')) {
  * everyone else. The abilities are gated on `manage_options`, which on
  * multisite a site administrator has WITHOUT `unfiltered_html`, so the two are
  * not interchangeable and the capability has to be checked here.
+ *
+ * The gate runs on write only. A spec stored before it existed (or pulled in
+ * by another write path) is not filtered retroactively; what is in postmeta
+ * is what the renderer outputs.
  */
 class Widget_Spec_Store
 {
@@ -38,11 +42,17 @@ class Widget_Spec_Store
         }
     }
 
-    /** @return int|\WP_Error the new widget post id. */
+    /**
+     * @return int|\WP_Error the new widget post id, or a WP_Error when the
+     *                       template does not survive the markup gate.
+     */
     public static function create(array $spec)
     {
         self::ensure_post_type();
         $spec = self::gate_template(Widget_Spec::normalize($spec));
+        if (is_wp_error($spec)) {
+            return $spec;
+        }
 
         $id = wp_insert_post([
             'post_type'   => self::POST_TYPE,
@@ -60,12 +70,20 @@ class Widget_Spec_Store
         return $id;
     }
 
-    public static function update(int $id, array $spec): bool
+    /**
+     * @return true|false|\WP_Error false when $id is not a widget, a WP_Error
+     *                              when the template does not survive the markup
+     *                              gate (the stored spec is left untouched).
+     */
+    public static function update(int $id, array $spec)
     {
         if (! self::is_widget($id)) {
             return false;
         }
         $spec = self::gate_template(Widget_Spec::normalize($spec));
+        if (is_wp_error($spec)) {
+            return $spec;
+        }
         wp_update_post(['ID' => $id, 'post_title' => sanitize_text_field((string) $spec['title'])]);
         update_post_meta($id, '_wpmcp_widget_spec', $spec);
         return true;
@@ -112,6 +130,22 @@ class Widget_Spec_Store
     }
 
     /**
+     * Whether the template stored under $id differs from the one in $submitted,
+     * i.e. whether gate_template() rewrote it on the way in. The abilities use
+     * this to tell the caller that the spec they sent is not the spec that was
+     * stored, instead of reporting a silent success.
+     */
+    public static function template_was_filtered(array $submitted, int $id): bool
+    {
+        $stored = self::get($id);
+        if (null === $stored) {
+            return false;
+        }
+
+        return (string) ($submitted['template'] ?? '') !== (string) ($stored['template'] ?? '');
+    }
+
+    /**
      * Applies WordPress's own markup-authoring rule to the spec's template.
      *
      * Core does exactly this for post_content: a user with `unfiltered_html`
@@ -119,14 +153,34 @@ class Widget_Spec_Store
      * template is rendered verbatim on the public front end, so it gets the
      * same treatment rather than being trusted on the strength of
      * `manage_options` alone.
+     *
+     * Known cost of the kses path: safecss_filter_attr() rejects any CSS
+     * declaration containing `}`, so a `{{placeholder}}` inside a style
+     * attribute drops the whole attribute. Template authors without
+     * `unfiltered_html` have to put dynamic colours and sizes somewhere else
+     * (a class, a data attribute, a CSS custom property set via a wrapper).
+     *
+     * Widget_Spec::validate() already required a non-empty template; when kses
+     * leaves nothing behind (an <iframe>- or <script>-only template, say) the
+     * write is refused rather than stored empty.
+     *
+     * @return array|\WP_Error
      */
-    private static function gate_template(array $spec): array
+    private static function gate_template(array $spec)
     {
         if (current_user_can('unfiltered_html')) {
             return $spec;
         }
 
-        $spec['template'] = wp_kses_post((string) ($spec['template'] ?? ''));
+        $filtered = wp_kses_post((string) ($spec['template'] ?? ''));
+        if ('' === trim($filtered)) {
+            return new \WP_Error(
+                'template_filtered_empty',
+                'The template contains no markup that survives wp_kses_post, so nothing would be rendered. '
+                . 'Your account lacks the unfiltered_html capability; the template is filtered like post_content.'
+            );
+        }
+        $spec['template'] = $filtered;
 
         return $spec;
     }

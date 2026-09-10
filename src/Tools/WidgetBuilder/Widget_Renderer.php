@@ -87,18 +87,34 @@ class Widget_Renderer
      *
      * Elementor does not hand every control back as a string: URL returns
      * ['url' => .., 'is_external' => .., 'nofollow' => ..], MEDIA returns
-     * ['url' => .., 'id' => ..] and ICONS returns ['value' => .., 'library' => ..].
-     * Casting those to string yields the literal "Array" plus a PHP notice, so
-     * pick the member the control type actually documents ({{name}} outputs the
-     * image URL, the icon class, the link URL). Anything else non-scalar renders
-     * empty rather than leaking a type name into the page.
+     * ['url' => .., 'id' => ..] and ICONS returns ['value' => .., 'library' => ..],
+     * where `value` is itself ['url' => .., 'id' => ..] for an inline SVG from the
+     * media library. Casting those to string yields the literal "Array" plus a
+     * PHP notice, so pick the member the control type actually documents:
+     * {{name}} outputs the link URL, the image URL, the icon class (or the SVG
+     * file URL for an svg-library icon). An array under any other control type
+     * is not something the type documents and renders empty rather than leaking
+     * a type name, or a member of an unexpected shape, into the page.
      *
      * @param mixed $value
      */
     private static function scalarize(string $type, $value): string
     {
         if (is_array($value)) {
-            $value = $value['icon' === $type ? 'value' : 'url'] ?? '';
+            switch ($type) {
+                case 'url':
+                case 'image':
+                    $value = $value['url'] ?? '';
+                    break;
+                case 'icon':
+                    $value = $value['value'] ?? '';
+                    if (is_array($value)) {
+                        $value = $value['url'] ?? '';
+                    }
+                    break;
+                default:
+                    $value = '';
+            }
         }
 
         return is_scalar($value) ? (string) $value : '';

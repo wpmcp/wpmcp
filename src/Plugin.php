@@ -2451,6 +2451,11 @@ final class Plugin
      * The data-driven custom Gutenberg block builder (EMCP parity, no eval):
      * store/validate/list block specs that a register_block_type render_callback
      * renders at runtime. All PRO, manage_options, domain 'blocks'.
+     *
+     * Block_Spec_Store stores the template verbatim for every caller. That is
+     * the same premise Widget_Spec_Store (below) stopped relying on, since
+     * manage_options is not unfiltered_html; the block builder still needs
+     * the equivalent wp_kses_post gate, tracked as follow-up work on #178.
      */
     private function register_block_builder_abilities(Registrar $registrar): void
     {
@@ -2498,8 +2503,8 @@ final class Plugin
         $spec_schema = [ 'type' => 'object' ];
 
         $tools = [
-            ['create-custom-widget', 'create', new \WPMCP\Tools\WidgetBuilder\Create_Custom_Widget(), 'Create a custom Elementor widget from a data spec (title, controls, template with {{name}} placeholders). Validated, stored as a wpmcp_widget post, and registered as a real Elementor widget at runtime by a single data-driven widget (no code generation, no eval). Remove with delete-custom-widget', ['spec' => $spec_schema], ['spec']],
-            ['update-custom-widget', 'update', new \WPMCP\Tools\WidgetBuilder\Update_Custom_Widget(), 'Replace a custom widget\'s spec by id (re-validated before it is stored)', ['widget_id' => ['type' => 'integer'], 'spec' => $spec_schema], ['widget_id', 'spec']],
+            ['create-custom-widget', 'create', new \WPMCP\Tools\WidgetBuilder\Create_Custom_Widget(), 'Create a custom Elementor widget from a data spec (title, controls, template with {{name}} placeholders). Validated, stored as a wpmcp_widget post, and registered as a real Elementor widget at runtime by a single data-driven widget (no code generation, no eval). Callers without unfiltered_html get the template wp_kses_post-filtered; the response then reports template_filtered: true with the stored template. Remove with delete-custom-widget', ['spec' => $spec_schema], ['spec']],
+            ['update-custom-widget', 'update', new \WPMCP\Tools\WidgetBuilder\Update_Custom_Widget(), 'Replace a custom widget\'s spec by id (re-validated before it is stored; same wp_kses_post gate and template_filtered report as create-custom-widget)', ['widget_id' => ['type' => 'integer'], 'spec' => $spec_schema], ['widget_id', 'spec']],
             ['get-custom-widget', 'read', new \WPMCP\Tools\WidgetBuilder\Get_Custom_Widget(), 'Read one custom widget\'s stored spec by id. Read-only', ['widget_id' => ['type' => 'integer']], ['widget_id']],
             ['list-custom-widgets', 'read', new \WPMCP\Tools\WidgetBuilder\List_Custom_Widgets(), 'List the custom widgets on this site (id, name, title, active/inactive). Read-only', [], []],
             ['delete-custom-widget', 'delete', new \WPMCP\Tools\WidgetBuilder\Delete_Custom_Widget(), 'Delete a custom widget by moving it to the trash (reversible via restore-post)', ['widget_id' => ['type' => 'integer']], ['widget_id']],

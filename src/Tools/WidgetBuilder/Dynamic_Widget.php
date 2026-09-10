@@ -101,7 +101,7 @@ if (class_exists('\\Elementor\\Widget_Base')) {
             // create-custom-widget / update-custom-widget abilities, and wp_kses_post'd on
             // write for any author without `unfiltered_html` (Widget_Spec_Store). Escaping
             // here would double-encode the values and destroy the template.
-            // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Widget_Renderer::render() (src/Tools/WidgetBuilder/Widget_Renderer.php:42) escapes every interpolated value by control type; the surrounding template is capability-gated author markup. Pro-only file, stripped from the directory build by scripts/flavors/wporg/strip.php.
+            // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Widget_Renderer::render() (src/Tools/WidgetBuilder/Widget_Renderer.php) escapes every interpolated value by control type; the surrounding template is capability-gated author markup. Pro-only file, stripped from the directory build by scripts/flavors/wporg/strip.php.
             echo Widget_Renderer::render($spec, (array) $this->get_settings_for_display());
         }
 
