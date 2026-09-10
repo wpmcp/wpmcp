@@ -51,12 +51,17 @@ class Insert_Row
             throw new \RuntimeException($wpdb->last_error ?: 'Insert failed.');
         }
 
-        // Nothing in core clears the caches this row belongs to, so do it here.
-        Database_Guard::invalidate_caches($table, ['data' => $data]);
+        $insert_id = (int) $wpdb->insert_id;
+
+        // Nothing in core clears the caches this row belongs to, so do it
+        // here. The auto-increment id is what the posts/terms caches are
+        // keyed on and it is not in $data, so hand it over too (captured
+        // above, before the invalidation's own reads can touch $wpdb).
+        Database_Guard::invalidate_caches($table, ['data' => $data, 'insert_id' => $insert_id]);
 
         return [
             'table'     => $table,
-            'insert_id' => (int) $wpdb->insert_id,
+            'insert_id' => $insert_id,
             'affected'  => (int) $affected,
         ];
     }

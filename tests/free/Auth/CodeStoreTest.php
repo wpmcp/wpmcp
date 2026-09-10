@@ -126,23 +126,25 @@ class CodeStoreTest extends \WP_UnitTestCase
     }
 
     /**
-     * White-box proof that consume() detects and rejects a stale write
-     * attempt, which is the exact TOCTOU the original load -> unset -> save
-     * implementation was vulnerable to (issue #43 C3).
+     * A code already claimed by another process is not redeemable here,
+     * even while this process's option cache still shows it. The competitor
+     * is simulated by writing the option row directly, exactly as
+     * Code_Store's own compare-and-swap does, and deliberately leaving the
+     * object cache holding the pre-write value: that is what a second
+     * request actually leaves behind, and an implementation that read
+     * through get_option() would see the code still present and resurrect
+     * it. consume() must read the row as it really is, find nothing to
+     * claim, and return null without writing.
      *
-     * The concurrent consumer is simulated by writing the option row
-     * directly, exactly as Code_Store's own compare-and-swap does, and
-     * deliberately leaving the object cache holding the pre-write value.
-     * That is what a second request actually leaves behind, and it is the
-     * harder case: an implementation that read through get_option() would
-     * see the code still present and resurrect it. consume() must instead
-     * observe the row as it really is and lose the race cleanly (null).
+     * This pins the uncached read. The compare-and-swap itself (a row that
+     * changes between consume()'s read and its UPDATE) is exercised by
+     * test_consume_loses_cleanly_when_the_row_changes_between_read_and_swap.
      *
      * (Before issue #182 this test injected via the `option_{name}` filter
      * and a plain update_option(), which refreshed the cache on the way
      * past and so could never have caught the resurrection bug.)
      */
-    public function test_consume_detects_and_rejects_a_stale_concurrent_write(): void
+    public function test_consume_rejects_a_code_already_claimed_past_the_cache(): void
     {
         global $wpdb;
 

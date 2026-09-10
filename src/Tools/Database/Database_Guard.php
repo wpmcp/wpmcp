@@ -441,13 +441,18 @@ class Database_Guard
      * entry under a persistent object cache.
      *
      * $context carries whatever the caller knows about which rows moved:
-     * 'rows' (the before-image), 'where' and 'data'. When the affected key
-     * can be derived from it the invalidation is precise; when it cannot,
-     * this falls back to dropping the whole runtime cache, which is
-     * heavy-handed but never wrong. Note wp_options is autoloaded into a
-     * single `alloptions` blob, so the per-option key alone is not enough.
+     * 'rows' (the before-image), 'where', 'data' and, after an insert, the
+     * new row's 'insert_id' (the auto-increment key is not in the data the
+     * caller supplied, and it is what the posts/terms caches are keyed on).
+     * When the affected key can be derived from that, the invalidation is
+     * precise. When it cannot, the fallback drops the in-process cache and,
+     * for the core tables, bumps the persistent 'last_changed' key that
+     * WP_Query / get_terms() result caches hang off, so a Redis/Memcached
+     * backend does not keep serving pre-write result sets either. Note
+     * wp_options is autoloaded into a single `alloptions` blob, so the
+     * per-option key alone is not enough there.
      *
-     * @param array{rows?: array, where?: array, data?: array} $context
+     * @param array{rows?: array, where?: array, data?: array, insert_id?: int} $context
      */
     public static function invalidate_caches(string $table, array $context = []): void
     {
@@ -467,14 +472,29 @@ class Database_Guard
         }
 
         if ($name === strtolower((string) $wpdb->posts)) {
-            $ids = self::context_values($context, 'ID');
+            $ids = self::context_ids($context, 'ID');
             if ([] === $ids) {
                 self::flush_runtime_cache();
+                wp_cache_set_posts_last_changed();
                 return;
             }
             foreach ($ids as $id) {
+                // The full core routine while the post still exists (insert,
+                // update). clean_post_cache() starts with get_post() and
+                // returns early once the row is gone, so after a delete it
+                // clears nothing: drop the per-id groups directly as well.
                 clean_post_cache((int) $id);
+                wp_cache_delete((int) $id, 'posts');
+                wp_cache_delete((int) $id, 'post_meta');
             }
+            // Term relationships are cached per post type; the before-image
+            // is the only place that still knows the type after a delete.
+            foreach (self::context_rows($context) as $row) {
+                if (isset($row['ID'], $row['post_type'])) {
+                    clean_object_term_cache((int) $row['ID'], (string) $row['post_type']);
+                }
+            }
+            wp_cache_set_posts_last_changed();
             return;
         }
 
@@ -490,20 +510,81 @@ class Database_Guard
             return;
         }
 
-        $term_tables = [
-            strtolower((string) $wpdb->terms),
-            strtolower((string) $wpdb->term_taxonomy),
-            strtolower((string) $wpdb->term_relationships),
-            strtolower((string) $wpdb->termmeta),
-        ];
-        if (in_array($name, $term_tables, true)) {
+        if ($name === strtolower((string) $wpdb->terms)) {
+            $ids = self::context_ids($context, 'term_id');
+            if ([] === $ids) {
+                self::flush_runtime_cache();
+                wp_cache_set_terms_last_changed();
+                return;
+            }
+            // Not clean_term_cache(): with no taxonomy it treats its ids as
+            // term_taxonomy_ids, which drift away from term_ids on any site
+            // that has ever shared or deleted a term, so it would clear the
+            // wrong term. A wp_terms row carries no taxonomy, so clear the
+            // 'terms' entry directly and bump last_changed, which every
+            // get_terms() result cache is keyed on.
+            foreach ($ids as $id) {
+                wp_cache_delete((int) $id, 'terms');
+            }
+            wp_cache_set_terms_last_changed();
+            return;
+        }
+
+        if ($name === strtolower((string) $wpdb->term_taxonomy)) {
+            $cleared = false;
+            // The before-image (or, on insert, the data) names both the term
+            // and its taxonomy, which is the precise form core wants.
+            foreach (self::context_rows($context) as $row) {
+                if (isset($row['term_id'], $row['taxonomy'])) {
+                    clean_term_cache((int) $row['term_id'], (string) $row['taxonomy']);
+                    $cleared = true;
+                }
+            }
+            if (! $cleared) {
+                // clean_term_cache()'s no-taxonomy form takes tt-ids, which is
+                // exactly what this table's key is.
+                $tt_ids = self::context_ids($context, 'term_taxonomy_id');
+                if ([] === $tt_ids) {
+                    self::flush_runtime_cache();
+                } else {
+                    foreach ($tt_ids as $tt_id) {
+                        clean_term_cache((int) $tt_id);
+                    }
+                }
+            }
+            wp_cache_set_terms_last_changed();
+            return;
+        }
+
+        if ($name === strtolower((string) $wpdb->term_relationships)) {
+            $object_ids = self::context_values($context, 'object_id');
+            if ([] === $object_ids) {
+                self::flush_runtime_cache();
+                wp_cache_set_terms_last_changed();
+                return;
+            }
+            // The row does not say what kind of object it links (post, user,
+            // comment...), so clear its relationship entry under every
+            // registered taxonomy; that is the per-taxonomy group
+            // clean_object_term_cache() would clear given the object type.
+            $taxonomies = get_taxonomies();
+            foreach ($object_ids as $object_id) {
+                foreach ($taxonomies as $taxonomy) {
+                    wp_cache_delete((int) $object_id, "{$taxonomy}_relationships");
+                }
+            }
+            wp_cache_set_terms_last_changed();
+            return;
+        }
+
+        if ($name === strtolower((string) $wpdb->termmeta)) {
             $ids = self::context_values($context, 'term_id');
             if ([] === $ids) {
                 self::flush_runtime_cache();
                 return;
             }
             foreach ($ids as $id) {
-                clean_term_cache((int) $id);
+                wp_cache_delete((int) $id, 'term_meta');
             }
             return;
         }
@@ -523,13 +604,13 @@ class Database_Guard
     {
         $values = [];
 
-        foreach ((array) ($context['rows'] ?? []) as $row) {
-            if (is_array($row) && isset($row[ $column ])) {
+        foreach (self::context_rows($context) as $row) {
+            if (isset($row[ $column ])) {
                 $values[] = $row[ $column ];
             }
         }
 
-        foreach (['where', 'data'] as $bucket) {
+        foreach (['where'] as $bucket) {
             $map = (array) ($context[ $bucket ] ?? []);
             if (isset($map[ $column ]) && is_scalar($map[ $column ])) {
                 $values[] = $map[ $column ];
@@ -539,10 +620,56 @@ class Database_Guard
         return array_values(array_unique(array_filter($values, 'is_scalar')));
     }
 
-    /** Drop the in-request cache without clearing a persistent backend. */
+    /**
+     * context_values() for an auto-increment primary key: when nothing in
+     * the context names the key, an insert's 'insert_id' is the key.
+     *
+     * @return array<int, scalar>
+     */
+    private static function context_ids(array $context, string $column): array
+    {
+        $ids = self::context_values($context, $column);
+        if ([] === $ids && (int) ($context['insert_id'] ?? 0) > 0) {
+            $ids = [ (int) $context['insert_id'] ];
+        }
+
+        return $ids;
+    }
+
+    /**
+     * The before-image rows plus the data map treated as one more row (an
+     * insert has no before-image; its data IS the row).
+     *
+     * @return array<int, array>
+     */
+    private static function context_rows(array $context): array
+    {
+        $rows = [];
+        foreach ((array) ($context['rows'] ?? []) as $row) {
+            if (is_array($row)) {
+                $rows[] = $row;
+            }
+        }
+        $data = (array) ($context['data'] ?? []);
+        if ([] !== $data) {
+            $rows[] = $data;
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Drop every in-process cache entry, leaving a persistent backend's
+     * other entries alone. Core's cache-compat shim defines
+     * wp_cache_flush_runtime() for every drop-in, so function_exists() is
+     * no test; a drop-in that does not support it would get
+     * _doing_it_wrong() and no flush at all. Those sites get the full
+     * wp_cache_flush() instead: expensive, but a stale read is the one
+     * outcome this method exists to prevent.
+     */
     private static function flush_runtime_cache(): void
     {
-        if (function_exists('wp_cache_flush_runtime')) {
+        if (wp_cache_supports('flush_runtime')) {
             wp_cache_flush_runtime();
             return;
         }
