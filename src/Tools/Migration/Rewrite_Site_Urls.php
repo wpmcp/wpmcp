@@ -194,6 +194,7 @@ class Rewrite_Site_Urls
             $sql  = "SELECT `{$pk}`, {$col_list} FROM `{$table}` WHERE `{$pk}` > %d AND ({$where_any}) ORDER BY `{$pk}` ASC LIMIT %d";
             // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- table/column names come from the const map above; every value is bound by prepare().
             $rows = $wpdb->get_results(
+                // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql is the literal-plus-const-map string built two lines above; every value is bound here.
                 $wpdb->prepare($sql, array_merge([$last], array_fill(0, count($columns), $like), [self::BATCH_SIZE])),
                 ARRAY_A
             );

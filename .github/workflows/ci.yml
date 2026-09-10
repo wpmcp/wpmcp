@@ -143,8 +143,9 @@ jobs:
           # the stripped build with the stock WordPress ruleset config.
           # Single line, no spaces: the action splits this value unquoted.
           #   EscapeOutput.ExceptionNotEscaped   exception messages, never echoed
-          #   PreparedSQL.NotPrepared            identifier interpolation
-          ignore-codes: WordPress.Security.EscapeOutput.ExceptionNotEscaped,WordPress.DB.PreparedSQL.NotPrepared
+          # PreparedSQL.NotPrepared left this list with #174: the identifiers
+          # are bound with %i and the baseline pins the code at zero.
+          ignore-codes: WordPress.Security.EscapeOutput.ExceptionNotEscaped
       # continue-on-error above keeps Plugin Check running when only the final
       # compliance gate (step 6 of the build script) regresses. A build that
       # died earlier, before it produced a tree, would otherwise skip Plugin

@@ -46,7 +46,7 @@ class Query
 
         // Validated read-only by Database_Guard::is_read_only_sql() above; no
         // user values are interpolated by this tool itself.
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Executing the caller's read-only SQL is the tool's purpose; results must be live, not cached. The statement genuinely cannot be prepared here because it arrives whole from the caller: it is gated instead by Database_Guard::is_read_only_sql(), which rejects anything that is not a single read-only statement, plus the protected-table check above.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- running caller-supplied read-only SQL is this tool's purpose; the statement is validated by Database_Guard::is_read_only_sql() (src/Tools/Database/Database_Guard.php) and results must be live.
         $rows = $wpdb->get_results($sql, ARRAY_A);
         if (null === $rows) {
             throw new \RuntimeException(esc_html($wpdb->last_error) ?: 'Query failed.');

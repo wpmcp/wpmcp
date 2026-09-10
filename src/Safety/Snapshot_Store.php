@@ -81,6 +81,7 @@ class Snapshot_Store
     public static function save(string $operation_id, string $session_id, array $snapshot, string $tool_name, string $args_hash): int
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
         $written = $wpdb->insert(self::table_name(), [
             'operation_id' => $operation_id,
             'session_id'   => $session_id,
@@ -106,7 +107,8 @@ class Snapshot_Store
     public static function get_by_operation(string $operation_id): ?array
     {
         global $wpdb;
-        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table_name() . " WHERE operation_id = %s", $operation_id), ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; reads back undo state that must never be stale.
+        $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM %i WHERE operation_id = %s', self::table_name(), $operation_id), ARRAY_A);
         if (! $row) {
             return null;
         }
@@ -117,13 +119,15 @@ class Snapshot_Store
     public static function list_by_session(string $session_id): array
     {
         global $wpdb;
-        return $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::table_name() . " WHERE session_id = %s ORDER BY id DESC", $session_id), ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; reads back undo state that must never be stale.
+        return $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE session_id = %s ORDER BY id DESC', self::table_name(), $session_id), ARRAY_A);
     }
 
     public static function recent(int $limit): array
     {
         global $wpdb;
-        return $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::table_name() . " ORDER BY id DESC LIMIT %d", $limit), ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; reads back undo state that must never be stale.
+        return $wpdb->get_results($wpdb->prepare('SELECT * FROM %i ORDER BY id DESC LIMIT %d', self::table_name(), $limit), ARRAY_A);
     }
 
     /**
@@ -145,8 +149,11 @@ class Snapshot_Store
     public static function index_by_session(string $session_id, int $limit): array
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; a session index must reflect the live rows.
         return (array) $wpdb->get_results($wpdb->prepare(
-            "SELECT " . self::INDEX_COLUMNS . " FROM " . self::table_name() . " WHERE session_id = %s ORDER BY id DESC LIMIT %d",
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- INDEX_COLUMNS is the literal column list declared on this class; the table is bound with %i and the values with %s/%d.
+            'SELECT ' . self::INDEX_COLUMNS . ' FROM %i WHERE session_id = %s ORDER BY id DESC LIMIT %d',
+            self::table_name(),
             $session_id,
             $limit
         ), ARRAY_A);
@@ -162,8 +169,11 @@ class Snapshot_Store
     public static function index_since(int $since_id, int $limit): array
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; a since-marker index must reflect the live rows.
         return (array) $wpdb->get_results($wpdb->prepare(
-            "SELECT " . self::INDEX_COLUMNS . " FROM " . self::table_name() . " WHERE id > %d ORDER BY id DESC LIMIT %d",
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- INDEX_COLUMNS is the literal column list declared on this class; the table is bound with %i and the values with %d.
+            'SELECT ' . self::INDEX_COLUMNS . ' FROM %i WHERE id > %d ORDER BY id DESC LIMIT %d',
+            self::table_name(),
             $since_id,
             $limit
         ), ARRAY_A);
@@ -178,7 +188,8 @@ class Snapshot_Store
     public static function min_id(): ?int
     {
         global $wpdb;
-        $min = $wpdb->get_var("SELECT MIN(id) FROM " . self::table_name());
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; the retention floor moves with every prune, so it must be read live.
+        $min = $wpdb->get_var($wpdb->prepare('SELECT MIN(id) FROM %i', self::table_name()));
         return null === $min ? null : (int) $min;
     }
 
@@ -186,7 +197,8 @@ class Snapshot_Store
     public static function row_count(): int
     {
         global $wpdb;
-        return (int) $wpdb->get_var("SELECT COUNT(*) FROM " . self::table_name());
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; the row count must be live.
+        return (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i', self::table_name()));
     }
 
     /**
@@ -198,8 +210,10 @@ class Snapshot_Store
     public static function id_for_operation(string $operation_id): ?int
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; the operation_id to row id resolution must see the live rows.
         $id = $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM " . self::table_name() . " WHERE operation_id = %s",
+            'SELECT id FROM %i WHERE operation_id = %s',
+            self::table_name(),
             $operation_id
         ));
         return null === $id ? null : (int) $id;
@@ -272,23 +286,27 @@ class Snapshot_Store
     {
         global $wpdb;
         $t = self::table_name();
-        $cutoff = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$t} ORDER BY id DESC LIMIT 1 OFFSET %d", $keep));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; pruning must see the live row set.
+        $cutoff = $wpdb->get_var($wpdb->prepare('SELECT id FROM %i ORDER BY id DESC LIMIT 1 OFFSET %d', $t, $keep));
         if (null === $cutoff) {
             return 0;
         }
 
-        $pruned_op_ids = $wpdb->get_col($wpdb->prepare("SELECT operation_id FROM {$t} WHERE id <= %d", $cutoff));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; pruning must see the live row set.
+        $pruned_op_ids = $wpdb->get_col($wpdb->prepare('SELECT operation_id FROM %i WHERE id <= %d', $t, $cutoff));
 
         $per_session = [];
-        $by_session  = $wpdb->get_results(
-            $wpdb->prepare("SELECT session_id, COUNT(*) AS n FROM {$t} WHERE id <= %d GROUP BY session_id", $cutoff),
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the per-session tally must count exactly the rows the delete below removes.
+        $by_session = $wpdb->get_results(
+            $wpdb->prepare('SELECT session_id, COUNT(*) AS n FROM %i WHERE id <= %d GROUP BY session_id', $t, $cutoff),
             ARRAY_A
         );
         foreach ((array) $by_session as $row) {
             $per_session[ (string) $row['session_id'] ] = (int) $row['n'];
         }
 
-        $deleted = (int) $wpdb->query($wpdb->prepare("DELETE FROM {$t} WHERE id <= %d", $cutoff));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the prune is the delete itself.
+        $deleted = (int) $wpdb->query($wpdb->prepare('DELETE FROM %i WHERE id <= %d', $t, $cutoff));
 
         self::record_pruned_sessions($per_session);
 

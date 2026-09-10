@@ -546,16 +546,17 @@ class Rollback_Service
      * refuse. Everything is re-validated against the LIVE database before a
      * single row is touched:
      *  - the table must still exist (Database_Guard::valid_table() resolves
-     *    the exact real name; table names cannot be parameterized);
+     *    the exact real name, which is then bound with %i);
      *  - the table must not be protected (users/usermeta by default) — a
      *    legitimate snapshot can never reference one, because the write
      *    tools refuse protected tables before capturing anything;
      *  - a non-empty primary key must be declared in the snapshot, and every
      *    captured row must carry a non-null value for each PK column;
      *  - every captured column name must exactly match a live column of the
-     *    table (closes both column-name injection — identifiers cannot be
-     *    parameterized — and silent schema drift: a dropped column means the
-     *    promised exact restore is impossible, so fail loudly instead).
+     *    table (closes both column-name injection, since %i quotes an
+     *    identifier but does not check that it exists, and silent schema
+     *    drift: a dropped column means the promised exact restore is
+     *    impossible, so fail loudly instead).
      * Any violation throws Mutation_Failed before any write happens.
      *
      * Per row, the restore is an upsert keyed on the primary key: if a row

@@ -1,11 +1,8 @@
 {
     "sniffs": {
         "Squiz.PHP.Eval.Discouraged": 1,
-        "WordPress.DB.DirectDatabaseQuery.DirectQuery": 55,
-        "WordPress.DB.DirectDatabaseQuery.NoCaching": 50,
-        "WordPress.DB.DirectDatabaseQuery.SchemaChange": 1,
-        "WordPress.DB.PreparedSQL.InterpolatedNotPrepared": 24,
-        "WordPress.DB.PreparedSQL.NotPrepared": 36,
+        "WordPress.DB.DirectDatabaseQuery.DirectQuery": 13,
+        "WordPress.DB.DirectDatabaseQuery.NoCaching": 12,
         "WordPress.DB.SlowDBQuery.slow_db_query_meta_query": 5,
         "WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode": 4,
         "WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode": 6,
