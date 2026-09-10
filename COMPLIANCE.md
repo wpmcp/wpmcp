@@ -134,7 +134,7 @@ Severity is the `wporg-free` profile. `dist` is the same finding's severity unde
 
 | ID | Rule | Evidence | Note |
 |---|---|---|---|
-| P-01 | PCP-I18N | `src/Plugin.php:426`, `:437`, `:449`, `:462`, `:474` | Admin menu labels passed to `add_menu_page`/`add_submenu_page` as raw strings. Wrap in `__()`. |
+| P-01 | PCP-I18N | `src/Plugin.php` (`register_admin_menu()`) | Fixed in #200: every menu label is wrapped, page titles compose `Plugin::BRAND` with a translated tail via `Plugin::page_title()`. Guarded by `ListingRulesTest::test_the_real_admin_menu_registration_has_no_untranslated_labels`, which runs the rule over the real checkout. No longer reported. |
 | P-02 | WPORG-17-TRADEMARK | `wpmcp.php:3` (slug and name), `readme.txt:1` | The `wp` term. Plugin Check confirms all three at warning. Its own list comments the entry "it's allowed, but shows a warning". Tolerated in practice; nothing to do. |
 | P-03 | — | No `Domain Path` header in `wpmcp.php`, no `languages/` directory | Defensible for a wp.org build (JIT loading since WP 4.6) but means a self-hosted `.mo` never loads. |
 | P-04 | — | `scripts/build-woo-release.sh:66-79` tokenizer gate covers `eval`, `proc_open`, `shell_exec`, `passthru`, `popen` | Plugin Check's forbidden list also has `move_uploaded_file`, `create_function`, `str_rot13`. Add them. The gate also only walks `$STAGE/src`, not `$STAGE/vendor` or the flavor main file. |

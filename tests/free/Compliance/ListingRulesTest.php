@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tests\Free\Compliance;
 
+use WPMCP\Compliance\Profile;
+use WPMCP\Compliance\Rule_Context;
 use WPMCP\Compliance\Rules\Admin_Nag_Rule;
 use WPMCP\Compliance\Rules\I18n_Rule;
 use WPMCP\Compliance\Rules\Readme_Rule;
@@ -202,5 +204,67 @@ class ListingRulesTest extends Compliance_Test_Case
         ]);
 
         $this->assert_reports($findings, 'add_menu_page() is given an untranslated label');
+    }
+
+    /**
+     * Regression guard for issue #183. The rule emits menu-label findings at
+     * best-practice severity, and CI's `composer compliance` gate only fails
+     * on blockers, so nothing in the pipeline would notice the next unwrapped
+     * add_submenu_page() label. This test is that noticer: it runs the real
+     * rule over the real checkout (the same tree the CLI scans), so a new
+     * screen whose label is a bare quoted literal fails here rather than
+     * shipping, wherever in src/ it is registered. The rule looks only at the
+     * top-level label argument, so a literal nested in a sprintf() or a
+     * concatenation is not caught here; the guard below covers the brand
+     * half of that case.
+     */
+    public function test_the_real_admin_menu_registration_has_no_untranslated_labels(): void
+    {
+        $findings = (new I18n_Rule())->check(
+            Rule_Context::for_path(dirname(__DIR__, 3), Profile::wporg_free())
+        );
+
+        // One deliberate exception (issue #184): Plugin::load_textdomain()
+        // loads a self-hosted .mo for the off-directory builds, and the
+        // directory build strips it (scripts/flavors/wporg/strip.php, whose
+        // build fails if the call has moved). Pinned to that one call site so
+        // a second loader anywhere else still fails here.
+        $loader = array_filter($findings, static fn ($f) => str_contains($f->message(), 'load_plugin_textdomain()'));
+        $this->assertCount(1, $loader, implode("\n", $this->messages($loader)));
+        $this->assertStringStartsWith('src/Plugin.php:', $this->locations($loader)[0] ?? '');
+
+        $this->assert_clean(array_values(array_diff_key($findings, $loader)));
+    }
+
+    /**
+     * Also issue #183: the product name is a brand, not a sentence. Wrapping
+     * it in __() produces a msgid identical to the text domain (no context
+     * for a translator), and a brand inside any msgid is one more literal a
+     * flavor build would have to chase; Plugin::BRAND is the single place
+     * such a build rewrites. Matches gettext call forms only, so a comment
+     * or an exception message that happens to mention the brand does not
+     * trip a test about msgids.
+     */
+    public function test_the_product_name_is_never_itself_a_translatable_msgid(): void
+    {
+        $root = dirname(__DIR__, 3);
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root . '/src'));
+        $pattern = "/\\b(?:__|_e|_x|_ex|_n|_nx|esc_html__|esc_html_e|esc_html_x|esc_attr__|esc_attr_e|esc_attr_x)\\(\\s*'wpmcp(?:'|:| )/";
+
+        $offenders = [];
+        foreach ($iterator as $file) {
+            if ('php' !== $file->getExtension()) {
+                continue;
+            }
+            if (preg_match($pattern, (string) file_get_contents($file->getPathname()), $match)) {
+                $offenders[] = substr($file->getPathname(), strlen($root) + 1) . ': ' . $match[0];
+            }
+        }
+
+        $this->assertSame([], $offenders, 'brand baked into a msgid');
+        $this->assertStringContainsString(
+            "public const BRAND = 'wpmcp';",
+            (string) file_get_contents($root . '/src/Plugin.php')
+        );
     }
 }
