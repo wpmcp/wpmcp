@@ -46,7 +46,7 @@ WP MCP Pro adds unlimited snapshot history, deep Elementor editing and building,
 
 = Privacy =
 
-The plugin collects nothing about you and sends nothing anywhere on its own. It has no scheduled jobs and no activation-time requests. Every outbound request it can make is listed under "External services" below, and each one happens only while you or your agent are running the tool that needs it. Licensing (Freemius) and WP MCP Cloud sync are opt-in and inactive until you connect them.
+The plugin collects nothing about you and sends nothing anywhere on its own. It has no scheduled jobs and no activation-time requests. Every outbound request it can make is listed under "External services" below, and each one happens only while you or your agent are running the tool that needs it. Licensing (Freemius) and WP MCP Cloud sync are opt-in and inactive until you connect them. On activation Freemius shows its stock opt-in screen, which defaults to off and carries a Skip link. Skip or decline it and no connection is made, no licence data is exchanged, and the plugin keeps working; the one path that can still reach Freemius afterwards is the optional deactivation feedback form on the Plugins screen: if you submit it, the reason you enter is stored locally and sent to Freemius when the plugin is deleted, and if you untick "anonymous feedback" on that form your display name and email are sent as well. The api.freemius.com entry below spells this out.
 
 == External services ==
 
@@ -58,7 +58,7 @@ Fixed hosts:
 * api.openverse.org - stock image search. Openverse is the default provider for search-stock-images and needs no key or configuration, so this request is unconditional whenever that ability runs without another provider selected. Sends the search terms and paging. Terms: https://openverse.org/terms Privacy policy: https://openverse.org/privacy
 * api.pexels.com - stock image search, only when the Pexels provider is selected and you have saved a Pexels key via set-stock-key. Sends the search terms, paging and your key in the Authorization header. Results link to www.pexels.com license pages; those links are displayed, never requested. Terms: https://www.pexels.com/terms-of-service/ Privacy policy: https://www.pexels.com/privacy-policy/
 * api.unsplash.com - stock image search, only when the Unsplash provider is selected and you have saved an Unsplash key via set-stock-key. Sends the search terms, paging and your key in the Authorization header. Results link to unsplash.com license pages; those links are displayed, never requested. Terms: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
-* api.freemius.com - licensing through the Freemius SDK. This is the one entry not tied to a tool: once you have opted in, the SDK talks to Freemius during admin page loads and its own periodic sync. The plugin activates in Freemius anonymous mode, so no opt-in screen is shown on activation and the SDK sends nothing until you opt in from the WP MCP > Account page. Terms: https://freemius.com/terms/ Privacy policy: https://freemius.com/privacy/
+* api.freemius.com - licensing through the Freemius SDK. This is the one entry not tied to a tool. On activation the SDK shows its stock opt-in screen, which defaults to off and carries a Skip link; skip or decline it and the SDK sends nothing. Once you have opted in, there or later from the WP MCP > Account page, the SDK talks to Freemius during admin page loads and its own periodic sync. One path is independent of that choice: the optional deactivation feedback form on the Plugins screen. If you submit it, the reason you enter is stored locally and sent here when the plugin is deleted (uninstalled), whether or not you opted in; if you also untick "anonymous feedback" on that form, the SDK's opt-in call sends your display name and email along with the site details the opt-in screen lists. Terms: https://freemius.com/terms/ Privacy policy: https://freemius.com/privacy/
 
 Dynamic destinations:
 
@@ -115,6 +115,7 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Six-layer governance, audit log, scoped identities, OAuth 2.1.
 * Elementor, Gutenberg, Bricks, Divi, WooCommerce, ACF, Meta Box, and major SEO/forms/events plugin integrations.
 * WP MCP Cloud sync client for widget and block specs (Pro).
+* Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
 

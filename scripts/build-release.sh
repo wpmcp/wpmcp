@@ -19,6 +19,9 @@ mkdir -p "$STAGE"
 
 cp "$ROOT/wpmcp.php" "$ROOT/readme.txt" "$ROOT/LICENSE" "$ROOT/composer.json" "$ROOT/composer.lock" "$STAGE/"
 cp -R "$ROOT/src" "$STAGE/src"
+# src/Freemius/Bootstrap.php pins the connect-screen icon to assets/, so the
+# self-hosted zip has to carry that directory (#164).
+cp -R "$ROOT/assets" "$STAGE/assets"
 
 # Ship the translation directory the Domain Path header points at (issue #184).
 mkdir -p "$STAGE/languages"
@@ -31,6 +34,12 @@ mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/wpmcp-pro-$VERSION.zip"
 rm -f "$ZIP"
 (cd "$STAGE_PARENT" && zip -rq "$ZIP" wpmcp -x "*.DS_Store")
+
+# Gate: every assets/ path that src/ resolves against WPMCP_DIR must be in the
+# zip, or the Freemius connect screen renders a 404 icon (#164).
+for asset in $(grep -rhoE "WPMCP_DIR \. 'assets/[^']+'" "$ROOT/src" | sed -E "s/.*'(assets\/[^']+)'/\1/" | sort -u); do
+    unzip -Z1 "$ZIP" | grep -Fx "wpmcp/$asset" >/dev/null || { echo "gate: $asset is referenced from src/ but missing from $ZIP" >&2; exit 1; }
+done
 
 echo "built $ZIP"
 unzip -l "$ZIP" | tail -2
