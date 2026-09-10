@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tests\Free\Release;
 
+use WPMCP\Compliance\Rules\Trademark_Rule;
+
 /**
  * The compatibility headers that ship are spread over four files: the root
  * readme, the two flavor readmes, and the wp.org loader. Nothing in the build
@@ -39,15 +41,18 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
     ];
 
     /**
-     * Terms guideline 12 bars from a tag list, matched as substrings of the
-     * slugified tag the way Trademark_Rule and Plugin Check match them, so
-     * "claude mcp" is caught as well as "claude". The vendor marks mirror
-     * Trademark_Rule::VENDOR_MARKS; "claude" is the one issue #169 removed
-     * and this keeps removed.
+     * Terms guideline 12 bars from a tag list on top of the vendor marks:
+     * "wordpress" (guideline 17) and the "woo" portmanteau Plugin Check
+     * matches. The vendor marks themselves come from Trademark_Rule so this
+     * test and the compliance engine cannot disagree about who is a vendor.
      */
-    private const RESTRICTED_TERMS = [
-        'claude', 'anthropic', 'chatgpt', 'openai', 'gemini', 'copilot', 'wordpress', 'woo',
-    ];
+    private const WPORG_RESTRICTED_TERMS = ['wordpress', 'woo'];
+
+    /** The readme the wp.org submission build stages as the listing. */
+    private const WPORG_LISTING_README = 'scripts/flavors/wporg/readme.txt';
+
+    /** The document that pins the listing's tag list. */
+    private const SUBMISSION_DOC = 'WPORG-SUBMISSION.md';
 
     /**
      * Tags allowed as a whole even though they carry a restricted term:
@@ -69,16 +74,51 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         return (string) file_get_contents($path);
     }
 
+    /**
+     * Terms guideline 12 bars from a tag list, matched as substrings of the
+     * slugified tag the way Trademark_Rule and Plugin Check match them, so
+     * "claude mcp" is caught as well as "claude". "claude" is the one issue
+     * #169 removed and this keeps removed.
+     *
+     * @return string[]
+     */
+    private function restricted_terms(): array
+    {
+        return array_merge(Trademark_Rule::VENDOR_MARKS, self::WPORG_RESTRICTED_TERMS);
+    }
+
+    /**
+     * The header block is everything above the first blank line. Reading a
+     * header from there rather than from the whole file keeps a changelog or
+     * FAQ line that happens to start with "Tags:" from being parsed as one.
+     */
+    private function readme_header_block(string $relative): string
+    {
+        $contents = str_replace("\r\n", "\n", $this->contents($relative));
+        $parts = preg_split('/\n[ \t]*\n/', $contents, 2);
+
+        return (string) $parts[0];
+    }
+
     private function readme_header(string $relative, string $header): string
     {
+        $block = $this->readme_header_block($relative);
         $this->assertMatchesRegularExpression(
             '/^' . preg_quote($header, '/') . ':\s*(.+)$/mi',
-            $this->contents($relative),
+            $block,
             $relative . ' is missing the "' . $header . '" header'
         );
-        preg_match('/^' . preg_quote($header, '/') . ':\s*(.+)$/mi', $this->contents($relative), $matches);
+        preg_match('/^' . preg_quote($header, '/') . ':\s*(.+)$/mi', $block, $matches);
 
         return trim($matches[1]);
+    }
+
+    /** @return string[] the Tags header, split, trimmed and lowercased */
+    private function readme_tags(string $relative): array
+    {
+        $tags = array_map('trim', explode(',', strtolower($this->readme_header($relative, 'Tags'))));
+
+        return array_values(array_filter($tags, static fn (string $tag): bool => '' !== $tag));
     }
 
     private function loader_header(string $relative, string $header): string
@@ -176,19 +216,45 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         }
     }
 
+    /**
+     * Every flavor directory's readme is in SHIPPED_READMES. The build scripts
+     * stage `scripts/flavors/<flavor>/readme.txt` as the zip's readme, and
+     * `Plugin_Source::readme()` only ever resolves the readme at the root of
+     * the tree it scans, so a flavor readme that is not in the pinned set is
+     * one no gate reads: not `composer compliance`, not this class.
+     */
+    public function test_every_flavor_readme_is_in_the_gated_set(): void
+    {
+        $root = $this->repository();
+        $found = [];
+        foreach (glob($root . '/scripts/flavors/*/readme.txt') ?: [] as $absolute) {
+            $found[] = substr($absolute, strlen($root) + 1);
+        }
+
+        $this->assertNotEmpty($found, 'no flavor readme found under scripts/flavors/');
+        foreach ($found as $readme) {
+            $this->assertContains(
+                $readme,
+                self::SHIPPED_READMES,
+                $readme . ' is a flavor readme the build can ship but SHIPPED_READMES does not gate it'
+            );
+        }
+    }
+
     /** No trademark or restricted term survives in a shipped tag list. */
     public function test_shipped_tag_lists_carry_no_restricted_term(): void
     {
         foreach (self::SHIPPED_READMES as $readme) {
-            $tags = array_map('trim', explode(',', strtolower($this->readme_header($readme, 'Tags'))));
+            $tags = $this->readme_tags($readme);
 
+            $this->assertNotEmpty($tags, $readme . ' has an empty Tags header');
             $this->assertLessThanOrEqual(5, count($tags), $readme . ' exceeds the five tag maximum');
             foreach ($tags as $tag) {
                 if (in_array($tag, self::TAG_EXCEPTIONS, true)) {
                     continue;
                 }
                 $slug = trim((string) preg_replace('/[^a-z0-9]+/', '-', $tag), '-');
-                foreach (self::RESTRICTED_TERMS as $term) {
+                foreach ($this->restricted_terms() as $term) {
                     $this->assertStringNotContainsString(
                         $term,
                         $slug,
@@ -197,6 +263,33 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
                 }
             }
         }
+    }
+
+    /**
+     * The tag list WPORG-SUBMISSION.md documents for the directory listing is
+     * the one the wp.org readme ships. The document is the source of truth:
+     * this reads the fenced block under its "**Tags**" heading rather than
+     * carrying a second copy, so the two cannot drift apart silently, which is
+     * how a trademarked tag survived the first pass at issue #169.
+     */
+    public function test_the_wporg_listing_readme_carries_the_documented_tag_list(): void
+    {
+        $doc = $this->contents(self::SUBMISSION_DOC);
+
+        preg_match('/^\*\*Tags\*\*[^\n]*\n+```[^\n]*\n(.+?)\n```/ms', $doc, $matches);
+        $this->assertNotEmpty($matches, self::SUBMISSION_DOC . ' no longer has a fenced tag block under **Tags**');
+
+        $documented = array_values(array_filter(
+            array_map('trim', explode(',', strtolower(trim($matches[1])))),
+            static fn (string $tag): bool => '' !== $tag
+        ));
+
+        $this->assertCount(5, $documented, self::SUBMISSION_DOC . ' must document exactly five tags');
+        $this->assertSame(
+            $documented,
+            $this->readme_tags(self::WPORG_LISTING_README),
+            self::WPORG_LISTING_README . ' does not carry the tag list ' . self::SUBMISSION_DOC . ' documents'
+        );
     }
 
     /** The checklist that documents this gate has to keep naming every file it covers. */
