@@ -131,6 +131,15 @@ final class Forbidden_Functions_Rule extends Base_Rule
                 );
             }
             foreach ($file->find_calls(array_keys(self::ALTERNATIVES), false) as $call) {
+                // PHPCS, and therefore Plugin Check, honours a justified
+                // phpcs:ignore on this sniff, so a rule that mirrors it has
+                // to as well or it contradicts its own remediation advice
+                // and reports errors a reviewer's tooling will not raise.
+                // Source_File::has_phpcs_ignore() requires the "-- reason"
+                // form, so a bare annotation still suppresses nothing.
+                if ($file->has_phpcs_ignore($call['line'], 'WordPress.WP.AlternativeFunctions')) {
+                    continue;
+                }
                 $findings[] = $this->finding(
                     $file,
                     $call['line'],
