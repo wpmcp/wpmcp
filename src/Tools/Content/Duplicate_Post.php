@@ -90,7 +90,7 @@ class Duplicate_Post
         ], true);
 
         if (is_wp_error($new_id)) {
-            throw new \RuntimeException($new_id->get_error_message());
+            throw new \RuntimeException(esc_html($new_id->get_error_message()));
         }
 
         $new_id = (int) $new_id;

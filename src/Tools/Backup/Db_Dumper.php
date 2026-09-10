@@ -89,10 +89,9 @@ class Db_Dumper
     public function dump(callable $write, ?array $tables = null): array
     {
         $all = $this->tables();
-        // Never dump a table that is not ours: $only is caller-supplied, and
-        // table names cannot be bound as query placeholders, so the
-        // intersection against the enumerated list is what keeps the
-        // interpolation below safe.
+        // Never dump a table that is not ours: $tables is caller-supplied, so
+        // the intersection against the enumerated list is what keeps every
+        // query below on our own prefix (the names are then bound with %i).
         $targets = null === $tables ? $all : array_values(array_intersect($tables, $all));
 
         $counts      = [];
@@ -132,8 +131,8 @@ class Db_Dumper
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- $table came from tables() above (SHOW TABLES on our own prefix); identifiers cannot be bound as placeholders.
-        $create = $wpdb->get_row('SHOW CREATE TABLE `' . str_replace('`', '``', $table) . '`', ARRAY_N);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- $table came from tables() above (SHOW TABLES on our own prefix) and is bound with %i. SHOW CREATE TABLE reads the schema, it does not change it.
+        $create = $wpdb->get_row($wpdb->prepare('SHOW CREATE TABLE %i', $table), ARRAY_N);
 
         if (! is_array($create) || ! isset($create[1])) {
             // A table that vanished between enumeration and dump (a plugin
@@ -165,16 +164,17 @@ class Db_Dumper
                 // key read is stable under concurrent writes, and it also
                 // avoids the O(n^2) scan OFFSET costs on a large postmeta.
                 $sql = null === $cursor
-                    ? $wpdb->prepare("SELECT * FROM {$quoted} ORDER BY {$order} ASC LIMIT %d", self::BATCH)
-                    : $wpdb->prepare("SELECT * FROM {$quoted} WHERE {$order} > %s ORDER BY {$order} ASC LIMIT %d", $cursor, self::BATCH);
+                    ? $wpdb->prepare('SELECT * FROM %i ORDER BY %i ASC LIMIT %d', $table, $key, self::BATCH)
+                    : $wpdb->prepare('SELECT * FROM %i WHERE %i > %s ORDER BY %i ASC LIMIT %d', $table, $key, $cursor, $key, self::BATCH);
             } else {
                 // No single-column primary key to seek on, so OFFSET is the
-                // only option — but ordered, so at least the sequence is
+                // only option, but ordered, so at least the sequence is
                 // deterministic rather than whatever the optimiser returns.
-                $sql = $wpdb->prepare("SELECT * FROM {$quoted} ORDER BY {$order} LIMIT %d OFFSET %d", self::BATCH, $offset);
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $order is a backtick-quoted column list built by Db_Dumper::column_order() (src/Tools/Backup/Db_Dumper.php) from SHOW COLUMNS %i on this validated table; %i binds one identifier, and an ORDER BY over every column is a list of them.
+                $sql = $wpdb->prepare("SELECT * FROM %i ORDER BY {$order} LIMIT %d OFFSET %d", $table, self::BATCH, $offset);
             }
 
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Identifiers come from the validated table list and from SHOW KEYS/SHOW COLUMNS on that table; every value is bound.
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Identifiers come from the validated table list and from SHOW KEYS/SHOW COLUMNS on that table; every value is bound.
             $rows = $wpdb->get_results($sql, ARRAY_A);
 
             if (! is_array($rows) || [] === $rows) {
@@ -233,8 +233,8 @@ class Db_Dumper
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Identifier from the validated table list; no user input reaches this query.
-        $keys = $wpdb->get_results('SHOW KEYS FROM `' . str_replace('`', '``', $table) . "` WHERE Key_name = 'PRIMARY'", ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- schema introspection of a table from the validated list, bound with %i; the key must reflect the live table.
+        $keys = $wpdb->get_results($wpdb->prepare("SHOW KEYS FROM %i WHERE Key_name = 'PRIMARY'", $table), ARRAY_A);
 
         if (! is_array($keys) || 1 !== count($keys)) {
             return null;
@@ -250,8 +250,8 @@ class Db_Dumper
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Identifier from the validated table list; no user input reaches this query.
-        $columns = $wpdb->get_results('SHOW COLUMNS FROM `' . str_replace('`', '``', $table) . '`', ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- schema introspection of a table from the validated list, bound with %i; the column set must reflect the live table.
+        $columns = $wpdb->get_results($wpdb->prepare('SHOW COLUMNS FROM %i', $table), ARRAY_A);
 
         if (! is_array($columns) || [] === $columns) {
             return '1';
@@ -306,8 +306,8 @@ class Db_Dumper
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Identifier from the validated table list; no user input reaches this query.
-        $columns = $wpdb->get_results('SHOW COLUMNS FROM `' . str_replace('`', '``', $table) . '`', ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- schema introspection of a table from the validated list, bound with %i; the column set must reflect the live table.
+        $columns = $wpdb->get_results($wpdb->prepare('SHOW COLUMNS FROM %i', $table), ARRAY_A);
 
         if (! is_array($columns)) {
             return false;

@@ -38,8 +38,8 @@ class Resize_Media
             if (! isset($registered[ $size ])) {
                 throw new \InvalidArgumentException(sprintf(
                     '"%s" is not a registered image size. Registered sizes: %s.',
-                    $size,
-                    implode(', ', array_keys($registered))
+                    esc_html($size),
+                    esc_html(implode(', ', array_keys($registered)))
                 ));
             }
         }
@@ -80,7 +80,7 @@ class Resize_Media
                     if (! is_array($resized)) {
                         throw new \RuntimeException(sprintf(
                             'Size "%s" could not be generated (the original may be smaller than the requested dimensions).',
-                            $size
+                            esc_html($size)
                         ));
                     }
                     $meta['sizes'][ $size ] = $resized;
