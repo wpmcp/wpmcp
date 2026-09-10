@@ -33,6 +33,10 @@ mkdir -p "$STAGE"
 
 cp "$ROOT/LICENSE" "$ROOT/composer.json" "$ROOT/composer.lock" "$STAGE/"
 cp -R "$ROOT/src" "$STAGE/src"
+
+# Ship the translation directory the Domain Path header points at (issue #184).
+mkdir -p "$STAGE/languages"
+find "$ROOT/languages" -maxdepth 1 \( -name '*.po' -o -name '*.mo' -o -name '*.l10n.php' \) -exec cp {} "$STAGE/languages/" \;
 sed "s/{{VERSION}}/$VERSION/g" "$FLAVOR/$SLUG.php" > "$STAGE/$SLUG.php"
 sed "s/{{VERSION}}/$VERSION/g" "$FLAVOR/readme.txt" > "$STAGE/readme.txt"
 
@@ -126,7 +130,35 @@ foreach ($it as $f) {
 if ($missing) { fwrite(STDERR, implode("\n", array_unique($missing)) . "\n"); exit(1); }
 ' "$STAGE" || fail "the $SLUG build names a class it does not ship"
 
-# 5. Packaging hygiene: no dotfiles, no development directories, no build
+# 4b. Compatibility headers, re-derived from the staged files rather than
+#     from the checkout the strip ran over. `Tested up to` is a Plugin Check
+#     error when it trails the current release and the plugin then stops
+#     appearing in directory search (issue #172, finding B-23). The values in
+#     the zip must equal the value the repository declares, and the repository
+#     value is the one tests/free/Release/ReleaseHeadersTest.php pins.
+readme_tested="$(sed -n 's/^Tested up to:[[:space:]]*//p' "$STAGE/readme.txt" | head -1)"
+loader_tested="$(sed -n 's/^[[:space:]]*\*[[:space:]]*Tested up to:[[:space:]]*//p' "$STAGE/$SLUG.php" | head -1)"
+root_tested="$(sed -n 's/^Tested up to:[[:space:]]*//p' "$ROOT/readme.txt" | head -1)"
+
+[ -n "$readme_tested" ] || fail "the staged readme.txt has no Tested up to header"
+[ -n "$loader_tested" ] || fail "the staged $SLUG.php has no Tested up to header"
+[ -n "$root_tested" ] || fail "the repository readme.txt has no Tested up to header"
+[ "$readme_tested" = "$loader_tested" ] || fail "staged readme.txt says Tested up to $readme_tested and $SLUG.php says $loader_tested"
+[ "$readme_tested" = "$root_tested" ] || fail "the zip declares Tested up to $readme_tested and the repository readme.txt declares $root_tested"
+echo "$readme_tested" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || fail "Tested up to \"$readme_tested\" must be numbers only"
+
+staged_stable="$(sed -n 's/^Stable tag:[[:space:]]*//p' "$STAGE/readme.txt" | head -1)"
+[ "$staged_stable" = "$VERSION" ] || fail "staged Stable tag $staged_stable does not equal WPMCP_VERSION $VERSION"
+
+# 5. The coexistence guard. src/flavor-guard.php is global functions, not a
+#    class, so gate 4's classmap walk cannot see it; a prune that dropped it
+#    would fatal at plugin load. The main file must both load it and carry the
+#    WPMCP Flavor header the guard ranks by.
+[ -f "$STAGE/src/flavor-guard.php" ] || fail "src/flavor-guard.php missing from the $SLUG build"
+grep -q "flavor-guard.php" "$STAGE/$SLUG.php" || fail "$SLUG.php does not load the flavor coexistence guard"
+grep -q "^ \* WPMCP Flavor: wporg$" "$STAGE/$SLUG.php" || fail "$SLUG.php does not declare the wporg flavor header"
+
+# 6. Packaging hygiene: no dotfiles, no development directories, no build
 #    scripts. File_Type_Check errors on all three, and ".sh" is on its
 #    application-file list, so this script must never be inside its own zip.
 find "$STAGE" -name '.*' -not -name '.' -not -path "$STAGE" -print0 | xargs -0 rm -rf
@@ -140,7 +172,7 @@ ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
 rm -f "$ZIP"
 (cd "$STAGE_PARENT" && zip -rq "$ZIP" "$SLUG" -x "*.DS_Store")
 
-# 6. The compliance engine, in the profile that models the directory, run
+# 7. The compliance engine, in the profile that models the directory, run
 #    against the extracted zip rather than the checkout. This is the check
 #    that decides whether the artifact is submittable.
 BUILD_DIR="$ROOT/build/wporg"

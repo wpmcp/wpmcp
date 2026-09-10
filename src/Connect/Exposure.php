@@ -2,6 +2,8 @@
 
 namespace WPMCP\Connect;
 
+use WPMCP\Plugin;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -69,6 +71,13 @@ class Exposure
         }
 
         $on = self::is_enabled();
+        if ($on) {
+            /* translators: %s: product name (not translated) */
+            $tooltip = __('%s: the MCP surface is exposed. Click to manage connections.', 'wpmcp');
+        } else {
+            /* translators: %s: product name (not translated) */
+            $tooltip = __('%s: the MCP surface is disabled. Click to manage connections.', 'wpmcp');
+        }
         $wp_admin_bar->add_node([
             'id'    => 'wpmcp-exposure',
             'title' => $on
@@ -76,9 +85,7 @@ class Exposure
                 : esc_html__('MCP: Off', 'wpmcp'),
             'href'  => admin_url('admin.php?page=wpmcp-connection'),
             'meta'  => [
-                'title' => $on
-                    ? __('wpmcp: the MCP surface is exposed. Click to manage connections.', 'wpmcp')
-                    : __('wpmcp: the MCP surface is disabled. Click to manage connections.', 'wpmcp'),
+                'title' => sprintf($tooltip, Plugin::BRAND),
             ],
         ]);
     }
