@@ -42,9 +42,16 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  That last raise was taken only after trimming the new descriptions:
      *  they still carry the refusal rules (duplicate slug, parent cycle,
      *  default term) because an agent that learns those from the description
-     *  avoids a failed call, which costs more than the bytes do.
+     *  avoids a failed call, which costs more than the bytes do; raised
+     *  165000 -> 170000 in review for the PHP snippet lifecycle store
+     *  (create/list/get/update/delete/deactivate-php-snippet plus the pro
+     *  activate-php-snippet, issue #85), which puts the payload at 167147
+     *  bytes over 311 tools. That raise too came after trimming the seven
+     *  new descriptions; what remains is the store-vs-Elementor-custom-code
+     *  disambiguation, the created-inactive rule and the execution-gate
+     *  refusal, each of which saves an agent a wasted or unsafe call.
      *  Compact tool mode keeps clients with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 165000;
+    private const TOOLS_LIST_BYTE_BUDGET = 170000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

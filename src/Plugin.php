@@ -2555,7 +2555,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-php-snippet',
             'free',
-            'Store a named PHP snippet as an inactive, reviewable object in the plugin\'s PHP snippet store (this is stored PHP source, NOT an Elementor custom-code post: see create-code-snippet for those). The code is statically checked first and never executed; syntax errors or critical findings block creation, but that check is an advisory speed-bump a caller who already holds manage_options can trivially evade, not a security boundary. Snippets are always created inactive; activation is a separate governed operation behind the PHP execution gate. Snapshot-first and reversible per snippet',
+            'Store a named PHP snippet, inactive, in the plugin PHP snippet store (stored PHP source, NOT an Elementor custom-code post: see create-code-snippet). The code is statically checked and never executed; syntax errors or critical findings refuse creation, though that check is advisory, not a security boundary. Activation is a separate governed operation behind the PHP execution gate. Snapshot-first and reversible per snippet',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2574,7 +2574,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-php-snippets',
             'free',
-            'List STORED PHP SNIPPETS as summaries (id, name, status, static-check flag, timestamps) without code bodies. This is the PHP snippet store, not Elementor custom code (see list-code-snippets). Read-only, never executes anything',
+            'List STORED PHP SNIPPETS as summaries (id, name, status, static-check flag, timestamps) without code. Not Elementor custom code (see list-code-snippets). Read-only, never executes anything',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -2588,7 +2588,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-php-snippet',
             'free',
-            'Fetch one STORED PHP SNIPPET by id: code, status (active/inactive), and the last static-check report. This is the PHP snippet store, not Elementor custom code (see get-code-snippet). The stored report records what the checker said when the code was written; it is advisory bookkeeping, not proof the code is safe. Read-only, never executes anything',
+            'Fetch one STORED PHP SNIPPET by id: code, status (active/inactive) and the last static-check report (advisory bookkeeping, not proof the code is safe). Not Elementor custom code (see get-code-snippet). Read-only, never executes anything',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2605,7 +2605,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-php-snippet',
             'free',
-            'Update a stored PHP snippet\'s name and/or code. New code is re-checked statically and never executed; syntax errors or critical findings block the update, though that check is an advisory speed-bump an authorized caller can trivially evade, not a security boundary. A code change forces the snippet back to inactive pending re-activation. Snapshot-first and reversible per snippet',
+            'Update a stored PHP snippet\'s name and/or code. New code is re-checked statically and never executed; syntax errors or critical findings refuse the update (advisory check, not a security boundary). A code change forces the snippet back to inactive pending re-activation. Snapshot-first and reversible per snippet',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2625,7 +2625,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-php-snippet',
             'free',
-            'Delete a stored PHP snippet by id (the PHP snippet store, not an Elementor custom-code post: see delete-code-snippet). Snapshot-first and reversible per snippet through the normal rollback flow, so undoing it restores this snippet without disturbing the others; never executes anything',
+            'Delete a stored PHP snippet by id (the PHP snippet store, not an Elementor custom-code post: see delete-code-snippet). Snapshot-first and reversible per snippet, so rollback restores it without disturbing the others; never executes anything',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2643,7 +2643,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/deactivate-php-snippet',
             'free',
-            'Deactivate a stored PHP snippet by id (the reverse of activate-php-snippet): marks it inactive so nothing can run it. Deliberately NOT gated on the PHP execution opt-in, so an activated snippet can always be revoked even after the execution gate is closed. Snapshot-first and reversible; never executes anything',
+            'Deactivate a stored PHP snippet by id (reverse of activate-php-snippet): marks it inactive so nothing can run it. Deliberately NOT gated on the PHP execution opt-in, so an activated snippet can always be revoked after the gate is closed. Snapshot-first and reversible; never executes anything',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2862,7 +2862,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/activate-php-snippet',
             'pro',
-            'Activate a STORED PHP SNIPPET by id (the wpmcp/*-php-snippet store, not Elementor custom code). Distinct governed operation: snippets are always created inactive. Refuses unless PHP snippet execution is explicitly enabled (WPMCP_ALLOW_PHP_EXEC constant or wpmcp_allow_php_exec filter, default off) and the environment permits it, the same gate chain run-php-snippet clears. The stored code is re-checked by the static validator first, but that check is an advisory speed-bump an authorized caller can trivially evade, not a security boundary: capability, enablement and environment are the real gates. Activation only flips the status flag and never executes the snippet. Every attempt, allowed or refused, is written to the governance audit trail. Snapshot-first and reversible',
+            'Activate a STORED PHP SNIPPET by id (the PHP snippet store, not Elementor custom code). Snippets are created inactive; this flips the status flag and never executes the snippet. Refuses unless PHP snippet execution is explicitly enabled (WPMCP_ALLOW_PHP_EXEC constant or wpmcp_allow_php_exec filter, default off) and the environment permits it, the same gate chain run-php-snippet clears. The stored code is re-checked statically first, but that check is advisory, not a security boundary: capability, enablement and environment are the real gates. Every attempt, allowed or refused, is written to the governance audit trail. Snapshot-first and reversible',
             [
                 'type'       => 'object',
                 'properties' => [
