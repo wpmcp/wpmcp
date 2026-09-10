@@ -28,6 +28,12 @@
  *
  * Deliberately not namespaced and not autoloaded: it has to run before any
  * autoloader exists.
+ *
+ * Ships byte-identical in every build. scripts/build-woo-release.sh excludes
+ * this file from its text-domain rewrite (the 'wpmcp' basename prefix below
+ * matches the rewrite's pattern) and fails the build if the staged copy
+ * differs from this one, so keep user-facing strings out of here: the
+ * stand-down notice belongs in each main file, in that build's own domain.
  */
 
 // Plugin Check's Direct_File_Access_Check only accepts the bare defined()

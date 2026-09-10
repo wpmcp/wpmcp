@@ -75,6 +75,11 @@ jobs:
         run: composer compliance
       - name: Build the directory zip and gate it
         run: bash scripts/build-wporg-release.sh
+      # The vertical build has its own gates (name, execution call sites, the
+      # flavor guard shipped unchanged) and nothing else runs it; FlavorGuardTest
+      # covers the source tree, not the artifact.
+      - name: Build the WooCommerce vertical zip and gate it
+        run: bash scripts/build-woo-release.sh
       - name: Compliance report (markdown)
         if: always()
         run: |

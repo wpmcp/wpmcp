@@ -118,13 +118,25 @@ rm -f "$STAGE/composer.json" "$STAGE/composer.lock"
 # 'wpmcp' but always followed by a comma. The menu slug is deliberately left
 # alone: it is a WordPress-derived identifier that screen ids are built from
 # (see Admin/Announcements.php), so rewriting it breaks those lookups.
-find "$STAGE/src" -name '*.php' -exec sed -i '' \
+#
+# src/flavor-guard.php is excluded. It carries no i18n call (the stand-down
+# notice lives in the main file, which is staged from scripts/flavors/ with
+# the right domain already), but it does compare active plugin basenames
+# against the literal 'wpmcp' as a filename prefix, and that argument matches
+# the first sed form. Rewriting it to '$SLUG' made the guard skip every
+# sibling named wpmcp.php, so the vertical never deferred to the full plugin
+# and the full plugin was the one that stood down. The gate below pins the
+# shipped guard to the source tree byte for byte.
+# In-place sed differs between BSD (macOS, needs the empty suffix argument)
+# and GNU (CI's ubuntu, where '' would be read as the script).
+if sed --version >/dev/null 2>&1; then SED_INPLACE=(sed -i); else SED_INPLACE=(sed -i ''); fi
+find "$STAGE/src" -name '*.php' -not -name 'flavor-guard.php' -exec "${SED_INPLACE[@]}" \
   "s/, 'wpmcp' )/, '$SLUG' )/g; s/, 'wpmcp')/, '$SLUG')/g; s/^\([[:space:]]*\)'wpmcp'$/\1'$SLUG'/" {} +
 
 # Belt and braces: fail the build if any i18n call kept the 'wpmcp' domain.
 # The two seds above are line-based, so a future call wrapped differently
 # would silently ship the wrong domain and fail the wp.org sniff instead.
-LEFTOVER_DOMAIN="$(grep -rn --include='*.php' -E \
+LEFTOVER_DOMAIN="$(grep -rn --include='*.php' --exclude='flavor-guard.php' -E \
   "(^[[:space:]]*'wpmcp'[[:space:]]*$)|(, ?'wpmcp' ?\))" "$STAGE/src" || true)"
 if [ -n "$LEFTOVER_DOMAIN" ]; then
   echo "ERROR: 'wpmcp' text domain survived the rewrite in the $SLUG build:" >&2
@@ -149,6 +161,24 @@ grep -q 'flavor-guard.php' "$STAGE/$SLUG.php" || {
 }
 [ -f "$STAGE/src/flavor-guard.php" ] || {
   echo "ERROR: src/flavor-guard.php missing from the $SLUG build" >&2
+  exit 1
+}
+# The guard is the one file every build must ship unchanged: it is the code
+# that decides which build boots, and the text-domain rewrite above once
+# inverted that decision. Content, not presence.
+cmp -s "$ROOT/src/flavor-guard.php" "$STAGE/src/flavor-guard.php" || {
+  echo "ERROR: src/flavor-guard.php in the $SLUG build differs from the source tree:" >&2
+  diff "$ROOT/src/flavor-guard.php" "$STAGE/src/flavor-guard.php" >&2 || true
+  exit 1
+}
+# Excluding the guard from the rewrite is only sound while it has no i18n
+# call of its own; a string added there would ship with the wrong domain.
+GUARD_I18N="$(grep -nE \
+  "(^|[^A-Za-z0-9_])(__|_e|_x|_ex|_n|_nx|_n_noop|_nx_noop|esc_html__|esc_html_e|esc_html_x|esc_attr__|esc_attr_e|esc_attr_x|translate)\(" \
+  "$STAGE/src/flavor-guard.php" || true)"
+[ -z "$GUARD_I18N" ] || {
+  echo "ERROR: src/flavor-guard.php contains an i18n call; it is excluded from the text-domain rewrite, so move the string to the main file:" >&2
+  echo "$GUARD_I18N" >&2
   exit 1
 }
 grep -q "^ \* WPMCP Flavor: woocommerce$" "$STAGE/$SLUG.php" || {
