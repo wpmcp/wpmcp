@@ -5738,7 +5738,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-variation',
             'free',
-            'Update a WooCommerce product variation\'s fields (prices, sku, stock quantity and status). A variation is a product_variation post, so this is snapshotted via object_type post (including post_parent, keeping it attached to its parent) and rollback-operation restores the prior price and stock exactly',
+            'Update a WooCommerce product variation\'s fields: regular_price, sale_price, sku, status (publish or private only), manage_stock, stock_quantity (integer, never null) and stock_status (accepted only while stock is unmanaged; managed stock derives it from the quantity). Snapshotted as a post, so rollback-operation restores the prior price and stock exactly, keeps the variation attached to its parent and re-syncs the parent\'s price range',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5762,7 +5762,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-low-stock-products',
             'free',
-            'List products and variations whose managed stock is at or below a threshold (default: the store\'s own low-stock setting) or marked out of stock, as summary rows whose ids feed update-product/update-variation for restocking. Read-only',
+            'List products and variations whose managed stock is at or below a threshold (default: the store\'s own low-stock setting) or that are marked out of stock, as summary rows whose ids feed update-product/update-variation for restocking. total and has_more count matches, so page while has_more is true. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
