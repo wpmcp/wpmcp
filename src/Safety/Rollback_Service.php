@@ -664,6 +664,13 @@ class Rollback_Service
                 throw new Mutation_Failed("Rollback failed to restore row {$pk_desc} in \"{$table}\": " . ($wpdb->last_error ?: 'update failed'));
             }
         }
+
+        // The restore is as raw a write as the operation it undoes, so the
+        // same caches are stale now (issue #182): without this, get_option()
+        // and friends keep serving the value the rollback just overwrote.
+        Database_Guard::invalidate_caches($table, [
+            'rows' => array_map(static fn($row) => (array) $row, $rows),
+        ]);
     }
 
     /**
