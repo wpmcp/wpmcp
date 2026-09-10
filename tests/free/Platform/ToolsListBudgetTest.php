@@ -42,9 +42,19 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  That last raise was taken only after trimming the new descriptions:
      *  they still carry the refusal rules (duplicate slug, parent cycle,
      *  default term) because an agent that learns those from the description
-     *  avoids a failed call, which costs more than the bytes do.
-     *  Compact tool mode keeps clients with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 165000;
+     *  avoids a failed call, which costs more than the bytes do. The
+     *  WooCommerce variation and stock tools (#195: list-variations,
+     *  update-variation, list-low-stock-products) added roughly 1.9KB with no
+     *  raise; a free-tier-only run then measures 112912 bytes over 216 tools.
+     *  Raised 165000 -> 170000 in review for restore-site-backup (#190), the
+     *  one tool that can overwrite every table: its description is kept
+     *  short but still names the refusal rules (scope, prefix, multisite,
+     *  format_version, include_files) and the fact that this build only
+     *  produces the dry_run report, because an agent that reads that plans a
+     *  dry run instead of a failed restore. That puts the payload at 165928
+     *  bytes over 308 tools, after trimming. Compact tool mode keeps clients
+     *  with tool caps at ~2.8KB regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 170000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

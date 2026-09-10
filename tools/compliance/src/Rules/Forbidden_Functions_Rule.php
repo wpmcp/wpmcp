@@ -14,6 +14,15 @@ use WPMCP\Compliance\Severity;
  *
  * Sources: phpcs-rulesets/plugin-check.ruleset.xml, Generic.PHP.ForbiddenFunctions
  * (error, severity 7) and Squiz.PHP.DiscouragedFunctions.
+ *
+ * Every group honours a justified phpcs:ignore for its own message code,
+ * because PHPCS and Plugin Check do. Some of these calls have no WordPress
+ * equivalent at all (a proc_open() pipe handle cannot be closed through
+ * WP_Filesystem, and CURLOPT_RESOLVE has no HTTP API counterpart), so the
+ * annotation is the remediation this rule recommends; it would be incoherent
+ * to keep reporting a site that has taken it. The match is on the exact code
+ * PHPCS would emit for that call (or a hierarchy prefix of it), so an ignore
+ * written for fopen() does not also cover the fclose() beside it.
  */
 final class Forbidden_Functions_Rule extends Base_Rule
 {
@@ -41,8 +50,9 @@ final class Forbidden_Functions_Rule extends Base_Rule
 
     /**
      * WordPress.WP.AlternativeFunctions, promoted to error by the review
-     * ruleset. The file_system_operations and curl groups are enumerated in
-     * full: a partial list reads as a clean run on the sites it omits, and a
+     * ruleset, as function => [alternative, message code]. The
+     * file_system_operations and curl groups are enumerated in full: a
+     * partial list reads as a clean run on the sites it omits, and a
      * cross-check against Plugin Check 2.0.0 on this plugin caught exactly
      * that (fclose, fread, readfile, rmdir and curl_setopt were all reported
      * by the reviewer's tool while this rule stayed silent).
@@ -53,32 +63,56 @@ final class Forbidden_Functions_Rule extends Base_Rule
         // file_put_contents). copy(), fseek(), fgets(), feof() and ftell() are
         // deliberately absent: they are not in the sniff and adding them would
         // invent errors the reviewer's tooling does not raise.
-        'chgrp' => 'WP_Filesystem',
-        'chmod' => 'WP_Filesystem',
-        'chown' => 'WP_Filesystem',
-        'fclose' => 'WP_Filesystem',
-        'fopen' => 'WP_Filesystem',
-        'fputs' => 'WP_Filesystem',
-        'fread' => 'WP_Filesystem',
-        'fsockopen' => 'the WordPress HTTP API',
-        'fwrite' => 'WP_Filesystem',
-        'is_writable' => 'WP_Filesystem',
-        'is_writeable' => 'WP_Filesystem',
-        'mkdir' => 'wp_mkdir_p()',
-        'pfsockopen' => 'the WordPress HTTP API',
-        'readfile' => 'WP_Filesystem',
-        'rmdir' => 'WP_Filesystem',
-        'touch' => 'WP_Filesystem',
+        'chgrp' => ['WP_Filesystem', 'file_system_operations_chgrp'],
+        'chmod' => ['WP_Filesystem', 'file_system_operations_chmod'],
+        'chown' => ['WP_Filesystem', 'file_system_operations_chown'],
+        'fclose' => ['WP_Filesystem', 'file_system_operations_fclose'],
+        'fopen' => ['WP_Filesystem', 'file_system_operations_fopen'],
+        'fputs' => ['WP_Filesystem', 'file_system_operations_fputs'],
+        'fread' => ['WP_Filesystem', 'file_system_operations_fread'],
+        'fsockopen' => ['the WordPress HTTP API', 'file_system_operations_fsockopen'],
+        'fwrite' => ['WP_Filesystem', 'file_system_operations_fwrite'],
+        'is_writable' => ['WP_Filesystem', 'file_system_operations_is_writable'],
+        'is_writeable' => ['WP_Filesystem', 'file_system_operations_is_writeable'],
+        'mkdir' => ['wp_mkdir_p()', 'file_system_operations_mkdir'],
+        'pfsockopen' => ['the WordPress HTTP API', 'file_system_operations_pfsockopen'],
+        'readfile' => ['WP_Filesystem', 'file_system_operations_readfile'],
+        'rmdir' => ['WP_Filesystem', 'file_system_operations_rmdir'],
+        'touch' => ['WP_Filesystem', 'file_system_operations_touch'],
         // Single-function groups.
-        'unlink' => 'wp_delete_file()',
-        'rename' => 'WP_Filesystem::move()',
-        'parse_url' => 'wp_parse_url()',
-        'strip_tags' => 'wp_strip_all_tags()',
+        'unlink' => ['wp_delete_file()', 'unlink_unlink'],
+        'rename' => ['WP_Filesystem::move()', 'rename_rename'],
+        'parse_url' => ['wp_parse_url()', 'parse_url_parse_url'],
+        'strip_tags' => ['wp_strip_all_tags()', 'strip_tags_strip_tags'],
         // rand and rand_seeding groups.
-        'rand' => 'wp_rand()',
-        'mt_rand' => 'wp_rand()',
-        'srand' => 'wp_rand()',
-        'mt_srand' => 'wp_rand()',
+        'rand' => ['wp_rand()', 'rand_rand'],
+        'mt_rand' => ['wp_rand()', 'rand_mt_rand'],
+        'srand' => ['wp_rand()', 'rand_seeding_srand'],
+        'mt_srand' => ['wp_rand()', 'rand_seeding_mt_srand'],
+    ];
+
+    /**
+     * Sniff codes, one per group, as PHPCS emits them. AlternativeFunctions
+     * codes are group_function, the way AbstractFunctionRestrictionsSniff
+     * builds them; the curl group is 'curl_' . $name for the same reason.
+     */
+    private const FORBIDDEN_SNIFF = 'Generic.PHP.ForbiddenFunctions';
+    private const DISCOURAGED_SNIFF = 'Squiz.PHP.DiscouragedFunctions';
+    private const ALTERNATIVES_SNIFF = 'WordPress.WP.AlternativeFunctions';
+
+    /**
+     * Calls a second WordPressCS sniff reports as well. PHPCS accepts an
+     * annotation naming either code for the call, so this rule does too:
+     * ini_set() has the dedicated WordPress.PHP.IniSet sniff (every code
+     * under it is an ini_set() call, so the sniff itself is enough), and
+     * dl() and str_rot13() sit in WordPress.PHP.DiscouragedPHPFunctions
+     * under their group codes. set_time_limit() and ini_alter() appear only
+     * under Squiz.PHP.DiscouragedFunctions.
+     */
+    private const ALSO_REPORTED_AS = [
+        'ini_set' => 'WordPress.PHP.IniSet',
+        'dl' => 'WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_dl',
+        'str_rot13' => 'WordPress.PHP.DiscouragedPHPFunctions.obfuscation_str_rot13',
     ];
 
     /**
@@ -116,6 +150,9 @@ final class Forbidden_Functions_Rule extends Base_Rule
         $findings = [];
         foreach ($context->php_files() as $file) {
             foreach ($file->find_calls(self::FORBIDDEN, false) as $call) {
+                if ($this->is_suppressed($file, $call, self::FORBIDDEN_SNIFF)) {
+                    continue;
+                }
                 $findings[] = $this->finding(
                     $file,
                     $call['line'],
@@ -123,6 +160,9 @@ final class Forbidden_Functions_Rule extends Base_Rule
                 );
             }
             foreach ($file->find_calls(self::DISCOURAGED, false) as $call) {
+                if ($this->is_suppressed($file, $call, self::DISCOURAGED_SNIFF)) {
+                    continue;
+                }
                 $findings[] = $this->finding(
                     $file,
                     $call['line'],
@@ -131,13 +171,20 @@ final class Forbidden_Functions_Rule extends Base_Rule
                 );
             }
             foreach ($file->find_calls(array_keys(self::ALTERNATIVES), false) as $call) {
+                [$alternative, $code] = self::ALTERNATIVES[$call['name']];
+                if ($this->is_suppressed($file, $call, self::ALTERNATIVES_SNIFF . '.' . $code)) {
+                    continue;
+                }
                 $findings[] = $this->finding(
                     $file,
                     $call['line'],
-                    sprintf('%s() is an error under WordPress.WP.AlternativeFunctions; use %s', $call['name'], self::ALTERNATIVES[$call['name']])
+                    sprintf('%s() is an error under WordPress.WP.AlternativeFunctions; use %s', $call['name'], $alternative)
                 );
             }
             foreach ($this->curl_calls($file) as $call) {
+                if ($this->is_suppressed($file, $call, self::ALTERNATIVES_SNIFF . '.curl_' . $call['name'])) {
+                    continue;
+                }
                 $findings[] = $this->finding(
                     $file,
                     $call['line'],
@@ -149,6 +196,21 @@ final class Forbidden_Functions_Rule extends Base_Rule
             }
         }
         return $findings;
+    }
+
+    /**
+     * True when the call carries a justified phpcs:ignore for the code PHPCS
+     * would emit for it, or for a second sniff that also reports it.
+     *
+     * @param array{name:string,line:int} $call
+     */
+    private function is_suppressed(\WPMCP\Compliance\Source_File $file, array $call, string $code): bool
+    {
+        if ($file->has_phpcs_ignore($call['line'], $code)) {
+            return true;
+        }
+        $also = self::ALSO_REPORTED_AS[$call['name']] ?? null;
+        return null !== $also && $file->has_phpcs_ignore($call['line'], $also);
     }
 
     /**

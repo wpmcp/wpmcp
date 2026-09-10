@@ -1,20 +1,16 @@
 <?php
 
-namespace WPMCP\Tests\Free\Backup;
+namespace WPMCP\Tests\Free\Migration;
 
-class BackupAbilitiesRegistrationTest extends \WP_UnitTestCase
+use WPMCP\Plugin;
+
+class MigrationAbilitiesRegistrationTest extends \WP_UnitTestCase
 {
     private const NAMES = [
-        'wpmcp/trigger-backup',
-        'wpmcp/get-backup-status',
-        'wpmcp/list-backup-jobs',
-        'wpmcp/cancel-backup-job',
-        'wpmcp/get-backup-manifest',
-        'wpmcp/delete-backup-archive',
-        'wpmcp/restore-site-backup',
+        'wpmcp/rewrite-site-urls',
     ];
 
-    public function test_backup_tools_are_registered_as_free_abilities(): void
+    public function test_migration_tools_are_registered_as_free_abilities(): void
     {
         $names = array_keys(wp_get_abilities());
 
@@ -23,7 +19,7 @@ class BackupAbilitiesRegistrationTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_backup_abilities_have_description_and_category(): void
+    public function test_migration_abilities_have_description_and_category(): void
     {
         $abilities = wp_get_abilities();
 
@@ -34,7 +30,7 @@ class BackupAbilitiesRegistrationTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_backup_abilities_deny_subscriber_and_allow_administrator(): void
+    public function test_migration_abilities_deny_subscriber_and_allow_administrator(): void
     {
         $abilities = wp_get_abilities();
 
@@ -49,5 +45,21 @@ class BackupAbilitiesRegistrationTest extends \WP_UnitTestCase
         foreach (self::NAMES as $name) {
             $this->assertTrue($abilities[ $name ]->check_permissions(), "{$name} must allow an administrator");
         }
+    }
+
+    /**
+     * An applied rewrite is an unsnapshotted in-place write to six core
+     * tables. The MCP annotations must say so rather than inherit the
+     * 'update' defaults (destructive false, idempotent true).
+     */
+    public function test_rewrite_site_urls_is_annotated_as_destructive_and_not_idempotent(): void
+    {
+        $ability = Plugin::instance()->registrar()->get('wpmcp/rewrite-site-urls');
+
+        $this->assertNotNull($ability);
+        $this->assertFalse($ability->read_only_hint);
+        $this->assertTrue($ability->destructive_hint);
+        $this->assertFalse($ability->idempotent_hint);
+        $this->assertStringContainsString('recoverable:false', $ability->description);
     }
 }
