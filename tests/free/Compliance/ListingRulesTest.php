@@ -192,6 +192,20 @@ class ListingRulesTest extends Compliance_Test_Case
         }
     }
 
+    /**
+     * A misspelt severity in the option must fail loudly: an unknown string
+     * would rank 0, never reach the --fail-on floor, and silently mute the
+     * finding it was meant to downgrade.
+     */
+    public function test_an_invalid_pay_to_unlock_copy_severity_is_rejected(): void
+    {
+        $profile = Profile::custom('house', 'typo', [], ['pay_to_unlock_copy' => 'best_practice']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('pay_to_unlock_copy must be one of');
+        $profile->pay_to_unlock_copy_severity();
+    }
+
     public function test_admin_nag_rule_is_quiet_on_a_settings_screen_without_upsell(): void
     {
         $findings = $this->findings(new Admin_Nag_Rule(), [

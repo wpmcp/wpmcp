@@ -181,7 +181,17 @@ final class Profile
     public function pay_to_unlock_copy_severity(): ?string
     {
         $severity = $this->option('pay_to_unlock_copy');
-        return is_string($severity) ? $severity : null;
+        if (null === $severity) {
+            return null;
+        }
+        if (! is_string($severity) || ! Severity::is_valid($severity)) {
+            throw new InvalidArgumentException(sprintf(
+                'pay_to_unlock_copy must be one of %s, got %s',
+                implode(', ', Severity::all()),
+                var_export($severity, true)
+            ));
+        }
+        return $severity;
     }
 
     /**
