@@ -64,7 +64,7 @@ class Build_Change_Set
 
         $json = wp_json_encode($change_set, JSON_UNESCAPED_SLASHES);
         if (false === $json || false === file_put_contents($path, $json)) {
-            throw new \RuntimeException('The change-set artifact could not be written to ' . $dir . '.');
+            throw new \RuntimeException('The change-set artifact could not be written to ' . esc_html($dir) . '.');
         }
 
         return [

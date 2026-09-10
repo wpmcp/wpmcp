@@ -61,7 +61,7 @@ class Insert_Stock_Image
                 $content = ('' === trim($content)) ? $block : $content . "\n\n" . $block;
                 $result  = wp_update_post(['ID' => $post_id, 'post_content' => $content], true);
                 if (is_wp_error($result)) {
-                    throw new \RuntimeException('The image block could not be inserted: ' . $result->get_error_message());
+                    throw new \RuntimeException('The image block could not be inserted: ' . esc_html($result->get_error_message()));
                 }
                 return true;
             }

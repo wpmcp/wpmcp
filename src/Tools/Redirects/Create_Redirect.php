@@ -39,8 +39,8 @@ class Create_Redirect
         if (null !== $existing) {
             throw new \InvalidArgumentException(sprintf(
                 'Source "%s" is already redirected by redirect #%d; use update-redirect to change it.',
-                $source,
-                $existing['id']
+                esc_html($source),
+                (int) $existing['id']
             ));
         }
 

@@ -63,7 +63,7 @@ class Call_Rest
                 throw new \InvalidArgumentException('This is a mutating REST request. Pass confirm:true to proceed.');
             }
         } elseif (! in_array($method, self::READ_METHODS, true)) {
-            throw new \InvalidArgumentException("Unsupported method \"{$method}\".");
+            throw new \InvalidArgumentException(sprintf('Unsupported method "%s".', esc_html($method)));
         }
 
         $out = $this->dispatch($method, $route, $args);

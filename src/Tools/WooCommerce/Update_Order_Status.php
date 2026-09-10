@@ -49,7 +49,7 @@ class Update_Order_Status
             array_keys(wc_get_order_statuses())
         );
         if (! in_array($slug, $valid, true)) {
-            throw new \InvalidArgumentException('Unknown order status: ' . $status);
+            throw new \InvalidArgumentException('Unknown order status: ' . esc_html($status));
         }
 
         $out = Safe_Mutation::run(

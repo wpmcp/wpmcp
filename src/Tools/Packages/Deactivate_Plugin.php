@@ -29,7 +29,7 @@ class Deactivate_Plugin
         }
 
         if (Package_Guard::is_protected_plugin($plugin)) {
-            throw new \RuntimeException("Refusing to deactivate protected plugin \"{$plugin}\".");
+            throw new \RuntimeException(sprintf('Refusing to deactivate protected plugin "%s".', esc_html($plugin)));
         }
 
         if (! function_exists('deactivate_plugins')) {

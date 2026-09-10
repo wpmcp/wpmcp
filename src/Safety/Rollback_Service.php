@@ -596,10 +596,10 @@ class Rollback_Service
 
         $table = \WPMCP\Tools\Database\Database_Guard::valid_table((string) ($data['table'] ?? ''));
         if (is_wp_error($table)) {
-            throw new Mutation_Failed('Rollback refused: ' . $table->get_error_message());
+            throw new Mutation_Failed('Rollback refused: ' . esc_html($table->get_error_message()));
         }
         if (\WPMCP\Tools\Database\Database_Guard::is_protected($table)) {
-            throw new Mutation_Failed("Rollback refused: table \"{$table}\" is protected.");
+            throw new Mutation_Failed('Rollback refused: table "' . esc_html($table) . '" is protected.');
         }
 
         $primary_key = array_values(array_map('strval', (array) ($data['primary_key'] ?? [])));
@@ -610,7 +610,7 @@ class Rollback_Service
         $live_columns = \WPMCP\Tools\Database\Database_Guard::columns($table);
         foreach ($primary_key as $column) {
             if (! in_array($column, $live_columns, true)) {
-                throw new Mutation_Failed("Rollback refused: primary-key column \"{$column}\" is not a column of \"{$table}\".");
+                throw new Mutation_Failed('Rollback refused: primary-key column "' . esc_html($column) . '" is not a column of "' . esc_html($table) . '".');
             }
         }
 
@@ -622,14 +622,14 @@ class Rollback_Service
 
             foreach (array_keys($row) as $column) {
                 if (! in_array((string) $column, $live_columns, true)) {
-                    throw new Mutation_Failed("Rollback refused: captured column \"{$column}\" is not a column of \"{$table}\".");
+                    throw new Mutation_Failed('Rollback refused: captured column "' . esc_html((string) $column) . '" is not a column of "' . esc_html($table) . '".');
                 }
             }
 
             $where = [];
             foreach ($primary_key as $column) {
                 if (! isset($row[ $column ])) {
-                    throw new Mutation_Failed("Rollback refused: a captured row is missing primary-key value \"{$column}\".");
+                    throw new Mutation_Failed('Rollback refused: a captured row is missing primary-key value "' . esc_html($column) . '".');
                 }
                 $where[ $column ] = $row[ $column ];
             }
@@ -651,7 +651,7 @@ class Rollback_Service
 
             if (null === $current) {
                 if (false === $wpdb->insert($table, $row)) {
-                    throw new Mutation_Failed("Rollback failed to reinsert row {$pk_desc} into \"{$table}\": " . ($wpdb->last_error ?: 'insert failed'));
+                    throw new Mutation_Failed('Rollback failed to reinsert row ' . esc_html($pk_desc) . ' into "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'insert failed'));
                 }
                 continue;
             }
@@ -661,7 +661,7 @@ class Rollback_Service
                 continue; // PK-only table: existing row is already the before-image.
             }
             if (false === $wpdb->update($table, $restore, $where)) {
-                throw new Mutation_Failed("Rollback failed to restore row {$pk_desc} in \"{$table}\": " . ($wpdb->last_error ?: 'update failed'));
+                throw new Mutation_Failed('Rollback failed to restore row ' . esc_html($pk_desc) . ' in "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'update failed'));
             }
         }
 
@@ -1090,14 +1090,14 @@ class Rollback_Service
         $result  = wp_insert_post($postarr, true);
 
         if (is_wp_error($result)) {
-            throw new Mutation_Failed('Rollback failed to resurrect post ' . $object_id . ': ' . $result->get_error_message());
+            throw new Mutation_Failed('Rollback failed to resurrect post ' . (int) $object_id . ': ' . esc_html($result->get_error_message()));
         }
 
         $new_id = (int) $result;
         if ($new_id !== $object_id) {
             throw new Mutation_Failed(
-                "Rollback could not resurrect post {$object_id} at its original ID "
-                . "(import_id collision; WordPress inserted it as post {$new_id} instead). "
+                'Rollback could not resurrect post ' . (int) $object_id . ' at its original ID '
+                . '(import_id collision; WordPress inserted it as post ' . (int) $new_id . ' instead). '
                 . 'The site no longer has a free slot for the original ID, so the restore was aborted.'
             );
         }

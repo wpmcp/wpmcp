@@ -40,7 +40,7 @@ class Update_Plugin
         }
 
         if (Package_Guard::is_protected_plugin($plugin)) {
-            throw new \RuntimeException("Refusing to update protected plugin \"{$plugin}\".");
+            throw new \RuntimeException(sprintf('Refusing to update protected plugin "%s".', esc_html($plugin)));
         }
 
         if (! function_exists('get_plugins')) {
@@ -49,7 +49,7 @@ class Update_Plugin
 
         $all_plugins = get_plugins();
         if (! isset($all_plugins[ $plugin ])) {
-            throw new \RuntimeException("Plugin \"{$plugin}\" was not found.");
+            throw new \RuntimeException(sprintf('Plugin "%s" was not found.', esc_html($plugin)));
         }
 
         $update_plugins = get_site_transient('update_plugins');
@@ -71,7 +71,7 @@ class Update_Plugin
         $result   = $upgrader->upgrade($plugin);
         if (is_wp_error($result) || ! $result) {
             $message = is_wp_error($result) ? $result->get_error_message() : 'unknown error';
-            throw new \RuntimeException('Plugin update failed: ' . $message);
+            throw new \RuntimeException('Plugin update failed: ' . esc_html($message));
         }
 
         $new_version = $updates[ $plugin ]->new_version ?? null;
