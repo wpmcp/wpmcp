@@ -95,8 +95,10 @@ if [ -n "$LEFTOVER_DOMAIN" ]; then
 fi
 
 # Coexistence with the full plugin is handled at bootstrap, not by rewriting
-# identifiers. src/flavor-guard.php makes this build stand down whenever
-# 'wpmcp/wpmcp.php' is active, so the two never share a request. A build-time
+# identifiers. src/flavor-guard.php ranks the active WP MCP builds by the
+# WPMCP Flavor header in each main file and makes this build stand down
+# whenever a higher-ranked one is active, so the two never share a request
+# whichever directory the other lives in or loads from. A build-time
 # rename of the 'wpmcp_' prefix was tried and reverted: it splits identifiers
 # whose two halves are written differently (the caller's 'wpmcp_restore' vs
 # the registration's 'wp_ajax_wpmcp_restore'), it renames WP_Error codes that
@@ -109,6 +111,10 @@ grep -q 'flavor-guard.php' "$STAGE/$SLUG.php" || {
 }
 [ -f "$STAGE/src/flavor-guard.php" ] || {
   echo "ERROR: src/flavor-guard.php missing from the $SLUG build" >&2
+  exit 1
+}
+grep -q "^ \* WPMCP Flavor: woocommerce$" "$STAGE/$SLUG.php" || {
+  echo "ERROR: $SLUG.php does not declare the woocommerce flavor header" >&2
   exit 1
 }
 

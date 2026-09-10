@@ -130,7 +130,15 @@ foreach ($it as $f) {
 if ($missing) { fwrite(STDERR, implode("\n", array_unique($missing)) . "\n"); exit(1); }
 ' "$STAGE" || fail "the $SLUG build names a class it does not ship"
 
-# 5. Packaging hygiene: no dotfiles, no development directories, no build
+# 5. The coexistence guard. src/flavor-guard.php is global functions, not a
+#    class, so gate 4's classmap walk cannot see it; a prune that dropped it
+#    would fatal at plugin load. The main file must both load it and carry the
+#    WPMCP Flavor header the guard ranks by.
+[ -f "$STAGE/src/flavor-guard.php" ] || fail "src/flavor-guard.php missing from the $SLUG build"
+grep -q "flavor-guard.php" "$STAGE/$SLUG.php" || fail "$SLUG.php does not load the flavor coexistence guard"
+grep -q "^ \* WPMCP Flavor: wporg$" "$STAGE/$SLUG.php" || fail "$SLUG.php does not declare the wporg flavor header"
+
+# 6. Packaging hygiene: no dotfiles, no development directories, no build
 #    scripts. File_Type_Check errors on all three, and ".sh" is on its
 #    application-file list, so this script must never be inside its own zip.
 find "$STAGE" -name '.*' -not -name '.' -not -path "$STAGE" -print0 | xargs -0 rm -rf
@@ -144,7 +152,7 @@ ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
 rm -f "$ZIP"
 (cd "$STAGE_PARENT" && zip -rq "$ZIP" "$SLUG" -x "*.DS_Store")
 
-# 6. The compliance engine, in the profile that models the directory, run
+# 7. The compliance engine, in the profile that models the directory, run
 #    against the extracted zip rather than the checkout. This is the check
 #    that decides whether the artifact is submittable.
 BUILD_DIR="$ROOT/build/wporg"
