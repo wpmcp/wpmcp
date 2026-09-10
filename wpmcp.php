@@ -7,9 +7,13 @@
  * Requires PHP: 8.1
  * License: GPL-2.0-or-later
  * Text Domain: wpmcp
+ * Domain Path: /languages
  */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 define( 'WPMCP_VERSION', '0.8.0' );
+// Must match the Text Domain header above: Plugin::load_textdomain() loads
+// the self-hosted .mo from languages/ into this domain (issue #184).
+define( 'WPMCP_TEXT_DOMAIN', 'wpmcp' );
 define( 'WPMCP_FILE', __FILE__ );
 define( 'WPMCP_DIR', plugin_dir_path( __FILE__ ) );
 // Freemius credentials (registered on freemius.com; the public key is public by design).
