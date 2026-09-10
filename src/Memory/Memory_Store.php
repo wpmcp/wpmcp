@@ -64,12 +64,17 @@ class Memory_Store
         }
 
         register_post_type(self::POST_TYPE, [
+            // The submenu label that opens this list table is translated
+            // (issue #183), so the screen it opens has to be too, or a
+            // localized site gets a translated menu item over an English
+            // screen. ensure_post_type() runs on init, so just-in-time
+            // text domain loading is safe here.
             'labels'          => [
-                'name'          => 'Agent Memory',
-                'singular_name' => 'Memory Entry',
-                'add_new_item'  => 'Add Memory Entry',
-                'edit_item'     => 'Edit Memory Entry',
-                'search_items'  => 'Search Memory Entries',
+                'name'          => __('Agent Memory', 'wpmcp'),
+                'singular_name' => __('Memory Entry', 'wpmcp'),
+                'add_new_item'  => __('Add Memory Entry', 'wpmcp'),
+                'edit_item'     => __('Edit Memory Entry', 'wpmcp'),
+                'search_items'  => __('Search Memory Entries', 'wpmcp'),
             ],
             'public'          => false,
             'show_ui'         => true,
@@ -211,6 +216,7 @@ class Memory_Store
             'posts_per_page'   => $limit,
             'orderby'          => 'ID',
             'order'            => 'ASC',
+            // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- private post type read by the store itself; site-level query filters must not change which rules apply.
             'suppress_filters' => true,
         ];
 
@@ -296,6 +302,7 @@ class Memory_Store
             'posts_per_page'   => self::MAX_RULES,
             'orderby'          => 'ID',
             'order'            => 'ASC',
+            // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- private post type read by the store itself; site-level query filters must not change which rules apply.
             'suppress_filters' => true,
             'meta_query'       => [
                 [
