@@ -20,7 +20,11 @@ use WPMCP\Compliance\Severity;
  *
  * TESTED_UP_TO_FLOOR is the pin. Raise it when a WordPress major ships and the
  * smoke pass against it is recorded in docs/release-checklist.md; the run goes
- * red until every shipped header follows.
+ * red until every shipped header follows. The pin is tied in both directions:
+ * every header must equal it (not merely reach it), and the CI matrix must
+ * install both the pin and the release the headers declare, so a header bump
+ * without a matching matrix change goes red rather than shipping an untested
+ * claim.
  *
  * The display name is gated here too (issue #168, findings B-19 and L-04).
  * Each shipped readme has a loader beside it whose Plugin Name header must be
@@ -32,11 +36,22 @@ use WPMCP\Compliance\Severity;
 class ReleaseHeadersTest extends \WP_UnitTestCase
 {
     /**
-     * The WordPress release the shipped headers must declare, at minimum.
+     * The WordPress release every shipped header must declare, exactly.
      * Current release per api.wordpress.org stable-check at the time of the
      * 0.8.1 release.
      */
     private const TESTED_UP_TO_FLOOR = '7.1';
+
+    /**
+     * Loaders that carry their own Requires at least and Requires PHP lines.
+     * Core reads these from the loader when present, so they gate installs
+     * the same way the readme headers gate the listing, and must agree.
+     */
+    private const REQUIRES_LOADERS = [
+        'wpmcp.php',
+        'scripts/flavors/wporg/wpmcp.php',
+        'scripts/flavors/woocommerce/wpmcp-for-woocommerce.php',
+    ];
 
     /** Readmes whose header block reaches a user or a reviewer. */
     private const SHIPPED_READMES = [
@@ -130,15 +145,21 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         return (string) $parts[0];
     }
 
+    /**
+     * The value is captured with [ \t]* and [^\r\n]+ rather than \s* and .+:
+     * \s matches a newline, so an empty header would otherwise capture the
+     * next line and the agreement tests would compare the wrong values.
+     */
     private function readme_header(string $relative, string $header): string
     {
         $block = $this->readme_header_block($relative);
+        $pattern = '/^' . preg_quote($header, '/') . ':[ \t]*([^\r\n]+)/mi';
         $this->assertMatchesRegularExpression(
-            '/^' . preg_quote($header, '/') . ':\s*(.+)$/mi',
+            $pattern,
             $block,
-            $relative . ' is missing the "' . $header . '" header'
+            $relative . ' is missing the "' . $header . '" header or its value is empty'
         );
-        preg_match('/^' . preg_quote($header, '/') . ':\s*(.+)$/mi', $block, $matches);
+        preg_match($pattern, $block, $matches);
 
         return trim($matches[1]);
     }
@@ -194,8 +215,12 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
 
     private function loader_header(string $relative, string $header): string
     {
-        preg_match('/^\s*\*\s*' . preg_quote($header, '/') . ':\s*(.+)$/mi', $this->contents($relative), $matches);
-        $this->assertNotEmpty($matches, $relative . ' is missing the "' . $header . '" loader header');
+        preg_match(
+            '/^[ \t]*\*[ \t]*' . preg_quote($header, '/') . ':[ \t]*([^\r\n]+)/mi',
+            $this->contents($relative),
+            $matches
+        );
+        $this->assertNotEmpty($matches, $relative . ' is missing the "' . $header . '" loader header or its value is empty');
 
         return trim($matches[1]);
     }
@@ -218,19 +243,27 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         );
     }
 
-    /** And that version is not behind the pinned WordPress release. */
-    public function test_tested_up_to_is_not_behind_the_pinned_release(): void
+    /**
+     * And that version is the pinned WordPress release, exactly. Equality
+     * rather than ">=": a header ahead of the pin is a claim the suite has not
+     * backed (the pin only moves once the smoke pass is recorded and the CI
+     * matrix installs the release), and a header behind it is the Plugin Check
+     * error issue #172 is about.
+     */
+    public function test_tested_up_to_equals_the_pinned_release(): void
     {
         foreach (array_merge(self::SHIPPED_READMES, self::SHIPPED_LOADERS) as $file) {
             $declared = str_ends_with($file, '.php')
                 ? $this->loader_header($file, 'Tested up to')
                 : $this->readme_header($file, 'Tested up to');
 
-            $this->assertTrue(
-                version_compare($declared, self::TESTED_UP_TO_FLOOR, '>='),
+            $this->assertSame(
+                self::TESTED_UP_TO_FLOOR,
+                $declared,
                 sprintf(
-                    '%s declares Tested up to %s, behind the pinned %s. Plugin Check errors and the '
-                        . 'plugin drops out of directory search.',
+                    '%s declares Tested up to %s but TESTED_UP_TO_FLOOR pins %s. Behind the pin, Plugin Check '
+                        . 'errors and the plugin drops out of directory search; ahead of it, the header claims a '
+                        . 'release the suite has not run on. Move the pin, the CI wp: axis and every header together.',
                     $file,
                     $declared,
                     self::TESTED_UP_TO_FLOOR
@@ -275,13 +308,21 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         );
     }
 
-    /** Requires at least and Requires PHP agree everywhere too. */
-    public function test_requires_headers_agree_across_shipped_readmes(): void
+    /**
+     * Requires at least and Requires PHP agree everywhere too: the three
+     * readmes and the three loaders. Core reads the loader's copy when it is
+     * present, wp.org reads the readme's, so a drift between them gates
+     * installs on one floor and advertises another.
+     */
+    public function test_requires_headers_agree_across_shipped_files(): void
     {
         foreach (['Requires at least', 'Requires PHP'] as $header) {
             $declared = [];
             foreach (self::SHIPPED_READMES as $readme) {
                 $declared[$readme] = $this->readme_header($readme, $header);
+            }
+            foreach (self::REQUIRES_LOADERS as $loader) {
+                $declared[$loader] = $this->loader_header($loader, $header);
             }
             $this->assertCount(1, array_unique($declared), $header . ' disagrees: ' . wp_json_encode($declared));
         }
@@ -479,9 +520,7 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
     public function test_ci_installs_the_pinned_release_and_the_requires_floor(): void
     {
         $workflow = $this->contents('.github/workflows/ci.yml');
-
-        preg_match_all('/^\s*(?:-\s*\{[^}]*)?\bwp:\s*\[?\s*\'?(\d+(?:\.\d+)+)\'?/m', $workflow, $matches);
-        $installed = array_unique($matches[1]);
+        $installed = $this->ci_wordpress_versions($workflow);
 
         $this->assertNotEmpty($installed, 'ci.yml no longer declares a wp: matrix axis for install-wp-tests.sh');
         $this->assertStringContainsString(
@@ -493,15 +532,60 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
             self::TESTED_UP_TO_FLOOR,
             $installed,
             sprintf(
-                'the headers declare Tested up to %s but CI installs %s; bump the wp: axis in ci.yml with the floor',
+                'TESTED_UP_TO_FLOOR pins %s but CI installs %s; bump the wp: axis in ci.yml with the pin',
                 self::TESTED_UP_TO_FLOOR,
                 implode(', ', $installed)
             )
         );
+
+        // The pin is what the suite has run on; the headers are what ships.
+        // Each is checked against the matrix on its own so that a header
+        // bumped past the pin, or a pin bumped past the matrix, both go red.
+        foreach (array_merge(self::SHIPPED_READMES, self::SHIPPED_LOADERS) as $file) {
+            $declared = str_ends_with($file, '.php')
+                ? $this->loader_header($file, 'Tested up to')
+                : $this->readme_header($file, 'Tested up to');
+
+            $this->assertContains(
+                $declared,
+                $installed,
+                sprintf(
+                    '%s declares Tested up to %s but CI installs %s; the header must not outrun the suite',
+                    $file,
+                    $declared,
+                    implode(', ', $installed)
+                )
+            );
+        }
+
         $this->assertContains(
             $this->readme_header('readme.txt', 'Requires at least'),
             $installed,
             'the Requires at least floor is not on any CI matrix leg: ' . implode(', ', $installed)
         );
+    }
+
+    /**
+     * Every WordPress version the test matrix installs: each element of the
+     * `wp:` axis list (not only the first, so moving a leg from include: into
+     * the list does not hide it) plus the `wp:` of every flow-style include
+     * entry.
+     *
+     * @return string[]
+     */
+    private function ci_wordpress_versions(string $workflow): array
+    {
+        $versions = [];
+
+        preg_match_all('/^[ \t]*wp:[ \t]*\[([^\]]*)\]/m', $workflow, $axes);
+        foreach ($axes[1] as $list) {
+            preg_match_all('/\d+(?:\.\d+)+/', $list, $found);
+            $versions = array_merge($versions, $found[0]);
+        }
+
+        preg_match_all('/^[ \t]*-[ \t]*\{[^}]*\bwp:[ \t]*\'?(\d+(?:\.\d+)+)\'?/m', $workflow, $legs);
+        $versions = array_merge($versions, $legs[1]);
+
+        return array_values(array_unique($versions));
     }
 }
