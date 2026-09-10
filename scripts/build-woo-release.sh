@@ -30,23 +30,41 @@ sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/readme.txt" > 
 
 # Name gate. This build stages its own header/readme pair out of
 # scripts/flavors/woocommerce/, so neither the source-tree compliance run
-# (which reads the root main file) nor build-wporg-release.sh's gates can see
-# it, and a mismatch here would ship as Plugin Check's mismatched_plugin_name.
-# The trademark check is the same rule that WPORG-17-TRADEMARK enforces: the
-# mark may appear only as a trailing "for <mark>", which is why the name is
-# "WP MCP for WooCommerce" and not a longer marketing string.
-STAGED_NAME="$(sed -n 's/^[[:space:]]*\*[[:space:]]*Plugin Name:[[:space:]]*\(.*[^[:space:]]\)[[:space:]]*$/\1/p' "$STAGE/$SLUG.php" | head -1)"
-STAGED_TITLE="$(sed -n '1s/^===[[:space:]]*\(.*[^[:space:]]\)[[:space:]]*===[[:space:]]*$/\1/p' "$STAGE/readme.txt")"
-[ -n "$STAGED_NAME" ] || { echo "ERROR: no Plugin Name header in $SLUG.php" >&2; exit 1; }
-[ "$STAGED_NAME" = "$STAGED_TITLE" ] || {
-  echo "ERROR: Plugin Name \"$STAGED_NAME\" differs from the readme title \"$STAGED_TITLE\"" >&2
-  exit 1
+# (which reads the root main file) nor build-wporg-release.sh's engine run can
+# see it. The whole engine cannot run here yet (the vertical still carries the
+# paid-state gating the wporg build strips), so this runs the two rules that
+# cover the name against the staged tree, via the same classes
+# tools/compliance/bin/compliance.php loads: the header/readme parse comes from
+# the engine and Trademark_Rule is the rule WPORG-17-TRADEMARK enforces, with
+# nothing re-implemented in shell. A header/title mismatch ships as Plugin
+# Check's mismatched_plugin_name; a restricted term in the name or slug is
+# its Trademarks_Check. Tag findings are left to ReleaseHeadersTest, which
+# knows the for-use exception for the "woocommerce" tag.
+php -r '
+require $argv[2] . "/vendor/autoload.php";
+$context = WPMCP\Compliance\Rule_Context::for_path($argv[1], WPMCP\Compliance\Profile::wporg_free());
+$header = $context->header();
+$readme = $context->readme();
+$errors = [];
+if ("" === trim($header->name())) {
+    $errors[] = "no Plugin Name header in the staged main file";
 }
-case "$(printf '%s' "$STAGED_NAME" | tr '[:upper:]' '[:lower:]')" in
-  *wordpress*) echo "ERROR: the plugin name carries the restricted term \"wordpress\"" >&2; exit 1 ;;
-  *for\ woocommerce) ;;
-  *woocommerce*) echo "ERROR: \"woocommerce\" is allowed only as a trailing \"for WooCommerce\"" >&2; exit 1 ;;
-esac
+if (! $readme->exists()) {
+    $errors[] = "no readme.txt in the staged tree";
+} elseif ($header->name() !== $readme->title()) {
+    $errors[] = sprintf("Plugin Name \"%s\" differs from the readme title \"%s\"", $header->name(), $readme->title());
+}
+foreach ((new WPMCP\Compliance\Rules\Trademark_Rule())->check($context) as $finding) {
+    if (str_starts_with($finding->message(), "tag ")) {
+        continue;
+    }
+    if (WPMCP\Compliance\Severity::BEST_PRACTICE === $finding->severity_override()) {
+        continue;
+    }
+    $errors[] = $finding->location() . "  " . $finding->message();
+}
+if ($errors) { fwrite(STDERR, implode("\n", $errors) . "\n"); exit(1); }
+' "$STAGE" "$ROOT" || { echo "ERROR: the staged $SLUG name fails the WPORG-17-TRADEMARK / mismatched_plugin_name gate" >&2; exit 1; }
 
 # Prune the domains the 'woocommerce' flavor never registers.
 rm -rf \

@@ -10,11 +10,15 @@ gate rather than substitute for one:
 - `tests/free/Release/ReleaseHeadersTest.php` fails the suite when the
   compatibility headers disagree across shipped files, when `Tested up to`
   trails the pinned WordPress release, when the root `Stable tag` and
-  `WPMCP_VERSION` diverge, or when a restricted tag reappears.
+  `WPMCP_VERSION` diverge, when a restricted tag reappears, or when a
+  `Plugin Name` header and the readme title beside it stop being identical
+  or pick up a term guideline 17 restricts (issue #168).
 - `scripts/build-wporg-release.sh` gate 4b re-derives the same headers from
   the staged wp.org zip, so that build cannot ship a value the repository
-  does not declare. The WooCommerce and general builds have no header gate of
-  their own; the test above is what covers their readmes.
+  does not declare, and its compliance engine run covers the name.
+  `scripts/build-woo-release.sh` runs the engine's `Trademark_Rule` over the
+  pair it stages and checks their parity. The general build has no header
+  gate of its own; the test above is what covers its readme.
 
 ## Versions and headers
 
