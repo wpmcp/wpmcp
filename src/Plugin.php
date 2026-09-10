@@ -192,6 +192,7 @@ use WPMCP\Tools\Backup\Cancel_Backup_Job;
 use WPMCP\Tools\Backup\Run_Backup_Job;
 use WPMCP\Tools\Backup\Get_Backup_Manifest;
 use WPMCP\Tools\Backup\Delete_Backup_Archive;
+use WPMCP\Tools\Backup\Restore_Site_Backup;
 use WPMCP\Tools\Migration\Rewrite_Site_Urls;
 use WPMCP\Tools\Governance\Get_Governance_Settings;
 use WPMCP\Tools\Governance\Update_Governance_Settings;
@@ -275,6 +276,9 @@ use WPMCP\Tools\WooCommerce\Get_Order;
 use WPMCP\Tools\WooCommerce\Update_Order_Status;
 use WPMCP\Tools\WooCommerce\Add_Order_Note;
 use WPMCP\Tools\WooCommerce\Get_Sales_Report;
+use WPMCP\Tools\WooCommerce\List_Variations;
+use WPMCP\Tools\WooCommerce\Update_Variation;
+use WPMCP\Tools\WooCommerce\List_Low_Stock_Products;
 use WPMCP\Tools\Menus\List_Menus;
 use WPMCP\Tools\Menus\Get_Menu;
 use WPMCP\Tools\Menus\List_Menu_Locations;
@@ -301,6 +305,36 @@ if (! defined('ABSPATH')) {
 
 final class Plugin
 {
+    /**
+     * The product name as it appears in the admin menu. A brand, not a
+     * sentence: it is deliberately NOT wrapped in __(), because a msgid
+     * identical to the text domain gives translators no context, and a brand
+     * inside a msgid is one more literal for a flavor build to chase. This
+     * constant is the single place such a build would rewrite; today neither
+     * scripts/build-woo-release.sh nor build-wporg-release.sh does, so every
+     * flavor still renders "wpmcp" here. Menu and page titles compose it with
+     * a translated tail through page_title() instead of baking it into a
+     * msgid.
+     */
+    public const BRAND = 'wpmcp';
+
+    /**
+     * "<brand>: <screen>" for a page title or an H1. One translatable
+     * pattern owns the separator so a locale can reorder the two parts or
+     * use its own punctuation (French " : ", a full-width colon in CJK), and
+     * the brand never enters a msgid. $screen is already translated by the
+     * caller.
+     */
+    public static function page_title(string $screen): string
+    {
+        return sprintf(
+            /* translators: 1: product name (not translated), 2: admin screen name */
+            __('%1$s: %2$s', 'wpmcp'),
+            self::BRAND,
+            $screen
+        );
+    }
+
     private static ?Plugin $instance = null;
     private ?Registrar $registrar = null;
     public static function instance(): Plugin
@@ -372,6 +406,33 @@ final class Plugin
     }
 
     /**
+     * The text domain this build's strings carry. Each main plugin file
+     * defines WPMCP_TEXT_DOMAIN to match its own Text Domain header: the
+     * WooCommerce build rewrites every string in src/ to
+     * 'wpmcp-for-woocommerce' at build time, so a literal 'wpmcp' here
+     * would load its .mo into a domain none of its strings use.
+     */
+    public static function text_domain(): string
+    {
+        return defined('WPMCP_TEXT_DOMAIN') ? (string) WPMCP_TEXT_DOMAIN : 'wpmcp';
+    }
+
+    /**
+     * Load a self-hosted .mo from the languages/ directory the Domain Path
+     * header points at (issue #184). Hooked on init by boot(). wp.org
+     * installs get language packs just in time since WP 4.6, but the pro
+     * and flavor zips ship off-directory, where a .mo in the plugin's own
+     * languages/ only loads through this call.
+     */
+    public function load_textdomain(): void
+    {
+        if (!defined('WPMCP_FILE')) {
+            return;
+        }
+        load_plugin_textdomain(self::text_domain(), false, dirname(plugin_basename(WPMCP_FILE)) . '/languages');
+    }
+
+    /**
      * Boot-time runtime hook wiring for the flavor-gated feature groups: the
      * data-driven widget/block builders and agent project memory.
      * Flavor-gated with the matching ability groups: vertical builds prune
@@ -428,6 +489,8 @@ final class Plugin
             // land as ordinary governance toggles, so enforcement lives in
             // the registration/permission path with no admin class loaded.
             Default_Seeder::seed();
+            // Self-hosted translations from languages/ (issue #184).
+            add_action('init', [$this, 'load_textdomain']);
             $hook = function_exists('wp_register_ability') ? 'wp_abilities_api_init' : 'init';
             add_action($hook, [$this, 'register_abilities']);
             if (function_exists('wp_register_ability_category')) {
@@ -556,8 +619,12 @@ final class Plugin
     public function register_ability_category(): void
     {
         wp_register_ability_category('wpmcp', [
-            'label'       => 'wpmcp',
-            'description' => 'Abilities provided by the wpmcp plugin.',
+            'label'       => self::BRAND,
+            'description' => sprintf(
+                /* translators: %s: product name (not translated) */
+                __('Abilities provided by the %s plugin.', 'wpmcp'),
+                self::BRAND
+            ),
         ]);
     }
 
@@ -571,13 +638,13 @@ final class Plugin
         // here may touch it when the group is off.
         $memory     = $this->group_enabled('memory');
         $pending    = $memory ? Memory_Page::pending_count() : 0;
-        $menu_title = $memory ? Memory_Page::badged('wpmcp', $pending) : 'wpmcp';
+        $menu_title = $memory ? Memory_Page::badged(self::BRAND, $pending) : self::BRAND;
 
         // The history page views (and its Restore button rolls back) ALL
         // users' site-wide agent mutations, so it is gated at manage_options,
         // matching Restore_Controller::handle()'s ajax capability check.
         add_menu_page(
-            __('wpmcp', 'wpmcp'),
+            self::BRAND,
             $menu_title,
             'manage_options',
             'wpmcp',
@@ -592,8 +659,8 @@ final class Plugin
         // and keeps this entry's label exactly what it has always rendered as.
         add_submenu_page(
             'wpmcp',
-            __('wpmcp', 'wpmcp'),
-            __('wpmcp', 'wpmcp'),
+            self::BRAND,
+            self::BRAND,
             'manage_options',
             'wpmcp',
             [new History_Page(), 'render']
@@ -604,8 +671,8 @@ final class Plugin
         // site-wide agent mutations, so it needs the same trust level.
         add_submenu_page(
             'wpmcp',
-            __('wpmcp: Audit Log', 'wpmcp'),
-            __('Audit Log', 'wpmcp'),
+            self::page_title(_x('Audit Log', 'admin menu', 'wpmcp')),
+            _x('Audit Log', 'admin menu', 'wpmcp'),
             'manage_options',
             Audit_Log_Page::SLUG,
             [new Audit_Log_Page(), 'render']
@@ -616,8 +683,8 @@ final class Plugin
         // it is a site-wide trust decision — manage_options, like the rest.
         add_submenu_page(
             'wpmcp',
-            __('wpmcp: Handshake Instructions', 'wpmcp'),
-            __('Handshake', 'wpmcp'),
+            self::page_title(__('Handshake Instructions', 'wpmcp')),
+            _x('Handshake', 'admin menu', 'wpmcp'),
             'manage_options',
             'wpmcp-handshake',
             [new Handshake_Settings_Page(), 'render']
@@ -629,8 +696,8 @@ final class Plugin
         // site-wide trust decisions, so manage_options like the rest.
         add_submenu_page(
             'wpmcp',
-            __('wpmcp: Connection', 'wpmcp'),
-            __('Connection', 'wpmcp'),
+            self::page_title(_x('Connection', 'admin menu', 'wpmcp')),
+            _x('Connection', 'admin menu', 'wpmcp'),
             'manage_options',
             Connection_Page::SLUG,
             [new Connection_Page(), 'render']
@@ -641,8 +708,8 @@ final class Plugin
         // like the rest.
         add_submenu_page(
             'wpmcp',
-            __('wpmcp: Abilities', 'wpmcp'),
-            __('Abilities', 'wpmcp'),
+            self::page_title(_x('Abilities', 'admin menu', 'wpmcp')),
+            _x('Abilities', 'admin menu', 'wpmcp'),
             'manage_options',
             Ability_Grid_Page::SLUG,
             [new Ability_Grid_Page(), 'render']
@@ -654,8 +721,8 @@ final class Plugin
         // manage_options decision, like the rest.
         add_submenu_page(
             'wpmcp',
-            'wpmcp: Redirects',
-            'Redirects',
+            self::page_title(_x('Redirects', 'admin menu', 'wpmcp')),
+            _x('Redirects', 'admin menu', 'wpmcp'),
             'manage_options',
             Redirects_Page::SLUG,
             [new Redirects_Page(), 'render']
@@ -666,8 +733,8 @@ final class Plugin
         // connecting agent is told about how to work on this site.
         add_submenu_page(
             'wpmcp',
-            'wpmcp: Agent Skills',
-            'Skills',
+            self::page_title(__('Agent Skills', 'wpmcp')),
+            _x('Skills', 'admin menu', 'wpmcp'),
             'manage_options',
             Skills_Settings_Page::SLUG,
             [new Skills_Settings_Page(), 'render']
@@ -682,8 +749,8 @@ final class Plugin
         if ($memory) {
             add_submenu_page(
                 'wpmcp',
-                'wpmcp: Agent Memory',
-                Memory_Page::badged('Memory', $pending),
+                self::page_title(__('Agent Memory', 'wpmcp')),
+                Memory_Page::badged(_x('Memory', 'admin menu', 'wpmcp'), $pending),
                 'manage_options',
                 Memory_Page::submenu_slug()
             );
@@ -3528,18 +3595,28 @@ final class Plugin
      * artifact and flips the job's status, so a backup on a large site does
      * not have to complete within a single MCP request/response cycle.
      *
-     * All four are gated at manage_options, matching Export's and Cron's
+     * All seven are gated at manage_options, matching Export's and Cron's
      * capability (both are comparable site-operations-level tool groups, and
      * this plugin's only precedent for a stronger, pro-tier gate is the
      * Elementor deep-editing tools specifically, not "heavy" operations in
-     * general). trigger-backup is 'create' (it creates a job record) and
+     * general). trigger-backup is 'create' (it creates a job record),
      * cancel-backup-job is 'update' (it transitions an existing job's
-     * status); get-backup-status and list-backup-jobs are 'read'.
+     * status), delete-backup-archive is 'delete'; get-backup-status,
+     * list-backup-jobs and get-backup-manifest are 'read'.
      *
      * The backup job itself only reads site data and writes a backup
      * artifact file plus the wpmcp_backup_jobs option: it never mutates user
-     * content, so none of these are routed through Safe_Mutation and none
-     * touch the safety core.
+     * content, so none of the job tools are routed through Safe_Mutation and
+     * none touch the safety core.
+     *
+     * restore-site-backup is the exception and is deliberately NOT routed
+     * through Safe_Mutation either: a whole-database replace is outside the
+     * per-object model Snapshot_Store captures, so a snapshot could not
+     * undo it. Its rollback mechanism is the pre-restore database safety
+     * archive the execution path takes before writing (issue #190). It is
+     * registered with destructive=true and dry_run defaulting to true; in
+     * this build only the dry_run compatibility report is implemented and
+     * a real restore is refused.
      */
     private function register_backup_abilities(Registrar $registrar): void
     {
@@ -3549,6 +3626,7 @@ final class Plugin
         $cancel_backup_job  = new Cancel_Backup_Job();
         $get_backup_manifest   = new Get_Backup_Manifest();
         $delete_backup_archive = new Delete_Backup_Archive();
+        $restore_site_backup   = new Restore_Site_Backup();
 
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
@@ -3647,6 +3725,27 @@ final class Plugin
             'manage_options',
             'backup',
             'delete'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/restore-site-backup',
+            'free',
+            'Compatibility check for restoring a site-backup archive (job_id or path) onto this site. dry_run defaults to TRUE and returns a report without touching anything: manifest format and format_version, archive scope (only all or database archives carry a dump), table prefix, multisite, WordPress version, BLOB-table warnings. This release implements only the dry_run report: dry_run=false runs the same gate and is then refused as not implemented (the execution path with pre-restore safety archive, maintenance mode and statement-by-statement import has not shipped). include_files (default false) is refused unless the archive scope is all. Paths outside the site-backup directory are refused',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'job_id'        => [ 'type' => 'integer' ],
+                    'path'          => [ 'type' => 'string' ],
+                    'include_files' => [ 'type' => 'boolean' ],
+                    'dry_run'       => [ 'type' => 'boolean' ],
+                ],
+            ],
+            [$restore_site_backup, 'handle'],
+            'manage_options',
+            'backup',
+            'update',
+            false,
+            true,
+            true
         ));
     }
 
@@ -5489,6 +5588,9 @@ final class Plugin
         $update_order_status     = new Update_Order_Status();
         $add_order_note          = new Add_Order_Note();
         $get_sales_report        = new Get_Sales_Report();
+        $list_variations         = new List_Variations();
+        $update_variation        = new Update_Variation();
+        $list_low_stock          = new List_Low_Stock_Products();
 
         $registrar->register(new Ability(
             'wpmcp/list-products',
@@ -5692,6 +5794,65 @@ final class Plugin
                 ],
             ],
             [$get_sales_report, 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/list-variations',
+            'free',
+            'List the variations of one variable WooCommerce product as safe summary rows (id, sku, attributes, prices, stock), with paging',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'product_id' => [ 'type' => 'integer' ],
+                    'per_page'   => [ 'type' => 'integer' ],
+                    'page'       => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'product_id' ],
+            ],
+            [$list_variations, 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-variation',
+            'free',
+            'Update a WooCommerce product variation\'s fields: regular_price, sale_price, sku, status (publish or private only), manage_stock, stock_quantity (integer, never null) and stock_status (accepted only while stock is unmanaged; managed stock derives it from the quantity). Snapshotted as a post, so rollback-operation restores the prior price and stock exactly, keeps the variation attached to its parent and re-syncs the parent\'s price range',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'             => [ 'type' => 'integer' ],
+                    'regular_price'  => [ 'type' => 'string' ],
+                    'sale_price'     => [ 'type' => 'string' ],
+                    'sku'            => [ 'type' => 'string' ],
+                    'status'         => [ 'type' => 'string' ],
+                    'manage_stock'   => [ 'type' => 'boolean' ],
+                    'stock_quantity' => [ 'type' => 'integer' ],
+                    'stock_status'   => [ 'type' => 'string' ],
+                    'session_id'     => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [$update_variation, 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/list-low-stock-products',
+            'free',
+            'List products and variations whose managed stock is at or below a threshold (default: the store\'s own low-stock setting) or that are marked out of stock, as summary rows whose ids feed update-product/update-variation for restocking. total and has_more count matches, so page while has_more is true. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'threshold' => [ 'type' => 'integer' ],
+                    'per_page'  => [ 'type' => 'integer' ],
+                    'page'      => [ 'type' => 'integer' ],
+                ],
+            ],
+            [$list_low_stock, 'handle'],
             'manage_woocommerce',
             'woocommerce',
             'read'
