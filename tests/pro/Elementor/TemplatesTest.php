@@ -197,8 +197,47 @@ class TemplatesTest extends Structural_Harness
         $tid = $out['template_id'];
         $this->assertSame('elementor_library', get_post_type($tid));
         $this->assertSame('section', get_post_meta($tid, '_elementor_template_type', true));
+        // Import regenerates every element id (issue #61) so a template carried
+        // in from another site never collides with local content; the structure
+        // is what has to survive, not the source ids.
         $saved = json_decode(get_post_meta($tid, '_elementor_data', true), true);
-        $this->assertSame('cont001', $saved[0]['id']);
+        $this->assertSame('container', $saved[0]['elType']);
+        $this->assertNotSame('cont001', $saved[0]['id']);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{7}$/', $saved[0]['id']);
+    }
+
+    public function test_import_template_rejects_a_malformed_element_tree(): void
+    {
+        // Untrusted JSON: a scalar where an element object belongs used to
+        // reach regenerate_ids() and raise a TypeError. It must be a WP_Error.
+        $out = (new Import_Template())->handle([
+            'export' => ['content' => ['x']],
+            'title'  => 'Bad',
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('invalid_content', $out->get_error_code());
+    }
+
+    public function test_import_template_rejects_a_malformed_nested_element_list(): void
+    {
+        $out = (new Import_Template())->handle([
+            'export' => ['content' => [['elType' => 'container', 'elements' => [1]]]],
+            'title'  => 'Bad',
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('invalid_content', $out->get_error_code());
+    }
+
+    public function test_import_template_rejects_an_object_shaped_content_map(): void
+    {
+        // array_map preserves string keys, so an object-shaped `content` would
+        // be stored as a JSON object in _elementor_data instead of a list.
+        $out = (new Import_Template())->handle([
+            'export' => ['content' => ['a' => ['elType' => 'container']]],
+            'title'  => 'Bad',
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('invalid_content', $out->get_error_code());
     }
 
     public function test_import_template_rejects_export_without_content(): void
