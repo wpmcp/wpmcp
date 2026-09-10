@@ -112,14 +112,14 @@ class Block_Tree
     {
         if (! is_array($path) || [] === $path) {
             throw new \InvalidArgumentException(
-                sprintf('A non-empty "%s" (array of integer block indexes) is required.', $arg_name)
+                sprintf('A non-empty "%s" (array of integer block indexes) is required.', esc_html($arg_name))
             );
         }
         $out = [];
         foreach ($path as $segment) {
             if (! is_int($segment) && ! (is_string($segment) && ctype_digit($segment))) {
                 throw new \InvalidArgumentException(
-                    sprintf('Invalid "%s": every segment must be a non-negative integer index.', $arg_name)
+                    sprintf('Invalid "%s": every segment must be a non-negative integer index.', esc_html($arg_name))
                 );
             }
             $out[] = (int) $segment;
@@ -134,7 +134,7 @@ class Block_Tree
         $list = $blocks;
         foreach ($path as $depth => $index) {
             if ($index < 0 || $index >= count($list)) {
-                throw self::path_error($path, $depth, count($list));
+                throw self::path_error(esc_html(implode(',', $path)), (int) $depth, count($list));
             }
             $node = $list[ $index ];
             $list = is_array($node['innerBlocks'] ?? null) ? $node['innerBlocks'] : [];
@@ -147,7 +147,7 @@ class Block_Tree
     {
         $index = $path[0];
         if ($index < 0 || $index >= count($blocks)) {
-            throw self::path_error($path, count($path) - count($path), count($blocks));
+            throw self::path_error(esc_html(implode(',', $path)), 0, count($blocks));
         }
         if (1 === count($path)) {
             $blocks[ $index ] = $node;
@@ -172,13 +172,13 @@ class Block_Tree
         $index = $path[0];
         if (1 === count($path)) {
             if ($index < 0 || $index > count($blocks)) {
-                throw self::path_error($path, 0, count($blocks) + 1);
+                throw self::path_error(esc_html(implode(',', $path)), 0, count($blocks) + 1);
             }
             array_splice($blocks, $index, 0, [$node]);
             return $blocks;
         }
         if ($index < 0 || $index >= count($blocks)) {
-            throw self::path_error($path, 0, count($blocks));
+            throw self::path_error(esc_html(implode(',', $path)), 0, count($blocks));
         }
         if (2 === count($path)) {
             $blocks[ $index ] = self::insert_child($blocks[ $index ], $path[1], $node, $path);
@@ -197,7 +197,7 @@ class Block_Tree
     {
         $index = $path[0];
         if ($index < 0 || $index >= count($blocks)) {
-            throw self::path_error($path, 0, count($blocks));
+            throw self::path_error(esc_html(implode(',', $path)), 0, count($blocks));
         }
         if (1 === count($path)) {
             array_splice($blocks, $index, 1);
@@ -225,12 +225,12 @@ class Block_Tree
         $index = $from_path[0];
         if (1 === count($from_path)) {
             if ($index < 0 || $index >= count($blocks)) {
-                throw self::path_error($from_path, 0, count($blocks));
+                throw self::path_error(esc_html(implode(',', $from_path)), 0, count($blocks));
             }
             if ($to_index < 0 || $to_index >= count($blocks)) {
                 throw new \InvalidArgumentException(sprintf(
                     'Invalid "to_index" %d: the target parent has %d block(s).',
-                    $to_index,
+                    (int) $to_index,
                     count($blocks)
                 ));
             }
@@ -240,7 +240,7 @@ class Block_Tree
             return $blocks;
         }
         if ($index < 0 || $index >= count($blocks)) {
-            throw self::path_error($from_path, 0, count($blocks));
+            throw self::path_error(esc_html(implode(',', $from_path)), 0, count($blocks));
         }
         $inner = is_array($blocks[ $index ]['innerBlocks'] ?? null) ? $blocks[ $index ]['innerBlocks'] : [];
         $blocks[ $index ]['innerBlocks'] = self::reorder($inner, array_slice($from_path, 1), $to_index);
@@ -263,7 +263,7 @@ class Block_Tree
             );
         }
         if ($at < 0 || $at > $count) {
-            throw self::path_error($full_path, count($full_path) - 1, $count + 1);
+            throw self::path_error(esc_html(implode(',', $full_path)), count($full_path) - 1, (int) $count + 1);
         }
         $markers = self::marker_positions($parent, $count);
         $pos     = $at < $count ? $markers[ $at ] : $markers[ $count - 1 ] + 1;
@@ -283,7 +283,7 @@ class Block_Tree
         $inner = is_array($parent['innerBlocks'] ?? null) ? $parent['innerBlocks'] : [];
         $count = count($inner);
         if ($at < 0 || $at >= $count) {
-            throw self::path_error($full_path, count($full_path) - 1, $count);
+            throw self::path_error(esc_html(implode(',', $full_path)), count($full_path) - 1, (int) $count);
         }
         $markers = self::marker_positions($parent, $count);
 
@@ -320,12 +320,13 @@ class Block_Tree
         return $positions;
     }
 
-    private static function path_error(array $path, int $depth, int $valid_count): \InvalidArgumentException
+    /** Callers pass the path pre-imploded and escaped so the throw sites satisfy the escaping sniff. */
+    private static function path_error(string $path_csv, int $depth, int $valid_count): \InvalidArgumentException
     {
         return new \InvalidArgumentException(sprintf(
             'Invalid block path [%s]: no block at segment %d (parent has %d position(s)). '
             . 'Re-read with parse-blocks to get current paths.',
-            implode(',', $path),
+            $path_csv,
             $depth,
             $valid_count
         ));

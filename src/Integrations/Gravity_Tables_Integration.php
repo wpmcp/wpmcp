@@ -44,7 +44,8 @@ class Gravity_Tables_Integration extends Integration_Dispatcher
         // last_error) when Gravity Tables has created it, and errors when it
         // has not. More reliable than SHOW TABLES/information_schema, which
         // do not reflect the table inside the test harness transaction.
-        $wpdb->get_var("SELECT 1 FROM `{$table}` LIMIT 1");
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- existence probe of Gravity Tables' own custom table; must reflect the live schema (see comment above).
+        $wpdb->get_var($wpdb->prepare('SELECT 1 FROM %i LIMIT 1', $table));
         $exists = '' === $wpdb->last_error;
         $wpdb->suppress_errors($suppress);
         return $exists;
@@ -65,8 +66,12 @@ class Gravity_Tables_Integration extends Integration_Dispatcher
                 'handler'      => function (): array {
                     global $wpdb;
                     $table = self::table();
-                    $rows  = $wpdb->get_results(
-                        "SELECT id, title, form_id, shortcode, updated_at FROM `{$table}` WHERE status = 'active' ORDER BY updated_at DESC",
+                    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Gravity Tables' own custom table has no WP API; the inventory must reflect current rows.
+                    $rows = $wpdb->get_results(
+                        $wpdb->prepare(
+                            "SELECT id, title, form_id, shortcode, updated_at FROM %i WHERE status = 'active' ORDER BY updated_at DESC",
+                            $table
+                        ),
                         ARRAY_A
                     );
                     $out = [];
@@ -93,8 +98,9 @@ class Gravity_Tables_Integration extends Integration_Dispatcher
                 'handler'      => function (array $args): array {
                     global $wpdb;
                     $table = self::table();
-                    $row   = $wpdb->get_row(
-                        $wpdb->prepare("SELECT * FROM `{$table}` WHERE id = %d", (int) $args['table_id']),
+                    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Gravity Tables' own custom table has no WP API; the read must reflect the current row.
+                    $row = $wpdb->get_row(
+                        $wpdb->prepare('SELECT * FROM %i WHERE id = %d', $table, (int) $args['table_id']),
                         ARRAY_A
                     );
                     if (null === $row) {

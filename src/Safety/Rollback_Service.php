@@ -468,6 +468,72 @@ class Rollback_Service
         }
 
         self::restore_files($snapshot['data']['files'] ?? null);
+
+        self::refresh_woocommerce_product($object_id);
+    }
+
+    /**
+     * Bring WooCommerce's derived data back in line after a raw post restore.
+     *
+     * The post path above writes wp_posts and wp_postmeta directly, which is
+     * exactly right for the snapshot contract but bypasses WooCommerce's CRUD
+     * layer. For a product or variation that layer maintains three things the
+     * raw restore leaves stale: per-product transients (the variable parent's
+     * cached variation price range among them), the wc_product_meta_lookup
+     * row that sorting and filtering read, and, for a variation, the parent's
+     * synced _price range and stock status. Without this, rolling back a
+     * variation price change restores the variation's own meta while the
+     * storefront keeps showing the un-rolled-back parent range.
+     *
+     * No-op when WooCommerce is absent or the post is not a product.
+     */
+    private static function refresh_woocommerce_product(int $object_id): void
+    {
+        if (! function_exists('wc_get_product') || ! class_exists('WC_Product_Data_Store_CPT')) {
+            return;
+        }
+
+        $post_type = get_post_type($object_id);
+        if (! in_array($post_type, ['product', 'product_variation'], true)) {
+            return;
+        }
+
+        wc_delete_product_transients($object_id);
+        self::refresh_woocommerce_lookup_row($object_id);
+
+        if ('product_variation' !== $post_type) {
+            return;
+        }
+
+        $parent_id = (int) wp_get_post_parent_id($object_id);
+        if ($parent_id <= 0 || ! class_exists('WC_Product_Variable')) {
+            return;
+        }
+
+        // sync() re-reads the children's _price rows, rewrites the parent's
+        // _price range and stock status, refreshes the parent's lookup row
+        // and saves the parent through the CRUD layer, which is the same path
+        // a variation save() takes.
+        wc_delete_product_transients($parent_id);
+        \WC_Product_Variable::sync($parent_id);
+    }
+
+    /**
+     * Rewrite one product's wc_product_meta_lookup row from its (restored)
+     * postmeta. WooCommerce keeps update_lookup_table() protected on the data
+     * store and only calls it from its own save path, which a raw meta restore
+     * never goes through; the anonymous subclass is the narrowest way to reach
+     * it without re-implementing the row's column mapping.
+     */
+    private static function refresh_woocommerce_lookup_row(int $object_id): void
+    {
+        $refresher = new class extends \WC_Product_Data_Store_CPT {
+            public function refresh(int $id): void
+            {
+                $this->update_lookup_table($id, 'wc_product_meta_lookup');
+            }
+        };
+        $refresher->refresh($object_id);
     }
 
     /**
@@ -480,16 +546,17 @@ class Rollback_Service
      * refuse. Everything is re-validated against the LIVE database before a
      * single row is touched:
      *  - the table must still exist (Database_Guard::valid_table() resolves
-     *    the exact real name; table names cannot be parameterized);
+     *    the exact real name, which is then bound with %i);
      *  - the table must not be protected (users/usermeta by default) — a
      *    legitimate snapshot can never reference one, because the write
      *    tools refuse protected tables before capturing anything;
      *  - a non-empty primary key must be declared in the snapshot, and every
      *    captured row must carry a non-null value for each PK column;
      *  - every captured column name must exactly match a live column of the
-     *    table (closes both column-name injection — identifiers cannot be
-     *    parameterized — and silent schema drift: a dropped column means the
-     *    promised exact restore is impossible, so fail loudly instead).
+     *    table (closes both column-name injection, since %i quotes an
+     *    identifier but does not check that it exists, and silent schema
+     *    drift: a dropped column means the promised exact restore is
+     *    impossible, so fail loudly instead).
      * Any violation throws Mutation_Failed before any write happens.
      *
      * Per row, the restore is an upsert keyed on the primary key: if a row
@@ -530,10 +597,10 @@ class Rollback_Service
 
         $table = \WPMCP\Tools\Database\Database_Guard::valid_table((string) ($data['table'] ?? ''));
         if (is_wp_error($table)) {
-            throw new Mutation_Failed('Rollback refused: ' . $table->get_error_message());
+            throw new Mutation_Failed('Rollback refused: ' . esc_html($table->get_error_message()));
         }
         if (\WPMCP\Tools\Database\Database_Guard::is_protected($table)) {
-            throw new Mutation_Failed("Rollback refused: table \"{$table}\" is protected.");
+            throw new Mutation_Failed('Rollback refused: table "' . esc_html($table) . '" is protected.');
         }
 
         $primary_key = array_values(array_map('strval', (array) ($data['primary_key'] ?? [])));
@@ -544,7 +611,7 @@ class Rollback_Service
         $live_columns = \WPMCP\Tools\Database\Database_Guard::columns($table);
         foreach ($primary_key as $column) {
             if (! in_array($column, $live_columns, true)) {
-                throw new Mutation_Failed("Rollback refused: primary-key column \"{$column}\" is not a column of \"{$table}\".");
+                throw new Mutation_Failed('Rollback refused: primary-key column "' . esc_html($column) . '" is not a column of "' . esc_html($table) . '".');
             }
         }
 
@@ -556,14 +623,14 @@ class Rollback_Service
 
             foreach (array_keys($row) as $column) {
                 if (! in_array((string) $column, $live_columns, true)) {
-                    throw new Mutation_Failed("Rollback refused: captured column \"{$column}\" is not a column of \"{$table}\".");
+                    throw new Mutation_Failed('Rollback refused: captured column "' . esc_html((string) $column) . '" is not a column of "' . esc_html($table) . '".');
                 }
             }
 
             $where = [];
             foreach ($primary_key as $column) {
                 if (! isset($row[ $column ])) {
-                    throw new Mutation_Failed("Rollback refused: a captured row is missing primary-key value \"{$column}\".");
+                    throw new Mutation_Failed('Rollback refused: a captured row is missing primary-key value "' . esc_html($column) . '".');
                 }
                 $where[ $column ] = $row[ $column ];
             }
@@ -585,7 +652,7 @@ class Rollback_Service
 
             if (null === $current) {
                 if (false === $wpdb->insert($table, $row)) {
-                    throw new Mutation_Failed("Rollback failed to reinsert row {$pk_desc} into \"{$table}\": " . ($wpdb->last_error ?: 'insert failed'));
+                    throw new Mutation_Failed('Rollback failed to reinsert row ' . esc_html($pk_desc) . ' into "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'insert failed'));
                 }
                 continue;
             }
@@ -595,9 +662,16 @@ class Rollback_Service
                 continue; // PK-only table: existing row is already the before-image.
             }
             if (false === $wpdb->update($table, $restore, $where)) {
-                throw new Mutation_Failed("Rollback failed to restore row {$pk_desc} in \"{$table}\": " . ($wpdb->last_error ?: 'update failed'));
+                throw new Mutation_Failed('Rollback failed to restore row ' . esc_html($pk_desc) . ' in "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'update failed'));
             }
         }
+
+        // The restore is as raw a write as the operation it undoes, so the
+        // same caches are stale now (issue #182): without this, get_option()
+        // and friends keep serving the value the rollback just overwrote.
+        Database_Guard::invalidate_caches($table, [
+            'rows' => array_map(static fn($row) => (array) $row, $rows),
+        ]);
     }
 
     /**
@@ -1017,14 +1091,14 @@ class Rollback_Service
         $result  = wp_insert_post($postarr, true);
 
         if (is_wp_error($result)) {
-            throw new Mutation_Failed('Rollback failed to resurrect post ' . $object_id . ': ' . $result->get_error_message());
+            throw new Mutation_Failed('Rollback failed to resurrect post ' . (int) $object_id . ': ' . esc_html($result->get_error_message()));
         }
 
         $new_id = (int) $result;
         if ($new_id !== $object_id) {
             throw new Mutation_Failed(
-                "Rollback could not resurrect post {$object_id} at its original ID "
-                . "(import_id collision; WordPress inserted it as post {$new_id} instead). "
+                'Rollback could not resurrect post ' . (int) $object_id . ' at its original ID '
+                . '(import_id collision; WordPress inserted it as post ' . (int) $new_id . ' instead). '
                 . 'The site no longer has a free slot for the original ID, so the restore was aborted.'
             );
         }

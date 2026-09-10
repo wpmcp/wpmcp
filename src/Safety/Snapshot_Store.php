@@ -81,6 +81,7 @@ class Snapshot_Store
     public static function save(string $operation_id, string $session_id, array $snapshot, string $tool_name, string $args_hash): int
     {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
         $written = $wpdb->insert(self::table_name(), [
             'operation_id' => $operation_id,
             'session_id'   => $session_id,
@@ -96,7 +97,7 @@ class Snapshot_Store
         if (false === $written) {
             throw new Mutation_Failed(
                 'The change was not made: its undo point could not be saved'
-                    . ($wpdb->last_error ? ' (' . $wpdb->last_error . ')' : '') . '.'
+                    . ($wpdb->last_error ? ' (' . esc_html($wpdb->last_error) . ')' : '') . '.'
             );
         }
 
@@ -106,7 +107,8 @@ class Snapshot_Store
     public static function get_by_operation(string $operation_id): ?array
     {
         global $wpdb;
-        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table_name() . " WHERE operation_id = %s", $operation_id), ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; reads back undo state that must never be stale.
+        $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM %i WHERE operation_id = %s', self::table_name(), $operation_id), ARRAY_A);
         if (! $row) {
             return null;
         }
@@ -117,13 +119,158 @@ class Snapshot_Store
     public static function list_by_session(string $session_id): array
     {
         global $wpdb;
-        return $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::table_name() . " WHERE session_id = %s ORDER BY id DESC", $session_id), ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; reads back undo state that must never be stale.
+        return $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE session_id = %s ORDER BY id DESC', self::table_name(), $session_id), ARRAY_A);
     }
 
     public static function recent(int $limit): array
     {
         global $wpdb;
-        return $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::table_name() . " ORDER BY id DESC LIMIT %d", $limit), ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; reads back undo state that must never be stale.
+        return $wpdb->get_results($wpdb->prepare('SELECT * FROM %i ORDER BY id DESC LIMIT %d', self::table_name(), $limit), ARRAY_A);
+    }
+
+    /**
+     * Ledger columns that identify a row without dragging its before-image
+     * along. before_blob is a LONGBLOB holding a whole serialized object, so
+     * a consumer that only needs to know WHICH objects were touched (the
+     * change-set builder, issue #192) must never SELECT *: on a Pro history
+     * limit of PHP_INT_MAX that is an unbounded read straight into PHP
+     * memory. Callers that need the before-image fetch it per row via
+     * get_by_operation().
+     */
+    private const INDEX_COLUMNS = 'id, operation_id, session_id, object_type, object_id, tool_name, created_at';
+
+    /**
+     * Identify (do not load) the rows of one session, newest first.
+     *
+     * @return array[] At most $limit rows, before_blob excluded.
+     */
+    public static function index_by_session(string $session_id, int $limit): array
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; a session index must reflect the live rows.
+        return (array) $wpdb->get_results($wpdb->prepare(
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- INDEX_COLUMNS is the literal column list declared on this class; the table is bound with %i and the values with %s/%d.
+            'SELECT ' . self::INDEX_COLUMNS . ' FROM %i WHERE session_id = %s ORDER BY id DESC LIMIT %d',
+            self::table_name(),
+            $session_id,
+            $limit
+        ), ARRAY_A);
+    }
+
+    /**
+     * Identify (do not load) the rows written after a ledger row id, newest
+     * first. Strictly greater than: the marker row is the caller's "I have
+     * already seen this" cursor.
+     *
+     * @return array[] At most $limit rows, before_blob excluded.
+     */
+    public static function index_since(int $since_id, int $limit): array
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; a since-marker index must reflect the live rows.
+        return (array) $wpdb->get_results($wpdb->prepare(
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- INDEX_COLUMNS is the literal column list declared on this class; the table is bound with %i and the values with %d.
+            'SELECT ' . self::INDEX_COLUMNS . ' FROM %i WHERE id > %d ORDER BY id DESC LIMIT %d',
+            self::table_name(),
+            $since_id,
+            $limit
+        ), ARRAY_A);
+    }
+
+    /**
+     * The lowest row id still in the ledger: the retention floor left behind
+     * by prune(). A consumer deriving a set of "everything touched since X"
+     * is only telling the truth if X is above this floor, so the floor has
+     * to be readable. Null when the ledger is empty.
+     */
+    public static function min_id(): ?int
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; the retention floor moves with every prune, so it must be read live.
+        $min = $wpdb->get_var($wpdb->prepare('SELECT MIN(id) FROM %i', self::table_name()));
+        return null === $min ? null : (int) $min;
+    }
+
+    /** How many rows are currently in the ledger. */
+    public static function row_count(): int
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; the row count must be live.
+        return (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i', self::table_name()));
+    }
+
+    /**
+     * Resolve an operation_id to its ledger row id. operation_id is the
+     * identifier every tool hands back to clients (list-operations, the
+     * history screen); the numeric row id is not exposed anywhere, so a
+     * marker API that only accepted the row id would be unreachable.
+     */
+    public static function id_for_operation(string $operation_id): ?int
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; the operation_id to row id resolution must see the live rows.
+        $id = $wpdb->get_var($wpdb->prepare(
+            'SELECT id FROM %i WHERE operation_id = %s',
+            self::table_name(),
+            $operation_id
+        ));
+        return null === $id ? null : (int) $id;
+    }
+
+    /**
+     * Option holding session_id => number of that session's ledger rows that
+     * prune() has discarded. The surviving ledger cannot answer "did this
+     * session lose rows?" (prune deletes by id, sessions interleave, and a
+     * session whose every row is gone leaves no trace at all), so the answer
+     * is recorded at the one moment it is knowable: inside prune(), before
+     * the DELETE. Read by the change-set builder (issue #192) to report a
+     * session-derived change set as truncated only when it actually is.
+     */
+    public const PRUNED_SESSIONS_OPTION = 'wpmcp_pruned_sessions';
+
+    /**
+     * Cap on remembered sessions. Entries are kept in insertion order and the
+     * oldest are dropped past this, so the option stays a few KB no matter
+     * how long the site lives. A session older than the last hundred pruned
+     * ones has no surviving rows to build a change set from anyway.
+     */
+    private const PRUNED_SESSIONS_MAX = 100;
+
+    /** How many of a session's ledger rows prune() has discarded (0 if none, or if the record has aged out). */
+    public static function pruned_rows_for_session(string $session_id): int
+    {
+        $map = get_option(self::PRUNED_SESSIONS_OPTION, []);
+        if (! is_array($map) || ! isset($map[ $session_id ])) {
+            return 0;
+        }
+        return (int) $map[ $session_id ];
+    }
+
+    /** @param array<string, int> $counts session_id => rows about to be deleted */
+    private static function record_pruned_sessions(array $counts): void
+    {
+        if ([] === $counts) {
+            return;
+        }
+        $map = get_option(self::PRUNED_SESSIONS_OPTION, []);
+        if (! is_array($map)) {
+            $map = [];
+        }
+        foreach ($counts as $session_id => $count) {
+            $session_id = (string) $session_id;
+            if ('' === $session_id) {
+                continue;
+            }
+            // Re-touching a key keeps its original position, so a long-running
+            // session can still age out behind newer ones.
+            $map[ $session_id ] = (int) ($map[ $session_id ] ?? 0) + (int) $count;
+        }
+        if (count($map) > self::PRUNED_SESSIONS_MAX) {
+            $map = array_slice($map, -self::PRUNED_SESSIONS_MAX, null, true);
+        }
+        update_option(self::PRUNED_SESSIONS_OPTION, $map, false);
     }
 
     /**
@@ -139,14 +286,29 @@ class Snapshot_Store
     {
         global $wpdb;
         $t = self::table_name();
-        $cutoff = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$t} ORDER BY id DESC LIMIT 1 OFFSET %d", $keep));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; pruning must see the live row set.
+        $cutoff = $wpdb->get_var($wpdb->prepare('SELECT id FROM %i ORDER BY id DESC LIMIT 1 OFFSET %d', $t, $keep));
         if (null === $cutoff) {
             return 0;
         }
 
-        $pruned_op_ids = $wpdb->get_col($wpdb->prepare("SELECT operation_id FROM {$t} WHERE id <= %d", $cutoff));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; pruning must see the live row set.
+        $pruned_op_ids = $wpdb->get_col($wpdb->prepare('SELECT operation_id FROM %i WHERE id <= %d', $t, $cutoff));
 
-        $deleted = (int) $wpdb->query($wpdb->prepare("DELETE FROM {$t} WHERE id <= %d", $cutoff));
+        $per_session = [];
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the per-session tally must count exactly the rows the delete below removes.
+        $by_session = $wpdb->get_results(
+            $wpdb->prepare('SELECT session_id, COUNT(*) AS n FROM %i WHERE id <= %d GROUP BY session_id', $t, $cutoff),
+            ARRAY_A
+        );
+        foreach ((array) $by_session as $row) {
+            $per_session[ (string) $row['session_id'] ] = (int) $row['n'];
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the prune is the delete itself.
+        $deleted = (int) $wpdb->query($wpdb->prepare('DELETE FROM %i WHERE id <= %d', $t, $cutoff));
+
+        self::record_pruned_sessions($per_session);
 
         foreach ((array) $pruned_op_ids as $operation_id) {
             File_Backup::delete_backup_dir((string) $operation_id);
