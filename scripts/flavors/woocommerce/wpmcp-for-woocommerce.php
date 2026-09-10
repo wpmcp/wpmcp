@@ -8,6 +8,7 @@
  * Requires Plugins: woocommerce
  * License: GPL-2.0-or-later
  * Text Domain: wpmcp-for-woocommerce
+ * Domain Path: /languages
  */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -23,6 +24,11 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 // not defined yet at this point.
 require_once __DIR__ . '/src/flavor-guard.php';
 if ( wpmcp_flavor_should_defer( basename( __FILE__ ), array( 'wpmcp.php' ), defined( 'WPMCP_VERSION' ) ) ) {
+	// The full plugin only loads its own domain, so the notice below loads
+	// this one (issue #184).
+	add_action( 'init', function () {
+		load_plugin_textdomain( 'wpmcp-for-woocommerce', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
+	} );
 	add_action( 'admin_notices', function () {
 		echo '<div class="notice notice-warning"><p>';
 		echo esc_html__( 'WP MCP for WooCommerce is inactive because the full WP MCP plugin is already active and includes all of its tools.', 'wpmcp-for-woocommerce' );
@@ -33,6 +39,9 @@ if ( wpmcp_flavor_should_defer( basename( __FILE__ ), array( 'wpmcp.php' ), defi
 
 define( 'WPMCP_VERSION', '{{VERSION}}' );
 define( 'WPMCP_FLAVOR', 'woocommerce' );
+// Must match the Text Domain header above. The build rewrites every string
+// in src/ to this domain, so the loader has to load into it too (issue #184).
+define( 'WPMCP_TEXT_DOMAIN', 'wpmcp-for-woocommerce' );
 define( 'WPMCP_FILE', __FILE__ );
 define( 'WPMCP_DIR', plugin_dir_path( __FILE__ ) );
 require_once __DIR__ . '/vendor/autoload.php';

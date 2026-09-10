@@ -50,6 +50,7 @@ class Wp_Cli_Executor
             ];
         }
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- proc_open() pipe handle; WP_Filesystem cannot close process pipes.
         fclose($pipes[0]);
         stream_set_blocking($pipes[1], false);
         stream_set_blocking($pipes[2], false);
@@ -83,7 +84,9 @@ class Wp_Cli_Executor
         $stdout .= stream_get_contents($pipes[1]);
         $stderr .= stream_get_contents($pipes[2]);
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- proc_open() pipe handle; WP_Filesystem cannot close process pipes.
         fclose($pipes[1]);
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- proc_open() pipe handle; WP_Filesystem cannot close process pipes.
         fclose($pipes[2]);
 
         $exit_code = $timed_out ? -1 : (int) proc_close($process);

@@ -73,7 +73,10 @@ final class Source_File
 
     /**
      * True when $number carries a justified phpcs:ignore for $sniff, either
-     * on the line itself or on the line immediately above it.
+     * trailing on the line itself or standing alone on the line immediately
+     * above it. Those are the two placements PHPCS scopes to $number: a
+     * trailing annotation on the line above belongs to that line only, so it
+     * is not consulted here.
      *
      * PHPCS, and therefore Plugin Check, honours these annotations, so a rule
      * that mirrors a sniff has to honour them too or it contradicts its own
@@ -81,32 +84,42 @@ final class Source_File
      * a bare "phpcs:ignore" suppresses nothing here, which keeps the
      * annotation from becoming a silent mute button.
      *
-     * @param string $sniff sniff code, or a prefix of one
+     * Matching follows the PHPCS hierarchy on whole dot-separated segments:
+     * a code in the annotation counts when it equals $sniff or names an
+     * ancestor of it ("WordPress.WP.AlternativeFunctions" covers every code
+     * under that sniff; "WordPress.WP.Alt" covers nothing). A rule that
+     * passes a sniff rather than a full message code accepts any code under
+     * that sniff, which is the most PHPCS could be asked to suppress there.
+     *
+     * @param string $sniff full message code, or the sniff that owns it
      */
     public function has_phpcs_ignore(int $number, string $sniff): bool
     {
         foreach ([$number, $number - 1] as $candidate) {
             $text = $this->line($candidate);
+            if ($candidate !== $number && ! preg_match('~^\s*(//|#|/\*)~', $text)) {
+                continue;
+            }
             if (! preg_match('/phpcs:ignore\s+([^-\n]*?)\s*--\s*(\S.*)$/', $text, $matches)) {
                 continue;
             }
-            if ('' === trim($matches[2])) {
-                continue;
-            }
             foreach (preg_split('/\s*,\s*/', trim($matches[1])) ?: [] as $code) {
-                // PHPCS matches an annotation against a sniff by prefix, so
-                // "WordPress.Security" suppresses every code under it. The
-                // rule may pass either the sniff or a partial name, so a
-                // prefix in either direction counts.
-                if ('' === $code) {
-                    continue;
-                }
-                if (str_starts_with($sniff, $code) || str_starts_with($code, $sniff)) {
+                if ('' !== $code && self::code_covers($code, $sniff)) {
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    /**
+     * Whether $code, as written in an annotation, suppresses $sniff.
+     */
+    private static function code_covers(string $code, string $sniff): bool
+    {
+        return $code === $sniff
+            || str_starts_with($sniff, $code . '.')
+            || str_starts_with($code, $sniff . '.');
     }
 
     /**
