@@ -594,7 +594,7 @@ class Database_Guard
         if ([] !== $values) {
             $sql = $wpdb->prepare($sql, $values);
         }
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Recoverability before-image must read the live rows immediately before the mutation; any cache defeats the snapshot. $sql is built directly above from a Database_Guard-validated table name plus placeholders, and the values are bound through $wpdb->prepare().
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Recoverability before-image must read the live rows immediately before the mutation; any cache defeats the snapshot. $sql is built directly above from a Database_Guard-validated table name plus placeholders, and the values are bound through $wpdb->prepare(). PluginCheck: identifiers are validated above; values, when present, are bound by prepare() just before this line.
         $rows = $wpdb->get_results($sql, ARRAY_A);
 
         return is_array($rows) ? $rows : [];
@@ -612,7 +612,7 @@ class Database_Guard
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Live schema introspection at snapshot/rollback time; a cached key list could disagree with the current schema. A table identifier cannot be bound with $wpdb->prepare(), so the name is validated by Database_Guard and backticks are stripped before interpolation.
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Live schema introspection at snapshot/rollback time; a cached key list could disagree with the current schema. A table identifier cannot be bound with $wpdb->prepare(), so the name is validated by Database_Guard and backticks are stripped before interpolation. PluginCheck: table identifier, backticks stripped; identifiers cannot be bound as placeholders and the name is validated before it gets here.
         $rows = $wpdb->get_results(
             'SHOW KEYS FROM `' . str_replace('`', '', $table) . '`',
             ARRAY_A
@@ -640,7 +640,7 @@ class Database_Guard
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Live schema re-validation at rollback time; the whole point is the CURRENT schema, so caching would be wrong. A table identifier cannot be bound with $wpdb->prepare(), so the name is validated by Database_Guard and backticks are stripped before interpolation.
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Live schema re-validation at rollback time; the whole point is the CURRENT schema, so caching would be wrong. A table identifier cannot be bound with $wpdb->prepare(), so the name is validated by Database_Guard and backticks are stripped before interpolation. PluginCheck: table identifier, backticks stripped; identifiers cannot be bound as placeholders and the name is validated before it gets here.
         $rows = $wpdb->get_results(
             'SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '`',
             ARRAY_A
