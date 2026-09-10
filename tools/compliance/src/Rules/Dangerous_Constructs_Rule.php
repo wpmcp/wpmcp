@@ -13,10 +13,14 @@ use WPMCP\Compliance\Severity;
  * reviewers close submissions over them under guidelines 8 and 9, so the
  * repo's own build gate already treats them as fatal. This rule is the
  * artifact-level half of scripts/lib/exec-gate.php, which the same builds run
- * over the staged tree: CONSTRUCTS below and Exec_Gate::EXECUTION_CONSTRUCTS
- * are the same list, pinned together by ExecGateTest, so the two steps cannot
- * enforce different policies. Both are token level, so pattern strings in
- * Malware_Audit and documentation comments cannot false-positive.
+ * over the staged tree. Two things are pinned together by ExecGateTest so the
+ * two steps cannot enforce different policies: CONSTRUCTS below equals
+ * Exec_Gate::EXECUTION_CONSTRUCTS, and both matchers report the same lines
+ * over one probe file, so a bare, `\qualified` or `Ns\qualified` call, eval
+ * and a backtick operator are findings for both while a method, a
+ * declaration, a constant or a class name is a finding for neither. Both are
+ * token level, so pattern strings in Malware_Audit and documentation comments
+ * cannot false-positive.
  *
  * The profile decides whether the two audited, default-off, environment-gated
  * call sites are an exception (distribution) or a hard failure (wporg-free).
@@ -65,11 +69,17 @@ final class Dangerous_Constructs_Rule extends Base_Rule
         foreach ($context->php_files() as $file) {
             $sites = [];
             foreach ($file->lines_with_tokens([T_EVAL]) as $line) {
-                $sites[] = ['name' => 'eval', 'line' => $line];
+                $sites[] = ['name' => 'eval', 'line' => $line, 'label' => 'eval()'];
             }
             foreach ($file->find_calls(self::CONSTRUCTS, false) as $call) {
-                $sites[] = $call;
+                $sites[] = ['name' => $call['name'], 'line' => $call['line'], 'label' => $call['name'] . '()'];
             }
+            // The backtick operator is shell_exec() spelled differently, and
+            // reviewers read it as such.
+            foreach ($file->shell_backtick_lines() as $line) {
+                $sites[] = ['name' => 'shell_exec', 'line' => $line, 'label' => 'the backtick operator (shell_exec)'];
+            }
+            usort($sites, static fn (array $a, array $b): int => $a['line'] <=> $b['line']);
             foreach ($sites as $site) {
                 $allowed = $context->profile()->allows_exec($file->relative_path(), $site['name']);
                 $findings[] = $this->finding(
@@ -77,11 +87,11 @@ final class Dangerous_Constructs_Rule extends Base_Rule
                     $site['line'],
                     $allowed
                         ? sprintf(
-                            'audited execution site %s(): permitted by the %s profile, and must never reach a WordPress.org build',
-                            $site['name'],
+                            'audited execution site %s: permitted by the %s profile, and must never reach a WordPress.org build',
+                            $site['label'],
                             $context->profile()->name()
                         )
-                        : sprintf('execution construct %s() must not ship', $site['name']),
+                        : sprintf('execution construct %s must not ship', $site['label']),
                     $allowed ? Severity::BEST_PRACTICE : null
                 );
             }

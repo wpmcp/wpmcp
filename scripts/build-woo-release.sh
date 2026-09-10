@@ -212,13 +212,20 @@ rm -f "$ZIP"
 
 # The execution files themselves are absent from the artifact, checked on the
 # zip listing rather than on the staging directory: the rm list, the staging
-# copy and the zip step are three chances to reintroduce them (#167).
-for forbidden in Php_Snippet_Runner.php Wp_Cli_Executor.php Run_Php_Snippet.php Run_Wp_Cli.php; do
-  if unzip -l "$ZIP" | grep -q "/$forbidden\$"; then
-    echo "ERROR: $forbidden is inside $ZIP" >&2
-    exit 1
-  fi
-done
+# copy and the zip step are three chances to reintroduce them (#167). Shared
+# with the wp.org build (scripts/lib/zip-gate.sh) so the two cannot drift,
+# and read from a captured listing rather than a pipeline, see the note there.
+# shellcheck source=scripts/lib/zip-gate.sh
+. "$ROOT/scripts/lib/zip-gate.sh"
+set +e
+zip_excludes "$ZIP" Php_Snippet_Runner.php Wp_Cli_Executor.php Run_Php_Snippet.php Run_Wp_Cli.php
+zip_status=$?
+set -e
+case "$zip_status" in
+  0) ;;
+  1) echo "ERROR: an execution file is inside $ZIP" >&2; exit 1 ;;
+  *) echo "ERROR: could not list $ZIP to check it for execution files" >&2; exit 1 ;;
+esac
 
 echo "built $ZIP"
 unzip -l "$ZIP" | tail -2

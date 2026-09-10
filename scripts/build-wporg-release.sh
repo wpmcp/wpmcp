@@ -174,15 +174,23 @@ ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
 rm -f "$ZIP"
 (cd "$STAGE_PARENT" && zip -rq "$ZIP" "$SLUG" -x "*.DS_Store")
 
-# 6. The execution files themselves are absent from the artifact, checked on
-#    the zip listing rather than on the staging directory: the strip list, the
-#    staging copy and the zip step are three chances to reintroduce them
-#    (#167).
-for forbidden in Php_Snippet_Runner.php Wp_Cli_Executor.php Run_Php_Snippet.php Run_Wp_Cli.php; do
-  if unzip -l "$ZIP" | grep -q "/$forbidden\$"; then
-    fail "$forbidden is inside $ZIP"
-  fi
-done
+# 6b. The execution files themselves are absent from the artifact, checked on
+#     the zip listing rather than on the staging directory: the strip list,
+#     the staging copy and the zip step are three chances to reintroduce them
+#     (#167). Shared with the vertical build (scripts/lib/zip-gate.sh) so the
+#     two cannot drift, and read from a captured listing rather than a
+#     pipeline, see the note there.
+# shellcheck source=scripts/lib/zip-gate.sh
+. "$ROOT/scripts/lib/zip-gate.sh"
+set +e
+zip_excludes "$ZIP" Php_Snippet_Runner.php Wp_Cli_Executor.php Run_Php_Snippet.php Run_Wp_Cli.php
+zip_status=$?
+set -e
+case "$zip_status" in
+  0) ;;
+  1) fail "an execution file is inside $ZIP" ;;
+  *) fail "could not list $ZIP to check it for execution files" ;;
+esac
 
 # 7. The compliance engine, in the profile that models the directory, run
 #    against the extracted zip rather than the checkout. This is the check

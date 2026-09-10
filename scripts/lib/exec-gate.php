@@ -19,6 +19,13 @@
  * style of exactly the vendor tree this gate now walks. Backticks are shell
  * execution too, and wp.org reviewers read them as shell_exec.
  *
+ * Kept dependency-free on purpose: no autoloader, no namespace, nothing from
+ * tools/compliance. The build runs it with plain `php <file>` against a
+ * staged tree, and a gate that needs the checkout's vendor/ to load is a gate
+ * that cannot be trusted to run when that tree is the thing under suspicion.
+ * The compliance engine's Source_File::find_calls() matches the same shapes;
+ * ExecGateTest runs both over one probe file and pins them equal.
+ *
  * Usage:
  *
  *   php scripts/lib/exec-gate.php <path> [<path>...]
@@ -135,7 +142,7 @@ final class Exec_Gate
             if ('(' !== self::next_significant($tokens, $index)) {
                 continue;
             }
-            if (in_array(self::previous_significant($tokens, $index), ['->', '::', '?->', 'function', 'new'], true)) {
+            if (self::is_member_or_declaration($tokens, $index)) {
                 continue;
             }
             $found[] = ['path' => $path, 'line' => $token[2], 'construct' => $name];
@@ -205,9 +212,9 @@ final class Exec_Gate
      * not an identifier.
      *
      * `\proc_open` and `Foo\system` are the qualified shapes; both reduce to
-     * their last segment, lowercased, because PHP resolves an unimported
-     * qualified call to a global function when the namespaced one does not
-     * exist, and a gate is the wrong place to be optimistic about which.
+     * their last segment, lowercased. A qualified name does not fall back to
+     * the global function the way a bare one does, but a directory reviewer's
+     * grep does not make that distinction and neither should a gate.
      *
      * @param array{0:int,1:string,2:int} $token
      */
@@ -228,6 +235,41 @@ final class Exec_Gate
     }
 
     /**
+     * True when the name at $index is a member access, a declaration, an
+     * instantiation or an attribute rather than a call to the global function.
+     *
+     * Keywords are compared lowercased because PHP does not care about their
+     * case (`New Popen()`, `Function system() {}`), and a by-reference
+     * declaration (`function &popen()`) is recognised by looking one token
+     * further back past the `&`.
+     *
+     * @param array<int,array|string> $tokens
+     */
+    private static function is_member_or_declaration(array $tokens, int $index): bool
+    {
+        $previous = self::previous_significant_index($tokens, $index);
+        if (null === $previous) {
+            return false;
+        }
+        $text = self::text($tokens[$previous]);
+        if ('&' === $text) {
+            $before = self::previous_significant_index($tokens, $previous);
+            return null !== $before && 'function' === self::text($tokens[$before]);
+        }
+        return in_array($text, ['->', '::', '?->', 'function', 'new', '#['], true);
+    }
+
+    /**
+     * The lowercased text of a token, whatever its shape.
+     *
+     * @param array|string $token
+     */
+    private static function text($token): string
+    {
+        return strtolower(is_array($token) ? $token[1] : $token);
+    }
+
+    /**
      * @param array<int,array|string> $tokens
      */
     private static function next_significant(array $tokens, int $index): ?string
@@ -235,35 +277,34 @@ final class Exec_Gate
         $count = count($tokens);
         for ($i = $index + 1; $i < $count; $i++) {
             $token = $tokens[$i];
-            if (is_array($token)) {
-                if (in_array($token[0], self::INSIGNIFICANT, true)) {
-                    continue;
-                }
-                return $token[1];
+            if (is_array($token) && in_array($token[0], self::INSIGNIFICANT, true)) {
+                continue;
             }
-            if ('' !== $token) {
-                return $token;
+            if (is_string($token) && '' === $token) {
+                continue;
             }
+            return self::text($token);
         }
         return null;
     }
 
     /**
+     * Index of the nearest significant token before $index, or null at the
+     * start of the file.
+     *
      * @param array<int,array|string> $tokens
      */
-    private static function previous_significant(array $tokens, int $index): ?string
+    private static function previous_significant_index(array $tokens, int $index): ?int
     {
         for ($i = $index - 1; $i >= 0; $i--) {
             $token = $tokens[$i];
-            if (is_array($token)) {
-                if (in_array($token[0], self::INSIGNIFICANT, true)) {
-                    continue;
-                }
-                return $token[1];
+            if (is_array($token) && in_array($token[0], self::INSIGNIFICANT, true)) {
+                continue;
             }
-            if ('' !== $token) {
-                return $token;
+            if (is_string($token) && '' === $token) {
+                continue;
             }
+            return $i;
         }
         return null;
     }

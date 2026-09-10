@@ -20,8 +20,9 @@
     </rule>
 
     <!-- scripts/lib holds standalone CLI gates the build runs with plain
-         `php <file>`, before any autoloader exists, so their classes are
-         global on purpose. -->
+         `php <file>` against a staged tree. They are kept dependency-free on
+         purpose (no autoloader, nothing from tools/compliance), so their
+         classes are global. -->
     <rule ref="PSR1.Classes.ClassDeclaration.MissingNamespace">
         <exclude-pattern>scripts/lib/*</exclude-pattern>
     </rule>

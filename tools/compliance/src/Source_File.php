@@ -146,15 +146,30 @@ final class Source_File
     }
 
     /**
+     * Token ids that carry a name: bare (`exec`), fully qualified
+     * (`\exec`), qualified (`Foo\exec`) and relative (`namespace\exec`).
+     * All four reduce to their last segment, so a leading-backslash global,
+     * which is the house style of every vendor tree, is the same name as the
+     * bare one.
+     */
+    private const NAME_TOKENS = [T_STRING, T_NAME_FULLY_QUALIFIED, T_NAME_QUALIFIED, T_NAME_RELATIVE];
+
+    /**
      * Call sites of any of $names.
      *
-     * A call site is a T_STRING equal to one of the names whose next
-     * significant token is "(". Comments and string literals cannot match,
-     * because they are different token types.
+     * A call site is a name token (see NAME_TOKENS) whose last segment equals
+     * one of the names and whose next significant token is "(". Comments and
+     * string literals cannot match, because they are different token types.
+     *
+     * With $include_members false, a member access (`$o->exec()`,
+     * `C::exec()`), a declaration (`function exec()`, `function &exec()`),
+     * an instantiation (`new Exec()`) and an attribute (`#[Exec()]`) are not
+     * calls to the global function and are skipped. Keywords are compared
+     * lowercased, the way PHP reads them.
      *
      * @param  string[] $names           lowercase function names
      * @param  bool     $include_members whether ->name() and ::name() count
-     * @return array<int,array{name:string,line:int}>
+     * @return array<int,array{name:string,line:int,array_value:bool}>
      */
     public function find_calls(array $names, bool $include_members = true): array
     {
@@ -162,28 +177,86 @@ final class Source_File
         $tokens = $this->tokens();
         $found = [];
         foreach ($tokens as $index => $token) {
-            if (! is_array($token) || T_STRING !== $token[0]) {
+            if (! is_array($token) || ! in_array($token[0], self::NAME_TOKENS, true)) {
                 continue;
             }
-            if (! isset($wanted[strtolower($token[1])])) {
+            $name = self::bare_name($token[1]);
+            if (! isset($wanted[$name])) {
                 continue;
             }
             if ('(' !== $this->next_significant($tokens, $index)) {
                 continue;
             }
-            if (! $include_members) {
-                $previous = $this->previous_significant($tokens, $index);
-                if (in_array($previous, ['->', '::', '?->', 'function'], true)) {
-                    continue;
-                }
+            if (! $include_members && $this->is_member_or_declaration($tokens, $index)) {
+                continue;
             }
             $found[] = [
-                'name' => strtolower($token[1]),
+                'name' => $name,
                 'line' => $token[2],
                 'array_value' => $this->call_is_array_element_value($tokens, $index),
             ];
         }
         return $found;
+    }
+
+    /**
+     * Lines on which a backtick shell-execution operator opens.
+     *
+     * token_get_all() emits the operator as two bare "`" string tokens around
+     * the command, and string tokens carry no line number, so the line is
+     * carried forward from the last array token seen.
+     *
+     * @return int[]
+     */
+    public function shell_backtick_lines(): array
+    {
+        $lines = [];
+        $line = 1;
+        $open = false;
+        foreach ($this->tokens() as $token) {
+            if (is_array($token)) {
+                $line = $token[2] + substr_count($token[1], "\n");
+                continue;
+            }
+            if ('`' !== $token) {
+                continue;
+            }
+            if (! $open) {
+                $lines[] = $line;
+            }
+            $open = ! $open;
+        }
+        return $lines;
+    }
+
+    /**
+     * The last segment of a possibly qualified name, lowercased.
+     */
+    private static function bare_name(string $text): string
+    {
+        return strtolower(substr(strrchr('\\' . $text, '\\') ?: '', 1));
+    }
+
+    /**
+     * True when the name at $index is a member access, a declaration, an
+     * instantiation or an attribute rather than a call to the global function.
+     * The same test scripts/lib/exec-gate.php applies; ExecGateTest pins the
+     * two together.
+     *
+     * @param array<int,array|string> $tokens
+     */
+    private function is_member_or_declaration(array $tokens, int $index): bool
+    {
+        $previous = $this->previous_significant_index($tokens, $index);
+        if (null === $previous) {
+            return false;
+        }
+        $text = $this->token_text($tokens[$previous]);
+        if ('&' === $text) {
+            $before = $this->previous_significant_index($tokens, $previous);
+            return null !== $before && 'function' === $this->token_text($tokens[$before]);
+        }
+        return in_array($text, ['->', '::', '?->', 'function', 'new', '#['], true);
     }
 
     /**
@@ -230,10 +303,10 @@ final class Source_File
             if (! is_array($token)) {
                 continue;
             }
-            if (! in_array($token[0], [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)) {
+            if (! in_array($token[0], self::NAME_TOKENS, true)) {
                 continue;
             }
-            $bare = strtolower(substr(strrchr('\\' . $token[1], '\\') ?: '', 1));
+            $bare = self::bare_name($token[1]);
             if (isset($wanted[$bare])) {
                 $found[] = ['name' => $bare, 'line' => $token[2]];
             }
@@ -404,16 +477,35 @@ final class Source_File
      */
     private function previous_significant(array $tokens, int $index): string
     {
+        $previous = $this->previous_significant_index($tokens, $index);
+        return null === $previous ? '' : $this->token_text($tokens[$previous]);
+    }
+
+    /**
+     * Index of the nearest significant token before $index, or null at the
+     * start of the file.
+     *
+     * @param array<int,array|string> $tokens
+     */
+    private function previous_significant_index(array $tokens, int $index): ?int
+    {
         for ($i = $index - 1; $i >= 0; $i--) {
             $token = $tokens[$i];
-            if (is_array($token)) {
-                if (in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
-                    continue;
-                }
-                return strtolower($token[1]);
+            if (is_array($token) && in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
             }
-            return $token;
+            return $i;
         }
-        return '';
+        return null;
+    }
+
+    /**
+     * The lowercased text of a token, whatever its shape.
+     *
+     * @param array|string $token
+     */
+    private function token_text($token): string
+    {
+        return strtolower(is_array($token) ? $token[1] : $token);
     }
 }
