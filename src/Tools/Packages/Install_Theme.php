@@ -9,10 +9,23 @@ if (! defined('ABSPATH')) {
 /**
  * Install a theme from wordpress.org by slug.
  *
- * Safe_Mutation exemption: install only ever adds new files (and, if
- * activate:true, switches to a theme that didn't exist a moment ago); there
- * is no prior state to snapshot or roll back, the same reasoning
+ * Safe_Mutation exemption applies to the install step only: unpacking a new
+ * theme directory adds files and changes no prior state, the same reasoning
  * Install_Plugin uses.
+ *
+ * The optional activate:true step is NOT exempt. The theme being switched TO
+ * is new, but the theme being switched FROM is not: switch_theme() overwrites
+ * the 'template' and 'stylesheet' options, and those prior values are real
+ * state. Both are snapshotted before the switch by delegating to
+ * Switch_Theme::snapshot_and_switch(), the one copy of that block (one core
+ * call changes two options, so the snapshots are taken up front and recorded
+ * individually rather than through Safe_Mutation::run).
+ *
+ * That step also does the work the wp-admin Themes screen gates on
+ * switch_themes, while the ability itself is registered under install_themes.
+ * The extra capability is therefore checked explicitly, and before the
+ * download runs, so a partial request never leaves a theme on disk it was not
+ * allowed to activate.
  *
  * wordpress.org-only: the slug must be a bare theme directory slug (letters,
  * digits, dashes, underscores), never a URL or filesystem path. themes_api()
@@ -31,6 +44,11 @@ class Install_Theme
         }
         if (! preg_match(self::SLUG_PATTERN, $slug)) {
             throw new \InvalidArgumentException('Invalid theme slug: only wordpress.org-style slugs (letters, digits, dashes) are allowed.');
+        }
+
+        $activate = ! empty($args['activate']);
+        if ($activate) {
+            self::require_switch_capability();
         }
 
         if (! Package_Guard::filesystem_ready()) {
@@ -56,12 +74,36 @@ class Install_Theme
             throw new \RuntimeException('Theme install failed: ' . $message);
         }
 
-        $activated = false;
-        if (! empty($args['activate'])) {
-            switch_theme($slug);
-            $activated = get_stylesheet() === $slug;
+        $out = ['installed' => true, 'slug' => $slug, 'activated' => false];
+        if ($activate) {
+            $out = array_merge($out, $this->activate_installed($slug, $args));
         }
 
-        return ['installed' => true, 'slug' => $slug, 'activated' => $activated];
+        return $out;
+    }
+
+    /**
+     * The activate:true step, snapshotted. Public so the guarded path is
+     * directly testable without a network install standing in front of it.
+     *
+     * @return array{activated: bool, operation_ids: array<int, string>}
+     */
+    public function activate_installed(string $slug, array $args): array
+    {
+        self::require_switch_capability();
+
+        $operation_ids = Switch_Theme::snapshot_and_switch($slug, 'install-theme', $args);
+
+        return [
+            'activated'     => get_stylesheet() === $slug,
+            'operation_ids' => $operation_ids,
+        ];
+    }
+
+    private static function require_switch_capability(): void
+    {
+        if (! current_user_can('switch_themes')) {
+            throw new \RuntimeException('Activating an installed theme requires the switch_themes capability; install-theme was called with activate: true without it.');
+        }
     }
 }

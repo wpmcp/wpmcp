@@ -245,12 +245,34 @@ to paste it into a site.
 
 Guideline 8 prohibits "serving updates or otherwise installing plugins, themes,
 or add-ons from servers other than WordPress.org's". These tools do the
-opposite: they drive core's own `Plugin_Upgrader` and `Theme_Upgrader` against
-the WordPress.org repository, exactly as the Plugins screen does. No package is
-bundled, no package is fetched from our servers, and nothing is installed
-without an explicit `manage_options` request naming the slug. It is the same
-capability an administrator already has in wp-admin, exposed to the tool
-surface they chose to connect.
+opposite: they drive core's own `Plugin_Upgrader` and `Theme_Upgrader`, exactly
+as the Plugins and Themes screens do. Installs resolve the package through
+core's `plugins_api()` / `themes_api()` from a wordpress.org slug validated by
+regex; updates hand core the already-installed plugin file or stylesheet and
+let core's own update transient supply the package. No package is bundled and
+no package is fetched from our servers.
+
+Nothing is installed without an explicit request naming the slug, and every
+such request must carry the same granular core capability the equivalent
+wp-admin screen requires: `install_plugins`, `activate_plugins`,
+`update_plugins`, `delete_plugins`, `switch_themes`, `install_themes`,
+`update_themes` or `delete_themes`. Where one tool spans two screens (the
+installers' optional `activate: true` step) both capabilities are checked. It
+is the same capability an administrator already has in wp-admin, exposed to the
+tool surface they chose to connect.
+
+Nothing runs in the background either. The only activation hook creates
+tables; `wpmcp/schedule-event` refuses the core update hooks
+(`wp_update_plugins`, `wp_update_themes`, `wp_maybe_auto_update`); and the
+one cron tool that can fire those already-scheduled core hooks early,
+`wpmcp/run-event`, ships disabled until a site opts in by filter, is gated on
+`manage_options`, replays only core's stored args, and so at most runs core's
+own updater against WordPress.org a little sooner than core would have.
+
+The long-form version of this answer, with the complete file:line list of
+every install, activate and delete site plus the shared guardrails, is
+`docs/wporg/guideline-8-install-abilities.md`. If the reviewer pushes past
+the paragraph above, paste from there.
 
 ### 5.6 "Is there a licensing SDK or paid gating in here?"
 
@@ -289,7 +311,7 @@ is a blocker; they are listed so nobody has to rediscover them.
 
 | Finding | Count | Why it stands |
 | --- | --- | --- |
-| `WPORG-08-PLUGIN-INSTALL` | 19 | Section 5.5. Core's upgrader, wp.org packages, `manage_options`, explicit request. |
+| `WPORG-08-PLUGIN-INSTALL` | 19 | Section 5.5, long form in `docs/wporg/guideline-8-install-abilities.md`. Core's upgrader, wp.org packages, granular core capabilities (`install_plugins`/`activate_plugins`/`update_*`/`delete_*`/`switch_themes`), explicit request. |
 | `WPORG-07-EXTERNAL-SERVICES`, dynamic destinations | 6 | Section 5.3. The engine reports every non-statically-resolvable destination because it cannot read prose; each one is described in the readme. |
 | `WPORG-17-TRADEMARK`, term "wp" | 3 | Section 5.8. Best practice only, tolerated by Plugin Check's own annotation. |
 
