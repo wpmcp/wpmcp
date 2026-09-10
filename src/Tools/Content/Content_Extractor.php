@@ -1,6 +1,6 @@
 <?php
 
-namespace WPMCP\Tools\Analysis;
+namespace WPMCP\Tools\Content;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -83,20 +83,30 @@ class Content_Extractor
     }
 
     /**
+     * Headings in DOCUMENT ORDER, not grouped by tag. Order is the whole
+     * point of an outline, and the hierarchy checks in A11y_Analyzer and
+     * Seo_Analyzer compare each heading against the previous one, so a
+     * tag-grouped list would score a structure the page does not have.
+     *
      * @return array<int,array{level:int,text:string}>
      */
     private static function headings(\DOMDocument $dom): array
     {
-        $out = [];
-        foreach (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as $tag) {
-            $level = (int) substr($tag, 1);
-            foreach ($dom->getElementsByTagName($tag) as $node) {
-                $text = trim((string) $node->textContent);
-                if ('' === $text) {
-                    continue;
-                }
-                $out[] = ['level' => $level, 'text' => $text];
+        $out   = [];
+        $xpath = new \DOMXPath($dom);
+        $nodes = $xpath->query('//h1|//h2|//h3|//h4|//h5|//h6');
+        if (false === $nodes) {
+            return $out;
+        }
+        foreach ($nodes as $node) {
+            $text = trim((string) $node->textContent);
+            if ('' === $text) {
+                continue;
             }
+            $out[] = [
+                'level' => (int) substr(strtolower($node->nodeName), 1),
+                'text'  => $text,
+            ];
         }
         return $out;
     }

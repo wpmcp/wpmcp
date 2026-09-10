@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 304,
-    'free'      => 213,
+    'total'     => 305,
+    'free'      => 214,
     'pro'       => 91,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -142,6 +142,7 @@ return [
         'wpmcp/get-option' => 'free',
         'wpmcp/get-order' => 'free',
         'wpmcp/get-page' => 'free',
+        'wpmcp/get-page-snapshot' => 'free',
         'wpmcp/get-plugin-info' => 'free',
         'wpmcp/get-post' => 'free',
         'wpmcp/get-post-meta' => 'free',
