@@ -41,13 +41,18 @@ gate rather than substitute for one:
       Bump only after an actual smoke pass against that WordPress version, and
       record the pass below. Then raise `TESTED_UP_TO_FLOOR` in
       `tests/free/Release/ReleaseHeadersTest.php` to the same value, and the
-      `wp:` axis of the test matrix in `.github/workflows/ci.yml` with it:
-      the test fails when the floor names a release CI does not install, so
-      the "tested" half of the header stays machine-backed like the string.
+      `wp:` axis of the test matrix in `.github/workflows/ci.yml` with it.
+      The three move together or the suite goes red: every header must equal
+      the pin (a header ahead of it is a claim the suite has not backed, one
+      behind it is the Plugin Check error), and the matrix must install both
+      the pin and the release the headers declare. The "tested" half of the
+      header stays machine-backed like the string.
 - [ ] Update the prose that hardcodes a version: the "Version headers"
       paragraph in `WPORG-SUBMISSION.md` and the B-23 row in `COMPLIANCE.md`.
-- [ ] Confirm `Requires at least` and `Requires PHP` still reflect reality in
-      all three readmes and all three loaders.
+- [ ] Confirm `Requires at least` and `Requires PHP` still reflect reality.
+      `ReleaseHeadersTest` holds the three readmes and the three loaders to
+      one value for each; this item is about whether that value is still true,
+      which no test can decide.
 
 ## Verification
 
