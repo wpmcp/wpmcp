@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 304,
-    'free'      => 213,
+    'total'     => 307,
+    'free'      => 216,
     'pro'       => 91,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -197,6 +197,7 @@ return [
         'wpmcp/list-governance-audit-log' => 'free',
         'wpmcp/list-identities' => 'free',
         'wpmcp/list-languages' => 'free',
+        'wpmcp/list-low-stock-products' => 'free',
         'wpmcp/list-media' => 'free',
         'wpmcp/list-menu-locations' => 'free',
         'wpmcp/list-menus' => 'free',
@@ -224,6 +225,7 @@ return [
         'wpmcp/list-tools' => 'free',
         'wpmcp/list-transients' => 'free',
         'wpmcp/list-users' => 'free',
+        'wpmcp/list-variations' => 'free',
         'wpmcp/list-widgets' => 'free',
         'wpmcp/mec-read' => 'free',
         'wpmcp/mec-write' => 'free',
@@ -315,6 +317,7 @@ return [
         'wpmcp/update-term' => 'free',
         'wpmcp/update-theme' => 'free',
         'wpmcp/update-user' => 'free',
+        'wpmcp/update-variation' => 'free',
         'wpmcp/update-widget' => 'pro',
         'wpmcp/upload-svg' => 'free',
         'wpmcp/validate-block-spec' => 'pro',

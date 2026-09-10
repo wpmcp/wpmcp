@@ -468,6 +468,72 @@ class Rollback_Service
         }
 
         self::restore_files($snapshot['data']['files'] ?? null);
+
+        self::refresh_woocommerce_product($object_id);
+    }
+
+    /**
+     * Bring WooCommerce's derived data back in line after a raw post restore.
+     *
+     * The post path above writes wp_posts and wp_postmeta directly, which is
+     * exactly right for the snapshot contract but bypasses WooCommerce's CRUD
+     * layer. For a product or variation that layer maintains three things the
+     * raw restore leaves stale: per-product transients (the variable parent's
+     * cached variation price range among them), the wc_product_meta_lookup
+     * row that sorting and filtering read, and, for a variation, the parent's
+     * synced _price range and stock status. Without this, rolling back a
+     * variation price change restores the variation's own meta while the
+     * storefront keeps showing the un-rolled-back parent range.
+     *
+     * No-op when WooCommerce is absent or the post is not a product.
+     */
+    private static function refresh_woocommerce_product(int $object_id): void
+    {
+        if (! function_exists('wc_get_product') || ! class_exists('WC_Product_Data_Store_CPT')) {
+            return;
+        }
+
+        $post_type = get_post_type($object_id);
+        if (! in_array($post_type, ['product', 'product_variation'], true)) {
+            return;
+        }
+
+        wc_delete_product_transients($object_id);
+        self::refresh_woocommerce_lookup_row($object_id);
+
+        if ('product_variation' !== $post_type) {
+            return;
+        }
+
+        $parent_id = (int) wp_get_post_parent_id($object_id);
+        if ($parent_id <= 0 || ! class_exists('WC_Product_Variable')) {
+            return;
+        }
+
+        // sync() re-reads the children's _price rows, rewrites the parent's
+        // _price range and stock status, refreshes the parent's lookup row
+        // and saves the parent through the CRUD layer, which is the same path
+        // a variation save() takes.
+        wc_delete_product_transients($parent_id);
+        \WC_Product_Variable::sync($parent_id);
+    }
+
+    /**
+     * Rewrite one product's wc_product_meta_lookup row from its (restored)
+     * postmeta. WooCommerce keeps update_lookup_table() protected on the data
+     * store and only calls it from its own save path, which a raw meta restore
+     * never goes through; the anonymous subclass is the narrowest way to reach
+     * it without re-implementing the row's column mapping.
+     */
+    private static function refresh_woocommerce_lookup_row(int $object_id): void
+    {
+        $refresher = new class extends \WC_Product_Data_Store_CPT {
+            public function refresh(int $id): void
+            {
+                $this->update_lookup_table($id, 'wc_product_meta_lookup');
+            }
+        };
+        $refresher->refresh($object_id);
     }
 
     /**
