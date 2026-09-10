@@ -68,12 +68,14 @@ class Wp_Cli_Guard_Chain
 
         $args_valid = Wp_Cli_Guard::validate_args($subcommand_argv);
         if (is_wp_error($args_valid)) {
-            throw new \RuntimeException(esc_html($args_valid->get_error_message()));
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Wp_Cli_Guard escapes the operand it interpolates into the WP_Error message; the rest is plugin literal.
+            throw new \RuntimeException($args_valid->get_error_message());
         }
 
         $flags_valid = Wp_Cli_Guard::validate_flags($subcommand_argv);
         if (is_wp_error($flags_valid)) {
-            throw new \RuntimeException(esc_html($flags_valid->get_error_message()));
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Wp_Cli_Guard escapes the operand it interpolates into the WP_Error message; the rest is plugin literal.
+            throw new \RuntimeException($flags_valid->get_error_message());
         }
 
         self::resolve_binary_or_throw();
@@ -89,7 +91,8 @@ class Wp_Cli_Guard_Chain
     {
         $binary = Wp_Cli_Guard::resolve_binary();
         if (is_wp_error($binary)) {
-            throw new \RuntimeException(esc_html($binary->get_error_message()));
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Wp_Cli_Guard escapes the operand it interpolates into the WP_Error message; the rest is plugin literal.
+            throw new \RuntimeException($binary->get_error_message());
         }
 
         return (string) $binary;

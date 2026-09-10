@@ -30,7 +30,7 @@ class List_Variations
         }
         if (! $parent->is_type('variable')) {
             throw new \InvalidArgumentException(
-                'Product ' . $product_id . ' is type "' . $parent->get_type() . '", not a variable product.'
+                'Product ' . (int) $product_id . ' is type "' . esc_html($parent->get_type()) . '", not a variable product.'
             );
         }
 

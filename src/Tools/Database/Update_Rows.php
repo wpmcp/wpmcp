@@ -82,7 +82,7 @@ class Update_Rows
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The tool's purpose is a direct update on an arbitrary Database_Guard-validated table; wpdb::update() parameterizes it and core has no API for arbitrary tables. The write is not cached but it does invalidate: the caches it makes stale are cleared immediately below, which is the remedy this sniff asks for on an update.
             $affected = $wpdb->update($table, $data, $where);
             if (false === $affected) {
-                throw new \RuntimeException(esc_html($wpdb->last_error ?: 'Update failed.'));
+                throw new \RuntimeException(esc_html($wpdb->last_error) ?: 'Update failed.');
             }
             Database_Guard::invalidate_caches($table, ['rows' => $before, 'where' => $where, 'data' => $data]);
             return (int) $affected;

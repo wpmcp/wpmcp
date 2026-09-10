@@ -651,7 +651,7 @@ class Rollback_Service
 
             if (null === $current) {
                 if (false === $wpdb->insert($table, $row)) {
-                    throw new Mutation_Failed('Rollback failed to reinsert row ' . esc_html($pk_desc) . ' into "' . esc_html($table) . '": ' . esc_html($wpdb->last_error ?: 'insert failed'));
+                    throw new Mutation_Failed('Rollback failed to reinsert row ' . esc_html($pk_desc) . ' into "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'insert failed'));
                 }
                 continue;
             }
@@ -661,7 +661,7 @@ class Rollback_Service
                 continue; // PK-only table: existing row is already the before-image.
             }
             if (false === $wpdb->update($table, $restore, $where)) {
-                throw new Mutation_Failed('Rollback failed to restore row ' . esc_html($pk_desc) . ' in "' . esc_html($table) . '": ' . esc_html($wpdb->last_error ?: 'update failed'));
+                throw new Mutation_Failed('Rollback failed to restore row ' . esc_html($pk_desc) . ' in "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'update failed'));
             }
         }
 

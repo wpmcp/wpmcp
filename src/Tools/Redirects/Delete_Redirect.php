@@ -28,7 +28,7 @@ class Delete_Redirect
         $id  = (int) ($args['redirect_id'] ?? 0);
         $row = $id > 0 ? Redirect_Store::get($id) : null;
         if (null === $row) {
-            throw new \InvalidArgumentException(sprintf('Redirect %s not found.', esc_html($id)));
+            throw new \InvalidArgumentException(sprintf('Redirect %d not found.', (int) $id));
         }
 
         $out = Safe_Mutation::run(

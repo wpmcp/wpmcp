@@ -35,7 +35,7 @@ class Delete_Term
         if ($default > 0 && $default === $term_id) {
             throw new \InvalidArgumentException(sprintf(
                 'Term %d is the default term for "%s" and cannot be deleted. Change the default first.',
-                esc_html($term_id),
+                (int) $term_id,
                 esc_html($taxonomy)
             ));
         }

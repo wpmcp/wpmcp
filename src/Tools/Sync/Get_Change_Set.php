@@ -46,7 +46,7 @@ class Get_Change_Set
         if (! str_starts_with($base, Build_Change_Set::ARTIFACT_PREFIX) || ! str_ends_with($base, '.json')) {
             throw new \RuntimeException(sprintf(
                 'The file is not a change-set artifact: expected a %s*.json file written by build-change-set.',
-                Build_Change_Set::ARTIFACT_PREFIX
+                esc_html(Build_Change_Set::ARTIFACT_PREFIX)
             ));
         }
 
@@ -60,8 +60,8 @@ class Get_Change_Set
         if (Change_Set_Builder::FORMAT_VERSION !== $version) {
             throw new \RuntimeException(sprintf(
                 'That artifact is change-set format version %d; this plugin reads version %d.',
-                $version,
-                Change_Set_Builder::FORMAT_VERSION
+                (int) $version,
+                (int) Change_Set_Builder::FORMAT_VERSION
             ));
         }
 
@@ -95,6 +95,7 @@ class Get_Change_Set
             return Archive_Locator::resolve(['path' => $path]);
         } catch (\RuntimeException $e) {
             if ('No such backup archive.' === $e->getMessage()) {
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $e is the previous exception, not message text.
                 throw new \RuntimeException('No such change-set artifact.', 0, $e);
             }
             throw $e;

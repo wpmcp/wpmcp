@@ -3,8 +3,12 @@
 namespace WPMCP\Tests\Free\Compliance;
 
 use WPMCP\Tools\Blocks\Block_Tree;
+use WPMCP\Tools\Compose\Page_Spec;
+use WPMCP\Tools\Meta\Set_Post_Meta;
 use WPMCP\Tools\Cron\Run_Event;
 use WPMCP\Tools\Media\Svg_Sanitizer;
+use WPMCP\Tools\Redirects\Redirect_Store;
+use WPMCP\Tools\Redirects\Create_Redirect;
 
 /**
  * Issue #173: every thrown message escapes its dynamic operands, and only
@@ -81,6 +85,44 @@ class ExceptionMessageEscapingTest extends \WP_UnitTestCase
             $this->fail('Expected a script element to be rejected.');
         } catch (\InvalidArgumentException $e) {
             $this->assertSame('SVG element <script> is not allowed.', $e->getMessage());
+        }
+    }
+
+    /**
+     * Guard strings are built away from the throw (Page_Spec::reject(),
+     * Content_Guard::check_meta()), so the escape has to happen where the
+     * operand is interpolated: the throw itself must not re-escape the
+     * plugin's own quotes.
+     */
+    public function test_page_spec_rejection_escapes_the_key_but_keeps_its_literal_quotes(): void
+    {
+        try {
+            Page_Spec::validate(['title' => 'x', '<bad>' => 1]);
+            $this->fail('Expected an unknown top-level key to throw.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertSame('spec: unknown key "&lt;bad&gt;"', $e->getMessage());
+        }
+    }
+
+    public function test_page_spec_rejection_of_a_literal_message_stays_plain_text(): void
+    {
+        try {
+            Page_Spec::validate(['title' => 'x', 'content' => [['type' => 'heading', 'settings' => 'nope']]]);
+            $this->fail('Expected a non-object settings value to throw.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertSame('content[0]: "settings" must be an object', $e->getMessage());
+        }
+    }
+
+    public function test_protected_meta_guard_escapes_the_key_but_keeps_its_literal_quotes(): void
+    {
+        $post_id = self::factory()->post->create();
+
+        try {
+            (new Set_Post_Meta())->handle(['post_id' => $post_id, 'key' => '_secret<x>', 'value' => 'v']);
+            $this->fail('Expected a protected meta key to throw.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertSame('Refusing to write protected meta key "_secret&lt;x&gt;".', $e->getMessage());
         }
     }
 }

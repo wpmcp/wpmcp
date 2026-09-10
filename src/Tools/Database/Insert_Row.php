@@ -48,7 +48,7 @@ class Insert_Row
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- The tool's purpose is a direct insert into an arbitrary Database_Guard-validated table; wpdb::insert() parameterizes the values and core has no API for arbitrary tables.
         $affected = $wpdb->insert($table, $data);
         if (false === $affected) {
-            throw new \RuntimeException(esc_html($wpdb->last_error ?: 'Insert failed.'));
+            throw new \RuntimeException(esc_html($wpdb->last_error) ?: 'Insert failed.');
         }
 
         $insert_id = (int) $wpdb->insert_id;

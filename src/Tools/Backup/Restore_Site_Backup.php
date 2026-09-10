@@ -62,9 +62,8 @@ class Restore_Site_Backup
         }
 
         if (! empty($report['refusals'])) {
-            throw new \RuntimeException(
-                'Restore refused: ' . implode(' ', $report['refusals'])
-            );
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- compatibility() escapes every operand it interpolates into a refusal; escaping the joined text again would entity-encode the plugin's own quotes.
+            throw new \RuntimeException('Restore refused: ' . implode(' ', $report['refusals']));
         }
 
         // The execution path (issue #190) is not in this build. Nothing above

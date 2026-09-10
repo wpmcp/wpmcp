@@ -14,7 +14,6 @@
         "WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open": 1,
         "WordPress.PHP.IniSet.display_errors_Disallowed": 1,
         "WordPress.PHP.NoSilencedErrors.Discouraged": 20,
-        "WordPress.Security.EscapeOutput.ExceptionNotEscaped": 193,
         "WordPress.Security.ValidatedSanitizedInput.InputNotSanitized": 11,
         "WordPress.Security.ValidatedSanitizedInput.MissingUnslash": 4
     }

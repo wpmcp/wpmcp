@@ -90,7 +90,7 @@ class Rewrite_Site_Urls
 
         foreach (['from_url' => $from_url, 'to_url' => $to_url] as $name => $url) {
             if ('' === $url || ! preg_match('#^https?://#', $url)) {
-                throw new \InvalidArgumentException(sprintf('%s must be an absolute http(s) URL.', $name));
+                throw new \InvalidArgumentException(sprintf('%s must be an absolute http(s) URL.', esc_html($name)));
             }
         }
         if ($from_url === $to_url) {
@@ -111,7 +111,7 @@ class Rewrite_Site_Urls
         if (! empty($args['tables']) && is_array($args['tables'])) {
             $tables = array_intersect_key($tables, array_flip(array_map('strval', $args['tables'])));
             if (empty($tables)) {
-                throw new \InvalidArgumentException('tables filter matched none of: ' . implode(', ', array_keys(self::TABLES)));
+                throw new \InvalidArgumentException('tables filter matched none of: ' . esc_html(implode(', ', array_keys(self::TABLES))));
             }
         }
 

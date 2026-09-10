@@ -40,7 +40,7 @@ class Create_Redirect
             throw new \InvalidArgumentException(sprintf(
                 'Source "%s" is already redirected by redirect #%d; use update-redirect to change it.',
                 esc_html($source),
-                esc_html($existing['id'])
+                (int) $existing['id']
             ));
         }
 

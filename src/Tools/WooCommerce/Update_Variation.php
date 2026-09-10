@@ -55,7 +55,7 @@ class Update_Variation
 
         $variation = wc_get_product($id);
         if (! $variation instanceof \WC_Product_Variation) {
-            throw new \RuntimeException('Variation not found (id ' . $id . ' is not a product variation).');
+            throw new \RuntimeException('Variation not found (id ' . (int) $id . ' is not a product variation).');
         }
 
         $this->validate($variation, $args);
@@ -91,7 +91,7 @@ class Update_Variation
             $status = sanitize_key((string) $args['status']);
             if (! in_array($status, self::ALLOWED_STATUSES, true)) {
                 throw new \InvalidArgumentException(
-                    'status must be one of: ' . implode(', ', self::ALLOWED_STATUSES) . '.'
+                    'status must be one of: ' . esc_html(implode(', ', self::ALLOWED_STATUSES)) . '.'
                 );
             }
         }
@@ -112,7 +112,7 @@ class Update_Variation
                 : ['instock', 'outofstock', 'onbackorder'];
             if (! in_array($status, $options, true)) {
                 throw new \InvalidArgumentException(
-                    'stock_status must be one of: ' . implode(', ', $options) . '.'
+                    'stock_status must be one of: ' . esc_html(implode(', ', $options)) . '.'
                 );
             }
 

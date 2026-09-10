@@ -108,7 +108,7 @@ class Page_Spec
 
         foreach (array_keys($raw) as $key) {
             if (! in_array((string) $key, self::TOP_LEVEL_KEYS, true)) {
-                $this->reject('spec', sprintf('unknown key "%s"', $key));
+                $this->reject('spec', sprintf('unknown key "%s"', esc_html((string) $key)));
             }
         }
 
@@ -164,7 +164,7 @@ class Page_Spec
         }
         foreach (array_keys($node) as $key) {
             if (! in_array((string) $key, self::NODE_KEYS, true)) {
-                $this->reject($path, sprintf('unknown node key "%s"', $key));
+                $this->reject($path, sprintf('unknown node key "%s"', esc_html((string) $key)));
             }
         }
 
@@ -184,18 +184,18 @@ class Page_Spec
     private function gutenberg_node(array $node, string $type, array $settings, string $path, string $dialect, int $depth, ?string $parent_type): array
     {
         if (! array_key_exists($type, self::GUTENBERG_SETTINGS)) {
-            $this->reject($path, sprintf('unknown node type "%s"', $type));
+            $this->reject($path, sprintf('unknown node type "%s"', esc_html($type)));
         }
 
         foreach (array_keys($settings) as $key) {
             if (! in_array((string) $key, self::GUTENBERG_SETTINGS[ $type ], true)) {
-                $this->reject($path, sprintf('unknown setting "%s" for node type "%s"', $key, $type));
+                $this->reject($path, sprintf('unknown setting "%s" for node type "%s"', esc_html((string) $key), esc_html($type)));
             }
         }
 
         $is_container = in_array($type, self::GUTENBERG_CONTAINERS, true);
         if (! $is_container && isset($node['children'])) {
-            $this->reject($path, sprintf('node type "%s" may not have children', $type));
+            $this->reject($path, sprintf('node type "%s" may not have children', esc_html($type)));
         }
 
         if ('column' === $type && 'columns' !== $parent_type) {
@@ -229,7 +229,7 @@ class Page_Spec
     {
         $text_required = ['heading', 'paragraph', 'quote', 'button', 'code'];
         if (in_array($type, $text_required, true) && '' === trim((string) ($settings['text'] ?? ''))) {
-            $this->reject($path, sprintf('node type "%s" requires a non-empty "text" setting', $type));
+            $this->reject($path, sprintf('node type "%s" requires a non-empty "text" setting', esc_html($type)));
         }
 
         if ('heading' === $type && isset($settings['level'])) {
@@ -280,7 +280,7 @@ class Page_Spec
         $is_container = in_array($type, self::ELEMENTOR_CONTAINERS, true);
 
         if (! $is_container && 'widget' !== $type) {
-            $this->reject($path, sprintf('unknown builder node type "%s" (expected container, section, column, or widget)', $type));
+            $this->reject($path, sprintf('unknown builder node type "%s" (expected container, section, column, or widget)', esc_html($type)));
         }
 
         if ('widget' === $type) {
@@ -289,7 +289,7 @@ class Page_Spec
             }
             foreach (array_keys($settings) as $key) {
                 if (! in_array((string) $key, ['widget', 'widget_settings'], true)) {
-                    $this->reject($path, sprintf('unknown setting "%s" for a "widget" node', $key));
+                    $this->reject($path, sprintf('unknown setting "%s" for a "widget" node', esc_html((string) $key)));
                 }
             }
             if ('' === trim((string) ($settings['widget'] ?? ''))) {
@@ -318,7 +318,7 @@ class Page_Spec
         }
         foreach (array_keys($media) as $key) {
             if ('featured' !== (string) $key) {
-                $this->reject('spec.media', sprintf('unknown key "%s"', $key));
+                $this->reject('spec.media', sprintf('unknown key "%s"', esc_html((string) $key)));
             }
         }
         if (isset($media['featured']) && (! is_int($media['featured']) || $media['featured'] <= 0)) {
@@ -337,7 +337,7 @@ class Page_Spec
         }
         foreach (array_keys($menu) as $key) {
             if (! in_array((string) $key, ['menu_id', 'title', 'position', 'parent'], true)) {
-                $this->reject('spec.menu', sprintf('unknown key "%s"', $key));
+                $this->reject('spec.menu', sprintf('unknown key "%s"', esc_html((string) $key)));
             }
         }
         if (! isset($menu['menu_id']) || ! is_int($menu['menu_id']) || $menu['menu_id'] <= 0) {
@@ -349,6 +349,7 @@ class Page_Spec
     /** @return never */
     private function reject(string $path, string $message): void
     {
-        throw new \InvalidArgumentException(esc_html($path) . ': ' . esc_html($message));
+        // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $path is built from literal segments and integer indexes, and every caller escapes the operand it interpolates into $message, so the message's own quotes survive as plain text.
+        throw new \InvalidArgumentException($path . ': ' . $message);
     }
 }

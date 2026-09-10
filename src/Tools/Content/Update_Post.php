@@ -71,7 +71,8 @@ class Update_Post
         if (isset($args['meta']) && is_array($args['meta'])) {
             $guard = Content_Guard::check_meta($args['meta']);
             if (true !== $guard) {
-                throw new \InvalidArgumentException(esc_html($guard));
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Content_Guard escapes the key it interpolates; the rest of the message is plugin literal.
+                throw new \InvalidArgumentException($guard);
             }
         }
         if (isset($args['status']) && ! in_array($args['status'], self::VALID_STATUSES, true)) {

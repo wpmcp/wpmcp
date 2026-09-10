@@ -39,7 +39,8 @@ class Set_Post_Meta
 
         $guard = Content_Guard::check_meta([$key => $value]);
         if (true !== $guard) {
-            throw new \InvalidArgumentException(esc_html($guard));
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Content_Guard escapes the key it interpolates; the rest of the message is plugin literal.
+            throw new \InvalidArgumentException($guard);
         }
 
         $out = Safe_Mutation::run(

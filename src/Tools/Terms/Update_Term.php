@@ -70,8 +70,8 @@ class Update_Term
                 if (in_array($term_id, get_ancestors($parent, $taxonomy, 'taxonomy'), true)) {
                     throw new \InvalidArgumentException(sprintf(
                         'Term %d is an ancestor of %d; reparenting there would create a cycle.',
-                        esc_html($term_id),
-                        esc_html($parent)
+                        (int) $term_id,
+                        (int) $parent
                     ));
                 }
             }

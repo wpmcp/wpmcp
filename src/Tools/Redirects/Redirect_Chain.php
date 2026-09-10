@@ -93,7 +93,8 @@ class Redirect_Chain
                     'Redirect refused: "%s" -> "%s" would create a redirect loop (%s).',
                     esc_html($source),
                     esc_html(Redirect_Store::normalize_path($target)),
-                    esc_html(implode(' -> ', array_merge([$source], $result['chain'], [$path])))
+                    // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- each hop is escaped before joining so the arrow separator stays plain text.
+                    implode(' -> ', array_map('esc_html', array_merge([$source], $result['chain'], [$path])))
                 ));
             }
             $seen[ $path ] = true;
@@ -102,7 +103,7 @@ class Redirect_Chain
         throw new \InvalidArgumentException(sprintf(
             'Redirect refused: "%s" leads through more than %d redirects, which is treated as a loop.',
             esc_html($source),
-            esc_html(Redirect_Store::MAX_CHAIN_DEPTH)
+            (int) Redirect_Store::MAX_CHAIN_DEPTH
         ));
     }
 }

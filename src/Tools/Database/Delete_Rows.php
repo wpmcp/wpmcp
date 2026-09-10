@@ -72,7 +72,7 @@ class Delete_Rows
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The tool's purpose is a direct delete on an arbitrary Database_Guard-validated table; wpdb::delete() parameterizes it and core has no API for arbitrary tables. The write is not cached but it does invalidate: the caches it makes stale are cleared immediately below, which is the remedy this sniff asks for on a delete.
             $affected = $wpdb->delete($table, $where);
             if (false === $affected) {
-                throw new \RuntimeException(esc_html($wpdb->last_error ?: 'Delete failed.'));
+                throw new \RuntimeException(esc_html($wpdb->last_error) ?: 'Delete failed.');
             }
             Database_Guard::invalidate_caches($table, ['rows' => $before, 'where' => $where]);
             return (int) $affected;
