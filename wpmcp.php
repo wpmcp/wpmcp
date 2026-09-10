@@ -24,11 +24,9 @@ require_once __DIR__ . '/src/flavor-guard.php';
 // A schema change only this copy knows about waits until it is deactivated
 // and reactivated after the other build is gone.
 if ( wpmcp_flavor_should_defer( __FILE__, 'full', defined( 'WPMCP_VERSION' ) ) ) {
-	// The copy that booted loads its own domain; this one loads the notice's
-	// (issue #184).
-	add_action( 'init', function () {
-		load_plugin_textdomain( 'wpmcp', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
-	} );
+	// No load_plugin_textdomain() here: Plugin::load_textdomain() is the one
+	// loader (ListingRulesTest pins it), the copy that booted loads the
+	// 'wpmcp' domain itself, and core's just-in-time loader covers the notice.
 	add_action( 'admin_notices', function () {
 		echo '<div class="notice notice-warning"><p>';
 		echo esc_html__( 'This copy of WP MCP is inactive because another WP MCP build already loaded on this site. Deactivate one of them.', 'wpmcp' );
