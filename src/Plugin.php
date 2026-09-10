@@ -3593,18 +3593,28 @@ final class Plugin
      * artifact and flips the job's status, so a backup on a large site does
      * not have to complete within a single MCP request/response cycle.
      *
-     * All four are gated at manage_options, matching Export's and Cron's
+     * All seven are gated at manage_options, matching Export's and Cron's
      * capability (both are comparable site-operations-level tool groups, and
      * this plugin's only precedent for a stronger, pro-tier gate is the
      * Elementor deep-editing tools specifically, not "heavy" operations in
-     * general). trigger-backup is 'create' (it creates a job record) and
+     * general). trigger-backup is 'create' (it creates a job record),
      * cancel-backup-job is 'update' (it transitions an existing job's
-     * status); get-backup-status and list-backup-jobs are 'read'.
+     * status), delete-backup-archive is 'delete'; get-backup-status,
+     * list-backup-jobs and get-backup-manifest are 'read'.
      *
      * The backup job itself only reads site data and writes a backup
      * artifact file plus the wpmcp_backup_jobs option: it never mutates user
-     * content, so none of these are routed through Safe_Mutation and none
-     * touch the safety core.
+     * content, so none of the job tools are routed through Safe_Mutation and
+     * none touch the safety core.
+     *
+     * restore-site-backup is the exception and is deliberately NOT routed
+     * through Safe_Mutation either: a whole-database replace is outside the
+     * per-object model Snapshot_Store captures, so a snapshot could not
+     * undo it. Its rollback mechanism is the pre-restore database safety
+     * archive the execution path takes before writing (issue #190). It is
+     * registered with destructive=true and dry_run defaulting to true; in
+     * this build only the dry_run compatibility report is implemented and
+     * a real restore is refused.
      */
     private function register_backup_abilities(Registrar $registrar): void
     {
@@ -3717,7 +3727,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Restore this site in place from a site-backup archive, by job id or archive path. dry_run defaults to TRUE and returns a compatibility report (format version, table prefix, multisite, WordPress version, BLOB-table warnings) without touching anything; read that report before running a real restore. A real restore takes a pre-restore database safety archive first, enables maintenance mode for the duration, and imports the dump statement by statement. include_files (default false) additionally restores wp-content via a staged swap. Paths outside the site-backup directory are refused',
+            'Check whether a site-backup archive (by job id or archive path) can be restored onto this site. dry_run defaults to TRUE and returns a compatibility report without touching anything: manifest format and format_version, archive scope (only all or database archives carry a dump), table prefix, multisite, WordPress version, and BLOB-table warnings. In this release only the dry_run report is available: dry_run=false runs the same gate and is then refused with a clear message, because the execution path (pre-restore safety archive, maintenance mode, statement-by-statement import, optional include_files wp-content swap) has not shipped yet. include_files (default false) is validated against the archive scope. Paths outside the site-backup directory are refused',
             [
                 'type'       => 'object',
                 'properties' => [
