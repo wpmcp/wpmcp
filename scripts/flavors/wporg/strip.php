@@ -382,7 +382,7 @@ $plugin_edits[] = [
     1,
 ];
 $plugin_edits[] = [
-    "            'Deactivate a stored PHP snippet by id (the reverse of activate-php-snippet): marks it inactive so nothing can run it. Deliberately NOT gated on the PHP execution opt-in, so an activated snippet can always be revoked even after the execution gate is closed. Snapshot-first and reversible; never executes anything',",
+    "            'Deactivate a stored PHP snippet by id (reverse of activate-php-snippet): marks it inactive so nothing can run it. Deliberately NOT gated on the PHP execution opt-in, so an activated snippet can always be revoked after the gate is closed. Snapshot-first and reversible; never executes anything',",
     "            'Deactivate a stored PHP snippet by id: marks it inactive. This build cannot execute a stored snippet at all and has no way to activate one, so this only ever clears a flag left behind by another install. Snapshot-first and reversible; never executes anything',",
     1,
 ];
