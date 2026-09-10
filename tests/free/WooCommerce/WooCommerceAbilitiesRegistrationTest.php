@@ -16,6 +16,9 @@ class WooCommerceAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/update-order-status',
         'wpmcp/add-order-note',
         'wpmcp/get-sales-report',
+        'wpmcp/list-variations',
+        'wpmcp/update-variation',
+        'wpmcp/list-low-stock-products',
     ];
 
     public function test_all_woocommerce_tools_are_registered_as_free_abilities(): void
