@@ -29,9 +29,9 @@ class Atomic_Element
 
     /**
      * Force the atomic capability on or off for a test, or null to go back to
-     * probing the live builder. Matches Gate::set_pro_for_tests(): a seam, not
-     * a site override, so there is exactly one authority on whether these
-     * tools may run and it is the builder itself.
+     * probing the live builder. This is a test seam, not a site override, so
+     * there is exactly one authority on whether these tools may run and it
+     * is the builder itself.
      */
     public static function set_supported_for_tests(?bool $supported): void
     {
