@@ -221,6 +221,7 @@ class Redirect_Store
         $offset = max(0, (int) ($filters['offset'] ?? 0));
 
         $sql = 'SELECT * FROM ' . self::table_name() . $where . ' ORDER BY id DESC LIMIT %d OFFSET %d';
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- identifiers come from the store, every value is bound by prepare() when there is one.
         $rows = $wpdb->get_results(
             $wpdb->prepare($sql, array_merge($params, [$limit, $offset])),
             ARRAY_A
@@ -235,6 +236,7 @@ class Redirect_Store
         global $wpdb;
         [$where, $params] = self::where_clause($filters);
         $sql = 'SELECT COUNT(*) FROM ' . self::table_name() . $where;
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- identifiers come from the store, every value is bound by prepare() when there is one.
         return (int) ($params ? $wpdb->get_var($wpdb->prepare($sql, $params)) : $wpdb->get_var($sql));
     }
 

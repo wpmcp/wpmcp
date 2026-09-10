@@ -21,6 +21,10 @@ mkdir -p "$STAGE"
 
 cp "$ROOT/LICENSE" "$ROOT/composer.json" "$ROOT/composer.lock" "$STAGE/"
 cp -R "$ROOT/src" "$STAGE/src"
+
+# Ship the translation directory the Domain Path header points at (issue #184).
+mkdir -p "$STAGE/languages"
+find "$ROOT/languages" -maxdepth 1 \( -name '*.po' -o -name '*.mo' -o -name '*.l10n.php' \) -exec cp {} "$STAGE/languages/" \;
 sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/$SLUG.php" > "$STAGE/$SLUG.php"
 sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/readme.txt" > "$STAGE/readme.txt"
 
@@ -34,12 +38,14 @@ rm -rf \
   "$STAGE/src/Tools/Analytics" \
   "$STAGE/src/Tools/Multisite" \
   "$STAGE/src/Tools/Dispatch" \
+  "$STAGE/src/Tools/Bridge" \
   "$STAGE/src/Tools/WidgetBuilder" \
   "$STAGE/src/Tools/BlockBuilder" \
   "$STAGE/src/Tools/Cloud" \
   "$STAGE/src/Tools/Search" \
   "$STAGE/src/Cloud" \
   "$STAGE/src/Tools/Memory" \
+  "$STAGE/src/Tools/Sync" \
   "$STAGE/src/Integrations"
 
 # NOTE: src/Memory and src/Admin/Memory_Page.php deliberately STAY. The three
@@ -66,8 +72,51 @@ composer remove freemius/wordpress-sdk --working-dir="$STAGE" --update-no-dev --
 composer dump-autoload --working-dir="$STAGE" --optimize --quiet --no-interaction
 rm -f "$STAGE/composer.json" "$STAGE/composer.lock"
 
-# wp.org's text-domain sniff wants the i18n domain to match the slug.
-find "$STAGE/src" -name '*.php' -exec sed -i '' "s/, 'wpmcp' )/, '$SLUG' )/g; s/, 'wpmcp')/, '$SLUG')/g" {} +
+# wp.org's text-domain sniff wants the i18n domain to match the slug. Two
+# forms occur: the domain inline as the last argument, and the domain alone
+# on its own line as the last argument of a wrapped i18n call. The second
+# form is matched by "own line, no trailing comma", which is what separates
+# it from the admin menu slug argument (src/Plugin.php), also the literal
+# 'wpmcp' but always followed by a comma. The menu slug is deliberately left
+# alone: it is a WordPress-derived identifier that screen ids are built from
+# (see Admin/Announcements.php), so rewriting it breaks those lookups.
+find "$STAGE/src" -name '*.php' -exec sed -i '' \
+  "s/, 'wpmcp' )/, '$SLUG' )/g; s/, 'wpmcp')/, '$SLUG')/g; s/^\([[:space:]]*\)'wpmcp'$/\1'$SLUG'/" {} +
+
+# Belt and braces: fail the build if any i18n call kept the 'wpmcp' domain.
+# The two seds above are line-based, so a future call wrapped differently
+# would silently ship the wrong domain and fail the wp.org sniff instead.
+LEFTOVER_DOMAIN="$(grep -rn --include='*.php' -E \
+  "(^[[:space:]]*'wpmcp'[[:space:]]*$)|(, ?'wpmcp' ?\))" "$STAGE/src" || true)"
+if [ -n "$LEFTOVER_DOMAIN" ]; then
+  echo "ERROR: 'wpmcp' text domain survived the rewrite in the $SLUG build:" >&2
+  echo "$LEFTOVER_DOMAIN" >&2
+  exit 1
+fi
+
+# Coexistence with the full plugin is handled at bootstrap, not by rewriting
+# identifiers. src/flavor-guard.php ranks the active WP MCP builds by the
+# WPMCP Flavor header in each main file and makes this build stand down
+# whenever a higher-ranked one is active, so the two never share a request
+# whichever directory the other lives in or loads from. A build-time
+# rename of the 'wpmcp_' prefix was tried and reverted: it splits identifiers
+# whose two halves are written differently (the caller's 'wpmcp_restore' vs
+# the registration's 'wp_ajax_wpmcp_restore'), it renames WP_Error codes that
+# are part of the MCP response contract, it leaves the filter names quoted in
+# user-facing exception text pointing at filters that no longer exist, and it
+# orphans the custom tables and options of any install that updates into it.
+grep -q 'flavor-guard.php' "$STAGE/$SLUG.php" || {
+  echo "ERROR: $SLUG.php does not load the flavor coexistence guard" >&2
+  exit 1
+}
+[ -f "$STAGE/src/flavor-guard.php" ] || {
+  echo "ERROR: src/flavor-guard.php missing from the $SLUG build" >&2
+  exit 1
+}
+grep -q "^ \* WPMCP Flavor: woocommerce$" "$STAGE/$SLUG.php" || {
+  echo "ERROR: $SLUG.php does not declare the woocommerce flavor header" >&2
+  exit 1
+}
 
 # Belt and braces: fail the build if any real eval/exec call site survived.
 # Token-level check, so strings and comments (e.g. Malware_Audit's pattern
