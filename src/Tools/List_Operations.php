@@ -32,13 +32,13 @@ class List_Operations
         $where_sql         = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
 
         $sql = "SELECT operation_id, session_id, tool_name, object_type, object_id, user_id, created_at "
-            . "FROM {$table} {$where_sql} ORDER BY id DESC LIMIT %d";
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- wpmcp_snapshots is this plugin's own audit table (Snapshot_Store::table_name()); $sql is literal fragments from build_where() with %s/%d placeholders and the log must never be stale.
-        $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge($params, [$limit])), ARRAY_A);
+            . "FROM %i {$where_sql} ORDER BY id DESC LIMIT %d";
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- wpmcp_snapshots is this plugin's own audit table; $sql is literal fragments from build_where() (this file) with %i/%s/%d placeholders, all bound on this line, which the sniffs cannot follow through the variable. The log must never be stale.
+        $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge([$table], $params, [$limit])), ARRAY_A);
 
-        $count_sql   = "SELECT COUNT(*) FROM {$table} {$where_sql}";
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- wpmcp_snapshots is this plugin's own audit table (Snapshot_Store::table_name()); $count_sql is literal fragments from build_where() with %s/%d placeholders and the count must match the live log.
-        $total_count = $params ? (int) $wpdb->get_var($wpdb->prepare($count_sql, $params)) : (int) $wpdb->get_var($count_sql);
+        $count_sql = "SELECT COUNT(*) FROM %i {$where_sql}";
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- same shape as $sql above: literal fragments from build_where() (this file) with %i/%s/%d placeholders, all bound on this line; the count must match the live log.
+        $total_count = (int) $wpdb->get_var($wpdb->prepare($count_sql, array_merge([$table], $params)));
 
         $abilities_by_tool = $this->abilities_by_tool_name();
 

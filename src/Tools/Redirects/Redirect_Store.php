@@ -223,11 +223,11 @@ class Redirect_Store
         $limit  = max(1, min(500, (int) ($filters['limit'] ?? 100)));
         $offset = max(0, (int) ($filters['offset'] ?? 0));
 
-        $sql = 'SELECT * FROM ' . self::table_name() . $where . ' ORDER BY id DESC LIMIT %d OFFSET %d';
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; listings must reflect live rows.
+        $sql = 'SELECT * FROM %i' . $where . ' ORDER BY id DESC LIMIT %d OFFSET %d';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, PluginCheck.Security.DirectDB.UnescapedDBParameter -- wpmcp_redirects is this plugin's own table; $sql is literal fragments plus where_clause() (this file) output and every identifier and value is bound by the prepare() below, which the sniff cannot follow through the variable. Listings must reflect live rows.
         $rows = $wpdb->get_results(
-            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql is literal fragments plus where_clause() output; every value goes through a %s/%d placeholder.
-            $wpdb->prepare($sql, array_merge($params, [$limit, $offset])),
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql is literal fragments plus where_clause() output; the table goes through %i and every value through a %s/%d placeholder.
+            $wpdb->prepare($sql, array_merge([self::table_name()], $params, [$limit, $offset])),
             ARRAY_A
         );
 
@@ -239,9 +239,9 @@ class Redirect_Store
     {
         global $wpdb;
         [$where, $params] = self::where_clause($filters);
-        $sql = 'SELECT COUNT(*) FROM ' . self::table_name() . $where;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- wpmcp_redirects is this plugin's own table; $sql is literal fragments plus where_clause() output with %s/%d placeholders, and the count must match live rows.
-        return (int) ($params ? $wpdb->get_var($wpdb->prepare($sql, $params)) : $wpdb->get_var($sql));
+        $sql = 'SELECT COUNT(*) FROM %i' . $where;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- wpmcp_redirects is this plugin's own table; $sql is literal fragments plus where_clause() (this file) output, the table is bound with %i and every value with %s/%d on this line, which the sniffs cannot follow through the variable. The count must match live rows.
+        return (int) $wpdb->get_var($wpdb->prepare($sql, array_merge([self::table_name()], $params)));
     }
 
     /**

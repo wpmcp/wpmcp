@@ -85,7 +85,7 @@ class Search_Index_Store
     {
         global $wpdb;
         $table = self::table_name();
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- existence check for wpmcp_search_index, this plugin's own table ($wpdb->prefix + literal); must see the live schema so self-healing install works.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- existence check for wpmcp_search_index, this plugin's own table ($wpdb->prefix + literal); must see the live schema so self-healing install works.
         return (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table;
     }
 
@@ -141,8 +141,8 @@ class Search_Index_Store
     {
         global $wpdb;
         $table = self::table_name();
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- full clear of wpmcp_search_index, this plugin's own table; the name is $wpdb->prefix plus a literal (see table_name()) and identifiers cannot be bound.
-        $wpdb->query("DELETE FROM {$table}");
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- full clear of wpmcp_search_index, this plugin's own table (bound with %i); a rebuild has to start from an empty index.
+        $wpdb->query($wpdb->prepare('DELETE FROM %i', $table));
     }
 
     public static function clamp(string $text): string
@@ -197,14 +197,14 @@ class Search_Index_Store
         }
 
         $max_rows = max(1, min(5000, (int) ($filters['max_rows'] ?? 2000)));
-        $sql      = "SELECT object_type, object_id, subtype, source, node, location, field, content, weight
-             FROM {$table}
-             WHERE " . implode(' AND ', $where) . '
+        $sql      = 'SELECT object_type, object_id, subtype, source, node, location, field, content, weight
+             FROM %i
+             WHERE ' . implode(' AND ', $where) . '
              ORDER BY weight DESC, id ASC
              LIMIT ' . $max_rows;
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- placeholders are built above and values bound here; wpmcp_search_index is this plugin's own table and a search must read the live index, capped at max_rows (5000).
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $sql is literal fragments with %i/%s placeholders built in this method and every identifier and value is bound on this line, which the sniffs cannot follow through the variable; wpmcp_search_index is this plugin's own table and a search must read the live index, capped at max_rows (5000).
+        $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge([$table], $params)), ARRAY_A);
 
         return is_array($rows) ? $rows : [];
     }
@@ -216,12 +216,12 @@ class Search_Index_Store
         self::ensure_installed();
         $table = self::table_name();
 
-        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- aggregate stats over wpmcp_search_index, this plugin's own table; the name is $wpdb->prefix plus a literal (see table_name()) and the stats must reflect the just-written index.
-        $documents = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}");
-        $objects   = (int) $wpdb->get_var("SELECT COUNT(DISTINCT object_type, object_id) FROM {$table}");
-        $last      = $wpdb->get_var("SELECT MAX(indexed_at) FROM {$table}");
-        $rows      = $wpdb->get_results("SELECT source, COUNT(*) AS total FROM {$table} GROUP BY source", ARRAY_A);
-        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- aggregate stats over wpmcp_search_index, this plugin's own table (bound with %i); the stats must reflect the just-written index.
+        $documents = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i', $table));
+        $objects   = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(DISTINCT object_type, object_id) FROM %i', $table));
+        $last      = $wpdb->get_var($wpdb->prepare('SELECT MAX(indexed_at) FROM %i', $table));
+        $rows      = $wpdb->get_results($wpdb->prepare('SELECT source, COUNT(*) AS total FROM %i GROUP BY source', $table), ARRAY_A);
+        // phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
         $by_source = [];
         foreach ((array) $rows as $row) {

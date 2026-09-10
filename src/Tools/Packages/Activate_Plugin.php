@@ -31,7 +31,7 @@ class Activate_Plugin
 
         $all_plugins = get_plugins();
         if (! isset($all_plugins[ $plugin ])) {
-            throw new \RuntimeException("Plugin \"{$plugin}\" was not found.");
+            throw new \RuntimeException(sprintf('Plugin "%s" was not found.', esc_html($plugin)));
         }
 
         $out = Safe_Mutation::run(

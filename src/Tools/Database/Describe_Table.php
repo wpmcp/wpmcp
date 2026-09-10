@@ -21,7 +21,7 @@ class Describe_Table
 
         $table = Database_Guard::valid_table($requested);
         if (is_wp_error($table)) {
-            throw new \RuntimeException($table->get_error_message());
+            throw new \RuntimeException(esc_html($table->get_error_message()));
         }
 
         global $wpdb;

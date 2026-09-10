@@ -28,8 +28,8 @@ class List_Transients
         $limit  = isset($args['limit']) ? max(1, (int) $args['limit']) : self::DEFAULT_LIMIT;
         $limit  = min($limit, self::MAX_LIMIT);
 
-        $like = $wpdb->esc_like('_transient_') . '%';
-        $params = [$like];
+        $like   = $wpdb->esc_like('_transient_') . '%';
+        $params = [$wpdb->options, $like];
 
         $name_clause = '';
         if ('' !== $search) {
@@ -37,13 +37,13 @@ class List_Transients
             $params[]    = '%' . $wpdb->esc_like($search) . '%';
         }
 
-        $sql = "SELECT option_name FROM {$wpdb->options}
+        $sql = "SELECT option_name FROM %i
                 WHERE option_name LIKE %s
                 AND option_name NOT LIKE '\_transient\_timeout\_%'"
                 . $name_clause
                 . ' ORDER BY option_name ASC LIMIT ' . (int) $limit;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- $sql is assembled above from literal clauses; the search value goes through a %s placeholder and the limit is (int)-cast, and a transient inventory must read the live options table.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $sql is assembled above from literal clauses; the options table is bound with %i and the search value with %s on this line (the sniffs cannot follow $sql), the limit is (int)-cast, and a transient inventory must read the live options table.
         $rows = $wpdb->get_col($wpdb->prepare($sql, $params));
 
         $transients = [];

@@ -49,7 +49,7 @@ class List_Terms
 
         $terms = get_terms($query);
         if (is_wp_error($terms)) {
-            throw new \RuntimeException($terms->get_error_message());
+            throw new \RuntimeException(esc_html($terms->get_error_message()));
         }
 
         // The total is fetched separately rather than counted from the page,

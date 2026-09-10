@@ -11,6 +11,7 @@ class BackupAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/cancel-backup-job',
         'wpmcp/get-backup-manifest',
         'wpmcp/delete-backup-archive',
+        'wpmcp/restore-site-backup',
     ];
 
     public function test_backup_tools_are_registered_as_free_abilities(): void
