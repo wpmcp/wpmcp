@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 312,
-    'free'      => 221,
+    'total'     => 314,
+    'free'      => 223,
     'pro'       => 91,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -39,6 +39,7 @@ return [
         'wpmcp/apply-template' => 'pro',
         'wpmcp/assign-menu-to-location' => 'free',
         'wpmcp/batch-update' => 'pro',
+        'wpmcp/build-change-set' => 'free',
         'wpmcp/build-page' => 'free',
         'wpmcp/call-rest' => 'free',
         'wpmcp/call-tool' => 'free',
@@ -124,6 +125,7 @@ return [
         'wpmcp/get-brand-kit' => 'pro',
         'wpmcp/get-builder-content' => 'pro',
         'wpmcp/get-cache-status' => 'free',
+        'wpmcp/get-change-set' => 'free',
         'wpmcp/get-cli-job' => 'pro',
         'wpmcp/get-comment' => 'free',
         'wpmcp/get-connection-info' => 'free',

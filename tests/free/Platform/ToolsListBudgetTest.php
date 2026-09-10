@@ -52,9 +52,14 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  format_version, include_files) and the fact that this build only
      *  produces the dry_run report, because an agent that reads that plans a
      *  dry run instead of a failed restore. That puts the payload at 165928
-     *  bytes over 308 tools, after trimming. Compact tool mode keeps clients
+     *  bytes over 308 tools, after trimming. Raised 170000 -> 175000 in
+     *  review for the local-live sync export pair (#192: build-change-set,
+     *  get-change-set): main had reached 169146 bytes over 312 tools, so no
+     *  new tool fit; the two descriptions were trimmed from 1051 to 420
+     *  characters first, which puts the payload at 170104 bytes over 314
+     *  tools. Compact tool mode keeps clients
      *  with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 170000;
+    private const TOOLS_LIST_BYTE_BUDGET = 175000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
