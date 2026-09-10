@@ -49,6 +49,14 @@ class Opt_In_Gates
             // command, and marking them dangerous would blunt the warning.
             'wpmcp/dispatch-cli-job' => ['filter' => 'wpmcp_allow_wp_cli', 'is_open' => [Wp_Cli_Guard::class, 'is_enabled']],
             'wpmcp/run-php-snippet' => ['filter' => 'wpmcp_allow_php_exec', 'is_open' => [Php_Snippet_Guard::class, 'is_enabled']],
+            // Activating a stored snippet (issue #85) clears the same gate
+            // chain as running one, because an active snippet is one step
+            // from execution: it belongs on this list for the same reason
+            // dispatch-cli-job does. Its CRUD siblings and
+            // deactivate-php-snippet are deliberately NOT listed: they only
+            // read or reduce, they cannot put anything on the exec path,
+            // and marking them dangerous would blunt the warning.
+            'wpmcp/activate-php-snippet' => ['filter' => 'wpmcp_allow_php_exec', 'is_open' => [Php_Snippet_Guard::class, 'is_enabled']],
             'wpmcp/insert-row'      => ['filter' => 'wpmcp_enable_db_writes', 'is_open' => [Insert_Row::class, 'is_enabled']],
             'wpmcp/update-rows'     => ['filter' => 'wpmcp_enable_db_writes', 'is_open' => [Update_Rows::class, 'is_enabled']],
             'wpmcp/delete-rows'     => ['filter' => 'wpmcp_enable_db_writes', 'is_open' => [Delete_Rows::class, 'is_enabled']],

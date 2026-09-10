@@ -3,6 +3,7 @@
 namespace WPMCP\Tools;
 
 use WPMCP\Plugin;
+use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
 
 if (! defined('ABSPATH')) {
@@ -18,9 +19,6 @@ if (! defined('ABSPATH')) {
  */
 class List_Operations
 {
-    /** object_types Rollback_Service::apply_snapshot() knows how to restore. */
-    private const RESTORABLE_OBJECT_TYPES = ['post', 'option', 'user', 'comment', 'wc_order'];
-
     public function handle(array $args): array
     {
         global $wpdb;
@@ -39,8 +37,12 @@ class List_Operations
         $total_count = $params ? (int) $wpdb->get_var($wpdb->prepare($count_sql, $params)) : (int) $wpdb->get_var($count_sql);
 
         $abilities_by_tool = $this->abilities_by_tool_name();
+        // Asked of Rollback_Service rather than re-typed here: a hand-kept
+        // copy had gone stale for six object types, telling agents that
+        // reversible writes could not be undone.
+        $restorable = Rollback_Service::restorable_object_types();
 
-        $ops = array_map(function (array $r) use ($abilities_by_tool) {
+        $ops = array_map(function (array $r) use ($abilities_by_tool, $restorable) {
             $domain = $abilities_by_tool[$r['tool_name']] ?? null;
             return [
                 'operation_id'       => $r['operation_id'],
@@ -51,7 +53,7 @@ class List_Operations
                 'created_at'         => $r['created_at'],
                 'user_id'            => (int) $r['user_id'],
                 'domain'             => $domain,
-                'rollback_available' => in_array($r['object_type'], self::RESTORABLE_OBJECT_TYPES, true),
+                'rollback_available' => in_array($r['object_type'], $restorable, true),
             ];
         }, $rows);
 

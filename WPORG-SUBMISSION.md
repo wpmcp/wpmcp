@@ -215,13 +215,42 @@ no `exec`, no `system`, no `create_function` and no `assert`. That is enforced
 by a token-level gate in `scripts/build-wporg-release.sh`, which fails the build
 rather than producing a zip, so it cannot regress silently.
 
-One related tool does ship: `validate-php-snippet`. It is static analysis and
-nothing else. It parses a snippet to report syntax validity and flags dangerous
-constructs (`eval`, `exec`, backticks, obfuscation decoders, request-driven
-execution, outbound HTTP). It never executes the code, never stores it and
-never writes it anywhere; it takes a string and returns findings. It exists so
-that an agent can be told "this snippet is unsafe" before a human is ever asked
-to paste it into a site.
+Two related, non-executing surfaces do ship, and both are worth stating plainly
+rather than leaving for the reviewer to find.
+
+`validate-php-snippet` is static analysis and nothing else. It parses a snippet
+to report syntax validity and flags dangerous constructs (`eval`, `exec`,
+backticks, obfuscation decoders, request-driven execution, outbound HTTP). It
+never executes the code, never stores it and never writes it anywhere; it takes
+a string and returns findings. It exists so that an agent can be told "this
+snippet is unsafe" before a human is ever asked to paste it into a site.
+
+The PHP snippet store (`create-php-snippet`, `list-php-snippets`,
+`get-php-snippet`, `update-php-snippet`, `delete-php-snippet`,
+`deactivate-php-snippet`) does STORE PHP source, in a non-autoloaded
+`wpmcp_php_snippets` option, and we would rather say so than have it look
+discovered. What it does not do, in this build, is run any of it. There is no
+code path in the directory zip that reads a stored snippet and evaluates it:
+`run-php-snippet` and `activate-php-snippet` are both part of the off-directory
+add-on and their files are removed by
+`scripts/flavors/wporg/strip.php`, and the no-`eval`/no-`proc_open` token gate
+above still runs over the finished tree. Every write requires `manage_options`,
+every snippet is stored inactive, and the store is on the option denylist so
+the generic option tools cannot reach it.
+
+That option is not the only copy, so we will name the other one too. Every
+snippet write is snapshot-first, and the snapshot serializes the whole record,
+source included, into the `before_blob` column of the plugin's own
+`wp_wpmcp_snapshots` table. That is what makes a snippet edit or deletion
+undoable, and it is the same mechanism every other write in the plugin uses.
+The copy is short-lived (the table prunes to the most recent operations,
+twenty by default) and no tool reads it back: `list-operations` selects only
+the metadata columns and never the blob, and the only consumer is the rollback
+path, which writes the record back into the option it came from. Still no
+execution anywhere in that loop.
+
+Concretely: this is a place to keep and review a snippet a human will decide
+about, not a way to execute one.
 
 ### 5.5 "This can install and activate plugins. Isn't that guideline 8?"
 
