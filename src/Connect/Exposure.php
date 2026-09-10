@@ -2,6 +2,8 @@
 
 namespace WPMCP\Connect;
 
+use WPMCP\Plugin;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -76,9 +78,13 @@ class Exposure
                 : esc_html__('MCP: Off', 'wpmcp'),
             'href'  => admin_url('admin.php?page=wpmcp-connection'),
             'meta'  => [
-                'title' => $on
-                    ? __('wpmcp: the MCP surface is exposed. Click to manage connections.', 'wpmcp')
-                    : __('wpmcp: the MCP surface is disabled. Click to manage connections.', 'wpmcp'),
+                'title' => sprintf(
+                    /* translators: %s: product name (not translated) */
+                    $on
+                        ? __('%s: the MCP surface is exposed. Click to manage connections.', 'wpmcp')
+                        : __('%s: the MCP surface is disabled. Click to manage connections.', 'wpmcp'),
+                    Plugin::BRAND
+                ),
             ],
         ]);
     }
