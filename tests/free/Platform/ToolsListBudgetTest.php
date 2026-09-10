@@ -43,8 +43,15 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  they still carry the refusal rules (duplicate slug, parent cycle,
      *  default term) because an agent that learns those from the description
      *  avoids a failed call, which costs more than the bytes do.
-     *  Compact tool mode keeps clients with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 165000;
+     *  Raised 165000 -> 170000 in review for the theme-builder site parts
+ *  (create/list/resolve/set-status/delete-site-part, issue #70), which puts
+ *  the payload at 166003 bytes over 309 tools. Trimmed first: the prose that
+ *  restated an enum or a property name is gone, and what stayed is the rule
+ *  shape ({type, value?} with the type enum) and the context keys, because an
+ *  agent that cannot construct a valid conditions object from tools/list pays
+ *  a failed call, which costs more than these bytes do.
+ *  Compact tool mode keeps clients with tool caps at ~2.8KB regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 170000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
