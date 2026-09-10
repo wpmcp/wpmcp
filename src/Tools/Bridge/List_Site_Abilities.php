@@ -8,15 +8,18 @@ if (! defined('ABSPATH')) {
 
 /**
  * Read-only: enumerate every ability registered on the site that is NOT
- * ours (issue #194) — the surface other Abilities-API plugins (Yoast,
- * FluentCart, Ameliabooking, BetterLinks, ...) expose — so an agent can
- * discover it before dispatching through execute-site-ability.
+ * ours (issue #194), the surface other Abilities-API plugins (Yoast,
+ * FluentCart, Ameliabooking, BetterLinks, ...) expose, so an agent can
+ * discover it before dispatching through execute-site-ability. "Expose"
+ * is literal: only abilities their owner marked show_in_rest are listed
+ * (Bridge_Guard::is_bridgeable()), the same flag core's abilities list
+ * controller honours.
  *
  * Bridged abilities are deliberately absent from tools/list (the payload is
  * already large at our own 302 tools); this listing IS their discovery
  * path, mirroring the list-tools / call-tool compact-mode pattern.
  *
- * Every entry carries reversible:false — we cannot know how a third-party
+ * Every entry carries reversible:false: we cannot know how a third-party
  * ability mutates, so nothing bridged is ever claimed by the snapshot /
  * rollback guarantee.
  */
@@ -43,7 +46,10 @@ class List_Site_Abilities
                 ? $ability->get_name()
                 : (string) $key;
 
-            if (! Bridge_Guard::is_foreign($name)) {
+            // Foreign AND exposed by its owner (show_in_rest): an ability
+            // kept internal is not listed, so the listing agrees with what
+            // get/execute will accept and hidden names are never enumerable.
+            if (! Bridge_Guard::is_foreign($name) || ! Bridge_Guard::is_bridgeable($ability)) {
                 continue;
             }
 

@@ -7,11 +7,13 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * Read-only: one foreign ability's full contract (issue #194) — complete
+ * Read-only: one foreign ability's full contract (issue #194), complete
  * description, exact input schema, output schema and meta where the
- * registering plugin provided them — so an agent can construct a valid
+ * registering plugin provided them, so an agent can construct a valid
  * execute-site-ability call. Refuses anything in our own namespace: our
- * tools' schemas live behind wpmcp/get-tool-schema.
+ * tools' schemas live behind wpmcp/get-tool-schema. Only abilities the
+ * owner exposed with show_in_rest are readable; anything else answers
+ * exactly like an unregistered name (Bridge_Guard::lookup()).
  */
 class Get_Site_Ability
 {
@@ -36,16 +38,9 @@ class Get_Site_Ability
             );
         }
 
-        if (! function_exists('wp_get_ability') || ! function_exists('wp_has_ability')) {
-            return new \WP_Error('wpmcp_bridge_unavailable', 'The Abilities API is not available on this site.');
-        }
-
-        $ability = wp_has_ability($name) ? wp_get_ability($name) : null;
-        if (null === $ability) {
-            return new \WP_Error(
-                'wpmcp_bridge_unknown',
-                sprintf('No ability named "%s" is registered on this site. Use wpmcp/list-site-abilities to discover names.', $name)
-            );
+        $ability = Bridge_Guard::lookup($name);
+        if (is_wp_error($ability)) {
+            return $ability;
         }
 
         $result = [

@@ -6939,7 +6939,7 @@ final class Plugin
      * behind Bridge_Guard's default-off opt-in
      * (WPMCP_ENABLE_ABILITY_BRIDGE / wpmcp_enable_ability_bridge), and a
      * bridged invocation always runs the target ability's own
-     * permission_callback — there is no bypass path, filter or setting.
+     * permission_callback; there is no bypass path, filter or setting.
      *
      * Bridged abilities are never added to tools/list; discovery goes
      * through list-site-abilities and execution through
@@ -6988,7 +6988,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/execute-site-ability',
             'free',
-            'Invoke one third-party ability by name with the given arguments object. The target ability\'s own permission callback always runs (no bypass exists), plus wpmcp governance, identity scope and rate limiting on this shell. Results are reversible:false — bridged writes are NOT covered by the wpmcp snapshot/rollback guarantee. Refuses wpmcp\'s own abilities; requires the site-level bridge opt-in (default off)',
+            'Invoke one third-party ability by name with the given arguments object. The target ability\'s own permission callback always runs (no bypass exists), plus wpmcp governance, identity scope and rate limiting on this shell. Results are reversible:false: bridged writes are NOT covered by the wpmcp snapshot/rollback guarantee. Refuses wpmcp\'s own abilities; requires the site-level bridge opt-in (default off)',
             [
                 'type'       => 'object',
                 'properties' => [

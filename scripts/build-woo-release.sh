@@ -38,6 +38,7 @@ rm -rf \
   "$STAGE/src/Tools/Analytics" \
   "$STAGE/src/Tools/Multisite" \
   "$STAGE/src/Tools/Dispatch" \
+  "$STAGE/src/Tools/Bridge" \
   "$STAGE/src/Tools/WidgetBuilder" \
   "$STAGE/src/Tools/BlockBuilder" \
   "$STAGE/src/Tools/Cloud" \
