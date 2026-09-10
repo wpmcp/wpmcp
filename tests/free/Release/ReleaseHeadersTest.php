@@ -39,10 +39,22 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
     ];
 
     /**
-     * Terms guideline 12 bars from a tag list. "claude" is a third-party
-     * trademark and issue #169 removed it; this keeps it removed.
+     * Terms guideline 12 bars from a tag list, matched as substrings of the
+     * slugified tag the way Trademark_Rule and Plugin Check match them, so
+     * "claude mcp" is caught as well as "claude". The vendor marks mirror
+     * Trademark_Rule::VENDOR_MARKS; "claude" is the one issue #169 removed
+     * and this keeps removed.
      */
-    private const FORBIDDEN_TAGS = ['claude', 'chatgpt', 'openai', 'wordpress', 'woo'];
+    private const RESTRICTED_TERMS = [
+        'claude', 'anthropic', 'chatgpt', 'openai', 'gemini', 'copilot', 'wordpress', 'woo',
+    ];
+
+    /**
+     * Tags allowed as a whole even though they carry a restricted term:
+     * Trademark_Rule::FOR_USE_EXCEPTIONS, which is why the WooCommerce readme
+     * may tag "woocommerce" while "woo" alone stays barred.
+     */
+    private const TAG_EXCEPTIONS = ['woocommerce'];
 
     private function repository(): string
     {
@@ -171,8 +183,18 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
             $tags = array_map('trim', explode(',', strtolower($this->readme_header($readme, 'Tags'))));
 
             $this->assertLessThanOrEqual(5, count($tags), $readme . ' exceeds the five tag maximum');
-            foreach (self::FORBIDDEN_TAGS as $forbidden) {
-                $this->assertNotContains($forbidden, $tags, $readme . ' still tags the restricted term "' . $forbidden . '"');
+            foreach ($tags as $tag) {
+                if (in_array($tag, self::TAG_EXCEPTIONS, true)) {
+                    continue;
+                }
+                $slug = trim((string) preg_replace('/[^a-z0-9]+/', '-', $tag), '-');
+                foreach (self::RESTRICTED_TERMS as $term) {
+                    $this->assertStringNotContainsString(
+                        $term,
+                        $slug,
+                        sprintf('%s tag "%s" contains the restricted term "%s"', $readme, $tag, $term)
+                    );
+                }
             }
         }
     }
@@ -183,7 +205,49 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         $checklist = $this->contents('docs/release-checklist.md');
 
         foreach (array_merge(self::SHIPPED_READMES, self::SHIPPED_LOADERS, ['wpmcp.php']) as $file) {
-            $this->assertStringContainsString($file, $checklist, 'docs/release-checklist.md never mentions ' . $file);
+            // Backtick-delimited, as the checklist writes paths: a bare
+            // "readme.txt" would also match inside "scripts/flavors/wporg/readme.txt".
+            $this->assertStringContainsString(
+                '`' . $file . '`',
+                $checklist,
+                'docs/release-checklist.md never mentions `' . $file . '`'
+            );
         }
+    }
+
+    /**
+     * The header says "tested"; this is what makes that true. CI installs the
+     * WordPress release the headers declare, so raising TESTED_UP_TO_FLOOR
+     * without moving the `wp:` matrix axis in ci.yml fails here rather than
+     * shipping a claim the suite never exercised. The `Requires at least`
+     * floor is pinned the same way, on its own matrix leg.
+     */
+    public function test_ci_installs_the_pinned_release_and_the_requires_floor(): void
+    {
+        $workflow = $this->contents('.github/workflows/ci.yml');
+
+        preg_match_all('/^\s*(?:-\s*\{[^}]*)?\bwp:\s*\[?\s*\'?(\d+(?:\.\d+)+)\'?/m', $workflow, $matches);
+        $installed = array_unique($matches[1]);
+
+        $this->assertNotEmpty($installed, 'ci.yml no longer declares a wp: matrix axis for install-wp-tests.sh');
+        $this->assertStringContainsString(
+            'install-wp-tests.sh wordpress_test root root 127.0.0.1 ${{ matrix.wp }}',
+            $workflow,
+            'ci.yml must install the matrix WordPress version, not a hardcoded one'
+        );
+        $this->assertContains(
+            self::TESTED_UP_TO_FLOOR,
+            $installed,
+            sprintf(
+                'the headers declare Tested up to %s but CI installs %s; bump the wp: axis in ci.yml with the floor',
+                self::TESTED_UP_TO_FLOOR,
+                implode(', ', $installed)
+            )
+        );
+        $this->assertContains(
+            $this->readme_header('readme.txt', 'Requires at least'),
+            $installed,
+            'the Requires at least floor is not on any CI matrix leg: ' . implode(', ', $installed)
+        );
     }
 }

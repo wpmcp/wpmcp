@@ -157,7 +157,9 @@ to 3 below assume its version and header boxes are already ticked.
 2. Run Plugin Check as well, against the same zip. The engine covers the
    guideline-level judgements Plugin Check does not encode; Plugin Check covers
    the sniff layer and the runtime checks the engine cannot. The reviewer runs
-   Plugin Check, so run it too, on a real WordPress 7.0.
+   Plugin Check, so run it too, on a real install of the WordPress release
+   `Tested up to` names (CI's `plugin-check` job runs it against the same zip
+   on every push, but not on a live site).
 3. Sign in at <https://wordpress.org/plugins/developers/add/>.
 4. Upload `dist/wpmcp-0.8.1.zip`. The whole plugin is examined before approval,
    which is why the zip is required and why a placeholder submission would be

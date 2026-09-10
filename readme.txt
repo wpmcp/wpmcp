@@ -100,7 +100,12 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 == Changelog ==
 
 = 0.8.1 =
-* Tested up to WordPress 7.1: the full test suite runs green against that release.
+* Tested up to WordPress 7.1. The free suite (2784 tests) ran against a clean 7.1 install; the four failures in that run were WooCommerce's first-install path (WC_Install enabling HPOS mid-request), not core. CI now installs 7.1, with a second leg on the 6.9 floor.
+* Only one WP MCP build boots per request: the full plugin, the wp.org build and the WooCommerce build rank themselves by a flavor header, and a lower-ranked copy stands down with an admin notice instead of colliding on shared constants.
+* Translations load from the plugin's own languages/ directory (Domain Path header).
+* New abilities: rewrite-site-urls (URL migration), restore-site-backup (with a dry-run compatibility gate), WooCommerce variation and stock tools, and an opt-in bridge for third-party abilities that honour show_in_rest.
+* Change sets are derived from the snapshot ledger; caches are invalidated after rollback, raw database writes and term writes.
+* The External services section names every outbound host.
 * Dropped the third-party trademark from the tag list.
 
 = 0.8.0 =
@@ -114,7 +119,7 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 == Upgrade Notice ==
 
 = 0.8.1 =
-Compatibility with WordPress 7.1. No functional changes.
+Tested up to WordPress 7.1. Adds the build coexistence guard (one WP MCP build per request), self-hosted translations, and new migration, backup and WooCommerce abilities. See the changelog.
 
 = 0.8.0 =
 First public release.

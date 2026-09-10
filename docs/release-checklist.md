@@ -12,8 +12,9 @@ gate rather than substitute for one:
   trails the pinned WordPress release, when the root `Stable tag` and
   `WPMCP_VERSION` diverge, or when a restricted tag reappears.
 - `scripts/build-wporg-release.sh` gate 4b re-derives the same headers from
-  the staged zip, so a build cannot ship a value the repository does not
-  declare.
+  the staged wp.org zip, so that build cannot ship a value the repository
+  does not declare. The WooCommerce and general builds have no header gate of
+  their own; the test above is what covers their readmes.
 
 ## Versions and headers
 
@@ -35,7 +36,10 @@ gate rather than substitute for one:
 
       Bump only after an actual smoke pass against that WordPress version, and
       record the pass below. Then raise `TESTED_UP_TO_FLOOR` in
-      `tests/free/Release/ReleaseHeadersTest.php` to the same value.
+      `tests/free/Release/ReleaseHeadersTest.php` to the same value, and the
+      `wp:` axis of the test matrix in `.github/workflows/ci.yml` with it:
+      the test fails when the floor names a release CI does not install, so
+      the "tested" half of the header stays machine-backed like the string.
 - [ ] Update the prose that hardcodes a version: the "Version headers"
       paragraph in `WPORG-SUBMISSION.md` and the B-23 row in `COMPLIANCE.md`.
 - [ ] Confirm `Requires at least` and `Requires PHP` still reflect reality in
@@ -48,7 +52,8 @@ gate rather than substitute for one:
       - `scripts/build-wporg-release.sh` (wp.org free, `scripts/flavors/wporg/readme.txt`)
       - `scripts/build-woo-release.sh` (WooCommerce, `scripts/flavors/woocommerce/readme.txt`)
       - `scripts/build-release.sh` (general zip, root `readme.txt`)
-- [ ] Plugin Check clean on each built zip.
+- [ ] Plugin Check clean on each built zip (CI's `plugin-check` job runs it
+      against the wp.org zip on every push; the other two are manual).
 - [ ] Smoke pass on the target WordPress version for each artifact: activate,
       run a representative MCP session, snapshot and rollback, deactivate.
 

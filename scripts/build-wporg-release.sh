@@ -142,6 +142,7 @@ root_tested="$(sed -n 's/^Tested up to:[[:space:]]*//p' "$ROOT/readme.txt" | hea
 
 [ -n "$readme_tested" ] || fail "the staged readme.txt has no Tested up to header"
 [ -n "$loader_tested" ] || fail "the staged $SLUG.php has no Tested up to header"
+[ -n "$root_tested" ] || fail "the repository readme.txt has no Tested up to header"
 [ "$readme_tested" = "$loader_tested" ] || fail "staged readme.txt says Tested up to $readme_tested and $SLUG.php says $loader_tested"
 [ "$readme_tested" = "$root_tested" ] || fail "the zip declares Tested up to $readme_tested and the repository readme.txt declares $root_tested"
 echo "$readme_tested" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || fail "Tested up to \"$readme_tested\" must be numbers only"
