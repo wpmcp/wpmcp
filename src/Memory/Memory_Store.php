@@ -216,6 +216,7 @@ class Memory_Store
             'posts_per_page'   => $limit,
             'orderby'          => 'ID',
             'order'            => 'ASC',
+            // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- private post type read by the store itself; site-level query filters must not change which rules apply.
             'suppress_filters' => true,
         ];
 
@@ -301,6 +302,7 @@ class Memory_Store
             'posts_per_page'   => self::MAX_RULES,
             'orderby'          => 'ID',
             'order'            => 'ASC',
+            // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- private post type read by the store itself; site-level query filters must not change which rules apply.
             'suppress_filters' => true,
             'meta_query'       => [
                 [

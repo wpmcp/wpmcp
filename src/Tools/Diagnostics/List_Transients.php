@@ -43,6 +43,7 @@ class List_Transients
                 . $name_clause
                 . ' ORDER BY option_name ASC LIMIT ' . (int) $limit;
 
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- the only interpolations are $wpdb->options and an int cast; the LIKE patterns are bound by prepare().
         $rows = $wpdb->get_col($wpdb->prepare($sql, $params));
 
         $transients = [];

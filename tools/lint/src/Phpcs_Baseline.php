@@ -16,6 +16,11 @@ use RuntimeException;
  * escaping error and adds one unprepared query nets zero, and deleting a file
  * carrying ten findings buys ten units of headroom for brand new ones. Every
  * code is therefore compared on its own and any rise fails.
+ *
+ * Known blind spot: the key is the sniff code, not file plus code, so a
+ * same-code swap (one ExceptionNotEscaped site removed, another added in the
+ * same change) nets zero and passes. Keying by file would catch it at the
+ * cost of a baseline that churns on every rename.
  */
 final class Phpcs_Baseline
 {

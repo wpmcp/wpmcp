@@ -95,9 +95,19 @@ jobs:
   # dependency surface is covered by the compliance engine's packaging rules,
   # not by this job.
   #
-  # Hard gate. The first run's findings were triaged into the explicit
-  # ignore-codes baseline below, the same way the compliance job above was
-  # only flipped to a hard gate once main was known green in both profiles.
+  # Hard gate. The first run's findings were triaged (#185) into two places:
+  # the WordPressCS codes into the ignore-codes list below, where the per-sniff
+  # ratchet in .phpcs-baseline.json already counts every site, and the codes
+  # that only Plugin Check runs (its own DirectDB sniff, the VIP
+  # suppress_filters sniff) into per-site `phpcs:ignore` annotations in the
+  # source, which strip.php keeps. Plugin Check runs phpcs, so it honours the
+  # annotations; a new site under either of those codes therefore reports
+  # here, and an error-level one fails the job (warning-level findings are
+  # annotated, not fatal, unless `strict` is set).
+  #
+  # The action also logs `Failed to post/update comment: Resource not
+  # accessible by integration` on every run: it tries to comment on the PR and
+  # this job deliberately has no `pull-requests: write`. Expected, harmless.
   plugin-check:
     runs-on: ubuntu-latest
     steps:
@@ -117,14 +127,22 @@ jobs:
         uses: wordpress/plugin-check-action@v1
         with:
           build-dir: ./build/wporg/wpmcp
-          # Pre-existing findings from the first triaged run (#185), carried
-          # as an explicit baseline so the job is a hard gate for everything
-          # else. The WordPressCS codes are also counted per sniff in
-          # .phpcs-baseline.json, so `composer lint:wpcs` ratchets them down;
-          # remove a code from this list once its count reaches zero.
+          # Pre-existing WordPressCS findings, carried here so the job is a
+          # hard gate for everything else. Both codes are counted per sniff in
+          # .phpcs-baseline.json and `composer lint:wpcs` ratchets them down;
+          # remove a code from this list once its count reaches zero. The
+          # counts Plugin Check would report are not the baseline's: it scans
+          # the stripped build with the stock WordPress ruleset config.
           # Single line, no spaces: the action splits this value unquoted.
-          #   EscapeOutput.ExceptionNotEscaped   178 sites, messages never echoed
-          #   PreparedSQL.NotPrepared             26 sites, identifier interpolation
-          #   DirectDB.UnescapedDBParameter       11 sites, the same queries
-          #   SuppressFilters                      2 sites, Memory_Store get_posts()
-          ignore-codes: WordPress.Security.EscapeOutput.ExceptionNotEscaped,WordPress.DB.PreparedSQL.NotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters
+          #   EscapeOutput.ExceptionNotEscaped   exception messages, never echoed
+          #   PreparedSQL.NotPrepared            identifier interpolation
+          ignore-codes: WordPress.Security.EscapeOutput.ExceptionNotEscaped,WordPress.DB.PreparedSQL.NotPrepared
+      # continue-on-error above keeps Plugin Check running when only the final
+      # compliance gate (step 6 of the build script) regresses. A build that
+      # died earlier, before it produced a tree, would otherwise skip Plugin
+      # Check and let the job report success without either signal.
+      - name: Fail when the build produced no tree
+        if: steps.build.outcome == 'failure' && hashFiles('build/wporg/wpmcp/wpmcp.php') == ''
+        run: |
+          echo "::error::scripts/build-wporg-release.sh failed before producing build/wporg; Plugin Check did not run"
+          exit 1

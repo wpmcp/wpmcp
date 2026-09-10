@@ -132,7 +132,7 @@ class Db_Dumper
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- $table came from tables() above (SHOW TABLES on our own prefix); identifiers cannot be bound as placeholders.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $table came from tables() above (SHOW TABLES on our own prefix); identifiers cannot be bound as placeholders.
         $create = $wpdb->get_row('SHOW CREATE TABLE `' . str_replace('`', '``', $table) . '`', ARRAY_N);
 
         if (! is_array($create) || ! isset($create[1])) {
@@ -174,7 +174,7 @@ class Db_Dumper
                 $sql = $wpdb->prepare("SELECT * FROM {$quoted} ORDER BY {$order} LIMIT %d OFFSET %d", self::BATCH, $offset);
             }
 
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Identifiers come from the validated table list and from SHOW KEYS/SHOW COLUMNS on that table; every value is bound.
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Identifiers come from the validated table list and from SHOW KEYS/SHOW COLUMNS on that table; every value is bound.
             $rows = $wpdb->get_results($sql, ARRAY_A);
 
             if (! is_array($rows) || [] === $rows) {
@@ -233,7 +233,7 @@ class Db_Dumper
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Identifier from the validated table list; no user input reaches this query.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Identifier from the validated table list; no user input reaches this query.
         $keys = $wpdb->get_results('SHOW KEYS FROM `' . str_replace('`', '``', $table) . "` WHERE Key_name = 'PRIMARY'", ARRAY_A);
 
         if (! is_array($keys) || 1 !== count($keys)) {
@@ -250,7 +250,7 @@ class Db_Dumper
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Identifier from the validated table list; no user input reaches this query.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Identifier from the validated table list; no user input reaches this query.
         $columns = $wpdb->get_results('SHOW COLUMNS FROM `' . str_replace('`', '``', $table) . '`', ARRAY_A);
 
         if (! is_array($columns) || [] === $columns) {
@@ -306,7 +306,7 @@ class Db_Dumper
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Identifier from the validated table list; no user input reaches this query.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Identifier from the validated table list; no user input reaches this query.
         $columns = $wpdb->get_results('SHOW COLUMNS FROM `' . str_replace('`', '``', $table) . '`', ARRAY_A);
 
         if (! is_array($columns)) {

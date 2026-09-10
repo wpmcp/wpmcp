@@ -5,8 +5,15 @@
  * Runs phpcs and compares the per-sniff-code counts against the committed
  * baseline in .phpcs-baseline.json. The build fails when ANY individual sniff
  * code goes up, so the pre-existing violations recorded when the sniff layer
- * was introduced (issue #185) do not block CI, but every new violation does,
- * including one that arrives in the same change that removes an old one.
+ * was introduced (issue #185) do not block CI, but a new violation under any
+ * code does, including one that arrives in the same change that removes a
+ * violation under a different code. The known blind spot of a count-keyed
+ * baseline is a same-code swap: removing one ExceptionNotEscaped site and
+ * adding another nets zero for that code and passes.
+ *
+ * The build also fails when any count has dropped below the baseline, so the
+ * committed file cannot drift above reality and quietly bank headroom for a
+ * later regression; ratchet it down with --update and commit the result.
  *
  * The comparison itself lives in tools/lint/src/Phpcs_Baseline.php so it can
  * be unit tested; see tests/free/Lint/PhpcsBaselineTest.php.
@@ -76,8 +83,15 @@ if (is_file($baseline_file)) {
             json_decode((string) file_get_contents($baseline_file), true)
         );
     } catch (RuntimeException $e) {
-        if (! in_array('--update', $argv, true)) {
+        // An unreadable baseline must not be treated like a missing one: in
+        // --update mode that would let a hand-edited or corrupt file be
+        // overwritten with whatever the tree currently reports, regressions
+        // included, without the --force the ratchet requires.
+        if (! in_array('--update', $argv, true) || ! $force) {
             fwrite(STDERR, 'FAIL: ' . $e->getMessage() . "\n");
+            if (in_array('--update', $argv, true)) {
+                fwrite(STDERR, "Pass --force to replace an unreadable baseline, and justify it in review.\n");
+            }
             exit(2);
         }
     }
@@ -125,8 +139,13 @@ if (! $result['ok']) {
 }
 
 if ($result['improvements'] !== []) {
-    echo "counts dropped for " . count($result['improvements']) . " sniff code(s); "
-        . "ratchet the baseline down with composer lint:wpcs:update-baseline\n";
+    fwrite(STDERR, "FAIL: .phpcs-baseline.json is stale; counts dropped for "
+        . count($result['improvements']) . " sniff code(s).\n");
+    foreach ($result['improvements'] as $code => $delta) {
+        fwrite(STDERR, sprintf("  %s: %d -> %d\n", $code, $delta['baseline'], $delta['current']));
+    }
+    fwrite(STDERR, "Ratchet it down with composer lint:wpcs:update-baseline and commit the result.\n");
+    exit(1);
 }
 
 echo "OK\n";

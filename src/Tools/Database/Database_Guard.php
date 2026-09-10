@@ -469,6 +469,7 @@ class Database_Guard
         if ([] !== $values) {
             $sql = $wpdb->prepare($sql, $values);
         }
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- identifiers are validated above; values, when present, are bound by prepare() just before this line.
         $rows = $wpdb->get_results($sql, ARRAY_A);
 
         return is_array($rows) ? $rows : [];
@@ -486,6 +487,7 @@ class Database_Guard
     {
         global $wpdb;
 
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- table identifier, backticks stripped; identifiers cannot be bound as placeholders and the name is validated before it gets here.
         $rows = $wpdb->get_results(
             'SHOW KEYS FROM `' . str_replace('`', '', $table) . '`',
             ARRAY_A
@@ -513,6 +515,7 @@ class Database_Guard
     {
         global $wpdb;
 
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- table identifier, backticks stripped; identifiers cannot be bound as placeholders and the name is validated before it gets here.
         $rows = $wpdb->get_results(
             'SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '`',
             ARRAY_A

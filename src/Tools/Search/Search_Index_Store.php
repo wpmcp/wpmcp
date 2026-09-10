@@ -201,7 +201,7 @@ class Search_Index_Store
              ORDER BY weight DESC, id ASC
              LIMIT ' . $max_rows;
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- placeholders are built above; values are bound here.
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- placeholders are built above; values are bound here.
         $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
 
         return is_array($rows) ? $rows : [];

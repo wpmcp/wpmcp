@@ -44,6 +44,7 @@ class Paid_Memberships_Pro_Integration extends Integration_Dispatcher
         global $wpdb;
         $table    = self::levels_table();
         $suppress = $wpdb->suppress_errors(true);
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- existence probe against a third-party table name built from $wpdb->prefix; no input reaches it.
         $wpdb->get_var("SELECT 1 FROM `{$table}` LIMIT 1");
         $exists = '' === $wpdb->last_error;
         $wpdb->suppress_errors($suppress);
@@ -59,6 +60,7 @@ class Paid_Memberships_Pro_Integration extends Integration_Dispatcher
     {
         global $wpdb;
         $members = self::members_table();
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- third-party table name built from $wpdb->prefix; values, when present, are bound by prepare().
         return (int) $wpdb->get_var(
             $wpdb->prepare("SELECT COUNT(*) FROM `{$members}` WHERE membership_id = %d AND status = 'active'", $level_id)
         );
@@ -74,6 +76,7 @@ class Paid_Memberships_Pro_Integration extends Integration_Dispatcher
                 'handler'      => function (): array {
                     global $wpdb;
                     $table = self::levels_table();
+                    // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- third-party table name built from $wpdb->prefix; values, when present, are bound by prepare().
                     $rows  = $wpdb->get_results(
                         "SELECT id, name, initial_payment, billing_amount, cycle_number, cycle_period, allow_signups FROM `{$table}` ORDER BY id ASC",
                         ARRAY_A
@@ -104,6 +107,7 @@ class Paid_Memberships_Pro_Integration extends Integration_Dispatcher
                 'handler'      => function (array $args): array {
                     global $wpdb;
                     $table = self::levels_table();
+                    // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- third-party table name built from $wpdb->prefix; values, when present, are bound by prepare().
                     $row   = $wpdb->get_row(
                         $wpdb->prepare("SELECT * FROM `{$table}` WHERE id = %d", (int) $args['level_id']),
                         ARRAY_A
