@@ -50,21 +50,22 @@ The plugin collects nothing about you and sends nothing anywhere on its own. It 
 
 == External services ==
 
-The plugin never phones home. Each request below fires only while you or your agent run the tool that needs it.
+The plugin sends nothing anywhere on its own: it has no scheduled jobs and no activation-time requests. Every request below fires only while you or your agent run the tool that needs it, with one exception, the licensing SDK, which is described in its own entry. Unless an entry says otherwise, requests carry WordPress's default user agent, which includes this site's URL.
 
 Fixed hosts:
 
-* api.wordpress.org - core file checksums, fetched only when the scan-security ability runs its integrity check (requires the manage_options capability). Sends the WordPress version and site locale with the user agent WPMCP-Security-Scanner/1.0. Terms: https://wordpress.org/about/license/ Privacy policy: https://wordpress.org/about/privacy/
-* api.openverse.org - stock image search. Openverse is the default provider for search-stock-images and needs no key or configuration, so this request is unconditional whenever that ability runs without another provider selected. Sends the search terms and paging only. Terms: https://openverse.org/terms Privacy policy: https://openverse.org/privacy
-* api.pexels.com - stock image search, only when the Pexels provider is selected and you have saved a Pexels key via set-stock-key. Sends the search terms, paging and your key. Results link to www.pexels.com license pages; those links are displayed, never requested. Terms: https://www.pexels.com/terms-of-service/ Privacy policy: https://www.pexels.com/privacy-policy/
-* api.unsplash.com - stock image search, only when the Unsplash provider is selected and you have saved an Unsplash key via set-stock-key. Sends the search terms, paging and your key. Results link to unsplash.com license pages; those links are displayed, never requested. Terms: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
-* api.freemius.com - licensing, only after you opt in on the Freemius activation screen. Terms: https://freemius.com/terms/ Privacy policy: https://freemius.com/privacy/
+* api.wordpress.org - core file checksums, fetched only when the scan-security ability runs its integrity check (requires the manage_options capability). Sends the WordPress version and site locale with the user agent WPMCP-Security-Scanner/1.0, so this site's URL is not included. Terms of use and privacy policy: https://wordpress.org/about/privacy/
+* api.openverse.org - stock image search. Openverse is the default provider for search-stock-images and needs no key or configuration, so this request is unconditional whenever that ability runs without another provider selected. Sends the search terms and paging. Terms: https://openverse.org/terms Privacy policy: https://openverse.org/privacy
+* api.pexels.com - stock image search, only when the Pexels provider is selected and you have saved a Pexels key via set-stock-key. Sends the search terms, paging and your key in the Authorization header. Results link to www.pexels.com license pages; those links are displayed, never requested. Terms: https://www.pexels.com/terms-of-service/ Privacy policy: https://www.pexels.com/privacy-policy/
+* api.unsplash.com - stock image search, only when the Unsplash provider is selected and you have saved an Unsplash key via set-stock-key. Sends the search terms, paging and your key in the Authorization header. Results link to unsplash.com license pages; those links are displayed, never requested. Terms: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
+* api.freemius.com - licensing through the Freemius SDK. This is the one entry not tied to a tool: once you have opted in, the SDK talks to Freemius during admin page loads and its own periodic sync. The plugin activates in Freemius anonymous mode, so no opt-in screen is shown on activation and the SDK sends nothing until you opt in from the WP MCP > Account page. Terms: https://freemius.com/terms/ Privacy policy: https://freemius.com/privacy/
 
 Dynamic destinations:
 
-* WP MCP Cloud - widget and block spec sync, only after you run cloud-connect with a url and key you supply; requests go to that url and nowhere else. Sends the specs you push. Terms and privacy policy: https://wpmcp-pro.com/
-* import-stock-image downloads the image you picked from a fixed allowlist of five image CDNs (images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org, staticflickr.com); any other host is refused before a request is made.
-* analyze-performance fetches the page URL you give it (defaulting to this site's front page), refusing private, loopback and reserved addresses.
+* WP MCP Cloud - widget and block spec sync, only after you run cloud-connect with a url and key you supply; requests go to the url you gave. Sends the specs you push, with your key in the Authorization header. Terms and privacy policy: https://wpmcp-pro.com/
+* import-stock-image, insert-stock-image and upload-svg (when given a url) download the file you picked from an allowlist of image CDNs that defaults to five hosts (images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org, staticflickr.com); any other host is refused before a request is made and redirects are not followed. A site owner can extend the list with the wpmcp_remote_media_allowed_hosts filter.
+* analyze-performance fetches one page on this site (the url or post_id you give it, defaulting to the front page) with the user agent WPMCP-Performance-Analyzer/1.0. URLs on other hosts are refused, as are private, loopback and reserved addresses, and redirects are not followed.
+* scan-security also requests this site's own front page once to read its security headers and generator tag.
 * The analytics abilities call this site's own REST API over loopback to read Site Kit data; nothing leaves the site.
 * The connection self-test requests this site's own home URL to verify the MCP endpoint is reachable.
 
