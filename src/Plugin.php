@@ -4,6 +4,14 @@
 
 namespace WPMCP;
 
+// Plugin Check's Direct_File_Access_Check only accepts the bare defined() test,
+// and only near the top of the file: an extra conjunct, or a guard buried under
+// hundreds of use statements, both make it report the file as unprotected. The
+// test bootstrap defines ABSPATH itself, so the guard needs no escape hatch.
+if (! defined('ABSPATH')) {
+    exit;
+}
+
 use WPMCP\Admin\Audit_Log_Page;
 use WPMCP\Admin\History_Page;
 use WPMCP\Admin\Restore_Controller;
@@ -290,13 +298,6 @@ use WPMCP\Auth\Oauth_Gc;
 use WPMCP\MCP\Structured_Result;
 use WPMCP\MCP\Server as Mcp_Server;
 use WPMCP\MCP\Transport_Guard;
-
-// Plugin Check's Direct_File_Access_Check only accepts the bare defined()
-// test; an extra conjunct makes it report the file as unprotected. The test
-// bootstrap defines ABSPATH itself, so the guard needs no test escape hatch.
-if (! defined('ABSPATH')) {
-    exit;
-}
 
 final class Plugin
 {
