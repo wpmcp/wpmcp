@@ -59,6 +59,32 @@ class CodeRulesTest extends Compliance_Test_Case
         $this->assertNull($findings[0]->severity_override());
     }
 
+    public function test_qualified_calls_and_backticks_are_execution_sites(): void
+    {
+        // Leading-backslash globals are the house style of every vendor tree,
+        // and the artifact-level run walks vendor. A matcher that only saw
+        // bare T_STRING names passed `\proc_open(` straight through.
+        $findings = $this->findings(new Dangerous_Constructs_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/runner.php' => "<?php\nnamespace Vendor;\nclass Runner {\n    public function run( \$c ) {\n        \\proc_open( \$c, [], \$p );\n        Shell\\system( \$c );\n        return `id`;\n    }\n}\n",
+        ]);
+
+        $this->assert_reports($findings, 'execution construct proc_open() must not ship');
+        $this->assert_reports($findings, 'execution construct system() must not ship');
+        $this->assert_reports($findings, 'execution construct the backtick operator (shell_exec) must not ship');
+        $this->assertSame(['includes/runner.php:5', 'includes/runner.php:6', 'includes/runner.php:7'], $this->locations($findings));
+    }
+
+    public function test_declarations_members_and_attributes_are_not_execution_sites(): void
+    {
+        $findings = $this->findings(new Dangerous_Constructs_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/shapes.php' => "<?php\nclass Shapes {\n    public function &exec() {}\n    Function popen() {}\n    public function run( \$o ) {\n        \$o->system(); \$o?->passthru(); Shapes::exec(); return New Popen();\n    }\n}\n#[Assert()]\nclass Tagged {}\n",
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
     public function test_execution_names_inside_strings_and_comments_do_not_false_positive(): void
     {
         $findings = $this->findings(new Dangerous_Constructs_Rule(), [
