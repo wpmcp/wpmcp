@@ -135,6 +135,15 @@ mcp, mcp server, ai agent, automation, undo
 competitor and vendor names as tags. The tag list was already at five, so
 dropping it cost nothing.
 
+The block above is what ships. `tests/free/Release/ReleaseHeadersTest.php`
+reads it from this file and asserts that `scripts/flavors/wporg/readme.txt`,
+the readme `scripts/build-wporg-release.sh` stages as the listing, carries it
+verbatim, so this document and the listing cannot drift apart. The same test
+gates the tag lists of the root `readme.txt` (the general GitHub zip) and the
+WooCommerce flavor for the five-tag maximum and for vendor marks. That cover
+matters because the compliance engine only reads the readme at the root of the
+tree it scans, so `composer compliance` never sees a flavor readme.
+
 **Version headers:** `Stable tag: 0.8.1`, `Requires at least: 6.9`,
 `Tested up to: 7.1`, `Requires PHP: 8.1`, `License: GPLv2 or later`. The stable
 tag is substituted from `WPMCP_VERSION` at build time, so it cannot drift from
