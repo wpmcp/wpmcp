@@ -224,7 +224,16 @@ class ListingRulesTest extends Compliance_Test_Case
             Rule_Context::for_path(dirname(__DIR__, 3), Profile::wporg_free())
         );
 
-        $this->assert_clean($findings);
+        // One deliberate exception (issue #184): Plugin::load_textdomain()
+        // loads a self-hosted .mo for the off-directory builds, and the
+        // directory build strips it (scripts/flavors/wporg/strip.php, whose
+        // build fails if the call has moved). Pinned to that one call site so
+        // a second loader anywhere else still fails here.
+        $loader = array_filter($findings, static fn ($f) => str_contains($f->message(), 'load_plugin_textdomain()'));
+        $this->assertCount(1, $loader, implode("\n", $this->messages($loader)));
+        $this->assertStringStartsWith('src/Plugin.php:', $this->locations($loader)[0] ?? '');
+
+        $this->assert_clean(array_values(array_diff_key($findings, $loader)));
     }
 
     /**

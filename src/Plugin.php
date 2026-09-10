@@ -401,6 +401,33 @@ final class Plugin
     }
 
     /**
+     * The text domain this build's strings carry. Each main plugin file
+     * defines WPMCP_TEXT_DOMAIN to match its own Text Domain header: the
+     * WooCommerce build rewrites every string in src/ to
+     * 'wpmcp-for-woocommerce' at build time, so a literal 'wpmcp' here
+     * would load its .mo into a domain none of its strings use.
+     */
+    public static function text_domain(): string
+    {
+        return defined('WPMCP_TEXT_DOMAIN') ? (string) WPMCP_TEXT_DOMAIN : 'wpmcp';
+    }
+
+    /**
+     * Load a self-hosted .mo from the languages/ directory the Domain Path
+     * header points at (issue #184). Hooked on init by boot(). wp.org
+     * installs get language packs just in time since WP 4.6, but the pro
+     * and flavor zips ship off-directory, where a .mo in the plugin's own
+     * languages/ only loads through this call.
+     */
+    public function load_textdomain(): void
+    {
+        if (!defined('WPMCP_FILE')) {
+            return;
+        }
+        load_plugin_textdomain(self::text_domain(), false, dirname(plugin_basename(WPMCP_FILE)) . '/languages');
+    }
+
+    /**
      * Boot-time runtime hook wiring for the flavor-gated feature groups: the
      * data-driven widget/block builders and agent project memory.
      * Flavor-gated with the matching ability groups: vertical builds prune
@@ -457,15 +484,8 @@ final class Plugin
             // land as ordinary governance toggles, so enforcement lives in
             // the registration/permission path with no admin class loaded.
             Default_Seeder::seed();
-            // Load self-hosted translations from languages/ (issue #184).
-            // wp.org installs get JIT loading since WP 4.6, but the pro
-            // and flavor zips ship off-directory, where a .mo in
-            // languages/ only loads through this call.
-            add_action('init', static function (): void {
-                if (defined('WPMCP_FILE')) {
-                    load_plugin_textdomain('wpmcp', false, dirname(plugin_basename(WPMCP_FILE)) . '/languages');
-                }
-            });
+            // Self-hosted translations from languages/ (issue #184).
+            add_action('init', [$this, 'load_textdomain']);
             $hook = function_exists('wp_register_ability') ? 'wp_abilities_api_init' : 'init';
             add_action($hook, [$this, 'register_abilities']);
             if (function_exists('wp_register_ability_category')) {
