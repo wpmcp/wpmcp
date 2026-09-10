@@ -32,7 +32,9 @@ if (! defined('ABSPATH')) {
  *
  * A record is { client_id, client_secret_hash, client_name, redirect_uris,
  * created_at, fingerprint }, plus reused_at once a registration has been
- * deduped onto it.
+ * deduped onto it, plus (issue #142) protected once protect() has marked
+ * the row exempt from the orphan sweep and rotated_at once rotate_secret()
+ * has re-minted its secret.
  */
 class Client_Store
 {
@@ -74,7 +76,7 @@ class Client_Store
      * @return array{client_id: string, client_secret: string} The plaintext
      *               secret, returned exactly once.
      *
-     * @throws \RuntimeException When the client cap (MAX_CLIENTS) is reached.
+     * @throws Client_Cap_Reached When the client cap (MAX_CLIENTS) is reached.
      */
     public static function create(array $client_name, array $redirect_uris, string $registrar_key = ''): array
     {
@@ -99,7 +101,7 @@ class Client_Store
         }
 
         if (count($stored) >= self::max_clients()) {
-            throw new \RuntimeException('OAuth client registration cap reached.');
+            throw new Client_Cap_Reached('OAuth client registration cap reached.');
         }
 
         $client_id     = self::generate_token('client_');
@@ -197,6 +199,15 @@ class Client_Store
 
         foreach ($stored as $client_id => $record) {
             $client_id = (string) $client_id;
+            // Protected rows (the gateway client, issue #142) are durable
+            // identity, not registration debris. The gateway credential
+            // legitimately holds no tokens between a chain revocation and
+            // the next refresh, and reaping it there would silently delete
+            // the site's provisioned gateway identity out from under the
+            // proxy.
+            if (! empty($record['protected'])) {
+                continue;
+            }
             if ((int) ($record['created_at'] ?? 0) > $now - $grace) {
                 continue;
             }
@@ -216,6 +227,134 @@ class Client_Store
         }
 
         return $removed;
+    }
+
+    /**
+     * Non-creating lookup by registration identity (issue #142): the stored
+     * record whose registration fingerprint matches, or null.
+     *
+     * This exists so teardown paths (Gateway_Credential::deprovision, the
+     * gateway-revoke tool) can locate the gateway client WITHOUT going
+     * through create(), which would re-provision the very thing being torn
+     * down.
+     *
+     * Matching is on the FINGERPRINT, not on client_name + redirect_uris,
+     * and that difference is security-load-bearing. Name and redirect URIs
+     * are attacker-supplied through the unauthenticated DCR endpoint, so
+     * matching on them alone would let anyone pre-register a client called
+     * "WPMCP Gateway" and have the site adopt it (secret and all) as its
+     * gateway identity on first provision. The fingerprint folds in the
+     * registrar key, which for the gateway is a server-side constant no DCR
+     * caller can supply (Client_Registration passes the remote IP), so a
+     * publicly registered row can never be selected here. URI order is
+     * irrelevant: registration_fingerprint() sorts both sides.
+     */
+    public static function find_by_registration(string $name, array $redirect_uris, string $registrar_key): ?array
+    {
+        $all = self::find_all_by_registration($name, $redirect_uris, $registrar_key);
+
+        return $all[0] ?? null;
+    }
+
+    /**
+     * Every stored record matching a registration fingerprint (issue #142).
+     *
+     * create()'s dedup only reuses a row that holds no tokens, so a store
+     * can legitimately end up with more than one row for the same
+     * fingerprint. Teardown has to converge on ALL of them, otherwise a
+     * revoke reports success while leaving a live client behind.
+     *
+     * @return array<int, array> Records, in stored order.
+     */
+    public static function find_all_by_registration(string $name, array $redirect_uris, string $registrar_key): array
+    {
+        $uris = array_values(array_unique(array_map('strval', $redirect_uris)));
+        $want = self::registration_fingerprint($name, $uris, $registrar_key);
+
+        $matches = [];
+        foreach (self::load() as $record) {
+            if (hash_equals($want, (string) ($record['fingerprint'] ?? ''))) {
+                $matches[] = $record;
+            }
+        }
+
+        return $matches;
+    }
+
+    /**
+     * Mark a client as protected from the orphan sweep (issue #142). Used
+     * for the gateway client, whose row is durable identity rather than a
+     * registration that may or may not complete.
+     */
+    public static function protect(string $client_id): bool
+    {
+        $stored = self::load();
+        if (! isset($stored[ $client_id ])) {
+            return false;
+        }
+
+        $stored[ $client_id ]['protected'] = true;
+        self::save($stored);
+
+        return true;
+    }
+
+    /**
+     * Mint a fresh client_secret for an existing client and return the
+     * plaintext exactly once (issue #142).
+     *
+     * create()'s dedup path already rotates the secret when it recycles a
+     * row, but it refuses to touch a row that holds tokens -- correctly, so
+     * a live connection is never broken. The gateway credential needs the
+     * opposite: re-provisioning deliberately kills the previous credential,
+     * so the secret must rotate WITH it, and the caller has already evicted
+     * the bound tokens. Callers are responsible for that eviction.
+     *
+     * @return string|null The plaintext secret, or null if the client is unknown.
+     */
+    public static function rotate_secret(string $client_id): ?string
+    {
+        $stored = self::load();
+        if (! isset($stored[ $client_id ])) {
+            return null;
+        }
+
+        $client_secret                             = self::generate_token('secret_');
+        $stored[ $client_id ]['client_secret_hash'] = self::hash($client_secret);
+        $stored[ $client_id ]['rotated_at']         = time();
+        self::save($stored);
+
+        return $client_secret;
+    }
+
+    /**
+     * Revoke a client outright (issue #142): remove its record and evict
+     * every access and refresh token bound to it. Idempotent; returns false
+     * when the client was not registered (nothing to do), true when a
+     * record was removed.
+     */
+    public static function revoke(string $client_id): bool
+    {
+        $stored = self::load();
+        $known  = isset($stored[ $client_id ]);
+
+        if ($known) {
+            unset($stored[ $client_id ]);
+            self::save($stored);
+        }
+
+        // Tokens are evicted unconditionally: a half-revoked state (client
+        // row already gone, tokens lingering) must still converge to fully
+        // dead on a repeat call.
+        $evicted = Token_Store::revoke_for_client($client_id)
+            + Refresh_Token_Store::revoke_for_client($client_id);
+
+        // True when this call actually removed something: either the record
+        // itself, or (in the half-revoked case above) the tokens that
+        // outlived it. Returning false after a real teardown would have the
+        // gateway-revoke tool report "nothing to do" for the exact state
+        // this method exists to converge from.
+        return $known || $evicted > 0;
     }
 
     /** Fetch a client's stored record (never includes the plaintext secret), or null. */
