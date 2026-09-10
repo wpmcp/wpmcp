@@ -4,7 +4,15 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
-      matrix: { php: ['8.1','8.2','8.3','8.4'] }
+      matrix:
+        php: ['8.1','8.2','8.3','8.4']
+        # The WordPress release under test. The main axis is the release the
+        # shipped headers declare as Tested up to; ReleaseHeadersTest pins it
+        # to TESTED_UP_TO_FLOOR so the header cannot outrun the suite. The
+        # include leg keeps Requires at least honest on the oldest PHP.
+        wp: ['7.1']
+        include:
+          - { php: '8.1', wp: '6.9' }
     services:
       mysql:
         image: mariadb:10.6
@@ -17,12 +25,9 @@ jobs:
         with: { php-version: '${{ matrix.php }}', coverage: pcov }
       - run: composer install --no-interaction
       - run: composer lint
-      # Issue #173: the escaping sniff the wp.org review runs. phpcs.xml.dist is
-      # PSR-12 only, so this class of finding was invisible in CI until now.
-      - run: composer lint:escaping
       - name: Install subversion (required by install-wp-tests.sh)
         run: sudo apt-get update && sudo apt-get install -y subversion
-      - run: bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 6.9
+      - run: bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 ${{ matrix.wp }}
       - name: Install optional test plugins (Elementor, WooCommerce, ACF, Yoast SEO, Polylang)
         run: bash bin/install-test-plugins.sh
       - run: composer test
@@ -52,14 +57,13 @@ jobs:
   # profile, and the directory build under the strict wporg-free profile,
   # which is the artifact the directory would actually receive.
   #
-  # The distribution run stays advisory: that zip is sold off-directory, where
-  # licensing and the two guarded execution sites are permitted, and the
-  # profile already downgrades everything that is only a problem because
-  # WordPress.org says so.
+  # Both runs are hard gates (issue #186). The engine exits 1 on any blocker,
+  # so either step failing blocks the merge. The distribution profile already
+  # downgrades everything that is only a problem because WordPress.org says
+  # so, which keeps the source-tree gate meaningful for the off-directory zip.
   #
-  # The wporg-free run is a hard gate. scripts/build-wporg-release.sh runs the
-  # engine itself as its last step, so this job fails if the directory build
-  # ever regains a blocker.
+  # scripts/build-wporg-release.sh runs the engine itself as its last step,
+  # so the build step fails if the directory build ever regains a blocker.
   compliance:
     runs-on: ubuntu-latest
     steps:
@@ -68,7 +72,6 @@ jobs:
         with: { php-version: '8.3', coverage: none }
       - run: composer install --no-interaction
       - name: Compliance, distribution profile (source tree)
-        continue-on-error: true
         run: composer compliance
       - name: Build the directory zip and gate it
         run: bash scripts/build-wporg-release.sh
@@ -83,3 +86,71 @@ jobs:
         with:
           name: compliance-report
           path: compliance-report.md
+
+  # wp.org sniff layer (issue #185). The WordPressCS ruleset
+  # (phpcs-wporg.xml.dist) carries the security, database, function-policy and
+  # i18n sniffs from the plugin review team's phpcs-rulesets/plugin-review.xml
+  # and runs through `composer lint` in the test job. .phpcs-baseline.json
+  # records the pre-existing count PER SNIFF CODE, so the job starts green but
+  # any individual code going up fails the build, including a new violation
+  # that arrives in the same change that removes an old one.
+  #
+  # Plugin Check runs against the assembled directory build rather than the
+  # working tree, so what is scanned is the tree the directory would actually
+  # receive (post strip.php, with the generated bootstrap). Note that Plugin
+  # Check excludes vendor/ unconditionally and its exclude-directories input
+  # can only ADD to that list, so vendor is out of scope here by design; the
+  # dependency surface is covered by the compliance engine's packaging rules,
+  # not by this job.
+  #
+  # Hard gate. The first run's findings were triaged (#185) into two places:
+  # the WordPressCS codes into the ignore-codes list below, where the per-sniff
+  # ratchet in .phpcs-baseline.json already counts every site, and the codes
+  # that only Plugin Check runs (its own DirectDB sniff, the VIP
+  # suppress_filters sniff) into per-site `phpcs:ignore` annotations in the
+  # source, which strip.php keeps. Plugin Check runs phpcs, so it honours the
+  # annotations; a new site under either of those codes therefore reports
+  # here, and an error-level one fails the job (warning-level findings are
+  # annotated, not fatal, unless `strict` is set).
+  #
+  # The action also logs `Failed to post/update comment: Resource not
+  # accessible by integration` on every run: it tries to comment on the PR and
+  # this job deliberately has no `pull-requests: write`. Expected, harmless.
+  plugin-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with: { php-version: '8.3', coverage: none }
+      - run: composer install --no-interaction
+      # The build script's last step is the wporg-free compliance hard gate, so
+      # a compliance blocker would otherwise abort this job before Plugin Check
+      # ever runs, losing the second signal exactly when the build regresses.
+      - name: Assemble the directory build
+        id: build
+        continue-on-error: true
+        run: bash scripts/build-wporg-release.sh
+      - name: Plugin Check
+        if: hashFiles('build/wporg/wpmcp/wpmcp.php') != ''
+        uses: wordpress/plugin-check-action@v1
+        with:
+          build-dir: ./build/wporg/wpmcp
+          # Pre-existing WordPressCS findings, carried here so the job is a
+          # hard gate for everything else. Both codes are counted per sniff in
+          # .phpcs-baseline.json and `composer lint:wpcs` ratchets them down;
+          # remove a code from this list once its count reaches zero. The
+          # counts Plugin Check would report are not the baseline's: it scans
+          # the stripped build with the stock WordPress ruleset config.
+          # Single line, no spaces: the action splits this value unquoted.
+          #   EscapeOutput.ExceptionNotEscaped   exception messages, never echoed
+          #   PreparedSQL.NotPrepared            identifier interpolation
+          ignore-codes: WordPress.Security.EscapeOutput.ExceptionNotEscaped,WordPress.DB.PreparedSQL.NotPrepared
+      # continue-on-error above keeps Plugin Check running when only the final
+      # compliance gate (step 6 of the build script) regresses. A build that
+      # died earlier, before it produced a tree, would otherwise skip Plugin
+      # Check and let the job report success without either signal.
+      - name: Fail when the build produced no tree
+        if: steps.build.outcome == 'failure' && hashFiles('build/wporg/wpmcp/wpmcp.php') == ''
+        run: |
+          echo "::error::scripts/build-wporg-release.sh failed before producing build/wporg; Plugin Check did not run"
+          exit 1

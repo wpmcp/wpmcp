@@ -45,14 +45,23 @@ class Insert_Row
         }
 
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- The tool's purpose is a direct insert into an arbitrary Database_Guard-validated table; wpdb::insert() parameterizes the values and core has no API for arbitrary tables.
         $affected = $wpdb->insert($table, $data);
         if (false === $affected) {
             throw new \RuntimeException(esc_html($wpdb->last_error ?: 'Insert failed.'));
         }
 
+        $insert_id = (int) $wpdb->insert_id;
+
+        // Nothing in core clears the caches this row belongs to, so do it
+        // here. The auto-increment id is what the posts/terms caches are
+        // keyed on and it is not in $data, so hand it over too (captured
+        // above, before the invalidation's own reads can touch $wpdb).
+        Database_Guard::invalidate_caches($table, ['data' => $data, 'insert_id' => $insert_id]);
+
         return [
             'table'     => $table,
-            'insert_id' => (int) $wpdb->insert_id,
+            'insert_id' => $insert_id,
             'affected'  => (int) $affected,
         ];
     }

@@ -52,6 +52,7 @@ class Run_Event
             throw new \RuntimeException(sprintf('Hook "%s" is not scheduled; refusing to run it.', esc_html($hook)));
         }
 
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound -- fires an already-scheduled cron hook on request; this tool does not define a hook of its own.
         do_action_ref_array($hook, $stored_args);
 
         return [
