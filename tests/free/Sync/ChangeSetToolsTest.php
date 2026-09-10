@@ -77,12 +77,43 @@ class ChangeSetToolsTest extends \WP_UnitTestCase
         (new Build_Change_Set())->handle(['session_id' => 'sess', 'since_id' => 1]);
     }
 
+    public function test_a_since_id_of_zero_is_an_argument_error_not_the_whole_ledger(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        (new Build_Change_Set())->handle(['since_id' => 0]);
+    }
+
+    public function test_a_non_numeric_since_id_is_an_argument_error(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        (new Build_Change_Set())->handle(['since_id' => 'latest']);
+    }
+
     public function test_a_marker_with_nothing_syncable_writes_no_artifact(): void
     {
         $out = (new Build_Change_Set())->handle(['session_id' => 'empty-session']);
 
         $this->assertArrayNotHasKey('file', $out);
         $this->assertSame(0, $out['objects']['total']);
+    }
+
+    public function test_a_marker_with_only_excluded_rows_still_reports_what_was_excluded(): void
+    {
+        Snapshot_Store::save(
+            'op-opt',
+            'options-only',
+            ['object_type' => 'option', 'object_id' => 0, 'data' => ['name' => 'blogname', 'value' => 'x']],
+            'update-option',
+            str_repeat('a', 64)
+        );
+
+        $out = (new Build_Change_Set())->handle(['session_id' => 'options-only']);
+
+        $this->assertArrayNotHasKey('file', $out);
+        $this->assertSame(1, $out['excluded']);
+        $this->assertCount(1, $out['excluded_rows'], 'With no artifact, the per-row report has nowhere else to live');
+        $this->assertSame('option', $out['excluded_rows'][0]['object_type']);
+        $this->assertStringContainsString('not implemented', $out['excluded_rows'][0]['reason']);
     }
 
     public function test_object_counts_are_reported_as_exported_and_deleted_separately(): void
@@ -141,6 +172,34 @@ class ChangeSetToolsTest extends \WP_UnitTestCase
     {
         $this->expectException(\RuntimeException::class);
         (new Get_Change_Set())->handle(['path' => '']);
+    }
+
+    public function test_a_site_archive_in_the_backup_directory_is_refused_before_it_is_read(): void
+    {
+        // The same directory holds full site archives; slurping one into
+        // memory to discover it is not JSON would be a memory_limit fatal.
+        $dir = Site_Backup_Dir::path();
+        wp_mkdir_p($dir);
+        $zip = trailingslashit($dir) . 'wpmcp-full-20260910-test.zip';
+        file_put_contents($zip, 'PK not a change set');
+        $this->cleanup[] = $zip;
+
+        try {
+            (new Get_Change_Set())->handle(['path' => $zip]);
+            $this->fail('A site archive must be refused as a change set');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('not a change-set artifact', $e->getMessage());
+        }
+    }
+
+    public function test_a_missing_artifact_is_reported_as_a_change_set_not_a_backup(): void
+    {
+        try {
+            (new Get_Change_Set())->handle(['path' => trailingslashit(Site_Backup_Dir::path()) . 'wpmcp-changeset-never.json']);
+            $this->fail('A missing artifact must throw');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('No such change-set artifact.', $e->getMessage());
+        }
     }
 
     public function test_a_hand_edited_artifact_is_reported_not_fatal(): void

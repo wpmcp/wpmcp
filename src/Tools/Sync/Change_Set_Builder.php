@@ -2,7 +2,6 @@
 
 namespace WPMCP\Tools\Sync;
 
-use WPMCP\Pro\Gate;
 use WPMCP\Safety\Snapshot_Store;
 
 if (! defined('ABSPATH')) {
@@ -26,9 +25,11 @@ if (! defined('ABSPATH')) {
  *
  * 1. Truncation. Safe_Mutation prunes the ledger to the site's history
  *    limit after every write (20 rows by default), so a long build session's
- *    earliest rows may already be gone. The builder compares the marker
- *    against the surviving floor and reports `truncated` rather than
- *    handing back a silently partial set.
+ *    earliest rows may already be gone. For id-based markers the builder
+ *    compares the marker against the surviving floor; for a session marker
+ *    it reads the per-session prune record Snapshot_Store keeps, since the
+ *    surviving rows alone cannot say what a session lost. Either way it
+ *    reports `truncated` rather than handing back a silently partial set.
  * 2. Under-reporting. Object types this slice cannot export are listed one
  *    row per ledger row in `excluded`, never collapsed: `excluded` is the
  *    honest account of what the sync will NOT carry.
@@ -42,7 +43,8 @@ if (! defined('ABSPATH')) {
  * resolves attachments from parsed blocks (image/gallery/cover/video/audio/
  * file/media-text), classic `wp-image-N` markup, the featured image, and
  * the Elementor `_elementor_data` element tree. Referenced templates and
- * patterns are TODO, tracked in docs/wip/issue-192.md.
+ * patterns are TODO, tracked in
+ * docs/superpowers/plans/2026-09-10-local-live-sync-issue-192.md.
  */
 class Change_Set_Builder
 {
@@ -82,6 +84,24 @@ class Change_Set_Builder
     ];
 
     /**
+     * Which block attribute holds an attachment id, per core media block.
+     * Keyed by block name on purpose: `id` is not a media attribute in
+     * general (core/navigation-link stores the linked post id there, and
+     * third-party blocks use it freely), so reading it off every block
+     * reported pages as missing attachments. Unknown blocks still resolve
+     * through the wp-image-N markup they render.
+     */
+    private const BLOCK_MEDIA_ATTRS = [
+        'core/image'      => 'id',
+        'core/cover'      => 'id',
+        'core/audio'      => 'id',
+        'core/video'      => 'id',
+        'core/file'       => 'id',
+        'core/media-text' => 'mediaId',
+        'core/gallery'    => 'ids',
+    ];
+
+    /**
      * Build the change set for a marker.
      *
      * @param array $marker One of:
@@ -115,7 +135,10 @@ class Change_Set_Builder
             // Only numerically identified rows can be deduped: object_id is 0
             // for every string-keyed type (Snapshot_Store::db_object_id), so
             // keying those on the column would collapse them all into one.
-            $key = $kind . ':' . (int) $row['object_id'];
+            // The key is the post id alone, not kind + id: the same attachment
+            // arrives as a media_import row (kind attachment) and again as an
+            // update-post row (kind post), and both export the same post.
+            $key = (int) $row['object_id'];
             if (isset($seen[$key])) {
                 continue; // Ledger is newest-first; first hit wins.
             }
@@ -186,6 +209,13 @@ class Change_Set_Builder
      * this issue exists to prevent, so it is reported, loudly, in the
      * artifact itself.
      *
+     * A session marker is bounded by session_id, not by id, so the surviving
+     * rows cannot say what the session lost: on the free tier the ledger sits
+     * at its 20-row cap permanently after the twentieth mutation, and "the
+     * ledger is at cap" would flag every session ever built. The signal used
+     * instead is the per-session count Snapshot_Store::prune() records at the
+     * moment it discards rows, which is definitive in both directions.
+     *
      * @return array{truncated:bool, reason:string|null, retention_floor:int|null, rows_read:int}
      */
     private function truncation_report(array $marker, int $rows_read): array
@@ -193,22 +223,24 @@ class Change_Set_Builder
         $floor  = Snapshot_Store::min_id();
         $reason = null;
 
-        if (isset($marker['session_id']) && Snapshot_Store::row_count() >= Gate::history_limit()) {
-            // A session marker is bounded by session_id, not by id, so there
-            // is no way to know how many of its rows once existed. What IS
-            // knowable is that the ledger is sitting at its retention cap,
-            // which means prune() has been discarding rows, which means this
-            // session may well have lost its earliest ones.
-            $reason = sprintf(
-                'The ledger is at its retention cap of %d rows, so mutations earlier in this session may already have been pruned.',
-                Snapshot_Store::row_count()
-            );
+        if (isset($marker['session_id'])) {
+            $pruned = Snapshot_Store::pruned_rows_for_session((string) $marker['session_id']);
+            if ($pruned > 0) {
+                $reason = sprintf(
+                    '%d ledger row(s) from this session have already been pruned from the history, so its earliest mutations are not in this change set.',
+                    $pruned
+                );
+            }
+        }
+
+        if (null !== $reason) {
+            // Fall through to the report.
         } elseif ($rows_read >= self::MAX_LEDGER_ROWS) {
             $reason = sprintf(
                 'The ledger read hit the %d row cap, so older rows in this range were not examined.',
                 self::MAX_LEDGER_ROWS
             );
-        } elseif (null !== $floor) {
+        } elseif (! isset($marker['session_id']) && null !== $floor) {
             $marker_floor = null;
             try {
                 $marker_floor = $this->marker_floor($marker);
@@ -250,6 +282,17 @@ class Change_Set_Builder
      * locally is returned with `deleted` set rather than dropped: deletions
      * are reported, never applied automatically (see the issue's open
      * questions), so the apply side has to see them.
+     *
+     * A trashed post is a deletion in progress, not content: exporting its
+     * row as a live object would have the apply side publish on the target
+     * what the operator just removed locally. It carries `deleted` (so every
+     * consumer treats it as a deletion by default) plus `trashed`, so the
+     * apply side can tell "gone" from "in the trash" if it ever matters.
+     *
+     * The export kind follows the post's actual post_type when it exists:
+     * the ledger may record an attachment under a post-keyed row (an
+     * update-post on a media item), and object_type must say what the
+     * object is, not which tool touched it last.
      */
     private function export_object(string $kind, int $object_id): array
     {
@@ -259,6 +302,18 @@ class Change_Set_Builder
                 'object_type' => $kind,
                 'object_id'   => $object_id,
                 'deleted'     => true,
+            ];
+        }
+
+        $kind = 'attachment' === $post['post_type'] ? 'attachment' : 'post';
+
+        if ('trash' === $post['post_status']) {
+            return [
+                'object_type' => $kind,
+                'object_id'   => $object_id,
+                'post_type'   => $post['post_type'],
+                'deleted'     => true,
+                'trashed'     => true,
             ];
         }
 
@@ -361,7 +416,8 @@ class Change_Set_Builder
 
         // TODO(#192): resolve referenced templates/patterns (wp:pattern,
         // template part refs) and Elementor global classes used by exported
-        // templates. Tracked in docs/wip/issue-192.md.
+        // templates. Tracked in
+        // docs/superpowers/plans/2026-09-10-local-live-sync-issue-192.md.
         return [['attachments' => $attachments], $unresolved];
     }
 
@@ -412,9 +468,10 @@ class Change_Set_Builder
     }
 
     /**
-     * Media attributes across core's media blocks. `id` covers image/cover/
-     * audio/video/file, `mediaId` covers media-text, `ids` covers gallery
-     * (both the modern inner-block form and the legacy attribute form).
+     * Media attributes across core's media blocks, per BLOCK_MEDIA_ATTRS:
+     * `id` on image/cover/audio/video/file, `mediaId` on media-text, `ids`
+     * on gallery (the legacy attribute form; the modern gallery nests
+     * core/image inner blocks, which the recursion below reaches).
      *
      * @param array $blocks
      * @param int[] $ids
@@ -423,14 +480,10 @@ class Change_Set_Builder
     {
         foreach ($blocks as $block) {
             $attrs = (array) ($block['attrs'] ?? []);
+            $key   = self::BLOCK_MEDIA_ATTRS[ (string) ($block['blockName'] ?? '') ] ?? null;
 
-            foreach (['id', 'mediaId'] as $key) {
-                if (isset($attrs[$key]) && is_numeric($attrs[$key])) {
-                    $ids[] = (int) $attrs[$key];
-                }
-            }
-            if (isset($attrs['ids']) && is_array($attrs['ids'])) {
-                foreach ($attrs['ids'] as $one) {
+            if (null !== $key && isset($attrs[$key])) {
+                foreach ((array) $attrs[$key] as $one) {
                     if (is_numeric($one)) {
                         $ids[] = (int) $one;
                     }

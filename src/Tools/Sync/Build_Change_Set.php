@@ -27,6 +27,13 @@ if (! defined('ABSPATH')) {
  */
 class Build_Change_Set
 {
+    /**
+     * Filename prefix of every artifact this tool writes. Get_Change_Set
+     * refuses to read anything in the backup directory without it, so a
+     * multi-GB site archive can never be slurped into memory by mistake.
+     */
+    public const ARTIFACT_PREFIX = 'wpmcp-changeset-';
+
     /** @throws \RuntimeException */
     public function handle(array $args): array
     {
@@ -37,18 +44,22 @@ class Build_Change_Set
         $counts = $this->counts($change_set);
 
         if (0 === $counts['exported'] && 0 === $counts['deleted']) {
+            // No artifact, so the per-row excluded report has nowhere else to
+            // live: a bare "excluded: 3" would leave the operator unable to
+            // learn what three things the sync will not carry, or why.
             return [
-                'objects'   => $counts,
-                'excluded'  => count($change_set['excluded']),
-                'truncated' => $change_set['truncated'],
-                'note'      => 'No syncable objects found for this marker; no artifact written.',
+                'objects'       => $counts,
+                'excluded'      => count($change_set['excluded']),
+                'excluded_rows' => $change_set['excluded'],
+                'truncated'     => $change_set['truncated'],
+                'note'          => 'No syncable objects found for this marker; no artifact written.',
             ];
         }
 
         $dir = Site_Backup_Dir::path();
         Site_Backup_Dir::protect($dir);
 
-        $name = sprintf('wpmcp-changeset-%s-%s.json', gmdate('Ymd-His'), wp_generate_password(12, false, false));
+        $name = sprintf('%s%s-%s.json', self::ARTIFACT_PREFIX, gmdate('Ymd-His'), wp_generate_password(12, false, false));
         $path = trailingslashit($dir) . $name;
 
         $json = wp_json_encode($change_set, JSON_UNESCAPED_SLASHES);
@@ -95,7 +106,9 @@ class Build_Change_Set
      * Exactly one marker, and it must be non-empty. An empty session_id used
      * to pass isset() and come back as the reassuring "no syncable objects
      * found" rather than an argument error; two markers used to silently
-     * drop one of them.
+     * drop one of them; and since_id of 0 (which is also what any
+     * non-numeric value casts to) used to read the entire surviving ledger,
+     * the one thing the tool promises never to do.
      *
      * @throws \RuntimeException
      */
@@ -107,6 +120,11 @@ class Build_Change_Set
                 continue;
             }
             if ('since_id' === $key) {
+                if (! is_numeric($args[$key]) || (int) $args[$key] < 1) {
+                    throw new \RuntimeException(
+                        'since_id must be a ledger row id of 1 or more; to export everything after a known operation, pass its operation_id instead.'
+                    );
+                }
                 $marker[$key] = (int) $args[$key];
                 continue;
             }

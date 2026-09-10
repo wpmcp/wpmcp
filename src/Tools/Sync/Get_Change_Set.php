@@ -20,7 +20,16 @@ if (! defined('ABSPATH')) {
  * Read-only. Containment is delegated to Archive_Locator::resolve(), the
  * single security boundary for every path-taking tool in the backup
  * directory: re-implementing realpath + prefix here would mean the next
- * hardening fix lands in one copy only.
+ * hardening fix lands in one copy only. Only `path` is forwarded (job_id is
+ * not in this tool's schema, and honouring it would resolve a completed
+ * backup zip and then complain it is not a change set), and the locator's
+ * backup-flavoured not-found message is reworded so the agent is pointed at
+ * the right kind of object.
+ *
+ * The resolved file must look like something build-change-set wrote
+ * (wpmcp-changeset-*.json) before a byte of it is read: the same directory
+ * holds full site archives, and file_get_contents() on one of those is a
+ * memory_limit fatal, not the RuntimeException Registrar records.
  *
  * The artifact itself is untrusted after that check: it is a file on disk
  * that anything with write access to the directory could have truncated or
@@ -31,7 +40,15 @@ class Get_Change_Set
     /** @throws \RuntimeException */
     public function handle(array $args): array
     {
-        $real = Archive_Locator::resolve($args);
+        $real = $this->locate(isset($args['path']) ? (string) $args['path'] : '');
+
+        $base = wp_basename($real);
+        if (! str_starts_with($base, Build_Change_Set::ARTIFACT_PREFIX) || ! str_ends_with($base, '.json')) {
+            throw new \RuntimeException(sprintf(
+                'The file is not a change-set artifact: expected a %s*.json file written by build-change-set.',
+                Build_Change_Set::ARTIFACT_PREFIX
+            ));
+        }
 
         $json = file_get_contents($real);
         $set  = false !== $json ? json_decode($json, true) : null;
@@ -67,6 +84,23 @@ class Get_Change_Set
         return $summary;
     }
 
+    /** @throws \RuntimeException */
+    private function locate(string $path): string
+    {
+        if ('' === trim($path)) {
+            throw new \RuntimeException('Pass the path of a change-set artifact, as returned by build-change-set.');
+        }
+
+        try {
+            return Archive_Locator::resolve(['path' => $path]);
+        } catch (\RuntimeException $e) {
+            if ('No such backup archive.' === $e->getMessage()) {
+                throw new \RuntimeException('No such change-set artifact.', 0, $e);
+            }
+            throw $e;
+        }
+    }
+
     private function object_summary(array $object): array
     {
         return [
@@ -75,6 +109,7 @@ class Get_Change_Set
             'post_type'     => $object['post_type'] ?? null,
             'post_modified' => $object['post_modified'] ?? null,
             'deleted'       => ! empty($object['deleted']),
+            'trashed'       => ! empty($object['trashed']),
         ];
     }
 }

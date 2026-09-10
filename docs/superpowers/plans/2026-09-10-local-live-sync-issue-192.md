@@ -42,13 +42,20 @@ Implemented:
 - Truncation detection. `Safe_Mutation::run()` prunes the ledger to the
   licence's history limit after every write, and the free tier (and the
   wp.org build, where `strip.php` flattens the limit for everyone) keeps 20
-  rows. A session longer than that has already lost its earliest rows, so
-  the builder compares the marker against the surviving `MIN(id)` and
-  reports `truncated` in the artifact rather than handing back a silently
-  partial change set.
+  rows. A session longer than that has already lost its earliest rows. For
+  `since_id` / `operation_id` markers the builder compares the marker
+  against the surviving `MIN(id)`. For a `session_id` marker the surviving
+  rows cannot say what was lost (prune deletes by id, sessions interleave,
+  and on the free tier the ledger sits at its cap permanently after the
+  twentieth mutation), so `Snapshot_Store::prune()` records a per-session
+  pruned-row count in the `wpmcp_pruned_sessions` option (bounded to the
+  last 100 sessions) at the moment it deletes, and the builder reads that.
+  Either way the artifact says `truncated` rather than handing back a
+  silently partial change set.
 - Locally deleted objects are flagged `deleted`, never dropped, and counted
   separately from exported objects so "objects: 12" cannot mean zero
-  pushable pages.
+  pushable pages. A trashed post is flagged `deleted` plus `trashed`: the
+  apply side must never publish on the target what was just removed locally.
 - Attachment dependency resolution: featured image, parsed blocks
   (`parse_blocks()` walking `id` / `ids` / `mediaId`, so wp:video, wp:audio,
   wp:file, wp:media-text and galleries count), classic `wp-image-N` markup,
@@ -94,10 +101,12 @@ Remaining in phase 1:
   before-image in the marker range, or at minimum an `unchanged` flag the
   apply side skips by default.
 - Artifact lifecycle: change sets accumulate in the site-backup directory
-  with no list, retention or delete path, unlike site archives
-  (`Delete_Backup_Archive` plus a job record). Either give sync its own
-  list/delete counterpart or make change sets first-class in
-  `Backup_Job_Store`.
+  with no job record and no retention. `delete-backup-archive` already
+  removes one by path (it resolves through the same `Archive_Locator`), but
+  `build-change-set` never touches `Backup_Job_Store`, so `list-backup-jobs`
+  cannot show a change set and nothing ages them out. Either create a job
+  record for the artifact so the existing list/delete tooling covers it, or
+  give sync its own list/retention counterpart.
 
 ## Phase 2: apply to a target
 

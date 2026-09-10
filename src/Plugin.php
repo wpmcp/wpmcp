@@ -3833,7 +3833,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/build-change-set',
             'free',
-            'Derive a local-live sync change set from the snapshot ledger: every object touched since exactly one marker (session_id, operation_id, or a ledger row since_id), deduplicated, with its current state, terms and resolved attachment dependencies, serialized to an inspectable JSON artifact in the protected site-backup directory. Deletions are reported in the artifact, never applied automatically. Object types this slice cannot export are listed under excluded with a reason, and a change set derived from a ledger that has been pruned is reported as truncated rather than handed back as if it were complete. This is the export half of local-live sync; nothing is pushed anywhere',
+            'Derive a local-live sync change set from the snapshot ledger for one marker (session_id, operation_id or since_id) into an inspectable JSON artifact in the site-backup dir. Export only: deletions are reported, never applied, and nothing is pushed',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3850,7 +3850,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-change-set',
             'free',
-            'Inspect a change-set artifact before it is applied anywhere: origin site, per-object summary (type, id, modified time, deleted flag), resolved attachment dependencies with checksums, whether the ledger it came from had been pruned, and what was excluded and why. Pass include_objects=true for full object data. Read-only; paths outside the site-backup directory are refused',
+            'Inspect a change-set artifact before it is applied: origin, objects, attachments, exclusions, truncation. include_objects=true adds full data. Read-only; site-backup dir only',
             [
                 'type'       => 'object',
                 'properties' => [

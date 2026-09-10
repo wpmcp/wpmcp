@@ -234,6 +234,98 @@ class ChangeSetBuilderTest extends \WP_UnitTestCase
         $this->assertSame(Snapshot_Store::min_id(), $set['truncated']['retention_floor']);
     }
 
+    public function test_a_short_session_on_a_ledger_at_its_retention_cap_is_not_reported_as_truncated(): void
+    {
+        // On the free tier Safe_Mutation prunes to 20 rows after every write,
+        // so the ledger sits at its cap permanently after the twentieth
+        // mutation. "The ledger is at cap" is therefore not a signal about
+        // THIS session: a three-row session written after the cap was
+        // reached has lost nothing.
+        $other = self::factory()->post->create();
+        for ($i = 0; $i < 25; $i++) {
+            $this->note("other-{$i}", 'other', 'post', $other);
+        }
+        Snapshot_Store::prune(20);
+
+        $mine = self::factory()->post->create();
+        $this->note('short-1', 'short', 'post', $mine);
+        $this->note('short-2', 'short', 'post', $mine);
+        $this->note('short-3', 'short', 'post', $mine);
+
+        $set = (new Change_Set_Builder())->build(['session_id' => 'short']);
+
+        $this->assertCount(1, $set['objects']);
+        $this->assertFalse($set['truncated']['truncated'], 'A session that lost no rows is complete, cap or no cap');
+        $this->assertSame(3, $set['truncated']['rows_read']);
+    }
+
+    public function test_a_session_that_lost_rows_to_pruning_is_reported_as_truncated(): void
+    {
+        $mine = self::factory()->post->create();
+        $this->note('long-1', 'long', 'post', $mine);
+        $this->note('long-2', 'long', 'post', $mine);
+        $this->note('long-3', 'long', 'post', $mine);
+
+        $other = self::factory()->post->create();
+        for ($i = 0; $i < 19; $i++) {
+            $this->note("other-{$i}", 'other', 'post', $other);
+        }
+        // 22 rows, keep 20: the two oldest, both from 'long', are discarded.
+        $this->assertSame(2, Snapshot_Store::prune(20));
+
+        $set = (new Change_Set_Builder())->build(['session_id' => 'long']);
+
+        $this->assertCount(1, $set['objects'], 'The surviving row still exports');
+        $this->assertTrue($set['truncated']['truncated']);
+        $this->assertStringContainsString('2 ledger row(s)', (string) $set['truncated']['reason']);
+        $this->assertStringContainsString('pruned', (string) $set['truncated']['reason']);
+    }
+
+    public function test_a_trashed_object_is_reported_as_deleted_not_exported_as_live_content(): void
+    {
+        $post = self::factory()->post->create(['post_title' => 'Binned']);
+        $this->note('op-1', 'sess', 'post', $post);
+        wp_trash_post($post);
+
+        $set = (new Change_Set_Builder())->build(['session_id' => 'sess']);
+
+        $this->assertCount(1, $set['objects']);
+        $this->assertTrue($set['objects'][0]['deleted'], 'A trashed post must not be pushed as live content');
+        $this->assertTrue($set['objects'][0]['trashed']);
+        $this->assertArrayNotHasKey('data', $set['objects'][0]);
+    }
+
+    public function test_non_media_block_ids_are_not_treated_as_attachment_references(): void
+    {
+        // core/navigation-link stores the linked post id in `id`; reading
+        // `id` off every block reported the linked page as a missing image.
+        $target = self::factory()->post->create(['post_type' => 'page']);
+        $post   = self::factory()->post->create([
+            'post_content' => '<!-- wp:navigation-link {"label":"About","type":"page","id":' . $target . ',"kind":"post-type"} /-->',
+        ]);
+        $this->note('op-1', 'sess', 'post', $post);
+
+        $set = (new Change_Set_Builder())->build(['session_id' => 'sess']);
+
+        $this->assertSame([], $set['dependencies']['attachments']);
+        $this->assertSame([], $set['excluded'], 'A linked page is not a missing attachment');
+    }
+
+    public function test_an_attachment_touched_under_two_ledger_kinds_exports_once(): void
+    {
+        // A media_import row (kind attachment) and a later update-post row on
+        // the same attachment (kind post) describe one object.
+        $image = self::factory()->attachment->create_upload_object(DIR_TESTDATA . '/images/canola.jpg');
+        $this->note('op-1', 'sess', 'media_import', $image, 'import-media');
+        $this->note('op-2', 'sess', 'post', $image);
+
+        $set = (new Change_Set_Builder())->build(['session_id' => 'sess']);
+
+        $this->assertCount(1, $set['objects']);
+        $this->assertSame('attachment', $set['objects'][0]['object_type']);
+        $this->assertSame([$image], wp_list_pluck($set['dependencies']['attachments'], 'object_id'));
+    }
+
     public function test_a_marker_inside_the_surviving_range_is_not_reported_as_truncated(): void
     {
         $post  = self::factory()->post->create();
