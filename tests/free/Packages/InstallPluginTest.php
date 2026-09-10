@@ -28,6 +28,24 @@ class InstallPluginTest extends \WP_UnitTestCase
         wp_set_current_user($user_id);
     }
 
+    /**
+     * The mirror image: an administrator, who holds install_plugins, with
+     * activate_plugins explicitly denied on the user. A user-level false
+     * overrides the role grant in WP_User::get_role_caps(), so this is the
+     * exact seam the handler's own check adds on top of the registrar's
+     * install_plugins gate.
+     */
+    private function become_administrator_denied(string $capability): void
+    {
+        $user_id = self::factory()->user->create(['role' => 'administrator']);
+        $user    = new \WP_User($user_id);
+        $user->add_cap($capability, false);
+        wp_set_current_user($user_id);
+
+        $this->assertFalse(current_user_can($capability));
+        $this->assertTrue(current_user_can('install_plugins'));
+    }
+
     protected function tearDown(): void
     {
         deactivate_plugins(['hello.php'], true);
@@ -80,7 +98,7 @@ class InstallPluginTest extends \WP_UnitTestCase
      */
     public function test_activate_true_requires_activate_plugins_capability(): void
     {
-        wp_set_current_user(0);
+        $this->become_administrator_denied('activate_plugins');
 
         try {
             (new Install_Plugin())->handle(['slug' => 'akismet', 'activate' => true]);
@@ -103,6 +121,28 @@ class InstallPluginTest extends \WP_UnitTestCase
         $this->assertArrayHasKey('operation_id', $out);
         $this->assertContains('hello.php', (array) get_option('active_plugins', []));
         $this->assertNotNull(Snapshot_Store::get_by_operation($out['operation_id']));
+    }
+
+    /**
+     * activate_plugin() returning a WP_Error must leave the response honest:
+     * activated:false, rolled_back:true, no operation_id (there is nothing
+     * left to undo), and active_plugins exactly as it was. The verify
+     * callback is what makes this hold for the unexpected_output case too,
+     * where core writes the option before it reports the error.
+     */
+    public function test_failed_activation_is_reported_and_rolled_back(): void
+    {
+        $this->become_user_who_can('activate_plugins');
+
+        $before = (array) get_option('active_plugins', []);
+
+        $out = (new Install_Plugin())->activate_installed('does-not-exist/does-not-exist.php', []);
+
+        $this->assertFalse($out['activated']);
+        $this->assertTrue($out['rolled_back']);
+        $this->assertNotEmpty($out['error']);
+        $this->assertArrayNotHasKey('operation_id', $out);
+        $this->assertSame($before, (array) get_option('active_plugins', []));
     }
 
     public function test_activate_step_is_rollbackable(): void

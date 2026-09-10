@@ -34,6 +34,23 @@ class InstallThemeTest extends \WP_UnitTestCase
         wp_set_current_user($user_id);
     }
 
+    /**
+     * An administrator, who holds install_themes, with switch_themes
+     * explicitly denied on the user: a user-level false overrides the role
+     * grant, so this exercises the handler's own check rather than the
+     * registrar's install_themes gate.
+     */
+    private function become_administrator_denied(string $capability): void
+    {
+        $user_id = self::factory()->user->create(['role' => 'administrator']);
+        $user    = new \WP_User($user_id);
+        $user->add_cap($capability, false);
+        wp_set_current_user($user_id);
+
+        $this->assertFalse(current_user_can($capability));
+        $this->assertTrue(current_user_can('install_themes'));
+    }
+
     private function other_installed_theme(): string
     {
         foreach (array_keys(wp_get_themes()) as $slug) {
@@ -83,7 +100,7 @@ class InstallThemeTest extends \WP_UnitTestCase
      */
     public function test_activate_true_requires_switch_themes_capability(): void
     {
-        wp_set_current_user(0);
+        $this->become_administrator_denied('switch_themes');
 
         try {
             (new Install_Theme())->handle(['slug' => 'astra', 'activate' => true]);

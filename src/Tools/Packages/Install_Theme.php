@@ -2,10 +2,6 @@
 
 namespace WPMCP\Tools\Packages;
 
-use WPMCP\Safety\Snapshot;
-use WPMCP\Safety\Snapshot_Store;
-use WPMCP\Pro\Gate;
-
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -20,10 +16,10 @@ if (! defined('ABSPATH')) {
  * The optional activate:true step is NOT exempt. The theme being switched TO
  * is new, but the theme being switched FROM is not: switch_theme() overwrites
  * the 'template' and 'stylesheet' options, and those prior values are real
- * state. Both are snapshotted before the switch, through the same
- * Snapshot/Snapshot_Store machinery Switch_Theme uses and for the same reason
- * (one core call changes two options, so the snapshots are taken up front and
- * recorded individually rather than through Safe_Mutation::run).
+ * state. Both are snapshotted before the switch by delegating to
+ * Switch_Theme::snapshot_and_switch(), the one copy of that block (one core
+ * call changes two options, so the snapshots are taken up front and recorded
+ * individually rather than through Safe_Mutation::run).
  *
  * That step also does the work the wp-admin Themes screen gates on
  * switch_themes, while the ability itself is registered under install_themes.
@@ -96,24 +92,7 @@ class Install_Theme
     {
         self::require_switch_capability();
 
-        $session_id = (string) ($args['session_id'] ?? 'default');
-        $args_hash  = hash('sha256', wp_json_encode($args));
-
-        $operation_ids = [];
-        foreach (['template', 'stylesheet'] as $option_name) {
-            $operation_id = wp_generate_uuid4();
-            Snapshot_Store::save(
-                $operation_id,
-                $session_id,
-                Snapshot::capture('option', $option_name),
-                'install-theme',
-                $args_hash
-            );
-            $operation_ids[] = $operation_id;
-        }
-        Snapshot_Store::prune(Gate::history_limit());
-
-        switch_theme($slug);
+        $operation_ids = Switch_Theme::snapshot_and_switch($slug, 'install-theme', $args);
 
         return [
             'activated'     => get_stylesheet() === $slug,

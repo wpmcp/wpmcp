@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Packages;
 
+use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Safe_Mutation;
 
 if (! defined('ABSPATH')) {
@@ -89,34 +90,60 @@ class Install_Plugin
     }
 
     /**
-     * The activate:true step, snapshotted. Public so the guarded path is
-     * directly testable without a network install standing in front of it.
+     * The activate:true step, snapshotted and verified. Public so the guarded
+     * path is directly testable without a network install standing in front
+     * of it.
      *
-     * A failed activation is reported as activated:false rather than thrown:
-     * the install itself did succeed and the caller needs to hear that. No
-     * verify callback is passed to Safe_Mutation for the same reason.
+     * The mutation runs through Safe_Mutation with the same verify callback
+     * Activate_Plugin uses. That matters for the case core handles badly:
+     * activate_plugin() writes 'active_plugins' BEFORE it returns
+     * WP_Error('unexpected_output') for a plugin that echoes on activation, so
+     * without the verify step the plugin would stay active while the response
+     * said otherwise. With it, the snapshot is restored and the response says
+     * activated:false plus rolled_back:true.
      *
-     * @return array{activated: bool, operation_id: string}
+     * A failed activation is reported rather than thrown: the install itself
+     * did succeed and the caller needs to hear that. No operation_id is
+     * returned on that branch, since the prior state is already back in
+     * place and there is nothing left for rollback-operation to undo.
+     *
+     * @return array{activated: bool, operation_id?: string, rolled_back?: bool, error?: string}
      */
     public function activate_installed(string $plugin_file, array $args): array
     {
         self::require_activate_capability();
 
-        $out = Safe_Mutation::run(
-            [
-                'object_type' => 'option',
-                'object_id'   => 'active_plugins',
-                'session_id'  => (string) ($args['session_id'] ?? 'default'),
-                'tool_name'   => 'install-plugin',
-                'args'        => $args,
-            ],
-            function () use ($plugin_file) {
-                return activate_plugin($plugin_file);
-            }
-        );
+        $error = '';
+        try {
+            $out = Safe_Mutation::run(
+                [
+                    'object_type' => 'option',
+                    'object_id'   => 'active_plugins',
+                    'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                    'tool_name'   => 'install-plugin',
+                    'args'        => $args,
+                ],
+                function () use ($plugin_file, &$error) {
+                    $result = activate_plugin($plugin_file);
+                    if (is_wp_error($result)) {
+                        $error = $result->get_error_message();
+                    }
+                    return $result;
+                },
+                function ($result) {
+                    return ! is_wp_error($result);
+                }
+            );
+        } catch (Mutation_Failed $e) {
+            return [
+                'activated'   => false,
+                'rolled_back' => true,
+                'error'       => '' !== $error ? $error : $e->getMessage(),
+            ];
+        }
 
         return [
-            'activated'    => ! is_wp_error($out['result']),
+            'activated'    => true,
             'operation_id' => $out['operation_id'],
         ];
     }

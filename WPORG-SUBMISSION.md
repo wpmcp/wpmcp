@@ -261,6 +261,14 @@ installers' optional `activate: true` step) both capabilities are checked. It
 is the same capability an administrator already has in wp-admin, exposed to the
 tool surface they chose to connect.
 
+Nothing runs in the background either. The only activation hook creates
+tables; `wpmcp/schedule-event` refuses the core update hooks
+(`wp_update_plugins`, `wp_update_themes`, `wp_maybe_auto_update`); and the
+one cron tool that can fire those already-scheduled core hooks early,
+`wpmcp/run-event`, ships disabled until a site opts in by filter, is gated on
+`manage_options`, replays only core's stored args, and so at most runs core's
+own updater against WordPress.org a little sooner than core would have.
+
 The long-form version of this answer, with the complete file:line list of
 every install, activate and delete site plus the shared guardrails, is
 `docs/wporg/guideline-8-install-abilities.md`. If the reviewer pushes past

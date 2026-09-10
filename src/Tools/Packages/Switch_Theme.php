@@ -2,7 +2,7 @@
 
 namespace WPMCP\Tools\Packages;
 
-use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Operation_Context;
 use WPMCP\Safety\Snapshot;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Pro\Gate;
@@ -44,6 +44,24 @@ class Switch_Theme
             throw new \RuntimeException("Theme \"{$stylesheet}\" was not found.");
         }
 
+        $operation_ids = self::snapshot_and_switch($stylesheet, 'switch-theme', $args);
+
+        return ['operation_ids' => $operation_ids, 'stylesheet' => $stylesheet, 'switched' => true];
+    }
+
+    /**
+     * Snapshot 'template' and 'stylesheet', then switch_theme(). Shared with
+     * Install_Theme's activate:true step so there is exactly one copy of this
+     * block, one Gate call site for the wp.org build to rewrite, and one
+     * place that notes the operation ids for Request_Log (issue #134).
+     *
+     * @param  string $stylesheet The theme to switch to.
+     * @param  string $tool_name  The tool label recorded on the snapshots.
+     * @param  array  $args       The tool call's arguments, hashed onto the snapshots.
+     * @return array<int, string> One operation id per snapshotted option.
+     */
+    public static function snapshot_and_switch(string $stylesheet, string $tool_name, array $args): array
+    {
         $session_id = (string) ($args['session_id'] ?? 'default');
         $args_hash  = hash('sha256', wp_json_encode($args));
 
@@ -54,15 +72,16 @@ class Switch_Theme
                 $operation_id,
                 $session_id,
                 Snapshot::capture('option', $option_name),
-                'switch-theme',
+                $tool_name,
                 $args_hash
             );
+            Operation_Context::note($operation_id);
             $operation_ids[] = $operation_id;
         }
         Snapshot_Store::prune(Gate::history_limit());
 
         switch_theme($stylesheet);
 
-        return ['operation_ids' => $operation_ids, 'stylesheet' => $stylesheet, 'switched' => true];
+        return $operation_ids;
     }
 }
