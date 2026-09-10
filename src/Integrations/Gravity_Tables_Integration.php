@@ -44,6 +44,7 @@ class Gravity_Tables_Integration extends Integration_Dispatcher
         // last_error) when Gravity Tables has created it, and errors when it
         // has not. More reliable than SHOW TABLES/information_schema, which
         // do not reflect the table inside the test harness transaction.
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- existence probe against a third-party table name built from $wpdb->prefix; no input reaches it.
         $wpdb->get_var("SELECT 1 FROM `{$table}` LIMIT 1");
         $exists = '' === $wpdb->last_error;
         $wpdb->suppress_errors($suppress);
@@ -65,6 +66,7 @@ class Gravity_Tables_Integration extends Integration_Dispatcher
                 'handler'      => function (): array {
                     global $wpdb;
                     $table = self::table();
+                    // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- third-party table name built from $wpdb->prefix; values, when present, are bound by prepare().
                     $rows  = $wpdb->get_results(
                         "SELECT id, title, form_id, shortcode, updated_at FROM `{$table}` WHERE status = 'active' ORDER BY updated_at DESC",
                         ARRAY_A
@@ -93,6 +95,7 @@ class Gravity_Tables_Integration extends Integration_Dispatcher
                 'handler'      => function (array $args): array {
                     global $wpdb;
                     $table = self::table();
+                    // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- third-party table name built from $wpdb->prefix; values, when present, are bound by prepare().
                     $row   = $wpdb->get_row(
                         $wpdb->prepare("SELECT * FROM `{$table}` WHERE id = %d", (int) $args['table_id']),
                         ARRAY_A

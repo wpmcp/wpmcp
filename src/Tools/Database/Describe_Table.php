@@ -25,6 +25,7 @@ class Describe_Table
         }
 
         global $wpdb;
+        // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- table identifier, backticks stripped; identifiers cannot be bound as placeholders and the name is validated before it gets here.
         $columns = $wpdb->get_results('DESCRIBE `' . str_replace('`', '', $table) . '`', ARRAY_A);
 
         return [

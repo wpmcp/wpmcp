@@ -117,7 +117,9 @@ class Audit_Log_Page
 
         foreach ($ops as $op) {
             $user  = get_userdata((int) $op['user_id']);
-            $who   = $user ? $user->display_name : sprintf(__('User #%d', 'wpmcp'), (int) $op['user_id']);
+            /* translators: %d: numeric user ID. */
+            $user_label = __('User #%d', 'wpmcp');
+            $who   = $user ? $user->display_name : sprintf($user_label, (int) $op['user_id']);
             $what  = sprintf('%s (#%d)', $op['tool_name'], (int) $op['object_id']);
 
             echo '<tr>';
@@ -170,15 +172,19 @@ class Audit_Log_Page
             );
             printf('<td>%s</td>', esc_html((string) ($row['tool'] ?? '')));
             printf('<td>%s</td>', esc_html((string) ($row['client'] ?? '')));
+            /* translators: %s: machine-readable error code. */
+            $error_label = __('Error: %s', 'wpmcp');
             printf(
                 '<td>%s</td>',
                 empty($row['ok'])
-                    ? esc_html(sprintf(__('Error: %s', 'wpmcp'), (string) ($row['error_code'] ?? '')))
+                    ? esc_html(sprintf($error_label, (string) ($row['error_code'] ?? '')))
                     : esc_html__('OK', 'wpmcp')
             );
+            /* translators: %d: duration in milliseconds. */
+            $duration_label = __('%d ms', 'wpmcp');
             printf(
                 '<td>%s</td>',
-                esc_html(sprintf(__('%d ms', 'wpmcp'), (int) ($row['duration_ms'] ?? 0)))
+                esc_html(sprintf($duration_label, (int) ($row['duration_ms'] ?? 0)))
             );
             echo '<td>';
             $this->render_undo_link((string) ($row['operation_id'] ?? ''));
