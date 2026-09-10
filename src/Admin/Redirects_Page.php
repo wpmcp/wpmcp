@@ -2,6 +2,7 @@
 
 namespace WPMCP\Admin;
 
+use WPMCP\Plugin;
 use WPMCP\Tools\Redirects\Redirect_Store;
 use WPMCP\Tools\Redirects\Redirect_Suggestions;
 
@@ -28,7 +29,7 @@ class Redirects_Page
 
     public function render(): void
     {
-        echo '<div class="wrap"><h1>' . esc_html__('wpmcp: Redirects', 'wpmcp') . '</h1>';
+        echo '<div class="wrap"><h1>' . esc_html(Plugin::page_title(_x('Redirects', 'admin menu', 'wpmcp'))) . '</h1>';
 
         $this->render_redirects();
         $this->render_suggestions();
