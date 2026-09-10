@@ -5,7 +5,7 @@ submitted.** Submission needs a WordPress.org account, and no account exists
 yet; that is the first blocking item below. Nothing in this document should be
 read as "filed" or "in review".
 
-Status of the artifact: `dist/wpmcp-0.8.0.zip`, built by
+Status of the artifact: `dist/wpmcp-0.8.1.zip`, built by
 `scripts/build-wporg-release.sh`, passes the compliance engine's `wporg-free`
 profile against the extracted zip with zero blockers and zero likely-reject
 findings.
@@ -135,14 +135,30 @@ mcp, mcp server, ai agent, automation, undo
 competitor and vendor names as tags. The tag list was already at five, so
 dropping it cost nothing.
 
-**Version headers:** `Stable tag: 0.8.0`, `Requires at least: 6.9`,
-`Tested up to: 7.0`, `Requires PHP: 8.1`, `License: GPLv2 or later`. The stable
+The block above is what ships. `tests/free/Release/ReleaseHeadersTest.php`
+reads it from this file and asserts that `scripts/flavors/wporg/readme.txt`,
+the readme `scripts/build-wporg-release.sh` stages as the listing, carries it
+verbatim, so this document and the listing cannot drift apart. The same test
+gates the tag lists of the root `readme.txt` (the general GitHub zip) and the
+WooCommerce flavor for the five-tag maximum and for vendor marks. That cover
+matters because the compliance engine only reads the readme at the root of the
+tree it scans, so `composer compliance` never sees a flavor readme.
+
+**Version headers:** `Stable tag: 0.8.1`, `Requires at least: 6.9`,
+`Tested up to: 7.1`, `Requires PHP: 8.1`, `License: GPLv2 or later`. The stable
 tag is substituted from `WPMCP_VERSION` at build time, so it cannot drift from
-the main file.
+the main file. `Tested up to` is not substituted: it is written out in all four
+shipped headers, so `tests/free/Release/ReleaseHeadersTest.php` asserts they
+agree and gate 4b in `scripts/build-wporg-release.sh` re-derives the same check
+from the staged zip. The values above are the ones to re-read (and re-pin)
+before every release, per `docs/release-checklist.md`.
 
 ---
 
 ## 4. Submission steps
+
+Run `docs/release-checklist.md` first: it is the release sequence, and steps 1
+to 3 below assume its version and header boxes are already ticked.
 
 1. Build a fresh zip: `composer build:wporg`. It fails rather than produces an
    artifact if any gate trips, and its last step is the compliance engine
@@ -150,9 +166,11 @@ the main file.
 2. Run Plugin Check as well, against the same zip. The engine covers the
    guideline-level judgements Plugin Check does not encode; Plugin Check covers
    the sniff layer and the runtime checks the engine cannot. The reviewer runs
-   Plugin Check, so run it too, on a real WordPress 7.0.
+   Plugin Check, so run it too, on a real install of the WordPress release
+   `Tested up to` names (CI's `plugin-check` job runs it against the same zip
+   on every push, but not on a live site).
 3. Sign in at <https://wordpress.org/plugins/developers/add/>.
-4. Upload `dist/wpmcp-0.8.0.zip`. The whole plugin is examined before approval,
+4. Upload `dist/wpmcp-0.8.1.zip`. The whole plugin is examined before approval,
    which is why the zip is required and why a placeholder submission would be
    rejected under guideline 16.
 5. **On the confirmation screen, check the derived slug** and change it to
@@ -309,7 +327,7 @@ cd /tmp/wpmcp-svn
 
 # trunk is the working copy of the current release
 rm -rf trunk/*
-unzip -q /path/to/dist/wpmcp-0.8.0.zip -d /tmp/unpacked
+unzip -q /path/to/dist/wpmcp-0.8.1.zip -d /tmp/unpacked
 cp -R /tmp/unpacked/wpmcp/. trunk/
 
 svn add --force trunk
@@ -321,15 +339,15 @@ svn status | grep '^!' | awk '{print $2}' | xargs -r svn rm
 #   assets/icon-256x256.png, assets/icon-128x128.png
 #   assets/screenshot-1.png ... matching the readme's == Screenshots == order
 
-svn ci -m "Release 0.8.0"
+svn ci -m "Release 0.8.1"
 ```
 
 Then tag it. The tag is what the directory actually serves, and `Stable tag:`
 in `trunk/readme.txt` must name it:
 
 ```bash
-svn cp trunk tags/0.8.0
-svn ci -m "Tag 0.8.0"
+svn cp trunk tags/0.8.1
+svn ci -m "Tag 0.8.1"
 ```
 
 Every later release:
@@ -350,3 +368,9 @@ than committing a readme tweak on its own.
 `Tested up to:` needs a bump after each WordPress major, and needs actual
 testing first. Plugin Check errors when it trails the current release, and a
 plugin that trails stops appearing in directory search.
+
+**`docs/release-checklist.md` is the authoritative per-release sequence** for
+both of those, and for the two other artifacts (`scripts/build-woo-release.sh`
+and `scripts/build-release.sh`) that this section does not cover. Work from
+that file and treat the steps above as background on why each one exists; when
+the two disagree, the checklist wins and this section gets corrected.

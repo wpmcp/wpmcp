@@ -95,6 +95,10 @@ const REMOVED_METHODS = [
     'register_elementor_structural_abilities',
     'register_brand_kit_abilities',
     'register_memory_abilities',
+    // Not pro, but not for this build either: the directory delivers language
+    // packs just in time, and I18n_Rule flags load_plugin_textdomain() as
+    // unnecessary there. The off-directory builds keep it (issue #184).
+    'load_textdomain',
 ];
 
 /**
@@ -335,6 +339,16 @@ $plugin_edits[] = [
 // group method. Its registration goes with remove_pro_abilities(); this is
 // the local it was assigned to.
 $plugin_edits[] = ["        \$insert_stock_image  = new Insert_Stock_Image();\n", '', 1];
+
+// The self-hosted translation loader goes with its method (REMOVED_METHODS):
+// the directory serves language packs, so the languages/ directory the header
+// points at is only ever read by the off-directory builds.
+$plugin_edits[] = [
+    "            // Self-hosted translations from languages/ (issue #184).\n"
+        . "            add_action('init', [\$this, 'load_textdomain']);\n",
+    '',
+    1,
+];
 
 // Documentation the reviewer reads too: a build with no licence gate must not
 // describe one.
