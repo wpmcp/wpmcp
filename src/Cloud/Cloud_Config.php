@@ -28,14 +28,114 @@ class Cloud_Config
         return (string) get_option(self::KEY_OPTION, '');
     }
 
-    public static function is_configured(): bool
+    /**
+     * The credential Cloud_Client should present: the OAuth access token from
+     * the encrypted vault (issue #135 phase B), falling back to the phase A
+     * API key.
+     *
+     * The vault token is used only when it is BOTH unexpired and issued by
+     * the cloud we are currently pointed at. Without the issuer check, running
+     * cloud-connect against a different (possibly operator-mistyped, possibly
+     * hostile) URL would ship the previous cloud's bearer token to the new
+     * host; without the expiry check, a dead bundle would permanently shadow a
+     * working API key. Refreshing an expired bundle is Cloud_Client's job
+     * (retry-once on 401), not this getter's: no network happens here.
+     */
+    public static function bearer_token(): string
     {
-        return '' !== self::base_url() && '' !== self::api_key();
+        $bundle = self::live_bundle();
+        if (null !== $bundle) {
+            return $bundle['access_token'];
+        }
+
+        return self::api_key();
     }
 
+    /**
+     * The vault bundle when it is usable against the configured cloud, else
+     * null. A bundle that is merely expired is still "ours" and is returned by
+     * Token_Vault::read() for refresh purposes; this narrower view is what may
+     * go on the wire as-is.
+     *
+     * @return array{access_token:string,refresh_token:string,expires_at:int,issuer:string}|null
+     */
+    public static function live_bundle(): ?array
+    {
+        $bundle = Token_Vault::read();
+        if (null === $bundle || '' === $bundle['access_token']) {
+            return null;
+        }
+        if ('' !== $bundle['issuer'] && self::normalize($bundle['issuer']) !== self::base_url()) {
+            return null;
+        }
+        if ($bundle['expires_at'] > 0 && $bundle['expires_at'] <= time()) {
+            return null;
+        }
+
+        return $bundle;
+    }
+
+    /**
+     * The vault bundle when it belongs to the cloud this site points at,
+     * regardless of expiry. This is the "may we rotate it?" view, as distinct
+     * from live_bundle()'s "may we put it on the wire as-is?": an expired
+     * bundle is precisely the one that needs refreshing, but a bundle from
+     * another issuer must not be refreshed at all, because the refresh grant
+     * goes to that issuer.
+     *
+     * @return array{access_token:string,refresh_token:string,expires_at:int,issuer:string}|null
+     */
+    public static function refreshable_bundle(): ?array
+    {
+        $bundle = Token_Vault::read();
+        if (null === $bundle) {
+            return null;
+        }
+        if ('' !== $bundle['issuer'] && self::normalize($bundle['issuer']) !== self::base_url()) {
+            return null;
+        }
+
+        return $bundle;
+    }
+
+    public static function is_configured(): bool
+    {
+        return '' !== self::base_url() && ('' !== self::api_key() || Token_Vault::has_bundle());
+    }
+
+    /**
+     * Point the site at a cloud. Any sealed token bundle is dropped: it was
+     * minted by the previous connect (possibly by a different cloud entirely)
+     * and must never outlive it.
+     */
     public static function set(string $url, string $key): void
     {
-        update_option(self::URL_OPTION, esc_url_raw(rtrim($url, '/')));
+        Token_Vault::clear();
+        self::set_url($url);
         update_option(self::KEY_OPTION, sanitize_text_field($key));
+    }
+
+    /**
+     * Write the cloud URL WITHOUT clearing the vault.
+     *
+     * Cloud_Oauth::exchange() needs exactly this: it has just minted a bundle
+     * for $url and must point the site at that cloud so live_bundle()'s issuer
+     * check passes, but calling set() would destroy the token it is about to
+     * store. Both the option and the bundle issuer go through normalize(), so
+     * the issuer comparison cannot drift on punctuation.
+     */
+    public static function set_url(string $url): void
+    {
+        update_option(self::URL_OPTION, self::normalize($url));
+    }
+
+    /**
+     * The one normalization used for BOTH sides of the issuer comparison.
+     * esc_url_raw plus a trailing-slash trim, in that order, so
+     * "https://cloud.example/" and "https://cloud.example" are one value.
+     */
+    public static function normalize(string $url): string
+    {
+        return rtrim(esc_url_raw(rtrim(trim($url), '/')), '/');
     }
 }

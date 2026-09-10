@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 304,
+    'total'     => 306,
     'free'      => 213,
-    'pro'       => 91,
+    'pro'       => 93,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -46,11 +46,13 @@ return [
         'wpmcp/cancel-cli-job' => 'pro',
         'wpmcp/check-contrast' => 'pro',
         'wpmcp/clear-cache' => 'free',
+        'wpmcp/cloud-apply-settings' => 'pro',
         'wpmcp/cloud-connect' => 'pro',
         'wpmcp/cloud-list-assets' => 'pro',
         'wpmcp/cloud-pull-assets' => 'pro',
         'wpmcp/cloud-push-assets' => 'pro',
         'wpmcp/cloud-status' => 'pro',
+        'wpmcp/cloud-sync-settings' => 'pro',
         'wpmcp/contactform7-read' => 'free',
         'wpmcp/contactform7-write' => 'free',
         'wpmcp/convert-html-to-blocks' => 'free',
