@@ -3727,7 +3727,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Check whether a site-backup archive (by job id or archive path) can be restored onto this site. dry_run defaults to TRUE and returns a compatibility report without touching anything: manifest format and format_version, archive scope (only all or database archives carry a dump), table prefix, multisite, WordPress version, and BLOB-table warnings. In this release only the dry_run report is available: dry_run=false runs the same gate and is then refused with a clear message, because the execution path (pre-restore safety archive, maintenance mode, statement-by-statement import, optional include_files wp-content swap) has not shipped yet. include_files (default false) is validated against the archive scope. Paths outside the site-backup directory are refused',
+            'Compatibility check for restoring a site-backup archive (job_id or path) onto this site. dry_run defaults to TRUE and returns a report without touching anything: manifest format and format_version, archive scope (only all or database archives carry a dump), table prefix, multisite, WordPress version, BLOB-table warnings. This release implements only the dry_run report: dry_run=false runs the same gate and is then refused as not implemented (the execution path with pre-restore safety archive, maintenance mode and statement-by-statement import has not shipped). include_files (default false) is refused unless the archive scope is all. Paths outside the site-backup directory are refused',
             [
                 'type'       => 'object',
                 'properties' => [
