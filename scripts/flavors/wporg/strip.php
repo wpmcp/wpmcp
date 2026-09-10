@@ -69,6 +69,11 @@ const REMOVED_PATHS = [
     'src/Tools/Performance/Curl_Dns_Pin.php',
     // Paid ability whose handler lives inside an otherwise free directory.
     'src/Tools/Media/Stock/Insert_Stock_Image.php',
+    // Cloud settings sync (issue #135). The engine behind the paid
+    // cloud-sync-settings / cloud-apply-settings wrappers, and its apply()
+    // path is the Pro\Gate entitlement itself. Only src/Tools/Cloud reaches
+    // it, so once the wrappers are gone it goes too.
+    'src/Cloud/Settings_Sync.php',
     // Brand kits (issue #75). Every class under here is reachable only from
     // register_brand_kit_abilities, which this build deletes, and the kit
     // library itself is data rather than a free feature, so the directory
