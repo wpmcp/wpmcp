@@ -9,6 +9,7 @@ use WPMCP\Compliance\Rules\I18n_Rule;
 use WPMCP\Compliance\Rules\Readme_Rule;
 use WPMCP\Compliance\Rules\Short_Url_Rule;
 use WPMCP\Compliance\Rules\Trademark_Rule;
+use WPMCP\Compliance\Severity;
 
 /**
  * Group D of the rulebook: the listing, the name and the admin experience.
@@ -150,6 +151,59 @@ class ListingRulesTest extends Compliance_Test_Case
 
         $this->assert_reports($findings, "hooks admin_notices");
         $this->assert_reports($findings, 'pay-to-unlock copy "upgrade to unlock"');
+    }
+
+    /**
+     * The distribution zip ships the paid tier and gates it, and the profile
+     * already downgrades that gating (WPORG-05-TRIALWARE). The copy telling
+     * the user about the gate is the same policy and must follow it, or the
+     * source-tree gate fails on the message for a gate it permits. The
+     * admin-notice half is guideline 11 and keeps its severity in both
+     * profiles.
+     */
+    public function test_the_distribution_profile_downgrades_pay_to_unlock_copy_but_not_notices(): void
+    {
+        $files = [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/notice.php' => "<?php\nadd_action( 'admin_notices', 'example_notice' );\nfunction example_notice() {\n    echo '<div class=\"notice\">Upgrade to unlock scheduled exports</div>';\n}\n",
+        ];
+        $rule = new Admin_Nag_Rule();
+
+        $overrides = static fn (array $findings): array => array_combine(
+            array_map(static fn ($finding) => $finding->message(), $findings),
+            array_map(static fn ($finding) => $finding->severity_override(), $findings)
+        );
+
+        $copy = 'pay-to-unlock copy "upgrade to unlock": prohibited by guideline 9 when the feature ships in the same zip';
+
+        $strict = $overrides($this->findings($rule, $files, Profile::wporg_free()));
+        $this->assertArrayHasKey($copy, $strict);
+        $this->assertNull($strict[$copy], 'wporg-free leaves the copy at the rule default');
+        $this->assertSame(Severity::BLOCKER, Profile::wporg_free()->severity_for($rule, $strict[$copy]));
+
+        $lenient = $overrides($this->findings($rule, $files, Profile::distribution()));
+        $this->assertArrayHasKey($copy, $lenient);
+        $this->assertSame(Severity::BEST_PRACTICE, $lenient[$copy]);
+        $this->assertSame(Severity::BEST_PRACTICE, Profile::distribution()->severity_for($rule, $lenient[$copy]));
+
+        foreach ([$strict, $lenient] as $by_message) {
+            $notice = array_filter($by_message, static fn ($message) => str_starts_with($message, 'hooks admin_notices'), ARRAY_FILTER_USE_KEY);
+            $this->assertSame([Severity::REVIEWER_DISCRETION], array_values($notice));
+        }
+    }
+
+    /**
+     * A misspelt severity in the option must fail loudly: an unknown string
+     * would rank 0, never reach the --fail-on floor, and silently mute the
+     * finding it was meant to downgrade.
+     */
+    public function test_an_invalid_pay_to_unlock_copy_severity_is_rejected(): void
+    {
+        $profile = Profile::custom('house', 'typo', [], ['pay_to_unlock_copy' => 'best_practice']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('pay_to_unlock_copy must be one of');
+        $profile->pay_to_unlock_copy_severity();
     }
 
     public function test_admin_nag_rule_is_quiet_on_a_settings_screen_without_upsell(): void
