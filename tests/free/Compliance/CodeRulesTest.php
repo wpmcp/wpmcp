@@ -7,7 +7,9 @@ use WPMCP\Compliance\Rules\Code_Obfuscation_Rule;
 use WPMCP\Compliance\Rules\Dangerous_Constructs_Rule;
 use WPMCP\Compliance\Rules\Forbidden_Functions_Rule;
 use WPMCP\Compliance\Rules\Php_Hygiene_Rule;
+use WPMCP\Compliance\Rules\Suppress_Filters_Rule;
 use WPMCP\Compliance\Rules\Wp_Load_Rule;
+use WPMCP\Compliance\Rule_Context;
 use WPMCP\Compliance\Severity;
 
 /**
@@ -403,5 +405,102 @@ class CodeRulesTest extends Compliance_Test_Case
         ]);
 
         $this->assert_clean($findings);
+    }
+
+    /**
+     * B-26 / issue #175: nothing in the repo could detect a reintroduced
+     * suppress_filters, because the VIP sniff that Plugin Check runs is not in
+     * our ruleset and vipwpcs is not a dependency. This rule is the guard.
+     * Plugin Check reports the sniff at error level, so the finding is a
+     * blocker in both shipped profiles and fails CI instead of accumulating.
+     */
+    public function test_suppress_filters_is_reported_at_every_unjustified_site(): void
+    {
+        $rule = new Suppress_Filters_Rule();
+        $findings = $this->findings($rule, [
+            'example-toolkit.php' => $this->main_file(),
+            'src/Catalog.php' => "<?php\nclass Catalog {\n    public function all() {\n        return get_posts( [\n            'post_type' => 'thing',\n            'suppress_filters' => true,\n        ] );\n    }\n}\n",
+        ]);
+
+        $this->assert_reports($findings, 'suppress_filters');
+        $this->assertCount(1, $findings);
+        $this->assertSame(['src/Catalog.php:6'], $this->locations($findings));
+        $this->assertSame(Severity::BLOCKER, Profile::wporg_free()->severity_for($rule));
+        $this->assertSame(Severity::BLOCKER, Profile::distribution()->severity_for($rule));
+    }
+
+    /**
+     * The annotation has to carry the code PHPCS emits. The VIP sniff builds
+     * it as "<group>_<key>", so the full code ends in
+     * "SuppressFilters_suppress_filters"; the owning sniff
+     * "WordPressVIPMinimum.Performance.WPQueryParams" covers it too, as it
+     * does in PHPCS.
+     */
+    public function test_a_justified_suppress_filters_site_is_accepted(): void
+    {
+        $findings = $this->findings(new Suppress_Filters_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'src/Guard.php' => "<?php\nclass Guard {\n    public function rules() {\n        return get_posts( [\n            'post_type' => 'rule',\n            // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- guardrail read; a third-party posts_* filter must not be able to remove block rules.\n            'suppress_filters' => true,\n        ] );\n    }\n}\n",
+            'src/Sniff_Level.php' => "<?php\nclass Sniff_Level {\n    public function rules() {\n        return get_posts( [\n            // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams -- same read, annotated at the sniff.\n            'suppress_filters' => true,\n        ] );\n    }\n}\n",
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    /**
+     * "...WPQueryParams.SuppressFilters" is the sniff's group name, not a
+     * message code, and PHPCS matches phpcs:ignore on whole dot-separated
+     * segments, so Plugin Check ignores that annotation. The rule has to
+     * agree with Plugin Check, or it blesses an annotation that fails the
+     * directory scan. This is the mistake the first cut of #175 made.
+     */
+    public function test_an_annotation_for_the_group_name_rather_than_the_message_code_is_not_accepted(): void
+    {
+        $findings = $this->findings(new Suppress_Filters_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'src/Guard.php' => "<?php\nclass Guard {\n    public function rules() {\n        return get_posts( [\n            // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters -- looks right, suppresses nothing in PHPCS.\n            'suppress_filters' => true,\n        ] );\n    }\n}\n",
+        ]);
+
+        $this->assertSame(['src/Guard.php:6'], $this->locations($findings));
+    }
+
+    public function test_an_explicit_false_and_a_bare_ignore_are_treated_differently(): void
+    {
+        $findings = $this->findings(new Suppress_Filters_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'src/Opted_In.php' => "<?php\nclass Opted_In {\n    public function all() {\n        return get_posts( [ 'suppress_filters' => false ] );\n    }\n}\n",
+            'src/Muted.php' => "<?php\nclass Muted {\n    public function all() {\n        // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters\n        return get_posts( [ 'suppress_filters' => true ] );\n    }\n}\n",
+        ]);
+
+        $this->assertCount(1, $findings, 'false opts filters back in and is fine; a bare ignore with no reason is not');
+        $this->assertSame('src/Muted.php', $findings[0]->file());
+    }
+
+    /**
+     * Token-based like the other code rules: a comment or a string that
+     * quotes the argument is not a site. Call sites in this plugin carry long
+     * explanatory comments, and several of them quote the literal.
+     */
+    public function test_suppress_filters_inside_strings_and_comments_does_not_false_positive(): void
+    {
+        $findings = $this->findings(new Suppress_Filters_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'src/Notes.php' => "<?php\n/**\n * `'suppress_filters' => true` turns off the posts_* chain.\n */\nclass Notes {\n    const HINT = \"was 'suppress_filters' => true before #175\";\n\n    public function all() {\n        // was 'suppress_filters' => true before; get_posts() defaults it.\n        return get_posts( [ 'post_type' => 'note', 'suppress_filters' => false ] );\n    }\n}\n",
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    /**
+     * The shipped tree is the real subject: this is what would have caught
+     * B-26 before Plugin Check did. The rule itself runs over the checkout,
+     * with the engine's default excludes, so the guard is the rule and not a
+     * second implementation of it.
+     */
+    public function test_the_shipped_source_tree_has_no_unjustified_suppress_filters(): void
+    {
+        $context = Rule_Context::for_path(dirname(__DIR__, 3), Profile::wporg_free());
+
+        $this->assert_clean((new Suppress_Filters_Rule())->check($context));
     }
 }
