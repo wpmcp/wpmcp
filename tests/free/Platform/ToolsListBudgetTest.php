@@ -96,12 +96,15 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
 
         // Ceiling raised from 25 -> 60 in review for the EMCP Elementor parity
         // expansion (global Kit, templates, theme builder, atomic elements,
-        // popups, dynamic tags). The invariant this protects is unchanged: the
-        // 44-widget catalog is consumed by a FIXED generic set, so adding a
-        // cataloged widget must never add a tool. New tools here are per-feature,
-        // never per-widget, and stay well under the catalog size.
+        // popups, dynamic tags); raised 60 -> 62 in review for the atomic
+        // system-slot replace tools (replace-system-colors,
+        // replace-system-typography, issue #60). The invariant this protects
+        // is unchanged: the 44-widget catalog is consumed by a FIXED generic
+        // set, so adding a cataloged widget must never add a tool. New tools
+        // here are per-feature, never per-widget, and stay well under the
+        // catalog size.
         $this->assertLessThanOrEqual(
-            60,
+            62,
             count($elementor),
             'The Elementor tool surface must stay a fixed set of generic, per-feature tools; '
             . 'widgets belong in the catalog data, not in new per-widget abilities.'
