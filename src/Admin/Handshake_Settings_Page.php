@@ -3,6 +3,7 @@
 namespace WPMCP\Admin;
 
 use WPMCP\MCP\Handshake_Instructions;
+use WPMCP\Plugin;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -58,7 +59,7 @@ class Handshake_Settings_Page
         $preview = (new Handshake_Instructions())->auto_summary();
         ?>
         <div class="wrap">
-            <h1><?php echo esc_html__('wpmcp: Handshake Instructions', 'wpmcp'); ?></h1>
+            <h1><?php echo esc_html(Plugin::page_title(__('Handshake Instructions', 'wpmcp'))); ?></h1>
             <p>
                 <?php
                 echo esc_html__(

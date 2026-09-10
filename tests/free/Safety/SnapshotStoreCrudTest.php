@@ -22,6 +22,32 @@ class SnapshotStoreCrudTest extends \WP_UnitTestCase {
     }
 
     /**
+     * The change-set builder (issue #192) needs to know whether a session
+     * lost rows to pruning, and the surviving ledger cannot say: prune
+     * deletes by id and sessions interleave. So prune() records it.
+     */
+    public function test_prune_records_how_many_rows_each_session_lost(): void {
+        for ( $i = 0; $i < 3; $i++ ) {
+            Snapshot_Store::save( "early-{$i}", 'early', ['object_type'=>'post','object_id'=>$i,'data'=>['post'=>null,'meta'=>[]]], 'update-blocks', str_repeat('a',64) );
+        }
+        for ( $i = 0; $i < 22; $i++ ) {
+            Snapshot_Store::save( "late-{$i}", 'late', ['object_type'=>'post','object_id'=>$i,'data'=>['post'=>null,'meta'=>[]]], 'update-blocks', str_repeat('a',64) );
+        }
+
+        $this->assertSame( 0, Snapshot_Store::pruned_rows_for_session( 'early' ), 'Nothing recorded before a prune' );
+        $this->assertSame( 5, Snapshot_Store::prune( 20 ) );
+
+        $this->assertSame( 3, Snapshot_Store::pruned_rows_for_session( 'early' ) );
+        $this->assertSame( 2, Snapshot_Store::pruned_rows_for_session( 'late' ) );
+        $this->assertSame( 0, Snapshot_Store::pruned_rows_for_session( 'never-pruned' ) );
+
+        // Counts accumulate across prunes rather than being overwritten.
+        Snapshot_Store::save( 'late-22', 'late', ['object_type'=>'post','object_id'=>99,'data'=>['post'=>null,'meta'=>[]]], 'update-blocks', str_repeat('a',64) );
+        Snapshot_Store::prune( 20 );
+        $this->assertSame( 3, Snapshot_Store::pruned_rows_for_session( 'late' ) );
+    }
+
+    /**
      * Regression guard for issue #24: pruning a snapshot must also delete
      * its attachment file backup directory (if any), so backups do not
      * accumulate forever under wp-content/uploads/.wpmcp-backups/. Rows
