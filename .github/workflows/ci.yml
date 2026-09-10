@@ -17,6 +17,12 @@ jobs:
         with: { php-version: '${{ matrix.php }}', coverage: pcov }
       - run: composer install --no-interaction
       - run: composer lint
+      # Static registration drift guard (issue #86). WordPress-free and runs
+      # in under a second, so it gates before the WP test environment is even
+      # installed: a rename, a re-tier, a deleted tool class still named in
+      # code, or a tool that survived with no registration path into it all
+      # fail here rather than in the matrix.
+      - run: composer drift:check
       - name: Install subversion (required by install-wp-tests.sh)
         run: sudo apt-get update && sudo apt-get install -y subversion
       - run: bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 6.9
