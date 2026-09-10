@@ -524,17 +524,38 @@ class Theme_Integration extends Integration_Dispatcher
         ];
     }
 
-    /** Remove a failed scaffold's files, and the directory itself when we made it. */
+    /**
+     * Remove a failed scaffold's files, and the directory itself when we
+     * made it. Plugin Check promotes WordPress.WP.AlternativeFunctions to an
+     * error, so deletion goes through wp_delete_file() and WP_Filesystem
+     * rather than unlink() and rmdir(), the same way File_Backup does.
+     */
     private static function clean_partial_scaffold(string $dir, bool $created_dir): void
     {
         foreach ([ 'style.css', 'functions.php' ] as $file) {
             if (is_file($dir . '/' . $file)) {
-                @unlink($dir . '/' . $file);
+                wp_delete_file($dir . '/' . $file);
             }
         }
         if ($created_dir && is_dir($dir)) {
-            @rmdir($dir);
+            self::filesystem()->rmdir($dir);
         }
+    }
+
+    /**
+     * The WP_Filesystem instance, initialised on first use. Booted with the
+     * direct method: this only ever removes a directory this class created
+     * moments earlier under the themes root, and prompting for FTP
+     * credentials from a tool call is not an option.
+     */
+    private static function filesystem(): \WP_Filesystem_Base
+    {
+        global $wp_filesystem;
+        if (! $wp_filesystem instanceof \WP_Filesystem_Base) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            WP_Filesystem();
+        }
+        return $wp_filesystem;
     }
 
     /**
