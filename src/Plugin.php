@@ -193,6 +193,7 @@ use WPMCP\Tools\Backup\Run_Backup_Job;
 use WPMCP\Tools\Backup\Get_Backup_Manifest;
 use WPMCP\Tools\Backup\Delete_Backup_Archive;
 use WPMCP\Tools\Backup\Restore_Site_Backup;
+use WPMCP\Tools\Migration\Rewrite_Site_Urls;
 use WPMCP\Tools\Governance\Get_Governance_Settings;
 use WPMCP\Tools\Governance\Update_Governance_Settings;
 use WPMCP\Tools\Governance\List_Governance_Audit_Log;
@@ -373,8 +374,8 @@ final class Plugin
         'woocommerce' => [
             'compose', 'woocommerce', 'menu', 'seo', 'linking', 'redirects',
             'meta', 'diagnostics', 'cron', 'maintenance', 'context', 'block',
-            'structure', 'taxonomy', 'export', 'backup', 'analysis', 'connect',
-            'governance', 'skills',
+            'structure', 'taxonomy', 'export', 'backup', 'migration', 'analysis',
+            'connect', 'governance', 'skills',
         ],
     ];
 
@@ -2169,6 +2170,7 @@ final class Plugin
             'taxonomy'       => fn () => $this->register_taxonomy_abilities($registrar),
             'export'         => fn () => $this->register_export_abilities($registrar),
             'backup'         => fn () => $this->register_backup_abilities($registrar),
+            'migration'      => fn () => $this->register_migration_abilities($registrar),
             'analysis'       => fn () => $this->register_analysis_abilities($registrar),
             'code'           => fn () => $this->register_code_abilities($registrar),
             'cli'            => fn () => $this->register_cli_abilities($registrar),
@@ -3744,6 +3746,60 @@ final class Plugin
             false,
             true,
             true
+        ));
+    }
+
+    /**
+     * Site-to-site migration tools (issue #191). Phase 1 only so far:
+     * rewrite-site-urls, the serialization-aware URL rewrite pass a
+     * restored site needs when the target's URL differs from the origin's.
+     * Free-tier at manage_options, matching the backup group it builds on
+     * (and listed alongside it in every flavor allowlist: a vertical build
+     * that can restore an archive needs the rewrite that follows a restore).
+     * 'update' verb with explicit annotations: applying rewrites six core
+     * tables in place with no snapshot behind it, so destructive_hint is
+     * true and idempotent_hint false (a to_url containing from_url is not
+     * safe to re-run) despite the 'update' default. The dry-run default
+     * means the unconfirmed invocation is effectively read-only, but the
+     * ability is classified by what it can do, not its default.
+     *
+     * TODO(#191) phase 2/3: push/pull of an archive over the connect layer
+     * (chunked, resumable transfer; restore on the target via the #190
+     * engine; then this rewrite pass with the URL pair from the archive
+     * manifest and the target's own site_url).
+     */
+    private function register_migration_abilities(Registrar $registrar): void
+    {
+        $rewrite_site_urls = new Rewrite_Site_Urls();
+
+        $registrar->register(new Ability(
+            'wpmcp/rewrite-site-urls',
+            'free',
+            'Rewrite every embedded URL in the database from one site URL to another, serialization-aware: walks wp_options, wp_postmeta, wp_posts, wp_termmeta, wp_usermeta and wp_comments in batches through the plugin\'s serialization-aware Url_Rewriter, replacing plain, JSON-escaped, percent-encoded and scheme-relative forms in one pass without corrupting PHP-serialized values, and refusing (and reporting) any value whose decoded structure contains an object rather than risk mangling it. This is the pass that fixes broken images, widgets and theme mods after a site is restored under a different URL. dry_run defaults to true and only reports per-table counts; applying requires dry_run:false and confirm:true. Not snapshotted: an applied pass reports recoverable:false and is not rollback-able via rollback-operation, so take a database backup (trigger-backup type=database) first. Tables protected by wpmcp_db_protected_tables (usermeta by default) are reported as skipped, not written. Post GUIDs are never rewritten',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'from_url' => [ 'type' => 'string' ],
+                    'to_url'   => [ 'type' => 'string' ],
+                    'dry_run'  => [ 'type' => 'boolean' ],
+                    'confirm'  => [ 'type' => 'boolean' ],
+                    'tables'   => [
+                        'type'  => 'array',
+                        'items' => [
+                            'type' => 'string',
+                            'enum' => ['options', 'postmeta', 'posts', 'termmeta', 'usermeta', 'comments'],
+                        ],
+                    ],
+                ],
+                'required'   => [ 'from_url', 'to_url' ],
+            ],
+            [$rewrite_site_urls, 'handle'],
+            'manage_options',
+            'migration',
+            'update',
+            false,
+            true,
+            false
         ));
     }
 
