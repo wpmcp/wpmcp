@@ -318,6 +318,8 @@ $plugin_edits[] = [
         . "        if (\$this->group_enabled('widget_builder')) {\n"
         . "            add_action('init', ['\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Widget_Spec_Store', 'ensure_post_type']);\n"
         . "            add_action('elementor/widgets/register', ['\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Widget_Registry', 'register']);\n"
+        . "            // A permanently deleted spec must not leave generated PHP behind.\n"
+        . "            add_action('before_delete_post', ['\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Widget_Registry', 'purge_on_delete'], 10, 2);\n"
         . "        }\n"
         . "        // Data-driven custom Gutenberg block builder: register the wpmcp_block\n"
         . "        // CPT and register active specs as real blocks via register_block_type.\n"
@@ -378,6 +380,33 @@ $edits['src/Tools/Connect/List_Tool_Catalog.php'] = [
         " * reflects what is actually available on this site right now.\n"
             . " * A caller (namely this class's own test suite) may inject a different\n"
             . " * Registrar to inspect a hand-built ability set.\n",
+        1,
+    ],
+];
+
+// ----------------------------------------------------------- Rollback_Service
+// The compiled-widget undo branch names the compiler's manifest class, which
+// leaves with src/Tools/WidgetBuilder. It is guarded by class_exists() so it
+// could never run here, but the class-reference gate in the build script
+// rejects any name the zip does not ship, guarded or not.
+$edits['src/Safety/Rollback_Service.php'] = [
+    [
+        "        // A compiled-widget snapshot carries the single manifest entry it\n"
+            . "        // changed plus the generated file's previous bytes. Restoring those\n"
+            . "        // together is the only correct undo: putting the whole option back\n"
+            . "        // would revert every other widget compiled since, and putting the old\n"
+            . "        // hash back against the new bytes would leave the widget inert.\n"
+            . "        if (\n"
+            . "            ! empty(\$snapshot['data']['compiled_widget']) && is_array(\$snapshot['data']['compiled_widget'])\n"
+            . "            && class_exists('\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Compiler\\\\Compiled_Widget_Manifest')\n"
+            . "        ) {\n"
+            . "            \\WPMCP\\Tools\\WidgetBuilder\\Compiler\\Compiled_Widget_Manifest::restore(\n"
+            . "                \$snapshot['data']['compiled_widget']\n"
+            . "            );\n"
+            . "            return;\n"
+            . "        }\n\n",
+        "        // The widget compiler is part of the off-directory add-on, so no\n"
+            . "        // snapshot in this build carries a compiled-widget payload.\n",
         1,
     ],
 ];
