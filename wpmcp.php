@@ -2,7 +2,7 @@
 /**
  * Plugin Name: wpmcp
  * Description: AI builds and edits your WordPress site, and physically can't wreck it. MCP server + snapshot/rollback safety.
- * Version: 0.8.0
+ * Version: 0.8.1
  * Requires at least: 6.9
  * Requires PHP: 8.1
  * License: GPL-2.0-or-later
@@ -34,7 +34,7 @@ if ( wpmcp_flavor_should_defer( __FILE__, 'full', defined( 'WPMCP_VERSION' ) ) )
 	} );
 	return;
 }
-define( 'WPMCP_VERSION', '0.8.0' );
+define( 'WPMCP_VERSION', '0.8.1' );
 // Must match the Text Domain header above: Plugin::load_textdomain() loads
 // the self-hosted .mo from languages/ into this domain (issue #184).
 define( 'WPMCP_TEXT_DOMAIN', 'wpmcp' );

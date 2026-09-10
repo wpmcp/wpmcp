@@ -130,6 +130,26 @@ foreach ($it as $f) {
 if ($missing) { fwrite(STDERR, implode("\n", array_unique($missing)) . "\n"); exit(1); }
 ' "$STAGE" || fail "the $SLUG build names a class it does not ship"
 
+# 4b. Compatibility headers, re-derived from the staged files rather than
+#     from the checkout the strip ran over. `Tested up to` is a Plugin Check
+#     error when it trails the current release and the plugin then stops
+#     appearing in directory search (issue #172, finding B-23). The values in
+#     the zip must equal the value the repository declares, and the repository
+#     value is the one tests/free/Release/ReleaseHeadersTest.php pins.
+readme_tested="$(sed -n 's/^Tested up to:[[:space:]]*//p' "$STAGE/readme.txt" | head -1)"
+loader_tested="$(sed -n 's/^[[:space:]]*\*[[:space:]]*Tested up to:[[:space:]]*//p' "$STAGE/$SLUG.php" | head -1)"
+root_tested="$(sed -n 's/^Tested up to:[[:space:]]*//p' "$ROOT/readme.txt" | head -1)"
+
+[ -n "$readme_tested" ] || fail "the staged readme.txt has no Tested up to header"
+[ -n "$loader_tested" ] || fail "the staged $SLUG.php has no Tested up to header"
+[ -n "$root_tested" ] || fail "the repository readme.txt has no Tested up to header"
+[ "$readme_tested" = "$loader_tested" ] || fail "staged readme.txt says Tested up to $readme_tested and $SLUG.php says $loader_tested"
+[ "$readme_tested" = "$root_tested" ] || fail "the zip declares Tested up to $readme_tested and the repository readme.txt declares $root_tested"
+echo "$readme_tested" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || fail "Tested up to \"$readme_tested\" must be numbers only"
+
+staged_stable="$(sed -n 's/^Stable tag:[[:space:]]*//p' "$STAGE/readme.txt" | head -1)"
+[ "$staged_stable" = "$VERSION" ] || fail "staged Stable tag $staged_stable does not equal WPMCP_VERSION $VERSION"
+
 # 5. The coexistence guard. src/flavor-guard.php is global functions, not a
 #    class, so gate 4's classmap walk cannot see it; a prune that dropped it
 #    would fatal at plugin load. The main file must both load it and carry the
