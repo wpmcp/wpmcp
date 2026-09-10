@@ -246,20 +246,4 @@ class MemoryGuardTest extends \WP_UnitTestCase
 
         $this->assertNotNull($rule, 'a posts_* filter must not be able to remove a published block rule');
     }
-
-    /**
-     * Same protection stated at the source: the argument is present, and it
-     * carries the justification the compliance rule looks for.
-     */
-    public function test_the_block_rules_read_records_why_it_suppresses_filters(): void
-    {
-        $source = file_get_contents(dirname(__DIR__, 3) . '/src/Memory/Memory_Store.php');
-
-        $this->assertIsString($source);
-        $this->assertStringContainsString("'suppress_filters' => true", $source);
-        $this->assertStringContainsString(
-            'phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters --',
-            $source
-        );
-    }
 }

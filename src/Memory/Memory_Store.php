@@ -297,12 +297,16 @@ class Memory_Store
             return self::$rules_cache;
         }
 
-        // The deny list is read unfiltered on purpose, and the argument stays
-        // explicit rather than leaning on get_posts()'s default so that the
-        // reason is visible at the call site. Memory_Guard::blocking_rule()
-        // fails open, so a third-party posts_where / posts_results / the_posts
-        // filter that empties this result set would switch the write guard off
-        // site-wide. It must never be flipped to false.
+        // The deny list is read with the posts_* filter chain off on purpose,
+        // and the argument stays explicit rather than leaning on get_posts()'s
+        // default so that the reason is visible at the call site.
+        // Memory_Guard::blocking_rule() fails open, so a third-party
+        // posts_where / posts_results / the_posts / posts_pre_query filter that
+        // emptied this result set would switch the write guard off site-wide.
+        // It must never be flipped to false. Note what the flag does not cover:
+        // WP_Query fires pre_get_posts before it consults suppress_filters, so
+        // a plugin rewriting the query there can still change this read. That
+        // gap is pre-existing and is not closed here.
         $posts = get_posts([
             'post_type'        => self::POST_TYPE,
             'post_status'      => 'publish',
