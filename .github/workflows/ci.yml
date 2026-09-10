@@ -49,14 +49,13 @@ jobs:
   # profile, and the directory build under the strict wporg-free profile,
   # which is the artifact the directory would actually receive.
   #
-  # The distribution run stays advisory: that zip is sold off-directory, where
-  # licensing and the two guarded execution sites are permitted, and the
-  # profile already downgrades everything that is only a problem because
-  # WordPress.org says so.
+  # Both runs are hard gates (issue #186). The engine exits 1 on any blocker,
+  # so either step failing blocks the merge. The distribution profile already
+  # downgrades everything that is only a problem because WordPress.org says
+  # so, which keeps the source-tree gate meaningful for the off-directory zip.
   #
-  # The wporg-free run is a hard gate. scripts/build-wporg-release.sh runs the
-  # engine itself as its last step, so this job fails if the directory build
-  # ever regains a blocker.
+  # scripts/build-wporg-release.sh runs the engine itself as its last step,
+  # so the build step fails if the directory build ever regains a blocker.
   compliance:
     runs-on: ubuntu-latest
     steps:
@@ -65,7 +64,6 @@ jobs:
         with: { php-version: '8.3', coverage: none }
       - run: composer install --no-interaction
       - name: Compliance, distribution profile (source tree)
-        continue-on-error: true
         run: composer compliance
       - name: Build the directory zip and gate it
         run: bash scripts/build-wporg-release.sh

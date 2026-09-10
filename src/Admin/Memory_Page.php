@@ -38,19 +38,26 @@ class Memory_Page
 
     /**
      * Appends the WordPress count bubble to a menu title when proposals are
-     * waiting. Returns $label unchanged when the count is zero, so a quiet
-     * site sees no decoration at all.
+     * waiting. Returns the escaped $label alone when the count is zero, so a
+     * quiet site sees no decoration at all.
+     *
+     * The return value is markup (the bubble is a span), and $label is the
+     * one piece of it that is not authored here, so it is escaped on both
+     * paths to keep the output well-formed whatever the label contains. This
+     * is hygiene, not a security boundary: WordPress trusts translations, and
+     * the other menu titles in Plugin::register_admin_menu() are passed to
+     * add_submenu_page() unescaped like core does.
      */
     public static function badged(string $label, ?int $count = null): string
     {
         $count = null === $count ? self::pending_count() : $count;
         if ($count < 1) {
-            return $label;
+            return esc_html($label);
         }
 
         return sprintf(
             '%s <span class="awaiting-mod update-plugins count-%d"><span class="pending-count">%s</span></span>',
-            $label,
+            esc_html($label),
             $count,
             number_format_i18n($count)
         );
@@ -76,7 +83,7 @@ class Memory_Page
     {
         add_meta_box(
             'wpmcp-memory-fields',
-            'Memory entry',
+            __('Memory entry', 'wpmcp'),
             [$this, 'render_meta_box'],
             Memory_Store::POST_TYPE,
             'side'

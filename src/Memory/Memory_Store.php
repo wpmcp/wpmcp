@@ -64,12 +64,17 @@ class Memory_Store
         }
 
         register_post_type(self::POST_TYPE, [
+            // The submenu label that opens this list table is translated
+            // (issue #183), so the screen it opens has to be too, or a
+            // localized site gets a translated menu item over an English
+            // screen. ensure_post_type() runs on init, so just-in-time
+            // text domain loading is safe here.
             'labels'          => [
-                'name'          => 'Agent Memory',
-                'singular_name' => 'Memory Entry',
-                'add_new_item'  => 'Add Memory Entry',
-                'edit_item'     => 'Edit Memory Entry',
-                'search_items'  => 'Search Memory Entries',
+                'name'          => __('Agent Memory', 'wpmcp'),
+                'singular_name' => __('Memory Entry', 'wpmcp'),
+                'add_new_item'  => __('Add Memory Entry', 'wpmcp'),
+                'edit_item'     => __('Edit Memory Entry', 'wpmcp'),
+                'search_items'  => __('Search Memory Entries', 'wpmcp'),
             ],
             'public'          => false,
             'show_ui'         => true,
