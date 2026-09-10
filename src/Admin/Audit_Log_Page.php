@@ -3,6 +3,7 @@
 namespace WPMCP\Admin;
 
 use WPMCP\MCP\Request_Log;
+use WPMCP\Plugin;
 use WPMCP\Tools\List_Operations;
 
 if (! defined('ABSPATH')) {
@@ -60,7 +61,7 @@ class Audit_Log_Page
     {
         $tab = $this->current_tab();
 
-        echo '<div class="wrap"><h1>' . esc_html__('wpmcp: Audit Log', 'wpmcp') . '</h1>';
+        echo '<div class="wrap"><h1>' . esc_html(Plugin::page_title(_x('Audit Log', 'admin menu', 'wpmcp'))) . '</h1>';
         $this->render_tabs($tab);
 
         if (self::TAB_REQUESTS === $tab) {

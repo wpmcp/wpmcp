@@ -51,11 +51,10 @@ class MemoryPageTest extends \WP_UnitTestCase
     }
 
     /**
-     * The badge is a menu title, and _wp_menu_output() echoes menu titles raw
-     * on every wp-admin screen. Since issue #183 the label is translator
-     * supplied, so a .mo file would be an injection vector into all of
-     * wp-admin if badged() passed it through unescaped. Both the badged and
-     * the quiet-site path have to escape.
+     * badged() returns markup, and the label is the only part of it not
+     * authored in the method, so both the badged and the quiet-site path
+     * escape it to keep the output well-formed whatever the label contains.
+     * (Not a security boundary: translations are trusted, as in core.)
      */
     public function test_the_label_is_escaped_on_both_the_badged_and_the_quiet_path(): void
     {

@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tests\Free\Compliance;
 
+use WPMCP\Compliance\Profile;
+use WPMCP\Compliance\Rule_Context;
 use WPMCP\Compliance\Rules\Admin_Nag_Rule;
 use WPMCP\Compliance\Rules\I18n_Rule;
 use WPMCP\Compliance\Rules\Readme_Rule;
@@ -209,19 +211,18 @@ class ListingRulesTest extends Compliance_Test_Case
      * best-practice severity, and CI's `composer compliance` gate only fails
      * on blockers, so nothing in the pipeline would notice the next unwrapped
      * add_submenu_page() label. This test is that noticer: it runs the real
-     * rule over the real src/Plugin.php, so a new screen added with a bare
-     * string label fails here rather than shipping.
+     * rule over the real checkout (the same tree the CLI scans), so a new
+     * screen whose label is a bare quoted literal fails here rather than
+     * shipping, wherever in src/ it is registered. The rule looks only at the
+     * top-level label argument, so a literal nested in a sprintf() or a
+     * concatenation is not caught here; the guard below covers the brand
+     * half of that case.
      */
     public function test_the_real_admin_menu_registration_has_no_untranslated_labels(): void
     {
-        $root = dirname(__DIR__, 3);
-
-        $findings = $this->findings(new I18n_Rule(), [
-            'wpmcp.php' => $this->main_file(['Plugin Name' => 'wpmcp', 'Text Domain' => 'wpmcp']),
-            'src/Plugin.php' => (string) file_get_contents($root . '/src/Plugin.php'),
-            'src/Admin/Memory_Page.php' => (string) file_get_contents($root . '/src/Admin/Memory_Page.php'),
-            'src/Memory/Memory_Store.php' => (string) file_get_contents($root . '/src/Memory/Memory_Store.php'),
-        ]);
+        $findings = (new I18n_Rule())->check(
+            Rule_Context::for_path(dirname(__DIR__, 3), Profile::wporg_free())
+        );
 
         $this->assert_clean($findings);
     }
@@ -229,16 +230,32 @@ class ListingRulesTest extends Compliance_Test_Case
     /**
      * Also issue #183: the product name is a brand, not a sentence. Wrapping
      * it in __() produces a msgid identical to the text domain (no context
-     * for a translator) and, because scripts/build-woo-release.sh rewrites
-     * only the DOMAIN argument of a gettext call, a brand baked into a msgid
-     * survives verbatim into a vertical zip that names the other product.
+     * for a translator), and a brand inside any msgid is one more literal a
+     * flavor build would have to chase; Plugin::BRAND is the single place
+     * such a build rewrites. Matches gettext call forms only, so a comment
+     * or an exception message that happens to mention the brand does not
+     * trip a test about msgids.
      */
     public function test_the_product_name_is_never_itself_a_translatable_msgid(): void
     {
-        $source = (string) file_get_contents(dirname(__DIR__, 3) . '/src/Plugin.php');
+        $root = dirname(__DIR__, 3);
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root . '/src'));
+        $pattern = "/\\b(?:__|_e|_x|_ex|_n|_nx|esc_html__|esc_html_e|esc_html_x|esc_attr__|esc_attr_e|esc_attr_x)\\(\\s*'wpmcp(?:'|:| )/";
 
-        $this->assertStringNotContainsString("__('wpmcp', 'wpmcp')", $source);
-        $this->assertStringNotContainsString("'wpmcp: ", $source);
-        $this->assertStringContainsString("public const BRAND = 'wpmcp';", $source);
+        $offenders = [];
+        foreach ($iterator as $file) {
+            if ('php' !== $file->getExtension()) {
+                continue;
+            }
+            if (preg_match($pattern, (string) file_get_contents($file->getPathname()), $match)) {
+                $offenders[] = substr($file->getPathname(), strlen($root) + 1) . ': ' . $match[0];
+            }
+        }
+
+        $this->assertSame([], $offenders, 'brand baked into a msgid');
+        $this->assertStringContainsString(
+            "public const BRAND = 'wpmcp';",
+            (string) file_get_contents($root . '/src/Plugin.php')
+        );
     }
 }

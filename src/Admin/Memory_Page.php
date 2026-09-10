@@ -41,12 +41,12 @@ class Memory_Page
      * waiting. Returns the escaped $label alone when the count is zero, so a
      * quiet site sees no decoration at all.
      *
-     * The return value is a menu title, and _wp_menu_output() echoes menu
-     * titles raw on every wp-admin screen, so this is the last place the
-     * label can be escaped. $label is now translator-supplied (issue #183),
-     * which means a .mo file would otherwise be an injection vector into
-     * every admin page; esc_html() costs nothing for the plain-text labels
-     * the call sites pass.
+     * The return value is markup (the bubble is a span), and $label is the
+     * one piece of it that is not authored here, so it is escaped on both
+     * paths to keep the output well-formed whatever the label contains. This
+     * is hygiene, not a security boundary: WordPress trusts translations, and
+     * the other menu titles in Plugin::register_admin_menu() are passed to
+     * add_submenu_page() unescaped like core does.
      */
     public static function badged(string $label, ?int $count = null): string
     {
@@ -83,7 +83,7 @@ class Memory_Page
     {
         add_meta_box(
             'wpmcp-memory-fields',
-            'Memory entry',
+            __('Memory entry', 'wpmcp'),
             [$this, 'render_meta_box'],
             Memory_Store::POST_TYPE,
             'side'
