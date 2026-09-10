@@ -385,6 +385,8 @@ final class Plugin
         if ($this->group_enabled('widget_builder')) {
             add_action('init', ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Spec_Store', 'ensure_post_type']);
             add_action('elementor/widgets/register', ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Registry', 'register']);
+            // A permanently deleted spec must not leave generated PHP behind.
+            add_action('before_delete_post', ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Registry', 'purge_on_delete'], 10, 2);
         }
         // Data-driven custom Gutenberg block builder: register the wpmcp_block
         // CPT and register active specs as real blocks via register_block_type.
@@ -2425,6 +2427,7 @@ final class Plugin
             ['delete-custom-widget', 'delete', new \WPMCP\Tools\WidgetBuilder\Delete_Custom_Widget(), 'Delete a custom widget by moving it to the trash (reversible via restore-post)', ['widget_id' => ['type' => 'integer']], ['widget_id']],
             ['set-widget-status', 'update', new \WPMCP\Tools\WidgetBuilder\Set_Widget_Status(), 'Enable (publish) or disable (draft) a custom widget by id', ['widget_id' => ['type' => 'integer'], 'status' => ['type' => 'string']], ['widget_id', 'status']],
             ['validate-widget-spec', 'read', new \WPMCP\Tools\WidgetBuilder\Validate_Widget_Spec(), 'Statically validate a custom-widget spec (title, controls, template) without storing it. Read-only', ['spec' => $spec_schema], ['spec']],
+            ['compile-custom-widget', 'update', new \WPMCP\Tools\WidgetBuilder\Compiler\Compile_Custom_Widget(), 'Compile a published custom-widget spec into a standalone Elementor widget class written to a protected wp-content sandbox and loaded only via a hash-verified manifest. The plugin, never the agent, emits the PHP, and the generated source must pass a token-parse lint before anything reaches disk. Off by default: the site must opt in with the wpmcp_enable_widget_compiler filter, and edit_files plus DISALLOW_FILE_EDIT are honored. Reversible: the manifest entry is snapshotted as an operation, and set-widget-status disables the compiled class without deleting the spec', ['widget_id' => ['type' => 'integer']], ['widget_id']],
             ['list-control-types', 'read', new \WPMCP\Tools\WidgetBuilder\List_Control_Types(), 'List the control types a custom-widget spec may use and the Elementor control each maps to. Read-only', [], []],
         ];
 

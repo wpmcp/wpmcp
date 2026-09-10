@@ -9,9 +9,9 @@ if (! defined('ABSPATH')) {
 /**
  * Renders a custom-widget spec by interpolating control values into its
  * template. Pure and eval-free: every {{name}} placeholder is replaced with the
- * matching setting, escaped according to that control's type (text/textarea →
- * esc_html, wysiwyg → wp_kses_post, url/image → esc_url, everything else →
- * esc_html). Unknown placeholders render empty. This is the single output path
+ * matching setting, escaped with the escaper that control type declares in
+ * Widget_Spec::CONTROL_TYPES (the one table both this renderer and the
+ * compiler read). Unknown placeholders render empty. This is the single output path
  * the runtime Dynamic_Widget uses, so a stored spec can never execute code.
  */
 class Widget_Renderer
@@ -41,15 +41,24 @@ class Widget_Renderer
         );
     }
 
-    /** @param mixed $value */
+    /**
+     * Escape a value with the escaper its control type declares in
+     * Widget_Spec::CONTROL_TYPES. That table is the single source of truth,
+     * shared with Compiler\\Widget_Compiler, so a spec escapes identically
+     * whether it is interpolated here or compiled into a widget class.
+     *
+     * @param mixed $value
+     */
     private static function escape(string $type, $value): string
     {
-        switch ($type) {
-            case 'wysiwyg':
+        $escaper = Widget_Spec::escaper_for($type);
+        switch ($escaper) {
+            case 'wp_kses_post':
                 return wp_kses_post((string) $value);
-            case 'url':
-            case 'image':
+            case 'esc_url':
                 return esc_url((string) $value);
+            case 'esc_attr':
+                return esc_attr((string) $value);
             default:
                 return esc_html((string) $value);
         }
