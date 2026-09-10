@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 304,
+    'total'     => 307,
     'free'      => 213,
-    'pro'       => 91,
+    'pro'       => 94,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -47,6 +47,9 @@ return [
         'wpmcp/check-contrast' => 'pro',
         'wpmcp/clear-cache' => 'free',
         'wpmcp/cloud-connect' => 'pro',
+        'wpmcp/cloud-gateway-provision' => 'pro',
+        'wpmcp/cloud-gateway-revoke' => 'pro',
+        'wpmcp/cloud-gateway-status' => 'pro',
         'wpmcp/cloud-list-assets' => 'pro',
         'wpmcp/cloud-pull-assets' => 'pro',
         'wpmcp/cloud-push-assets' => 'pro',
