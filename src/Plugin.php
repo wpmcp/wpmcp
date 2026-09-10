@@ -2784,7 +2784,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-scoped-css',
             'pro',
-            'Store a custom CSS block scoped to one post/page (post_id required); it renders in wp_head only when that exact post is viewed. Pass either a full css fragment, or a selector plus bare css declarations to be wrapped as "selector { declarations }". Add element_id (an Elementor element id) to narrow the scope from the page to ONE element on it: the declarations are prefixed with .elementor-element-<id>, and a selector given alongside reads as a descendant of that element. APPENDS to the page block that is already stored; pass replace=true to overwrite it instead. For site-wide CSS use add-custom-css instead. Requires edit_css (unfiltered_html) in addition to manage_options. The CSS is sanitized before storage and again at render (markup, expression()/behavior, script-capable URL schemes, @import and data: URLs are rejected, including when spelled with escape sequences or split by a comment). Each page block is its own snapshotted option, so rollback-operation reverts exactly this page and leaves other pages untouched',
+            'Store custom CSS scoped to one post/page (post_id required); it renders in wp_head only on that post. Pass a full css fragment, or a selector plus bare css declarations to wrap as selector { declarations }. Add element_id (an Elementor element id) to narrow scope to ONE element: declarations are prefixed with .elementor-element-<id>, and a selector alongside reads as a descendant of it. APPENDS to the stored page block; pass replace=true to overwrite. For site-wide CSS use add-custom-css. Requires edit_css (unfiltered_html) plus manage_options. CSS is sanitized on write and at render: markup, expression()/behavior, script URL schemes, @import and data: URLs are rejected, even when escape-obfuscated or split by a comment. Each page block is snapshotted separately, so rollback-operation reverts only this page',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2805,7 +2805,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-custom-js',
             'pro',
-            'Store a site-wide custom JS snippet rendered in wp_footer. THIS IS AN XSS-CLASS SURFACE and is disabled by default: it refuses unless JS injection is explicitly enabled (WPMCP_ALLOW_JS_INJECTION constant or wpmcp_allow_js_injection filter) AND the caller holds unfiltered_html in addition to manage_options. The write is snapshotted via Safe_Mutation on the wpmcp_custom_code option and is reversible; closing the opt-in gate (constant or filter) also stops rendering of previously stored JS, while disabling the ability in the governance grid only withdraws the tool',
+            'Store a site-wide custom JS snippet rendered in wp_footer. THIS IS AN XSS-CLASS SURFACE and is off by default: it refuses unless JS injection is enabled (WPMCP_ALLOW_JS_INJECTION constant or wpmcp_allow_js_injection filter) AND the caller holds unfiltered_html plus manage_options. The write is snapshotted and reversible via rollback-operation; closing the gate (constant or filter) also stops rendering stored JS, while disabling the ability in the governance grid only withdraws the tool',
             [
                 'type'       => 'object',
                 'properties' => [
