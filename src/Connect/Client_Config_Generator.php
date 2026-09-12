@@ -36,6 +36,7 @@ class Client_Config_Generator
 
     public static function auth_header(string $username, string $password): string
     {
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- RFC 7617 HTTP Basic Authorization header encoding, not obfuscation.
         return 'Basic ' . base64_encode($username . ':' . $password);
     }
 

@@ -44,6 +44,7 @@ class Php_Snippet_Runner
         // with the CLI SAPI or safe mode remnants disable it. This is a
         // best-effort bound, not a hard sandbox: there is no way to sandbox
         // in-process PHP execution.
+        // phpcs:ignore Squiz.PHP.DiscouragedFunctions -- best-effort execution bound for the guarded snippet runner; pro-only file, stripped from the directory build by scripts/flavors/wporg/strip.php.
         set_time_limit($timeout_seconds);
 
         ob_start();

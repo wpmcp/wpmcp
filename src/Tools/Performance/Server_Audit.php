@@ -290,6 +290,7 @@ class Server_Audit
 
     private function count_revisions($wpdb): int
     {
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- on-demand diagnostic COUNT for the audit report; a cached figure would misreport the state being audited.
         return (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = %s", 'revision'));
     }
 
@@ -311,9 +312,11 @@ class Server_Audit
 
     private function autoload_stats($wpdb): array
     {
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- on-demand diagnostic aggregate over wp_options for the audit report; caching would misreport the state being audited.
         $bytes = (int) $wpdb->get_var(
             "SELECT SUM(LENGTH(option_value)) FROM {$wpdb->options} WHERE autoload IN ('yes','on','auto')"
         );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- on-demand diagnostic top-N over wp_options for the audit report; caching would misreport the state being audited.
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT option_name, LENGTH(option_value) AS sz FROM {$wpdb->options} WHERE autoload IN ('yes','on','auto') ORDER BY sz DESC LIMIT %d",
@@ -330,6 +333,7 @@ class Server_Audit
 
     private function database_stats($wpdb): array
     {
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- information_schema size query for the audit report; WP has no API for it and caching would misreport the state being audited.
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 'SELECT table_name AS n, (data_length + index_length) AS sz FROM information_schema.TABLES WHERE table_schema = %s ORDER BY sz DESC LIMIT %d',
@@ -338,6 +342,7 @@ class Server_Audit
             ),
             ARRAY_A
         );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- information_schema size query for the audit report; WP has no API for it and caching would misreport the state being audited.
         $total = (int) $wpdb->get_var(
             $wpdb->prepare(
                 'SELECT SUM(data_length + index_length) FROM information_schema.TABLES WHERE table_schema = %s',

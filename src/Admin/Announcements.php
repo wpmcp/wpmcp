@@ -250,9 +250,10 @@ class Announcements
      */
     public function handle_dismiss(?callable $redirector = null)
     {
-        // phpcs:ignore -- this IS the nonce verification for the dismissal.
+        $nonce      = is_string($_GET['_wpnonce'] ?? null) ? sanitize_text_field(wp_unslash($_GET['_wpnonce'])) : '';
         $authorized = current_user_can('manage_options')
-            && wp_verify_nonce(self::str(wp_unslash($_GET['_wpnonce'] ?? '')), self::NONCE_ACTION);
+            && '' !== $nonce
+            && wp_verify_nonce($nonce, self::NONCE_ACTION);
 
         if (! $authorized) {
             if (null !== $redirector) {
@@ -261,9 +262,13 @@ class Announcements
             wp_die(esc_html__('You are not allowed to dismiss wpmcp announcements.', 'wpmcp'), 403);
         }
 
-        $this->dismiss(get_current_user_id(), self::str(wp_unslash($_GET['announcement_id'] ?? '')));
+        $announcement_id = is_string($_GET['announcement_id'] ?? null) ? sanitize_text_field(wp_unslash($_GET['announcement_id'])) : '';
+        $this->dismiss(get_current_user_id(), $announcement_id);
 
-        $redirect = rawurldecode(self::str(wp_unslash($_GET['redirect_to'] ?? '')));
+        // Sanitized twice on purpose: wp_sanitize_redirect() on the read while
+        // it is still rawurlencoded (it preserves %XX octets), esc_url_raw()
+        // on the decoded URL that is actually redirected to.
+        $redirect = is_string($_GET['redirect_to'] ?? null) ? esc_url_raw(rawurldecode(wp_sanitize_redirect(wp_unslash($_GET['redirect_to'])))) : '';
         $fallback = admin_url('admin.php?page=wpmcp');
         $target   = '' !== $redirect ? $redirect : $fallback;
 
@@ -279,18 +284,7 @@ class Announcements
     /** The current wp-admin URL, for the post-dismiss redirect. */
     private static function current_url(): string
     {
-        $uri = self::str(wp_unslash($_SERVER['REQUEST_URI'] ?? ''));
+        $uri = is_string($_SERVER['REQUEST_URI'] ?? null) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
         return '' !== $uri ? $uri : admin_url('admin.php?page=wpmcp');
-    }
-
-    /**
-     * Request values may arrive as arrays; treat anything that is not a
-     * plain string as absent instead of raising an array-to-string warning.
-     *
-     * @param mixed $value
-     */
-    private static function str($value): string
-    {
-        return is_string($value) ? $value : '';
     }
 }

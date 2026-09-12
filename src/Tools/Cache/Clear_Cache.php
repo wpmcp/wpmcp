@@ -63,6 +63,7 @@ class Clear_Cache
 
         $deleted = 0;
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- WP has no API to enumerate transients; caching a cache-flush enumeration would defeat the flush.
         $names = $wpdb->get_col(
             "SELECT option_name FROM {$wpdb->options}
              WHERE option_name LIKE '\_transient\_%'
@@ -75,6 +76,7 @@ class Clear_Cache
             }
         }
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- WP has no API to enumerate site transients; caching a cache-flush enumeration would defeat the flush.
         $site_names = $wpdb->get_col(
             "SELECT option_name FROM {$wpdb->options}
              WHERE option_name LIKE '\_site\_transient\_%'
