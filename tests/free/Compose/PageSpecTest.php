@@ -11,6 +11,13 @@ use WPMCP\Tools\Compose\Page_Spec;
  * reject a spec, with node-path-addressed error messages, WITHOUT touching
  * the database. Referential checks (menu exists, attachment exists, pattern
  * registered, widget known) belong to Build_Page's preflight, not here.
+ *
+ * Only the Gutenberg dialect is exercised here. The builder dialect is not in
+ * the wp.org directory build (issue #162), where Page_Spec::DIALECTS is
+ * stripped to ['gutenberg'], so its acceptance cases live in
+ * tests/pro/Compose/PageSpecBuilderTest.php and what the STRIPPED validator
+ * does with an 'elementor' spec is asserted in
+ * tests/free/Flavors/WporgStripBuildPageTest.php.
  */
 class PageSpecTest extends \WP_UnitTestCase
 {
@@ -246,51 +253,6 @@ class PageSpecTest extends \WP_UnitTestCase
         ]);
 
         $this->assertRejected($spec, 'large');
-    }
-
-    public function test_elementor_dialect_validates_builder_nodes(): void
-    {
-        $spec = Page_Spec::validate([
-            'title'   => 'Builder Page',
-            'dialect' => 'elementor',
-            'content' => [
-                ['type' => 'container', 'settings' => ['flex_direction' => 'row'], 'children' => [
-                    ['type' => 'container', 'children' => [
-                        ['type' => 'widget', 'settings' => ['widget' => 'heading', 'widget_settings' => ['title' => 'Hi']]],
-                    ]],
-                ]],
-            ],
-        ]);
-
-        $this->assertSame('elementor', $spec['dialect']);
-    }
-
-    public function test_elementor_dialect_rejects_gutenberg_nodes_with_path(): void
-    {
-        $this->assertRejected(
-            [
-                'title'   => 'Builder Page',
-                'dialect' => 'elementor',
-                'content' => [
-                    ['type' => 'container', 'children' => [
-                        ['type' => 'paragraph', 'settings' => ['text' => 'x']],
-                    ]],
-                ],
-            ],
-            'content[0].children[0]'
-        );
-    }
-
-    public function test_elementor_widget_requires_widget_name(): void
-    {
-        $this->assertRejected(
-            [
-                'title'   => 'Builder Page',
-                'dialect' => 'elementor',
-                'content' => [['type' => 'widget', 'settings' => []]],
-            ],
-            'widget'
-        );
     }
 
     public function test_gutenberg_dialect_rejects_builder_nodes(): void
