@@ -7,35 +7,61 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * Where WP MCP Cloud lives and how this site authenticates to it. The base URL
- * and API key are stored as options; everything else about the cloud is behind
- * the versioned REST contract (see Cloud_Client), so the backend can be
- * reimplemented (WordPress now, a scalable service later) without touching the
- * plugin.
+ * Where WP MCP Cloud lives and how this site authenticates to it. Since
+ * issue #141 this is a thin facade over the encrypted Cloud_Credentials
+ * vault, so cloud-connect and the other phase A tools keep their existing
+ * call sites while no secret is stored unencrypted. Everything else about
+ * the cloud is behind the versioned REST contract (see Cloud_Client), so
+ * the backend can be reimplemented without touching the plugin.
  */
 class Cloud_Config
 {
-    private const URL_OPTION = 'wpmcp_cloud_url';
-    private const KEY_OPTION = 'wpmcp_cloud_key';
-
     public static function base_url(): string
     {
-        return rtrim((string) get_option(self::URL_OPTION, ''), '/');
+        return rtrim((string) (Cloud_Credentials::get('base_url') ?? ''), '/');
     }
 
     public static function api_key(): string
     {
-        return (string) get_option(self::KEY_OPTION, '');
+        return (string) (Cloud_Credentials::get('api_key') ?? '');
     }
 
+    /**
+     * A connection needs a cloud URL plus something to authenticate with:
+     * either the phase A API key or the phase 2 token bundle. Requiring the
+     * API key would make an OAuth-only connection unusable, because
+     * Cloud_Client refuses the request before its auth ladder ever runs.
+     */
     public static function is_configured(): bool
     {
-        return '' !== self::base_url() && '' !== self::api_key();
+        if ('' === self::base_url()) {
+            return false;
+        }
+        if ('' !== self::api_key()) {
+            return true;
+        }
+        $bundle = Cloud_Credentials::all();
+        return '' !== (string) ($bundle['access_token'] ?? '')
+            || '' !== (string) ($bundle['refresh_token'] ?? '');
     }
 
-    public static function set(string $url, string $key): void
+    /**
+     * Point this site at a cloud. Deliberately a REPLACE, not a merge: a
+     * re-run of cloud-connect may be pointing at a different cloud or a
+     * different account, and keeping the previous connection's access token,
+     * refresh token or client id would make Cloud_Client prefer a foreign
+     * bearer token over the key just supplied, and hand the old refresh token
+     * to the newly supplied URL.
+     *
+     * Clearing the refresh health state is Cloud_Credentials::replace()'s job,
+     * not this facade's, so every caller that stores a credential set (this
+     * one today, the phase 2 PKCE connect flow tomorrow) gets it.
+     */
+    public static function set(string $url, string $key): bool
     {
-        update_option(self::URL_OPTION, esc_url_raw(rtrim($url, '/')));
-        update_option(self::KEY_OPTION, sanitize_text_field($key));
+        return Cloud_Credentials::replace([
+            'base_url' => esc_url_raw(rtrim($url, '/')),
+            'api_key'  => sanitize_text_field($key),
+        ]);
     }
 }

@@ -6,6 +6,7 @@ namespace WPMCP;
 
 use WPMCP\Auth\OAuth_Config;
 use WPMCP\Auth\Oauth_Gc;
+use WPMCP\Cloud\Cloud_Credentials;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Redirects\Redirect_Store;
 use WPMCP\Tools\Search\Search_Index_Store;
@@ -35,6 +36,14 @@ class Activator
         // enabled later, and unschedules it if it is turned back off.
         if (OAuth_Config::is_enabled()) {
             Oauth_Gc::ensure_scheduled();
+        }
+
+        // Import any phase A plaintext cloud credentials into the encrypted
+        // vault (issue #141). Cloud_Credentials also does this lazily on read,
+        // but doing it here is what keeps the write off the read-only
+        // cloud-status path on a normally updated site.
+        if (class_exists(Cloud_Credentials::class)) {
+            Cloud_Credentials::migrate_plaintext();
         }
     }
 }
