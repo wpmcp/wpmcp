@@ -42,13 +42,15 @@ class TransportGuardTest extends \WP_UnitTestCase
         return (string) wp_parse_url(home_url(), PHP_URL_HOST);
     }
 
-    public function test_route_classification_covers_mcp_and_oauth_only(): void
+    public function test_route_classification_covers_mcp_oauth_and_chat(): void
     {
         $this->assertTrue(Transport_Guard::is_mcp_route('/mcp/wpmcp-server'));
         $this->assertTrue(Transport_Guard::is_oauth_route('/wpmcp/v1/oauth/token'));
         $this->assertTrue(Transport_Guard::is_guarded_route('/mcp/wpmcp-server'));
         $this->assertTrue(Transport_Guard::is_guarded_route('/wpmcp/v1/oauth/register'));
 
+        $this->assertTrue(Transport_Guard::is_guarded_route('/wpmcp/v1/chat/key'));
+        $this->assertTrue(Transport_Guard::is_guarded_route('/wpmcp/v1/chat/message'));
         $this->assertFalse(Transport_Guard::is_guarded_route('/wp/v2/posts'));
         $this->assertFalse(Transport_Guard::is_guarded_route('/wpmcp/v1/something-else'));
         $this->assertFalse(Transport_Guard::is_mcp_route('/wp/v2/mcp/nope'));

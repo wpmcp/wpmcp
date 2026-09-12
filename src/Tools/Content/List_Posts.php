@@ -22,6 +22,11 @@ class List_Posts
         if ('' === $post_type) {
             $post_type = 'post';
         }
+        if (! Content_Guard::is_agent_readable_post_type($post_type)) {
+            // Answered as an empty result rather than an error: whether a
+            // conversation exists, and for whom, is itself information.
+            return ['posts' => [], 'total' => 0, 'pages' => 0, 'page' => $page];
+        }
         $status_in = isset($args['status']) ? (string) $args['status'] : 'any';
         $status    = in_array($status_in, self::VALID_STATUSES, true) ? $status_in : 'any';
 

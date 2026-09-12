@@ -21,6 +21,13 @@ class List_Post_Types
         'wp_global_styles',
         'wp_navigation',
         'attachment',
+        // The in-admin chat conversation store (issue #73). Named as a
+        // literal rather than through the class constant so this guard
+        // holds even on a request where that CPT was never registered,
+        // and so this list depends on nothing outside the content tools.
+        // Conversations are per-user private provider exchanges between
+        // one admin and their own model, never generic content.
+        'wpmcp_chat_convo',
     ];
 
     public function handle(array $args): array
