@@ -28,15 +28,30 @@ class Registrar
     /** @var Ability[] every ability handed to register(), before any gating. */
     private array $declared = [];
 
+    /**
+     * Whether this install can run abilities of a given tier.
+     *
+     * The single site of the tier rule. register() (registration),
+     * is_permitted() (execution) and Ability_Grid_Page (the admin read and
+     * write model) all ask here, so those three models cannot drift, and the
+     * directory build has exactly one body to collapse instead of three
+     * hand-copied predicates.
+     */
+    public static function tier_permitted(string $tier): bool
+    {
+        return 'pro' !== $tier || Gate::is_pro();
+    }
+
     public function register(Ability $a): void
     {
         // Record the declaration BEFORE the tier/governance gates: the
-        // ability grid (issue #78) must list governance-disabled and
-        // unlicensed pro abilities so an admin can see and re-enable them.
+        // ability grid (issue #78) lists governance-disabled abilities so an
+        // admin can see and re-enable them, and it narrows this set by tier
+        // itself (issue #161) rather than being handed a pre-narrowed one.
         // Only all()/get() feed the exposed MCP surface; declared() is a
         // display catalog and grants nothing.
         $this->declared[ $a->name ] = $a;
-        if ('pro' === $a->tier && ! Gate::is_pro()) {
+        if (! self::tier_permitted($a->tier)) {
             return;
         }
         if (! Governance::is_ability_enabled($a)) {
@@ -89,7 +104,7 @@ class Registrar
      */
     public function is_permitted(Ability $a, array $input = []): bool
     {
-        $allowed = ('pro' !== $a->tier || Gate::is_pro())
+        $allowed = self::tier_permitted($a->tier)
             && current_user_can($a->capability)
             && Governance::is_ability_enabled($a)
             && Governance::is_within_identity_scope($a);
@@ -115,10 +130,14 @@ class Registrar
 
     /**
      * The full declared surface: every ability register() was handed,
-     * including ones the pro gate or governance then dropped. Display-only
+     * including ones the tier gate or governance then dropped. Display-only
      * (the ability grid, issue #78) — nothing here is registered with the
      * Abilities API or reachable over MCP unless it also passed the gates
      * into all().
+     *
+     * It is a superset of what any one screen shows: the grid narrows it by
+     * tier through tier_permitted() (issue #161) and keeps only the
+     * governance-disabled rows, which are the ones an admin can act on.
      *
      * @return Ability[]
      */
