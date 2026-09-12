@@ -46,8 +46,65 @@ class Rollback_Service
         if (! $row) {
             return false;
         }
+        if (! self::may_restore($row['snapshot'])) {
+            self::warn(sprintf(
+                'operation %s refused: its snapshot holds personal data and restoring it requires the "%s" capability.',
+                $operation_id,
+                (string) self::restore_capability($row['snapshot'])
+            ));
+            return false;
+        }
         self::apply_snapshot($row['snapshot']);
         return true;
+    }
+
+    /**
+     * Post types whose snapshots hold personal data, mapped to the capability
+     * a caller must hold to restore one.
+     *
+     * Deleting a form submission is snapshotted so it can be undone, which
+     * means a verbatim plaintext copy of the submission (name, email, remote
+     * IP, message body) sits in wpmcp_snapshots until it is pruned. The forms
+     * adapters gate reading and deleting a submission behind an
+     * administrator-only capability, but wpmcp/rollback-operation and
+     * wpmcp/rollback-session are registered at edit_posts, so without this the
+     * gate is one-way: anyone who can edit posts could resurrect a submission
+     * they are not allowed to read. Keyed on the snapshotted post type rather
+     * than on the adapter, because the snapshot outlives the adapter call and
+     * every entry-bearing adapter needs the same protection.
+     *
+     * @return array<string, string> post type => required capability
+     */
+    private static function pii_snapshot_capabilities(): array
+    {
+        return (array) apply_filters('wpmcp_pii_snapshot_capabilities', [
+            // Contact Form 7 via Flamingo; edit_users is the cap Flamingo maps
+            // every inbound-message capability to.
+            'flamingo_inbound' => 'edit_users',
+            'metform-entry'    => 'manage_options',
+        ]);
+    }
+
+    /** The capability this snapshot demands, or null when it holds no PII. */
+    private static function restore_capability(array $snapshot): ?string
+    {
+        if ('post' !== ($snapshot['object_type'] ?? '')) {
+            return null;
+        }
+        $post_type = (string) ($snapshot['data']['post']['post_type'] ?? '');
+        return self::pii_snapshot_capabilities()[ $post_type ] ?? null;
+    }
+
+    /**
+     * Whether the CURRENT user may restore this snapshot. Only the two
+     * agent-facing entry points below consult it: Safe_Mutation's own unwind
+     * of a mutation that threw is an internal integrity operation, already
+     * behind the op's capability, and must never be blocked half way through.
+     */
+    private static function may_restore(array $snapshot): bool
+    {
+        $capability = self::restore_capability($snapshot);
+        return null === $capability || current_user_can($capability);
     }
 
     public static function restore_session(string $session_id): int
@@ -96,6 +153,16 @@ class Rollback_Service
                 continue;
             }
             $seen[ $key ] = true;
+            if (! self::may_restore($snapshot)) {
+                // One refused snapshot must not abort the rest of the unwind,
+                // but it must be visible and must NOT be counted as restored.
+                self::warn(sprintf(
+                    'snapshot %s skipped: it holds personal data and restoring it requires the "%s" capability.',
+                    $key,
+                    (string) self::restore_capability($snapshot)
+                ));
+                continue;
+            }
             self::apply_snapshot($snapshot);
             $count++;
         }
