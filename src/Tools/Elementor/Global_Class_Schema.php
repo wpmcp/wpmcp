@@ -125,6 +125,26 @@ class Global_Class_Schema
     }
 
     /**
+     * The friendly keys whose value is a CSS length (and therefore accept a
+     * `<key>_unit` companion), including the padding/margin shorthand and its
+     * per-side keys. Callers that pre-coerce lengths (Atomic_Styles) need to
+     * know which keys those are.
+     */
+    public static function size_keys(): array
+    {
+        $keys = array_keys(self::SIZE_STYLES);
+
+        foreach (array_keys(self::DIMENSION_STYLES) as $prefix) {
+            $keys[] = $prefix;
+            foreach (self::SIDES as $suffix) {
+                $keys[] = $prefix . '_' . $suffix;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
      * Validate a class label the way Elementor's own class manager does: it
      * becomes a CSS class name, so spaces, leading digits and exotic
      * characters are refused up front rather than written and then rejected.
@@ -340,14 +360,20 @@ class Global_Class_Schema
      * against what was submitted and any dropped key fails the call. That is
      * the difference between "your hover shadow was saved" and the truth.
      *
+     * $subject names what the caller authored, so the atomic element tools can
+     * report "style" where they never asked for a global class.
+     *
      * @return array|\WP_Error
      */
-    public static function validate_item(array $item)
+    public static function validate_item(array $item, string $subject = 'global class')
     {
         if (! self::is_supported()) {
             return new \WP_Error(
                 'schema_unavailable',
-                'Elementor\'s v4 style schema is unavailable, so a global class cannot be validated before writing.'
+                sprintf(
+                    'Elementor\'s v4 style schema is unavailable, so a %s cannot be validated before writing.',
+                    $subject
+                )
             );
         }
 
@@ -357,7 +383,7 @@ class Global_Class_Schema
         if (! $result->is_valid()) {
             return new \WP_Error(
                 'invalid_class',
-                'Elementor rejected this global class: ' . $result->errors()->to_string()
+                sprintf('Elementor rejected this %s: ', $subject) . $result->errors()->to_string()
             );
         }
 

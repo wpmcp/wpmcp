@@ -473,8 +473,16 @@ class Atomic_Props
         return self::image($id, '' !== $url ? esc_url_raw($url) : '', $alt);
     }
 
-    /** @param mixed $value */
-    private static function build_size($value): ?array
+    /**
+     * Coerce a caller-supplied length into a size prop, or null when it is not
+     * a length at all. Accepts a number (18), a CSS length string ("1.5rem")
+     * and the { size, unit } object shape. Public because the style-class
+     * builders (Atomic_Styles, the global-class tools) need exactly this
+     * coercion before they can decide whether a style value is usable.
+     *
+     * @param mixed $value
+     */
+    public static function build_size($value): ?array
     {
         if (is_numeric($value)) {
             return self::size((float) $value);
