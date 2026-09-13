@@ -46,7 +46,7 @@ class Atomic_Element
      * Record whether the atomic write tools survived a registration pass.
      * Called by Plugin::register_elementor_abilities() with the answer read
      * back off the Registrar, so it accounts for everything that can drop an
-     * ability (the pro gate, governance) and not only the builder predicate.
+     * ability (the tier gate, governance) and not only the builder predicate.
      */
     public static function note_registration(bool $registered): void
     {

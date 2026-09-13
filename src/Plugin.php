@@ -2349,7 +2349,7 @@ final class Plugin
         ));
 
         // Read the answer back off the Registrar rather than restating the
-        // predicate: register() also drops abilities the pro gate or governance
+        // predicate: register() also drops abilities the tier gate or governance
         // withholds, and detect-elementor-version reports this field.
         Atomic_Element::note_registration(null !== $registrar->get('wpmcp/add-atomic-widget'));
     }
