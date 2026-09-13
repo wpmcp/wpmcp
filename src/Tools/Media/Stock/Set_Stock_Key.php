@@ -20,13 +20,13 @@ class Set_Stock_Key
     {
         $provider = sanitize_key((string) ($args['provider'] ?? ''));
         if (in_array($provider, self::KEYLESS_PROVIDERS, true)) {
-            throw new \InvalidArgumentException(sprintf('Provider "%s" does not require an API key.', $provider));
+            throw new \InvalidArgumentException(sprintf('Provider "%s" does not require an API key.', esc_html($provider)));
         }
         if (! in_array($provider, self::KEYED_PROVIDERS, true)) {
             throw new \InvalidArgumentException(sprintf(
                 'Unknown stock provider "%s". Keyed providers: %s.',
-                $provider,
-                implode(', ', self::KEYED_PROVIDERS)
+                esc_html($provider),
+                esc_html(implode(', ', self::KEYED_PROVIDERS))
             ));
         }
 

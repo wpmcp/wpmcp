@@ -49,7 +49,7 @@ class Search_Content
         if ([] === $terms) {
             throw new \InvalidArgumentException(
                 'The query contains no searchable term (terms must be at least '
-                . Search_Ranker::MIN_TERM_LENGTH . ' characters).'
+                . (int) Search_Ranker::MIN_TERM_LENGTH . ' characters).'
             );
         }
 

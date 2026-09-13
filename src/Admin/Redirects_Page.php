@@ -2,6 +2,7 @@
 
 namespace WPMCP\Admin;
 
+use WPMCP\Plugin;
 use WPMCP\Tools\Redirects\Redirect_Store;
 use WPMCP\Tools\Redirects\Redirect_Suggestions;
 
@@ -28,7 +29,7 @@ class Redirects_Page
 
     public function render(): void
     {
-        echo '<div class="wrap"><h1>' . esc_html__('wpmcp: Redirects', 'wpmcp') . '</h1>';
+        echo '<div class="wrap"><h1>' . esc_html(Plugin::page_title(_x('Redirects', 'admin menu', 'wpmcp'))) . '</h1>';
 
         $this->render_redirects();
         $this->render_suggestions();
@@ -117,7 +118,7 @@ class Redirects_Page
                     ? '<em>' . esc_html__('choose a target with create-redirect', 'wpmcp') . '</em>'
                     : esc_html($target),
                 esc_attr($source),
-                $post_id,
+                (int) $post_id,
                 esc_attr($nonce),
                 $post_id > 0 ? '' : ' disabled="disabled"',
                 esc_html__('Create redirect', 'wpmcp'),
