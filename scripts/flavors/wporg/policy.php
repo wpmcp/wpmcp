@@ -68,6 +68,9 @@ return [
         'src/Tools/Cli/Cancel_Cli_Job.php',
         'src/Tools/Cli/Cli_Job_Store.php',
         'src/Tools/Cli/Run_Cli_Job.php',
+        // The guard CHAIN is composed only by the runners above; Wp_Cli_Guard
+        // itself stays because Governance\Opt_In_Gates references it.
+        'src/Tools/Cli/Wp_Cli_Guard_Chain.php',
         'src/Tools/Code/Run_Php_Snippet.php',
         'src/Tools/Code/Php_Snippet_Runner.php',
         // The only curl_setopt() in the tree. Page_Audit checks class_exists()

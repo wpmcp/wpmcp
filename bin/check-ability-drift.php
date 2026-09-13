@@ -1,5 +1,6 @@
 #!/usr/bin/env php
 <?php
+
 /**
  * Static ability-registration drift guard (issue #86, Wave 0 item #55).
  *
@@ -37,7 +38,7 @@
  * Both gaps stay the runtime AbilityManifestTest's job.
  *
  * Usage: php bin/check-ability-drift.php [--strict] [--manifest PATH]
- *                                        [--no-manifest] [root]
+ *                                        [--no-manifest] [--allow-unreachable=src/a.php,...] [root]
  *
  * Missing declarations, unparsed use statements and ability drift always fail
  * (exit 1). Unreachable tools are warnings by default and fail with --strict.
@@ -49,6 +50,7 @@ $strict      = false;
 $noManifest  = false;
 $manifestArg = null;
 $positional  = [];
+$allowUnreachable = [];
 $args        = array_slice($argv, 1);
 for ($i = 0, $n = count($args); $i < $n; $i++) {
     $a = $args[$i];
@@ -60,6 +62,12 @@ for ($i = 0, $n = count($args); $i < $n; $i++) {
         $manifestArg = substr($a, strlen('--manifest='));
     } elseif ('--manifest' === $a) {
         $manifestArg = $args[++$i] ?? '';
+    } elseif (str_starts_with($a, '--allow-unreachable=')) {
+        foreach (explode(',', substr($a, strlen('--allow-unreachable='))) as $allowed) {
+            if ('' !== trim($allowed)) {
+                $allowUnreachable[trim($allowed)] = 'allowed on the command line';
+            }
+        }
     } else {
         $positional[] = $a;
     }
@@ -84,10 +92,7 @@ $ownRepo = realpath($root) === realpath(dirname(__DIR__));
  * @var array<string,string> src-relative path => why it is exempt
  */
 $knownUnreachable = [
-    'src/Tools/Backup/Url_Rewriter.php' => 'landed ahead of its consumers '
-        . '(restore and migration) deliberately and under test; see '
-        . 'docs/superpowers/specs/2026-08-13-site-backup-archive-format.md',
-];
+] + $allowUnreachable;
 
 /**
  * Abilities registered only on multisite. tests/support/ability-manifest.php
@@ -453,6 +458,12 @@ $manifestSay = '';
 foreach ($sources as $path => $code) {
     if (preg_match_all('/new\s+Ability\s*\(\s*(\'[^\']*\'|"[^"]*")\s*,\s*(\'[^\']*\'|"[^"]*")/', $code, $am, PREG_SET_ORDER)) {
         foreach ($am as $a) {
+            // An interpolated name ("wpmcp/{$slug}-read", the integration
+            // dispatcher pairs) is not a literal: the runtime manifest test
+            // covers those, and reading one here would report a phantom.
+            if (str_contains($a[1], '$')) {
+                continue;
+            }
             $abilities[trim($a[1], '\'"')] = trim($a[2], '\'"');
         }
     }

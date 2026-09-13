@@ -359,16 +359,6 @@ echo "$loader_tested" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || fail "staged $SLUG.php
 staged_stable="$(sed -n 's/^Stable tag:[[:space:]]*//p' "$STAGE/readme.txt" | head -1)"
 [ "$staged_stable" = "$VERSION" ] || fail "staged Stable tag $staged_stable does not equal WPMCP_VERSION $VERSION"
 
-# 5. The coexistence guard. src/flavor-guard.php is global functions, not a
-#    class, so gate 4's classmap walk cannot see it; a prune that dropped it
-#    would fatal at plugin load. The main file must both load it and carry the
-#    WPMCP Flavor header the guard ranks by.
-[ -f "$STAGE/src/flavor-guard.php" ] || fail "src/flavor-guard.php missing from the $SLUG build"
-grep -q "flavor-guard.php" "$STAGE/$SLUG.php" || fail "$SLUG.php does not load the flavor coexistence guard"
-grep -q "^ \* WPMCP Flavor: wporg$" "$STAGE/$SLUG.php" || fail "$SLUG.php does not declare the wporg flavor header"
-
-# 6. Packaging hygiene: no dotfiles, no development directories, no build
-
 # 4c. The same tree read structurally rather than through the classmap: every
 #     WPMCP class the staged code names is declared under src/ (including the
 #     aliased, grouped and string-callable forms), no tool class survived the
@@ -392,6 +382,16 @@ for unwanted in tests test node_modules .github scripts; do
   [ -e "$STAGE/$unwanted" ] && fail "$unwanted must not be in the zip"
 done
 true
+
+# 5. The coexistence guard. src/flavor-guard.php is global functions, not a
+#    class, so gate 4's classmap walk cannot see it; a prune that dropped it
+#    would fatal at plugin load. The main file must both load it and carry the
+#    WPMCP Flavor header the guard ranks by.
+[ -f "$STAGE/src/flavor-guard.php" ] || fail "src/flavor-guard.php missing from the $SLUG build"
+grep -q "flavor-guard.php" "$STAGE/$SLUG.php" || fail "$SLUG.php does not load the flavor coexistence guard"
+grep -q "^ \* WPMCP Flavor: wporg$" "$STAGE/$SLUG.php" || fail "$SLUG.php does not declare the wporg flavor header"
+
+# 6. Packaging hygiene: no dotfiles, no development directories, no build
 
 # 6a. No updater surface anywhere in what is about to be zipped, vendor/
 #    included. Gate 3 already fails on a surviving vendor/freemius or a

@@ -349,7 +349,7 @@ class AbilityDriftGuardTest extends TestCase
             'WPMCP\\Tools\\Backup\\Url_Rewriter',
         ]);
 
-        [$code, $output] = $this->guard('--strict', '--no-manifest', $this->root);
+        [$code, $output] = $this->guard('--strict', '--no-manifest', '--allow-unreachable=src/Tools/Backup/Url_Rewriter.php', $this->root);
         $this->assertSame(1, $code, $output);
         $this->assertStringContainsString('allowlist', $output);
         $this->assertStringContainsString('Url_Rewriter', $output);
