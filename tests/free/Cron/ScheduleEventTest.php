@@ -70,6 +70,23 @@ class ScheduleEventTest extends \WP_UnitTestCase
         ]);
     }
 
+    /**
+     * Every hook that drives core's update machinery is on the denylist,
+     * wp_maybe_auto_update included: that one runs Plugin_Upgrader and
+     * Theme_Upgrader unattended, so it must not be re-schedulable here.
+     */
+    public function test_refuses_to_schedule_the_core_update_hooks(): void
+    {
+        foreach (['wp_update_plugins', 'wp_update_themes', 'wp_maybe_auto_update'] as $hook) {
+            try {
+                (new Schedule_Event())->handle(['hook' => $hook, 'recurrence' => 'hourly']);
+                $this->fail("Expected {$hook} to be refused.");
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString($hook, $e->getMessage());
+            }
+        }
+    }
+
     public function test_schedule_is_undoable(): void
     {
         $out = (new Schedule_Event())->handle([
