@@ -1463,6 +1463,12 @@ function sweep_unreferenced(string $stage, array $directories): array
             return $deleted;
         }
 
+        // A reference is a code token, not a mention: a docblock that still
+        // names a deleted class, or a `use` import nothing below it calls,
+        // must not hold a file in the zip (gate 4c in build-wporg-release.sh
+        // checks reachability, so a mention-based sweep leaves dead files it
+        // then rejects). Tokens inside `use ...;` statements are skipped;
+        // comments and string literals never produce T_STRING tokens.
         $referenced = [];
         $all = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($stage . '/src'));
         foreach ($all as $file) {
@@ -1470,12 +1476,30 @@ function sweep_unreferenced(string $stage, array $directories): array
                 continue;
             }
             $path = $file->getPathname();
-            $contents = (string) file_get_contents($path);
+            $mentioned = [];
+            $in_use = false;
+            foreach (token_get_all((string) file_get_contents($path)) as $token) {
+                if (! is_array($token)) {
+                    if ($in_use && ';' === $token) {
+                        $in_use = false;
+                    }
+                    continue;
+                }
+                if (T_USE === $token[0]) {
+                    $in_use = true;
+                    continue;
+                }
+                if ($in_use || ! in_array($token[0], [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)) {
+                    continue;
+                }
+                $segments = explode('\\', $token[1]);
+                $mentioned[ end($segments) ] = true;
+            }
             foreach ($names as $candidate => $short) {
                 if ($candidate === $path || isset($referenced[$candidate])) {
                     continue;
                 }
-                if (preg_match('/\b' . preg_quote($short, '/') . '\b/', $contents)) {
+                if (isset($mentioned[ $short ])) {
                     $referenced[$candidate] = true;
                 }
             }

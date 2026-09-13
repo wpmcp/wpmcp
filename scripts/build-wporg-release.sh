@@ -359,6 +359,30 @@ echo "$loader_tested" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || fail "staged $SLUG.php
 staged_stable="$(sed -n 's/^Stable tag:[[:space:]]*//p' "$STAGE/readme.txt" | head -1)"
 [ "$staged_stable" = "$VERSION" ] || fail "staged Stable tag $staged_stable does not equal WPMCP_VERSION $VERSION"
 
+# 4c. The same tree read structurally rather than through the classmap: every
+#     WPMCP class the staged code names is declared under src/ (including the
+#     aliased, grouped and string-callable forms), no tool class survived the
+#     strip with no reference path left into it, and the abilities the stage
+#     still registers carry the names and tiers the manifest pins. Gate 4
+#     answers "does it autoload"; this answers "is it still wired".
+#
+#     The manifest is passed explicitly because the stage ships no tests/
+#     directory (gate 5 below fails if it does), so the ability third would
+#     otherwise silently skip and this gate would report success for a check
+#     it never ran. Under --strict a missing manifest is a hard failure, so a
+#     path typo here fails loudly rather than degrading.
+php "$ROOT/bin/check-ability-drift.php" --strict \
+  --manifest "$ROOT/tests/support/ability-manifest.php" "$STAGE" \
+  || fail "registration drift in the $SLUG build"
+
+#    scripts. File_Type_Check errors on all three, and ".sh" is on its
+#    application-file list, so this script must never be inside its own zip.
+find "$STAGE" -name '.*' -not -name '.' -not -path "$STAGE" -print0 | xargs -0 rm -rf
+for unwanted in tests test node_modules .github scripts; do
+  [ -e "$STAGE/$unwanted" ] && fail "$unwanted must not be in the zip"
+done
+true
+
 # 5. The coexistence guard. src/flavor-guard.php is global functions, not a
 #    class, so gate 4's classmap walk cannot see it; a prune that dropped it
 #    would fatal at plugin load. The main file must both load it and carry the
@@ -368,13 +392,6 @@ grep -q "flavor-guard.php" "$STAGE/$SLUG.php" || fail "$SLUG.php does not load t
 grep -q "^ \* WPMCP Flavor: wporg$" "$STAGE/$SLUG.php" || fail "$SLUG.php does not declare the wporg flavor header"
 
 # 6. Packaging hygiene: no dotfiles, no development directories, no build
-#    scripts. File_Type_Check errors on all three, and ".sh" is on its
-#    application-file list, so this script must never be inside its own zip.
-find "$STAGE" -name '.*' -not -name '.' -not -path "$STAGE" -print0 | xargs -0 rm -rf
-for unwanted in tests test node_modules .github scripts; do
-  [ -e "$STAGE/$unwanted" ] && fail "$unwanted must not be in the zip"
-done
-true
 
 # 6a. No updater surface anywhere in what is about to be zipped, vendor/
 #    included. Gate 3 already fails on a surviving vendor/freemius or a
