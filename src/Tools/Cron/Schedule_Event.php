@@ -37,7 +37,7 @@ class Schedule_Event
         }
 
         if (Core_Hooks::is_protected($hook)) {
-            throw new \RuntimeException("Refusing to schedule protected core hook \"{$hook}\".");
+            throw new \RuntimeException(sprintf('Refusing to schedule protected core hook "%s".', esc_html($hook)));
         }
 
         $recurrence   = isset($args['recurrence']) ? (string) $args['recurrence'] : '';
@@ -46,7 +46,7 @@ class Schedule_Event
         $timestamp    = isset($args['timestamp']) ? (int) $args['timestamp'] : $default_time;
 
         if ('' !== $recurrence && ! isset(wp_get_schedules()[ $recurrence ])) {
-            throw new \InvalidArgumentException("Unknown recurrence \"{$recurrence}\".");
+            throw new \InvalidArgumentException(sprintf('Unknown recurrence "%s".', esc_html($recurrence)));
         }
 
         $out = Safe_Mutation::run(
@@ -64,7 +64,7 @@ class Schedule_Event
                     $scheduled = wp_schedule_single_event($timestamp, $hook, $event_args);
                 }
                 if (false === $scheduled) {
-                    throw new \RuntimeException("Failed to schedule event for hook \"{$hook}\".");
+                    throw new \RuntimeException(sprintf('Failed to schedule event for hook "%s".', esc_html($hook)));
                 }
             }
         );

@@ -5,6 +5,7 @@ namespace WPMCP\Tests\Pro;
 use WPMCP\Freemius\Bootstrap;
 use WPMCP\Pro\Gate;
 use WPMCP\MCP\{Registrar, Ability};
+use WPMCP\Safety\Snapshot_Store;
 
 class GateTest extends \WP_UnitTestCase
 {
@@ -34,7 +35,6 @@ class GateTest extends \WP_UnitTestCase
     {
         Gate::set_pro_for_tests(false);
         $this->assertFalse(Gate::is_pro());
-        $this->assertSame(20, Gate::history_limit());
     }
 
     public function test_registrar_skips_pro_when_free(): void
@@ -49,7 +49,34 @@ class GateTest extends \WP_UnitTestCase
     {
         Gate::set_pro_for_tests(true);
         $this->assertTrue(Gate::is_pro());
-        $this->assertGreaterThan(1000000, Gate::history_limit());
+    }
+
+    /**
+     * Issue #158: snapshot retention is not a tier. The Gate has no
+     * history_limit() at all any more, and the cap Snapshot_Store hands out
+     * is the same number whether or not the site is licensed. This is the
+     * assertion that replaces the deleted Gate::history_limit() coverage.
+     */
+    public function test_snapshot_retention_does_not_depend_on_paid_state(): void
+    {
+        $this->assertFalse(
+            method_exists(Gate::class, 'history_limit'),
+            'Gate must not own a snapshot cap: a quota lifted by payment is what guideline 5 rejects.'
+        );
+
+        // The property actually being defended: no paid predicate anywhere in
+        // the file that owns the cap. A free/pro comparison could not fail,
+        // because the class names no gate at all, which is the point.
+        $source = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Safety/Snapshot_Store.php');
+        foreach (['Gate::', 'is_pro', 'Pro\\Gate', 'can_use_premium_code'] as $paid_predicate) {
+            $this->assertStringNotContainsString(
+                $paid_predicate,
+                $source,
+                'Snapshot retention must not consult paid state: guideline 5 rejects a quota a licence lifts.'
+            );
+        }
+
+        $this->assertSame(Snapshot_Store::DEFAULT_HISTORY_LIMIT, Snapshot_Store::history_limit());
     }
 
     public function test_is_pro_falls_back_safely_without_freemius_sdk(): void
@@ -75,7 +102,6 @@ class GateTest extends \WP_UnitTestCase
         Bootstrap::set_fs_for_tests($this->fs_stub(true));
 
         $this->assertTrue(Gate::is_pro());
-        $this->assertGreaterThan(1000000, Gate::history_limit());
     }
 
     public function test_is_pro_false_when_freemius_license_state_is_free(): void
@@ -83,7 +109,6 @@ class GateTest extends \WP_UnitTestCase
         Bootstrap::set_fs_for_tests($this->fs_stub(false));
 
         $this->assertFalse(Gate::is_pro());
-        $this->assertSame(20, Gate::history_limit());
     }
 
     public function test_gate_test_seam_wins_over_freemius_state(): void

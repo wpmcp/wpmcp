@@ -48,15 +48,4 @@ class Gate
     {
         return self::is_pro();
     }
-
-    /**
-     * Not part of the WordPress.org build: strip.php replaces every call site
-     * with Snapshot_Store::history_limit(), a flat cap with no paid branch,
-     * because guideline 5 says "functionality may not be disabled after a
-     * trial period or quota is met".
-     */
-    public static function history_limit(): int
-    {
-        return self::is_pro() ? PHP_INT_MAX : \WPMCP\Safety\Snapshot_Store::DEFAULT_HISTORY_LIMIT;
-    }
 }

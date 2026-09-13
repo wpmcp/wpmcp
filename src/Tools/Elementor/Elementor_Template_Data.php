@@ -138,6 +138,33 @@ class Elementor_Template_Data
     }
 
     /**
+     * Whether $elements is a well-formed element list: a plain list (0..n-1
+     * integer keys) whose every entry is an array, recursively through each
+     * entry's `elements` child list.
+     *
+     * Untrusted JSON reaches regenerate_ids() and create() straight off the
+     * wire, and both walk the tree assuming arrays, so callers validate first
+     * and return a WP_Error instead of letting a TypeError escape as a fatal.
+     */
+    public static function is_element_list($elements): bool
+    {
+        if (! is_array($elements) || $elements !== array_values($elements)) {
+            return false;
+        }
+
+        foreach ($elements as $element) {
+            if (! is_array($element)) {
+                return false;
+            }
+            if (isset($element['elements']) && ! self::is_element_list($element['elements'])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Recursively assign fresh 7-char Elementor ids to every element, avoiding
      * any id already present in $taken (so applied content never collides with
      * the target page). $taken is mutated as ids are claimed.
