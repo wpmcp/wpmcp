@@ -60,6 +60,31 @@ class Url_Rewriter
             return $value;
         }
 
+        return $this->rewrite_map($value, [ $from => $to ], $depth);
+    }
+
+    /**
+     * Apply a whole set of replacements in ONE pass over every leaf string.
+     *
+     * Leaf strings go through strtr() with the map, which scans the input
+     * once, prefers the longest matching key at each position and never
+     * re-examines text it has already replaced. That single-pass property is
+     * load-bearing: applying the pairs from replacement_pairs() one after
+     * another would let a later pair match the output of an earlier one
+     * whenever $to contains $from (adding a port, moving into a
+     * subdirectory), turning http://localhost/x into
+     * http://localhost:8080:8080/x.
+     *
+     * @param mixed                 $value
+     * @param array<string, string> $map from => to, keys non-empty
+     * @return mixed
+     */
+    private function rewrite_map($value, array $map, int $depth = 0)
+    {
+        if ([] === $map) {
+            return $value;
+        }
+
         if ($depth > self::MAX_DEPTH) {
             return $value;
         }
@@ -67,8 +92,8 @@ class Url_Rewriter
         if (is_array($value)) {
             $out = [];
             foreach ($value as $key => $item) {
-                $new_key         = is_string($key) ? $this->rewrite($key, $from, $to, $depth + 1) : $key;
-                $out[ $new_key ] = $this->rewrite($item, $from, $to, $depth + 1);
+                $new_key         = is_string($key) ? $this->rewrite_map($key, $map, $depth + 1) : $key;
+                $out[ $new_key ] = $this->rewrite_map($item, $map, $depth + 1);
             }
             return $out;
         }
@@ -95,10 +120,10 @@ class Url_Rewriter
                 return $value;
             }
 
-            return serialize($this->rewrite($decoded, $from, $to, $depth + 1));
+            return serialize($this->rewrite_map($decoded, $map, $depth + 1));
         }
 
-        return str_replace($from, $to, $value);
+        return strtr($value, $map);
     }
 
     /**
@@ -175,12 +200,13 @@ class Url_Rewriter
      * Every URL form that has to be rewritten when a site moves from
      * $from_url to $to_url, most specific first.
      *
-     * Order matters and is not cosmetic. The scheme-relative and
-     * host-only forms are substrings of the full URL, so replacing the
-     * shortest form first would consume the longer ones and leave a
-     * half-rewritten URL behind. The JSON-escaped form ("https:\/\/host")
-     * is how block editor content stores URLs, and it will not match the
-     * plain form at all.
+     * The scheme-relative form is a substring of the full URL, so the
+     * pairs are listed most specific first and rewrite_url() applies them
+     * in a single strtr() pass (longest key wins at each position); a
+     * shorter form can therefore never consume part of a longer one, and
+     * no pair ever sees the output of another. The JSON-escaped form
+     * ("https:\/\/host") is how block editor content stores URLs, and it
+     * will not match the plain form at all.
      *
      * @return array<int, array{from: string, to: string}>
      */
@@ -210,8 +236,8 @@ class Url_Rewriter
         ];
 
         // Deduplicate while preserving order: on a same-host scheme change
-        // several of these forms collapse to the same pair, and applying one
-        // twice would double-rewrite an already-migrated value.
+        // several of these forms collapse to the same pair, and a map keyed
+        // by "from" must not carry the same key twice.
         $seen = [];
         $out  = [];
         foreach ($pairs as $pair) {
@@ -226,17 +252,21 @@ class Url_Rewriter
     }
 
     /**
-     * Apply every form from replacement_pairs() to a single value.
+     * Apply every form from replacement_pairs() to a single value in one
+     * pass, so a $to_url that contains $from_url (http://localhost to
+     * http://localhost:8080, https://a.com to https://a.com/sub) is
+     * rewritten exactly once per occurrence rather than once per pair.
      *
      * @param mixed $value
      * @return mixed
      */
     public function rewrite_url($value, string $from_url, string $to_url)
     {
+        $map = [];
         foreach ($this->replacement_pairs($from_url, $to_url) as $pair) {
-            $value = $this->rewrite($value, $pair['from'], $pair['to']);
+            $map[ $pair['from'] ] = $pair['to'];
         }
 
-        return $value;
+        return $this->rewrite_map($value, $map);
     }
 }

@@ -185,4 +185,52 @@ class UrlRewriterTest extends \WP_UnitTestCase
 
         $this->assertSame('https://new.example/page', $out);
     }
+
+    /**
+     * The migration pass hands rewrite_url() a to_url that CONTAINS from_url
+     * whenever a port is added or the site moves into a subdirectory. The
+     * forms must be applied in one pass: sequential application let the
+     * scheme-relative pair match the plain pair's output and produced
+     * http://localhost:8080:8080.
+     */
+    public function test_rewrite_url_when_to_contains_from_adds_the_port_once(): void
+    {
+        $this->assertSame(
+            '<a href="http://localhost:8080/wp-content/x.png">',
+            $this->rewriter->rewrite_url('<a href="http://localhost/wp-content/x.png">', 'http://localhost', 'http://localhost:8080')
+        );
+    }
+
+    public function test_rewrite_url_when_to_contains_from_moves_into_a_subdirectory_once(): void
+    {
+        $value = 'https://a.com/x //a.com/y https:\/\/a.com\/z https%3A%2F%2Fa.com%2Fq';
+
+        $this->assertSame(
+            'https://a.com/sub/x //a.com/sub/y https:\/\/a.com\/sub\/z https%3A%2F%2Fa.com%2Fsub%2Fq',
+            $this->rewriter->rewrite_url($value, 'https://a.com', 'https://a.com/sub')
+        );
+    }
+
+    public function test_rewrite_url_when_to_contains_from_inside_serialized_data(): void
+    {
+        $original = serialize(['url' => 'http://localhost/a', 'rel' => '//localhost/b']);
+
+        $decoded = unserialize($this->rewriter->rewrite_url($original, 'http://localhost', 'http://localhost:8080'));
+
+        $this->assertSame('http://localhost:8080/a', $decoded['url']);
+        $this->assertSame('//localhost:8080/b', $decoded['rel']);
+    }
+
+    public function test_rewrite_url_is_idempotent_for_distinct_hosts(): void
+    {
+        $value = serialize(['a' => 'https://old.example/p', 'b' => 'https:\/\/old.example\/q', 'c' => '//old.example/r']);
+
+        $once  = $this->rewriter->rewrite_url($value, 'https://old.example', 'https://new.example');
+        $twice = $this->rewriter->rewrite_url($once, 'https://old.example', 'https://new.example');
+
+        $this->assertSame($once, $twice);
+        $this->assertSame('https://new.example/p', unserialize($once)['a']);
+        $this->assertSame('https:\/\/new.example\/q', unserialize($once)['b']);
+        $this->assertSame('//new.example/r', unserialize($once)['c']);
+    }
 }

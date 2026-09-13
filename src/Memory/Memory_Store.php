@@ -64,12 +64,17 @@ class Memory_Store
         }
 
         register_post_type(self::POST_TYPE, [
+            // The submenu label that opens this list table is translated
+            // (issue #183), so the screen it opens has to be too, or a
+            // localized site gets a translated menu item over an English
+            // screen. ensure_post_type() runs on init, so just-in-time
+            // text domain loading is safe here.
             'labels'          => [
-                'name'          => 'Agent Memory',
-                'singular_name' => 'Memory Entry',
-                'add_new_item'  => 'Add Memory Entry',
-                'edit_item'     => 'Edit Memory Entry',
-                'search_items'  => 'Search Memory Entries',
+                'name'          => __('Agent Memory', 'wpmcp'),
+                'singular_name' => __('Memory Entry', 'wpmcp'),
+                'add_new_item'  => __('Add Memory Entry', 'wpmcp'),
+                'edit_item'     => __('Edit Memory Entry', 'wpmcp'),
+                'search_items'  => __('Search Memory Entries', 'wpmcp'),
             ],
             'public'          => false,
             'show_ui'         => true,
@@ -205,13 +210,15 @@ class Memory_Store
         $status = $args['status'] ?? 'publish';
         $limit  = max(1, min(self::MAX_RULES, (int) ($args['limit'] ?? self::DEFAULT_LIMIT)));
 
+        // No suppress_filters: get_posts() defaults it to true, and the explicit
+        // argument is what Plugin Check flags. Unlike block_rules() below, this
+        // read feeds listings rather than the write guard, so nothing is pinned.
         $query = [
             'post_type'        => self::POST_TYPE,
             'post_status'      => $status,
             'posts_per_page'   => $limit,
             'orderby'          => 'ID',
             'order'            => 'ASC',
-            'suppress_filters' => true,
         ];
 
         if (isset($args['kind'])) {
@@ -290,12 +297,23 @@ class Memory_Store
             return self::$rules_cache;
         }
 
+        // The deny list is read with the posts_* filter chain off on purpose,
+        // and the argument stays explicit rather than leaning on get_posts()'s
+        // default so that the reason is visible at the call site.
+        // Memory_Guard::blocking_rule() fails open, so a third-party
+        // posts_where / posts_results / the_posts / posts_pre_query filter that
+        // emptied this result set would switch the write guard off site-wide.
+        // It must never be flipped to false. Note what the flag does not cover:
+        // WP_Query fires pre_get_posts before it consults suppress_filters, so
+        // a plugin rewriting the query there can still change this read. That
+        // gap is pre-existing and is not closed here.
         $posts = get_posts([
             'post_type'        => self::POST_TYPE,
             'post_status'      => 'publish',
             'posts_per_page'   => self::MAX_RULES,
             'orderby'          => 'ID',
             'order'            => 'ASC',
+            // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- guardrail read; a third-party posts_* filter must not be able to remove block rules.
             'suppress_filters' => true,
             'meta_query'       => [
                 [

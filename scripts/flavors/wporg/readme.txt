@@ -2,7 +2,7 @@
 Contributors: fahdi
 Tags: mcp, mcp server, ai agent, automation, undo
 Requires at least: 6.9
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 8.1
 Stable tag: {{VERSION}}
 License: GPLv2 or later
@@ -66,11 +66,13 @@ https://wordpress.org/about/privacy/
 
 = Openverse (api.openverse.org) =
 
-Used by the `search-stock-images` ability when the Openverse provider is
-chosen. It is contacted only when you or an agent run that search. What is
-sent: your search terms, the page number and the results-per-page count. No
-key and no account are required. Terms of use:
-https://openverse.org/terms Privacy policy: https://wordpress.org/about/privacy/
+Used by the `search-stock-images` ability. Openverse is the default provider
+and needs no key or configuration, so it is contacted whenever you or an agent
+run that search without selecting another provider. What is sent: your search
+terms, the page number and the results-per-page count, plus WordPress's default
+user agent, which includes this site's URL. No key and no account are required.
+Terms of use: https://openverse.org/terms Privacy policy:
+https://openverse.org/privacy
 
 = Pexels (api.pexels.com) =
 
@@ -78,7 +80,8 @@ Used by the `search-stock-images` ability when the Pexels provider is chosen,
 which requires you to save a Pexels API key first. It is contacted only when
 you or an agent run that search. What is sent: your search terms, the page
 number, the results-per-page count, and your own API key in the Authorization
-header. Licence terms for the returned images live at
+header, plus WordPress's default user agent, which includes this site's URL.
+Licence terms for the returned images live at
 https://www.pexels.com/license/ Terms of use: https://www.pexels.com/terms-of-service/
 Privacy policy: https://www.pexels.com/privacy-policy/
 
@@ -88,32 +91,38 @@ Used by the `search-stock-images` ability when the Unsplash provider is
 chosen, which requires you to save an Unsplash API key first. It is contacted
 only when you or an agent run that search. What is sent: your search terms,
 the page number, the results-per-page count, and your own API key in the
-Authorization header. Licence terms for the returned images live at
+Authorization header, plus WordPress's default user agent, which includes this
+site's URL. Licence terms for the returned images live at
 https://unsplash.com/license Terms of use: https://unsplash.com/terms Privacy
 policy: https://unsplash.com/privacy
 
 = Image downloads from stock providers =
 
-`import-stock-image` downloads the image you picked. The download target is
-restricted to the image hosts of the providers above (images.pexels.com,
+`import-stock-image`, and `upload-svg` when it is given a url, download the
+file you picked. The download target is restricted to an allowlist that
+defaults to the image hosts of the providers above (images.pexels.com,
 images.unsplash.com, plus.unsplash.com, upload.wikimedia.org and
-staticflickr.com); nothing but the image is requested, and no data about you
-is sent.
+staticflickr.com); any other host is refused before a request is made and
+redirects are not followed. Nothing but the file is requested, and no data
+about you is sent beyond WordPress's default user agent. A site owner can
+extend the allowlist with the `wpmcp_remote_media_allowed_hosts` filter.
 
 = Pages you ask the plugin to measure =
 
-`analyze-performance` fetches the URL you give it so it can measure the
-response. It is normally this site's own address. Private, loopback and
-reserved addresses are refused and redirects are not followed. Nothing is sent
-beyond an ordinary GET and a `WPMCP-Performance-Analyzer/1.0` user agent.
+`analyze-performance` fetches one page on this site (the URL or post_id you
+give it, defaulting to the front page) so it can measure the response. URLs on
+other hosts are refused, as are private, loopback and reserved addresses, and
+redirects are not followed. Nothing is sent beyond an ordinary GET and a
+`WPMCP-Performance-Analyzer/1.0` user agent.
 
-= This site's own REST API =
+= This site's own URL =
 
-The connection self-test and the analytics abilities call this site's own URL
-over HTTP. These are loopback requests to your server. The analytics abilities
-read data through Google Site Kit's REST routes when that plugin is active and
-already connected; this plugin holds no analytics credentials of its own and
-talks to no analytics provider directly.
+The connection self-test, the `scan-security` hardening check (which reads the
+front page's security headers and generator tag) and the analytics abilities
+call this site's own URL over HTTP. These are loopback requests to your server.
+The analytics abilities read data through Google Site Kit's REST routes when
+that plugin is active and already connected; this plugin holds no analytics
+credentials of its own and talks to no analytics provider directly.
 
 == Installation ==
 

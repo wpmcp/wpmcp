@@ -14,7 +14,9 @@ use WPMCP\Compliance\Source_File;
  *
  * Guideline 9 also prohibits "implying users must pay to unlock included
  * features" outright, which makes upsell copy a finding in its own right when
- * the feature is in the zip.
+ * the feature is in the zip. That half follows the profile: a profile that
+ * permits gating shipped code (the distribution zip) sets the severity of the
+ * copy that describes the gate, and the notice-placement half is unaffected.
  */
 final class Admin_Nag_Rule extends Base_Rule
 {
@@ -60,6 +62,7 @@ final class Admin_Nag_Rule extends Base_Rule
     public function check(Rule_Context $context): array
     {
         $findings = [];
+        $copy_severity = $context->profile()->pay_to_unlock_copy_severity();
         foreach ($context->php_files() as $file) {
             foreach ($this->hooked_notices($file) as $hook) {
                 $findings[] = $this->finding(
@@ -88,7 +91,8 @@ final class Admin_Nag_Rule extends Base_Rule
                     $findings[] = $this->finding(
                         $file,
                         $literal['line'],
-                        sprintf('pay-to-unlock copy "%s": prohibited by guideline 9 when the feature ships in the same zip', $phrase)
+                        sprintf('pay-to-unlock copy "%s": prohibited by guideline 9 when the feature ships in the same zip', $phrase),
+                        $copy_severity
                     );
                     break;
                 }

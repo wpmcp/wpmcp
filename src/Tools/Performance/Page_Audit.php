@@ -96,16 +96,23 @@ class Page_Audit
             $this->last_pinned_ip = $pinned_ip;
         }
 
+        // The pin is scoped to this one request, so the removal has to be
+        // unconditional: pre_http_request and http_api_curl are open hooks,
+        // and a throw from arbitrary site code on either of them would
+        // otherwise leave the stale IP pinned for every later WP curl request
+        // to the same host:port in this process.
         $start = microtime(true);
-        $response = wp_safe_remote_get($url, [
-            'timeout'     => $timeout,
-            'redirection' => 0,
-            'user-agent'  => 'WPMCP-Performance-Analyzer/1.0',
-        ]);
-        $elapsed = (int) round((microtime(true) - $start) * 1000);
-
-        if (null !== $pin_callback) {
-            remove_filter('http_api_curl', $pin_callback);
+        try {
+            $response = wp_safe_remote_get($url, [
+                'timeout'     => $timeout,
+                'redirection' => 0,
+                'user-agent'  => 'WPMCP-Performance-Analyzer/1.0',
+            ]);
+        } finally {
+            $elapsed = (int) round((microtime(true) - $start) * 1000);
+            if (null !== $pin_callback) {
+                remove_filter('http_api_curl', $pin_callback);
+            }
         }
 
         if (is_wp_error($response)) {

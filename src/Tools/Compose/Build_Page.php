@@ -97,7 +97,7 @@ class Build_Page
 
             $result = wp_insert_post($postarr, true);
             if (is_wp_error($result)) {
-                throw new \RuntimeException('Could not create the page: ' . $result->get_error_message());
+                throw new \RuntimeException('Could not create the page: ' . esc_html($result->get_error_message()));
             }
             $post_id = (int) $result;
 
@@ -157,6 +157,7 @@ class Build_Page
         $problems = $this->inspect($spec);
 
         if ([] !== $problems) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- inspect() escapes the operands it interpolates; paths are literal segments and integer indexes.
             throw new \InvalidArgumentException($problems[0]);
         }
     }
@@ -186,7 +187,7 @@ class Build_Page
             if ('pattern' === $node['type']) {
                 $slug = (string) $node['settings']['slug'];
                 if (! \WP_Block_Patterns_Registry::get_instance()->is_registered($slug)) {
-                    $problems[] = sprintf('%s: block pattern "%s" is not registered', $path, $slug);
+                    $problems[] = sprintf('%s: block pattern "%s" is not registered', $path, esc_html($slug));
                 }
             }
             if ('image' === $node['type'] && ! empty($node['settings']['attachment_id'])) {
@@ -232,12 +233,12 @@ class Build_Page
         if (null !== $entry) {
             return sprintf(
                 'Elementor widget type "%s" is in the wpmcp catalog but is not registered on this site; it needs %s to be active',
-                $widget,
-                (string) $entry['requires']
+                esc_html($widget),
+                esc_html((string) $entry['requires'])
             );
         }
 
-        return sprintf('unknown Elementor widget type "%s"', $widget);
+        return sprintf('unknown Elementor widget type "%s"', esc_html($widget));
     }
 
     /** Depth-first walk over normalized nodes with spec paths. */
@@ -352,7 +353,7 @@ class Build_Page
         ]);
 
         if (is_wp_error($item_id)) {
-            throw new \RuntimeException('The menu placement step failed: ' . $item_id->get_error_message());
+            throw new \RuntimeException('The menu placement step failed: ' . esc_html($item_id->get_error_message()));
         }
 
         return (int) $item_id;
