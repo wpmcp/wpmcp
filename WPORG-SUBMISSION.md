@@ -56,11 +56,18 @@ else. Concretely:
   `wpmcp_snapshot_history_limit` at no cost. A cap nobody pays to lift is a
   product decision, not a lock.
 * The 73 pro abilities are absent, not disabled: their registrations and their
-  handler files are removed at build time (50 unreferenced Elementor handlers
+  handler files are removed at build time (53 unreferenced Elementor handlers
   are swept out by reachability, plus the Cloud, Analysis, Builders,
   WidgetBuilder and BlockBuilder trees whole).
-* The Elementor dialect of `build-page` was PRO-gated. Rather than remove it,
-  the gate was deleted: it is now free.
+* The Elementor dialect of `build-page` was PRO-gated. The gate is not what
+  left: the dialect is not in this build at all. `Elementor_Composer` is
+  deleted, `Page_Spec::DIALECTS` is `['gutenberg']` so an `elementor` spec is
+  rejected by the validator before any handler runs, and every builder branch,
+  reply key, docblock and ability-description clause that named the dialect is
+  removed with it. The dialect ships with the off-directory add-on, which is
+  guideline 5's own recommended remedy. Verified by
+  `tests/free/Flavors/WporgStripBuildPageTest.php`, which strips a staged tree
+  and then runs the stripped validator.
 * `eval()` and `proc_open()` were both pro-tier abilities, so they leave with
   the rest of the paid tier. The directory build contains no execution
   construct at all, checked at token level by the build script.
