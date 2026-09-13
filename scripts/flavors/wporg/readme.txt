@@ -2,7 +2,7 @@
 Contributors: fahdi
 Tags: mcp, mcp server, ai agent, automation, undo
 Requires at least: 6.9
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 8.1
 Stable tag: {{VERSION}}
 License: GPLv2 or later
@@ -97,7 +97,7 @@ chosen. It is contacted only when you or an agent run that search. What is
 sent: your search terms, the page number and the results-per-page count,
 under a `WPMCP-Stock-Search/1.0` user agent. No key and no account are
 required. Terms of use: https://openverse.org/terms Privacy policy:
-https://wordpress.org/about/privacy/
+https://openverse.org/privacy
 
 = Pexels (api.pexels.com) =
 

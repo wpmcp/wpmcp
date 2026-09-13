@@ -40,7 +40,7 @@ class Assign_Menu_To_Location
 
         $registered = get_registered_nav_menus();
         if (! isset($registered[ $location ])) {
-            throw new \InvalidArgumentException('Unknown theme location: ' . $location);
+            throw new \InvalidArgumentException('Unknown theme location: ' . esc_html($location));
         }
 
         if (! wp_get_nav_menu_object($menu_id)) {

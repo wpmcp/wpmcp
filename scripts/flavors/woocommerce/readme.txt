@@ -1,8 +1,8 @@
-=== WP MCP for WooCommerce - AI Store Management with Snapshot Safety ===
+=== WP MCP for WooCommerce ===
 Contributors: fahdi
-Tags: woocommerce, mcp, ai, ai agent, claude
+Tags: woocommerce, mcp, ai, ai agent, automation
 Requires at least: 6.9
-Tested up to: 6.9
+Tested up to: 7.1
 Requires PHP: 8.1
 Stable tag: {{VERSION}}
 License: GPLv2 or later
@@ -59,7 +59,7 @@ Used by the `search-plugins`, `get-plugin-info`, `install-plugin`, `update-plugi
 
 = Openverse (api.openverse.org) =
 
-Used by the `search-stock-images` ability when the Openverse provider is chosen. It is contacted only when you or an agent run that search. What is sent: your search terms, the page number and the results-per-page count, under a `WPMCP-Stock-Search/1.0` user agent. No key and no account are required. Terms of use: https://openverse.org/terms Privacy policy: https://wordpress.org/about/privacy/
+Used by the `search-stock-images` ability when the Openverse provider is chosen. It is contacted only when you or an agent run that search. What is sent: your search terms, the page number and the results-per-page count, under a `WPMCP-Stock-Search/1.0` user agent. No key and no account are required. Terms of use: https://openverse.org/terms Privacy policy: https://openverse.org/privacy
 
 = Pexels (api.pexels.com) =
 

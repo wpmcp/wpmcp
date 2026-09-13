@@ -1,10 +1,10 @@
-=== WP MCP - AI Agents for WordPress with Snapshot Safety ===
+=== WP MCP - MCP Server with Snapshot Undo for AI Agents ===
 Contributors: fahdi
-Tags: mcp, ai, ai agent, claude, automation
+Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
-Tested up to: 6.9
+Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.0
+Stable tag: 0.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -46,7 +46,7 @@ WP MCP Pro adds unlimited snapshot history, deep Elementor editing and building,
 
 = Privacy =
 
-The plugin collects nothing about you and sends nothing to us. Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing on the schedule ever makes a network request, and neither does activation. Every host it can reach is listed under "External services" below, and each request happens only while you or your agent are running the ability that needs it. Licensing (Freemius) and WP MCP Cloud sync are opt-in and inactive until you connect them.
+The plugin collects nothing about you and sends nothing to us. Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing on the schedule ever makes a network request, and neither does activation. Every host it can reach is listed under "External services" below, and each request happens only while you or your agent are running the ability that needs it. Licensing (Freemius) and WP MCP Cloud sync are opt-in and inactive until you connect them. On activation Freemius shows its stock opt-in screen, which defaults to off and carries a Skip link. Skip or decline it and no connection is made, no licence data is exchanged, and the plugin keeps working; the one path that can still reach Freemius afterwards is the optional deactivation feedback form on the Plugins screen: if you submit it, the reason you enter is stored locally and sent to Freemius when the plugin is deleted, and if you untick "anonymous feedback" on that form your display name and email are sent as well. The api.freemius.com entry below spells this out.
 
 == External services ==
 
@@ -56,7 +56,7 @@ The plugin collects nothing about you and sends nothing to us. Its only schedule
 * api.openverse.org - search-stock-images, when the Openverse provider is used. Sends the search terms and paging under a WPMCP-Stock-Search/1.0 user agent. No key needed. Terms: https://openverse.org/terms
 * api.pexels.com - search-stock-images, when the Pexels provider is used and you have saved a Pexels key. Sends the search terms, paging and your key, under the same pinned user agent. Terms: https://www.pexels.com/terms-of-service/ Privacy policy: https://www.pexels.com/privacy-policy/
 * api.unsplash.com - search-stock-images, when the Unsplash provider is used and you have saved an Unsplash key. Sends the search terms, paging and your key, under the same pinned user agent. Terms: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
-* api.freemius.com - licensing, only after you opt in to the Freemius activation screen. Terms: https://freemius.com/terms/ Privacy policy: https://freemius.com/privacy/
+* api.freemius.com - licensing through the Freemius SDK. This is the one entry not tied to a tool. On activation the SDK shows its stock opt-in screen, which defaults to off and carries a Skip link; skip or decline it and the SDK sends nothing. Once you have opted in, there or later from the WP MCP > Account page, the SDK talks to Freemius during admin page loads and its own periodic sync. One path is independent of that choice: the optional deactivation feedback form on the Plugins screen. If you submit it, the reason you enter is stored locally and sent here when the plugin is deleted (uninstalled), whether or not you opted in; if you also untick "anonymous feedback" on that form, the SDK's opt-in call sends your display name and email along with the site details the opt-in screen lists. Terms: https://freemius.com/terms/ Privacy policy: https://freemius.com/privacy/
 * WP MCP Cloud - widget and block spec sync, only after you run cloud-connect with a url and key you supply. Sends the specs you push. Terms and privacy policy: https://wpmcp-pro.com/
 * Allowlisted media hosts - import-stock-image and upload-svg download the file you picked from a default allowlist of images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org (Wikimedia Commons) and staticflickr.com (Flickr), matched on the host or a subdomain of it. The site owner can change that list with the wpmcp_remote_media_allowed_hosts filter. The download carries WordPress's standard user agent.
 * Any host you name yourself - sideload-image passes the URL you or your agent supply to core's media_sideload_image(), so it can fetch an image from anywhere. It is not covered by the allowlist above; disable the ability if you do not want that reach.
@@ -93,6 +93,15 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.1 =
+* Tested up to WordPress 7.1. The test suite runs on 7.1 and on the 6.9 minimum on every change.
+* Only one WP MCP build boots per request: the full plugin, the wp.org build and the WooCommerce build rank themselves by a flavor header, and a lower-ranked copy stands down with an admin notice instead of colliding on shared constants.
+* Translations load from the plugin's own languages/ directory (Domain Path header).
+* New abilities: rewrite-site-urls (URL migration), restore-site-backup (with a dry-run compatibility gate), WooCommerce variation and stock tools, and an opt-in bridge for third-party abilities that honour show_in_rest.
+* Change sets are derived from the snapshot ledger; caches are invalidated after rollback, raw database writes and term writes.
+* The External services section names every outbound host.
+* Dropped the third-party trademark from the tag list.
+
 = 0.8.0 =
 * Launch release.
 * 200+ abilities across content, builders, and integrations.
@@ -100,8 +109,12 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Six-layer governance, audit log, scoped identities, OAuth 2.1.
 * Elementor, Gutenberg, Bricks, Divi, WooCommerce, ACF, Meta Box, and major SEO/forms/events plugin integrations.
 * WP MCP Cloud sync client for widget and block specs (Pro).
+* Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.1 =
+Tested up to WordPress 7.1. Adds the build coexistence guard (one WP MCP build per request), self-hosted translations, and new migration, backup and WooCommerce abilities. See the changelog.
 
 = 0.8.0 =
 First public release.
