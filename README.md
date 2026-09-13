@@ -217,9 +217,9 @@ Discovery is deliberately cheap: `list-skills` returns slug, name, a one-line de
 
 ## Free vs Pro
 
-The free plugin (this repo) is fully functional: the safety engine, Gutenberg editing, one-click rollback, and the last 20 operations of history.
+The free plugin (this repo) is fully functional: the safety engine, Gutenberg editing, one-click rollback, and snapshot history.
 
-Pro (via [Freemius](https://freemius.com/)) adds unlimited history and session rollback, Elementor deep editing, change previews, and priority support. The Pro gate (`WPMCP\Pro\Gate`) and Freemius bootstrap are wired; the plugin degrades gracefully when the Pro SDK is absent.
+Snapshot history is not a tier: `Snapshot_Store::history_limit()` returns the same flat cap (`DEFAULT_HISTORY_LIMIT`, 20) on every install, and the `wpmcp_snapshot_history_limit` filter raises or lowers it for free on any site (any whole number of 1 or more; a non-numeric or out-of-range return falls back to 20, since 0 would let the snapshots table grow without bound). A site that upgrades with a history deeper than the cap keeps it: the existing depth is recorded once as a floor and held until the owner sets the filter or acknowledges the admin notice, and pruning never deletes more than `PRUNE_BATCH_LIMIT` rows per write. Pro (planned, via [Freemius](https://freemius.com/)) adds Elementor deep editing, change previews, and priority support. The Pro gate (`WPMCP\Pro\Gate`) and Freemius bootstrap are wired from day one; the plugin degrades gracefully when the Pro SDK is absent.
 
 Freemius consent is an explicit, default-off opt-in: `anonymous_mode` is `false` (see `WPMCP\Freemius\Bootstrap::config()`), so the SDK ships its stock connect screen with the Skip link intact (`enable_anonymous` is pinned `true` for that reason), and nothing is sent until someone affirmatively opts in. Because the config nests Freemius under the plugin's own top-level `wpmcp` menu, `override_exact` is pinned `true` as well: without it the SDK's activation-mode takeover removes the whole wpmcp menu and its submenus on every admin screen until the opt-in is answered. The activation URL is `admin.php?page=wpmcp`, the History page, so that one screen shows the connect page until the opt-in is answered or skipped; every other wpmcp submenu stays reachable meanwhile.
 
@@ -231,7 +231,7 @@ Credentials are already wired: `wpmcp.php` defines `WPMCP_FS_ID` and `WPMCP_FS_P
 
 - [ ] Elementor deep editing (Pro)
 - [ ] `preview-change` dry-run diffs before applying
-- [ ] Session-aware retention so large agent sessions stay fully reversible on the free tier
+- [ ] Session-aware retention so large agent sessions stay fully reversible
 - [ ] Broader snapshot capture (excerpt, parent)
 - [ ] Visual before / after regression on edited pages
 - [ ] Multi-site fleet management
@@ -239,7 +239,7 @@ Credentials are already wired: `wpmcp.php` defines `WPMCP_FS_ID` and `WPMCP_FS_P
 
 ## Known limitations
 
-Free-tier history keeps the last 20 operations, which can bound how far `rollback-session` reaches on very large agent runs. Snapshot capture currently covers post content, title, status, meta, and taxonomy terms, but not every post field (e.g. excerpt, parent). Force-deleting media (or deleting without `MEDIA_TRASH` enabled) restores the media record on rollback but not the physical file bytes, until issue #24 lands; media force-delete is disabled by default. Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
+Snapshot history keeps the last 20 operations on every install, which can bound how far `rollback-session` reaches on very large agent runs; raise it with the `wpmcp_snapshot_history_limit` filter (minimum 1). Snapshot capture currently covers post content, title, status, meta, and taxonomy terms, but not every post field (e.g. excerpt, parent). Force-deleting media (or deleting without `MEDIA_TRASH` enabled) restores the media record on rollback but not the physical file bytes, until issue #24 lands; media force-delete is disabled by default. Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
 
 ## Development
 

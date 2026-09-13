@@ -15,11 +15,28 @@ class Snapshot_Store
     /**
      * Snapshots kept per site by default.
      *
-     * The single source of truth for the number, so the directory build can
-     * read it directly (see scripts/flavors/wporg/strip.php) instead of
-     * asking a licence gate what the cap is.
+     * The single source of truth for the number. history_limit() below is
+     * the only reader; no licence gate is consulted anywhere.
      */
     public const DEFAULT_HISTORY_LIMIT = 20;
+
+    /**
+     * Rows a single prune() call may delete.
+     *
+     * The cap is a bound on the work one write does, not on the history: a
+     * site that arrives with a deeper table catches up over the next few
+     * writes instead of loading every excess operation_id into memory,
+     * deleting an unbounded number of LONGBLOB rows and walking one backup
+     * directory per row inside the request that triggered it.
+     */
+    public const PRUNE_BATCH_LIMIT = 200;
+
+    /**
+     * Retention depth carried over from an install that predates the flat
+     * cap. Zero on every install that has nothing to carry, which is every
+     * fresh one. See ensure_retention_floor().
+     */
+    public const HISTORY_FLOOR_OPTION = 'wpmcp_snapshot_history_floor';
 
     public static function table_name(): string
     {
@@ -48,6 +65,11 @@ class Snapshot_Store
             KEY operation_id (operation_id),
             KEY session_id (session_id)
         ) {$charset};");
+
+        // Stamp the retention floor while we know what the table looks like:
+        // zero for a fresh install, the existing depth for a site that is
+        // being reactivated after an upgrade with history already in it.
+        self::ensure_retention_floor();
     }
 
     /**
@@ -193,12 +215,16 @@ class Snapshot_Store
         return null === $min ? null : (int) $min;
     }
 
-    /** How many rows are currently in the ledger. */
+    /** How many rows are currently in the ledger; 0 when the table is not installed yet. */
     public static function row_count(): int
     {
         global $wpdb;
+        $suppressed = $wpdb->suppress_errors(true);
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; the row count must be live.
-        return (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i', self::table_name()));
+        $count = $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i', self::table_name()));
+        $wpdb->suppress_errors($suppressed);
+
+        return null === $count ? 0 : (int) $count;
     }
 
     /**
@@ -274,7 +300,71 @@ class Snapshot_Store
     }
 
     /**
-     * Delete all but the $keep most recent snapshot rows. Additionally
+     * How many snapshots a site keeps. One number for every install: no
+     * licence, no tier, nothing a payment changes. Filterable so a site
+     * that wants deeper history can have it for free, which is the
+     * difference guideline 5 draws between a product decision and a lock.
+     */
+    public static function history_limit(): int
+    {
+        $raw = apply_filters('wpmcp_snapshot_history_limit', self::DEFAULT_HISTORY_LIMIT);
+
+        // Validated before the cast, not after. `(int) [20]` is 1, which
+        // would prune the table to a single row and delete every other
+        // operation's file backups; a float past PHP_INT_MAX emits a warning
+        // mid-write and yields garbage. Anything that is not a plain number
+        // in range is a filter bug, so the constant answers instead.
+        if (! is_numeric($raw) || $raw < 1 || $raw > PHP_INT_MAX) {
+            return self::DEFAULT_HISTORY_LIMIT;
+        }
+
+        return (int) $raw;
+    }
+
+    /**
+     * The retention depth an upgrading install arrives with, or 0.
+     *
+     * Flattening the cap (issue #158) turned an unlimited 0.8.0 Pro history
+     * into a 20-row one, and prune() deletes the File_Backup bytes behind
+     * every row it drops. Doing that on the first write after an unattended
+     * update is a decision the site owner never made, so the depth the table
+     * already had is recorded once and held as a floor until the owner makes
+     * it: either by setting the filter, or by acknowledging the admin notice
+     * (Snapshot_Retention_Notice). The floor is a frozen number, so it holds
+     * the existing history without letting the table grow further.
+     */
+    public static function ensure_retention_floor(): int
+    {
+        $stored = get_option(self::HISTORY_FLOOR_OPTION, false);
+        if (false !== $stored) {
+            return max(0, (int) $stored);
+        }
+
+        $existing = self::row_count();
+        $floor    = $existing > self::DEFAULT_HISTORY_LIMIT ? $existing : 0;
+        add_option(self::HISTORY_FLOOR_OPTION, $floor, '', true);
+
+        return $floor;
+    }
+
+    /** Whether an upgraded install is still holding its pre-cap history. */
+    public static function has_retention_floor(): bool
+    {
+        return self::ensure_retention_floor() > 0 && ! has_filter('wpmcp_snapshot_history_limit');
+    }
+
+    /** The owner has decided: pruning may proceed down to the cap. */
+    public static function acknowledge_retention_floor(): void
+    {
+        update_option(self::HISTORY_FLOOR_OPTION, 0, true);
+    }
+
+    /**
+     * Delete the oldest snapshot rows beyond the $keep most recent, at most
+     * PRUNE_BATCH_LIMIT of them per call, and never below the retention
+     * floor an upgrading install arrived with. $keep defaults to
+     * history_limit(), so a call site cannot forget the flat cap.
+     * Additionally
      * deletes each pruned row's attachment file backup dir (if any), via
      * File_Backup::delete_backup_dir(), so a force-deleted attachment's
      * backed-up bytes do not accumulate under wp-content/uploads/ forever
@@ -282,23 +372,49 @@ class Snapshot_Store
      * Calling delete_backup_dir() for every pruned operation_id is a no-op
      * for the (overwhelming majority of) rows that never had one.
      */
-    public static function prune(int $keep): int
+    public static function prune(?int $keep = null): int
     {
         global $wpdb;
         $t = self::table_name();
+
+        $keep = $keep ?? self::history_limit();
+
+        // A filter is the owner deciding what the depth should be, which is
+        // exactly what the floor was holding the question open for.
+        if (self::ensure_retention_floor() > 0) {
+            if (has_filter('wpmcp_snapshot_history_limit')) {
+                self::acknowledge_retention_floor();
+            } else {
+                $keep = max($keep, self::ensure_retention_floor());
+            }
+        }
+
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; pruning must see the live row set.
         $cutoff = $wpdb->get_var($wpdb->prepare('SELECT id FROM %i ORDER BY id DESC LIMIT 1 OFFSET %d', $t, $keep));
         if (null === $cutoff) {
             return 0;
         }
 
+        // One batch per call. The ids come back oldest first so the batch is
+        // a contiguous range ending at $batch_cutoff, which keeps the DELETE
+        // a single range scan and keeps the rows deleted identical to the
+        // operation_ids whose backup dirs are removed below.
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; pruning must see the live row set.
-        $pruned_op_ids = $wpdb->get_col($wpdb->prepare('SELECT operation_id FROM %i WHERE id <= %d', $t, $cutoff));
+        $batch = $wpdb->get_results(
+            $wpdb->prepare('SELECT id, operation_id FROM %i WHERE id <= %d ORDER BY id ASC LIMIT %d', $t, $cutoff, self::PRUNE_BATCH_LIMIT),
+            ARRAY_A
+        );
+        if (! $batch) {
+            return 0;
+        }
+
+        $last         = end($batch);
+        $batch_cutoff = (int) $last['id'];
 
         $per_session = [];
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the per-session tally must count exactly the rows the delete below removes.
         $by_session = $wpdb->get_results(
-            $wpdb->prepare('SELECT session_id, COUNT(*) AS n FROM %i WHERE id <= %d GROUP BY session_id', $t, $cutoff),
+            $wpdb->prepare('SELECT session_id, COUNT(*) AS n FROM %i WHERE id <= %d GROUP BY session_id', $t, $batch_cutoff),
             ARRAY_A
         );
         foreach ((array) $by_session as $row) {
@@ -306,12 +422,12 @@ class Snapshot_Store
         }
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the prune is the delete itself.
-        $deleted = (int) $wpdb->query($wpdb->prepare('DELETE FROM %i WHERE id <= %d', $t, $cutoff));
+        $deleted = (int) $wpdb->query($wpdb->prepare('DELETE FROM %i WHERE id <= %d', $t, $batch_cutoff));
 
         self::record_pruned_sessions($per_session);
 
-        foreach ((array) $pruned_op_ids as $operation_id) {
-            File_Backup::delete_backup_dir((string) $operation_id);
+        foreach ($batch as $row) {
+            File_Backup::delete_backup_dir((string) $row['operation_id']);
         }
 
         return $deleted;
