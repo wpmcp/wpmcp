@@ -210,6 +210,26 @@ ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
 rm -f "$ZIP"
 (cd "$STAGE_PARENT" && zip -rq "$ZIP" "$SLUG" -x "*.DS_Store")
 
+# The compliance engine, in the profile that models the directory, run against
+# the extracted zip rather than the checkout. build-wporg-release.sh has had
+# this gate since it was written; this build is a wp.org submission too, and
+# without it nothing ever checked the woocommerce artifact. It is what catches
+# a missing or unrecognised ABSPATH guard (issue #170) in the shipped bytes.
+#
+# Scoped to the network, code and security packs. This flavor still gates the
+# paid tier at runtime (Pro\Gate, the Freemius bootstrap, the pro-tier
+# registrations) instead of stripping it the way build-wporg-release.sh does,
+# so the licensing, listing and packaging packs report the same findings
+# issues #158 to #165 fix for the directory build. Widen the pack list once
+# scripts/flavors/wporg/strip.php's policy is applied to this stage too.
+BUILD_DIR="$ROOT/build/woocommerce"
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+unzip -q "$ZIP" -d "$BUILD_DIR"
+php "$ROOT/tools/compliance/bin/compliance.php" \
+  --profile=wporg-free --artifact --path="$BUILD_DIR/$SLUG" \
+  --pack=network,code,security \
+  || { echo "ERROR: the compliance engine found blockers in $ZIP" >&2; exit 1; }
 # The execution files themselves are absent from the artifact, checked on the
 # zip listing rather than on the staging directory: the rm list, the staging
 # copy and the zip step are three chances to reintroduce them (#167). Shared
