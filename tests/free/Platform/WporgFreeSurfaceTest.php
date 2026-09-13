@@ -250,15 +250,11 @@ class WporgFreeSurfaceTest extends \WP_UnitTestCase
         return array_values(array_unique($files));
     }
 
-    /** @return string[] the wp.org strip's REMOVED_PATHS, verbatim. */
+    /** @return string[] the wp.org strip's removed paths, read from the shared policy. */
     private function removed_paths(): array
     {
-        $source = (string) file_get_contents(self::STRIP);
-        if (! preg_match('/const REMOVED_PATHS = \[(.*?)\n\];/s', $source, $m)) {
-            return [];
-        }
-        preg_match_all("/^\s*'([^']+)',/m", $m[1], $paths);
-        return $paths[1];
+        $policy = require dirname(__DIR__, 3) . '/scripts/flavors/wporg/policy.php';
+        return is_array($policy['removed_paths'] ?? null) ? array_values($policy['removed_paths']) : [];
     }
 
     /** @return string[] every src/ path scripts/build-woo-release.sh removes. */

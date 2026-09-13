@@ -16,9 +16,9 @@ if (! defined('ABSPATH')) {
  * page: one response carries the structure summary, content outline, media
  * and link inventory, and builder detection for a post.
  *
- * Lives in Tools\Context, not Tools\Analysis, on purpose. This is a FREE
- * ability and the wp.org build removes src/Tools/Analysis and
- * register_analysis_abilities wholesale, so a free tool placed there would
+ * Lives in Tools\Context, not Tools\Analysis, on purpose. This is a free
+ * ability and the wp.org build removes src/Tools/Analysis wholesale, along
+ * with the registration method behind it, so a free tool placed there would
  * be silently absent from the only build free users install. Same reasoning
  * for its Content_Extractor dependency, which now lives in Tools\Content.
  * tests/free/Platform/WporgFreeSurfaceTest.php is the gate that keeps this
@@ -37,8 +37,8 @@ if (! defined('ABSPATH')) {
  *    `dropped` (rendered, then shed to fit the byte budget). Without it an
  *    agent asking a free build for a pro overlay section gets a
  *    normal-looking digest and no signal that the section is unavailable.
- *  - PRO OVERLAY sections attach through the `wpmcp_page_snapshot_sections`
- *    filter: the pro audit tools (analyze-seo / analyze-accessibility) hook
+ *  - OVERLAY sections attach through the `wpmcp_page_snapshot_sections`
+ *    filter: the add-on's audit tools (analyze-seo / analyze-accessibility) hook
  *    it to append their overlay sections without any free-code change, and
  *    the free build renders cleanly without them because the filter simply
  *    has no callbacks. Section names the core does not know are passed

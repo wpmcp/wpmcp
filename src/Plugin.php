@@ -2987,7 +2987,7 @@ final class Plugin
         // get-page-snapshot (issue #81): the page-level counterpart, and a
         // FREE ability, which is why it is registered here rather than with
         // the pro analysis suite. The wp.org build deletes src/Tools/Analysis
-        // and register_analysis_abilities whole, so a free tool registered
+        // and its registration method whole, so a free tool registered
         // there would vanish from the only build free users install;
         // tests/free/Platform/WporgFreeSurfaceTest.php gates that. Its pro
         // overlay sections attach via the wpmcp_page_snapshot_sections
