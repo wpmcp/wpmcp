@@ -297,6 +297,25 @@ distributed by the author, which is the arrangement guideline 5 recommends
 premium code"). The readme mentions the add-on once, in a sentence that says
 plainly that nothing in this plugin is locked, reduced or switched off by it.
 
+Because the licensing SDK is removed rather than carved out, its updater is
+gone with it: no PHP file in the zip matches any `Plugin_Updater_Check`
+error-level marker, `site_transient_update_plugins` among them.
+`Plugin_Updater_Check` is a file-content regex over PHP files with no Freemius
+exclusion, and the WordPress.org run does not skip `vendor/`, so three
+independent things assert this rather than one:
+
+* `scripts/lib/updater-gate.sh` runs over the tree the build is about to zip,
+  `vendor/` included, and fails the build on any hit. It reads its pattern
+  list from the compliance engine's own rule rather than carrying a second
+  copy, so the two cannot drift apart.
+* The compliance engine then re-runs that rule against the extracted zip. For
+  an artifact scan it covers `vendor/` as well, which it deliberately skips
+  for a development checkout.
+* Plugin Check itself cannot confirm this from CI: both its CLI and its
+  GitHub action exclude `vendor/` unconditionally, and the action's
+  `exclude-directories` input can only add to that list. The wordpress.org
+  run does scan `vendor/`, which is why the two checks above exist.
+
 ### 5.7 "You have a `vendor/` directory."
 
 `composer.json` ships beside it, as `File_Type_Check` requires. It is the

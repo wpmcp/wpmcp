@@ -21,7 +21,7 @@ use WPMCP\Compliance\Rules\Direct_File_Access_Rule;
  * compliance` nor the zip gates ever look at them in the checkout, and the
  * woocommerce build had no compliance gate at all until this change. For
  * wpmcp.php and src/Plugin.php these tests overlap the checkout-wide
- * `composer compliance` run and build-wporg-release.sh's gate 6; they are kept
+ * `composer compliance` run and build-wporg-release.sh's gate 7; they are kept
  * because they fail in seconds inside the unit suite and name the issue.
  *
  * These tests read the checkout, which is the source the builds derive their
