@@ -1,5 +1,6 @@
 #!/usr/bin/env php
 <?php
+
 /**
  * Coverage floor gate for CI (issue #55).
  *
