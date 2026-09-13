@@ -283,12 +283,12 @@ $edits['src/Tools/Compose/Build_Page.php'][] = [
         if (null !== $entry) {
             return sprintf(
                 'Elementor widget type "%s" is in the wpmcp catalog but is not registered on this site; it needs %s to be active',
-                $widget,
-                (string) $entry['requires']
+                esc_html($widget),
+                esc_html((string) $entry['requires'])
             );
         }
 
-        return sprintf('unknown Elementor widget type "%s"', $widget);
+        return sprintf('unknown Elementor widget type "%s"', esc_html($widget));
     }
 SRC . "\n\n",
     '',
@@ -450,7 +450,7 @@ SRC . "\n",
         $is_container = in_array($type, self::ELEMENTOR_CONTAINERS, true);
 
         if (! $is_container && 'widget' !== $type) {
-            $this->reject($path, sprintf('unknown builder node type "%s" (expected container, section, column, or widget)', $type));
+            $this->reject($path, sprintf('unknown builder node type "%s" (expected container, section, column, or widget)', esc_html($type)));
         }
 
         if ('widget' === $type) {
@@ -459,7 +459,7 @@ SRC . "\n",
             }
             foreach (array_keys($settings) as $key) {
                 if (! in_array((string) $key, ['widget', 'widget_settings'], true)) {
-                    $this->reject($path, sprintf('unknown setting "%s" for a "widget" node', $key));
+                    $this->reject($path, sprintf('unknown setting "%s" for a "widget" node', esc_html((string) $key)));
                 }
             }
             if ('' === trim((string) ($settings['widget'] ?? ''))) {
