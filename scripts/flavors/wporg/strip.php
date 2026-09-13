@@ -609,6 +609,10 @@ $edits['src/Admin/Skills_Settings_Page.php'] = [
             . "                                echo esc_html__('Listed, body needs a Pro licence', 'wpmcp');\n"
             . "                            } else {\n",
         "                            } else {\n",
+        1,
+    ],
+];
+
 // The starter library ships as documentation an agent reads and acts on, so
 // it may not name an ability this build does not register. The Elementor
 // playbook leaves whole (REMOVED_PATHS above); the safe-writes playbook only
