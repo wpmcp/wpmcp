@@ -57,6 +57,17 @@ return [
         // them); the runners, the executor and their ability wrappers do not.
         'src/Tools/Cli/Run_Wp_Cli.php',
         'src/Tools/Cli/Wp_Cli_Executor.php',
+        // Async wp-cli (issue #84) is the same execution surface on a cron
+        // hook, so it leaves with the synchronous tool. Run_Cli_Job defaults
+        // its executor to Wp_Cli_Executor::class, which the line above
+        // deletes, so leaving it behind would ship a hook that fatals when it
+        // fires.
+        'src/Tools/Cli/Dispatch_Cli_Job.php',
+        'src/Tools/Cli/Get_Cli_Job.php',
+        'src/Tools/Cli/List_Cli_Jobs.php',
+        'src/Tools/Cli/Cancel_Cli_Job.php',
+        'src/Tools/Cli/Cli_Job_Store.php',
+        'src/Tools/Cli/Run_Cli_Job.php',
         'src/Tools/Code/Run_Php_Snippet.php',
         'src/Tools/Code/Php_Snippet_Runner.php',
         // The only curl_setopt() in the tree. Page_Audit checks class_exists()

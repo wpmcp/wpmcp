@@ -16,7 +16,7 @@ class Snapshot_Store
      * Snapshots kept per site by default.
      *
      * The single source of truth for the number. history_limit() below is
-     * the only reader; no licence gate is consulted anywhere.
+     * the only reader; nothing else decides the cap.
      */
     public const DEFAULT_HISTORY_LIMIT = 20;
 
