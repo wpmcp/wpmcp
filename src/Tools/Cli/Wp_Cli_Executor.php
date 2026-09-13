@@ -39,6 +39,7 @@ class Wp_Cli_Executor
 
         // Array form: proc_open never invokes a shell to parse this, each
         // element is passed to the child process as a literal argv entry.
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open -- array argv, no shell involved; pro-only file stripped from the wp.org directory build.
         $process = proc_open($argv, $descriptors, $pipes);
 
         if (! is_resource($process)) {

@@ -48,7 +48,7 @@ add-on's code is not in this download at all.
 = Privacy =
 
 This plugin collects nothing about you and sends nothing anywhere on its own.
-It has no scheduled jobs and no activation-time requests. Every outbound
+Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing scheduled ever makes a network request, and activation makes no requests. Every outbound
 request listed under "External services" below happens only while you or your
 agent are running the specific tool that needs it.
 
@@ -123,6 +123,14 @@ call this site's own URL over HTTP. These are loopback requests to your server.
 The analytics abilities read data through Google Site Kit's REST routes when
 that plugin is active and already connected; this plugin holds no analytics
 credentials of its own and talks to no analytics provider directly.
+
+= WP MCP Cloud (inert in this build) =
+
+The code contains an HTTP client for the author's optional cloud service, but
+this build ships no tool that can configure or connect it: the client only
+ever fires if a cloud URL and key have been saved by the separate add-on
+plugin, and then it reaches only the URL you saved. With this plugin alone,
+nothing is ever sent. Terms and privacy policy: https://wpmcp-pro.com/
 
 == Installation ==
 
