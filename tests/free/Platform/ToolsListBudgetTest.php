@@ -113,13 +113,14 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
         // expansion (global Kit, templates, theme builder, atomic elements,
         // popups, dynamic tags); raised 60 -> 62 in review for the atomic
         // system-slot replace tools (replace-system-colors,
-        // replace-system-typography, issue #60). The invariant this protects
-        // is unchanged: the 44-widget catalog is consumed by a FIXED generic
-        // set, so adding a cataloged widget must never add a tool. New tools
-        // here are per-feature, never per-widget, and stay well under the
-        // catalog size.
+        // replace-system-typography, issue #60), then 62 -> 64 for issue #61's
+        // two read tools (export-template, resolve-theme-template). The
+        // invariant this protects is unchanged: the 44-widget catalog is
+        // consumed by a FIXED generic set, so adding a cataloged widget must
+        // never add a tool. New tools here are per-feature, never per-widget,
+        // and stay well under the catalog size.
         $this->assertLessThanOrEqual(
-            62,
+            64,
             count($elementor),
             'The Elementor tool surface must stay a fixed set of generic, per-feature tools; '
             . 'widgets belong in the catalog data, not in new per-widget abilities.'
