@@ -15,14 +15,21 @@ class ComposeAbilitiesRegistrationTest extends \WP_UnitTestCase
         $this->assertSame('wpmcp', $ability->get_category());
     }
 
-    public function test_build_page_input_schema_documents_both_dialects(): void
+    /**
+     * The dialect enum is build-specific: the directory cut ships
+     * ['gutenberg'] only (issue #162), the full build adds 'elementor'. What
+     * every build must document is asserted here; the elementor value is
+     * asserted in tests/pro/Compose/ComposeAbilitiesBuilderTest.php and its
+     * absence from the stripped schema in
+     * tests/free/Flavors/WporgStripBuildPageTest.php.
+     */
+    public function test_build_page_input_schema_documents_the_block_dialect(): void
     {
         $ability = wp_get_abilities()['wpmcp/build-page'];
         $schema  = wp_json_encode($ability->get_input_schema());
 
         $this->assertStringContainsString('spec', $schema);
         $this->assertStringContainsString('gutenberg', $schema);
-        $this->assertStringContainsString('elementor', $schema);
         $this->assertStringContainsString('children', $schema);
     }
 }

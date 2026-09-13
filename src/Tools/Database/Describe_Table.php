@@ -21,11 +21,12 @@ class Describe_Table
 
         $table = Database_Guard::valid_table($requested);
         if (is_wp_error($table)) {
-            throw new \RuntimeException($table->get_error_message());
+            throw new \RuntimeException(esc_html($table->get_error_message()));
         }
 
         global $wpdb;
-        $columns = $wpdb->get_results('DESCRIBE `' . str_replace('`', '', $table) . '`', ARRAY_A);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- schema introspection has no WP API and must reflect the live table structure.
+        $columns = $wpdb->get_results($wpdb->prepare('DESCRIBE %i', $table), ARRAY_A);
 
         return [
             'table'   => $table,
