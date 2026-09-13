@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Baseline ratchet for the WordPressCS ruleset (phpcs-wporg.xml.dist).
  *
