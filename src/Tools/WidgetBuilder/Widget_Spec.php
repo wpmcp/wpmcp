@@ -24,8 +24,8 @@ class Widget_Spec
         'number'   => ['elementor' => 'number', 'desc' => 'Numeric value'],
         'url'      => ['elementor' => 'url', 'desc' => 'Link URL (escaped with esc_url)'],
         'image'    => ['elementor' => 'media', 'desc' => 'Media-library image; {{name}} outputs the image URL'],
-        'icon'     => ['elementor' => 'icons', 'desc' => 'Icon picker; {{name}} outputs the icon class'],
-        'color'    => ['elementor' => 'color', 'desc' => 'Color value'],
+        'icon'     => ['elementor' => 'icons', 'desc' => 'Icon picker; {{name}} outputs the icon class (the file URL for an inline SVG icon)'],
+        'color'    => ['elementor' => 'color', 'desc' => 'Color value. Authors without unfiltered_html cannot use it inside a style attribute: wp_kses_post drops any style rule containing a {{placeholder}}'],
         'select'   => ['elementor' => 'select', 'desc' => 'Choice from options'],
         'switcher' => ['elementor' => 'switcher', 'desc' => 'On/off toggle (yes/empty)'],
     ];

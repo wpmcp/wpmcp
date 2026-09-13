@@ -15,8 +15,14 @@ use WPMCP\Compliance\Severity;
  */
 final class Updater_Rule extends Base_Rule
 {
-    /** Plugin_Updater_Check.php:189-197, error level. */
-    private const UPDATER_PATTERNS = [
+    /**
+     * Plugin_Updater_Check.php:189-197, error level.
+     *
+     * Public because scripts/lib/updater-gate.sh reads this list rather than
+     * carrying a second copy of it: the build-time grep and this rule have to
+     * be the same policy, or the gate quietly becomes the weaker of the two.
+     */
+    public const UPDATER_PATTERNS = [
         'plugin-update-checker',
         'WP_GitHub_Updater',
         'WPGitHubUpdater',
@@ -105,6 +111,48 @@ final class Updater_Rule extends Base_Rule
             $findings[] = $hit;
         }
 
+        foreach ($this->vendor_updater_hits($context) as $hit) {
+            $findings[] = $hit;
+        }
+
+        return $findings;
+    }
+
+    /**
+     * Plugin_Updater_Check has no vendor carve-out and the wordpress.org run
+     * does not exclude vendor/, but Plugin_Source keeps vendor out of
+     * source_files() so that no code rule analyses third-party dependencies.
+     * For an artifact scan that exclusion is wrong: the extracted zip is
+     * exactly what the directory receives, vendor included, so the
+     * error-level patterns are applied to every vendored PHP file too. A
+     * development checkout still skips this: its vendor tree carries dev
+     * dependencies that never ship, and reporting those would be noise.
+     *
+     * @return \WPMCP\Compliance\Finding[]
+     */
+    private function vendor_updater_hits(Rule_Context $context): array
+    {
+        if (! $context->profile()->is_artifact_scan()) {
+            return [];
+        }
+
+        $findings = [];
+        $hard = '/(' . implode('|', self::UPDATER_PATTERNS) . ')/i';
+        foreach ($context->source()->files_under('vendor') as $file) {
+            if ('plugin-update-checker.php' === basename($file->relative_path())) {
+                $findings[] = $this->finding($file, 1, 'plugin-update-checker.php must not ship in a directory plugin');
+            }
+            foreach ($file->grep($hard) as $hit) {
+                $findings[] = $this->finding(
+                    $file,
+                    $hit['line'],
+                    sprintf(
+                        'updater marker "%s" is an error in Plugin_Updater_Check, which has no vendor carve-out',
+                        $hit['match']
+                    )
+                );
+            }
+        }
         return $findings;
     }
 

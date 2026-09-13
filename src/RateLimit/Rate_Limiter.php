@@ -63,7 +63,7 @@ class Rate_Limiter
             return 'user:' . $user_id;
         }
 
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : 'unknown';
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : 'unknown';
         return 'ip:' . $ip;
     }
 
