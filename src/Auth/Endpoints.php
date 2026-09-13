@@ -107,7 +107,7 @@ class Endpoints
     /** The current request's path, with the site's own base path (subdirectory installs) stripped. */
     private static function request_path(): string
     {
-        $uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $uri = isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
         if ('' === $uri) {
             return '';
         }
@@ -191,7 +191,7 @@ class Endpoints
     /** Caller identity key for the DCR rate limiter: remote IP, matching Rate_Limiter's anonymous-caller convention. */
     private static function client_key(): string
     {
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : 'unknown';
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : 'unknown';
         return 'ip:' . $ip;
     }
 }

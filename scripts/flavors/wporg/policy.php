@@ -64,6 +64,15 @@ return [
         'src/Tools/Performance/Curl_Dns_Pin.php',
         // Paid ability whose handler lives inside an otherwise free directory.
         'src/Tools/Media/Stock/Insert_Stock_Image.php',
+        // The builder dialect of build-page is not in this build (issue #162);
+        // its composer goes with it. Build_Page's references to it are edited
+        // out in the exact-string pass.
+        'src/Tools/Compose/Elementor_Composer.php',
+        // The bundled Elementor playbook. Every ability in its `requires:` list
+        // is pro-tier and therefore not in this build, so the document would
+        // ship as a free skill instructing an agent to call tools that do not
+        // exist. A skill the reader cannot follow is worse than no skill.
+        'src/Skills/library/wpmcp-elementor-editing',
         // Brand kits (issue #75). Every class under here is reachable only
         // from register_brand_kit_abilities, which this build deletes, and the
         // kit library itself is data rather than a free feature, so the
