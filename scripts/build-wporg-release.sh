@@ -33,6 +33,10 @@ mkdir -p "$STAGE"
 
 cp "$ROOT/LICENSE" "$ROOT/composer.json" "$ROOT/composer.lock" "$STAGE/"
 cp -R "$ROOT/src" "$STAGE/src"
+
+# Ship the translation directory the Domain Path header points at (issue #184).
+mkdir -p "$STAGE/languages"
+find "$ROOT/languages" -maxdepth 1 \( -name '*.po' -o -name '*.mo' -o -name '*.l10n.php' \) -exec cp {} "$STAGE/languages/" \;
 sed "s/{{VERSION}}/$VERSION/g" "$FLAVOR/$SLUG.php" > "$STAGE/$SLUG.php"
 sed "s/{{VERSION}}/$VERSION/g" "$FLAVOR/readme.txt" > "$STAGE/readme.txt"
 
@@ -60,26 +64,22 @@ while IFS= read -r file; do
 done < <(find "$STAGE/src" "$STAGE/$SLUG.php" -name '*.php')
 
 # 2. No execution construct, at token level so Malware_Audit's detection
-#    patterns and ordinary comments cannot false-positive.
-php -r '
-$bad = [];
-$names = ["proc_open", "shell_exec", "passthru", "popen", "exec", "system", "pcntl_exec", "create_function", "str_rot13", "move_uploaded_file", "assert"];
-$it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($argv[1]));
-foreach ($it as $f) {
-    if ($f->getExtension() !== "php") { continue; }
-    $tokens = token_get_all(file_get_contents($f->getPathname()));
-    foreach ($tokens as $i => $t) {
-        if (!is_array($t)) { continue; }
-        if ($t[0] === T_EVAL) { $bad[] = $f->getPathname() . ":" . $t[2] . " eval"; continue; }
-        if ($t[0] !== T_STRING || !in_array(strtolower($t[1]), $names, true)) { continue; }
-        // A method or property of the same name is not the global function.
-        $prev = $tokens[$i - 1] ?? null;
-        if (is_array($prev) && in_array($prev[0], [T_OBJECT_OPERATOR, T_DOUBLE_COLON, T_FUNCTION, T_NULLSAFE_OBJECT_OPERATOR], true)) { continue; }
-        $bad[] = $f->getPathname() . ":" . $t[2] . " " . $t[1];
-    }
-}
-if ($bad) { fwrite(STDERR, implode("\n", $bad) . "\n"); exit(1); }
-' "$STAGE/src" || fail "an execution construct survived into the $SLUG build"
+#    patterns and ordinary comments cannot false-positive. Walks src, vendor
+#    and the flavor main file, not just src: a dependency that grows an
+#    exec call site is just as much a rejection as our own code (#167).
+# Exit 1 is a surviving construct, exit 2 is the gate not being able to do
+# its job at all (a path that was never staged, an unreadable tree). Those are
+# different bugs and must not report as the same one.
+set +e
+php "$ROOT/scripts/lib/exec-gate.php" "$STAGE/src" "$STAGE/vendor" "$STAGE/$SLUG.php"
+gate_status=$?
+set -e
+case "$gate_status" in
+  0) ;;
+  1) fail "a banned execution or obfuscation construct survived into the $SLUG build" ;;
+  2) fail "the exec gate was pointed at a path that was never staged or cannot be read" ;;
+  *) fail "the exec gate failed unexpectedly (exit $gate_status)" ;;
+esac
 
 # 3. No paid predicate, no licensing SDK, no pro-tier ability. Text-level on
 #    purpose: a docblock that still talks about licensing is also a finding,
@@ -126,7 +126,41 @@ foreach ($it as $f) {
 if ($missing) { fwrite(STDERR, implode("\n", array_unique($missing)) . "\n"); exit(1); }
 ' "$STAGE" || fail "the $SLUG build names a class it does not ship"
 
-# 5. Packaging hygiene: no dotfiles, no development directories, no build
+# 4b. Compatibility headers, re-derived from the staged files rather than
+#     from the checkout the strip ran over. `Tested up to` is a Plugin Check
+#     error when it trails the current release and the plugin then stops
+#     appearing in directory search (issue #172, finding B-23). The values in
+#     the zip must equal the value the repository declares, and the repository
+#     value is the one tests/free/Release/ReleaseHeadersTest.php pins.
+#     Each capture is stripped of a trailing CR and trailing whitespace before
+#     the comparison, the way the PHP test trims, so two values that print the
+#     same cannot fail the equality for an invisible reason; the numeric check
+#     then runs on the trimmed value.
+header_value() { tr -d '\r' | sed 's/[[:space:]]*$//' | head -1; }
+readme_tested="$(sed -n 's/^Tested up to:[[:space:]]*//p' "$STAGE/readme.txt" | header_value)"
+loader_tested="$(sed -n 's/^[[:space:]]*\*[[:space:]]*Tested up to:[[:space:]]*//p' "$STAGE/$SLUG.php" | header_value)"
+root_tested="$(sed -n 's/^Tested up to:[[:space:]]*//p' "$ROOT/readme.txt" | header_value)"
+
+[ -n "$readme_tested" ] || fail "the staged readme.txt has no Tested up to header"
+[ -n "$loader_tested" ] || fail "the staged $SLUG.php has no Tested up to header"
+[ -n "$root_tested" ] || fail "the repository readme.txt has no Tested up to header"
+echo "$readme_tested" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || fail "staged readme.txt Tested up to \"$readme_tested\" must be numbers only"
+echo "$loader_tested" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || fail "staged $SLUG.php Tested up to \"$loader_tested\" must be numbers only"
+[ "$readme_tested" = "$loader_tested" ] || fail "staged readme.txt says Tested up to $readme_tested and $SLUG.php says $loader_tested"
+[ "$readme_tested" = "$root_tested" ] || fail "the zip declares Tested up to $readme_tested and the repository readme.txt declares $root_tested"
+
+staged_stable="$(sed -n 's/^Stable tag:[[:space:]]*//p' "$STAGE/readme.txt" | head -1)"
+[ "$staged_stable" = "$VERSION" ] || fail "staged Stable tag $staged_stable does not equal WPMCP_VERSION $VERSION"
+
+# 5. The coexistence guard. src/flavor-guard.php is global functions, not a
+#    class, so gate 4's classmap walk cannot see it; a prune that dropped it
+#    would fatal at plugin load. The main file must both load it and carry the
+#    WPMCP Flavor header the guard ranks by.
+[ -f "$STAGE/src/flavor-guard.php" ] || fail "src/flavor-guard.php missing from the $SLUG build"
+grep -q "flavor-guard.php" "$STAGE/$SLUG.php" || fail "$SLUG.php does not load the flavor coexistence guard"
+grep -q "^ \* WPMCP Flavor: wporg$" "$STAGE/$SLUG.php" || fail "$SLUG.php does not declare the wporg flavor header"
+
+# 6. Packaging hygiene: no dotfiles, no development directories, no build
 #    scripts. File_Type_Check errors on all three, and ".sh" is on its
 #    application-file list, so this script must never be inside its own zip.
 find "$STAGE" -name '.*' -not -name '.' -not -path "$STAGE" -print0 | xargs -0 rm -rf
@@ -135,7 +169,7 @@ for unwanted in tests test node_modules .github scripts; do
 done
 true
 
-# 6. No updater surface anywhere in what is about to be zipped, vendor/
+# 6a. No updater surface anywhere in what is about to be zipped, vendor/
 #    included. Gate 3 already fails on a surviving vendor/freemius or a
 #    composer.json that still requires the SDK, so for Freemius this is
 #    belt and braces; what it adds is coverage of any *other* dependency
@@ -151,6 +185,24 @@ mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
 rm -f "$ZIP"
 (cd "$STAGE_PARENT" && zip -rq "$ZIP" "$SLUG" -x "*.DS_Store")
+
+# 6b. The execution files themselves are absent from the artifact, checked on
+#     the zip listing rather than on the staging directory: the strip list,
+#     the staging copy and the zip step are three chances to reintroduce them
+#     (#167). Shared with the vertical build (scripts/lib/zip-gate.sh) so the
+#     two cannot drift, and read from a captured listing rather than a
+#     pipeline, see the note there.
+# shellcheck source=scripts/lib/zip-gate.sh
+. "$ROOT/scripts/lib/zip-gate.sh"
+set +e
+zip_excludes "$ZIP" Php_Snippet_Runner.php Wp_Cli_Executor.php Run_Php_Snippet.php Run_Wp_Cli.php
+zip_status=$?
+set -e
+case "$zip_status" in
+  0) ;;
+  1) fail "an execution file is inside $ZIP" ;;
+  *) fail "could not list $ZIP to check it for execution files" ;;
+esac
 
 # 7. The compliance engine, in the profile that models the directory, run
 #    against the extracted zip rather than the checkout. This is the check

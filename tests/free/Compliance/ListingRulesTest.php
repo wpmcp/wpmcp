@@ -2,11 +2,14 @@
 
 namespace WPMCP\Tests\Free\Compliance;
 
+use WPMCP\Compliance\Profile;
+use WPMCP\Compliance\Rule_Context;
 use WPMCP\Compliance\Rules\Admin_Nag_Rule;
 use WPMCP\Compliance\Rules\I18n_Rule;
 use WPMCP\Compliance\Rules\Readme_Rule;
 use WPMCP\Compliance\Rules\Short_Url_Rule;
 use WPMCP\Compliance\Rules\Trademark_Rule;
+use WPMCP\Compliance\Severity;
 
 /**
  * Group D of the rulebook: the listing, the name and the admin experience.
@@ -150,6 +153,59 @@ class ListingRulesTest extends Compliance_Test_Case
         $this->assert_reports($findings, 'pay-to-unlock copy "upgrade to unlock"');
     }
 
+    /**
+     * The distribution zip ships the paid tier and gates it, and the profile
+     * already downgrades that gating (WPORG-05-TRIALWARE). The copy telling
+     * the user about the gate is the same policy and must follow it, or the
+     * source-tree gate fails on the message for a gate it permits. The
+     * admin-notice half is guideline 11 and keeps its severity in both
+     * profiles.
+     */
+    public function test_the_distribution_profile_downgrades_pay_to_unlock_copy_but_not_notices(): void
+    {
+        $files = [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/notice.php' => "<?php\nadd_action( 'admin_notices', 'example_notice' );\nfunction example_notice() {\n    echo '<div class=\"notice\">Upgrade to unlock scheduled exports</div>';\n}\n",
+        ];
+        $rule = new Admin_Nag_Rule();
+
+        $overrides = static fn (array $findings): array => array_combine(
+            array_map(static fn ($finding) => $finding->message(), $findings),
+            array_map(static fn ($finding) => $finding->severity_override(), $findings)
+        );
+
+        $copy = 'pay-to-unlock copy "upgrade to unlock": prohibited by guideline 9 when the feature ships in the same zip';
+
+        $strict = $overrides($this->findings($rule, $files, Profile::wporg_free()));
+        $this->assertArrayHasKey($copy, $strict);
+        $this->assertNull($strict[$copy], 'wporg-free leaves the copy at the rule default');
+        $this->assertSame(Severity::BLOCKER, Profile::wporg_free()->severity_for($rule, $strict[$copy]));
+
+        $lenient = $overrides($this->findings($rule, $files, Profile::distribution()));
+        $this->assertArrayHasKey($copy, $lenient);
+        $this->assertSame(Severity::BEST_PRACTICE, $lenient[$copy]);
+        $this->assertSame(Severity::BEST_PRACTICE, Profile::distribution()->severity_for($rule, $lenient[$copy]));
+
+        foreach ([$strict, $lenient] as $by_message) {
+            $notice = array_filter($by_message, static fn ($message) => str_starts_with($message, 'hooks admin_notices'), ARRAY_FILTER_USE_KEY);
+            $this->assertSame([Severity::REVIEWER_DISCRETION], array_values($notice));
+        }
+    }
+
+    /**
+     * A misspelt severity in the option must fail loudly: an unknown string
+     * would rank 0, never reach the --fail-on floor, and silently mute the
+     * finding it was meant to downgrade.
+     */
+    public function test_an_invalid_pay_to_unlock_copy_severity_is_rejected(): void
+    {
+        $profile = Profile::custom('house', 'typo', [], ['pay_to_unlock_copy' => 'best_practice']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('pay_to_unlock_copy must be one of');
+        $profile->pay_to_unlock_copy_severity();
+    }
+
     public function test_admin_nag_rule_is_quiet_on_a_settings_screen_without_upsell(): void
     {
         $findings = $this->findings(new Admin_Nag_Rule(), [
@@ -202,5 +258,67 @@ class ListingRulesTest extends Compliance_Test_Case
         ]);
 
         $this->assert_reports($findings, 'add_menu_page() is given an untranslated label');
+    }
+
+    /**
+     * Regression guard for issue #183. The rule emits menu-label findings at
+     * best-practice severity, and CI's `composer compliance` gate only fails
+     * on blockers, so nothing in the pipeline would notice the next unwrapped
+     * add_submenu_page() label. This test is that noticer: it runs the real
+     * rule over the real checkout (the same tree the CLI scans), so a new
+     * screen whose label is a bare quoted literal fails here rather than
+     * shipping, wherever in src/ it is registered. The rule looks only at the
+     * top-level label argument, so a literal nested in a sprintf() or a
+     * concatenation is not caught here; the guard below covers the brand
+     * half of that case.
+     */
+    public function test_the_real_admin_menu_registration_has_no_untranslated_labels(): void
+    {
+        $findings = (new I18n_Rule())->check(
+            Rule_Context::for_path(dirname(__DIR__, 3), Profile::wporg_free())
+        );
+
+        // One deliberate exception (issue #184): Plugin::load_textdomain()
+        // loads a self-hosted .mo for the off-directory builds, and the
+        // directory build strips it (scripts/flavors/wporg/strip.php, whose
+        // build fails if the call has moved). Pinned to that one call site so
+        // a second loader anywhere else still fails here.
+        $loader = array_filter($findings, static fn ($f) => str_contains($f->message(), 'load_plugin_textdomain()'));
+        $this->assertCount(1, $loader, implode("\n", $this->messages($loader)));
+        $this->assertStringStartsWith('src/Plugin.php:', $this->locations($loader)[0] ?? '');
+
+        $this->assert_clean(array_values(array_diff_key($findings, $loader)));
+    }
+
+    /**
+     * Also issue #183: the product name is a brand, not a sentence. Wrapping
+     * it in __() produces a msgid identical to the text domain (no context
+     * for a translator), and a brand inside any msgid is one more literal a
+     * flavor build would have to chase; Plugin::BRAND is the single place
+     * such a build rewrites. Matches gettext call forms only, so a comment
+     * or an exception message that happens to mention the brand does not
+     * trip a test about msgids.
+     */
+    public function test_the_product_name_is_never_itself_a_translatable_msgid(): void
+    {
+        $root = dirname(__DIR__, 3);
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root . '/src'));
+        $pattern = "/\\b(?:__|_e|_x|_ex|_n|_nx|esc_html__|esc_html_e|esc_html_x|esc_attr__|esc_attr_e|esc_attr_x)\\(\\s*'wpmcp(?:'|:| )/";
+
+        $offenders = [];
+        foreach ($iterator as $file) {
+            if ('php' !== $file->getExtension()) {
+                continue;
+            }
+            if (preg_match($pattern, (string) file_get_contents($file->getPathname()), $match)) {
+                $offenders[] = substr($file->getPathname(), strlen($root) + 1) . ': ' . $match[0];
+            }
+        }
+
+        $this->assertSame([], $offenders, 'brand baked into a msgid');
+        $this->assertStringContainsString(
+            "public const BRAND = 'wpmcp';",
+            (string) file_get_contents($root . '/src/Plugin.php')
+        );
     }
 }

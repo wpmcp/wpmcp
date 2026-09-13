@@ -36,7 +36,7 @@ class Set_Term_Meta
         }
 
         if (is_protected_meta($key, 'term')) {
-            throw new \InvalidArgumentException(sprintf('Meta key "%s" is protected and cannot be written.', $key));
+            throw new \InvalidArgumentException(sprintf('Meta key "%s" is protected and cannot be written.', esc_html($key)));
         }
 
         $delete = ! array_key_exists('value', $args) || null === $args['value'];
