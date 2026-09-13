@@ -608,20 +608,6 @@ $edits['src/Tools/Skills/List_Skills.php'] = [
     ],
 ];
 
-// The skills admin screen has one lock branch, reachable only when
-// Skill_Library::is_locked() answers yes. It cannot in this build, but an
-// unreachable string is still a string a reviewer reads (guideline 9), so the
-// branch and its copy go rather than being left dead.
-$edits['src/Admin/Skills_Settings_Page.php'] = [
-    [
-        "                            } elseif (! empty(\$skill['locked'])) {\n"
-            . "                                echo esc_html__('Listed, body needs a Pro licence', 'wpmcp');\n"
-            . "                            } else {\n",
-        "                            } else {\n",
-        1,
-    ],
-];
-
 // The starter library ships as documentation an agent reads and acts on, so
 // it may not name an ability this build does not register. The Elementor
 // playbook leaves whole (REMOVED_PATHS above); the safe-writes playbook only
