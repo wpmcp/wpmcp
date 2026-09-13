@@ -66,6 +66,10 @@ const REMOVED_METHODS = [
     'register_cli_job_abilities',
     // Same shape: its only caller is register_elementor_pro_abilities().
     'register_global_class_write_abilities',
+    // Atomic (v4) Elementor writes (issue #62) are pro-tier; the method is
+    // private and reached only from register_elementor_abilities(), whose
+    // call site is edited out below.
+    'register_atomic_elementor_abilities',
     // Not pro, but not for this build either: the directory delivers language
     // packs just in time, and I18n_Rule flags load_plugin_textdomain() as
     // unnecessary there. The off-directory builds keep it (issue #184).
@@ -722,6 +726,7 @@ $plugin_edits = [
     ["            'memory'         => fn () => \$this->register_memory_abilities(\$registrar),\n", '', 1],
     // The two pro suites chained off the free Elementor group.
     ["\n        \$this->register_elementor_pro_abilities(\$registrar);\n", "\n", 1],
+    ["\n        \$this->register_atomic_elementor_abilities(\$registrar);\n", "\n", 1],
     ["\n        \$this->register_elementor_structural_abilities(\$registrar);\n", "\n", 1],
 ];
 // Runtime hook wiring for the two builder suites, which are not in this

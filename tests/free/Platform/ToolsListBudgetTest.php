@@ -57,9 +57,10 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  get-change-set): main had reached 169146 bytes over 312 tools, so no
      *  new tool fit; the two descriptions were trimmed from 1051 to 420
      *  characters first, which puts the payload at 170104 bytes over 314
-     *  tools. Compact tool mode keeps clients
+     *  tools. Raised 175000 -> 180000 when the merge train landed #60, #61
+     *  and #62 together (176529 bytes over 319 tools). Compact tool mode keeps clients
      *  with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 175000;
+    private const TOOLS_LIST_BYTE_BUDGET = 180000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

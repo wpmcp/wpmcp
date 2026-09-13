@@ -136,6 +136,107 @@ class AtomicElementsTest extends Structural_Harness
         $this->assertSame('bar', $widget['settings']['foo']['value']);
     }
 
+    public function test_add_atomic_widget_stores_a_style_class_that_survives_the_write(): void
+    {
+        $post_id = $this->atomic_page();
+
+        $out = (new Add_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'parent_id'     => 'flex001',
+            'widget_type'   => 'e-heading',
+            'params'        => ['title' => 'Styled'],
+            'style'         => ['color' => '#112233', 'font_size' => 32, 'padding' => ['top' => 8]],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+
+        $this->assertIsArray($out);
+
+        $widget   = $this->tree($post_id)[0]['elements'][0];
+        $class_id = $widget['settings']['classes']['value'][0];
+
+        $this->assertStringStartsWith('e-' . $widget['id'] . '-', $class_id);
+        $this->assertArrayHasKey($class_id, $widget['styles'], 'The classes ref must point at a stored style class.');
+
+        $props = $widget['styles'][$class_id]['variants'][0]['props'];
+        $this->assertSame('#112233', $props['color']['value']);
+        // Read back through `_elementor_data`, so the numbers have been through
+        // json_encode(), which writes a whole float as `32` and decodes it as an
+        // int. Compare by value, not by type, or the assertion is about PHP's
+        // JSON encoder rather than about the style that was stored.
+        $this->assertEquals(32, $props['font-size']['value']['size']);
+        $this->assertSame('px', $props['font-size']['value']['unit']);
+        $this->assertEquals(8, $props['padding']['value']['block-start']['value']['size']);
+    }
+
+    public function test_add_atomic_widget_refuses_an_unusable_style_value(): void
+    {
+        $post_id = $this->atomic_page();
+
+        $out = (new Add_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'parent_id'     => 'flex001',
+            'widget_type'   => 'e-heading',
+            'params'        => ['title' => 'Styled'],
+            'style'         => ['color' => 'not-a-color'],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+
+        $this->assertWPError($out);
+        $this->assertSame([], $this->tree($post_id)[0]['elements'], 'A refused style must not write a widget.');
+    }
+
+    public function test_update_atomic_widget_rewrites_the_generated_style_class(): void
+    {
+        $post_id = $this->atomic_page();
+
+        (new Add_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'parent_id'     => 'flex001',
+            'widget_type'   => 'e-heading',
+            'params'        => ['title' => 'Styled'],
+            'style'         => ['color' => '#112233'],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+
+        $element_id = $this->tree($post_id)[0]['elements'][0]['id'];
+
+        $out = (new Update_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'element_id'    => $element_id,
+            'style'         => ['color' => '#445566'],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+
+        $this->assertIsArray($out);
+
+        $widget = $this->tree($post_id)[0]['elements'][0];
+        $this->assertCount(1, $widget['styles'], 'A style update replaces the generated class instead of stacking a second one.');
+        $this->assertCount(1, $widget['settings']['classes']['value']);
+
+        $class_id = $widget['settings']['classes']['value'][0];
+        $this->assertSame('#445566', $widget['styles'][$class_id]['variants'][0]['props']['color']['value']);
+    }
+
+    public function test_add_flexbox_accepts_style_props(): void
+    {
+        $post_id = $this->make_page([]);
+
+        $out = (new Add_Flexbox())->handle([
+            'post_id'       => $post_id,
+            'expected_hash' => $this->data_hash($post_id),
+            'style'         => ['gap' => 16, 'flex_direction' => 'column'],
+        ]);
+
+        $this->assertIsArray($out);
+
+        $container = $this->tree($post_id)[0];
+        $class_id  = $container['settings']['classes']['value'][0];
+        $props     = $container['styles'][$class_id]['variants'][0]['props'];
+
+        $this->assertEquals(16, $props['gap']['value']['size']);
+        $this->assertSame('column', $props['flex-direction']['value']);
+    }
+
     public function test_add_atomic_widget_rejects_stale_hash(): void
     {
         $post_id = $this->atomic_page();
@@ -205,5 +306,104 @@ class AtomicElementsTest extends Structural_Harness
         ]);
         $this->assertInstanceOf(\WP_Error::class, $out);
         $this->assertSame('element_not_found', $out->get_error_code());
+    }
+
+    // ---- the styles blob must not break the classic verifier ----------------
+
+    /**
+     * A page can hold an atomic element with a non-empty `styles` blob next to
+     * classic (v3) elements, and the classic tools verify their writes with the
+     * same Element_Tree::normalize() the atomic write path uses.
+     *
+     * Those classic tools persist through Document::save(), which drops atomic
+     * data when the Editor-V4 experiment is off, so if normalize() compared
+     * `styles` on that path every classic edit to such a page would verify
+     * false and roll the whole page back with mutation_failed. normalize()
+     * therefore carries `styles` only when asked, and only the raw atomic write
+     * asks: this test is the regression guard for that decision.
+     */
+    public function test_a_classic_widget_update_survives_an_atomic_sibling_with_styles(): void
+    {
+        $post_id = $this->make_page([
+            [
+                'id'       => 'cont001',
+                'elType'   => 'container',
+                'settings' => ['flex_direction' => 'column'],
+                'elements' => [
+                    [
+                        'id'         => 'wid0001',
+                        'elType'     => 'widget',
+                        'settings'   => ['title' => 'Hello'],
+                        'elements'   => [],
+                        'widgetType' => 'heading',
+                    ],
+                ],
+                'isInner'  => false,
+            ],
+            [
+                'id'       => 'flex001',
+                'elType'   => 'e-flexbox',
+                'settings' => [
+                    'classes' => ['$$type' => 'classes', 'value' => ['e-flex001-abcdef0']],
+                ],
+                'elements' => [],
+                'styles'   => [
+                    'e-flex001-abcdef0' => [
+                        'id'       => 'e-flex001-abcdef0',
+                        'type'     => 'class',
+                        'label'    => 'local',
+                        'variants' => [
+                            [
+                                'meta'  => ['breakpoint' => 'desktop', 'state' => null],
+                                'props' => ['color' => ['$$type' => 'color', 'value' => '#111111']],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $out = (new \WPMCP\Tools\Elementor\Update_Widget())->handle([
+            'post_id'       => $post_id,
+            'expected_hash' => $this->data_hash($post_id),
+            'element_id'    => 'wid0001',
+            'params'        => ['title' => 'Renamed'],
+        ]);
+
+        $this->assertIsArray($out, 'A classic update on a page holding an atomic styles blob must not fail verification.');
+        $this->assertSame('Renamed', $this->find_in($this->tree($post_id), 'wid0001')['settings']['title']);
+    }
+
+    /**
+     * The opt-in itself, pinned directly: the default comparison shape ignores
+     * `styles` and the atomic write path's shape carries it. Without this, a
+     * later "just always compare styles" simplification would look harmless.
+     */
+    public function test_normalize_carries_styles_only_when_asked(): void
+    {
+        $tree = [[
+            'id'       => 'flex001',
+            'elType'   => 'e-flexbox',
+            'settings' => [],
+            'elements' => [],
+            'styles'   => ['e-flex001-abcdef0' => ['id' => 'e-flex001-abcdef0', 'type' => 'class', 'variants' => []]],
+        ]];
+
+        $this->assertArrayNotHasKey('styles', \WPMCP\Tools\Elementor\Element_Tree::normalize($tree)[0]);
+        $this->assertArrayHasKey('styles', \WPMCP\Tools\Elementor\Element_Tree::normalize($tree, true)[0]);
+    }
+
+    /** An empty blob is not a difference, so classic elements keep their shape. */
+    public function test_normalize_ignores_an_empty_styles_blob_even_when_asked(): void
+    {
+        $tree = [[
+            'id'       => 'flex001',
+            'elType'   => 'e-flexbox',
+            'settings' => [],
+            'elements' => [],
+            'styles'   => [],
+        ]];
+
+        $this->assertArrayNotHasKey('styles', \WPMCP\Tools\Elementor\Element_Tree::normalize($tree, true)[0]);
     }
 }
