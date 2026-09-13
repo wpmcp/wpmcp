@@ -11,12 +11,7 @@
  * Pins the canonical test environment: single-site WordPress with the
  * optional test plugins from bin/install-test-plugins.sh present (parts of
  * the registration path are conditional on ACF / SEO / i18n plugins and on
- * multisite), which is exactly the environment CI runs. That environment ships
- * Elementor 4.0+, so the four atomic write tools (add-flexbox, add-div-block,
- * add-atomic-widget, update-atomic-widget), which register only on an
- * atomic-capable builder (issue #62), are part of the pinned surface. On an
- * older builder the manifest test subtracts exactly those four names and the
- * counts they carry, and still reports drift in everything else.
+ * multisite), which is exactly the environment CI runs.
  */
 
 return [
