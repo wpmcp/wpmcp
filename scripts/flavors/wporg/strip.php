@@ -34,63 +34,17 @@ if ('' === $stage || ! is_dir($stage)) {
 }
 $stage = rtrim($stage, '/');
 
-/** Paths removed outright: the paid tier and the two execution call sites. */
-const REMOVED_PATHS = [
-    // The licence check and the SDK that backs it. Nothing in this build is
-    // unlocked by a payment, so guideline 6's "a service that exists for the
-    // sole purpose of validating licenses ... is not permitted" has nothing
-    // left to bite on.
-    'src/Pro',
-    'src/Freemius',
-    // Paid ability groups, whole. These are the add-on.
-    // Note: src/Cloud stays. Cloud_Client and Cloud_Config are a plain HTTP
-    // seam and an option store with no paid gating in them, and the free
-    // announcements feed in src/Admin/Announcements.php fetches through
-    // Cloud_Client. The paid part is the ability wrappers below, not the seam.
-    'src/Tools/Cloud',
-    'src/Tools/Analysis',
-    // Note: src/Tools/Builders is not removed by path any more. The same
-    // reasoning as src/Cloud applies to it since issue #83: Builder_Detector
-    // and Bricks_Content are plain postmeta readers with no paid gating in
-    // them, and the free content search index reads through both. The paid
-    // part is the ability wrappers (Detect_Builder, Get_Builder_Content,
-    // Update_Builder_Content), which the sweep below takes out along with
-    // Divi_Content once register_builder_abilities is gone.
-    'src/Tools/BlockBuilder',
-    'src/Tools/WidgetBuilder',
-    // Execution. The guards stay (Governance\Opt_In_Gates references them);
-    // the runners, the executor and their ability wrappers do not.
-    'src/Tools/Cli/Run_Wp_Cli.php',
-    'src/Tools/Cli/Wp_Cli_Executor.php',
-    // Async wp-cli (issue #84) is the same execution surface on a cron hook,
-    // so it leaves with the synchronous tool. Run_Cli_Job defaults its
-    // executor to Wp_Cli_Executor::class, which the line above deletes, so
-    // leaving it behind would ship a hook that fatals when it fires.
-    'src/Tools/Cli/Dispatch_Cli_Job.php',
-    'src/Tools/Cli/Get_Cli_Job.php',
-    'src/Tools/Cli/List_Cli_Jobs.php',
-    'src/Tools/Cli/Cancel_Cli_Job.php',
-    'src/Tools/Cli/Cli_Job_Store.php',
-    'src/Tools/Cli/Run_Cli_Job.php',
-    'src/Tools/Code/Run_Php_Snippet.php',
-    'src/Tools/Code/Php_Snippet_Runner.php',
-    // The only curl_setopt() in the tree. Page_Audit checks class_exists()
-    // and falls back to wp_safe_remote_get() on its own.
-    'src/Tools/Performance/Curl_Dns_Pin.php',
-    // Paid ability whose handler lives inside an otherwise free directory.
-    'src/Tools/Media/Stock/Insert_Stock_Image.php',
-    // Brand kits (issue #75). Every class under here is reachable only from
-    // register_brand_kit_abilities, which this build deletes, and the kit
-    // library itself is data rather than a free feature, so the directory
-    // goes whole rather than being swept.
-    'src/Tools/Brand',
-    // Agent project memory (issue #131). Only the three PRO ability wrappers
-    // go. src/Memory and src/Admin/Memory_Page.php stay: publishing a
-    // guardrail and having the server enforce it in Registrar::is_permitted()
-    // is free on every tier, and a safety rule that stopped applying in this
-    // build would be worse than not shipping it.
-    'src/Tools/Memory',
-];
+/**
+ * What must not survive into the directory cut, shared with the build
+ * script's gates and with WporgStripTest so the three cannot disagree about
+ * what counts as a finding. See scripts/flavors/wporg/policy.php.
+ *
+ * @var array<string,array<int,string>>
+ */
+$policy = require __DIR__ . '/policy.php';
+
+/** @var string[] Paths removed outright: the paid tier and the execution call sites. */
+$removed_paths = $policy['removed_paths'];
 
 /** Whole method declarations deleted from Plugin.php: every one is pro-only. */
 const REMOVED_METHODS = [
@@ -112,6 +66,10 @@ const REMOVED_METHODS = [
     'register_cli_job_abilities',
     // Same shape: its only caller is register_elementor_pro_abilities().
     'register_global_class_write_abilities',
+    // Not pro, but not for this build either: the directory delivers language
+    // packs just in time, and I18n_Rule flags load_plugin_textdomain() as
+    // unnecessary there. The off-directory builds keep it (issue #184).
+    'load_textdomain',
 ];
 
 /**
@@ -123,31 +81,39 @@ const REMOVED_METHODS = [
 $edits = [];
 
 // ---------------------------------------------------------------- Registrar
-// The tier branch is deleted outright, not rewritten (issue #160): the prune
-// above removes every pro-tier registration and registration site, and the
-// strip aborts if any survives (see the pro-tier scan below), so a runtime
-// tier check would be exactly the "code disabled pending payment" shape that
-// guideline 5 flags. The directory build's Registrar must not mention tiers
-// at all; build-wporg-release.sh gates on that.
+// The tier rule lives in exactly one method, Registrar::tier_permitted(), so
+// there is exactly one body to collapse here: registration, execution and the
+// ability grid all call it. It stops being a licence question and becomes a
+// statement of fact about this build. Kept rather than deleted so a pro-tier
+// ability that somehow survived the prune still cannot reach the MCP surface,
+// and still cannot get a row or a write path on the grid.
 $edits['src/MCP/Registrar.php'] = [
     ["use WPMCP\\Pro\\Gate;\n", '', 1],
     [
-        "        // Record the declaration BEFORE the tier/governance gates: the\n"
-            . "        // ability grid (issue #78) must list governance-disabled and\n"
-            . "        // unlicensed pro abilities so an admin can see and re-enable them.\n",
-        "        // Record the declaration BEFORE the governance gate: the ability\n"
-            . "        // grid (issue #78) must list governance-disabled abilities so an\n"
-            . "        // admin can see and re-enable them.\n",
-        1,
-    ],
-    [
-        "        if ('pro' === \$a->tier && ! Gate::is_pro()) {\n            return;\n        }\n",
-        '',
-        1,
-    ],
-    [
-        "        \$allowed = ('pro' !== \$a->tier || Gate::is_pro())\n            && current_user_can(\$a->capability)\n",
-        "        \$allowed = current_user_can(\$a->capability)\n",
+        "     * Whether this install can run abilities of a given tier.\n"
+            . "     *\n"
+            . "     * The single site of the tier rule. register() (registration),\n"
+            . "     * is_permitted() (execution) and Ability_Grid_Page (the admin read and\n"
+            . "     * write model) all ask here, so those three models cannot drift, and the\n"
+            . "     * directory build has exactly one body to collapse instead of three\n"
+            . "     * hand-copied predicates.\n"
+            . "     */\n"
+            . "    public static function tier_permitted(string \$tier): bool\n"
+            . "    {\n"
+            . "        return 'pro' !== \$tier || Gate::is_pro();\n"
+            . "    }\n",
+        "     * Whether this install can run abilities of a given tier.\n"
+            . "     *\n"
+            . "     * The paid tier is a separate add-on plugin, not a locked part of this\n"
+            . "     * one: its abilities are not in this build at all. This is therefore a\n"
+            . "     * belt-and-braces refusal, not a licence check, and it is kept so that\n"
+            . "     * an ability that somehow survived the prune still cannot register,\n"
+            . "     * execute, or get a row and a write path on the ability grid.\n"
+            . "     */\n"
+            . "    public static function tier_permitted(string \$tier): bool\n"
+            . "    {\n"
+            . "        return 'pro' !== \$tier;\n"
+            . "    }\n",
         1,
     ],
     [
@@ -165,43 +131,334 @@ $edits['src/MCP/Registrar.php'] = [
     // declared() is the ability grid's source, so its docblock has to stop
     // naming a gate this build does not run.
     [
-        "     * including ones the pro gate or governance then dropped. Display-only\n",
+        "     * including ones the tier gate or governance then dropped. Display-only\n",
         "     * including ones governance then dropped. Display-only\n",
         1,
     ],
 ];
 
 // ------------------------------------------------------- snapshot retention
-// Guideline 5's quota clause. The cap becomes flat and unconditional, with a
-// filter so a site can raise it for free: nothing here is lifted by a payment.
-foreach (
-    [
-    'src/Safety/Safe_Mutation.php',
-    'src/Tools/Compose/Build_Page.php',
-    'src/Tools/Packages/Switch_Theme.php',
-    'src/Tools/Media/Media_Import_Snapshot.php',
-    // Reachable from the free build through List_Global_Classes, which stays:
-    // the read is free, only the write tools around it are the add-on.
-    'src/Tools/Elementor/Global_Classes_Store.php',
-    ] as $path
-) {
-    $edits[$path][] = ["use WPMCP\\Pro\\Gate;\n", '', 1];
-    $edits[$path][] = ['Snapshot_Store::prune(Gate::history_limit());', 'Snapshot_Store::prune(Snapshot_Store::history_limit());', 1];
-}
+// Guideline 5's quota clause is satisfied in source (issue #158): every call
+// site calls Snapshot_Store::prune(), which defaults to a flat cap with a
+// filter so a site can raise it for free. Nothing to rewrite here. Gate 3 in
+// scripts/build-wporg-release.sh is what keeps it that way: it fails the
+// build on any surviving `Pro\Gate`, `is_pro` or `Gate::` in the staged
+// src/ and root plugin file, so an upstream refactor that reintroduces a
+// paid predicate breaks the build loudly instead of shipping a gated zip.
 
 // ---------------------------------------------------------------- Build_Page
-// The Elementor dialect is not gated here, it is simply free.
+// Findings B-06/B-18 (issue #162). The Elementor dialect is not ungated in
+// this build, it is absent: the directory cut composes Gutenberg pages only
+// and the builder dialect ships with the off-directory add-on. So the gate
+// call and its pay-to-unlock message have nothing left to guard, and every
+// code path that composed builder pages goes with them. The removed blocks
+// are copied from the source verbatim as nowdocs so no escaping can drift.
+
+// The whole precondition block: gate, paid copy, Elementor presence check.
+// Page_Spec (edited below) no longer admits the dialect, so none of it
+// remains reachable.
 $edits['src/Tools/Compose/Build_Page.php'][] = [
-    "            if (! Gate::can_use('build-page-builder')) {\n"
-        . "                throw new \\RuntimeException('The builder (Elementor) dialect of build-page is a PRO feature; the free tier composes Gutenberg pages.');\n"
-        . "            }\n",
+    <<<'SRC'
+        if ('elementor' === $spec['dialect']) {
+            if (! Gate::can_use('build-page-builder')) {
+                throw new \RuntimeException('The builder (Elementor) dialect is not enabled for this install; the Gutenberg dialect is always available.');
+            }
+            if (! class_exists('\\Elementor\\Plugin')) {
+                throw new \RuntimeException('The builder dialect requires Elementor to be active on this site.');
+            }
+        }
+SRC . "\n\n",
     '',
     1,
 ];
 $edits['src/Tools/Compose/Build_Page.php'][] = [
     " * The Gutenberg dialect is free; the builder (Elementor) dialect is gated\n * PRO via Pro\\Gate before any write.\n",
-    " * Both dialects, Gutenberg and the Elementor builder, are free.\n",
+    " * This build composes Gutenberg pages; the builder (Elementor) dialect\n * ships with the off-directory add-on.\n",
     1,
+];
+// The class docblock's pipeline description named a preflight check that goes
+// with the dialect. A docblock describing a step this build does not run is
+// as much a finding as the code would be: the reviewer reads those too.
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    " *  2. preflight() \u{2014} referential validation against live state (patterns\n"
+        . " *     registered, attachments exist, menu exists, Elementor widgets known),\n"
+        . " *     still before any write.\n",
+    " *  2. preflight() \u{2014} referential validation against live state (patterns\n"
+        . " *     registered, attachments exist, menu exists), still before any write.\n",
+    1,
+];
+// handle(): only the Gutenberg composer remains.
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+        if ('elementor' === $spec['dialect']) {
+            $composed = Elementor_Composer::compose($spec['content']);
+            $content  = '';
+        } else {
+            $composed = Block_Composer::compose($spec['content']);
+            $content  = $composed['markup'];
+        }
+SRC . "\n",
+    <<<'SRC'
+        $composed = Block_Composer::compose($spec['content']);
+        $content  = $composed['markup'];
+SRC . "\n",
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+            if ('elementor' === $spec['dialect']) {
+                Elementor_Page_Data::save($post_id, $composed['elements']);
+                update_post_meta($post_id, '_elementor_edit_mode', 'builder');
+            }
+SRC . "\n\n",
+    '',
+    1,
+];
+// inspect(): the widget-type referential check and its helper.
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+            if ('widget' === $node['type'] && 'elementor' === $spec['dialect']) {
+                $problem = $this->widget_problem((string) $node['settings']['widget']);
+                if (null !== $problem) {
+                    $problems[] = $path . ': ' . $problem;
+                }
+            }
+SRC . "\n",
+    '',
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    'function (array $node, string $path) use ($spec, &$problems): void {',
+    'function (array $node, string $path) use (&$problems): void {',
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+    /**
+     * Why a widget type cannot be built here, or null when it can.
+     *
+     * Registration on THIS site stays the authority: a spec must never
+     * compose an element the site cannot render. The curated Widget_Catalog
+     * is consulted only to explain the failure: a widget we know but Elementor
+     * has not registered means its plugin is missing or inactive, which is a
+     * very different fix from a typo, and worth saying out loud.
+     */
+    private function widget_problem(string $widget): ?string
+    {
+        if (Atomic_Prop_Schema::known($widget)) {
+            return null;
+        }
+
+        $registered = class_exists('\\Elementor\\Plugin')
+            && null !== \Elementor\Plugin::instance()->widgets_manager->get_widget_types($widget);
+
+        if ($registered) {
+            return null;
+        }
+
+        $entry = Widget_Catalog::get($widget);
+        if (null !== $entry) {
+            return sprintf(
+                'Elementor widget type "%s" is in the wpmcp catalog but is not registered on this site; it needs %s to be active',
+                esc_html($widget),
+                esc_html((string) $entry['requires'])
+            );
+        }
+
+        return sprintf('unknown Elementor widget type "%s"', esc_html($widget));
+    }
+SRC . "\n\n",
+    '',
+    1,
+];
+// dry_run(): only the Gutenberg composer, no widget bookkeeping.
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+        if ('elementor' === $spec['dialect']) {
+            $composed = Elementor_Composer::compose($spec['content']);
+            $markup   = 0;
+        } else {
+            $composed = Block_Composer::compose($spec['content']);
+            $markup   = strlen($composed['markup']);
+        }
+SRC . "\n",
+    <<<'SRC'
+        $composed = Block_Composer::compose($spec['content']);
+        $markup   = strlen($composed['markup']);
+SRC . "\n",
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    "        \$counts  = [];\n        \$depth   = 0;\n        \$unknown = [];\n",
+    "        \$counts = [];\n        \$depth  = 0;\n",
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+        $this->walk($spec['content'], 'content', function (array $node, string $path) use (&$counts, &$depth, &$unknown, $spec): void {
+            $type = 'widget' === $node['type'] && 'elementor' === $spec['dialect']
+                ? 'widget:' . (string) $node['settings']['widget']
+                : $node['type'];
+
+            $counts[ $type ] = ($counts[ $type ] ?? 0) + 1;
+            $depth           = max($depth, substr_count($path, '.children[') + 1);
+
+            if ('widget' === $node['type'] && 'elementor' === $spec['dialect']) {
+                if (null !== $this->widget_problem((string) $node['settings']['widget'])) {
+                    $unknown[] = (string) $node['settings']['widget'];
+                }
+            }
+        });
+SRC . "\n",
+    <<<'SRC'
+        $this->walk($spec['content'], 'content', function (array $node, string $path) use (&$counts, &$depth): void {
+            $counts[ $node['type'] ] = ($counts[ $node['type'] ] ?? 0) + 1;
+            $depth                   = max($depth, substr_count($path, '.children[') + 1);
+        });
+SRC . "\n",
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    "            'unknown_widgets'  => array_values(array_unique(\$unknown)),\n",
+    '',
+    1,
+];
+// dry_run()'s own docblock, same reasoning: it promised a report on widget
+// types and coerced atomic props, both of which were Elementor-only.
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    "     * live site would object to (missing attachments, unregistered patterns\n"
+        . "     * and widget types, atomic props that had to be renamed, rewrapped, or\n"
+        . "     * refused). Composition is a pure transform, so running it here has no\n",
+    "     * live site would object to (missing attachments and unregistered block\n"
+        . "     * patterns). Composition is a pure transform, so running it here has no\n",
+    1,
+];
+// 'coerced' and the composer's own 'warnings' were produced by
+// Elementor_Composer only: Block_Composer::compose() returns markup and count
+// and nothing else, so both reply keys are permanently empty here.
+// They leave the same way 'unknown_widgets' did, comment included: a build
+// with no builder dialect must not describe "prop repairs the builder dialect
+// had to make".
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    <<<'SRC'
+        // Prop repairs the builder dialect had to make are reported on the
+        // real build too, not just in dry_run, so a caller that skipped the
+        // dry run still learns what was changed on the way in.
+        if ([] !== ($composed['coerced'] ?? [])) {
+            $out['coerced'] = array_values($composed['coerced']);
+        }
+        if ([] !== ($composed['warnings'] ?? [])) {
+            $out['warnings'] = array_values($composed['warnings']);
+        }
+
+SRC . "\n",
+    '',
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    "        \$warnings = array_merge(\$problems, \$composed['warnings'] ?? []);\n",
+    "        \$warnings = \$problems;\n",
+    1,
+];
+$edits['src/Tools/Compose/Build_Page.php'][] = [
+    "            'coerced'          => array_values(\$composed['coerced'] ?? []),\n",
+    '',
+    1,
+];
+
+// ----------------------------------------------------------------- Page_Spec
+// The validator stops admitting the dialect at all: an 'elementor' spec is
+// rejected with the same neutral spec.dialect error any unknown dialect gets,
+// long before Build_Page runs. Everything that only ever ran for that dialect
+// goes with it, documentation included: this file IS the shipped description
+// of what a spec may contain, so leaving it detailing a node vocabulary it
+// rejects on line one is worse than leaving dead code.
+$edits['src/Tools/Compose/Page_Spec.php'] = [
+    [
+        " *   dialect  'gutenberg' (default, free) | 'elementor' (PRO)\n",
+        " *   dialect  'gutenberg' (the builder dialect ships with the add-on)\n",
+        1,
+    ],
+    [
+        "    private const DIALECTS = ['gutenberg', 'elementor'];\n",
+        "    private const DIALECTS = ['gutenberg'];\n",
+        1,
+    ],
+    // The preflight sentence names a referential check Build_Page no longer
+    // has, and the shape header offers a choice this build does not.
+    [
+        " * exists, attachment exists, pattern registered, Elementor widget known)\n",
+        " * exists, attachment exists, pattern registered)\n",
+        1,
+    ],
+    [
+        " * Top-level shape (both dialects):\n",
+        " * Top-level shape:\n",
+        1,
+    ],
+    // The builder node vocabulary, documented and implemented.
+    [
+        " * Elementor dialect node types:\n"
+            . " *   containers: container, section, column (settings passed through to the\n"
+            . " *               element verbatim \u{2014} Elementor's settings vocabulary is its own)\n"
+            . " *   leaf:       widget{widget: string, widget_settings?: object}\n *\n",
+        '',
+        1,
+    ],
+    [
+        "    private const ELEMENTOR_CONTAINERS = ['container', 'section', 'column'];\n",
+        '',
+        1,
+    ],
+    [
+        <<<'SRC'
+        if ('elementor' === $dialect) {
+            return $this->elementor_node($node, $type, $settings, $path, $dialect, $depth);
+        }
+
+SRC . "\n",
+        '',
+        1,
+    ],
+    [
+        <<<'SRC'
+    private function elementor_node(array $node, string $type, array $settings, string $path, string $dialect, int $depth): array
+    {
+        $is_container = in_array($type, self::ELEMENTOR_CONTAINERS, true);
+
+        if (! $is_container && 'widget' !== $type) {
+            $this->reject($path, sprintf('unknown builder node type "%s" (expected container, section, column, or widget)', esc_html($type)));
+        }
+
+        if ('widget' === $type) {
+            if (isset($node['children'])) {
+                $this->reject($path, 'a "widget" node may not have children');
+            }
+            foreach (array_keys($settings) as $key) {
+                if (! in_array((string) $key, ['widget', 'widget_settings'], true)) {
+                    $this->reject($path, sprintf('unknown setting "%s" for a "widget" node', esc_html((string) $key)));
+                }
+            }
+            if ('' === trim((string) ($settings['widget'] ?? ''))) {
+                $this->reject($path, 'a "widget" node requires a non-empty "widget" setting (the Elementor widget type)');
+            }
+            if (isset($settings['widget_settings']) && ! is_array($settings['widget_settings'])) {
+                $this->reject($path, '"widget_settings" must be an object');
+            }
+        }
+
+        $children = [];
+        foreach (array_values((array) ($node['children'] ?? [])) as $i => $child) {
+            $children[] = $this->node($child, $path . '.children[' . $i . ']', $dialect, $depth + 1, $type);
+        }
+
+        return ['type' => $type, 'settings' => $settings, 'children' => $children];
+    }
+
+SRC . "\n",
+        '',
+        1,
+    ],
 ];
 
 // ----------------------------------------------------------- site context
@@ -212,51 +469,53 @@ $edits['src/Tools/Context/Get_Site_Context.php'] = [
 
 // ------------------------------------------------------------- ability grid
 // Guideline 9 prohibits "implying users must pay to unlock included
-// features". With nothing paid in the build there is nothing to imply, so the
-// locked-row state and its copy go.
+// features". The screen no longer has a locked row state at all (issue #161):
+// it lists what this install would actually register, and it asks
+// Registrar::tier_permitted() rather than restating the rule, so there is no
+// Gate reference to remove here. What goes is the prose about a second build
+// and the tier cell, which can only ever read "free" in this one.
 $edits['src/Admin/Ability_Grid_Page.php'] = [
-    ["use WPMCP\\Pro\\Gate;\n", '', 1],
     [
-        "        \$pro_locked = 'pro' === \$a->tier && ! Gate::is_pro();\n        \$explain    = Governance::explain(\$a);\n",
-        "        \$explain    = Governance::explain(\$a);\n",
+        " *  - The grid shows only what this install would actually register. An\n"
+            . " *    ability this install cannot run has no row at all (issue #161): no lock\n"
+            . " *    state, no upsell copy, and no write path. A row exists to be acted on,\n"
+            . " *    and the only rows an admin can act on here are the ones the Registrar\n"
+            . " *    would accept; anything else could only be shown as unavailable, which is\n"
+            . " *    not a state this screen has.\n",
+        " *  - The grid shows only what this install would actually register. This\n"
+            . " *    build has a single tier, so that is every ability it declares: there\n"
+            . " *    is no lock state and no unavailable state on this screen.\n",
         1,
     ],
     [
-        "        if (\$pro_locked) {\n            \$reason = __('disabled: no pro license', 'wpmcp');\n        } elseif (\$explain['enabled']) {\n",
-        "        if (\$explain['enabled']) {\n",
+        "     * Whether this install would register the ability at all.\n"
+            . "     *\n"
+            . "     * This mirrors ONLY Registrar::register()'s tier gate, by calling the\n"
+            . "     * same predicate rather than re-stating it. register() also drops\n"
+            . "     * governance-disabled abilities, and that gate is deliberately NOT\n"
+            . "     * mirrored here: showing a governance-disabled ability together with the\n"
+            . "     * layer that disabled it, so an admin can re-enable it, is the entire\n"
+            . "     * point of this screen. Restoring \"parity\" by adding the governance test\n"
+            . "     * would empty the grid of everything worth acting on.\n",
+        "     * Whether this install would register the ability at all.\n"
+            . "     *\n"
+            . "     * This mirrors ONLY Registrar::register()'s tier gate, by calling the\n"
+            . "     * same predicate rather than re-stating it. Every ability in this build\n"
+            . "     * passes it, so it never removes a row here; it is kept as the one place\n"
+            . "     * that decides, so a stray declaration cannot get a row or a write path.\n"
+            . "     * register() also drops governance-disabled abilities, and that gate is\n"
+            . "     * deliberately NOT mirrored here: showing a governance-disabled ability\n"
+            . "     * together with the layer that disabled it, so an admin can re-enable\n"
+            . "     * it, is the entire point of this screen.\n",
         1,
     ],
-    ["            'pro_locked'  => \$pro_locked,\n", '', 1],
-    ["            'enabled'     => ! \$pro_locked && \$explain['enabled'],\n", "            'enabled'     => \$explain['enabled'],\n", 1],
-    ["        \$is_pro = Gate::is_pro();\n", '', 1],
     [
-        "            <?php if (! \$is_pro) : ?>\n"
-            . "                <p class=\"description\">\n"
-            . "                    <?php echo esc_html__('PRO abilities are listed so you can see the full surface; they stay off until a pro license is active.', 'wpmcp'); ?>\n"
-            . "                </p>\n"
-            . "            <?php endif; ?>\n\n",
-        '',
-        1,
-    ],
-    [
-                "                                <?php if ('pro' === \$row['tier']) : ?>\n"
-        . "                                    <strong><?php echo esc_html__('PRO', 'wpmcp'); ?></strong>\n"
-        . "                                    <?php if (\$row['pro_locked']) : ?>\n"
-        . "                                        <span class=\"description\"><?php echo esc_html__('(locked)', 'wpmcp'); ?></span>\n"
-        . "                                    <?php endif; ?>\n"
-        . "                                <?php else : ?>\n"
-        . "                                    <?php echo esc_html__('free', 'wpmcp'); ?>\n"
-        . "                                <?php endif; ?>\n",
+        "                                <?php if ('pro' === \$row['tier']) : ?>\n"
+            . "                                    <strong><?php echo esc_html__('PRO', 'wpmcp'); ?></strong>\n"
+            . "                                <?php else : ?>\n"
+            . "                                    <?php echo esc_html__('free', 'wpmcp'); ?>\n"
+            . "                                <?php endif; ?>\n",
         "                                <?php echo esc_html__('free', 'wpmcp'); ?>\n",
-        1,
-    ],
-    [
-        "                                    <?php elseif (\$row['pro_locked']) : ?>\n"
-            . "                                        <button type=\"button\" class=\"button button-small\" disabled\n"
-            . "                                            title=\"<?php echo esc_attr__('Requires a pro license.', 'wpmcp'); ?>\">\n"
-            . "                                            <?php echo esc_html__('Enable', 'wpmcp'); ?>\n"
-            . "                                        </button>\n",
-        '',
         1,
     ],
 ];
@@ -266,6 +525,38 @@ $edits['src/Admin/Ability_Grid_Page.php'] = [
 // What leaves is the per-document tier: a premium library ships with the
 // off-directory add-on, so in this build nothing is ever withheld and the
 // lock branch, its error copy and the docs describing it all go.
+
+// The skills admin screen renders the same lock as a status column, and a
+// Tier column beside it. Both go: the status branch is dead code carrying
+// live pay-to-unlock copy (a reviewer reads the string, not the
+// reachability), and a Tier column that can only ever print "free" is the
+// admin-screen half of the same claim.
+$edits['src/Admin/Skills_Settings_Page.php'] = [
+    [
+        "                        <th><?php echo esc_html__('Tier', 'wpmcp'); ?></th>\n",
+        '',
+        1,
+    ],
+    [
+        "                        <td><?php echo esc_html(\$skill['tier']); ?></td>\n",
+        '',
+        1,
+    ],
+    // The header row loses a column, so the empty-state colspan has to
+    // follow it down or the table renders short a cell.
+    [
+        "<tr><td colspan=\"6\"><?php echo esc_html__('No skills found.', 'wpmcp'); ?></td></tr>",
+        "<tr><td colspan=\"5\"><?php echo esc_html__('No skills found.', 'wpmcp'); ?></td></tr>",
+        1,
+    ],
+    [
+        "                            } elseif (! empty(\$skill['locked'])) {\n"
+            . "                                echo esc_html__('Listed, body needs a Pro licence', 'wpmcp');\n"
+            . "                            } else {\n",
+        "                            } else {\n",
+        1,
+    ],
+];
 $edits['src/Skills/Skill_Library.php'] = [
     ["use WPMCP\\Pro\\Gate;\n", '', 1],
     [
@@ -279,23 +570,69 @@ $edits['src/Skills/Skill_Library.php'] = [
             . " *    no body withheld from anyone.\n",
         1,
     ],
+    // is_locked() and everything that asked it. Rewriting the predicate to
+    // return false would leave two provably dead branches and a projection
+    // key an agent could still see, which is the shape the strip deletes
+    // outright everywhere else, so the concept goes rather than the answer.
     [
         "    /** Whether a record's body is withheld pending a pro license. */\n"
             . "    public static function is_locked(array \$record): bool\n"
             . "    {\n"
             . "        return 'pro' === (\$record['tier'] ?? 'free') && ! Gate::is_pro();\n"
-            . "    }\n",
-        "    /**\n"
-            . "     * Whether a record's body is withheld. Nothing in this build ever is,\n"
-            . "     * so this can only answer no. Kept as a method because the listing\n"
-            . "     * projection and get-skill both ask.\n"
-            . "     *\n"
-            . "     * @param array<string, mixed> \$record Unused: no record is withheld here.\n"
-            . "     */\n"
-            . "    public static function is_locked(array \$record): bool\n"
-            . "    {\n"
-            . "        return false;\n"
-            . "    }\n",
+            . "    }\n\n",
+        '',
+        1,
+    ],
+    ["        \$view['locked'] = self::is_locked(\$record);\n", '', 1],
+    [
+        "        if (self::is_locked(\$record)) {\n"
+            . "            \$entry['locked'] = true;\n"
+            . "        }\n",
+        '',
+        1,
+    ],
+    // The per-document tier itself. Nothing in this build reads it once the
+    // projection and the admin column are gone, and leaving it parsed would
+    // keep `tier: pro` a meaningful thing to write in a document.
+    ["            'tier'        => \$record['tier'],\n", '', 1],
+    [
+        "     * The list-view projection of a record: everything except the body,\n"
+            . "     * plus the two computed flags an agent needs to decide what to load.\n",
+        "     * The list-view projection of a record: everything except the body,\n"
+            . "     * plus the availability flag an agent needs to decide what to load.\n",
+        1,
+    ],
+    ["            'tier'              => is_string(\$front['tier'] ?? null) ? \$front['tier'] : 'free',\n", '', 1],
+    [
+        "        \$tier = \$frontmatter['tier'] ?? 'free';\n"
+            . "        if (! is_string(\$tier) || ! in_array(\$tier, ['free', 'pro'], true)) {\n"
+            . "            \$errors[] = 'invalid_tier';\n"
+            . "        }\n\n",
+        "        // No tier validation: this build has no tier. A document that\n"
+            . "        // declares one is served in full like every other.\n\n",
+        1,
+    ],
+];
+
+$edits['src/Tools/Skills/List_Skills.php'] = [
+    [
+        " * version, tier, tags, source) and never a body: loading instructions is\n",
+        " * version, tags, source) and never a body: loading instructions is\n",
+        1,
+    ],
+];
+
+// The starter library ships as documentation an agent reads and acts on, so
+// it may not name an ability this build does not register. The Elementor
+// playbook leaves whole (REMOVED_PATHS above); the safe-writes playbook only
+// mentions the two execution escape hatches in passing, so the bullet goes.
+$edits['src/Skills/library/wpmcp-safe-writes/SKILL.md'] = [
+    [
+        "- Anything done through an escape hatch (`wpmcp/run-wp-cli`,\n"
+            . "  `wpmcp/run-php-snippet`). Those run outside the safety net on purpose, they\n"
+            . "  are default-off and development-environment only, and you should say so\n"
+            . "  before proposing them.\n",
+        '',
         1,
     ],
 ];
@@ -321,8 +658,53 @@ $edits['src/Tools/Skills/Get_Skill.php'] = [
             . "                ]\n"
             . "            );\n"
             . "        }\n\n"
-            . "        unset(\$skill['locked']);\n",
-        "        unset(\$skill['locked']);\n",
+            . "        unset(\$skill['locked']);\n\n",
+        '',
+        1,
+    ],
+];
+
+// ------------------------------------------------- bundled skill documents
+// The playbooks under src/Skills/library ship inside the zip and are read by
+// the agent, so a document that still tells the user a capability needs a
+// licence, or that a quota only lifts on a paid site, is the same guideline 5
+// and 9 problem as the code that used to enforce it. These are prose edits,
+// but they are exact-string edits like the rest: reword the document upstream
+// and the build fails instead of shipping stale copy.
+$edits['src/Skills/library/wpmcp-safe-writes/SKILL.md'][] = [
+    "## Free tier history limit\n\n"
+        . "On an unlicensed site the snapshot history is capped at the most recent 20\n"
+        . "operations. A long unattended run can therefore push its own earliest\n"
+        . "operations out of the history. For a large batch of changes, work in smaller\n"
+        . "sessions and confirm each one, or tell the user up front that only the last 20\n"
+        . "steps will be individually reversible.\n",
+    "## Snapshot history limit\n\n"
+        . "The snapshot history keeps a fixed number of recent operations, the same\n"
+        . "number on every install (site owners can change it with the\n"
+        . "`wpmcp_snapshot_history_limit` filter). A long unattended run can therefore\n"
+        . "push its own earliest operations out of the history. For a large batch of\n"
+        . "changes, work in smaller sessions and confirm each one, or tell the user up\n"
+        . "front that only the most recent steps will be individually reversible.\n",
+    1,
+];
+
+$edits['src/Skills/library/wpmcp-governance/SKILL.md'] = [
+    [
+        "operation, and pro-tier tools re-check the licence on every call.\n",
+        "operation.\n",
+        1,
+    ],
+    [
+        "tools/list, that is usually a governance toggle or a missing licence, not a bug.\n",
+        "tools/list, that is usually a governance toggle, not a bug.\n",
+        1,
+    ],
+];
+
+$edits['src/Skills/library/wpmcp-elementor-editing/SKILL.md'] = [
+    [
+        "The Elementor tools are pro tier and require Elementor to be active. If they\n",
+        "The Elementor tools require Elementor to be active. If they\n",
         1,
     ],
 ];
@@ -368,6 +750,24 @@ $plugin_edits[] = [
 // the local it was assigned to.
 $plugin_edits[] = ["        \$insert_stock_image  = new Insert_Stock_Image();\n", '', 1];
 
+// Every ability in this build is free and Registrar refuses a pro-tier one
+// outright, so offering the agent a free/pro split to filter on describes a
+// product that is not in the zip.
+$plugin_edits[] = [
+    "with each entry\'s tier (free/pro), operation",
+    "with each entry\'s tier, operation",
+    1,
+];
+// The self-hosted translation loader goes with its method (REMOVED_METHODS):
+// the directory serves language packs, so the languages/ directory the header
+// points at is only ever read by the off-directory builds.
+$plugin_edits[] = [
+    "            // Self-hosted translations from languages/ (issue #184).\n"
+        . "            add_action('init', [\$this, 'load_textdomain']);\n",
+    '',
+    1,
+];
+
 // Documentation the reviewer reads too: a build with no licence gate must not
 // describe one.
 $plugin_edits[] = [
@@ -375,9 +775,35 @@ $plugin_edits[] = [
         . "     * the Gutenberg dialect is the free tier's builder; the Elementor\n"
         . "     * builder dialect is gated PRO inside the handler via Pro\\Gate, so the\n"
         . "     * one ability serves both tiers with the gate re-checked per call.\n",
-    "     * One-call declarative page composition (issue #57). Both dialects,\n"
-        . "     * the block editor and the Elementor builder, are available to every\n"
-        . "     * install of this plugin.\n",
+    "     * One-call declarative page composition (issue #57). This build\n"
+        . "     * composes block editor (Gutenberg) pages; the Elementor builder\n"
+        . "     * dialect ships with the off-directory add-on.\n",
+    1,
+];
+// The ability's agent-facing description and input schema (issue #162): no
+// dialect choice, no "(PRO)" copy, no elementor enum value in this build.
+$plugin_edits[] = [
+    'dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree. Set dry_run=true',
+    'The spec composes block editor (Gutenberg) markup. Set dry_run=true',
+    1,
+];
+// "unknown widget types" and "atomic props that had to be coerced" were both
+// produced only by the builder composer, which is not in this build, so the
+// dry run can never report either. The description is what the calling model
+// reads, so it must not promise them.
+$plugin_edits[] = [
+    'nesting depth, markup size, unknown widget types, atomic props that had to be coerced, and every referential problem at once',
+    'nesting depth, markup size, and every referential problem at once',
+    1,
+];
+$plugin_edits[] = [
+    ' Elementor dialect types: container, section, column (containers; settings passed to the element verbatim); widget{widget,widget_settings} (leaf).',
+    '',
+    1,
+];
+$plugin_edits[] = [
+    "'dialect' => [ 'type' => 'string', 'enum' => [ 'gutenberg', 'elementor' ] ],",
+    "'dialect' => [ 'type' => 'string', 'enum' => [ 'gutenberg' ] ],",
     1,
 ];
 $plugin_edits[] = [
@@ -415,26 +841,6 @@ $edits['src/Tools/Connect/List_Tool_Catalog.php'] = [
     ],
 ];
 
-// ------------------------------------------------------------- Snapshot_Store
-// The flat cap the four call sites above now read.
-$edits['src/Safety/Snapshot_Store.php'] = [
-    [
-        "    public static function prune(int \$keep): int\n",
-        "    /**\n"
-            . "     * How many snapshots a site keeps. One number for every install: no\n"
-            . "     * licence, no tier, nothing a payment changes. Filterable so a site\n"
-            . "     * that wants deeper history can have it for free, which is the\n"
-            . "     * difference guideline 5 draws between a product decision and a lock.\n"
-            . "     */\n"
-            . "    public static function history_limit(): int\n"
-            . "    {\n"
-            . "        \$limit = (int) apply_filters('wpmcp_snapshot_history_limit', self::DEFAULT_HISTORY_LIMIT);\n"
-            . "        return \$limit > 0 ? \$limit : self::DEFAULT_HISTORY_LIMIT;\n"
-            . "    }\n\n"
-            . "    public static function prune(int \$keep): int\n",
-        1,
-    ],
-];
 
 // ------------------------------------------------- prose the strip falsifies
 // Deleting the Registrar tier branch makes a set of statements elsewhere in
@@ -527,11 +933,6 @@ $edits['src/Memory/Memory_Config.php'] = [
     ],
 ];
 
-$edits['src/Safety/Snapshot_Store.php'][] = [
-    "     * asking a licence gate what the cap is.\n",
-    "     * routing the question through another class.\n",
-    1,
-];
 
 // Elementor's own paid companion plugin is a third-party fact, not a tier of
 // this plugin, but "Pro tier" in a docblock reads the same either way to a
@@ -547,23 +948,7 @@ $edits['src/Tools/Elementor/Widget_Catalog.php'] = [
     ],
 ];
 
-$edits['src/Admin/Ability_Grid_Page.php'][] = [
-    " *  - Pro rows are visible when unlicensed but locked; they are never\n"
-        . " *    presented (or written) as enabled without a live license.\n",
-    '',
-    1,
-];
 
-// Skill_Library::is_locked() is rewritten above to answer no for every
-// record, so the branch this copy sits in is unreachable in this build.
-$edits['src/Admin/Skills_Settings_Page.php'] = [
-    [
-        "                            } elseif (! empty(\$skill['locked'])) {\n"
-            . "                                echo esc_html__('Listed, body needs a Pro licence', 'wpmcp');\n",
-        '',
-        1,
-    ],
-];
 
 $edits['src/Plugin.php'][] = [
     "        // TOOLS are pro: an administrator's published guardrails are enforced\n"
@@ -580,11 +965,6 @@ $edits['src/Plugin.php'][] = [
     "     * this plugin's only precedent for a stronger gate is the\n",
     1,
 ];
-$edits['src/Plugin.php'][] = [
-    "with each entry\\'s tier (free/pro), operation, required capability, and read-only/destructive hints, plus a per-domain summary count. Optional domain and/or tier filters narrow the result.",
-    "with each entry\\'s tier, operation, required capability, and read-only/destructive hints, plus a per-domain summary count. Optional domain and/or tier filters narrow the result.",
-    1,
-];
 
 // ------------------------------------ paid-tier copy in shipped documentation
 // Everything below survived the first pass of this strip because the code it
@@ -593,23 +973,6 @@ $edits['src/Plugin.php'][] = [
 // or enumerates withheld paid abilities is a guideline-9 finding on its own.
 // assert-free-tier.php re-derives all of this from the staged tree.
 
-// build-page's Elementor dialect is free in this build, so the two files
-// behind it must stop calling it paid. Build_Page's own docblock and its
-// registered description are handled further up.
-$edits['src/Tools/Compose/Page_Spec.php'] = [
-    [
-        " *   dialect  'gutenberg' (default, free) | 'elementor' (PRO)\n",
-        " *   dialect  'gutenberg' (default) | 'elementor'\n",
-        1,
-    ],
-];
-// The registered build-page description is client-facing text, not a comment:
-// it is what an agent reads in tools/list.
-$edits['src/Plugin.php'][] = [
-    'dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree',
-    'dialect "gutenberg" (default) builds block markup; dialect "elementor" (requires the Elementor plugin) builds an _elementor_data element tree',
-    1,
-];
 $edits['src/Tools/Compose/Elementor_Composer.php'] = [
     [
         " * Builder-dialect composition (PRO): turn a validated build-page node tree\n",
@@ -711,47 +1074,6 @@ $edits['src/Memory/Memory_Config.php'][] = [
     1,
 ];
 
-// -------------------------------------------- the bundled skill library
-// get-skill returns these bodies verbatim to the connecting client, so they
-// are the most literally "shipped" prose in the tree, and the least like a
-// comment. Three of them describe a licence gate this build does not have and
-// one points an agent at a tool this build deletes.
-$edits['src/Skills/library/wpmcp-governance/SKILL.md'] = [
-    [
-        "scoped identity attached to the connection must include the tool's domain and\n"
-            . "operation, and pro-tier tools re-check the licence on every call.\n",
-        "scoped identity attached to the connection must include the tool's domain and\n"
-            . "operation, and any guardrail the administrator published in project memory\n"
-            . "is applied last and can only narrow the decision.\n",
-        1,
-    ],
-];
-$edits['src/Skills/library/wpmcp-safe-writes/SKILL.md'] = [
-    [
-        "- Anything done through an escape hatch (`wpmcp/run-wp-cli`,\n"
-            . "  `wpmcp/run-php-snippet`). Those run outside the safety net on purpose, they\n"
-            . "  are default-off and development-environment only, and you should say so\n"
-            . "  before proposing them.\n",
-        '',
-        1,
-    ],
-    [
-        "## Free tier history limit\n\n"
-            . "On an unlicensed site the snapshot history is capped at the most recent 20\n"
-            . "operations.",
-        "## History limit\n\n"
-            . "Snapshot history is capped at the most recent 20 operations on every site\n"
-            . "(raise it with the `wpmcp_snapshot_history_limit` filter).",
-        1,
-    ],
-];
-$edits['src/Skills/library/wpmcp-elementor-editing/SKILL.md'] = [
-    [
-        "The Elementor tools are pro tier and require Elementor to be active. If they\n",
-        "The Elementor tools require Elementor to be active. If they\n",
-        1,
-    ],
-];
 
 $failures = [];
 $applied = 0;
@@ -782,10 +1104,41 @@ foreach ($edits as $relative => $file_edits) {
     file_put_contents($path, $contents);
 }
 
-/** DEFAULT_HISTORY_LIMIT has to exist for the new accessor to read it. */
+/**
+ * No bundled playbook may declare a paid tier. `tier: pro` in SKILL.md
+ * frontmatter is the one machine-readable pay-to-unlock marker in a non-PHP
+ * file that the shipped code consumes, and this build has no tier at all, so
+ * a document declaring one would be advertising a lock to the agent that
+ * nothing here can enforce.
+ */
+foreach (glob($stage . '/src/Skills/library/*/SKILL.md') ?: [] as $skill_document) {
+    if (! preg_match('/\A---\R(.*?)\R---\R/s', (string) file_get_contents($skill_document), $front)) {
+        $failures[] = sprintf('%s: no frontmatter block', basename(dirname($skill_document)) . '/SKILL.md');
+        continue;
+    }
+    if (preg_match('/^[[:space:]]*tier:[[:space:]]*(?!free[[:space:]]*$)(\S+)/m', $front[1], $tier)) {
+        $failures[] = sprintf(
+            'src/Skills/library/%s/SKILL.md: declares tier "%s"; this build has no paid tier',
+            basename(dirname($skill_document)),
+            $tier[1]
+        );
+    }
+}
+
+/**
+ * Snapshot retention (issue #158) is no longer rewritten here, so the check
+ * is a positive one: both halves of the flat cap have to be present in the
+ * staged source, the constant and the accessor that reads it. The absence of
+ * a paid predicate is gate 3's job in scripts/build-wporg-release.sh.
+ */
 $snapshot_store = $stage . '/src/Safety/Snapshot_Store.php';
-if (is_file($snapshot_store) && ! str_contains((string) file_get_contents($snapshot_store), 'DEFAULT_HISTORY_LIMIT =')) {
-    $failures[] = 'src/Safety/Snapshot_Store.php: DEFAULT_HISTORY_LIMIT is not declared in the source';
+if (is_file($snapshot_store)) {
+    $snapshot_source = (string) file_get_contents($snapshot_store);
+    foreach (['DEFAULT_HISTORY_LIMIT =', 'function history_limit()'] as $needle) {
+        if (! str_contains($snapshot_source, $needle)) {
+            $failures[] = sprintf('src/Safety/Snapshot_Store.php: %s is not present in the source', $needle);
+        }
+    }
 }
 
 /** Delete the pro-only method declarations from Plugin.php, docblock included. */
@@ -800,13 +1153,20 @@ foreach (REMOVED_METHODS as $method) {
 }
 
 /** Remove the paths that carry the paid tier and the execution constructs. */
-foreach (REMOVED_PATHS as $relative) {
+foreach ($removed_paths as $relative) {
     $path = $stage . '/' . $relative;
     if (! file_exists($path)) {
         $failures[] = sprintf('%s: nothing to remove at this path', $relative);
         continue;
     }
-    remove_path($path);
+    // remove_path() reports the first thing it could not delete, so a
+    // partial removal aborts here with the offending path instead of
+    // leaving a later grep in a different script to notice.
+    $undeleted = remove_path($path);
+    if ([] !== $undeleted) {
+        $failures[] = sprintf('%s: could not be removed (%s)', $relative, implode(', ', $undeleted));
+        continue;
+    }
     $applied++;
 }
 
@@ -853,19 +1213,29 @@ printf(
 
 // ---------------------------------------------------------------- helpers
 
-function remove_path(string $path): void
+/**
+ * Delete a file or a directory tree.
+ *
+ * @return string[] Paths that could not be deleted; empty on success.
+ */
+function remove_path(string $path): array
 {
     if (is_file($path) || is_link($path)) {
-        unlink($path);
-        return;
+        return unlink($path) ? [] : [$path];
     }
+
+    $failed = [];
     foreach (scandir($path) ?: [] as $entry) {
         if ('.' === $entry || '..' === $entry) {
             continue;
         }
-        remove_path($path . '/' . $entry);
+        $failed = array_merge($failed, remove_path($path . '/' . $entry));
     }
-    rmdir($path);
+    if ([] === $failed && ! rmdir($path)) {
+        $failed[] = $path;
+    }
+
+    return $failed;
 }
 
 /**

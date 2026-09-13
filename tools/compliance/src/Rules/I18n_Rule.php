@@ -13,6 +13,13 @@ use WPMCP\Compliance\Source_File;
  * This is the rule that catches a flavor build whose text-domain rewrite
  * missed a call: a domain that no longer matches the slug produces strings
  * that translate.wordpress.org will never serve.
+ *
+ * It is the text-domain half of WordPress.WP.I18n only. The rest of that
+ * sniff (MissingTranslatorsComment, NonSingularStringLiteralText, the
+ * placeholder checks) runs as the real WordPressCS sniff through
+ * phpcs-wporg.xml.dist and `composer lint`, where .phpcs-baseline.json
+ * records no I18n codes, so the next occurrence fails the build (issue
+ * #176). The engine does not carry a second copy of those checks.
  */
 final class I18n_Rule extends Base_Rule
 {

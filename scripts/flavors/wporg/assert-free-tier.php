@@ -97,14 +97,19 @@ if ([] === $php) {
     exit(1);
 }
 
-// 1. The registrar must not branch on, or even mention, ability tiers.
+// 1. The registrar must not consult a licence. The tier rule itself stays,
+//    collapsed to a statement of fact about this build (issues #159 and
+//    #161: Registrar::tier_permitted() returns 'pro' !== $tier so an ability
+//    that somehow survived the prune still cannot register, execute or get a
+//    row on the grid), so what is forbidden here is any licence predicate
+//    behind that rule, not the word "tier".
 $registrar = $stage . '/src/MCP/Registrar.php';
 if (! is_file($registrar)) {
     $findings[] = 'src/MCP/Registrar.php is missing from the build';
 } else {
     foreach (file($registrar) ?: [] as $i => $line) {
-        if (false !== stripos($line, 'tier')) {
-            $findings[] = sprintf('src/MCP/Registrar.php:%d still names a tier: %s', $i + 1, trim($line));
+        if (preg_match('/Gate::|\bis_pro\b|can_use_premium_code|\bcan_use\(|[Ff]reemius|WPMCP_FS_/', $line)) {
+            $findings[] = sprintf('src/MCP/Registrar.php:%d still consults a licence: %s', $i + 1, trim($line));
         }
     }
 }
