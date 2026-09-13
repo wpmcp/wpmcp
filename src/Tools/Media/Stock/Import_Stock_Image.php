@@ -55,7 +55,7 @@ class Import_Stock_Image
             $post_id  = (int) ($args['post_id'] ?? 0);
             $media_id = media_handle_sideload(['name' => $filename, 'tmp_name' => $tmp], $post_id);
             if (is_wp_error($media_id)) {
-                throw new \RuntimeException('The image could not be added to the Media Library: ' . $media_id->get_error_message());
+                throw new \RuntimeException('The image could not be added to the Media Library: ' . esc_html($media_id->get_error_message()));
             }
             $media_id = (int) $media_id;
         } catch (\Throwable $e) {

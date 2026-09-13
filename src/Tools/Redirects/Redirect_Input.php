@@ -31,8 +31,8 @@ class Redirect_Input
         if (strlen($source) > Redirect_Store::MAX_SOURCE_LENGTH) {
             throw new \InvalidArgumentException(sprintf(
                 'Source path is %d characters; the maximum is %d.',
-                strlen($source),
-                Redirect_Store::MAX_SOURCE_LENGTH
+                (int) strlen($source),
+                (int) Redirect_Store::MAX_SOURCE_LENGTH
             ));
         }
 
@@ -67,7 +67,7 @@ class Redirect_Input
             $post_id = (int) $args['target_post_id'];
             $post    = $post_id > 0 ? get_post($post_id) : null;
             if (! $post) {
-                throw new \InvalidArgumentException("Target post {$post_id} does not exist.");
+                throw new \InvalidArgumentException(sprintf('Target post %d does not exist.', (int) $post_id));
             }
             $permalink = get_permalink($post_id);
             return [is_string($permalink) ? $permalink : '', $post_id];
@@ -87,8 +87,8 @@ class Redirect_Input
         if (! in_array($code, Redirect_Store::ALLOWED_STATUS_CODES, true)) {
             throw new \InvalidArgumentException(sprintf(
                 'Status code %d is not a supported redirect code (%s).',
-                $code,
-                implode(', ', Redirect_Store::ALLOWED_STATUS_CODES)
+                (int) $code,
+                esc_html(implode(', ', Redirect_Store::ALLOWED_STATUS_CODES))
             ));
         }
 

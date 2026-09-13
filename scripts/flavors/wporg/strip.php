@@ -78,6 +78,11 @@ const REMOVED_PATHS = [
     // library itself is data rather than a free feature, so the directory
     // goes whole rather than being swept.
     'src/Tools/Brand',
+    // The bundled Elementor playbook. Every ability in its `requires:` list
+    // is pro-tier and therefore not in this build, so the document would ship
+    // as a free skill instructing an agent to call tools that do not exist.
+    // A skill the reader cannot follow is worse than no skill.
+    'src/Skills/library/wpmcp-elementor-editing',
     // Agent project memory (issue #131). Only the three PRO ability wrappers
     // go. src/Memory and src/Admin/Memory_Page.php stay: publishing a
     // guardrail and having the server enforce it in Registrar::is_permitted()
@@ -99,6 +104,10 @@ const REMOVED_METHODS = [
     'register_elementor_structural_abilities',
     'register_brand_kit_abilities',
     'register_memory_abilities',
+    // Not pro, but not for this build either: the directory delivers language
+    // packs just in time, and I18n_Rule flags load_plugin_textdomain() as
+    // unnecessary there. The off-directory builds keep it (issue #184).
+    'load_textdomain',
 ];
 
 /**
@@ -175,7 +184,7 @@ $edits['src/Tools/Compose/Build_Page.php'][] = [
     <<<'SRC'
         if ('elementor' === $spec['dialect']) {
             if (! Gate::can_use('build-page-builder')) {
-                throw new \RuntimeException('The builder (Elementor) dialect of build-page is a PRO feature; the free tier composes Gutenberg pages.');
+                throw new \RuntimeException('The builder (Elementor) dialect is not enabled for this install; the Gutenberg dialect is always available.');
             }
             if (! class_exists('\\Elementor\\Plugin')) {
                 throw new \RuntimeException('The builder dialect requires Elementor to be active on this site.');
@@ -571,6 +580,21 @@ $edits['src/Skills/Skill_Library.php'] = [
     ],
 ];
 
+// The starter library ships as documentation an agent reads and acts on, so
+// it may not name an ability this build does not register. The Elementor
+// playbook leaves whole (REMOVED_PATHS above); the safe-writes playbook only
+// mentions the two execution escape hatches in passing, so the bullet goes.
+$edits['src/Skills/library/wpmcp-safe-writes/SKILL.md'] = [
+    [
+        "- Anything done through an escape hatch (`wpmcp/run-wp-cli`,\n"
+            . "  `wpmcp/run-php-snippet`). Those run outside the safety net on purpose, they\n"
+            . "  are default-off and development-environment only, and you should say so\n"
+            . "  before proposing them.\n",
+        '',
+        1,
+    ],
+];
+
 $edits['src/Tools/Skills/Get_Skill.php'] = [
     [
         " *  - wpmcp_skill_locked: the skill declares `tier: pro` and this site is not\n"
@@ -638,6 +662,16 @@ $plugin_edits[] = [
 // group method. Its registration goes with remove_pro_abilities(); this is
 // the local it was assigned to.
 $plugin_edits[] = ["        \$insert_stock_image  = new Insert_Stock_Image();\n", '', 1];
+
+// The self-hosted translation loader goes with its method (REMOVED_METHODS):
+// the directory serves language packs, so the languages/ directory the header
+// points at is only ever read by the off-directory builds.
+$plugin_edits[] = [
+    "            // Self-hosted translations from languages/ (issue #184).\n"
+        . "            add_action('init', [\$this, 'load_textdomain']);\n",
+    '',
+    1,
+];
 
 // Documentation the reviewer reads too: a build with no licence gate must not
 // describe one.

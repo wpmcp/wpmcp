@@ -373,6 +373,7 @@ class Snapshot
      */
     public static function serialize(array $before): string
     {
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- binary column portability encoding for the gzip payload (see docblock), not obfuscation.
         return base64_encode(gzencode((string) wp_json_encode($before)));
     }
 
@@ -387,6 +388,7 @@ class Snapshot
         if (str_starts_with($blob, "\x1f\x8b")) {
             $json = @gzdecode($blob);
         } else {
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- decodes the portability encoding written by serialize() (see docblocks), not obfuscation.
             $decoded = base64_decode($blob, true);
             $json    = false === $decoded ? false : @gzdecode($decoded);
         }

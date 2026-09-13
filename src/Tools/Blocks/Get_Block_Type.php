@@ -21,7 +21,7 @@ class Get_Block_Type
         $block_type = $registry->get_registered($name);
 
         if (! $block_type) {
-            throw new \InvalidArgumentException("Block type \"{$name}\" is not registered.");
+            throw new \InvalidArgumentException(sprintf('Block type "%s" is not registered.', esc_html($name)));
         }
 
         return [

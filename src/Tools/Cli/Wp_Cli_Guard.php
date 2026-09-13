@@ -250,7 +250,7 @@ class Wp_Cli_Guard
             if (! in_array($flag_name, $allowed, true)) {
                 return new \WP_Error(
                     'wp_cli_disallowed_flag',
-                    "The flag \"{$flag_name}\" is not on the safe-flag allowlist and was rejected."
+                    'The flag "' . esc_html($flag_name) . '" is not on the safe-flag allowlist and was rejected.'
                 );
             }
         }
@@ -310,7 +310,7 @@ class Wp_Cli_Guard
         if (null !== $found_but_not_executable) {
             return new \WP_Error(
                 'wp_cli_binary_not_executable',
-                "The wp-cli binary at \"{$found_but_not_executable}\" is not executable."
+                'The wp-cli binary at "' . esc_html($found_but_not_executable) . '" is not executable.'
             );
         }
 

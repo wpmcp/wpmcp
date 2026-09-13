@@ -24,7 +24,7 @@ class Insert_Pattern
         if (! $pattern) {
             throw new \InvalidArgumentException(sprintf(
                 'Pattern "%s" is not registered. Use list-patterns to discover available pattern names.',
-                $name
+                esc_html($name)
             ));
         }
 
@@ -33,7 +33,7 @@ class Insert_Pattern
             static fn (array $b) => null !== $b['blockName'] || '' !== trim((string) ($b['innerHTML'] ?? ''))
         ));
         if ([] === $nodes) {
-            throw new \InvalidArgumentException(sprintf('Pattern "%s" contains no blocks to insert.', $name));
+            throw new \InvalidArgumentException(sprintf('Pattern "%s" contains no blocks to insert.', esc_html($name)));
         }
 
         foreach ($nodes as $offset => $node) {
