@@ -2,6 +2,7 @@
 
 namespace WPMCP\Governance;
 
+use WPMCP\Tools\Bridge\Bridge_Guard;
 use WPMCP\Tools\Cli\Wp_Cli_Guard;
 use WPMCP\Tools\Code\Php_Snippet_Guard;
 use WPMCP\Tools\Database\Delete_Rows;
@@ -55,6 +56,15 @@ class Opt_In_Gates
             'wpmcp/write-file'      => ['filter' => 'wpmcp_enable_fs_writes', 'is_open' => [Write_File::class, 'is_enabled']],
             'wpmcp/edit-file'       => ['filter' => 'wpmcp_enable_fs_writes', 'is_open' => [Edit_File::class, 'is_enabled']],
             'wpmcp/delete-file'     => ['filter' => 'wpmcp_enable_fs_writes', 'is_open' => [Delete_File::class, 'is_enabled']],
+            // The third-party ability bridge (issue #194): all three shells
+            // share one site-level gate. The two discovery tools are listed
+            // as well as the executor because the gate closes the whole
+            // surface, and a grid row that could be flipped "enabled"
+            // while the constant/filter is off would be exactly the UI
+            // this class exists to prevent.
+            'wpmcp/list-site-abilities'  => ['filter' => 'wpmcp_enable_ability_bridge', 'is_open' => [Bridge_Guard::class, 'is_enabled']],
+            'wpmcp/get-site-ability'     => ['filter' => 'wpmcp_enable_ability_bridge', 'is_open' => [Bridge_Guard::class, 'is_enabled']],
+            'wpmcp/execute-site-ability' => ['filter' => 'wpmcp_enable_ability_bridge', 'is_open' => [Bridge_Guard::class, 'is_enabled']],
         ];
     }
 
