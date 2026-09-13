@@ -31,6 +31,8 @@ The difference: **every mutating operation takes a snapshot first.** A wrong bul
 * Store content: pages, posts, Gutenberg blocks, menus, media
 * SEO metadata through Yoast SEO, Rank Math, or SEOPress
 * Site context, diagnostics, exports, and scheduled maintenance
+* Media library work, including stock image search and import
+* Security scans, performance analysis, and plugin/theme installs and updates
 * Everything snapshotted, logged, and reversible
 
 = Looking for more? =
@@ -39,25 +41,49 @@ This plugin is complete for WooCommerce stores. The full WP MCP plugin adds page
 
 = Privacy =
 
-The plugin collects nothing about you and sends nothing anywhere on its own. Every outbound request this build can make is listed under "External services" below, and each one happens only while you or your agent are running the tool that needs it. This build contains no licensing SDK and no cloud sync.
+The plugin collects nothing about you and sends nothing to the author. Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing on the schedule ever makes a network request, and neither does activation. Every host it can reach is listed under "External services" below, and each request happens only while you or your agent are running the specific ability that needs it.
 
 == External services ==
 
-The plugin sends nothing anywhere on its own: it has no scheduled jobs and no activation-time requests. Every request below fires only while you or your agent run the tool that needs it. Unless an entry says otherwise, requests carry WordPress's default user agent, which includes this site's URL.
+= WordPress.org core checksums API (api.wordpress.org) =
 
-Fixed hosts:
+Used by the `scan-security` ability to compare this site's core files against the official checksums for its version, so modified core files can be reported. It is contacted only when an administrator or an agent runs that ability. What is sent: the WordPress version and the site locale, under a `WPMCP-Security-Scanner/1.0` user agent. No content and no personal data. Privacy policy: https://wordpress.org/about/privacy/
 
-* api.wordpress.org - core file checksums, fetched only when the scan-security ability runs its integrity check (requires the manage_options capability). Sends the WordPress version and site locale with the user agent WPMCP-Security-Scanner/1.0, so this site's URL is not included. Terms of use and privacy policy: https://wordpress.org/about/privacy/
-* api.openverse.org - stock image search. Openverse is the default provider for search-stock-images and needs no key or configuration, so this request is unconditional whenever that ability runs without another provider selected. Sends the search terms and paging. Terms: https://openverse.org/terms Privacy policy: https://openverse.org/privacy
-* api.pexels.com - stock image search, only when the Pexels provider is selected and you have saved a Pexels key via set-stock-key. Sends the search terms, paging and your key in the Authorization header. Results link to www.pexels.com license pages; those links are displayed, never requested. Terms: https://www.pexels.com/terms-of-service/ Privacy policy: https://www.pexels.com/privacy-policy/
-* api.unsplash.com - stock image search, only when the Unsplash provider is selected and you have saved an Unsplash key via set-stock-key. Sends the search terms, paging and your key in the Authorization header. Results link to unsplash.com license pages; those links are displayed, never requested. Terms: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
+= WordPress.org plugin directory API, abandoned-plugin check (api.wordpress.org) =
 
-Dynamic destinations:
+The same `scan-security` ability also asks the plugin directory whether any of your active plugins has been closed, so an abandoned plugin can be reported. What is sent: the directory slug of each active plugin it looks up (a capped number per run, then cached), through WordPress core's own `plugins_api()`. Core sends its standard user agent with those requests, which contains the WordPress version and this site's address. Privacy policy: https://wordpress.org/about/privacy/
 
-* import-stock-image and upload-svg (when given a url) download the file you picked from an allowlist of image CDNs that defaults to five hosts (images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org, staticflickr.com); any other host is refused before a request is made and redirects are not followed. A site owner can extend the list with the wpmcp_remote_media_allowed_hosts filter.
-* analyze-performance fetches one page on this site (the url or post_id you give it, defaulting to the front page) with the user agent WPMCP-Performance-Analyzer/1.0. URLs on other hosts are refused, as are private, loopback and reserved addresses, and redirects are not followed.
-* scan-security also requests this site's own front page once to read its security headers and generator tag.
-* The connection self-test requests this site's own home URL to verify the MCP endpoint is reachable.
+= WordPress.org plugin and theme directory (api.wordpress.org, downloads.wordpress.org) =
+
+Used by the `search-plugins`, `get-plugin-info`, `install-plugin`, `update-plugin`, `install-theme` and `update-theme` abilities, only when you or your agent run one of them. What is sent to api.wordpress.org: your search terms, or the directory slug of the plugin or theme in question, through core's `plugins_api()` and `themes_api()`, with core's standard user agent (WordPress version and this site's address). Installs and updates then download the package archive from downloads.wordpress.org. Only directory slugs are accepted; these abilities cannot be pointed at an arbitrary zip URL. Privacy policy: https://wordpress.org/about/privacy/
+
+= Openverse (api.openverse.org) =
+
+Used by the `search-stock-images` ability when the Openverse provider is chosen. It is contacted only when you or an agent run that search. What is sent: your search terms, the page number and the results-per-page count, under a `WPMCP-Stock-Search/1.0` user agent. No key and no account are required. Terms of use: https://openverse.org/terms Privacy policy: https://openverse.org/privacy
+
+= Pexels (api.pexels.com) =
+
+Used by the `search-stock-images` ability when the Pexels provider is chosen, which requires you to save a Pexels API key first. What is sent: your search terms, paging, your own API key in the Authorization header, and a `WPMCP-Stock-Search/1.0` user agent. Licence terms for the returned images live at https://www.pexels.com/license/ Terms of use: https://www.pexels.com/terms-of-service/ Privacy policy: https://www.pexels.com/privacy-policy/
+
+= Unsplash (api.unsplash.com) =
+
+Used by the `search-stock-images` ability when the Unsplash provider is chosen, which requires you to save an Unsplash API key first. What is sent: your search terms, paging, your own API key in the Authorization header, and a `WPMCP-Stock-Search/1.0` user agent. Licence terms for the returned images live at https://unsplash.com/license Terms of use: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
+
+= Image and SVG downloads from allowlisted hosts =
+
+`import-stock-image` and `upload-svg` download the file you picked. The download target must be on an allowlist, which by default is images.pexels.com, images.unsplash.com and plus.unsplash.com (Pexels and Unsplash, above), upload.wikimedia.org (Wikimedia Commons, https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) and staticflickr.com (Flickr, https://www.flickr.com/help/terms and https://www.flickr.com/help/privacy), each matched on the host itself or a subdomain of it. The site owner can widen or narrow that list with the `wpmcp_remote_media_allowed_hosts` filter. Nothing but the file is requested; the request carries WordPress's standard user agent, which contains the WordPress version and this site's address.
+
+= Downloads you point the plugin at yourself (any host) =
+
+`sideload-image` hands the URL you or your agent supply to WordPress core's `media_sideload_image()`, so it can fetch an image from any host on the internet. It is not restricted by the allowlist above, and the destination is whatever you asked for; the plugin never picks one. Disable the ability in the WP MCP ability grid if you do not want that reach. As with any core download, the request carries WordPress's standard user agent.
+
+= Pages you ask the plugin to measure =
+
+`analyze-performance` fetches the URL you give it so it can measure the response. It is normally this site's own address. Private, loopback and reserved addresses are refused and redirects are not followed. Nothing is sent beyond an ordinary GET and a `WPMCP-Performance-Analyzer/1.0` user agent.
+
+= Loopback requests to this site itself =
+
+The connection self-test calls this site's own REST route, and `scan-security` fetches this site's front page to read its security headers. Both are requests to your own server, not calls to any third party.
 
 == Installation ==
 
