@@ -2,7 +2,7 @@
 
 namespace WPMCP\Tools\Brand;
 
-use WPMCP\Pro\Gate;
+use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Tools\Elementor\Elementor_Kit_Data;
 
@@ -48,9 +48,9 @@ class Rollback_Brand_Kit
             return new \WP_Error(
                 'snapshot_unavailable',
                 sprintf(
-                    'The snapshot for operation "%s" is no longer stored, so the apply cannot be undone (history keeps %d operations on this tier).',
+                    'The snapshot for operation "%s" is no longer stored, so the apply cannot be undone (history keeps %d operations).',
                     $target,
-                    Gate::history_limit()
+                    Snapshot_Store::history_limit()
                 )
             );
         }
