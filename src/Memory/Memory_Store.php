@@ -222,6 +222,7 @@ class Memory_Store
         ];
 
         if (isset($args['kind'])) {
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- admin-scale query bounded to MAX_RULES (200) posts of the private memory post type.
             $query['meta_query'] = [
                 [
                     'key'     => self::META_KIND,

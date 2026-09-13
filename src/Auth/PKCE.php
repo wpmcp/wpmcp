@@ -40,6 +40,7 @@ class PKCE
     {
         $hash = hash('sha256', $verifier, true);
 
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- RFC 7636 base64url encoding of the SHA-256 PKCE challenge, not obfuscation.
         return rtrim(strtr(base64_encode($hash), '+/', '-_'), '=');
     }
 }
