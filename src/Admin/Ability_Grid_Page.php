@@ -256,7 +256,7 @@ class Ability_Grid_Page
         $is_pro = Gate::is_pro();
         ?>
         <div class="wrap">
-            <h1><?php echo esc_html__('wpmcp: Abilities', 'wpmcp'); ?></h1>
+            <h1><?php echo esc_html(Plugin::page_title(_x('Abilities', 'admin menu', 'wpmcp'))); ?></h1>
             <p>
                 <?php echo esc_html__('Every ability the plugin declares, grouped by domain. Toggles write governance state (a narrowing layer: they can disable, or clear a disable, never bypass another layer), and every change is recorded in the governance audit log.', 'wpmcp'); ?>
             </p>
