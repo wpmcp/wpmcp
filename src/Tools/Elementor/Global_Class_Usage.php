@@ -44,6 +44,7 @@ class Global_Class_Usage
         // match the unrelated class "g-1a2b3c4".
         $like = '%' . $wpdb->esc_like('"' . $class_id . '"') . '%';
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- LIKE scan of _elementor_data postmeta has no WP_Query equivalent; the usage report must reflect current content.
         $total = (int) $wpdb->get_var(
             $wpdb->prepare(
                 "SELECT COUNT(*)
@@ -60,6 +61,7 @@ class Global_Class_Usage
             return $empty;
         }
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- LIKE scan of _elementor_data postmeta has no WP_Query equivalent; the usage report must reflect current content.
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT p.ID, p.post_title, p.post_type, p.post_status, pm.meta_value

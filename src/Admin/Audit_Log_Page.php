@@ -3,6 +3,7 @@
 namespace WPMCP\Admin;
 
 use WPMCP\MCP\Request_Log;
+use WPMCP\Plugin;
 use WPMCP\Tools\List_Operations;
 
 if (! defined('ABSPATH')) {
@@ -60,7 +61,7 @@ class Audit_Log_Page
     {
         $tab = $this->current_tab();
 
-        echo '<div class="wrap"><h1>' . esc_html__('wpmcp: Audit Log', 'wpmcp') . '</h1>';
+        echo '<div class="wrap"><h1>' . esc_html(Plugin::page_title(_x('Audit Log', 'admin menu', 'wpmcp'))) . '</h1>';
         $this->render_tabs($tab);
 
         if (self::TAB_REQUESTS === $tab) {
@@ -76,6 +77,7 @@ class Audit_Log_Page
 
     private function current_tab(): string
     {
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab selection on an admin list screen; the value only picks which list renders.
         $tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : '';
         return self::TAB_REQUESTS === $tab ? self::TAB_REQUESTS : self::TAB_MUTATIONS;
     }
@@ -116,7 +118,9 @@ class Audit_Log_Page
 
         foreach ($ops as $op) {
             $user  = get_userdata((int) $op['user_id']);
-            $who   = $user ? $user->display_name : sprintf(__('User #%d', 'wpmcp'), (int) $op['user_id']);
+            /* translators: %d: numeric user ID. */
+            $user_label = __('User #%d', 'wpmcp');
+            $who   = $user ? $user->display_name : sprintf($user_label, (int) $op['user_id']);
             $what  = sprintf('%s (#%d)', $op['tool_name'], (int) $op['object_id']);
 
             echo '<tr>';
@@ -169,15 +173,19 @@ class Audit_Log_Page
             );
             printf('<td>%s</td>', esc_html((string) ($row['tool'] ?? '')));
             printf('<td>%s</td>', esc_html((string) ($row['client'] ?? '')));
+            /* translators: %s: machine-readable error code. */
+            $error_label = __('Error: %s', 'wpmcp');
             printf(
                 '<td>%s</td>',
                 empty($row['ok'])
-                    ? esc_html(sprintf(__('Error: %s', 'wpmcp'), (string) ($row['error_code'] ?? '')))
+                    ? esc_html(sprintf($error_label, (string) ($row['error_code'] ?? '')))
                     : esc_html__('OK', 'wpmcp')
             );
+            /* translators: %d: duration in milliseconds. */
+            $duration_label = __('%d ms', 'wpmcp');
             printf(
                 '<td>%s</td>',
-                esc_html(sprintf(__('%d ms', 'wpmcp'), (int) ($row['duration_ms'] ?? 0)))
+                esc_html(sprintf($duration_label, (int) ($row['duration_ms'] ?? 0)))
             );
             echo '<td>';
             $this->render_undo_link((string) ($row['operation_id'] ?? ''));
@@ -211,8 +219,10 @@ class Audit_Log_Page
     {
         $filters = [];
         foreach (['user_id', 'tool_name', 'domain', 'object_type', 'object_id', 'date_from', 'date_to'] as $key) {
-            if (isset($_GET[ $key ]) && '' !== $_GET[ $key ]) {
-                $filters[ $key ] = sanitize_text_field(wp_unslash($_GET[ $key ]));
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter on an admin list screen; the value only narrows what is displayed.
+            $value = isset($_GET[ $key ]) ? sanitize_text_field(wp_unslash($_GET[ $key ])) : '';
+            if ('' !== $value) {
+                $filters[ $key ] = $value;
             }
         }
         return $filters;
@@ -222,7 +232,10 @@ class Audit_Log_Page
     private function render_filter_form(array $filters): void
     {
         echo '<form method="get">';
-        printf('<input type="hidden" name="page" value="%s" />', esc_attr(isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : self::SLUG));
+        // The submenu callback is registered only under self::SLUG (see Plugin::register_admin_menu),
+        // so $_GET['page'] can never hold anything else here; echo the constant instead of
+        // round-tripping the superglobal.
+        printf('<input type="hidden" name="page" value="%s" />', esc_attr(self::SLUG));
         printf('<input type="hidden" name="tab" value="%s" />', esc_attr(self::TAB_MUTATIONS));
         printf(
             '<input type="text" name="tool_name" placeholder="%s" value="%s" />',
