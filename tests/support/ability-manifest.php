@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 315,
-    'free'      => 224,
-    'pro'       => 91,
+    'total'     => 317,
+    'free'      => 225,
+    'pro'       => 92,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -136,7 +136,7 @@ return [
         'wpmcp/get-debug-log' => 'free',
         'wpmcp/get-elementor-data' => 'pro',
         'wpmcp/get-fields' => 'free',
-        'wpmcp/get-global-settings' => 'pro',
+        'wpmcp/get-global-settings' => 'free',
         'wpmcp/get-governance-settings' => 'free',
         'wpmcp/get-link-map' => 'free',
         'wpmcp/get-maintenance-status' => 'free',
@@ -259,6 +259,8 @@ return [
         'wpmcp/render-shortcode' => 'free',
         'wpmcp/reorder-elements' => 'pro',
         'wpmcp/reorder-global-classes' => 'pro',
+        'wpmcp/replace-system-colors' => 'pro',
+        'wpmcp/replace-system-typography' => 'pro',
         'wpmcp/resize-media' => 'free',
         'wpmcp/restore-revision' => 'free',
         'wpmcp/restore-site-backup' => 'free',
