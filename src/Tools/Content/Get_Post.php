@@ -12,7 +12,9 @@ class Get_Post
     {
         $post_id = (int) ($args['post_id'] ?? 0);
         $post    = $post_id ? get_post($post_id) : null;
-        if (! $post) {
+        if (! $post || ! Content_Guard::is_agent_readable_post_type((string) $post->post_type)) {
+            // Same answer for a plugin-internal type as for a missing post:
+            // the difference is itself information.
             throw new \InvalidArgumentException('Post not found');
         }
 
