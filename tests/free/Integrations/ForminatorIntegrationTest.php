@@ -38,6 +38,13 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
             103 => new \Forminator_Test_Entry(103, 12, '2026-02-03 10:00:00', [ 'text-1' => 'plain' ]),
         ];
         $this->integration = new Forminator_Integration();
+
+        // Issue #66: delete-entry is default-off for every forms adapter, so
+        // the deletion tests below opt in the way a site would. The
+        // off-by-default contract itself is asserted in
+        // test_delete_entry_is_off_by_default and in the shared conformance
+        // suite; WP_UnitTestCase restores hooks between tests.
+        add_filter('wpmcp_integration_op_enabled', static fn ($enabled, $integration, $op) => ('forminator' === $integration && 'delete-entry' === $op) ? true : $enabled, 10, 3);
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
     }
 
@@ -216,5 +223,27 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
         $this->assertSame('free', $write->tier);
         $this->assertTrue($write->destructive_hint);
         $this->assertTrue($read->read_only_hint);
+    }
+
+    public function test_delete_entry_is_off_by_default(): void
+    {
+        remove_all_filters('wpmcp_integration_op_enabled');
+
+        $ops = array_column($this->integration->catalog()['operations'], null, 'name');
+        $this->assertFalse($ops['delete-entry']['enabled'], 'Issue #66: entry deletion ships off');
+
+        $out = $this->integration->handle_write([
+            'operation' => 'delete-entry',
+            'args'      => $this->delete_entry_args(),
+            'confirm'   => true,
+        ]);
+
+        $this->assertSame('operation_disabled', $out['error']['code']);
+    }
+
+    /** @return array<string, int> the args a valid delete-entry call takes here. */
+    private function delete_entry_args(): array
+    {
+        return [ 'form_id' => 11, 'entry_id' => 101 ];
     }
 }
