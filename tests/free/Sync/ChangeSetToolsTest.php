@@ -113,7 +113,7 @@ class ChangeSetToolsTest extends \WP_UnitTestCase
         $this->assertSame(1, $out['excluded']);
         $this->assertCount(1, $out['excluded_rows'], 'With no artifact, the per-row report has nowhere else to live');
         $this->assertSame('option', $out['excluded_rows'][0]['object_type']);
-        $this->assertStringContainsString('not implemented', $out['excluded_rows'][0]['reason']);
+        $this->assertStringContainsString('by design', $out['excluded_rows'][0]['reason'], 'blogname is site configuration: never synced, by policy');
     }
 
     public function test_object_counts_are_reported_as_exported_and_deleted_separately(): void
