@@ -48,6 +48,7 @@ class List_Low_Stock_Products
             'fields'              => 'ids',
             'ignore_sticky_posts' => true,
             'no_found_rows'       => false,
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- WooCommerce keeps _manage_stock, _stock and _stock_status only in postmeta for post-backed products (wc_product_meta_lookup has no manage-stock flag), so the low-stock condition cannot be expressed without a meta query. Bounded: admin-only tool, fields=ids, per_page capped at 100.
             'meta_query'          => [
                 'relation' => 'OR',
                 [
