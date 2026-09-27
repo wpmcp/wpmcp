@@ -2,9 +2,6 @@
 
 namespace WPMCP\Tools\Code;
 
-use WPMCP\Governance\Governance_Audit_Log;
-use WPMCP\Identity\Identity_Context;
-
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -83,7 +80,7 @@ class Run_Php_Snippet
         try {
             $this->guard($code);
         } catch (\RuntimeException $e) {
-            $this->audit(false);
+            $this->audit(false, Php_Snippet_Guard::refusal_class($e));
             throw $e;
         }
 
@@ -105,39 +102,28 @@ class Run_Php_Snippet
      */
     private function guard(string $code): void
     {
-        if (! Php_Snippet_Guard::is_enabled()) {
-            throw new \RuntimeException(
-                'PHP execution is disabled. Enable it with the WPMCP_ALLOW_PHP_EXEC constant or the wpmcp_allow_php_exec filter. This grants remote code execution to any manage_options caller; only enable it on a development or staging environment you control.'
-            );
-        }
-
-        if (! Php_Snippet_Guard::is_allowed_on_environment()) {
-            throw new \RuntimeException(
-                'PHP execution is refused on this environment. Production and any unrecognized/unknown environment are refused by default (fail closed); set WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION or the wpmcp_allow_php_exec_on_production filter to override.'
-            );
-        }
+        // Enablement + environment live in Php_Snippet_Guard as one shared
+        // assertion so activate-php-snippet (issue #85) cannot drift away
+        // from this chain; see Php_Snippet_Guard::assert_execution_allowed().
+        Php_Snippet_Guard::assert_execution_allowed();
 
         $validation = Php_Snippet_Validator::validate($code);
         if (! $validation['safe']) {
-            throw new \RuntimeException(
-                'The PHP snippet validator flagged this snippet as unsafe and it was rejected before execution. This is a usability speed-bump, not a security boundary: it can be bypassed by whoever is already authorized to call this tool. Review the "warnings" from validate-php-snippet for details.'
+            throw new Php_Snippet_Refusal(
+                'The PHP snippet validator flagged this snippet as unsafe and it was rejected before execution. This is a usability speed-bump, not a security boundary: it can be bypassed by whoever is already authorized to call this tool. Review the "warnings" from validate-php-snippet for details.',
+                'validation_failed'
             );
         }
     }
 
     /**
-     * Record this attempt to Governance_Audit_Log. Deliberately logs only
-     * the ability name, active identity, and allow/deny outcome: NEVER the
-     * snippet source and NEVER any output it produced, either of which may
-     * contain secrets.
+     * Record this attempt through Php_Snippet_Guard::audit(), the one copy
+     * every snippet surface shares: ability name, active identity, outcome
+     * and refusal class. NEVER the snippet source and NEVER any output it
+     * produced, either of which may contain secrets.
      */
-    private function audit(bool $allowed): void
+    private function audit(bool $allowed, string $reason = ''): void
     {
-        try {
-            $identity = Identity_Context::current() ?? 'none';
-            Governance_Audit_Log::record('wpmcp/run-php-snippet', $identity, $allowed);
-        } catch (\Throwable $e) {
-            // Auditing must never break (or block) the outcome it observes.
-        }
+        Php_Snippet_Guard::audit('wpmcp/run-php-snippet', $allowed, $reason);
     }
 }

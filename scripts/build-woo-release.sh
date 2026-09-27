@@ -204,6 +204,21 @@ case "$gate_status" in
   *) echo "ERROR: the exec gate failed unexpectedly (exit $gate_status)" >&2; exit 1 ;;
 esac
 
+# Every WPMCP class the ALWAYS-LOADED SAFETY CORE names must still exist.
+# Scoped to src/Safety on purpose: unlike the wp.org build, this one does not
+# rewrite Plugin.php, it gates at runtime through Plugin::FLAVOR_GROUPS, so
+# Plugin.php legitimately names hundreds of classes this zip does not ship in
+# branches it never reaches. src/Safety is different: nothing flavor-gates it,
+# every request loads it, and it hard-references the stores it restores. That
+# is the mistake this catches, and the one it was written for: pruning
+# Php_Snippet_Store.php built green and fataled at runtime on any pre-existing
+# php_snippet snapshot row. Same technique as gate 4 in
+# build-wporg-release.sh (both call scripts/lib/class-ref-gate.php, which
+# also resolves aliased, comma-listed and grouped imports), resolved against
+# composer's authoritative classmap.
+php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src/Safety \
+  || { echo "ERROR: the $SLUG safety core names a class the build does not ship" >&2; exit 1; }
+
 mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
 rm -f "$ZIP"

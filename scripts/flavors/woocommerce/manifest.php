@@ -48,5 +48,21 @@ return [
         // never shipped it.
         'src/Tools/Code/Php_Snippet_Validator.php',
         'src/Tools/Code/Validate_Php_Snippet.php',
+        // The rest of the snippet tools (issue #85) go too. The shared strip
+        // keeps the free store CRUD in the directory cut, but this flavor
+        // drops the whole 'code' ability group at runtime
+        // (Plugin::FLAVOR_GROUPS), so these classes would ship with no
+        // registration path into them. Php_Snippet_Store.php deliberately
+        // STAYS: src/Safety/Snapshot.php and src/Safety/Rollback_Service.php
+        // name it from the always-loaded safety core, and a pre-existing
+        // php_snippet snapshot row survives a site swapping the full plugin
+        // for this flavor. A leftover 'active' flag is inert: no executor
+        // ships, and rollback always restores a snippet inactive.
+        'src/Tools/Code/Create_Php_Snippet.php',
+        'src/Tools/Code/List_Php_Snippets.php',
+        'src/Tools/Code/Get_Php_Snippet.php',
+        'src/Tools/Code/Update_Php_Snippet.php',
+        'src/Tools/Code/Delete_Php_Snippet.php',
+        'src/Tools/Code/Deactivate_Php_Snippet.php',
     ],
 ];

@@ -21,9 +21,9 @@ use WPMCP\Compliance\Severity;
  * TESTED_UP_TO_FLOOR is the pin. Raise it when a WordPress major ships and the
  * smoke pass against it is recorded in docs/release-checklist.md; the run goes
  * red until every shipped header follows. The pin is tied in both directions:
- * every header must equal it (not merely reach it), and the CI matrix must
- * install both the pin and the release the headers declare, so a header bump
- * without a matching matrix change goes red rather than shipping an untested
+ * every header must equal it (not merely reach it), and the local test
+ * gate must install both the pin and the release the headers declare, so a
+ * header bump without a matching gate change goes red rather than shipping an untested
  * claim.
  *
  * The display name is gated here too (issue #168, findings B-19 and L-04).
@@ -239,8 +239,8 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
     /**
      * And that version is the pinned WordPress release, exactly. Equality
      * rather than ">=": a header ahead of the pin is a claim the suite has not
-     * backed (the pin only moves once the smoke pass is recorded and the CI
-     * matrix installs the release), and a header behind it is the Plugin Check
+     * backed (the pin only moves once the smoke pass is recorded and the
+     * test gate installs the release), and a header behind it is the Plugin Check
      * error issue #172 is about.
      */
     public function test_tested_up_to_equals_the_pinned_release(): void
@@ -256,7 +256,7 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
                 sprintf(
                     '%s declares Tested up to %s but TESTED_UP_TO_FLOOR pins %s. Behind the pin, Plugin Check '
                         . 'errors and the plugin drops out of directory search; ahead of it, the header claims a '
-                        . 'release the suite has not run on. Move the pin, the CI wp: axis and every header together.',
+                        . 'release the suite has not run on. Move the pin, WP_VERSIONS in bin/test-local.sh and every header together.',
                     $file,
                     $declared,
                     self::TESTED_UP_TO_FLOOR
@@ -504,36 +504,32 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
     }
 
     /**
-     * The header says "tested"; this is what makes that true. CI installs the
-     * WordPress release the headers declare, so raising TESTED_UP_TO_FLOOR
-     * without moving the `wp:` matrix axis in ci.yml fails here rather than
-     * shipping a claim the suite never exercised. The `Requires at least`
-     * floor is pinned the same way, on its own matrix leg.
+     * The header says "tested"; this is what makes that true. The local test
+     * gate (bin/test-local.sh, run by the pre-push hook) installs the
+     * WordPress releases in its WP_VERSIONS line, and its first entry is the
+     * leg every push runs. So raising TESTED_UP_TO_FLOOR without moving that
+     * line fails here rather than shipping a claim the suite never exercised.
+     * The `Requires at least` floor must be in the list too (run with --all).
      */
-    public function test_ci_installs_the_pinned_release_and_the_requires_floor(): void
+    public function test_the_test_gate_installs_the_pinned_release_and_the_requires_floor(): void
     {
-        $workflow = $this->contents('.github/workflows/ci.yml');
-        $installed = $this->ci_wordpress_versions($workflow);
+        $installed = $this->gate_wordpress_versions($this->contents('bin/test-local.sh'));
 
-        $this->assertNotEmpty($installed, 'ci.yml no longer declares a wp: matrix axis for install-wp-tests.sh');
-        $this->assertStringContainsString(
-            'install-wp-tests.sh wordpress_test root root 127.0.0.1 ${{ matrix.wp }}',
-            $workflow,
-            'ci.yml must install the matrix WordPress version, not a hardcoded one'
-        );
-        $this->assertContains(
+        $this->assertNotEmpty($installed, 'bin/test-local.sh no longer declares a WP_VERSIONS="..." line');
+        $this->assertSame(
             self::TESTED_UP_TO_FLOOR,
-            $installed,
+            $installed[0],
             sprintf(
-                'TESTED_UP_TO_FLOOR pins %s but CI installs %s; bump the wp: axis in ci.yml with the pin',
+                'TESTED_UP_TO_FLOOR pins %s but the default leg of bin/test-local.sh installs %s; '
+                    . 'put the pin first in WP_VERSIONS',
                 self::TESTED_UP_TO_FLOOR,
-                implode(', ', $installed)
+                $installed[0]
             )
         );
 
         // The pin is what the suite has run on; the headers are what ships.
-        // Each is checked against the matrix on its own so that a header
-        // bumped past the pin, or a pin bumped past the matrix, both go red.
+        // Each is checked against the gate on its own so that a header
+        // bumped past the pin, or a pin bumped past the gate, both go red.
         foreach (array_merge(self::SHIPPED_READMES, self::SHIPPED_LOADERS) as $file) {
             $declared = str_ends_with($file, '.php')
                 ? $this->loader_header($file, 'Tested up to')
@@ -543,7 +539,7 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
                 $declared,
                 $installed,
                 sprintf(
-                    '%s declares Tested up to %s but CI installs %s; the header must not outrun the suite',
+                    '%s declares Tested up to %s but the test gate installs %s; the header must not outrun the suite',
                     $file,
                     $declared,
                     implode(', ', $installed)
@@ -554,31 +550,22 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         $this->assertContains(
             $this->readme_header('readme.txt', 'Requires at least'),
             $installed,
-            'the Requires at least floor is not on any CI matrix leg: ' . implode(', ', $installed)
+            'the Requires at least floor is not in WP_VERSIONS of bin/test-local.sh: ' . implode(', ', $installed)
         );
     }
 
     /**
-     * Every WordPress version the test matrix installs: each element of the
-     * `wp:` axis list (not only the first, so moving a leg from include: into
-     * the list does not hide it) plus the `wp:` of every flow-style include
-     * entry.
+     * The WordPress versions in the gate's WP_VERSIONS="..." line, in order.
      *
      * @return string[]
      */
-    private function ci_wordpress_versions(string $workflow): array
+    private function gate_wordpress_versions(string $script): array
     {
-        $versions = [];
-
-        preg_match_all('/^[ \t]*wp:[ \t]*\[([^\]]*)\]/m', $workflow, $axes);
-        foreach ($axes[1] as $list) {
-            preg_match_all('/\d+(?:\.\d+)+/', $list, $found);
-            $versions = array_merge($versions, $found[0]);
+        if (!preg_match('/^WP_VERSIONS="([^"]*)"/m', $script, $line)) {
+            return [];
         }
+        preg_match_all('/\d+(?:\.\d+)+/', $line[1], $found);
 
-        preg_match_all('/^[ \t]*-[ \t]*\{[^}]*\bwp:[ \t]*\'?(\d+(?:\.\d+)+)\'?/m', $workflow, $legs);
-        $versions = array_merge($versions, $legs[1]);
-
-        return array_values(array_unique($versions));
+        return array_values(array_unique($found[0]));
     }
 }
