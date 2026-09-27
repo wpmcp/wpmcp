@@ -3,10 +3,17 @@
 /**
  * Recorded Elementor atomic prop metadata (issue #137).
  *
- * Transcribed from Elementor 4.2.2's own `define_props_schema()` declarations
+ * Transcribed from Elementor 4.3.2's own `define_props_schema()` declarations
  * (modules/atomic-widgets/elements/*), in the shape Atomic_Prop_Schema emits:
  * every prop's `$$type` key, the aliases Elementor itself declares for it, and
- * the enum it constrains string values to.
+ * the enum it constrains string values to. CI pins that Elementor release
+ * (bin/install-test-plugins.sh); re-record this file when the pin moves.
+ *
+ * Elementor 4.3.0 moved the heading, paragraph and button text props from
+ * html-v3 ({ content: { $$type: string, value }, children }) to escaped-html
+ * (a plain string value) and added main/nav to the flexbox tag enum. The
+ * html-v3 shape is still covered through the synthetic `e-kinds` entry, since
+ * sites on Elementor 4.0 to 4.2 keep declaring it.
  *
  * Two jobs:
  *  1. Pin the mapper's behaviour to known Elementor shapes, so its tests do
@@ -23,14 +30,14 @@ return [
     'e-heading'   => [
         'classes'    => ['kind' => 'classes'],
         'tag'        => ['kind' => 'string', 'enum' => ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']],
-        'title'      => ['kind' => 'html-v3', 'aliases' => ['text', 'content', 'heading']],
+        'title'      => ['kind' => 'escaped-html', 'aliases' => ['text', 'content', 'heading']],
         'link'       => ['kind' => 'link'],
         'attributes' => ['kind' => 'attributes'],
         '_cssid'     => ['kind' => 'string'],
     ],
     'e-paragraph' => [
         'classes'    => ['kind' => 'classes'],
-        'paragraph'  => ['kind' => 'html-v3', 'aliases' => ['text', 'content']],
+        'paragraph'  => ['kind' => 'escaped-html', 'aliases' => ['text', 'content']],
         'tag'        => ['kind' => 'string', 'enum' => ['p', 'span']],
         'link'       => ['kind' => 'link'],
         'attributes' => ['kind' => 'attributes'],
@@ -38,7 +45,7 @@ return [
     ],
     'e-button'    => [
         'classes'    => ['kind' => 'classes'],
-        'text'       => ['kind' => 'html-v3', 'aliases' => ['content', 'label']],
+        'text'       => ['kind' => 'escaped-html', 'aliases' => ['content', 'label']],
         'link'       => ['kind' => 'link'],
         'tag'        => ['kind' => 'string'],
         'attributes' => ['kind' => 'attributes'],
@@ -61,6 +68,7 @@ return [
         'count'   => ['kind' => 'number'],
         'toggle'  => ['kind' => 'boolean'],
         'markup'  => ['kind' => 'html'],
+        'rich'    => ['kind' => 'html-v3'],
         'href'    => ['kind' => 'url'],
         'shade'   => ['kind' => 'color'],
         'tags'    => ['kind' => 'string-array'],
@@ -69,7 +77,7 @@ return [
     ],
     'e-flexbox'   => [
         'classes'    => ['kind' => 'classes'],
-        'tag'        => ['kind' => 'string', 'enum' => ['div', 'header', 'section', 'article', 'aside', 'footer', 'a', 'button']],
+        'tag'        => ['kind' => 'string', 'enum' => ['div', 'header', 'section', 'article', 'aside', 'footer', 'a', 'button', 'main', 'nav']],
         'link'       => ['kind' => 'link'],
         'attributes' => ['kind' => 'attributes'],
         '_cssid'     => ['kind' => 'string'],
