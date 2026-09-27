@@ -61,9 +61,15 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  and #62 together (176529 bytes over 319 tools). The PHP snippet
      *  lifecycle store (#85) adds seven tools whose descriptions were trimmed
      *  to the store-vs-Elementor-custom-code disambiguation, the
-     *  created-inactive rule and the execution-gate refusal. Compact tool mode keeps clients
+     *  created-inactive rule and the execution-gate refusal. Raised 180000 ->
+     *  185000 for the gateway credential lifecycle (#142: gateway-provision,
+     *  gateway-status, gateway-revoke): main had reached 179879 bytes over
+     *  326 tools, so no new tool fit; the three descriptions were trimmed
+     *  from 612 to 425 characters first but still name the rotation kill,
+     *  the once-only secrets and the confirm gate, since an agent that
+     *  misses those can cut a live proxy off. Compact tool mode keeps clients
      *  with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 180000;
+    private const TOOLS_LIST_BYTE_BUDGET = 185000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

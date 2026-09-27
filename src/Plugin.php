@@ -2561,7 +2561,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/gateway-provision',
             'free',
-            'Provision (or rotate) the site-local gateway credential. Returns client_id, client_secret and refresh_token plaintext exactly once; any previous gateway credential stops working immediately. The credential is NOT scope-limited: it carries the capabilities of the user who provisions it. Requires confirm: true',
+            'Provision or rotate the site gateway credential. Returns client_id, client_secret and refresh_token once; the previous credential dies immediately. Carries the calling user\'s capabilities. Requires confirm: true',
             $confirm_schema,
             [new \WPMCP\Tools\Gateway\Gateway_Provision(), 'handle'],
             'manage_options',
@@ -2575,7 +2575,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/gateway-status',
             'free',
-            'Report whether the site-local gateway credential is provisioned, its client_id, and whether OAuth is enabled at all. Never returns token material. Read-only',
+            'Whether the site gateway credential exists, its client_id and whether OAuth is enabled. Never returns secrets',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -2589,7 +2589,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/gateway-revoke',
             'free',
-            'Revoke the site-local gateway credential: removes the gateway client and every token bound to it. Local-only and idempotent. Requires confirm: true',
+            'Revoke the site gateway credential and every token bound to it. Local, idempotent. Requires confirm: true',
             $confirm_schema,
             [new \WPMCP\Tools\Gateway\Gateway_Revoke(), 'handle'],
             'manage_options',
