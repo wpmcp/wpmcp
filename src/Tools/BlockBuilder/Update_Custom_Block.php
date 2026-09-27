@@ -2,11 +2,18 @@
 
 namespace WPMCP\Tools\BlockBuilder;
 
+use WPMCP\Safety\Safe_Mutation;
+
 if (! defined('ABSPATH')) {
     exit;
 }
 
-/** Replace a custom block's spec by id (re-validated before it is stored). */
+/**
+ * Replace a custom block's spec by id (re-validated before it is stored). The
+ * write is an operation in history: Safe_Mutation snapshots the wpmcp_block
+ * post (row and meta) first, so an update is undoable rather than a one-way
+ * overwrite of the spec and its template.
+ */
 class Update_Custom_Block
 {
     public function handle(array $args)
@@ -22,13 +29,26 @@ class Update_Custom_Block
             return $valid;
         }
 
-        Block_Spec_Store::update($id, $spec);
+        $run = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-custom-block',
+                'args'        => $args,
+            ],
+            static function () use ($id, $spec): void {
+                Block_Spec_Store::update($id, $spec);
+            }
+        );
+
         $stored = Block_Spec_Store::get($id);
 
         return [
-            'block_id' => $id,
-            'name'     => (string) ($stored['name'] ?? ''),
-            'title'    => (string) ($stored['title'] ?? ''),
+            'block_id'     => $id,
+            'name'         => (string) ($stored['name'] ?? ''),
+            'title'        => (string) ($stored['title'] ?? ''),
+            'operation_id' => $run['operation_id'],
         ];
     }
 }

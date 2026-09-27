@@ -2,11 +2,16 @@
 
 namespace WPMCP\Tools\BlockBuilder;
 
+use WPMCP\Safety\Safe_Mutation;
+
 if (! defined('ABSPATH')) {
     exit;
 }
 
-/** Enable (publish) or disable (draft) a custom block by id. */
+/**
+ * Enable (publish) or disable (draft) a custom block by id. Snapshotted through
+ * Safe_Mutation, so the previous status is one rollback-operation away.
+ */
 class Set_Block_Status
 {
     public function handle(array $args)
@@ -17,8 +22,23 @@ class Set_Block_Status
         }
 
         $status = 'draft' === ($args['status'] ?? '') ? 'draft' : 'publish';
-        wp_update_post(['ID' => $id, 'post_status' => $status]);
+        $run    = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'set-block-status',
+                'args'        => $args,
+            ],
+            static function () use ($id, $status): void {
+                wp_update_post(['ID' => $id, 'post_status' => $status]);
+            }
+        );
 
-        return ['block_id' => $id, 'status' => $status];
+        return [
+            'block_id'     => $id,
+            'status'       => $status,
+            'operation_id' => $run['operation_id'],
+        ];
     }
 }
