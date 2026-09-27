@@ -1003,4 +1003,42 @@ class GatewayCredentialTest extends \WP_UnitTestCase
 
         $this->assertSame(0, Bearer_Auth::resolve(0));
     }
+    /**
+     * A refresh re-stamps the access token's password fingerprint at mint
+     * time, so without a check of its own a ten-year gateway chain would
+     * survive the bound administrator changing their password. It must not:
+     * a password change is exactly what an admin does after a leak.
+     */
+    public function test_the_gateway_credential_dies_when_the_bound_admin_changes_password(): void
+    {
+        $credential = $this->provision();
+        wp_set_password('a-brand-new-password', $this->admin_id);
+
+        $tokens = Token_Grant::exchange([
+            'grant_type'    => 'refresh_token',
+            'client_id'     => $credential['client_id'],
+            'client_secret' => $credential['client_secret'],
+            'refresh_token' => $credential['refresh_token'],
+        ]);
+
+        if (! is_wp_error($tokens)) {
+            Gateway_Credential::register();
+            $this->on_mcp_route();
+            $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $tokens['access_token'];
+
+            $this->assertSame(0, Bearer_Auth::resolve(0), 'A post-password-change access token must not authenticate.');
+            $this->assertSame('unknown', Refresh_Token_Store::redeem($tokens['refresh_token'], $credential['client_id'])['status'], 'The chain is killed, not merely refused once.');
+        }
+
+        $this->assertFalse(Gateway_Credential::is_provisioned());
+    }
+
+    public function test_the_stored_user_fingerprint_is_not_the_password_hash(): void
+    {
+        $this->provision();
+
+        $record = get_option(Gateway_Credential::OPTION);
+        $this->assertNotEmpty($record['user_fingerprint']);
+        $this->assertStringNotContainsString(get_userdata($this->admin_id)->user_pass, (string) wp_json_encode($record));
+    }
 }

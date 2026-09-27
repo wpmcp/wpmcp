@@ -250,12 +250,13 @@ class Gateway_Credential
         // travels back with the payload purely as a version stamp for
         // upload()'s staleness check.
         update_option(self::OPTION, [
-            'client_id'      => $client['client_id'],
-            'user_id'        => $user_id,
-            'identity'       => $identity,
-            'chain_id'       => $chain_id,
-            'provisioned_at' => time(),
-            'uploaded_at'    => 0,
+            'client_id'        => $client['client_id'],
+            'user_id'          => $user_id,
+            'identity'         => $identity,
+            'chain_id'         => $chain_id,
+            'user_fingerprint' => self::user_fingerprint($user_id),
+            'provisioned_at'   => time(),
+            'uploaded_at'      => 0,
         ]);
 
         self::audit('provision', $identity, true);
@@ -504,7 +505,59 @@ class Gateway_Credential
             return true;
         }
 
+        if (self::bound_user_credential_changed($record)) {
+            // Kill, not just refuse: the refresh grant would otherwise go on
+            // minting fresh access tokens for the rest of the ten years.
+            self::revoke_locally();
+            delete_option(self::OPTION);
+            self::audit('revoke', '', true, 'bound_user_credential_changed');
+            return false;
+        }
+
         return self::request_is_gateway_surface();
+    }
+
+    /**
+     * Whether the administrator the credential is bound to changed their
+     * password (or was deleted) since provisioning.
+     *
+     * Token_Store binds each ACCESS token to the password it was minted
+     * under, but a refresh mints a new access token under the current
+     * password, so on its own that binding never catches a long-lived
+     * refresh chain. The gateway records its own fingerprint at provision
+     * time and checks it here. Bookkeeping from before this field existed
+     * is not judged.
+     */
+    private static function bound_user_credential_changed(array $token): bool
+    {
+        $stored = self::raw_record();
+        if (null === $stored || (string) $stored['client_id'] !== (string) ($token['client_id'] ?? '')) {
+            return false;
+        }
+
+        $recorded = (string) ($stored['user_fingerprint'] ?? '');
+        if ('' === $recorded) {
+            return false;
+        }
+
+        $current = self::user_fingerprint((int) ($stored['user_id'] ?? 0));
+
+        return '' === $current || ! hash_equals($recorded, $current);
+    }
+
+    /**
+     * A keyed digest of the user's password hash: changes whenever the
+     * password does, and never puts password-hash material in an option.
+     * '' when the user does not exist.
+     */
+    private static function user_fingerprint(int $user_id): string
+    {
+        $user = $user_id > 0 ? get_userdata($user_id) : false;
+        if (false === $user) {
+            return '';
+        }
+
+        return hash_hmac('sha256', 'wpmcp-gateway|' . $user->user_pass, wp_salt('auth'));
     }
 
     /**
