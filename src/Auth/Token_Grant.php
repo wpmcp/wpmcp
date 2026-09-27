@@ -169,12 +169,18 @@ class Token_Grant
         $user_id  = (int) $record['user_id'];
         $chain_id = (string) ($record['chain_id'] ?? '');
 
-        // Gateway policy (issue #142), both directions: a gateway-scoped
-        // chain is redeemable only by the gateway client, and the gateway
-        // client redeems nothing but its gateway chain. Either mismatch is a
-        // chain that should not exist (a pre-reservation record, or a
-        // tampered store), so it is killed rather than left to be retried.
-        if (Refresh_Token_Store::is_gateway_scope((string) $record['scope']) !== Client_Store::is_protected($client_id)) {
+        // Gateway policy (issue #142), both directions, keyed on the
+        // gateway flag stamped at issuance: a gateway chain is redeemable
+        // only by the gateway client, and the gateway client redeems nothing
+        // but its gateway chain. The scope clause is defence in depth for a
+        // record that carries the reserved scope without the flag (one minted
+        // before the scope was reserved). Any mismatch is a chain that should
+        // not exist, so it is killed rather than left to be retried.
+        $is_gateway_chain  = ! empty($record['gateway']);
+        $is_gateway_client = Client_Store::is_protected($client_id);
+        $flag_mismatch     = $is_gateway_chain !== $is_gateway_client;
+        $scope_mismatch    = ! $is_gateway_client && Refresh_Token_Store::is_gateway_scope((string) $record['scope']);
+        if ($flag_mismatch || $scope_mismatch) {
             Refresh_Token_Store::revoke_chain($chain_id);
             return self::deny($client_id);
         }
@@ -190,7 +196,7 @@ class Token_Grant
 
         self::audit(true, $client_id);
 
-        return self::mint($client_id, $user_id, (string) $record['scope'], $chain_id);
+        return self::mint($client_id, $user_id, (string) $record['scope'], $chain_id, $is_gateway_chain);
     }
 
     /**
@@ -200,14 +206,14 @@ class Token_Grant
      *
      * @return array{access_token: string, token_type: string, expires_in: int, scope: string, refresh_token: string}
      */
-    private static function mint(string $client_id, int $user_id, string $scope, string $chain_id): array
+    private static function mint(string $client_id, int $user_id, string $scope, string $chain_id, bool $gateway = false): array
     {
         return [
-            'access_token'  => Token_Store::issue($client_id, $user_id, $scope, $chain_id),
+            'access_token'  => Token_Store::issue($client_id, $user_id, $scope, $chain_id, $gateway),
             'token_type'    => 'Bearer',
             'expires_in'    => Token_Store::TTL_SECONDS,
             'scope'         => $scope,
-            'refresh_token' => Refresh_Token_Store::issue($client_id, $user_id, $scope, $chain_id),
+            'refresh_token' => Refresh_Token_Store::issue($client_id, $user_id, $scope, $chain_id, $gateway),
         ];
     }
 

@@ -348,9 +348,12 @@ class Client_Store
 
     /**
      * Revoke a client outright (issue #142): remove its record and evict
-     * every access and refresh token bound to it. Idempotent; returns false
-     * when the client was not registered (nothing to do), true when a
-     * record was removed.
+     * every access and refresh token bound to it. Idempotent.
+     *
+     * @return bool True when this call removed anything: the client record,
+     *              or (in a half-revoked state where the record is already
+     *              gone) tokens still bound to the client_id. False only
+     *              when there was neither a record nor a bound token left.
      */
     public static function revoke(string $client_id): bool
     {

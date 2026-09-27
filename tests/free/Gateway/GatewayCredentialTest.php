@@ -267,8 +267,8 @@ class GatewayCredentialTest extends \WP_UnitTestCase
         $twin['client_id']      = 'client_twin';
         $clients['client_twin'] = $twin;
         update_option(Client_Store::OPTION, $clients);
-        Refresh_Token_Store::issue('client_twin', $user_id, Gateway_Credential::SCOPE);
-        Token_Store::issue('client_twin', $user_id, Gateway_Credential::SCOPE);
+        Refresh_Token_Store::issue('client_twin', $user_id, Gateway_Credential::SCOPE, '', true);
+        Token_Store::issue('client_twin', $user_id, Gateway_Credential::SCOPE, '', true);
 
         $second = Gateway_Credential::issue_for_user($user_id);
 
@@ -284,8 +284,10 @@ class GatewayCredentialTest extends \WP_UnitTestCase
         // Issue #142 task 3: a gateway-specific TTL that can be set without
         // shortening ordinary interactive sessions.
         $user_id = $this->admin();
-        $gateway = Refresh_Token_Store::issue('client_a', $user_id, Gateway_Credential::SCOPE);
+        $gateway = Refresh_Token_Store::issue('client_a', $user_id, Gateway_Credential::SCOPE, '', true);
         $normal  = Refresh_Token_Store::issue('client_a', $user_id, 'read');
+        // The scope string alone does not make a gateway token: the flag does.
+        $lookalike = Refresh_Token_Store::issue('client_a', $user_id, Gateway_Credential::SCOPE);
 
         add_filter('wpmcp_gateway_refresh_ttl', fn () => 60);
         Refresh_Token_Store::set_clock_override(fn () => time() + 3600);
@@ -293,6 +295,7 @@ class GatewayCredentialTest extends \WP_UnitTestCase
         try {
             $this->assertSame('expired', Refresh_Token_Store::redeem($gateway)['status']);
             $this->assertSame('ok', Refresh_Token_Store::redeem($normal)['status']);
+            $this->assertSame('ok', Refresh_Token_Store::redeem($lookalike)['status']);
         } finally {
             Refresh_Token_Store::set_clock_override(null);
             remove_all_filters('wpmcp_gateway_refresh_ttl');
@@ -346,5 +349,31 @@ class GatewayCredentialTest extends \WP_UnitTestCase
         } finally {
             remove_all_filters('wpmcp_oauth_enabled');
         }
+    }
+
+    public function test_the_gateway_scope_constant_has_one_definition(): void
+    {
+        $this->assertSame(Refresh_Token_Store::GATEWAY_SCOPE, Gateway_Credential::SCOPE);
+    }
+
+    public function test_the_gateway_flag_is_stamped_at_issuance_and_carried_down_the_chain(): void
+    {
+        $credential = Gateway_Credential::issue_for_user($this->admin());
+
+        $stored = get_option(Refresh_Token_Store::OPTION);
+        $this->assertTrue($stored[ hash('sha256', $credential['refresh_token']) ]['gateway']);
+
+        $granted = Token_Grant::exchange([
+            'grant_type'    => 'refresh_token',
+            'client_id'     => $credential['client_id'],
+            'client_secret' => $credential['client_secret'],
+            'refresh_token' => $credential['refresh_token'],
+        ]);
+        $this->assertIsArray($granted);
+
+        $refresh = get_option(Refresh_Token_Store::OPTION);
+        $access  = get_option(Token_Store::OPTION);
+        $this->assertTrue($refresh[ hash('sha256', $granted['refresh_token']) ]['gateway'], 'the successor keeps the flag');
+        $this->assertTrue($access[ hash('sha256', $granted['access_token']) ]['gateway'], 'the minted access token carries the flag');
     }
 }

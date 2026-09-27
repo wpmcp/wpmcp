@@ -5,6 +5,7 @@ namespace WPMCP\Tools\Gateway;
 use WPMCP\Auth\Client_Cap_Reached;
 use WPMCP\Auth\OAuth_Config;
 use WPMCP\Gateway\Gateway_Credential;
+use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Safe_Mutation;
 
 if (! defined('ABSPATH')) {
@@ -77,6 +78,13 @@ class Gateway_Provision
                 static fn (): array => Gateway_Credential::issue_for_user($user_id)
             );
             $credential = $out['result'];
+        } catch (Mutation_Failed $e) {
+            // Thrown only when the undo point could not be written, before
+            // anything was minted or rotated. Unlike gateway-revoke there is
+            // no security reason to proceed without it, so the ordinary
+            // "no undo point, no write" rule holds; it gets its own code so
+            // it is not mistaken for a broken client store.
+            return new \WP_Error('undo_point_unwritable', 'The gateway credential was not provisioned: its undo point could not be saved. Nothing was changed.');
         } catch (Client_Cap_Reached $e) {
             // An ordinary operational condition, not a crash; mirror
             // Client_Registration::register()'s handling rather than
@@ -94,6 +102,7 @@ class Gateway_Provision
 
         return [
             'operation_id'  => $out['operation_id'],
+            'undo_point'    => 'pointer_only',
             'provisioned'   => true,
             'client_id'     => $credential['client_id'],
             'client_secret' => $credential['client_secret'],

@@ -108,4 +108,28 @@ class RefreshTokenBindingTest extends \WP_UnitTestCase
 
         $this->assertSame('reuse_detected', Refresh_Token_Store::redeem($token)['status']);
     }
+
+    public function test_adopting_a_fingerprint_costs_no_extra_write(): void
+    {
+        $user_id = self::factory()->user->create(['role' => 'administrator']);
+        $token   = Refresh_Token_Store::issue('client_a', $user_id, 'read');
+
+        $stored = get_option(Refresh_Token_Store::OPTION);
+        unset($stored[ array_key_first($stored) ]['pass_fingerprint']);
+        update_option(Refresh_Token_Store::OPTION, $stored);
+
+        $writes  = 0;
+        $counter = static function () use (&$writes): void {
+            $writes++;
+        };
+        add_action('update_option_' . Refresh_Token_Store::OPTION, $counter);
+
+        try {
+            $this->assertSame('ok', Refresh_Token_Store::redeem($token)['status']);
+        } finally {
+            remove_action('update_option_' . Refresh_Token_Store::OPTION, $counter);
+        }
+
+        $this->assertSame(1, $writes, 'the fingerprint stamp rides on the rotation save');
+    }
 }

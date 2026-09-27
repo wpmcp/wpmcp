@@ -74,9 +74,13 @@ class Token_Store
      *                          what lets Refresh_Token_Store's reuse
      *                          detection revoke the access tokens a thief
      *                          already minted, not just the refresh tokens.
+     * @param bool   $gateway  Stamp the token as minted from a gateway
+     *                          credential chain (issue #142). Token_Grant
+     *                          carries it over from the refresh record; it
+     *                          is what validate() keys the gateway check on.
      * @return string The plaintext bearer token, returned exactly once.
      */
-    public static function issue(string $client_id, int $user_id, string $scope, string $chain_id = ''): string
+    public static function issue(string $client_id, int $user_id, string $scope, string $chain_id = '', bool $gateway = false): string
     {
         $token = 'at_' . bin2hex(random_bytes(32));
 
@@ -88,6 +92,7 @@ class Token_Store
             'chain_id'         => $chain_id,
             'issued_at'        => self::now(),
             'pass_fingerprint' => self::pass_fingerprint($user_id),
+            'gateway'          => $gateway,
         ];
         self::save($stored);
 
@@ -132,11 +137,9 @@ class Token_Store
         // Gateway_Credential::deprovision() swept it can write its freshly
         // minted access token back afterwards. The client row is the one
         // thing that revoke removes and nothing on the grant path recreates,
-        // so checking it here keeps the kill switch total. It also means an
-        // ordinary client holding a 'gateway'-scoped token (possible before
-        // Token_Grant reserved the scope) cannot authenticate with it.
-        $is_gateway_token = Refresh_Token_Store::is_gateway_scope((string) ($record['scope'] ?? ''));
-        if ($is_gateway_token && ! Client_Store::is_protected((string) ($record['client_id'] ?? ''))) {
+        // so checking it here keeps the kill switch total. Keyed on the
+        // gateway flag stamped at issuance, never on the scope string.
+        if (! empty($record['gateway']) && ! Client_Store::is_protected((string) ($record['client_id'] ?? ''))) {
             return null;
         }
 
