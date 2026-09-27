@@ -156,6 +156,59 @@ class Rollback_Service
     }
 
     /**
+     * Put back ONE term's row inside Yoast's `wpseo_taxonomy_meta` option
+     * (see Snapshot::capture_yoast_term_seo()), leaving every other term's
+     * row as it is now.
+     *
+     * With Yoast loaded the option is saved pre-validated, as Yoast's own
+     * WPSEO_Taxonomy_Meta::save_clean_values() does: the row being restored
+     * was stored through Yoast before, and re-validating the whole option
+     * would re-derive rows this restore does not own. Yoast renders from its
+     * indexables table and rebuilds a term's indexable on `edited_term` only,
+     * so that action is fired for the restored term, or the page would keep
+     * showing the rolled-back values.
+     */
+    private static function apply_yoast_term_seo_snapshot(array $snapshot): void
+    {
+        $data     = (array) $snapshot['data'];
+        $taxonomy = (string) ($data['taxonomy'] ?? '');
+        $term_id  = (int) ($data['term_id'] ?? 0);
+        if ('' === $taxonomy || $term_id <= 0) {
+            return;
+        }
+
+        $name   = \WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION;
+        $option = get_option($name, []);
+        $option = is_array($option) ? $option : [];
+        unset($option['wpseo_already_validated']);
+
+        if (! empty($data['existed']) && is_array($data['row'] ?? null)) {
+            if (! isset($option[$taxonomy]) || ! is_array($option[$taxonomy])) {
+                $option[$taxonomy] = [];
+            }
+            $option[$taxonomy][$term_id] = $data['row'];
+        } else {
+            unset($option[$taxonomy][$term_id]);
+            if (isset($option[$taxonomy]) && [] === $option[$taxonomy]) {
+                unset($option[$taxonomy]);
+            }
+        }
+
+        if (class_exists('WPSEO_Taxonomy_Meta')) {
+            $option['wpseo_already_validated'] = true;
+        }
+
+        update_option($name, $option);
+
+        $term = get_term($term_id, $taxonomy);
+        if ($term instanceof \WP_Term) {
+            clean_term_cache($term_id, $taxonomy);
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core hook, fired so Yoast rebuilds the term indexable.
+            do_action('edited_term', $term_id, (int) $term->term_taxonomy_id, $taxonomy, []);
+        }
+    }
+
+    /**
      * Restore a WooCommerce order's prior status.
      *
      * update-order-status only ever changes the status, so the undo is simply
@@ -410,6 +463,11 @@ class Rollback_Service
 
         if ('term' === $snapshot['object_type']) {
             self::apply_term_snapshot($snapshot);
+            return;
+        }
+
+        if ('yoast_term_seo' === $snapshot['object_type']) {
+            self::apply_yoast_term_seo_snapshot($snapshot);
             return;
         }
 

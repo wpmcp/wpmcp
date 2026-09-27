@@ -40,6 +40,9 @@ class Snapshot
         if ('term' === $object_type) {
             return self::capture_term((string) $object_id);
         }
+        if ('yoast_term_seo' === $object_type) {
+            return self::capture_yoast_term_seo((string) $object_id);
+        }
         return self::capture_post($object_id);
     }
 
@@ -114,6 +117,41 @@ class Snapshot
                 'meta'             => $meta,
                 'objects'          => $objects,
                 'objects_truncated' => $truncated,
+            ],
+        ];
+    }
+
+    /** Where Yoast SEO keeps every term's SEO fields, in one option. */
+    public const YOAST_TAXONOMY_META_OPTION = 'wpseo_taxonomy_meta';
+
+    /**
+     * Capture ONE term's row inside Yoast's `wpseo_taxonomy_meta` option,
+     * keyed "taxonomy:term_id" (issue #67).
+     *
+     * Yoast stores the SEO fields of every term on the site in that single
+     * option. An 'option' snapshot would capture all of it, and restoring it
+     * would silently revert every other term's SEO edits made since. This
+     * captures and restores only the row the write touched, which is the same
+     * blast radius the term-meta plugins get from a 'term' snapshot.
+     */
+    private static function capture_yoast_term_seo(string $key): array
+    {
+        [$taxonomy, $term_id] = array_pad(explode(':', $key, 2), 2, '');
+        $term_id              = (int) $term_id;
+
+        $option = get_option(self::YOAST_TAXONOMY_META_OPTION, []);
+        $row    = is_array($option) && isset($option[$taxonomy][$term_id]) && is_array($option[$taxonomy][$term_id])
+            ? $option[$taxonomy][$term_id]
+            : null;
+
+        return [
+            'object_type' => 'yoast_term_seo',
+            'object_id'   => $key,
+            'data'        => [
+                'taxonomy' => (string) $taxonomy,
+                'term_id'  => $term_id,
+                'existed'  => null !== $row,
+                'row'      => $row,
             ],
         ];
     }

@@ -22,9 +22,6 @@ if (! defined('ABSPATH')) {
  * (generation tools are paid; the existing post-meta surface stays free).
  * The tier is declared on the Ability and enforced centrally in the
  * Registrar, not re-checked here.
- *
- * TODO(#67): companion generate-meta-tags proposal tool on the same pattern.
- * TODO(#67): set-social-image snapshot-first write via Safe_Mutation.
  */
 class Generate_Schema_Markup
 {

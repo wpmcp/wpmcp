@@ -199,11 +199,16 @@ class TermSeoTest extends \WP_UnitTestCase
         $this->assertFalse($restored['noindex']);
     }
 
-    /** Yoast: the write snapshots the whole taxonomy option and restores it. */
-    public function test_yoast_option_write_is_snapshotted_and_rolled_back(): void
+    /**
+     * Yoast keeps every term's SEO in one option, so the write snapshots only
+     * this term's row: rolling it back restores the term and leaves another
+     * term's later edit alone.
+     */
+    public function test_yoast_rollback_restores_only_the_written_terms_row(): void
     {
         SEO_Adapter::set_active_plugin_for_tests('yoast');
-        $term = $this->term();
+        $term  = $this->term();
+        $other = $this->term();
         Term_SEO::update($term, ['title' => 'Yoast before']);
 
         $out = (new Update_Term_SEO_Meta())->handle([
@@ -216,9 +221,42 @@ class TermSeoTest extends \WP_UnitTestCase
         $this->assertNotNull($snapshot);
         $this->assertSame('Yoast after', Term_SEO::get($term)['fields']['title']);
 
+        // Someone edits a different term after the operation.
+        Term_SEO::update($other, ['title' => 'Other term, later edit']);
+
         (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
 
         $this->assertSame('Yoast before', Term_SEO::get($term)['fields']['title']);
+        $this->assertSame('Other term, later edit', Term_SEO::get($other)['fields']['title']);
+    }
+
+    /** A Yoast term that had no row before the write has none after rollback. */
+    public function test_yoast_rollback_of_a_first_write_removes_the_row(): void
+    {
+        SEO_Adapter::set_active_plugin_for_tests('yoast');
+        $term = $this->term();
+
+        $out = (new Update_Term_SEO_Meta())->handle([
+            'taxonomy' => 'category',
+            'term_id'  => $term->term_id,
+            'title'    => 'First',
+        ]);
+        (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+
+        $option = get_option('wpseo_taxonomy_meta');
+        $this->assertFalse(isset($option['category'][$term->term_id]));
+        $this->assertSame('', Term_SEO::get($term)['fields']['title']);
+    }
+
+    /** Term meta goes in unslashed by the meta API, so backslashes must survive. */
+    public function test_backslashes_survive_a_term_meta_write(): void
+    {
+        SEO_Adapter::set_active_plugin_for_tests('rankmath');
+        $term = $this->term();
+
+        Term_SEO::update($term, ['title' => 'C:\\path \\ title']);
+
+        $this->assertSame('C:\\path \\ title', Term_SEO::get($term)['fields']['title']);
     }
 
     public function test_write_refuses_a_user_who_cannot_edit_the_term(): void

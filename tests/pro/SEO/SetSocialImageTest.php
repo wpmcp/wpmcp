@@ -79,6 +79,35 @@ class SetSocialImageTest extends \WP_UnitTestCase
         $this->assertSame($att, $out['attachment_id']);
     }
 
+    /** SEOPress keeps an attachment id and dimensions next to the URL. */
+    public function test_seopress_url_write_clears_stale_companion_keys(): void
+    {
+        SEO_Adapter::set_active_plugin_for_tests('seopress');
+        $post_id = self::factory()->post->create();
+        update_post_meta($post_id, '_seopress_social_fb_img_attachment_id', '999');
+        update_post_meta($post_id, '_seopress_social_fb_img_width', '1200');
+        update_post_meta($post_id, '_seopress_social_fb_img_height', '630');
+
+        (new Set_Social_Image())->handle(['post_id' => $post_id, 'image_url' => self::URL, 'target' => 'og']);
+
+        $this->assertSame(self::URL, get_post_meta($post_id, '_seopress_social_fb_img', true));
+        $this->assertSame('', get_post_meta($post_id, '_seopress_social_fb_img_attachment_id', true));
+        $this->assertSame('', get_post_meta($post_id, '_seopress_social_fb_img_width', true));
+        $this->assertSame('', get_post_meta($post_id, '_seopress_social_fb_img_height', true));
+    }
+
+    public function test_seopress_attachment_write_records_the_id(): void
+    {
+        SEO_Adapter::set_active_plugin_for_tests('seopress');
+        $post_id = self::factory()->post->create();
+        $att     = $this->image_attachment();
+
+        (new Set_Social_Image())->handle(['post_id' => $post_id, 'attachment_id' => $att, 'target' => 'twitter']);
+
+        $this->assertSame((string) $att, get_post_meta($post_id, '_seopress_social_twitter_img_attachment_id', true));
+        $this->assertSame(wp_get_attachment_url($att), get_post_meta($post_id, '_seopress_social_twitter_img', true));
+    }
+
     public function test_url_write_clears_a_stale_attachment_id(): void
     {
         SEO_Adapter::set_active_plugin_for_tests('rankmath');

@@ -30,6 +30,7 @@ class SocialMetaTest extends \WP_UnitTestCase
         $this->created = [];
         wp_set_current_user(0);
         SEO_Adapter::set_active_plugin_for_tests(null);
+        delete_option('seopress_social_option_name');
         Gate::set_pro_for_tests(null);
         parent::tearDown();
     }
@@ -121,12 +122,15 @@ class SocialMetaTest extends \WP_UnitTestCase
     }
 
     /**
-     * All three mapped plugins render the Twitter card from the OpenGraph
-     * fields when the Twitter ones are empty, so reporting the bare postmeta
+     * The mapped plugins render the Twitter card from the OpenGraph fields
+     * when the Twitter ones are empty (SEOPress only with its "use Open
+     * Graph if no Twitter Cards" setting on), so reporting the bare postmeta
      * would say `twitter_title: ''` for a post whose card does have a title.
      */
     public function test_empty_twitter_fields_inherit_the_open_graph_values(): void
     {
+        update_option('seopress_social_option_name', ['seopress_social_twitter_card_og' => '1']);
+
         foreach (['yoast', 'rankmath', 'seopress'] as $plugin) {
             SEO_Adapter::set_active_plugin_for_tests($plugin);
             $id = $this->post();
@@ -150,6 +154,20 @@ class SocialMetaTest extends \WP_UnitTestCase
             $this->assertSame('absent', $out['sources']['og_image']);
             $this->assertSame('absent', $out['sources']['twitter_image']);
         }
+    }
+
+    /** With the SEOPress setting off (its default), nothing is inherited. */
+    public function test_seopress_does_not_inherit_when_its_og_fallback_setting_is_off(): void
+    {
+        delete_option('seopress_social_option_name');
+        SEO_Adapter::set_active_plugin_for_tests('seopress');
+        $id = $this->post();
+        update_post_meta($id, '_seopress_social_fb_title', 'Shared OG title');
+
+        $out = Social_Meta::get($id);
+
+        $this->assertSame('', $out['fields']['twitter_title']);
+        $this->assertSame('absent', $out['sources']['twitter_title']);
     }
 
     /** An explicit Twitter value is never overwritten by the OG one. */

@@ -33,8 +33,9 @@ if (! defined('ABSPATH')) {
  * for structured "unsupported" answers for combinations a plugin lacks.
  *
  * snapshot_target() says what Safe_Mutation must capture before a write, so
- * the rollback covers exactly the storage the write touches: the Yoast
- * option, or the term (whose snapshot carries its full meta map).
+ * the rollback covers exactly the storage the write touches: this term's
+ * row inside the Yoast option, or the term (whose snapshot carries its full
+ * meta map).
  */
 class Term_SEO
 {
@@ -170,7 +171,7 @@ class Term_SEO
             case 'rankmath':
                 foreach (self::RANKMATH_KEYS as $field => $key) {
                     if (array_key_exists($field, $fields)) {
-                        update_term_meta($term_id, $key, (string) $fields[$field]);
+                        update_term_meta($term_id, $key, wp_slash((string) $fields[$field]));
                     }
                 }
                 if (array_key_exists('noindex', $fields) || array_key_exists('nofollow', $fields)) {
@@ -202,7 +203,7 @@ class Term_SEO
                     $value = in_array($field, ['noindex', 'nofollow'], true)
                         ? ($fields[$field] ? 'yes' : '')
                         : (string) $fields[$field];
-                    update_term_meta($term_id, $key, $value);
+                    update_term_meta($term_id, $key, wp_slash($value));
                 }
                 return;
 
@@ -217,22 +218,27 @@ class Term_SEO
                         ? ($fields[$field] ? 1 : 0)
                         : (string) $fields[$field];
                 }
-                update_term_meta($term_id, self::SEOFRAMEWORK_META, $data);
+                update_term_meta($term_id, self::SEOFRAMEWORK_META, wp_slash($data));
                 return;
         }
     }
 
     /**
-     * What Safe_Mutation must snapshot before a write to this term: the
-     * Yoast option (all term SEO lives there), or the term itself, whose
-     * snapshot carries its full meta map and restores it exactly.
+     * What Safe_Mutation must snapshot before a write to this term: its row
+     * inside the Yoast option (all term SEO lives there), or the term itself,
+     * whose snapshot carries its full meta map and restores it exactly.
      *
      * @return array{object_type: string, object_id: string}
      */
     public static function snapshot_target(\WP_Term $term): array
     {
         if ('yoast' === SEO_Adapter::active_plugin()) {
-            return ['object_type' => 'option', 'object_id' => self::YOAST_OPTION];
+            // Only this term's row inside the shared option, so a rollback
+            // cannot revert other terms' SEO edits made since.
+            return [
+                'object_type' => 'yoast_term_seo',
+                'object_id'   => (string) $term->taxonomy . ':' . (int) $term->term_id,
+            ];
         }
 
         return [
@@ -315,17 +321,20 @@ class Term_SEO
      * Yoast noindex is tri-state. `false` writes 'default' rather than
      * 'index', matching the post path, where false writes '0' (follow the
      * taxonomy default) rather than '2' (force index).
+     *
+     * With Yoast loaded the row goes through its own
+     * WPSEO_Taxonomy_Meta::set_values(), the path its term edit screen uses:
+     * it validates the row and saves it pre-validated, rather than having the
+     * whole option re-validated through sanitize_option. set_values() treats
+     * a key absent from the row as cleared, so the full stored row is passed
+     * with the changes merged in, never the changes alone.
      */
     private static function update_yoast(\WP_Term $term, array $fields): void
     {
-        $option = get_option(self::YOAST_OPTION, []);
-        $option = is_array($option) ? $option : [];
-
         $taxonomy = (string) $term->taxonomy;
         $term_id  = (int) $term->term_id;
 
-        $row = $option[$taxonomy][$term_id] ?? [];
-        $row = is_array($row) ? $row : [];
+        $row = self::yoast_row($term);
 
         foreach (self::YOAST_KEYS as $field => $key) {
             if (! array_key_exists($field, $fields)) {
@@ -336,6 +345,20 @@ class Term_SEO
                 : (string) $fields[$field];
         }
 
+        if (class_exists('WPSEO_Taxonomy_Meta') && is_callable(['WPSEO_Taxonomy_Meta', 'set_values'])) {
+            \WPSEO_Taxonomy_Meta::set_values($term_id, $taxonomy, $row);
+
+            // Yoast renders from its indexables table and rebuilds a term's
+            // indexable only on edited_term, so without this the write lands
+            // in the option and the page keeps the old values.
+            clean_term_cache($term_id, $taxonomy);
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core hook, fired so Yoast rebuilds the term indexable.
+            do_action('edited_term', $term_id, (int) $term->term_taxonomy_id, $taxonomy, []);
+            return;
+        }
+
+        $option = get_option(self::YOAST_OPTION, []);
+        $option = is_array($option) ? $option : [];
         if (! isset($option[$taxonomy]) || ! is_array($option[$taxonomy])) {
             $option[$taxonomy] = [];
         }

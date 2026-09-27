@@ -3,6 +3,7 @@
 namespace WPMCP\Tests\Free\SEO;
 
 use WPMCP\Tools\SEO\Get_SEO_Meta;
+use WPMCP\Tools\SEO\Post_Access;
 use WPMCP\Tools\SEO\SEO_Adapter;
 
 class GetSeoMetaTest extends \WP_UnitTestCase
@@ -135,5 +136,40 @@ class GetSeoMetaTest extends \WP_UnitTestCase
         $out = (new Get_SEO_Meta())->handle(['post_id' => $id]);
 
         $this->assertSame($id, $out['post_id']);
+    }
+
+    /**
+     * A published post in a non-public type (a form, a reusable block) is not
+     * public content: edit_posts alone does not reach its title and excerpt.
+     */
+    public function test_a_published_post_in_a_non_public_type_is_refused_without_edit_post(): void
+    {
+        register_post_type('wpmcp_private_cpt', ['public' => false, 'publicly_queryable' => false]);
+        $owner = $this->factory()->user->create(['role' => 'administrator']);
+        $id    = $this->post(['post_type' => 'wpmcp_private_cpt', 'post_status' => 'publish', 'post_author' => $owner]);
+
+        wp_set_current_user($this->factory()->user->create(['role' => 'author']));
+
+        try {
+            $this->expectException(\RuntimeException::class);
+            Post_Access::assert_readable($id);
+        } finally {
+            unregister_post_type('wpmcp_private_cpt');
+        }
+    }
+
+    /** Its editor still gets through. */
+    public function test_an_administrator_may_read_a_non_public_type(): void
+    {
+        register_post_type('wpmcp_private_cpt', ['public' => false, 'publicly_queryable' => false]);
+        $id = $this->post(['post_type' => 'wpmcp_private_cpt', 'post_status' => 'publish']);
+
+        wp_set_current_user($this->factory()->user->create(['role' => 'administrator']));
+
+        try {
+            $this->assertSame($id, Post_Access::assert_readable($id)->ID);
+        } finally {
+            unregister_post_type('wpmcp_private_cpt');
+        }
     }
 }

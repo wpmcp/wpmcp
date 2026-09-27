@@ -15,11 +15,13 @@ if (! defined('ABSPATH')) {
  * the directory build removes whole instead of carving methods out of a free
  * class with exact-string edits.
  *
- * Yoast, RankMath and SEOPress store the six fields as flat postmeta. The
- * SEO Framework derives its social fields rather than storing a full
- * per-post set, and SureRank packs them into the serialized _surerank_meta
- * array, so both answer with the structured "unsupported" payload rather than
- * a guessed map.
+ * Yoast, RankMath and SEOPress store the six fields as flat postmeta, one
+ * key per field. The SEO Framework stores one social image shared by the
+ * OpenGraph and Twitter cards (_social_image_url), so a per-target image
+ * write cannot be expressed on it faithfully, and SureRank packs its fields
+ * into the serialized _surerank_meta array. Both answer with the structured
+ * "unsupported" payload until they get dedicated branches rather than a
+ * guessed map.
  *
  * The SEO group answers "unsupported" with a payload rather than the
  * WP_Error / `unsupported_*` code the builder tools use, because the issue
@@ -67,9 +69,8 @@ class Social_Meta
     ];
 
     /**
-     * The attachment-id companions Yoast and RankMath keep next to each image
-     * URL, so their media pickers show the chosen attachment. SEOPress keeps
-     * the URL only.
+     * The attachment-id companions each plugin keeps next to an image URL, so
+     * its media picker shows the chosen attachment.
      */
     private const IMAGE_ID_KEYS = [
         'yoast'    => [
@@ -80,7 +81,23 @@ class Social_Meta
             'og_image'      => 'rank_math_facebook_image_id',
             'twitter_image' => 'rank_math_twitter_image_id',
         ],
+        'seopress' => [
+            'og_image'      => '_seopress_social_fb_img_attachment_id',
+            'twitter_image' => '_seopress_social_twitter_img_attachment_id',
+        ],
     ];
+
+    /**
+     * SEOPress also records the image dimensions next to the URL; stale ones
+     * would describe the previous image in og:image:width/height.
+     */
+    private const SEOPRESS_DIMENSION_KEYS = [
+        'og_image'      => ['_seopress_social_fb_img_width', '_seopress_social_fb_img_height'],
+        'twitter_image' => ['_seopress_social_twitter_img_width', '_seopress_social_twitter_img_height'],
+    ];
+
+    /** SEOPress global setting: "use Open Graph if no Twitter Cards". */
+    private const SEOPRESS_SOCIAL_OPTION = 'seopress_social_option_name';
 
     /**
      * Which OpenGraph field each Twitter field falls back to when the active
@@ -126,10 +143,10 @@ class Social_Meta
      * Returns ['supported' => true, 'fields' => [...], 'sources' => [...]]
      * where mapped, or the structured unsupported() payload otherwise.
      *
-     * `fields` is the resolved state, not the raw postmeta. All three mapped
-     * plugins fall back to the OpenGraph values when a Twitter field is
-     * empty (RankMath gates that on rank_math_twitter_use_facebook, which
-     * defaults on), so returning the bare meta would report
+     * `fields` is the resolved state, not the raw postmeta. The mapped
+     * plugins can fall back to the OpenGraph values when a Twitter field is
+     * empty (Yoast always, RankMath per post, SEOPress per a site setting;
+     * see twitter_mirrors_og()), so returning the bare meta would report
      * `twitter_title: ''` for a post whose rendered Twitter card does have a
      * title. `sources` says where each value came from, so an agent can still
      * tell an explicit override from an inherited one before writing:
@@ -148,7 +165,8 @@ class Social_Meta
         $fields  = [];
         $sources = [];
         foreach (self::MAPS[$active] as $field => $key) {
-            $fields[$field]  = (string) get_post_meta($post_id, $key, true);
+            $value           = get_post_meta($post_id, $key, true);
+            $fields[$field]  = is_scalar($value) ? (string) $value : '';
             $sources[$field] = '' === $fields[$field] ? 'absent' : 'override';
         }
 
@@ -212,30 +230,61 @@ class Social_Meta
             update_post_meta($post_id, self::MAPS[$active][$field], $url);
 
             $id_key = self::IMAGE_ID_KEYS[$active][$field] ?? '';
-            if ('' === $id_key) {
-                continue;
+            if ('' !== $id_key) {
+                if ($attachment_id > 0) {
+                    update_post_meta($post_id, $id_key, (string) $attachment_id);
+                } else {
+                    // A URL-only write must not leave the previous attachment
+                    // id behind, or the media picker shows the old image.
+                    delete_post_meta($post_id, $id_key);
+                }
             }
-            if ($attachment_id > 0) {
-                update_post_meta($post_id, $id_key, (string) $attachment_id);
-            } else {
-                // A URL-only write must not leave the previous attachment id
-                // behind, or the plugin's media picker shows the old image.
-                delete_post_meta($post_id, $id_key);
+
+            if ('seopress' === $active) {
+                self::write_seopress_dimensions($post_id, $field, $attachment_id);
             }
         }
+    }
+
+    /**
+     * Width and height from the attachment's metadata when there is one;
+     * otherwise the keys are removed, since the dimensions of a bare URL are
+     * unknown and the old ones belong to the previous image.
+     */
+    private static function write_seopress_dimensions(int $post_id, string $field, int $attachment_id): void
+    {
+        [$width_key, $height_key] = self::SEOPRESS_DIMENSION_KEYS[$field];
+
+        $meta = $attachment_id > 0 ? wp_get_attachment_metadata($attachment_id) : false;
+        if (is_array($meta) && ! empty($meta['width']) && ! empty($meta['height'])) {
+            update_post_meta($post_id, $width_key, (string) (int) $meta['width']);
+            update_post_meta($post_id, $height_key, (string) (int) $meta['height']);
+            return;
+        }
+
+        delete_post_meta($post_id, $width_key);
+        delete_post_meta($post_id, $height_key);
     }
 
     /**
      * Whether the active plugin renders the Twitter card from the OpenGraph
      * fields when the Twitter ones are empty.
      *
-     * Yoast and SEOPress always do. RankMath makes it a per-post switch,
-     * `rank_math_twitter_use_facebook`, stored as 'on'/'off' and defaulting
-     * to on: an unset value means the mirror is active, which is the state of
-     * every post on a stock install, so an absent meta must read as true.
+     * Yoast always does. SEOPress does only when its global "use Open Graph
+     * if no Twitter Cards" setting (seopress_social_twitter_card_og) is '1'.
+     * RankMath makes it a per-post switch, `rank_math_twitter_use_facebook`,
+     * stored as 'on'/'off' and defaulting to on: an unset value means the
+     * mirror is active, which is the state of every post on a stock install,
+     * so an absent meta must read as true.
      */
     private static function twitter_mirrors_og(string $active, int $post_id): bool
     {
+        if ('seopress' === $active) {
+            $option = get_option(self::SEOPRESS_SOCIAL_OPTION, []);
+
+            return is_array($option) && '1' === (string) ($option['seopress_social_twitter_card_og'] ?? '');
+        }
+
         if ('rankmath' !== $active) {
             return true;
         }

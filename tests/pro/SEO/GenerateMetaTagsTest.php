@@ -28,6 +28,17 @@ class GenerateMetaTagsTest extends \WP_UnitTestCase
         parent::tearDown();
     }
 
+    /**
+     * The post factory fills post_excerpt even when '' is passed, so the
+     * content fallback is only reachable once it is cleared after creation.
+     */
+    private function blank_excerpt(int $id): void
+    {
+        global $wpdb;
+        $wpdb->update($wpdb->posts, ['post_excerpt' => ''], ['ID' => $id]);
+        clean_post_cache($id);
+    }
+
     /** @return array<string, array{content: string, source: string}> */
     private function by_key(array $out): array
     {
@@ -95,9 +106,11 @@ class GenerateMetaTagsTest extends \WP_UnitTestCase
         SEO_Adapter::set_active_plugin_for_tests('yoast');
         $id = self::factory()->post->create([
             'post_title'   => 'Real title',
+            'post_excerpt' => '',
             'post_content' => 'Body copy for the description.',
             'post_status'  => 'publish',
         ]);
+        $this->blank_excerpt($id);
         SEO_Adapter::update_meta($id, ['title' => '%%title%% %%sep%% %%sitename%%', 'description' => '%%excerpt%%']);
 
         $tags = $this->by_key((new Generate_Meta_Tags())->handle(['post_id' => $id]));
@@ -111,10 +124,12 @@ class GenerateMetaTagsTest extends \WP_UnitTestCase
     {
         SEO_Adapter::set_active_plugin_for_tests('');
         $id = self::factory()->post->create([
+            'post_excerpt' => '',
             'post_content' => str_repeat('wordy ', 60),
             'post_status'  => 'publish',
         ]);
 
+        $this->blank_excerpt($id);
         $description = $this->by_key((new Generate_Meta_Tags())->handle(['post_id' => $id]))['description']['content'];
 
         $this->assertLessThanOrEqual(163, mb_strlen($description));

@@ -6571,7 +6571,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/generate-meta-tags',
             'pro',
-            'Propose the title, meta description, canonical, robots, OpenGraph and Twitter card tags for a post, from the active SEO plugin fields where set and the post record otherwise. Each tag reports its source (plugin or post). Proposal only: returns the tags and escaped HTML, writes nothing',
+            'Propose a post\'s title, description, canonical, robots, OpenGraph and Twitter tags from SEO plugin fields or the post record, each with its source. Read-only proposal',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6614,7 +6614,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-social-image',
             'pro',
-            'Set a post\'s social sharing image (target og, twitter or both; default both) from a media library image attachment_id or an absolute image_url, via the active SEO plugin\'s postmeta keys. Snapshotted via object_type post; rollback-operation restores the previous image. Returns a structured unsupported response for plugins whose per-post social storage is not mapped',
+            'Set a post\'s OpenGraph and/or Twitter image from an image attachment_id or image_url via the active SEO plugin. Snapshotted; rollback-operation undoes it. Unmapped plugins return supported:false',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6635,7 +6635,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-term-seo-meta',
             'pro',
-            'Read a taxonomy term\'s SEO title, meta description, focus keyword, canonical URL, and robots flags (noindex/nofollow) via the active SEO plugin, in the same field set get-seo-meta returns for posts. Identify the term by taxonomy plus term_id or slug. Fields the plugin does not store on terms are listed in unsupported_fields; plugins with no term storage return a structured unsupported response',
+            'Read a term\'s SEO fields (same set as get-seo-meta) by taxonomy plus term_id or slug. Fields the plugin lacks on terms are listed in unsupported_fields; plugins without term storage return supported:false',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6654,7 +6654,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-term-seo-meta',
             'pro',
-            'Set a taxonomy term\'s SEO title, meta description, focus keyword, canonical URL, and/or robots flags (noindex/nofollow) via the active SEO plugin, with the same fields update-seo-meta takes for posts. Identify the term by taxonomy plus term_id or slug. Snapshotted first (the term, or the Yoast taxonomy option); rollback-operation restores the prior values. Fields the plugin does not store on terms are returned in skipped_fields rather than failing',
+            'Set a term\'s SEO fields (same set as update-seo-meta) by taxonomy plus term_id or slug. Snapshotted; rollback-operation undoes it. Fields the plugin lacks on terms come back in skipped_fields',
             [
                 'type'       => 'object',
                 'properties' => [

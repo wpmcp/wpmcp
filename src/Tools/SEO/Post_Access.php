@@ -17,10 +17,12 @@ if (! defined('ABSPATH')) {
  * has to re-check the specific post, the same way Search_Content re-checks
  * `read_post` per result.
  *
- * Two conditions refuse:
+ * Three conditions refuse:
  *
  * - Not published and the caller cannot `read_post` it: drafts, private posts
  *   and pending revisions of other authors.
+ * - A post type that is not publicly viewable and the caller cannot
+ *   `edit_post` it.
  * - Password protected and the caller cannot `edit_post` it. A protected post
  *   is published, so the status check alone lets it through, and the SEO
  *   reads take the raw `post_excerpt` and the SEO meta description rather
@@ -53,6 +55,15 @@ class Post_Access
         }
 
         if ('publish' !== $post->post_status && ! current_user_can('read_post', $post_id)) {
+            throw new \RuntimeException(
+                'You do not have permission to read post ' . (int) $post_id . '.'
+            );
+        }
+
+        // A published post in a non-public type (a form, a reusable block, a
+        // field group) is not public content either: its title and excerpt
+        // are only for people who can edit it.
+        if (! is_post_type_viewable($post->post_type) && ! current_user_can('edit_post', $post_id)) {
             throw new \RuntimeException(
                 'You do not have permission to read post ' . (int) $post_id . '.'
             );

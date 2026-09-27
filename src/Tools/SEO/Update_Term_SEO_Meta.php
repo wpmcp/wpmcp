@@ -15,10 +15,10 @@ if (! defined('ABSPATH')) {
  * storage by Term_SEO.
  *
  * Snapshot-first through Safe_Mutation. What is captured depends on where
- * the plugin keeps term SEO: the whole `wpseo_taxonomy_meta` option for
- * Yoast, or the term (row plus full meta map) for the term-meta plugins.
- * Either way rollback-operation restores the prior values exactly through
- * the existing option and term restore paths.
+ * the plugin keeps term SEO: this term's row inside Yoast's shared
+ * `wpseo_taxonomy_meta` option (object_type 'yoast_term_seo', so a rollback
+ * never reverts other terms), or the term (row plus full meta map) for the
+ * term-meta plugins. Either way rollback-operation restores the prior values.
  *
  * Unsupported combinations are answered, not thrown: on a plugin with no
  * mapped term storage nothing is written and no snapshot is taken, and
