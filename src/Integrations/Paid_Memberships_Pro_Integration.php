@@ -44,7 +44,8 @@ class Paid_Memberships_Pro_Integration extends Integration_Dispatcher
         global $wpdb;
         $table    = self::levels_table();
         $suppress = $wpdb->suppress_errors(true);
-        $wpdb->get_var("SELECT 1 FROM `{$table}` LIMIT 1");
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- probes whether PMPro's own custom table exists; the answer must reflect the live schema, not a cache.
+        $wpdb->get_var($wpdb->prepare('SELECT 1 FROM %i LIMIT 1', $table));
         $exists = '' === $wpdb->last_error;
         $wpdb->suppress_errors($suppress);
         return $exists;
@@ -59,8 +60,9 @@ class Paid_Memberships_Pro_Integration extends Integration_Dispatcher
     {
         global $wpdb;
         $members = self::members_table();
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- pmpro_memberships_users is PMPro's own custom table with no WP API; live member counts must not be stale.
         return (int) $wpdb->get_var(
-            $wpdb->prepare("SELECT COUNT(*) FROM `{$members}` WHERE membership_id = %d AND status = 'active'", $level_id)
+            $wpdb->prepare("SELECT COUNT(*) FROM %i WHERE membership_id = %d AND status = 'active'", $members, $level_id)
         );
     }
 
@@ -74,8 +76,12 @@ class Paid_Memberships_Pro_Integration extends Integration_Dispatcher
                 'handler'      => function (): array {
                     global $wpdb;
                     $table = self::levels_table();
-                    $rows  = $wpdb->get_results(
-                        "SELECT id, name, initial_payment, billing_amount, cycle_number, cycle_period, allow_signups FROM `{$table}` ORDER BY id ASC",
+                    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- pmpro_membership_levels is PMPro's own custom table with no WP API; the level inventory must reflect the live rows.
+                    $rows = $wpdb->get_results(
+                        $wpdb->prepare(
+                            'SELECT id, name, initial_payment, billing_amount, cycle_number, cycle_period, allow_signups FROM %i ORDER BY id ASC',
+                            $table
+                        ),
                         ARRAY_A
                     );
                     $levels = [];
@@ -104,8 +110,9 @@ class Paid_Memberships_Pro_Integration extends Integration_Dispatcher
                 'handler'      => function (array $args): array {
                     global $wpdb;
                     $table = self::levels_table();
-                    $row   = $wpdb->get_row(
-                        $wpdb->prepare("SELECT * FROM `{$table}` WHERE id = %d", (int) $args['level_id']),
+                    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- pmpro_membership_levels is PMPro's own custom table with no WP API; the level read must reflect the live row.
+                    $row = $wpdb->get_row(
+                        $wpdb->prepare('SELECT * FROM %i WHERE id = %d', $table, (int) $args['level_id']),
                         ARRAY_A
                     );
                     if (null === $row) {

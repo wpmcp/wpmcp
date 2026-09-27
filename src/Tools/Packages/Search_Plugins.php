@@ -60,7 +60,7 @@ class Search_Plugins
 
         $result = plugins_api('query_plugins', $request);
         if (is_wp_error($result)) {
-            throw new \RuntimeException('Plugin search failed: ' . $result->get_error_message());
+            throw new \RuntimeException('Plugin search failed: ' . esc_html($result->get_error_message()));
         }
 
         $plugins = [];

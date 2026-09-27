@@ -6,6 +6,7 @@ use WPMCP\Connect\Bundle_Builder;
 use WPMCP\Connect\Client_Config_Generator;
 use WPMCP\Connect\Connection_Tester;
 use WPMCP\Connect\Exposure;
+use WPMCP\Plugin;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -175,9 +176,10 @@ class Connection_Page
      */
     public function download_bundle(?callable $sender = null)
     {
-        // phpcs:ignore -- this IS the nonce verification for the download.
+        $nonce      = is_string($_GET['_wpnonce'] ?? null) ? sanitize_text_field(wp_unslash($_GET['_wpnonce'])) : '';
         $authorized = current_user_can('manage_options')
-            && wp_verify_nonce(self::str(wp_unslash($_GET['_wpnonce'] ?? '')), self::NONCE_ACTION);
+            && '' !== $nonce
+            && wp_verify_nonce($nonce, self::NONCE_ACTION);
 
         if (! $authorized) {
             if (null !== $sender) {
@@ -218,7 +220,7 @@ class Connection_Page
         $exposed  = Exposure::is_enabled();
         ?>
         <div class="wrap">
-            <h1><?php echo esc_html__('wpmcp: Connection', 'wpmcp'); ?></h1>
+            <h1><?php echo esc_html(Plugin::page_title(_x('Connection', 'admin menu', 'wpmcp'))); ?></h1>
 
             <?php if (isset($result['error'])) : ?>
                 <div class="notice notice-error"><p><?php echo esc_html($result['error']); ?></p></div>
