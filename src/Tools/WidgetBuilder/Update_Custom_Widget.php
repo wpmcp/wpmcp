@@ -12,7 +12,9 @@ if (! defined('ABSPATH')) {
  * Replace a custom widget's spec by id. The new spec is validated before it is
  * stored on the wpmcp_widget post, and the write is an operation in history
  * (Safe_Mutation snapshots the spec post) so an update is undoable rather than
- * a one-way overwrite of the source of truth.
+ * a one-way overwrite of the source of truth. Reports `template_filtered` the
+ * same way Create_Custom_Widget does; a template the kses gate empties is
+ * refused and the previous spec stays in place.
  *
  * If the widget has a compiled class, that class is DISABLED here rather than
  * left in place. A compiled class wins over the spec at registration time, so
@@ -44,19 +46,16 @@ class Update_Custom_Widget
                 'tool_name'   => 'update-custom-widget',
                 'args'        => $args,
             ],
-            static function () use ($id, $spec): void {
-                Widget_Spec_Store::update($id, $spec);
+            static function () use ($id, $spec) {
+                return Widget_Spec_Store::update($id, $spec);
             }
         );
+        if (is_wp_error($run['result'])) {
+            return $run['result'];
+        }
 
-        $stored = Widget_Spec_Store::get($id);
-
-        $out = [
-            'widget_id'    => $id,
-            'operation_id' => $run['operation_id'],
-            'name'      => (string) ($stored['name'] ?? ''),
-            'title'     => (string) ($stored['title'] ?? ''),
-        ];
+        $out                 = Create_Custom_Widget::response($id, $spec);
+        $out['operation_id'] = $run['operation_id'];
 
         if (null !== Compiler\Compiled_Widget_Manifest::get($id)) {
             Compiler\Compiled_Widget_Manifest::set_enabled($id, false);
