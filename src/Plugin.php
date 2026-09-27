@@ -2013,7 +2013,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-rows',
             'free',
-            'Delete rows matching a mandatory equality WHERE via $wpdb->delete() (parameterized). Requires confirm:true. Refuses protected tables. Disabled by default (wpmcp_enable_db_writes filter). Snapshot-backed and restorable via rollback-operation (rows reinserted with their original primary-key ids) when the table has a primary key and the WHERE stays under the before-image cap; otherwise reports recoverable:false with a reason and logs the before-image to the write audit log',
+            'Delete rows matching a mandatory equality WHERE via $wpdb->delete() (parameterized). Requires confirm:true; refuses protected tables; off by default (wpmcp_enable_db_writes filter). Snapshot-backed and restorable via rollback-operation (rows reinserted with their original ids) when the table has a primary key and the WHERE fits the before-image cap; otherwise recoverable:false with a reason, and the before-image goes to the write audit log',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2168,7 +2168,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/scan-security',
             'free',
-            'Scan this site for security and malware problems across four areas: PHP malware heuristics (uploads plus active plugins/themes; pass deep=true for the whole tree), WordPress core file integrity (against official wordpress.org checksums), configuration hardening (file editor, debug output, admin username, XML-RPC, version disclosure, HTTPS, security headers), and outdated/abandoned software. Returns a scored report (0-100 plus A-F grade) with severities and ranked, actionable recommendations. Read-only; self-contained; scans this site only',
+            'Scan this site for security and malware problems: PHP malware heuristics (uploads plus active plugins/themes; deep=true for the whole tree), core file integrity against wordpress.org checksums, configuration hardening (file editor, debug output, admin username, XML-RPC, version disclosure, HTTPS, security headers) and outdated or abandoned software. Returns a 0-100 score with an A-F grade, severities and ranked recommendations. Read-only; scans this site only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3021,7 +3021,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/dispatch-cli-job',
             'pro',
-            'Queue a guarded, allowlisted wp-cli command as a background job and return its job id immediately, for long-running work (imports, bulk media regeneration) that cannot complete inside a single request. Poll it with get-cli-job. Subject to exactly the same gates as run-wp-cli: disabled by default (WPMCP_ALLOW_WP_CLI constant or wpmcp_allow_wp_cli filter), refused on production without a separate override, allowlisted subcommands only, and no shell metacharacters or non-allowlisted flags. The guard chain is re-checked immediately before the job actually runs, so closing the gate also stops jobs that are already queued. Optional timeout in seconds (default 300, max 900). Refused while too many jobs are already queued or running',
+            'Queue an allowlisted wp-cli command as a background job and return its job id at once, for long work (imports, media regeneration). Poll with get-cli-job. Same gates as run-wp-cli: off by default (WPMCP_ALLOW_WP_CLI or wpmcp_allow_wp_cli), refused on production without a separate override, allowlisted subcommands and flags only, no shell metacharacters. Gates are re-checked right before the job runs, so closing them stops queued jobs. timeout in seconds (default 300, max 900). Refused while too many jobs are queued or running',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3195,7 +3195,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-scoped-css',
             'pro',
-            'Store custom CSS scoped to one post/page (post_id required); it renders in wp_head only on that post. Pass a full css fragment, or a selector plus bare css declarations to wrap as selector { declarations }. Add element_id (an Elementor element id) to narrow scope to ONE element: declarations are prefixed with .elementor-element-<id>, and a selector alongside reads as a descendant of it. APPENDS to the stored page block; replace=true overwrites, css="" with replace=true clears. For site-wide CSS use add-custom-css. Requires edit_css (unfiltered_html) plus manage_options. CSS is sanitized on write and at render: markup, expression()/behavior, script URL schemes, @import and data: URLs are rejected, even when escape-obfuscated or split by a comment. Each page block is snapshotted separately, so rollback-operation reverts only this page',
+            'Store CSS for one post/page (post_id required), printed in wp_head only there. Pass css, or a selector plus bare declarations; element_id (an Elementor element id) scopes it to .elementor-element-<id>. Appends; replace=true overwrites, css="" with replace=true clears. Site-wide: add-custom-css. Needs edit_css and manage_options. Script-capable CSS (markup, expression(), script or data: URLs, @import) is refused, even obfuscated. Snapshot-first per page',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3216,7 +3216,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-custom-js',
             'pro',
-            'Store the site-wide custom JS snippet (replaces any previous one; js="" with replace=true clears it) rendered in wp_footer. THIS IS AN XSS-CLASS SURFACE and is off by default: it refuses unless JS injection is enabled (WPMCP_ALLOW_JS_INJECTION constant or wpmcp_allow_js_injection filter) AND the caller holds unfiltered_html plus manage_options. The write is snapshotted and reversible via rollback-operation; closing the gate (constant or filter) also stops rendering stored JS, while disabling the ability in the governance grid only withdraws the tool',
+            'Store the site-wide JS snippet printed in wp_footer (replaces the previous one; js="" with replace=true clears). XSS-CLASS SURFACE, off by default: needs WPMCP_ALLOW_JS_INJECTION or the wpmcp_allow_js_injection filter, plus unfiltered_html and manage_options. Snapshot-first; closing the gate stops rendering stored JS',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3437,7 +3437,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-page-snapshot',
             'free',
-            'One-call normalized page digest for a post: structure summary with counts, content outline in document order, media and link inventory, builder detection (elementor/bricks/divi/gutenberg/classic), and SEO-lite signals. Content is read from stored post_content, so for Elementor/Bricks/Divi pages the content_coverage block reports which sections could not be measured rather than returning misleading zeros. Heavy sections (global_tokens, responsive_overrides) are excluded by default and opt-in via the sections param. Response size is bounded by item, string, and byte caps. Read-only',
+            'One-call page digest for a post: structure counts, content outline in document order, media and link inventory, builder detection (elementor/bricks/divi/gutenberg/classic) and SEO-lite signals. Content comes from stored post_content, so for builder pages content_coverage reports what could not be measured instead of misleading zeros. Heavy sections (global_tokens, responsive_overrides) are opt-in via sections. Response size is capped. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3509,7 +3509,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/call-rest',
             'free',
-            'Perform an internal WP REST API request (rest_do_request) against any route registered on this site and return its HTTP status and body. Authorization is inherited from the REST API itself: the target endpoint\'s own permission_callback runs against the current user exactly as it would for a real HTTP request, so this tool cannot grant or widen access beyond what that endpoint already allows. GET/HEAD are always permitted (subject to the endpoint\'s own permission check). POST/PUT/PATCH/DELETE are refused unless a site has opted in via the wpmcp_enable_rest_writes filter (disabled by default) AND the caller passes confirm:true; a successful write reports recoverable:false because an arbitrary REST write cannot be generically snapshotted or undone',
+            'Run an internal WP REST request (rest_do_request) against any route on this site; returns status and body. The endpoint\'s own permission_callback runs against the current user, so this cannot widen access. GET/HEAD always allowed. POST/PUT/PATCH/DELETE are refused unless the site opts in via the wpmcp_enable_rest_writes filter (off by default) AND confirm:true is passed; writes report recoverable:false since an arbitrary REST write cannot be snapshotted',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3614,7 +3614,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/convert-html-to-blocks',
             'free',
-            'Convert raw HTML into valid Gutenberg block markup. Maps common top-level elements to core blocks (h1-h6 to core/heading, p to core/paragraph, img to core/image, ul/ol to core/list, blockquote to core/quote, pre/code to core/code, hr to core/separator, table to core/table); anything unrecognized is wrapped in a core/html block so no content is lost. A pure transform, not a database write: it never touches a post. To write the resulting markup to a post use the existing update-blocks tool',
+            'Convert raw HTML into Gutenberg block markup. Maps common top-level elements to core blocks (h1-h6 heading, p paragraph, img image, ul/ol list, blockquote quote, pre/code code, hr separator, table); anything else is wrapped in core/html so nothing is lost. A pure transform that never touches a post; write the result with update-blocks',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4038,7 +4038,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-content',
             'free',
-            'Generate a WordPress eXtended RSS (WXR) export of site content via the native WordPress exporter (export_wp()). Optional content (post type: all/post/page/attachment/a custom post type), author, start_date, end_date, and status narrow what is included. Writes the XML to a protected directory under uploads and returns the file path, size, and item count. Read-only: does not mutate the site. WordPress\'s own export_wp() can only be safely called once per PHP process (a core limitation, not specific to this tool), so a second call in the same long-lived process is refused with a clear message rather than fataling',
+            'Generate a WXR export of site content with the native exporter (export_wp()). Optional content (all/post/page/attachment/a custom post type), author, start_date, end_date and status narrow it. Writes the XML to a protected directory under uploads and returns path, size and item count. Read-only. export_wp() can run only once per PHP process (a core limitation), so a second call in the same process is refused instead of fataling',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4070,7 +4070,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/import-content',
             'free',
-            'Import a WordPress eXtended RSS (WXR) file, creating posts via wp_insert_post() (title, content, status, post_type, postmeta). Disabled by default (site must opt in via the wpmcp_enable_import filter) and always requires confirm:true. Content creation at scale has no single object_type/object_id to snapshot, so this honestly reports recoverable:false; every created post id is returned in created_post_ids so a caller can follow up with delete-post for each one. Uses a lightweight built-in WXR parser, not the WordPress Importer plugin',
+            'Import a WXR file, creating posts via wp_insert_post() (title, content, status, post_type, postmeta). Off by default (the wpmcp_enable_import filter opts in) and always requires confirm:true. Bulk creation has no single object to snapshot, so it reports recoverable:false and returns every created id in created_post_ids for follow-up delete-post calls. Uses a built-in WXR parser, not the WordPress Importer plugin',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4993,7 +4993,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-elementor-data',
             'pro',
-            'Return a page\'s parsed Elementor element tree (id, elType, widgetType, settings, and nested elements for every node), read directly from its _elementor_data postmeta. For large pages use summary=true (skeleton only: id, elType, widgetType, label, child_count, descendant_count), max_depth to stop at a depth (cut nodes report truncated_children), and element_id to window on one subtree. Always reports total_elements, returned_elements and truncated; data_hash always covers the whole page, so a windowed read is still valid as expected_hash. Read-only',
+            'Return a page\'s parsed Elementor element tree (id, elType, widgetType, settings, children) from its _elementor_data postmeta. For large pages use summary=true (skeleton: id, elType, widgetType, label, child and descendant counts), max_depth (cut nodes report truncated_children) or element_id to window on one subtree. Reports total_elements, returned_elements and truncated; data_hash covers the whole page, so a windowed read is still valid as expected_hash. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5209,7 +5209,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/replace-system-typography',
             'pro',
-            'Atomically replace all four Elementor system typography slots (primary, secondary, text, accent) on the active kit. The replacement must cover every slot exactly once or nothing is written: all four slots or none. Each entry carries only typography_* fields (an unrecognized or misspelled key is refused, not dropped) and must carry at least one; setting a font enables custom typography so the token renders, and an entry that omits "title" keeps the slot\'s current title. Requires expected_hash from get-global-settings. Undoable via rollback-operation',
+            'Atomically replace all four Elementor system typography slots (primary, secondary, text, accent) on the active kit: every slot exactly once, or nothing is written. Each entry carries only typography_* fields (unknown keys are refused, not dropped) and at least one; setting a font enables custom typography, and an entry without "title" keeps the current title. Requires expected_hash from get-global-settings. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [

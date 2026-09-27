@@ -348,7 +348,7 @@ class AddScopedCssTest extends \WP_UnitTestCase
     {
         $post = self::factory()->post->create();
 
-        foreach (['a1b2c3d { } .evil', 'a1b2c3d"', '../x', ''] as $element_id) {
+        foreach (['a1b2c3d { } .evil', 'a1b2c3d"', '../x', 'a b'] as $element_id) {
             try {
                 $this->store($post, 'color: red;', ['element_id' => $element_id]);
                 $this->fail('Expected a refusal for element_id ' . var_export($element_id, true));
