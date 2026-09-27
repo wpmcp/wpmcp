@@ -2,6 +2,9 @@
 
 namespace WPMCP\Cloud;
 
+use WPMCP\Gateway\Gateway_Binding;
+use WPMCP\Gateway\Gateway_Guard;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -11,11 +14,11 @@ if (! defined('ABSPATH')) {
  * disclosed checkbox on cloud connect, DEFAULT OFF.
  *
  * Consent is recorded by cloud-connect's `gateway_consent` input and nowhere
- * else. It gates the cloud half of the gateway only: Gateway_Credential::
- * upload() refuses to hand a credential to WP MCP Cloud without it. Minting
- * a credential for a self-hosted proxy does not need the cloud's consent
- * (that has its own per-call consent argument on gateway-provision), and a
- * local-only credential is not touched by withdrawing this one.
+ * else. It gates the cloud half of the gateway only: Gateway_Cloud::upload()
+ * refuses to hand a credential to WP MCP Cloud without it. Minting a
+ * credential for a self-hosted proxy does not need the cloud's consent
+ * (gateway-provision has its own confirm gate), and a credential the cloud
+ * never received is not touched by withdrawing this one.
  *
  * The checkbox value is authoritative on every connect: leaving it unticked
  * records no consent, and withdrawing it while the cloud holds a copy of the
@@ -51,7 +54,7 @@ class Gateway_Consent
      * already holds (uploaded_at set), locally and offline, through the same
      * kill switch as gateway-revoke.
      *
-     * @return array{granted: bool, revoked: int} revoked = token records killed.
+     * @return array{granted: bool, revoked: bool} revoked = a live credential was killed.
      */
     public static function record(bool $granted, int $user_id): array
     {
@@ -65,15 +68,12 @@ class Gateway_Consent
             false
         );
 
-        $revoked = 0;
-        if (! $granted) {
-            if (Gateway_Credential::was_uploaded()) {
-                // Trusted: a kill only ever removes access, and a withdrawal
-                // that could be refused would leave the gateway acting on a
-                // site whose owner just said no.
-                $killed  = Gateway_Credential::revoke(true);
-                $revoked = is_int($killed) ? $killed : 0;
-            }
+        $revoked = false;
+        if (! $granted && Gateway_Binding::was_uploaded()) {
+            // Unconditional: a kill only ever removes access, and a
+            // withdrawal that could be refused would leave the gateway
+            // acting on a site whose owner just said no.
+            $revoked = Gateway_Guard::kill('cloud_consent_withdrawn');
         }
 
         return [ 'granted' => $granted, 'revoked' => $revoked ];

@@ -319,6 +319,10 @@ class GatewayCredentialTest extends \WP_UnitTestCase
 
             wp_set_current_user(0);
             $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $granted['access_token'];
+            // The gateway credential works only on the MCP connection
+            // (issue #130, Gateway_Guard), which is where the proxy uses it.
+            $previous_uri           = $_SERVER['REQUEST_URI'] ?? null;
+            $_SERVER['REQUEST_URI'] = '/wp-json/mcp/wpmcp-server';
 
             try {
                 $resolved = \WPMCP\Auth\Bearer_Auth::resolve(null);
@@ -332,6 +336,11 @@ class GatewayCredentialTest extends \WP_UnitTestCase
                 $this->assertTrue($registrar->is_permitted($ability));
             } finally {
                 unset($_SERVER['HTTP_AUTHORIZATION']);
+                if (null === $previous_uri) {
+                    unset($_SERVER['REQUEST_URI']);
+                } else {
+                    $_SERVER['REQUEST_URI'] = $previous_uri;
+                }
                 wp_set_current_user(0);
             }
         } finally {
