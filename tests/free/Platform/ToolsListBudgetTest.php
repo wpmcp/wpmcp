@@ -61,9 +61,16 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  and #62 together (176529 bytes over 319 tools). The PHP snippet
      *  lifecycle store (#85) adds seven tools whose descriptions were trimmed
      *  to the store-vs-Elementor-custom-code disambiguation, the
-     *  created-inactive rule and the execution-gate refusal. Compact tool mode keeps clients
-     *  with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 180000;
+     *  created-inactive rule and the execution-gate refusal. Raised 180000 ->
+     *  185000 for cloud settings sync and marketplace (#135: sync-, push- and
+     *  apply-settings, marketplace-browse, marketplace-install): main had
+     *  reached 179878 bytes over 326 tools, so no new tool fit; the five
+     *  descriptions were trimmed first (182841 -> 182175 bytes) but still
+     *  name what never syncs, the merge-not-replace and never-disable
+     *  rollback rules, and the inactive-draft install, since an agent that
+     *  misses those makes a failed or unsafe call. Compact tool mode keeps
+     *  clients with tool caps at ~2.8KB regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 185000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
