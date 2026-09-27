@@ -4,6 +4,7 @@ namespace WPMCP\Tools\Cloud;
 
 use WPMCP\Cloud\Cloud_Client;
 use WPMCP\Cloud\Cloud_Config;
+use WPMCP\Cloud\Cloud_Credentials;
 use WPMCP\Cloud\Gateway_Consent;
 
 if (! defined('ABSPATH')) {
@@ -18,6 +19,14 @@ if (! defined('ABSPATH')) {
  * and defaults to false. It is recorded on every successful connect, so a
  * connect that leaves it unticked withdraws consent, and withdrawing it
  * kills a gateway credential the cloud already holds. See Gateway_Consent.
+ *
+ * The credentials have to be stored before the probe, because Cloud_Client
+ * reads them from the vault. Since issue #141 that store is a REPLACE over a
+ * credential set that can contain a refresh token, and a refresh token is not
+ * re-derivable the way a mistyped API key the operator still has in hand is.
+ * So a failed probe restores exactly what was there before (or clears the
+ * partial connection when there was nothing), and a mistyped cloud-connect
+ * costs an error message instead of a working OAuth connection.
  */
 class Cloud_Connect
 {
@@ -29,10 +38,21 @@ class Cloud_Connect
             return new \WP_Error('missing_credentials', 'Both a cloud url and an api key are required.');
         }
 
-        Cloud_Config::set($url, $key);
+        // The exact prior state: the raw blob (so a salt-rotated vault stays
+        // recoverable) and the refresh health markers (so a rejected bundle
+        // stays in its backoff).
+        $previous = Cloud_Credentials::snapshot();
+        if (! Cloud_Config::set($url, $key)) {
+            // The vault did not take the new set (a failed seal, a filtered
+            // write, no sodium implementation). Put back exactly what was
+            // there, and never echo the key back.
+            Cloud_Credentials::restore($previous);
+            return new \WP_Error('cloud_credentials_not_stored', 'The cloud credentials could not be stored encrypted on this site, so nothing was changed.');
+        }
 
         $me = (new Cloud_Client())->get('/me');
         if (is_wp_error($me)) {
+            Cloud_Credentials::restore($previous);
             return $me;
         }
 
