@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Analysis;
 
+use WPMCP\Tools\Content\Content_Extractor;
 use WPMCP\Tools\SEO\SEO_Adapter;
 
 if (! defined('ABSPATH')) {
