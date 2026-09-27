@@ -6,6 +6,9 @@ use WPMCP\Pro\Chat\Chat_Rest_Controller;
 use WPMCP\Pro\Chat\Conversation_Store;
 use WPMCP\Pro\Chat\Key_Vault;
 use WPMCP\Pro\Gate;
+use WPMCP\Tests\Support\Fake_Chat_Provider;
+
+require_once __DIR__ . '/../../support/chat-fake-provider.php';
 
 /**
  * The chat REST surface (issue #73): fail-closed gating, lazy dependency
@@ -16,6 +19,7 @@ class ChatRestControllerTest extends \WP_UnitTestCase
     private const SALT = 'test_chat_controller_salt_123';
 
     private Chat_Rest_Controller $controller;
+    private Fake_Chat_Provider $provider;
     private Key_Vault $vault;
     private Conversation_Store $store;
     private int $admin_id;
@@ -30,7 +34,8 @@ class ChatRestControllerTest extends \WP_UnitTestCase
 
         $this->vault          = new Key_Vault(self::SALT);
         $this->store          = new Conversation_Store();
-        $this->controller     = new Chat_Rest_Controller($this->vault, $this->store);
+        $this->provider       = new Fake_Chat_Provider();
+        $this->controller     = new Chat_Rest_Controller($this->vault, $this->store, $this->provider);
         $this->admin_id       = self::factory()->user->create(['role' => 'administrator']);
         $this->other_admin_id = self::factory()->user->create(['role' => 'administrator']);
         $this->editor_id      = self::factory()->user->create(['role' => 'editor']);
@@ -91,7 +96,7 @@ class ChatRestControllerTest extends \WP_UnitTestCase
 
     // ------------------------------------------------------------- routes
 
-    public function test_registers_key_and_message_routes_but_no_approval_minting_route(): void
+    public function test_registers_the_key_message_turn_and_approval_routes(): void
     {
         // register_rest_route() is only valid inside rest_api_init (WordPress
         // raises a _doing_it_wrong notice otherwise, which WP_UnitTestCase
@@ -106,10 +111,12 @@ class ChatRestControllerTest extends \WP_UnitTestCase
 
         $this->assertArrayHasKey('/wpmcp/v1/chat/key', $routes);
         $this->assertArrayHasKey('/wpmcp/v1/chat/message', $routes);
-        // No executor consumes approval tokens yet, so an endpoint that mints
-        // them from client-supplied ability names would be pure attack
-        // surface with nothing to authorize.
-        $this->assertArrayNotHasKey('/wpmcp/v1/chat/approve', $routes);
+        $this->assertArrayHasKey('/wpmcp/v1/chat/continue', $routes);
+        $this->assertArrayHasKey('/wpmcp/v1/chat/tools', $routes);
+        // /chat/approve consumes a token for a server-stored proposal; there
+        // is still no route that mints a token from client-named arguments.
+        $this->assertArrayHasKey('/wpmcp/v1/chat/approve', $routes);
+        $this->assertArrayNotHasKey('/wpmcp/v1/chat/token', $routes);
     }
 
     // ---------------------------------------------------------------- key
@@ -200,16 +207,20 @@ class ChatRestControllerTest extends \WP_UnitTestCase
         wp_set_current_user($this->admin_id);
         $this->vault->store_key($this->admin_id, 'sk-test-key-abcd');
 
+        $this->provider->queue(Fake_Chat_Provider::text('Hello back'));
         $response = $this->controller->send_message($this->request(['message' => 'hello \\path\\here']));
-        $this->assertSame(202, $response->get_status());
+        $this->assertSame(200, $response->get_status());
 
         $data = $response->get_data();
         $this->assertGreaterThan(0, $data['conversation_id']);
         $this->assertFalse($data['history_trimmed']);
+        $this->assertSame('done', $data['status']);
+        $this->assertSame('Hello back', $data['reply']);
 
         $messages = $this->store->get_messages($data['conversation_id'], $this->admin_id);
-        $this->assertCount(1, $messages);
+        $this->assertCount(2, $messages);
         $this->assertSame('hello \\path\\here', $messages[0]['content']);
+        $this->assertSame('assistant', $messages[1]['role']);
     }
 
     public function test_send_message_404s_on_another_admins_conversation(): void
@@ -261,7 +272,17 @@ class ChatRestControllerTest extends \WP_UnitTestCase
             'client_message_id' => 'retry-1',
         ]));
 
-        $this->assertCount(1, $this->store->get_messages($conversation_id, $this->admin_id));
+        $this->assertCount(1, $this->user_turns($conversation_id));
+        $this->assertCount(1, $this->provider->requests, 'A retry billed a second provider call.');
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function user_turns(int $conversation_id): array
+    {
+        return array_values(array_filter(
+            $this->store->get_messages($conversation_id, $this->admin_id),
+            static fn ($m) => 'user' === $m['role']
+        ));
     }
 
     /**
@@ -289,7 +310,8 @@ class ChatRestControllerTest extends \WP_UnitTestCase
         ]));
 
         $this->assertSame($conversation_id, (int) $retry->get_data()['conversation_id']);
-        $this->assertCount(1, $this->store->get_messages($conversation_id, $this->admin_id));
+        $this->assertSame('duplicate', $retry->get_data()['status']);
+        $this->assertCount(1, $this->user_turns($conversation_id));
         $this->assertCount(
             1,
             get_posts([
@@ -319,7 +341,7 @@ class ChatRestControllerTest extends \WP_UnitTestCase
         $this->assertGreaterThan(Chat_Rest_Controller::MAX_MESSAGE_LENGTH, strlen($text));
 
         $response = $this->controller->send_message($this->request(['message' => $text]));
-        $this->assertSame(202, $response->get_status());
+        $this->assertSame(200, $response->get_status());
     }
 
     // ------------------------------------------------------------ read path
@@ -377,5 +399,95 @@ class ChatRestControllerTest extends \WP_UnitTestCase
 
         $this->assertSame(500, $response->get_status());
         $this->assertSame('store_failed', $response->get_data()['error']);
+    }
+
+    // ------------------------------------------------------ turn + approval
+
+    private function post(string $route, array $params): \WP_REST_Request
+    {
+        $request = new \WP_REST_Request('POST', '/wpmcp/v1/chat/' . $route);
+        foreach ($params as $key => $value) {
+            $request->set_param($key, $value);
+        }
+        return $request;
+    }
+
+    public function test_a_parked_call_blocks_new_messages_and_approves_through_the_route(): void
+    {
+        if (0 === did_action('wp_abilities_api_init')) {
+            do_action('wp_abilities_api_init');
+        }
+        \WPMCP\Safety\Snapshot_Store::install();
+        wp_set_current_user($this->admin_id);
+        $this->vault->store_key($this->admin_id, 'sk-test-key-abcd');
+        $post_id = self::factory()->post->create(['post_title' => 'Before']);
+        $this->provider->queue(Fake_Chat_Provider::tool_calls([
+            ['tu_1', 'wpmcp__update-post', ['post_id' => $post_id, 'title' => 'After']],
+        ]));
+
+        $parked = $this->controller->send_message($this->request(['message' => 'rename']))->get_data();
+        $this->assertSame('approval_required', $parked['status']);
+        $conversation_id = (int) $parked['conversation_id'];
+
+        $blocked = $this->controller->send_message($this->request([
+            'message'         => 'something else',
+            'conversation_id' => $conversation_id,
+        ]));
+        $this->assertSame(409, $blocked->get_status());
+        $this->assertSame('approval_pending', $blocked->get_data()['error']);
+
+        // Client-supplied arguments are not a parameter of the route at all:
+        // whatever the client sends, the stored arguments run.
+        $wrong = $this->controller->approve($this->post('approve', [
+            'conversation_id' => $conversation_id,
+            'tool_use_id'     => 'tu_1',
+            'decision'        => 'approve',
+            'approval_token'  => 'not-the-token',
+        ]));
+        $this->assertSame(403, $wrong->get_status());
+        $this->assertSame('Before', get_post($post_id)->post_title);
+
+        $ok = $this->controller->approve($this->post('approve', [
+            'conversation_id' => $conversation_id,
+            'tool_use_id'     => 'tu_1',
+            'decision'        => 'approve',
+            'approval_token'  => $parked['proposals'][0]['approval_token'],
+            'args'            => ['post_id' => $post_id, 'title' => 'Injected'],
+        ]));
+        $this->assertSame(200, $ok->get_status(), print_r($ok->get_data(), true));
+        $this->assertSame('continue', $ok->get_data()['status']);
+        $this->assertSame('After', get_post($post_id)->post_title);
+
+        $this->provider->queue(Fake_Chat_Provider::text('Renamed'));
+        $next = $this->controller->continue_turn($this->post('continue', ['conversation_id' => $conversation_id]));
+        $this->assertSame('done', $next->get_data()['status']);
+        $this->assertSame('Renamed', $next->get_data()['reply']);
+    }
+
+    public function test_the_tools_route_reports_the_governed_inventory_under_the_chat_identity(): void
+    {
+        if (0 === did_action('wp_abilities_api_init')) {
+            do_action('wp_abilities_api_init');
+        }
+        wp_set_current_user($this->admin_id);
+
+        $data  = $this->controller->list_tools()->get_data();
+        $tools = array_column($data['tools'], null, 'ability');
+
+        $this->assertSame(\WPMCP\Pro\Chat\Chat_Identity::NAME, $data['identity']);
+        $this->assertFalse($tools['wpmcp/get-post']['requires_approval']);
+        $this->assertTrue($tools['wpmcp/delete-post']['requires_approval']);
+    }
+
+    public function test_a_provider_failure_answers_502(): void
+    {
+        wp_set_current_user($this->admin_id);
+        $this->vault->store_key($this->admin_id, 'sk-test-key-abcd');
+        $this->provider->queue(new \WP_Error('provider_error', 'overloaded'));
+
+        $response = $this->controller->send_message($this->request(['message' => 'hello']));
+
+        $this->assertSame(502, $response->get_status());
+        $this->assertSame('provider_error', $response->get_data()['error']);
     }
 }
