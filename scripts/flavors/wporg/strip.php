@@ -866,7 +866,7 @@ $plugin_edits[] = [
         . "        if (Gate::is_pro()) {\n"
         . "            add_submenu_page(\n"
         . "                'wpmcp',\n"
-        . "                __('wpmcp: Chat', 'wpmcp'),\n"
+        . "                self::page_title(__('Chat', 'wpmcp')),\n"
         . "                __('Chat', 'wpmcp'),\n"
         . "                'manage_options',\n"
         . "                Chat_Page::SLUG,\n"

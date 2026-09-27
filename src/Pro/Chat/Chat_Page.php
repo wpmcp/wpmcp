@@ -2,6 +2,8 @@
 
 namespace WPMCP\Pro\Chat;
 
+use WPMCP\Plugin;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -71,7 +73,7 @@ class Chat_Page
         }
 
         echo '<div class="wrap">';
-        echo '<h1>' . esc_html__('wpmcp: Chat', 'wpmcp') . '</h1>';
+        echo '<h1>' . esc_html(Plugin::page_title(__('Chat', 'wpmcp'))) . '</h1>';
 
         echo '<h2>' . esc_html__('Provider key', 'wpmcp') . '</h2>';
         echo '<p>' . esc_html($this->status_line((string) ($status['status'] ?? 'missing')));

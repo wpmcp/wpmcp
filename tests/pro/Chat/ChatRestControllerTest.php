@@ -26,6 +26,18 @@ class ChatRestControllerTest extends \WP_UnitTestCase
     private int $other_admin_id;
     private int $editor_id;
 
+    /**
+     * Fired once for the class, not per test: wp_abilities_api_init is not
+     * idempotent, and re-running it makes the registry emit an "already
+     * registered" doing_it_wrong for every ability.
+     */
+    public static function wpSetUpBeforeClass(): void
+    {
+        if (0 === did_action('wp_abilities_api_init')) {
+            do_action('wp_abilities_api_init');
+        }
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -414,9 +426,6 @@ class ChatRestControllerTest extends \WP_UnitTestCase
 
     public function test_a_parked_call_blocks_new_messages_and_approves_through_the_route(): void
     {
-        if (0 === did_action('wp_abilities_api_init')) {
-            do_action('wp_abilities_api_init');
-        }
         \WPMCP\Safety\Snapshot_Store::install();
         wp_set_current_user($this->admin_id);
         $this->vault->store_key($this->admin_id, 'sk-test-key-abcd');
@@ -466,9 +475,6 @@ class ChatRestControllerTest extends \WP_UnitTestCase
 
     public function test_the_tools_route_reports_the_governed_inventory_under_the_chat_identity(): void
     {
-        if (0 === did_action('wp_abilities_api_init')) {
-            do_action('wp_abilities_api_init');
-        }
         wp_set_current_user($this->admin_id);
 
         $data  = $this->controller->list_tools()->get_data();

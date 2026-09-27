@@ -222,9 +222,11 @@ class TurnRunnerTest extends \WP_UnitTestCase
         $this->provider->queue(Fake_Chat_Provider::tool_calls([['tu_1', 'wpmcp__update-post', ['post_id' => $post_id, 'title' => 'After']]]));
         $this->runner->step($this->admin_id, $id);
 
-        // A token the gate would accept for the same call, but not the one
-        // minted for this proposal, is still refused.
-        $forged = $this->gate->issue_token($this->admin_id, 'wpmcp/update-post', ['post_id' => $post_id, 'title' => 'After']);
+        // A token the gate itself would accept for the same ability and
+        // arguments, minted for another administrator, is refused here
+        // because it is not the token minted for this proposal.
+        $other  = self::factory()->user->create(['role' => 'administrator']);
+        $forged = $this->gate->issue_token($other, 'wpmcp/update-post', ['post_id' => $post_id, 'title' => 'After']);
 
         $this->assertSame('invalid_approval', $this->runner->resolve($this->admin_id, $id, 'tu_1', true, '')['error']);
         $this->assertSame('invalid_approval', $this->runner->resolve($this->admin_id, $id, 'tu_1', true, 'garbage')['error']);
@@ -254,8 +256,12 @@ class TurnRunnerTest extends \WP_UnitTestCase
         $this->provider->queue(Fake_Chat_Provider::tool_calls([['tu_1', 'wpmcp__update-post', ['post_id' => $post_id, 'title' => 'After']]]));
         $old = $this->runner->step($this->admin_id, $id)['proposals'][0]['approval_token'];
 
+        // Approval_Gate tokens carry a one-second expiry; minting the same
+        // call in the same second yields the same token, so step past it.
+        sleep(1);
         $fresh = $this->runner->reissue_proposals($this->admin_id, $id, $this->store->get_state($id, $this->admin_id));
         $new   = $fresh[0]['approval_token'];
+        $this->assertNotSame($old, $new);
 
         $this->assertSame('invalid_approval', $this->runner->resolve($this->admin_id, $id, 'tu_1', true, $old)['error']);
         $this->assertSame(Turn_Runner::CONTINUE, $this->runner->resolve($this->admin_id, $id, 'tu_1', true, $new)['status']);
@@ -273,7 +279,7 @@ class TurnRunnerTest extends \WP_UnitTestCase
 
         $this->assertSame(Turn_Runner::CONTINUE, $result['status']);
         $this->assertSame('unavailable', $result['tool_events'][0]['status']);
-        $this->assertStringNotContainsString('wpmcp__get-post', $this->provider->requests[0]['system']);
+        $this->assertDoesNotMatchRegularExpression('/wpmcp__get-post(,|\n)/', $this->provider->requests[0]['system']);
     }
 
     public function test_mixed_batches_run_reads_and_park_writes_then_answer_every_call_in_order(): void

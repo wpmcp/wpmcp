@@ -795,7 +795,7 @@ final class Plugin
         if (Gate::is_pro()) {
             add_submenu_page(
                 'wpmcp',
-                __('wpmcp: Chat', 'wpmcp'),
+                self::page_title(__('Chat', 'wpmcp')),
                 __('Chat', 'wpmcp'),
                 'manage_options',
                 Chat_Page::SLUG,
