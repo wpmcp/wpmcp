@@ -76,7 +76,7 @@ class Classic_Adapter implements Adapter
         // Already filtered with wp_kses_post() on the way into the store.
         echo Template_Renderer::render_template($template); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Sanitized on store in Template_Store::sanitize_content(); escaping block markup here would print it.
 
-        $this->discard_theme_file('header', $name, 'wp_head');
+        $this->discard_theme_file('header', $name, ['wp_head', 'wp_body_open']);
     }
 
     /**
@@ -93,7 +93,7 @@ class Classic_Adapter implements Adapter
         wp_footer();
         echo "\n</body>\n</html>\n";
 
-        $this->discard_theme_file('footer', $name, 'wp_footer');
+        $this->discard_theme_file('footer', $name, ['wp_footer']);
     }
 
     /** The document opening a theme's header.php would otherwise print. */
@@ -117,12 +117,14 @@ class Classic_Adapter implements Adapter
     /**
      * Run the theme's own header.php / footer.php once, into a buffer that is
      * thrown away, so get_header() / get_footer()'s require_once of the same
-     * file prints nothing. The hook this document already fired is emptied
-     * first so its callbacks do not run a second time into the buffer.
+     * file prints nothing. The hooks this document already fired are emptied
+     * first so their callbacks (analytics snippets, skip links) do not run a
+     * second time into the buffer.
      *
      * @param string|null $name
+     * @param string[]    $fired_hooks
      */
-    private function discard_theme_file(string $slug, $name, string $document_hook): void
+    private function discard_theme_file(string $slug, $name, array $fired_hooks): void
     {
         $templates = [];
         $name      = (string) $name;
@@ -131,7 +133,9 @@ class Classic_Adapter implements Adapter
         }
         $templates[] = "{$slug}.php";
 
-        remove_all_actions($document_hook);
+        foreach ($fired_hooks as $hook) {
+            remove_all_actions($hook);
+        }
         ob_start();
         locate_template($templates, true, true);
         ob_end_clean();

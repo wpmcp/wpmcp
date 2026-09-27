@@ -208,6 +208,18 @@ class SitePartRenderTest extends \WP_UnitTestCase
     {
         $this->seed('header', '<!-- wp:paragraph --><p>Classic header 70</p><!-- /wp:paragraph -->');
         $this->go_to(home_url('/'));
+        // Other plugins' wp_head callbacks (the suite loads Elementor) assume
+        // a full front-end bootstrap; this asserts the adapter, not them.
+        remove_all_actions('wp_head');
+        remove_all_actions('wp_body_open');
+        $head_runs = 0;
+        $body_runs = 0;
+        add_action('wp_head', static function () use (&$head_runs) {
+            ++$head_runs;
+        });
+        add_action('wp_body_open', static function () use (&$body_runs) {
+            ++$body_runs;
+        });
 
         ob_start();
         (new Classic_Adapter())->replace_header(null);
@@ -216,16 +228,25 @@ class SitePartRenderTest extends \WP_UnitTestCase
         $this->assertStringContainsString('<!DOCTYPE html>', $out);
         $this->assertStringContainsString('<body', $out);
         $this->assertStringContainsString('Classic header 70', $out);
-        // wp_head fired once for the document this adapter opened, and the
-        // theme's header.php (if any) had its wp_head callbacks removed so
-        // they do not print a second time into the discarded buffer.
-        $this->assertSame(1, did_action('wp_head'));
+        // The callbacks ran once, for the document this adapter opened; the
+        // theme's header.php (if any) runs into a discarded buffer with them
+        // removed, so they cannot run a second time.
+        $this->assertSame(1, $head_runs);
+        $this->assertSame(1, $body_runs);
+        $this->assertFalse(has_action('wp_head'));
     }
 
     public function test_classic_adapter_prints_the_winning_footer_and_closes_the_document(): void
     {
         $this->seed('footer', '<!-- wp:paragraph --><p>Classic footer 70</p><!-- /wp:paragraph -->');
         $this->go_to(home_url('/'));
+        // Core's own wp_footer callbacks include deprecated block-theme shims
+        // that the suite reports as unexpected notices; not under test here.
+        remove_all_actions('wp_footer');
+        $footer_runs = 0;
+        add_action('wp_footer', static function () use (&$footer_runs) {
+            ++$footer_runs;
+        });
 
         ob_start();
         (new Classic_Adapter())->replace_footer(null);
@@ -234,7 +255,8 @@ class SitePartRenderTest extends \WP_UnitTestCase
         $this->assertStringContainsString('Classic footer 70', $out);
         $this->assertStringContainsString('</body>', $out);
         $this->assertStringContainsString('</html>', $out);
-        $this->assertSame(1, did_action('wp_footer'));
+        $this->assertSame(1, $footer_runs);
+        $this->assertFalse(has_action('wp_footer'));
     }
 
     public function test_classic_adapter_prints_nothing_when_no_header_wins(): void

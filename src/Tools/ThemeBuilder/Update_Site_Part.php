@@ -51,6 +51,15 @@ class Update_Site_Part
             );
         }
 
+        foreach (['title', 'content'] as $text_field) {
+            if (array_key_exists($text_field, $changes) && ! is_string($changes[$text_field])) {
+                return new \WP_Error('wpmcp_invalid_argument', sprintf('"%s" must be a string.', $text_field));
+            }
+        }
+        if (array_key_exists('priority', $changes) && ! is_numeric($changes['priority'])) {
+            return new \WP_Error('wpmcp_invalid_argument', '"priority" must be an integer.');
+        }
+
         if (array_key_exists('conditions', $changes)) {
             if (! is_array($changes['conditions'])) {
                 return new \WP_Error('wpmcp_invalid_conditions', '"conditions" must be an object with an include array.');

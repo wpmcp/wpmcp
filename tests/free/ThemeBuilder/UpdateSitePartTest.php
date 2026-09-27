@@ -139,6 +139,16 @@ class UpdateSitePartTest extends \WP_UnitTestCase
         $this->assertInstanceOf(\WP_Error::class, (new Update_Site_Part())->handle(['template_id' => $id]));
     }
 
+    public function test_wrongly_typed_fields_are_refused_before_any_write(): void
+    {
+        $id = $this->create();
+
+        $this->assertInstanceOf(\WP_Error::class, (new Update_Site_Part())->handle(['template_id' => $id, 'title' => ['x']]));
+        $this->assertInstanceOf(\WP_Error::class, (new Update_Site_Part())->handle(['template_id' => $id, 'priority' => 'high']));
+        $this->assertSame('Original', Template_Store::get($id)['title']);
+        $this->assertSame(5, Template_Store::get($id)['priority']);
+    }
+
     public function test_update_rejects_an_id_that_is_not_a_template(): void
     {
         $post = self::factory()->post->create();
