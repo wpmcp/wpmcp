@@ -399,10 +399,14 @@ class Theme_Integration extends Integration_Dispatcher
         // child, which is the actual grandchild condition; hard-refusing
         // whenever any child is active would brick the tool the moment the
         // user activates the child they just made.
-        $requested = sanitize_key((string) ($args['parent'] ?? ''));
+        // A theme directory name, not a key: sanitize_key() would lowercase
+        // "Divi" and then miss it on a case-sensitive filesystem. Anything
+        // outside [A-Za-z0-9_-] (a slash, a dot) cannot name an installed
+        // theme and is refused as unknown before it reaches wp_get_theme().
+        $requested = (string) ($args['parent'] ?? '');
         if ('' !== $requested) {
-            $candidate = wp_get_theme($requested);
-            if (! $candidate->exists()) {
+            $candidate = 1 === preg_match('/^[A-Za-z0-9_-]{1,100}$/', $requested) ? wp_get_theme($requested) : null;
+            if (null === $candidate || ! $candidate->exists()) {
                 return $refuse('unknown_parent', sprintf('No installed theme with stylesheet "%s".', $requested), [ 'parent' => $requested ]);
             }
             if ($candidate->parent()) {
@@ -421,7 +425,9 @@ class Theme_Integration extends Integration_Dispatcher
         }
 
         $slug = sanitize_key((string) ($args['slug'] ?? ($parent_slug . '-child')));
-        if ('' === $slug || $slug === $parent_slug) {
+        // Compared case-insensitively: on a case-insensitive filesystem
+        // "divi-x" and "Divi-X" are the same directory.
+        if ('' === $slug || strtolower($slug) === strtolower($parent_slug)) {
             return $refuse('invalid_slug', 'Child theme slug is empty or collides with the parent theme slug after sanitization.', [ 'slug' => $slug ]);
         }
 

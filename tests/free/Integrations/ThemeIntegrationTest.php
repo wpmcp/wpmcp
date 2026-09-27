@@ -376,6 +376,63 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
         $this->assertNotEmpty(Rollback_Service::take_warnings());
     }
 
+    public function test_scaffolder_accepts_a_mixed_case_explicit_parent(): void
+    {
+        // Divi and Avada ship capitalised directories; sanitize_key() would
+        // lowercase the name and then fail to find the parent on a
+        // case-sensitive filesystem.
+        $parent_dir = trailingslashit(get_theme_root()) . 'WpmcpUpperParent';
+        mkdir($parent_dir);
+        file_put_contents($parent_dir . '/style.css', "/*\nTheme Name: Upper Parent\n*/\n");
+        file_put_contents($parent_dir . '/index.php', "<?php\n");
+        wp_clean_themes_cache();
+
+        $out = $this->theme->handle_write([
+            'operation' => 'create-child-theme',
+            'confirm'   => true,
+            'args'      => [ 'slug' => self::SLUG, 'parent' => 'WpmcpUpperParent' ],
+        ]);
+
+        $style = is_file($this->scaffold_dir() . '/style.css') ? (string) file_get_contents($this->scaffold_dir() . '/style.css') : '';
+        foreach ([ 'style.css', 'index.php' ] as $file) {
+            unlink($parent_dir . '/' . $file);
+        }
+        rmdir($parent_dir);
+        wp_clean_themes_cache();
+
+        $this->assertArrayNotHasKey('error', $out);
+        $this->assertTrue($out['result']['created']);
+        $this->assertStringContainsString("Template: WpmcpUpperParent\n", $style);
+    }
+
+    public function test_scaffolder_refuses_a_parent_name_with_path_characters(): void
+    {
+        $out = $this->theme->handle_write([
+            'operation' => 'create-child-theme',
+            'confirm'   => true,
+            'args'      => [ 'slug' => self::SLUG, 'parent' => '../' . get_template() ],
+        ]);
+
+        $this->assertSame('unknown_parent', $out['error']['code']);
+        $this->assertDirectoryDoesNotExist($this->scaffold_dir());
+    }
+
+    public function test_scaffolder_treats_a_case_only_slug_difference_as_a_collision(): void
+    {
+        $upper = static fn () => strtoupper(self::SLUG);
+        add_filter('template', $upper);
+        $out = $this->theme->handle_write([
+            'operation' => 'create-child-theme',
+            'confirm'   => true,
+            'args'      => [ 'slug' => self::SLUG ],
+        ]);
+        remove_filter('template', $upper);
+
+        // On a case-insensitive filesystem the "child" would BE the parent
+        // directory, so a case-only difference is a collision.
+        $this->assertSame('invalid_slug', $out['error']['code']);
+    }
+
     public function test_scaffolder_neutralizes_comment_terminator_in_name(): void
     {
         $this->theme->handle_write([
