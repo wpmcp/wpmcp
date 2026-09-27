@@ -134,6 +134,21 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
             'base64 payload'        => ['base64 payload', '<?php echo base64_decode("aWQ=");'],
             'glob'                  => ['glob', '<?php $f = glob("/etc/*");'],
             'complex interpolation' => ['complex interpolation', '<?php $a = ["x" => "y"]; echo "{$a[\'x\']}";'],
+            // An allowlisted NAME is not an allowlisted FUNCTION: aliasing a
+            // sink to an allowed name, or calling an allowed last segment in
+            // another namespace, reaches a different function entirely.
+            'use function alias'    => ['use function alias', '<?php use function system as esc_html; esc_html("id");'],
+            'namespace shadow'      => ['namespace shadow', '<?php namespace Evil; esc_html("id");'],
+            'qualified allowed name' => ['qualified allowed name', '<?php \\Evil\\esc_html("id");'],
+            'relative allowed name' => ['relative allowed name', '<?php Evil\\esc_html("id");'],
+            // Calling the RESULT of an expression: no identifier is in call
+            // position at all, so a name allowlist never sees the callee.
+            'string literal call'   => ['string literal call', '<?php "system"("id");'],
+            'single quoted call'    => ['single quoted call', "<?php 'system'('id');"],
+            'concatenated call'     => ['concatenated call', '<?php ("sys" . "tem")("id");'],
+            'array element call'    => ['array element call', '<?php $a = ["system"]; $a[0]("id");'],
+            'callable array call'   => ['callable array call', '<?php ["Evil", "run"]("id");'],
+            'chained call result'   => ['chained call result', '<?php esc_html("system")("id");'],
             'syntax error'          => ['syntax error', '<?php function {'],
             'missing open tag'      => ['missing open tag', 'echo 1;'],
             'empty'                 => ['empty', '   '],
