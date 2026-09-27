@@ -83,6 +83,7 @@ class Php_Snippet_Runner
      */
     private static function evaluate(string $code)
     {
+        // phpcs:ignore Squiz.PHP.Eval.Discouraged -- evaluating an admin-supplied snippet is this ability's whole purpose (default-off, refused on production, manage_options only; see Run_Php_Snippet); the file is excluded from the WordPress.org build by scripts/flavors/wporg/policy.php (B-16).
         return eval($code);
     }
 }

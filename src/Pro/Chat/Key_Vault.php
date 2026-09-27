@@ -70,6 +70,7 @@ class Key_Vault
         }
 
         $salt_fp = $this->get_salt_fingerprint();
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- binary-safe storage encoding of AES-GCM IV, tag and ciphertext in user meta; not code obfuscation.
         $packed = self::PREFIX . $salt_fp . ':' . base64_encode($iv . $tag . $ciphertext);
         return (bool) update_user_meta($user_id, self::META_KEY, $packed);
     }
@@ -101,6 +102,7 @@ class Key_Vault
             $encoded = substr($body, $colon_pos + 1);
         }
 
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- strict-mode decode of the stored AES-GCM envelope written by store_key(); changing the encoding would orphan keys already saved in user meta.
         $decoded = base64_decode($encoded, true);
         if (false === $decoded) {
             throw new Key_Vault_Corrupted_Exception('Base64 decode failure.');
