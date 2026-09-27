@@ -24,7 +24,11 @@ class CreateDeleteVariationTest extends \WP_UnitTestCase
             $this->markTestSkipped('WooCommerce not active');
         }
         Snapshot_Store::install();
-        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        // The test install does not run WooCommerce's role setup, so the
+        // administrator role lacks the store capability the tools require.
+        $user = self::factory()->user->create_and_get(['role' => 'administrator']);
+        $user->add_cap('manage_woocommerce');
+        wp_set_current_user($user->ID);
         add_filter('wpmcp_enable_delete_variation', '__return_true');
     }
 
@@ -37,10 +41,17 @@ class CreateDeleteVariationTest extends \WP_UnitTestCase
     /** A variable product whose size attribute also offers "medium", unused so far. */
     private function parent_with_free_option(): array
     {
-        $ids    = $this->variable_product();
-        $parent = wc_get_product($ids['parent']);
-        $attr   = $parent->get_attributes()['size'];
+        $ids = $this->variable_product();
+
+        // A fresh attribute object: mutating the loaded one in place leaves
+        // WooCommerce's change tracking seeing no change, so save() skips it.
+        $attr = new \WC_Product_Attribute();
+        $attr->set_name('size');
         $attr->set_options(['small', 'medium', 'large']);
+        $attr->set_visible(true);
+        $attr->set_variation(true);
+
+        $parent = wc_get_product($ids['parent']);
         $parent->set_attributes([$attr]);
         $parent->save();
         return $ids;

@@ -18,7 +18,11 @@ class TaxRateToolsTest extends \WP_UnitTestCase
             $this->markTestSkipped('WooCommerce not active');
         }
         Snapshot_Store::install();
-        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        // The test install does not run WooCommerce's role setup, so the
+        // administrator role lacks the store capability the tools require.
+        $user = self::factory()->user->create_and_get(['role' => 'administrator']);
+        $user->add_cap('manage_woocommerce');
+        wp_set_current_user($user->ID);
         add_filter('wpmcp_enable_delete_tax_rate', '__return_true');
     }
 

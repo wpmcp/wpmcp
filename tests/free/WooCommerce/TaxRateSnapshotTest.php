@@ -23,7 +23,11 @@ class TaxRateSnapshotTest extends \WP_UnitTestCase
         if (! wpmcp_woocommerce_active()) {
             $this->markTestSkipped('WooCommerce not active');
         }
-        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        // The test install does not run WooCommerce's role setup, so the
+        // administrator role lacks the store capability the tools require.
+        $user = self::factory()->user->create_and_get(['role' => 'administrator']);
+        $user->add_cap('manage_woocommerce');
+        wp_set_current_user($user->ID);
     }
 
     private function rate(): int

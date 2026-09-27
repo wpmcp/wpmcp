@@ -23,7 +23,11 @@ class BulkUpdateProductsTest extends \WP_UnitTestCase
         }
         Snapshot_Store::install();
         Governance::reset_for_tests();
-        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        // The test install does not run WooCommerce's role setup, so the
+        // administrator role lacks the store capability the tools require.
+        $user = self::factory()->user->create_and_get(['role' => 'administrator']);
+        $user->add_cap('manage_woocommerce');
+        wp_set_current_user($user->ID);
     }
 
     protected function tearDown(): void
