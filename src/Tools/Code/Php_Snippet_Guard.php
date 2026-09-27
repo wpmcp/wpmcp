@@ -2,6 +2,9 @@
 
 namespace WPMCP\Tools\Code;
 
+use WPMCP\Governance\Governance_Audit_Log;
+use WPMCP\Identity\Identity_Context;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -41,6 +44,36 @@ class Php_Snippet_Guard
         $default = defined('WPMCP_ALLOW_PHP_EXEC') && WPMCP_ALLOW_PHP_EXEC;
 
         return (bool) apply_filters('wpmcp_allow_php_exec', $default);
+    }
+
+    /**
+     * The execution gate chain, in order, as ONE shared refusal. Both
+     * surfaces that can put a snippet on the path to running call this:
+     * Run_Php_Snippet::guard() before it evaluates anything, and
+     * Activate_Php_Snippet before it marks a stored snippet active. It
+     * lives here rather than being re-typed at each call site so a third
+     * gate added to this chain applies to every such surface at once,
+     * which is the drift the split between "execution" and
+     * "exec-adjacent" would otherwise invite.
+     *
+     * Deliberately NOT included: Php_Snippet_Validator. The validator is a
+     * usability speed-bump that an authorized caller can trivially evade,
+     * and its message differs per surface; the two checks here are the
+     * real gate.
+     */
+    public static function assert_execution_allowed(): void
+    {
+        if (! self::is_enabled()) {
+            throw new \RuntimeException(
+                'PHP execution is disabled. Enable it with the WPMCP_ALLOW_PHP_EXEC constant or the wpmcp_allow_php_exec filter. This grants remote code execution to any manage_options caller; only enable it on a development or staging environment you control.'
+            );
+        }
+
+        if (! self::is_allowed_on_environment()) {
+            throw new \RuntimeException(
+                'PHP execution is refused on this environment. Production and any unrecognized/unknown environment are refused by default (fail closed); set WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION or the wpmcp_allow_php_exec_on_production filter to override.'
+            );
+        }
     }
 
     /**
@@ -87,5 +120,46 @@ class Php_Snippet_Guard
         $default = defined('WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION') && WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION;
 
         return (bool) apply_filters('wpmcp_allow_php_exec_on_production', $default);
+    }
+
+    /**
+     * Record one attempt on a PHP snippet surface to Governance_Audit_Log:
+     * ability name, active identity, allow/deny outcome and a short
+     * machine-readable reason, and nothing else. Never the snippet source,
+     * its output or its validation detail, any of which could echo secrets
+     * into the trail. One copy shared by every snippet surface that audits.
+     * Auditing must never break or block the outcome it observes.
+     */
+    public static function audit(string $ability, bool $allowed, string $reason = ''): void
+    {
+        try {
+            $identity = Identity_Context::current() ?? 'none';
+            Governance_Audit_Log::record($ability, $identity, $allowed, $reason);
+        } catch (\Throwable $e) {
+            // Deliberately swallowed; see the docblock.
+        }
+    }
+
+    /**
+     * The class of refusal a snippet surface threw, for audit()'s $reason.
+     * The gate conditions are re-asked rather than parsed out of the message,
+     * so rewording a message cannot change what the trail says.
+     */
+    public static function refusal_class(\Throwable $e): string
+    {
+        if (! self::is_enabled()) {
+            return 'exec_disabled';
+        }
+        if (! self::is_allowed_on_environment()) {
+            return 'environment_refused';
+        }
+        if ($e instanceof \InvalidArgumentException) {
+            return 'invalid_argument';
+        }
+        if ($e instanceof Php_Snippet_Refusal) {
+            return $e->reason();
+        }
+
+        return 'error';
     }
 }
