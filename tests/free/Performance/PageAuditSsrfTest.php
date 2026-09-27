@@ -252,6 +252,46 @@ class PageAuditSsrfTest extends \WP_UnitTestCase
         $this->assertSame($count_before, $this->count_filters('http_api_curl'), 'the http_api_curl pin filter must be removed once the request completes, leaving no net change');
     }
 
+    /**
+     * The pin is scoped to one request by construction: it is added before
+     * wp_safe_remote_get() and removed after. A throw from anywhere inside
+     * the HTTP stack (a third-party pre_http_request or http_api_curl hook
+     * is arbitrary site code) must not be able to skip the removal, or every
+     * later WP curl request to the same host:port in this PHP process would
+     * silently inherit a stale IP pin.
+     */
+    public function test_the_pin_filter_is_removed_even_when_the_http_stack_throws(): void
+    {
+        if (! function_exists('curl_init')) {
+            $this->markTestSkipped('curl is not available in this environment');
+        }
+
+        $count_before = $this->count_filters('http_api_curl');
+        $thrower      = static function ($preempt, $parsed_args, $url) {
+            throw new \RuntimeException('third-party hook exploded');
+        };
+        add_filter('pre_http_request', $thrower, 20, 3);
+        remove_filter('pre_http_request', [$this, 'record_and_fail'], 10);
+
+        $audit  = new Page_Audit(static fn (string $host): array => ['93.184.216.34']);
+        $caught = null;
+        try {
+            $audit->fetch('http://example-pin.test/');
+        } catch (\RuntimeException $e) {
+            $caught = $e;
+        } finally {
+            remove_filter('pre_http_request', $thrower, 20);
+            add_filter('pre_http_request', [$this, 'record_and_fail'], 10, 3);
+        }
+
+        $this->assertInstanceOf(\RuntimeException::class, $caught, 'the throw must propagate rather than be swallowed');
+        $this->assertSame(
+            $count_before,
+            $this->count_filters('http_api_curl'),
+            'the http_api_curl pin must be removed even when the request throws, leaving no net change'
+        );
+    }
+
     public function test_fetch_builds_the_curl_resolve_entry_for_the_pinned_host_and_port(): void
     {
         $audit  = new Page_Audit();

@@ -85,6 +85,75 @@ class SecurityRulesTest extends Compliance_Test_Case
     }
 
     /**
+     * Plugin Check does not read the whole file looking for the guard. Its AST
+     * pass only walks top-level statements, which a namespaced file never
+     * reaches, and its regex fallback reads a window at the head of the file.
+     * A guard parked below a long use block is therefore invisible to it, and
+     * that is exactly the shape src/Plugin.php shipped for issue #170: the
+     * bare guard sat at line 297, under 286 use statements.
+     */
+    public function test_a_guard_below_the_head_of_the_file_is_reported(): void
+    {
+        $body = "<?php\n\nnamespace Example;\n\n";
+        for ($i = 0; $i < 60; $i++) {
+            $body .= sprintf("use Example\\Vendor\\Thing%d;\n", $i);
+        }
+        $body .= "\nif (! defined('ABSPATH')) {\n    exit;\n}\n\n";
+        $body .= "add_action('init', 'example_boot');\nfunction example_boot() {}\n";
+
+        $findings = $this->findings(new Direct_File_Access_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/bootstrap.php' => $body,
+        ]);
+
+        $this->assert_reports($findings, 'too far down the file');
+        $this->assertSame(['includes/bootstrap.php:66'], $this->locations($findings));
+    }
+
+    /**
+     * The same file with the guard moved directly under the namespace, which
+     * is the fix issue #170 asks for.
+     */
+    public function test_the_same_guard_directly_under_the_namespace_is_accepted(): void
+    {
+        $body = "<?php\n\nnamespace Example;\n\n";
+        $body .= "if (! defined('ABSPATH')) {\n    exit;\n}\n\n";
+        for ($i = 0; $i < 60; $i++) {
+            $body .= sprintf("use Example\\Vendor\\Thing%d;\n", $i);
+        }
+        $body .= "\nadd_action('init', 'example_boot');\nfunction example_boot() {}\n";
+
+        $findings = $this->findings(new Direct_File_Access_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/bootstrap.php' => $body,
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    /**
+     * A comment does not buy extra room: the checker reads raw lines, so a
+     * header long enough to push the guard out of the window still hides it.
+     */
+    public function test_a_long_header_comment_counts_against_the_guard_window(): void
+    {
+        $body = "<?php\n/**\n";
+        for ($i = 0; $i < 60; $i++) {
+            $body .= " * Line " . $i . " of a very long file header.\n";
+        }
+        $body .= " */\n";
+        $body .= "if (! defined('ABSPATH')) {\n    exit;\n}\n";
+        $body .= "add_action('init', 'example_boot');\nfunction example_boot() {}\n";
+
+        $findings = $this->findings(new Direct_File_Access_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/bootstrap.php' => $body,
+        ]);
+
+        $this->assert_reports($findings, 'too far down the file');
+    }
+
+    /**
      * A guard quoted in a docblock is not a guard. The checker strips comments
      * before matching, so this rule does too.
      */
