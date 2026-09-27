@@ -186,11 +186,12 @@ class Compile_Custom_Widget
         $tmp = $path . '.' . wp_generate_password(8, false) . '.tmp';
         $ok  = file_put_contents($tmp, $source);
         if (false === $ok || $ok !== strlen($source)) {
-            @unlink($tmp);
+            wp_delete_file($tmp);
             return new \WP_Error('wpmcp_widget_sandbox_unwritable', 'Could not write the compiled widget file.');
         }
-        if (! @rename($tmp, $path)) {
-            @unlink($tmp);
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- a same-directory rename is the atomic swap this method exists for; WP_Filesystem::move() may copy then delete, which would expose a half-written class to the loader.
+        if (! rename($tmp, $path)) {
+            wp_delete_file($tmp);
             return new \WP_Error('wpmcp_widget_sandbox_unwritable', 'Could not move the compiled widget into the sandbox.');
         }
         return true;

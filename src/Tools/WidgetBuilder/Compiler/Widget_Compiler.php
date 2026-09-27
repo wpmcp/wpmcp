@@ -230,7 +230,7 @@ class Widget_Compiler
      */
     private static function lit(string $value): string
     {
-        return var_export($value, true);
+        return var_export($value, true); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- not debug output: var_export() is how spec text is emitted as an inert PHP string literal.
     }
 
     /** @param array<int,string> $values */
