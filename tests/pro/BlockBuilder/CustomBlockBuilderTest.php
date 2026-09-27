@@ -135,6 +135,12 @@ class CustomBlockBuilderTest extends \WP_UnitTestCase
         $this->assertSame('trashed', (new Delete_Custom_Block())->handle(['block_id' => $bid])['deleted']);
     }
 
+    private function snapshot_count(): int
+    {
+        global $wpdb;
+        return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}wpmcp_snapshots");
+    }
+
     // ---- safety model: every write to an existing block is undoable (#86) --
 
     public function test_update_is_snapshotted_and_rollback_restores_previous_spec(): void
@@ -161,6 +167,7 @@ class CustomBlockBuilderTest extends \WP_UnitTestCase
     {
         $bid    = (new Create_Custom_Block())->handle(['spec' => $this->valid_spec()])['block_id'];
         $before = get_post_meta($bid, '_wpmcp_block_spec', true);
+        $rows   = $this->snapshot_count();
 
         $spec                          = $this->valid_spec();
         $spec['attributes'][0]['type'] = 'bogus';
@@ -168,6 +175,7 @@ class CustomBlockBuilderTest extends \WP_UnitTestCase
 
         $this->assertInstanceOf(\WP_Error::class, $out);
         $this->assertSame($before, get_post_meta($bid, '_wpmcp_block_spec', true));
+        $this->assertSame($rows, $this->snapshot_count());
     }
 
     public function test_set_status_is_snapshotted_and_rollback_restores_previous_status(): void
@@ -202,17 +210,13 @@ class CustomBlockBuilderTest extends \WP_UnitTestCase
 
     public function test_writes_to_a_missing_block_record_no_operation(): void
     {
-        $count = static function (): int {
-            global $wpdb;
-            return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}wpmcp_snapshots");
-        };
-        $before = $count();
+        $before = $this->snapshot_count();
 
         $this->assertInstanceOf(\WP_Error::class, (new Update_Custom_Block())->handle(['block_id' => 999999, 'spec' => $this->valid_spec()]));
         $this->assertInstanceOf(\WP_Error::class, (new Set_Block_Status())->handle(['block_id' => 999999, 'status' => 'draft']));
         $this->assertInstanceOf(\WP_Error::class, (new Delete_Custom_Block())->handle(['block_id' => 999999]));
 
-        $this->assertSame($before, $count());
+        $this->assertSame($before, $this->snapshot_count());
     }
 
     public function test_registry_registers_active_block_as_real_block_type(): void
