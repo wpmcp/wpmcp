@@ -2,6 +2,7 @@
 
 namespace WPMCP\Admin;
 
+use WPMCP\Plugin;
 use WPMCP\Skills\Skill_Library;
 use WPMCP\Skills\Skills_Module;
 
@@ -48,7 +49,7 @@ class Skills_Settings_Page
         $invalid = Skill_Library::invalid();
         ?>
         <div class="wrap">
-            <h1><?php echo esc_html__('wpmcp: Agent Skills', 'wpmcp'); ?></h1>
+            <h1><?php echo esc_html(Plugin::page_title(__('Agent Skills', 'wpmcp'))); ?></h1>
             <p>
                 <?php
                 echo esc_html__(
