@@ -118,13 +118,35 @@ rm -f \
 
 # Guarded-execution: the guards stay (Governance\Opt_In_Gates references
 # them), the runners and their call sites do not.
+#
+# Php_Snippet_Store.php deliberately STAYS, for the same reason the guards
+# do. It is a pure option store with no validation, no capability check and
+# no execution, and src/Safety/Snapshot.php and src/Safety/Rollback_Service.php
+# name it unconditionally from the always-loaded safety core. Dropping it
+# built green and fataled at runtime on any pre-existing php_snippet snapshot
+# row: wp_wpmcp_snapshots survives a site swapping the full plugin for this
+# flavor. Gate 4 below now catches that class of mistake instead of trusting
+# this list.
+#
+# Deactivate_Php_Snippet goes with the rest of the snippet tools, unlike the
+# wp.org build which keeps it. This flavor drops the whole 'code' ability
+# group at runtime (Plugin::FLAVOR_GROUPS), so the class would ship with no
+# registration path into it. A leftover 'active' flag here is inert: no
+# executor ships, and rollback always restores a snippet inactive.
 rm -f \
   "$STAGE/src/Tools/Cli/Run_Wp_Cli.php" \
   "$STAGE/src/Tools/Cli/Wp_Cli_Executor.php" \
   "$STAGE/src/Tools/Code/Run_Php_Snippet.php" \
   "$STAGE/src/Tools/Code/Php_Snippet_Runner.php" \
   "$STAGE/src/Tools/Code/Php_Snippet_Validator.php" \
-  "$STAGE/src/Tools/Code/Validate_Php_Snippet.php"
+  "$STAGE/src/Tools/Code/Validate_Php_Snippet.php" \
+  "$STAGE/src/Tools/Code/Create_Php_Snippet.php" \
+  "$STAGE/src/Tools/Code/List_Php_Snippets.php" \
+  "$STAGE/src/Tools/Code/Get_Php_Snippet.php" \
+  "$STAGE/src/Tools/Code/Update_Php_Snippet.php" \
+  "$STAGE/src/Tools/Code/Delete_Php_Snippet.php" \
+  "$STAGE/src/Tools/Code/Activate_Php_Snippet.php" \
+  "$STAGE/src/Tools/Code/Deactivate_Php_Snippet.php"
 
 # This build never calls Freemius (free-only, no license checks needed;
 # Pro\Gate fails closed without the SDK).
@@ -237,6 +259,21 @@ esac
 # this exists to prevent.
 php "$ROOT/scripts/lib/check-dangling-inheritance.php" "$STAGE/src" \
   || { echo "ERROR: dangling inheritance edge to a pruned domain in the $SLUG build" >&2; exit 1; }
+
+# Every WPMCP class the ALWAYS-LOADED SAFETY CORE names must still exist.
+# Scoped to src/Safety on purpose: unlike the wp.org build, this one does not
+# rewrite Plugin.php, it gates at runtime through Plugin::FLAVOR_GROUPS, so
+# Plugin.php legitimately names hundreds of classes this zip does not ship in
+# branches it never reaches. src/Safety is different: nothing flavor-gates it,
+# every request loads it, and it hard-references the stores it restores. That
+# is the mistake this catches, and the one it was written for: pruning
+# Php_Snippet_Store.php built green and fataled at runtime on any pre-existing
+# php_snippet snapshot row. Same technique as gate 4 in
+# build-wporg-release.sh (both call scripts/lib/class-ref-gate.php, which
+# also resolves aliased, comma-listed and grouped imports), resolved against
+# composer's authoritative classmap.
+php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src/Safety \
+  || { echo "ERROR: the $SLUG safety core names a class the build does not ship" >&2; exit 1; }
 
 mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/$SLUG-$VERSION.zip"

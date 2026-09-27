@@ -37,6 +37,9 @@ class Snapshot
         if ('redirect' === $object_type) {
             return self::capture_redirect((string) $object_id);
         }
+        if ('php_snippet' === $object_type) {
+            return self::capture_php_snippet((string) $object_id);
+        }
         if ('term' === $object_type) {
             return self::capture_term((string) $object_id);
         }
@@ -169,6 +172,38 @@ class Snapshot
                 'source_path' => $source,
                 'existed'     => null !== $row,
                 'row'         => $row,
+            ],
+        ];
+    }
+
+    /**
+     * Capture ONE stored PHP snippet (issue #85), keyed by its id, for
+     * exactly the reason capture_redirect() is keyed by source path: the
+     * snippets all live in a single option, and snapshotting that option
+     * would make every snippet write a snapshot of the whole collection.
+     * Rolling back the creation of snippet A would then delete every
+     * snippet created after it and resurrect every snippet deleted since,
+     * which is not "reversible", it is collateral damage.
+     *
+     * So the unit of capture is the record, not the option. The undo is
+     * "put this one record back exactly as it was", or, when it did not
+     * exist before the write, "remove whatever now holds that id" -
+     * leaving every sibling snippet untouched either way.
+     *
+     * $object_id is the snippet id (a string), so Snapshot_Store persists 0
+     * in its BIGINT object_id column, exactly like 'option' snapshots.
+     */
+    private static function capture_php_snippet(string $id): array
+    {
+        $record = \WPMCP\Tools\Code\Php_Snippet_Store::get($id);
+
+        return [
+            'object_type' => 'php_snippet',
+            'object_id'   => $id,
+            'data'        => [
+                'id'      => $id,
+                'existed' => null !== $record,
+                'record'  => $record,
             ],
         ];
     }

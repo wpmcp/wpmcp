@@ -36,6 +36,10 @@ class Update_Option
             throw new \InvalidArgumentException('An option name is required.');
         }
 
+        if (! Option_Guard::is_plain_name($name)) {
+            throw new \RuntimeException('Refusing to write an option whose name contains non-ASCII, control or invisible characters: it can match a different row than it appears to.');
+        }
+
         if (Option_Guard::is_denylisted($name)) {
             throw new \RuntimeException(sprintf('Refusing to write sensitive option "%s".', esc_html($name)));
         }
