@@ -40,6 +40,12 @@ class Option_Guard
         'nonce_salt',
         'secure_auth_key',
         'secure_auth_salt',
+        // WP MCP Cloud (issue #141): the phase A plaintext key until it is
+        // migrated, and the refresh health marker, whose write would pin the
+        // connection in a rejection backoff. The sealed vault itself is
+        // already caught by the 'credential' pattern.
+        'wpmcp_cloud_key',
+        'wpmcp_cloud_unhealthy',
     ];
 
     /** Substrings (case-insensitive) that mark an option name as sensitive. */

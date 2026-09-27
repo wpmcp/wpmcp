@@ -85,14 +85,16 @@ class Cloud_Client
 
         $response = wp_remote_request($url, $args);
         if (is_wp_error($response)) {
-            return new \WP_Error('cloud_unreachable', 'Could not reach WP MCP Cloud: ' . $response->get_error_message());
+            // Transport and backend text is scrubbed of every stored secret
+            // before it reaches an MCP client (issue #141).
+            return new \WP_Error('cloud_unreachable', 'Could not reach WP MCP Cloud: ' . Cloud_Credentials::redact($response->get_error_message()));
         }
 
         $code = (int) wp_remote_retrieve_response_code($response);
         $data = json_decode((string) wp_remote_retrieve_body($response), true);
 
         if ($code < 200 || $code >= 300) {
-            $message = is_array($data) && isset($data['message']) ? (string) $data['message'] : "HTTP {$code}";
+            $message = is_array($data) && isset($data['message']) ? Cloud_Credentials::redact((string) $data['message']) : "HTTP {$code}";
             return new \WP_Error('cloud_error', 'WP MCP Cloud returned an error: ' . $message, ['status' => $code]);
         }
 

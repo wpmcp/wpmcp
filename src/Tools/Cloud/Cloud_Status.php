@@ -37,7 +37,7 @@ class Cloud_Status
 
     private static function token_status(): string
     {
-        if ('' !== (string) get_option(Cloud_Credentials::OPTION, '') && [] === Cloud_Credentials::all()) {
+        if (Cloud_Credentials::is_unreadable()) {
             return 'unreadable';
         }
         if (Token_Refresher::is_unhealthy()) {

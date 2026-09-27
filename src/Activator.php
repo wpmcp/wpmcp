@@ -39,9 +39,9 @@ class Activator
         }
 
         // Import any phase A plaintext cloud credentials into the encrypted
-        // vault (issue #141). Cloud_Credentials also does this lazily on read,
-        // but doing it here is what keeps the write off the read-only
-        // cloud-status path on a normally updated site.
+        // vault (issue #141). Activation does not fire on an update, so the
+        // init hook (Cloud_Credentials::maybe_migrate_on_boot()) and the lazy
+        // read-path import cover that case; this covers a reactivation.
         if (class_exists(Cloud_Credentials::class)) {
             Cloud_Credentials::migrate_plaintext();
         }

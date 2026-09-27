@@ -128,7 +128,7 @@ class Token_Refresher
     /** Identifies the bundle a failure belongs to without storing the secret. */
     private static function fingerprint(array $bundle): string
     {
-        return hash('sha256', (string) ($bundle['refresh_token'] ?? ''));
+        return Cloud_Credentials::fingerprint((string) ($bundle['refresh_token'] ?? ''));
     }
 
     /**
@@ -311,13 +311,23 @@ class Token_Refresher
      */
     private static function http_transport(string $base_url, array $body)
     {
+        // A refresh token is a bearer-grade, long-lived secret: never put it
+        // on the wire in cleartext, and never let a 30x re-send it to
+        // wherever a Location header points. Refusing is transient (a
+        // configuration problem, not a revocation), so the bundle survives
+        // for when the URL is fixed.
+        if ('https' !== strtolower((string) wp_parse_url($base_url, PHP_URL_SCHEME))) {
+            return new \WP_Error('cloud_token_endpoint_insecure', 'The WP MCP Cloud token endpoint must use https.');
+        }
         $response = wp_remote_post($base_url . Cloud_Client::TOKEN_PATH, [
-            'timeout' => 20,
-            'headers' => [
+            'timeout'     => 20,
+            'redirection' => 0,
+            'sslverify'   => true,
+            'headers'     => [
                 'Content-Type' => 'application/x-www-form-urlencoded',
                 'Accept'       => 'application/json',
             ],
-            'body'    => $body,
+            'body'        => $body,
         ]);
         if (is_wp_error($response)) {
             return $response;
@@ -335,6 +345,9 @@ class Token_Refresher
         if ('invalid_grant' === $error || (401 === $code && '' === $error)) {
             return ['auth_rejected' => true];
         }
+        // Only the status and a sanitized OAuth error code; never the body,
+        // which a misbehaving backend could fill with the presented token.
+        $error = Cloud_Credentials::redact(sanitize_key($error));
         return new \WP_Error('cloud_token_refresh_failed', "HTTP {$code}" . ('' === $error ? '' : " ({$error})"));
     }
 }

@@ -33,7 +33,16 @@ class Cloud_Connect
         }
 
         $previous = Cloud_Credentials::all();
-        Cloud_Config::set($url, $key);
+        if (! Cloud_Config::set($url, $key)) {
+            // The vault did not take the new set (a failed seal, a filtered
+            // write, no sodium implementation). Whatever is stored now is
+            // either the previous set or nothing; make it exactly the
+            // previous set, and never echo the key back.
+            if ([] !== $previous) {
+                Cloud_Credentials::replace($previous);
+            }
+            return new \WP_Error('cloud_credentials_not_stored', 'The cloud credentials could not be stored encrypted on this site, so nothing was changed.');
+        }
 
         $me = (new Cloud_Client())->get('/me');
         if (is_wp_error($me)) {
