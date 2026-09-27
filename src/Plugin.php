@@ -3040,7 +3040,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-custom-js',
             'pro',
-            'Store a site-wide custom JS snippet rendered in wp_footer. THIS IS AN XSS-CLASS SURFACE and is off by default: it refuses unless JS injection is enabled (WPMCP_ALLOW_JS_INJECTION constant or wpmcp_allow_js_injection filter) AND the caller holds unfiltered_html plus manage_options. The write is snapshotted and reversible via rollback-operation; closing the gate (constant or filter) also stops rendering stored JS, while disabling the ability in the governance grid only withdraws the tool',
+            'Store the site-wide custom JS snippet (replaces any previous one) rendered in wp_footer. THIS IS AN XSS-CLASS SURFACE and is off by default: it refuses unless JS injection is enabled (WPMCP_ALLOW_JS_INJECTION constant or wpmcp_allow_js_injection filter) AND the caller holds unfiltered_html plus manage_options. The write is snapshotted and reversible via rollback-operation; closing the gate (constant or filter) also stops rendering stored JS, while disabling the ability in the governance grid only withdraws the tool',
             [
                 'type'       => 'object',
                 'properties' => [

@@ -57,6 +57,13 @@ class Add_Custom_Js
         // open and the tool is live when neither is true.
         $this->guard($js);
 
+        // One site-wide slot: a write REPLACES the stored snippet rather than
+        // appending, because concatenating two scripts can change what both
+        // mean. The response says whether something was replaced, so an
+        // agent never discards earlier work without being told.
+        $previous = Custom_Code_Store::read();
+        $replaced = '' !== trim((string) ($previous['js']['site'] ?? ''));
+
         $out = Safe_Mutation::run(
             [
                 'object_type' => 'option',
@@ -73,9 +80,10 @@ class Add_Custom_Js
         $this->audit(true, self::REASON_STORED);
 
         return [
-            'scope'        => 'site',
-            'operation_id' => $out['operation_id'],
-            'recoverable'  => true,
+            'scope'             => 'site',
+            'replaced_previous' => $replaced,
+            'operation_id'      => $out['operation_id'],
+            'recoverable'       => true,
         ];
     }
 

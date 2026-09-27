@@ -4,6 +4,7 @@ namespace WPMCP\Tests\Pro\CustomCode;
 
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Governance\Opt_In_Gates;
+use WPMCP\Safety\Rollback_Service;
 use WPMCP\Tools\CustomCode\Add_Custom_Js;
 use WPMCP\Tools\CustomCode\Custom_Code_Renderer;
 use WPMCP\Tools\CustomCode\Custom_Code_Store;
@@ -127,6 +128,43 @@ class AddCustomJsTest extends \WP_UnitTestCase
         $this->assertCount(1, $rows);
         $this->assertTrue($rows[0]['allowed']);
         $this->assertSame(Add_Custom_Js::REASON_STORED, $rows[0]['reason']);
+    }
+
+    /**
+     * There is one site-wide slot, so a second write REPLACES the first
+     * snippet rather than appending (concatenating two scripts can change
+     * what both mean). The response has to say so, or an agent calling an
+     * "add-" tool has no way to learn it just discarded earlier work.
+     */
+    public function test_reports_whether_it_replaced_a_previous_snippet(): void
+    {
+        $this->open_gate();
+
+        $first  = $this->tool->handle(['js' => 'console.log(1)']);
+        $second = $this->tool->handle(['js' => 'console.log(2)']);
+
+        $this->assertFalse($first['replaced_previous']);
+        $this->assertTrue($second['replaced_previous']);
+        $this->assertSame('console.log(2)', Custom_Code_Store::read()['js']['site']);
+    }
+
+    /** Every write is snapshotted: rolling one back restores the snippet before it. */
+    public function test_rollback_restores_the_previous_snippet(): void
+    {
+        $this->open_gate();
+
+        $first  = $this->tool->handle(['js' => 'console.log(1)']);
+        $second = $this->tool->handle(['js' => 'console.log(2)']);
+
+        $this->assertTrue(Rollback_Service::restore_operation($second['operation_id']));
+        $this->assertSame('console.log(1)', Custom_Code_Store::read()['js']['site']);
+
+        $this->assertTrue(Rollback_Service::restore_operation($first['operation_id']));
+        $this->assertSame('', (string) (Custom_Code_Store::read()['js']['site'] ?? ''));
+
+        ob_start();
+        Custom_Code_Renderer::print_js();
+        $this->assertStringNotContainsString('wpmcp-custom-js', (string) ob_get_clean());
     }
 
     public function test_empty_js_is_audited_too(): void

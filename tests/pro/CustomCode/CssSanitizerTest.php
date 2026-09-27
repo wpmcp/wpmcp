@@ -80,6 +80,18 @@ class CssSanitizerTest extends \WP_UnitTestCase
             // these accepted.
             'javascript continuation'    => ["a{background:url(\"java\\\nscript:alert(1)\")}"],
             'expression continuation'    => ["a{width:expres\\\nsion(alert(1))}"],
+
+            // Comment markers parked inside CSS STRINGS mask everything
+            // between them from a comment stripper that is not string-aware,
+            // while the browser reads the span as live CSS. The breakout
+            // spelling of this is caught by the raw pass above; these are the
+            // escape- and comment-obfuscated spellings, which the raw pass
+            // cannot see and a naive canonical pass deleted wholesale.
+            'escaped import between strings'     => ['.a{content:"/*"} @im\\port url("//evil.example/x.css"); .b{content:"*/"}'],
+            'escaped javascript between strings' => ['.a{content:"/*"} .c{background:url(java\\script:alert(1))} .b{content:"*/"}'],
+            'escaped expression between strings' => [".a{content:'/*'} .c{width:expres\\sion(alert(1))} .b{content:'*/'}"],
+            'split import between strings'       => ['.a{content:"/*"} @imp/**/ort url("//evil.example/x.css"); .b{content:"*/"}'],
+            'escaped import inside a comment'    => ['/* @im\\port */ .a{color:red}'],
         ];
     }
 
@@ -103,6 +115,12 @@ class CssSanitizerTest extends \WP_UnitTestCase
             'comment in css'     => ['/* a note */ .a { color: red; }'],
             'remote font url'    => ['.a { background: url(https://example.com/x.png); }'],
             'attribute selector' => ['a[href^="https"] { color: red; }'],
+            // A comment opener inside a CSS string is string content, not a
+            // comment, so it must not trip the unterminated-comment rule.
+            'comment opener in string'  => ['.a::after { content: "/*"; }'],
+            'comment pair in string'    => ['.a::after { content: "/* not a comment */"; } .b { color: red; }'],
+            'apostrophe in comment'     => ["/* it's a note */ .a { color: red; }"],
+            'escaped quote in string'   => ['.a::after { content: "say \\"hi\\" /*"; }'],
         ];
     }
 

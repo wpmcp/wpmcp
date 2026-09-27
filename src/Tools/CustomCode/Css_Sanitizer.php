@@ -86,6 +86,9 @@ class Css_Sanitizer
 
         $canonical = self::canonicalize($clean);
 
+        // Every lens the decision is made through. See analysis_forms().
+        $forms = self::analysis_forms($clean, $canonical);
+
         // The pattern list runs against BOTH forms, and the raw pass is the
         // load-bearing one. canonicalize() deletes comments so a keyword
         // SPLIT by one collapses onto its plain spelling, but the value that
@@ -103,7 +106,7 @@ class Css_Sanitizer
         // ends the element at the first literal "</style", so both broke out.
         // Checking the raw text costs one legitimate case - a comment that
         // spells out markup or @import - and closes the whole class.
-        foreach ([$clean, $canonical] as $subject) {
+        foreach ($forms as $subject) {
             foreach (self::FORBIDDEN_PATTERNS as $pattern) {
                 if (preg_match($pattern, $subject)) {
                     throw new \InvalidArgumentException(
@@ -125,30 +128,129 @@ class Css_Sanitizer
 
     /**
      * Collapse the spellings CSS treats as equivalent so one pattern list
-     * covers all of them: comments are removed, and escape sequences (both
-     * the 1-6 hex-digit form with its optional trailing whitespace and the
-     * backslash-any-character form) are decoded to the characters they
-     * denote. Non-ASCII code points decode to a single placeholder: they can
-     * never be part of an ASCII keyword like "import" or "script", and
-     * materializing them exactly would only add an encoding dependency.
+     * covers all of them: comments are removed (string-aware, see
+     * strip_comments()), and escape sequences are decoded (see
+     * decode_escapes()).
      */
     public static function canonicalize(string $css): string
     {
-        $out = preg_replace('#/\*.*?\*/#s', '', $css);
-        if (null === $out) {
-            // Catastrophic input (e.g. PCRE backtrack limit). Fail closed:
-            // an unanalyzable stylesheet is not a storable one.
-            throw new \InvalidArgumentException('The CSS was rejected: it could not be parsed for analysis.');
+        return self::decode_escapes(self::strip_comments($css));
+    }
+
+    /**
+     * The forms the forbidden-pattern list is matched against. A construct
+     * found in ANY of them is refused, so each form only has to close the
+     * gap the others leave:
+     *
+     *  - the raw text: what is actually stored and echoed into <style>. The
+     *    HTML tokenizer that ends that element knows nothing about CSS
+     *    comments, strings or escapes, so markup parked inside any of them
+     *    is still a breakout.
+     *  - the canonical form (string-aware comment strip, then escape decode):
+     *    catches keywords split by a comment or spelled with escapes, and is
+     *    not fooled by comment markers parked inside CSS strings.
+     *  - escapes decoded, comments KEPT: a comment stripper can only be as
+     *    right as its idea of where comments are. Where it and a browser
+     *    disagree (an unquoted url() carrying a quote is a bad-url token to
+     *    the browser but opens a string to a simple scanner), a span the
+     *    stripper deleted can be live CSS. Keeping everything means an
+     *    escape-obfuscated keyword is visible wherever it sits; the cost is
+     *    refusing a comment that spells out an escaped @import.
+     *  - a naive (not string-aware) comment strip, then escape decode: the
+     *    same disagreement in the other direction, for keywords split by a
+     *    comment the string-aware scanner took for string content.
+     *
+     * @return string[]
+     */
+    private static function analysis_forms(string $raw, string $canonical): array
+    {
+        $naive = preg_replace('#/\*.*?\*/#s', '', $raw);
+
+        return [
+            $raw,
+            $canonical,
+            self::decode_escapes($raw),
+            self::decode_escapes(null === $naive ? $raw : $naive),
+        ];
+    }
+
+    /**
+     * Remove CSS comments the way a CSS tokenizer does: a "/*" opens a
+     * comment only OUTSIDE a string, and a quote opens a string only outside
+     * a comment. The predecessor was a plain regex, which deleted everything
+     * between a "/*" and a "*\/" that both sat inside CSS strings, so
+     *
+     *   .a{content:"/*"} @im\port url(//evil); .b{content:"*\/"}
+     *
+     * canonicalized to two harmless rules while the browser read an import
+     * between them. It also refused content: "/*" as an unterminated comment.
+     *
+     * Strings end at their closing quote or at an unescaped newline (a CSS
+     * bad-string), and a backslash always consumes the next byte, inside a
+     * string or not, so an escaped quote neither opens nor closes one. Byte
+     * iteration is safe on UTF-8: every character this looks at is ASCII,
+     * and no UTF-8 continuation byte can equal one.
+     */
+    private static function strip_comments(string $css): string
+    {
+        $out   = '';
+        $len   = strlen($css);
+        $quote = '';
+
+        for ($i = 0; $i < $len; $i++) {
+            $c = $css[$i];
+
+            if ('\\' === $c) {
+                $out .= $c;
+                if ($i + 1 < $len) {
+                    $out .= $css[++$i];
+                }
+                continue;
+            }
+
+            if ('' !== $quote) {
+                if ($c === $quote || "\n" === $c || "\r" === $c || "\f" === $c) {
+                    $quote = '';
+                }
+                $out .= $c;
+                continue;
+            }
+
+            if ('"' === $c || "'" === $c) {
+                $quote = $c;
+                $out  .= $c;
+                continue;
+            }
+
+            if ('/' === $c && $i + 1 < $len && '*' === $css[$i + 1]) {
+                $end = strpos($css, '*/', $i + 2);
+                if (false === $end) {
+                    // An unterminated comment hides everything after it from
+                    // the pattern list. Rather than guess how a given engine
+                    // recovers, refuse it: a stylesheet whose comment never
+                    // closes is not something an agent meant to store.
+                    throw new \InvalidArgumentException('The CSS was rejected: it contains an unterminated comment.');
+                }
+                $i = $end + 1;
+                continue;
+            }
+
+            $out .= $c;
         }
 
-        // An unterminated comment hides everything after it from the pattern
-        // list. Rather than guess how a given engine recovers, refuse it: a
-        // stylesheet whose comment never closes is not something an agent
-        // meant to store.
-        if (false !== strpos((string) $out, '/*')) {
-            throw new \InvalidArgumentException('The CSS was rejected: it contains an unterminated comment.');
-        }
+        return $out;
+    }
 
+    /**
+     * Decode escape sequences (both the 1-6 hex-digit form with its optional
+     * trailing whitespace and the backslash-any-character form) to the
+     * characters they denote. Non-ASCII code points decode to a single
+     * placeholder: they can never be part of an ASCII keyword like "import"
+     * or "script", and materializing them exactly would only add an encoding
+     * dependency.
+     */
+    private static function decode_escapes(string $css): string
+    {
         $decoded = preg_replace_callback(
             '#\\\\(?:([0-9a-fA-F]{1,6})[ \t\r\n\f]?|(\r\n|[\r\n\f])|(.))#s',
             static function (array $m): string {
@@ -169,10 +271,16 @@ class Css_Sanitizer
 
                 return $m[3] ?? '';
             },
-            (string) $out
+            $css
         );
 
-        return (string) $decoded;
+        if (null === $decoded) {
+            // Catastrophic input (e.g. PCRE backtrack limit). Fail closed:
+            // an unanalyzable stylesheet is not a storable one.
+            throw new \InvalidArgumentException('The CSS was rejected: it could not be parsed for analysis.');
+        }
+
+        return $decoded;
     }
 
     /**
