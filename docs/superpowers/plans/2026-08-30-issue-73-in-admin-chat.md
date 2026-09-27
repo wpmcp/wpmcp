@@ -99,53 +99,60 @@ place a reviewer looks for the design record, next to
   license must not strand existing conversations as unregistered, reassignable
   posts. Only `rest_api_init` and the submenu resolve `Gate::is_pro()`.
 
-## Deliberately NOT in this slice
+## Executor slice (this PR, second half)
 
-`POST /chat/approve` was removed. It minted a valid `Approval_Gate` token for
-any client-supplied ability name and arguments, with no model proposal behind
-it, no conversation binding, no check that the ability exists or is
-destructive or is permitted for the caller, and nothing anywhere calling
-`Approval_Gate::validate_and_consume()`. That is not an approval gate, it is a
-credential vending machine for a gate that does not exist yet. The endpoint
-comes back with the executor, minting from a server-stored proposal.
+- `Chat_Identity`: every chat tool call runs under the scoped identity
+  `wpmcp-chat` (seeded with no restriction on first use), so identity
+  narrowing applies and the governance audit attributes the call to the chat.
+- `Registrar::would_permit()`: the same predicate as `is_permitted()` without
+  the audit write, used to build the inventory.
+- `Tool_Inventory`: the advertised set is every Registrar ability that
+  `would_permit()` allows under the chat identity. Names are listed in the
+  server-authored system prompt; schemas load per domain via the
+  `load_tools` meta-tool to bound per-turn token cost.
+- `Tool_Executor`: resolves against the inventory, then calls the registered
+  `WP_Ability::execute()` (the same entry point as the MCP adapter's
+  tools/call), so validation, the audited permission callback, the rate
+  limiter, the request log and Safe_Mutation all apply. Any non-read ability
+  needs an `Approval_Gate` token bound to (user, ability, args), checked and
+  consumed inside the executor.
+- `Turn_Runner`: one provider call per HTTP request. Reads run; writes are
+  parked as server-stored proposals with a freshly minted token each.
+  `/chat/approve` runs the STORED arguments and requires the token minted for
+  that proposal (hash-bound), so neither the model nor the client can alter
+  what the administrator approved.
+- `Anthropic_Provider`: server-side call to api.anthropic.com with the
+  admin's own key (never sent to the browser), default model
+  `claude-sonnet-5`, filterable via `wpmcp_chat_model`. Disclosed in
+  readme.txt "External services". The woocommerce build drops this one file
+  because that build can never run the chat.
+- Chat screen: conversation view with approval cards rendered as text only.
 
-## Remaining work
+## Remaining work (follow-ups, not blocking this PR)
 
-1. Governed executor: resolve a model tool_use through the Registrar's
-   declared surface, run the identical permission/governance/rate-limit/
-   snapshot chain as MCP calls, consume Approval_Gate tokens for destructive
-   abilities. Failing tests first in `tests/pro/Chat`.
-2. Provider loop in `send_message`: call the provider API with
-   `System_Prompt::build()` plus lazily loaded tool groups; persist
-   assistant/tool messages; stream to the client.
-3. Re-introduce `POST /chat/approve` bound to a stored, server-recorded model
-   proposal inside a conversation the caller owns.
-4. Wire the chat routes into the existing governance rate-limit path (the
-   route-level bounds here cap one request, not a request rate).
-5. Multi-provider key support in Key_Vault (currently Anthropic-keyed meta).
-6. Server-authored prompt test proving advertised inventory matches the
-   active governed set.
-7. SSRF-guarded web fetch tool exposure rules.
-8. Chat client bundle (admin JS) and editor embeds. The key form on the chat
-   screen is inline script; the executor slice replaces it with a registered
-   bundle.
-9. A per-user cap on the number of conversations. The idempotency lookup now
-   prevents the retry path from minting orphans, but nothing bounds ordinary
-   accumulation.
-10. Adversarial security review: key storage, approval-gate bypass,
-    prompt-injection-to-destructive-call paths. Two rounds done on this slice;
-    the executor needs its own.
+1. Multi-provider support (OpenAI, Gemini, OpenRouter) and per-user model
+   choice.
+2. SSRF-guarded web fetch tool.
+3. Editor embeds (Gutenberg panel first).
+4. A per-user cap on the number of conversations.
+5. Streaming responses to the browser.
 
 ## Acceptance criteria status (issue #73)
 
-- Chat tool calls execute through the identical governed path: NOT MET. No
-  executor exists yet; nothing in this branch executes an ability.
-- Destructive tools require server-verified approval per call: NOT MET. The
-  mechanism (`Approval_Gate`) is built and tested; nothing consumes it, and
-  the endpoint that minted tokens without a proposal has been removed rather
-  than shipped.
+- Chat tool calls execute through the identical governed path, under a
+  scoped identity: MET. `tests/pro/Chat/ToolExecutorTest.php` drives the real
+  registered abilities and asserts the request log row, the snapshot, the
+  audit identity, governance and identity-scope refusal and the shared rate
+  limiter.
+- Destructive tools require server-verified approval per call: MET, and
+  stricter: every non-read ability. `ToolExecutorTest` (replay, argument
+  mutation, cross-ability, cross-user) and `TurnRunnerTest` (injected
+  destructive proposal parks, decline, stored-args-only approval, stale and
+  forged tokens).
 - Provider keys encrypted at rest per user, tamper detection tested: MET.
-  `Key_Vault` plus `tests/pro/Chat/KeyVaultTest.php`, and the REST surface now
-  reports the corrupted and salt-rotated states instead of throwing.
-- Advertised tool inventory provably matches the active governed set: NOT MET.
-  Follows the executor.
+  `Key_Vault` plus `tests/pro/Chat/KeyVaultTest.php`; the turn loop reports a
+  corrupted key instead of throwing.
+- Advertised tool inventory provably matches the active governed set: MET.
+  `tests/pro/Chat/ToolInventoryTest.php` parses the server-authored prompt
+  and compares it with a set derived independently from `is_permitted()`,
+  including after ability, domain and identity-scope changes.

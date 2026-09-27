@@ -104,22 +104,55 @@ class Registrar
      */
     public function is_permitted(Ability $a, array $input = []): bool
     {
+        $reason  = $this->denial_reason($a, $input);
+        $allowed = null === $reason;
+
+        $this->record_audit($a, $allowed, (string) $reason);
+        return $allowed;
+    }
+
+    /**
+     * The same decision as is_permitted(), without writing an audit row.
+     *
+     * For callers that need to know what a caller COULD run rather than
+     * running it: the in-admin chat (issue #73) builds its advertised tool
+     * inventory from this, and asking is_permitted() for every ability on
+     * every turn would push a few hundred synthetic rows into a 500-row
+     * audit log. It is the same predicate, not a parallel one, so the
+     * inventory cannot drift from what execution then enforces; execution
+     * itself still goes through is_permitted() and is audited as always.
+     *
+     * @param array<string, mixed> $input As for is_permitted().
+     */
+    public function would_permit(Ability $a, array $input = []): bool
+    {
+        return null === $this->denial_reason($a, $input);
+    }
+
+    /**
+     * Null when the ability is permitted for the current caller, otherwise
+     * the audit reason ('' for a capability/tier/governance/identity denial,
+     * 'memory-block:<id>' for a project-memory denial).
+     *
+     * @param array<string, mixed> $input
+     */
+    private function denial_reason(Ability $a, array $input): ?string
+    {
         $allowed = self::tier_permitted($a->tier)
             && current_user_can($a->capability)
             && Governance::is_ability_enabled($a)
             && Governance::is_within_identity_scope($a);
 
-        $reason = '';
-        if ($allowed) {
-            $rule = Memory_Guard::blocking_rule($a, $input);
-            if (null !== $rule) {
-                $allowed = false;
-                $reason  = 'memory-block:' . (int) $rule['id'];
-            }
+        if (! $allowed) {
+            return '';
         }
 
-        $this->record_audit($a, $allowed, $reason);
-        return $allowed;
+        $rule = Memory_Guard::blocking_rule($a, $input);
+        if (null !== $rule) {
+            return 'memory-block:' . (int) $rule['id'];
+        }
+
+        return null;
     }
 
     /** @return Ability[] */

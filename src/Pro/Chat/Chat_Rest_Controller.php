@@ -11,24 +11,23 @@ if (! defined('ABSPATH')) {
 /**
  * REST surface for the in-admin AI chat (issue #73).
  *
- * SCOPE OF THIS SLICE, stated plainly so nobody reads a guarantee into it
- * that the code does not yet make: this controller manages the per-user
- * provider key and the private conversation store, including the read and
- * delete paths for a conversation, so the store is exercisable end to end
- * and its per-user scoping is observable rather than merely asserted. It
- * does NOT execute abilities, and there is no provider turn yet.
+ * Routes: the per-user provider key (/chat/key, no reveal), the private
+ * conversation store (/chat/conversations), the advertised tool inventory
+ * (/chat/tools), and the turn loop: /chat/message appends the admin's text
+ * and runs one model step, /chat/continue runs the next step after tool
+ * results, and /chat/approve approves or declines one parked call.
  *
- * The design the executor slice will implement (and which nothing here
- * anticipates by minting credentials early): tool calls proposed by the model
- * will be resolved through the SAME registrar/permission/governance/
- * rate-limit/snapshot path as external MCP calls, under the calling admin's
- * identity, and destructive calls will additionally require a server-verified
- * Approval_Gate token minted from a server-stored model proposal. Until that
- * executor exists there is deliberately no approval-minting endpoint: a token
- * nobody validates is attack surface with no function.
+ * Every tool call the model proposes goes through Turn_Runner and
+ * Tool_Executor, which execute the registered ability through the same
+ * permission / governance / identity-scope / rate-limit / snapshot path as
+ * an external MCP client, under the chat identity. A call that changes the
+ * site is only ever run by /chat/approve, from the arguments the server
+ * stored when the model proposed it, with a single-use Approval_Gate token
+ * minted for exactly that call.
  *
  * All routes fail closed: manage_options AND Pro\Gate::is_pro() are both
- * required, checked server-side per request.
+ * required, checked server-side per request, and the REST cookie nonce
+ * applies as for every wp-json route.
  */
 class Chat_Rest_Controller
 {
@@ -60,8 +59,23 @@ class Chat_Rest_Controller
      */
     public function __construct(
         private ?Key_Vault $vault = null,
-        private ?Conversation_Store $store = null
+        private ?Conversation_Store $store = null,
+        private ?Chat_Provider $provider = null,
+        private ?Tool_Inventory $inventory = null,
+        private ?Approval_Gate $gate = null
     ) {
+    }
+
+    private function runner(): Turn_Runner
+    {
+        return new Turn_Runner(
+            $this->store(),
+            $this->vault(),
+            $this->provider ??= new Anthropic_Provider(),
+            null,
+            $this->inventory ??= new Tool_Inventory(),
+            $this->gate ??= new Approval_Gate()
+        );
     }
 
     private function vault(): Key_Vault
@@ -151,6 +165,33 @@ class Chat_Rest_Controller
                 ],
             ],
         ]);
+
+        register_rest_route(self::REST_NAMESPACE, '/chat/continue', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'continue_turn'],
+            'permission_callback' => [$this, 'permission_check'],
+            'args'                => [
+                'conversation_id' => ['type' => 'integer', 'required' => true],
+            ],
+        ]);
+
+        register_rest_route(self::REST_NAMESPACE, '/chat/approve', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'approve'],
+            'permission_callback' => [$this, 'permission_check'],
+            'args'                => [
+                'conversation_id' => ['type' => 'integer', 'required' => true],
+                'tool_use_id'     => ['type' => 'string', 'required' => true, 'maxLength' => 128],
+                'decision'        => ['type' => 'string', 'required' => true, 'enum' => ['approve', 'deny']],
+                'approval_token'  => ['type' => 'string', 'required' => false, 'maxLength' => 1024],
+            ],
+        ]);
+
+        register_rest_route(self::REST_NAMESPACE, '/chat/tools', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'list_tools'],
+            'permission_callback' => [$this, 'permission_check'],
+        ]);
     }
 
     /**
@@ -204,19 +245,13 @@ class Chat_Rest_Controller
     }
 
     /**
-     * Accepts one user message and persists it. The provider turn is the next
-     * slice; this slice establishes the governed request shape and the
-     * conversation persistence path.
+     * Accepts one user message, persists it, and runs one model step.
      *
      * The key presence test goes through Key_Vault::get_status(), never
      * get_key(): get_status already models the salt_rotated and corrupted
      * states that get_key signals by throwing, so a routine wp_salt('auth')
      * rotation returns a 409 with a machine-readable status instead of an
      * uncaught Key_Vault_Corrupted_Exception.
-     *
-     * TODO(#73): call the provider API with System_Prompt::build() and the
-     * lazily loaded tool groups; loop tool_use blocks through the governed
-     * executor; persist assistant/tool messages.
      */
     public function send_message(\WP_REST_Request $request): \WP_REST_Response
     {
@@ -238,6 +273,9 @@ class Chat_Rest_Controller
         if (mb_strlen($text, 'UTF-8') > self::MAX_MESSAGE_LENGTH) {
             return new \WP_REST_Response(['error' => 'message_too_long'], 400);
         }
+        if ('' === trim($text)) {
+            return new \WP_REST_Response(['error' => 'empty_message'], 400);
+        }
 
         $conversation_id = (int) $request->get_param('conversation_id');
         $client_id       = (string) $request->get_param('client_message_id');
@@ -249,6 +287,18 @@ class Chat_Rest_Controller
             // conversation would miss it and open a second conversation with
             // the same message in it, leaving an orphan behind every time.
             $conversation_id = $this->store()->find_by_client_id($user_id, $client_id);
+        }
+
+        if ($conversation_id > 0 && $this->store()->is_owned_by($conversation_id, $user_id)) {
+            $state = $this->store()->get_state($conversation_id, $user_id);
+            if (! empty($state['pending']['proposals'])) {
+                // The model is waiting on the administrator. A new message
+                // now would strand the parked calls without an answer.
+                return new \WP_REST_Response([
+                    'conversation_id' => $conversation_id,
+                    'error'           => 'approval_pending',
+                ], 409);
+            }
         }
 
         if ($conversation_id === 0) {
@@ -275,14 +325,87 @@ class Chat_Rest_Controller
             return new \WP_REST_Response(['error' => 'invalid_conversation'], 404);
         }
 
-        return new \WP_REST_Response([
-            'conversation_id' => $conversation_id,
-            'reply'           => null,
-            // The caller is told when the oldest turns fell off the history
-            // rather than discovering it in the model's context later.
-            'history_trimmed' => $this->store()->last_append_trimmed(),
-            'pending'         => 'provider_turn_not_implemented',
-        ], 202);
+        $trimmed = $this->store()->last_append_trimmed();
+
+        if ($this->store()->last_append_duplicate()) {
+            // A retry of a message already stored: do not bill the admin for
+            // a second provider call. The client reloads the conversation.
+            return new \WP_REST_Response([
+                'conversation_id' => $conversation_id,
+                'status'          => 'duplicate',
+                'history_trimmed' => $trimmed,
+            ], 200);
+        }
+
+        $result = $this->runner()->step($user_id, $conversation_id);
+        // The caller is told when the oldest turns fell off the history
+        // rather than discovering it in the model's context later.
+        return $this->turn_response($conversation_id, $result, ['history_trimmed' => $trimmed]);
+    }
+
+    /** Runs the next model step after tool results were recorded. */
+    public function continue_turn(\WP_REST_Request $request): \WP_REST_Response
+    {
+        $conversation_id = (int) $request->get_param('conversation_id');
+        $result          = $this->runner()->step(get_current_user_id(), $conversation_id);
+        return $this->turn_response($conversation_id, $result);
+    }
+
+    /** Approves or declines one parked tool call. */
+    public function approve(\WP_REST_Request $request): \WP_REST_Response
+    {
+        $conversation_id = (int) $request->get_param('conversation_id');
+        $result          = $this->runner()->resolve(
+            get_current_user_id(),
+            $conversation_id,
+            (string) $request->get_param('tool_use_id'),
+            'approve' === $request->get_param('decision'),
+            (string) $request->get_param('approval_token')
+        );
+        return $this->turn_response($conversation_id, $result);
+    }
+
+    /**
+     * The inventory the chat advertises, computed under the chat identity:
+     * the same set the system prompt lists and the executor accepts.
+     */
+    public function list_tools(): \WP_REST_Response
+    {
+        $inventory  = $this->inventory ??= new Tool_Inventory();
+        $advertised = Chat_Identity::run(static fn () => $inventory->advertised());
+
+        $tools = [];
+        foreach ($advertised as $tool => $ability) {
+            $tools[] = [
+                'tool'              => $tool,
+                'ability'           => $ability->name,
+                'domain'            => $ability->domain,
+                'operation'         => $ability->operation,
+                'requires_approval' => Tool_Executor::requires_approval($ability),
+            ];
+        }
+        return new \WP_REST_Response(['identity' => Chat_Identity::NAME, 'tools' => $tools]);
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     * @param array<string, mixed> $extra
+     */
+    private function turn_response(int $conversation_id, array $result, array $extra = []): \WP_REST_Response
+    {
+        $body = array_merge(['conversation_id' => $conversation_id], $extra, $result);
+        if (Turn_Runner::ERROR !== ($result['status'] ?? '')) {
+            return new \WP_REST_Response($body, 200);
+        }
+        $code = match ((string) ($result['error'] ?? '')) {
+            'invalid_conversation', 'unknown_proposal' => 404,
+            'no_usable_provider_key'                   => 409,
+            'invalid_approval'                         => 403,
+            'provider_error'                           => 502,
+            'store_failed'                             => 500,
+            default                                    => 400,
+        };
+        return new \WP_REST_Response($body, $code);
     }
 
     /**
@@ -308,9 +431,13 @@ class Chat_Rest_Controller
             // to someone else: the difference is itself information.
             return new \WP_REST_Response(['error' => 'invalid_conversation'], 404);
         }
+        $state = $this->store()->get_state($id, $user_id);
         return new \WP_REST_Response([
             'conversation_id' => $id,
             'messages'        => $this->store()->get_messages($id, $user_id),
+            // Parked calls come back with fresh tokens so a reload of the
+            // chat screen can still approve or decline them.
+            'proposals'       => $this->runner()->reissue_proposals($user_id, $id, $state),
         ]);
     }
 

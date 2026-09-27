@@ -61,11 +61,28 @@ class Conversation_Store
     /**
      * Byte ceiling on a single entry's content, enforced here rather than in
      * the REST controller: the controller's limit applies to the 'user' role
-     * only, and the assistant/tool appends the executor slice will make are
+     * only, and the assistant/tool appends Turn_Runner makes are
      * the ones that can arrive large. Without this the trim loop cannot
      * bound the row at all, since it never drops the only remaining message.
      */
     private const MAX_ENTRY_BYTES = 65536;
+
+    /**
+     * Byte ceiling on one entry's provider content blocks (an assistant turn
+     * with its tool_use calls, or the tool_result batch answering it). Half
+     * the history cap, so a single turn can never be the whole history.
+     * The executor caps each tool result well below this before it gets
+     * here; an entry that still does not fit is refused, not truncated,
+     * because a truncated block list is not valid provider input.
+     */
+    private const MAX_BLOCKS_BYTES = 131072;
+
+    /**
+     * Per-conversation chat state that is not history: the pending approval
+     * batch and the tool domains loaded so far. A separate meta key so the
+     * trim logic above can never drop a pending proposal.
+     */
+    private const STATE_META = '_wpmcp_chat_state';
 
     /** No error on the most recent append_message(). */
     public const APPEND_OK = '';
@@ -75,12 +92,17 @@ class Conversation_Store
     public const APPEND_INVALID_ROLE = 'invalid_role';
     /** The meta write itself failed: a storage fault, not an authz result. */
     public const APPEND_WRITE_FAILED = 'write_failed';
+    /** The entry's content blocks exceed MAX_BLOCKS_BYTES. */
+    public const APPEND_TOO_LARGE = 'too_large';
 
     /** Whether the most recent append_message() dropped older turns. */
     private bool $last_trimmed = false;
 
     /** Why the most recent append_message() returned false; '' when it did not. */
     private string $last_error = self::APPEND_OK;
+
+    /** Whether the most recent append_message() was a retry of a stored client_id. */
+    private bool $last_duplicate = false;
 
     /**
      * Registers the private CPT. Hooked on init; safe to call repeatedly.
@@ -178,7 +200,6 @@ class Conversation_Store
             'post_status'      => 'any',
             'numberposts'      => -1,
             'fields'           => 'ids',
-            'suppress_filters' => true,
         ]);
         foreach ((array) $ids as $id) {
             wp_delete_post((int) $id, true);
@@ -239,11 +260,13 @@ class Conversation_Store
             'post_status'      => 'any',
             'numberposts'      => 1,
             'fields'           => 'ids',
-            'suppress_filters' => true,
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- one author's conversations only, LIMIT 1; the idempotency key has no other home.
             'meta_key'         => self::CLIENT_ID_META,
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- same bounded lookup as the line above.
             'meta_value'       => $client_id,
         ]);
-        return isset($ids[0]) ? (int) $ids[0] : 0;
+        $id = isset($ids[0]) ? (int) $ids[0] : 0;
+        return $id > 0 && $this->is_owned_by($id, $user_id) ? $id : 0;
     }
 
     /**
@@ -266,7 +289,6 @@ class Conversation_Store
             'orderby'          => 'modified',
             'order'            => 'DESC',
             'fields'           => 'ids',
-            'suppress_filters' => true,
         ]);
 
         $rows = [];
@@ -320,8 +342,9 @@ class Conversation_Store
     public function append_message(int $post_id, int $user_id, array $message): bool
     {
         $was_trimmed        = $this->last_trimmed;
-        $this->last_trimmed = false;
-        $this->last_error   = self::APPEND_OK;
+        $this->last_trimmed   = false;
+        $this->last_error     = self::APPEND_OK;
+        $this->last_duplicate = false;
 
         if (! $this->is_owned_by($post_id, $user_id)) {
             $this->last_error = self::APPEND_FORBIDDEN;
@@ -342,7 +365,8 @@ class Conversation_Store
                     // keeps the value the original append produced, so a
                     // retried request does not report a trim that happened as
                     // if it had not.
-                    $this->last_trimmed = $was_trimmed;
+                    $this->last_trimmed   = $was_trimmed;
+                    $this->last_duplicate = true;
                     return true;
                 }
             }
@@ -361,6 +385,25 @@ class Conversation_Store
             'content' => $content,
             'time'    => time(),
         ];
+
+        // Provider content blocks (text, tool_use, tool_result, thinking) are
+        // kept verbatim for model turns, because the provider requires them
+        // echoed back unchanged. A user turn is plain text and never carries
+        // blocks, so a client cannot inject a forged tool_result into the
+        // history through the message route.
+        if (isset($message['blocks']) && is_array($message['blocks'])) {
+            if ('user' === $role) {
+                $this->last_error = self::APPEND_INVALID_ROLE;
+                return false;
+            }
+            $blocks = array_values($message['blocks']);
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- measures the byte size of the row about to be written, nothing is unserialized.
+            if (strlen(serialize(wp_slash($blocks))) > self::MAX_BLOCKS_BYTES) {
+                $this->last_error = self::APPEND_TOO_LARGE;
+                return false;
+            }
+            $entry['blocks'] = $blocks;
+        }
         if ($client_id !== '') {
             $entry['client_id'] = $client_id;
         }
@@ -382,6 +425,7 @@ class Conversation_Store
         // exceeded.
         $sizes = [];
         foreach ($messages as $entry_to_size) {
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- measures the byte size of the row update_post_meta() is about to write, nothing is unserialized.
             $sizes[] = strlen(serialize(wp_slash($entry_to_size)));
         }
         $total = array_sum($sizes);
@@ -418,6 +462,43 @@ class Conversation_Store
     public function last_append_error(): string
     {
         return $this->last_error;
+    }
+
+    /** Whether the last append_message() was a retry that stored nothing new. */
+    public function last_append_duplicate(): bool
+    {
+        return $this->last_duplicate;
+    }
+
+    /**
+     * Reads the conversation's non-history state, for its owner only.
+     *
+     * @return array<string, mixed>
+     */
+    public function get_state(int $post_id, int $user_id): array
+    {
+        if (! $this->is_owned_by($post_id, $user_id)) {
+            return [];
+        }
+        $state = get_post_meta($post_id, self::STATE_META, true);
+        return is_array($state) ? $state : [];
+    }
+
+    /**
+     * Replaces the conversation's non-history state, for its owner only.
+     * Slashed for the same reason as the history: update_metadata() unslashes.
+     *
+     * @param array<string, mixed> $state
+     */
+    public function set_state(int $post_id, int $user_id, array $state): bool
+    {
+        if (! $this->is_owned_by($post_id, $user_id)) {
+            return false;
+        }
+        if ($state === $this->get_state($post_id, $user_id)) {
+            return true;
+        }
+        return (bool) update_post_meta($post_id, self::STATE_META, wp_slash($state));
     }
 
     /**

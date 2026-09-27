@@ -16,14 +16,14 @@ if (! defined('ABSPATH')) {
  * therefore carries no tier branch: Plugin::register_admin_menu only adds it
  * where the feature can actually run.
  *
- * This slice renders the provider-key management the /chat/key routes already
- * back, so the menu entry does something the day it appears: a menu item whose
- * only content is "not available yet" is a dead entry with extra steps. The
- * conversation view arrives with the executor slice.
+ * The screen has two parts: the per-user provider key form (backed by
+ * /chat/key) and the conversation view (backed by /chat/message,
+ * /chat/continue and /chat/approve), including the approval card that shows
+ * the exact ability and arguments of every call that would change the site.
  *
  * The page holds no capability of its own: every action the chat performs
  * goes through the chat REST controller, which re-checks manage_options and
- * Pro\Gate per request, and every tool call will run through the same
+ * Pro\Gate per request, and every tool call runs through the same
  * governed ability path as external MCP calls. The form below is not an
  * alternate write path for the same reason: it posts to the same route with
  * the same nonce, and the key never round-trips back to the browser.
@@ -80,8 +80,11 @@ class Chat_Page
         }
         echo '</p>';
         echo '<p class="description">' . esc_html__(
-            'The key is encrypted per user and is never sent back to the browser. It is yours alone: '
-            . 'other administrators cannot read it, and it is deleted with your account.',
+            'The key is encrypted per user and is never sent back to the browser. It is yours alone: other administrators cannot read it, and it is deleted with your account.',
+            'wpmcp'
+        ) . '</p>';
+        echo '<p class="description">' . esc_html__(
+            'Messages you send here, with the tool results the assistant needs, are sent from this server to the Anthropic API using your key. Nothing is sent until you send a message.',
             'wpmcp'
         ) . '</p>';
 
@@ -97,18 +100,198 @@ class Chat_Page
         echo '<p id="wpmcp-chat-key-result" role="status" aria-live="polite"></p>';
         echo '</form>';
 
-        // The conversation UI is the executor slice. The mount point is here
-        // so that slice adds a bundle rather than restructuring this screen.
-        echo '<div id="wpmcp-chat-root" data-rest-namespace="wpmcp/v1"></div>';
+        echo '<h2>' . esc_html__('Conversation', 'wpmcp') . '</h2>';
+        echo '<p class="description">' . esc_html__(
+            'Reads run straight away. Anything that changes the site waits for you to approve that exact call, and every change is snapshotted so it can be rolled back from the History screen.',
+            'wpmcp'
+        ) . '</p>';
+        echo '<div id="wpmcp-chat-root">';
+        echo '<div id="wpmcp-chat-log" role="log" aria-live="polite" '
+            . 'style="max-height:28em;overflow:auto;border:1px solid #c3c4c7;background:#fff;padding:8px 12px;margin-bottom:8px;"></div>';
+        echo '<p><label for="wpmcp-chat-input" class="screen-reader-text">' . esc_html__('Message', 'wpmcp') . '</label>';
+        echo '<textarea id="wpmcp-chat-input" class="large-text" rows="3" '
+            . 'maxlength="' . esc_attr((string) Chat_Rest_Controller::MAX_MESSAGE_LENGTH) . '"></textarea></p>';
+        echo '<p>';
+        echo '<button type="button" class="button button-primary" id="wpmcp-chat-send">' . esc_html__('Send', 'wpmcp') . '</button> ';
+        echo '<button type="button" class="button" id="wpmcp-chat-new">' . esc_html__('New conversation', 'wpmcp') . '</button>';
+        echo '</p>';
+        echo '<p id="wpmcp-chat-status" role="status" aria-live="polite"></p>';
+        echo '</div>';
         echo '</div>';
 
         $this->print_key_script();
+        $this->print_chat_script();
     }
 
     /**
-     * The key form's behavior. Inline rather than an enqueued file because it
-     * is the whole client this slice has; the executor slice replaces it with
-     * a registered bundle.
+     * The conversation client. It renders text only (textContent, never
+     * innerHTML), so neither model output nor tool arguments can inject
+     * markup into the admin screen. It holds no key and no authority of its
+     * own: every action is a nonce-checked request to the chat routes, and an
+     * approval only works with the server-minted token for that one call.
+     */
+    private function print_chat_script(): void
+    {
+        $script = <<<'JS'
+(function () {
+    var c = window.wpmcpChat, log = document.getElementById('wpmcp-chat-log');
+    if (!c || !log) { return; }
+    var input = document.getElementById('wpmcp-chat-input');
+    var sendBtn = document.getElementById('wpmcp-chat-send');
+    var status = document.getElementById('wpmcp-chat-status');
+    var conversationId = 0, steps = 0, busy = false;
+
+    function line(who, text, cls) {
+        var p = document.createElement('div');
+        p.className = cls || '';
+        p.style.margin = '6px 0';
+        var b = document.createElement('strong');
+        b.textContent = who + ': ';
+        p.appendChild(b);
+        var t = document.createElement('span');
+        t.style.whiteSpace = 'pre-wrap';
+        t.textContent = text;
+        p.appendChild(t);
+        log.appendChild(p);
+        log.scrollTop = log.scrollHeight;
+        return p;
+    }
+    function setBusy(on, text) {
+        busy = on;
+        sendBtn.disabled = on;
+        status.textContent = text || '';
+    }
+    function call(path, body) {
+        return fetch(c.root + path, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': c.nonce },
+            body: JSON.stringify(body)
+        }).then(function (r) {
+            return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, data: d || {} }; });
+        });
+    }
+    function events(list) {
+        (list || []).forEach(function (e) {
+            var text = e.tool + ': ' + e.status + (e.code ? ' (' + e.code + ')' : '') + (e.operation_id ? ' [' + c.i18n.undo + ' ' + e.operation_id + ']' : '');
+            line(c.i18n.tool, text, 'description');
+        });
+    }
+    function handle(r) {
+        var d = r.data;
+        if (d.conversation_id) { conversationId = d.conversation_id; }
+        if (d.reply) { line(c.i18n.assistant, d.reply); }
+        events(d.tool_events);
+        if (!r.ok || d.status === 'error') {
+            setBusy(false, (d.error || c.i18n.failed) + (d.key_status ? ' (' + d.key_status + ')' : '') + (d.message ? ': ' + d.message : ''));
+            if (d.proposals) { d.proposals.forEach(propose); }
+            return;
+        }
+        if (d.status === 'duplicate') { setBusy(false, c.i18n.duplicate); return; }
+        if (d.status === 'approval_required') {
+            (d.proposals || []).forEach(propose);
+            setBusy(false, c.i18n.waiting);
+            sendBtn.disabled = true;
+            return;
+        }
+        if (d.status === 'continue') {
+            steps++;
+            if (steps > c.maxSteps) { setBusy(false, c.i18n.limit); return; }
+            setBusy(true, c.i18n.working);
+            call('/continue', { conversation_id: conversationId }).then(handle, fail);
+            return;
+        }
+        setBusy(false, '');
+    }
+    function fail() { setBusy(false, c.i18n.failed); }
+    function propose(p) {
+        if (document.getElementById('wpmcp-prop-' + p.tool_use_id)) {
+            document.getElementById('wpmcp-prop-' + p.tool_use_id).dataset.token = p.approval_token;
+            return;
+        }
+        var box = document.createElement('div');
+        box.id = 'wpmcp-prop-' + p.tool_use_id;
+        box.dataset.token = p.approval_token;
+        box.style.cssText = 'border-left:4px solid #dba617;background:#fcf9e8;padding:6px 10px;margin:8px 0;';
+        var h = document.createElement('strong');
+        h.textContent = c.i18n.approveTitle + ' ' + p.ability;
+        box.appendChild(h);
+        var pre = document.createElement('pre');
+        pre.style.cssText = 'white-space:pre-wrap;max-height:16em;overflow:auto;';
+        pre.textContent = JSON.stringify(p.args, null, 2);
+        box.appendChild(pre);
+        [['approve', c.i18n.approve, 'button button-primary'], ['deny', c.i18n.deny, 'button']].forEach(function (a) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = a[2];
+            btn.textContent = a[1];
+            btn.style.marginRight = '6px';
+            btn.addEventListener('click', function () {
+                if (busy) { return; }
+                box.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+                setBusy(true, c.i18n.working);
+                call('/approve', {
+                    conversation_id: conversationId,
+                    tool_use_id: p.tool_use_id,
+                    decision: a[0],
+                    approval_token: a[0] === 'approve' ? box.dataset.token : ''
+                }).then(function (r) {
+                    if (r.ok) { box.remove(); } else { box.querySelectorAll('button').forEach(function (x) { x.disabled = false; }); }
+                    if (r.ok && r.data.status === 'approval_required') { events(r.data.tool_events); setBusy(false, c.i18n.waiting); sendBtn.disabled = true; return; }
+                    handle(r);
+                }, fail);
+            });
+            box.appendChild(btn);
+        });
+        log.appendChild(box);
+        log.scrollTop = log.scrollHeight;
+    }
+    sendBtn.addEventListener('click', function () {
+        var text = input.value.trim();
+        if (!text || busy) { return; }
+        line(c.i18n.you, text);
+        input.value = '';
+        steps = 0;
+        setBusy(true, c.i18n.working);
+        var id = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 10);
+        call('/message', { conversation_id: conversationId, message: text, client_message_id: id }).then(handle, fail);
+    });
+    document.getElementById('wpmcp-chat-new').addEventListener('click', function () {
+        if (busy) { return; }
+        conversationId = 0;
+        log.textContent = '';
+        setBusy(false, '');
+    });
+}());
+JS;
+
+        wp_print_inline_script_tag(
+            'var wpmcpChat = ' . wp_json_encode([
+                'root'     => esc_url_raw(rest_url(Chat_Rest_Controller::REST_NAMESPACE . '/chat')),
+                'nonce'    => wp_create_nonce('wp_rest'),
+                'maxSteps' => Turn_Runner::MAX_ROUNDS,
+                'i18n'     => [
+                    'you'          => __('You', 'wpmcp'),
+                    'assistant'    => __('Assistant', 'wpmcp'),
+                    'tool'         => __('Tool', 'wpmcp'),
+                    'undo'         => __('undo point', 'wpmcp'),
+                    'working'      => __('Working...', 'wpmcp'),
+                    'waiting'      => __('Waiting for your approval.', 'wpmcp'),
+                    'failed'       => __('The request failed.', 'wpmcp'),
+                    'duplicate'    => __('That message was already sent.', 'wpmcp'),
+                    'limit'        => __('Stopped after too many steps. Send a message to continue.', 'wpmcp'),
+                    'approveTitle' => __('The assistant wants to run', 'wpmcp'),
+                    'approve'      => __('Approve this call', 'wpmcp'),
+                    'deny'         => __('Decline', 'wpmcp'),
+                ],
+            ]) . ";\n" . $script
+        );
+    }
+
+    /**
+     * The key form's behavior. Inline, like the conversation client, because
+     * the plugin enqueues no script files anywhere and the whole add-on
+     * screen is stripped from the directory build with src/Pro.
      */
     private function print_key_script(): void
     {
