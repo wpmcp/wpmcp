@@ -22,6 +22,10 @@ class Get_Option
             throw new \InvalidArgumentException('An option name is required.');
         }
 
+        if (! Option_Guard::is_plain_name($name)) {
+            throw new \RuntimeException('Refusing to read an option whose name contains non-ASCII, control or invisible characters: it can match a different row than it appears to.');
+        }
+
         if (Option_Guard::is_denylisted($name)) {
             throw new \RuntimeException(sprintf('Refusing to read sensitive option "%s".', esc_html($name)));
         }
