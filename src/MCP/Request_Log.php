@@ -90,6 +90,7 @@ class Request_Log
     public static function is_capturing_arguments(): bool
     {
         $enabled = (bool) get_option(self::CAPTURE_OPTION, false);
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound -- self::CAPTURE_OPTION is the literal 'wpmcp_request_log_capture_args', a wpmcp_-prefixed hook name.
         return (bool) apply_filters(self::CAPTURE_OPTION, $enabled);
     }
 

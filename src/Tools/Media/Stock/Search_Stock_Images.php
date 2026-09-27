@@ -43,7 +43,7 @@ class Search_Stock_Images
             default:
                 throw new \InvalidArgumentException(sprintf(
                     'Unknown stock provider "%s". Supported: openverse, pexels, unsplash.',
-                    $provider
+                    esc_html($provider)
                 ));
         }
 
@@ -63,7 +63,7 @@ class Search_Stock_Images
         if (null === $key || '' === $key) {
             throw new \RuntimeException(sprintf(
                 'Provider "%s" needs an API key. Store one (encrypted) with the set-stock-key tool first.',
-                $provider
+                esc_html($provider)
             ));
         }
         return $key;
@@ -158,22 +158,34 @@ class Search_Stock_Images
         return [isset($body['total']) ? (int) $body['total'] : null, $results];
     }
 
+    /**
+     * Pinned so the request carries no site identity. WordPress's default
+     * agent is "WordPress/<version>; <home_url>", which would send the site
+     * URL and core version to three third parties on every search and make
+     * the readme's "what is sent" disclosure false (issue #166).
+     */
+    private const USER_AGENT = 'WPMCP-Stock-Search/1.0';
+
     /** @return array decoded JSON body */
     private function fetch_json(string $provider, string $url, array $headers = []): array
     {
-        $response = wp_remote_get($url, ['timeout' => 20, 'headers' => $headers]);
+        $response = wp_remote_get($url, [
+            'timeout'    => 20,
+            'headers'    => $headers,
+            'user-agent' => self::USER_AGENT,
+        ]);
         if (is_wp_error($response)) {
-            throw new \RuntimeException(sprintf('The %s search request failed: %s', $provider, $response->get_error_message()));
+            throw new \RuntimeException(sprintf('The %s search request failed: %s', esc_html($provider), esc_html($response->get_error_message())));
         }
 
         $code = (int) wp_remote_retrieve_response_code($response);
         if (200 !== $code) {
-            throw new \RuntimeException(sprintf('The %s search API answered HTTP %d.', $provider, $code));
+            throw new \RuntimeException(sprintf('The %s search API answered HTTP %d.', esc_html($provider), (int) $code));
         }
 
         $body = json_decode((string) wp_remote_retrieve_body($response), true);
         if (! is_array($body)) {
-            throw new \RuntimeException(sprintf('The %s search API returned an unparseable body.', $provider));
+            throw new \RuntimeException(sprintf('The %s search API returned an unparseable body.', esc_html($provider)));
         }
 
         return $body;

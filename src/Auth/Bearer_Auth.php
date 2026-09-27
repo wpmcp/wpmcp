@@ -71,7 +71,9 @@ class Bearer_Auth
 
     private static function bearer_token_from_request(): ?string
     {
-        $header = isset($_SERVER['HTTP_AUTHORIZATION']) ? (string) $_SERVER['HTTP_AUTHORIZATION'] : '';
+        $header = isset($_SERVER['HTTP_AUTHORIZATION'])
+            ? sanitize_text_field(wp_unslash($_SERVER['HTTP_AUTHORIZATION']))
+            : '';
         if (! str_starts_with($header, 'Bearer ')) {
             return null;
         }
