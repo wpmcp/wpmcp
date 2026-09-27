@@ -121,6 +121,27 @@ the generated file (`Widget_Registry::purge_on_delete()` on `before_delete_post`
 so generated PHP does not accumulate. Trashing does none of that on purpose:
 the trash is reversible, so `restore-post` alone is a complete undo.
 
+### Validation and render parity (after the merge with main)
+
+- `Widget_Spec::validate()` type-checks every field BEFORE casting it (an
+  array title, label, name, type, default, keyword or template used to become
+  the literal "Array" plus a warning), bounds every field (`MAX_CONTROLS`,
+  `MAX_KEYWORDS`, `MAX_NAME`, `MAX_TEXT`, `MAX_DEFAULT`, `MAX_TEMPLATE`), and
+  holds control names and the icon class to a strict character set instead of
+  silently sanitizing them. The malformed/hostile corpus in the suite proves
+  every refusal is side-effect free (no post, option, manifest or sandbox).
+- Main taught `Widget_Renderer` to unwrap Elementor's array-valued controls
+  (URL and MEDIA return `['url' => ..]`, ICONS returns `['value' => ..]`, one
+  level deeper for an svg icon). The compiler now emits the same reduction per
+  control type, followed by an `is_scalar()` check before the escaper, so a
+  compiled widget renders the URL where it used to print "Array". A data
+  provider asserts the two render paths are byte-identical for those shapes,
+  for hostile scalars and for junk.
+- Every write that changes a generated file (compile, undo, purge) calls
+  `opcache_invalidate()`, so a host with `opcache.validate_timestamps` off
+  does not keep executing the previous class while the manifest vouches for
+  the new bytes.
+
 ## Acceptance criteria
 
 - [x] validate-spec rejects malformed/hostile specs without side effects

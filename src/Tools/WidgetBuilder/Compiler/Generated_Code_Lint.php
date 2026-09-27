@@ -53,8 +53,10 @@ class Generated_Code_Lint
         // failure mode this class's whole argument is against, so the suite
         // asserts this list against what compiling really emits.
         'esc_html', 'esc_attr', 'esc_url', 'wp_kses_post',
-        // The guards the file preamble and the render body use.
-        'is_array', 'defined', 'class_exists',
+        // The guards the file preamble and the render body use (is_array and
+        // is_scalar reduce Elementor's array-valued controls the way
+        // Widget_Renderer::scalarize() does).
+        'is_array', 'is_scalar', 'defined', 'class_exists',
     ];
 
     /**

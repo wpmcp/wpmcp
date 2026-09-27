@@ -135,7 +135,7 @@ class Compile_Custom_Widget
             [
                 'object_type'         => 'option',
                 'object_id'           => Compiled_Widget_Manifest::OPTION,
-                'session_id'          => 'default',
+                'session_id'          => (string) ($args['session_id'] ?? 'default'),
                 'tool_name'           => 'compile-custom-widget',
                 'args'                => ['widget_id' => $widget_id],
                 // Undo this compile only, bytes and hash together. Restoring
@@ -194,6 +194,7 @@ class Compile_Custom_Widget
             wp_delete_file($tmp);
             return new \WP_Error('wpmcp_widget_sandbox_unwritable', 'Could not move the compiled widget into the sandbox.');
         }
+        Compiled_Widget_Manifest::invalidate_opcache($path);
         return true;
     }
 }

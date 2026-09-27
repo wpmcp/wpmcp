@@ -437,6 +437,23 @@ class Compiled_Widget_Manifest
     }
 
     /**
+     * Drop any opcode-cache entry for a generated file after its bytes change.
+     *
+     * The hash check reads the bytes on disk, but require executes whatever
+     * the opcode cache holds for the path. On a host with
+     * opcache.validate_timestamps off (common in production) a recompile, an
+     * undo or a purge would otherwise keep executing the PREVIOUS class until
+     * the next PHP restart, so the manifest would vouch for one set of bytes
+     * while another ran.
+     */
+    public static function invalidate_opcache(string $path): void
+    {
+        if ('' !== $path && function_exists('opcache_invalidate')) {
+            opcache_invalidate($path, true);
+        }
+    }
+
+    /**
      * Forget a compiled widget completely: drop the manifest entry AND delete
      * the generated file. Used when a spec is permanently deleted, so a site
      * does not accumulate orphaned generated PHP that nothing will ever load
@@ -451,6 +468,7 @@ class Compiled_Widget_Manifest
         $path = self::path_for($entry['file']);
         if ('' !== $path && is_file($path) && ! is_link($path)) {
             wp_delete_file($path);
+            self::invalidate_opcache($path);
         }
         return self::remove($spec_id);
     }
@@ -483,6 +501,7 @@ class Compiled_Widget_Manifest
                 // The compile created this file; the prior state had none.
                 wp_delete_file($path);
             }
+            self::invalidate_opcache($path);
         }
 
         $entries = self::read();

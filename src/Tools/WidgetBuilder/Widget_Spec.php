@@ -46,18 +46,58 @@ class Widget_Spec
         return (string) (self::CONTROL_TYPES[$type]['escaper'] ?? 'esc_html');
     }
 
+    /** Size ceilings. A spec is authored data, so every field is bounded. */
+    public const MAX_CONTROLS = 50;
+    public const MAX_KEYWORDS = 20;
+    public const MAX_NAME     = 64;
+    public const MAX_TEXT     = 200;
+    public const MAX_DEFAULT  = 10000;
+    public const MAX_TEMPLATE = 65535;
+
     /**
+     * Static, side-effect-free validation. Hostile or malformed input gets a
+     * WP_Error, never a PHP warning: every field is type-checked BEFORE it is
+     * cast, because a cast is where an array becomes the literal "Array" and a
+     * notice. Every field is also bounded, and the identifiers that end up in
+     * markup or in generated PHP (control names, the icon class) are held to a
+     * strict character set rather than silently sanitized into something the
+     * author did not write.
+     *
      * @return true|\WP_Error true when the spec is well-formed.
      */
     public static function validate(array $spec)
     {
-        if ('' === trim((string) ($spec['title'] ?? ''))) {
+        $title = $spec['title'] ?? '';
+        if (! is_string($title) || '' === trim($title)) {
             return new \WP_Error('invalid_spec', 'A non-empty title is required.');
+        }
+        if (strlen($title) > self::MAX_TEXT) {
+            return new \WP_Error('invalid_spec', sprintf('The title is longer than %d bytes.', self::MAX_TEXT));
+        }
+        if (isset($spec['name']) && (! is_string($spec['name']) || strlen($spec['name']) > self::MAX_TEXT)) {
+            return new \WP_Error('invalid_spec', 'The name must be a short string.');
+        }
+        if (isset($spec['icon']) && (! is_string($spec['icon']) || 1 !== preg_match('/^[A-Za-z0-9_\- ]{1,100}$/', $spec['icon']))) {
+            return new \WP_Error('invalid_spec', 'The icon must be an icon class name (letters, digits, "-", "_" and spaces).');
+        }
+        if (isset($spec['keywords'])) {
+            $keywords = $spec['keywords'];
+            if (! is_array($keywords) || count($keywords) > self::MAX_KEYWORDS) {
+                return new \WP_Error('invalid_spec', sprintf('Keywords must be a list of at most %d strings.', self::MAX_KEYWORDS));
+            }
+            foreach ($keywords as $keyword) {
+                if (! is_string($keyword) || strlen($keyword) > self::MAX_TEXT) {
+                    return new \WP_Error('invalid_spec', 'Each keyword must be a short string.');
+                }
+            }
         }
 
         $controls = $spec['controls'] ?? null;
         if (! is_array($controls) || [] === $controls) {
             return new \WP_Error('invalid_spec', 'At least one control is required.');
+        }
+        if (count($controls) > self::MAX_CONTROLS) {
+            return new \WP_Error('invalid_spec', sprintf('A widget may declare at most %d controls.', self::MAX_CONTROLS));
         }
 
         $seen = [];
@@ -65,29 +105,51 @@ class Widget_Spec
             if (! is_array($control)) {
                 return new \WP_Error('invalid_control', 'Each control must be an object.');
             }
-            $name = sanitize_key((string) ($control['name'] ?? ''));
-            if ('' === $name) {
+            $raw_name = $control['name'] ?? '';
+            if (! is_string($raw_name) || '' === $raw_name) {
                 return new \WP_Error('invalid_control', 'Each control needs a name.');
             }
+            if (1 !== preg_match('/^[A-Za-z0-9_\-]{1,' . self::MAX_NAME . '}$/', $raw_name)) {
+                return new \WP_Error(
+                    'invalid_control',
+                    sprintf('Control names may use only letters, digits, "-" and "_", up to %d characters.', self::MAX_NAME)
+                );
+            }
+            $name = sanitize_key($raw_name);
             if (isset($seen[$name])) {
                 return new \WP_Error('invalid_control', sprintf('Duplicate control name "%s".', $name));
             }
             $seen[$name] = true;
 
-            $type = (string) ($control['type'] ?? '');
-            if (! isset(self::CONTROL_TYPES[$type])) {
+            $type = $control['type'] ?? '';
+            if (! is_string($type) || ! isset(self::CONTROL_TYPES[$type])) {
                 return new \WP_Error(
                     'invalid_control',
-                    sprintf('"%s" is not a supported control type (%s).', $type, implode(', ', array_keys(self::CONTROL_TYPES)))
+                    sprintf('Control "%s" has an unsupported type; use one of: %s.', $name, implode(', ', array_keys(self::CONTROL_TYPES)))
                 );
             }
-            if ('' === trim((string) ($control['label'] ?? ''))) {
+            $label = $control['label'] ?? '';
+            if (! is_string($label) || '' === trim($label)) {
                 return new \WP_Error('invalid_control', sprintf('Control "%s" needs a label.', $name));
+            }
+            if (strlen($label) > self::MAX_TEXT) {
+                return new \WP_Error('invalid_control', sprintf('The label of control "%s" is longer than %d bytes.', $name, self::MAX_TEXT));
+            }
+            $default = $control['default'] ?? null;
+            if (null !== $default && ! is_scalar($default)) {
+                return new \WP_Error('invalid_control', sprintf('The default of control "%s" must be a plain value.', $name));
+            }
+            if (is_string($default) && strlen($default) > self::MAX_DEFAULT) {
+                return new \WP_Error('invalid_control', sprintf('The default of control "%s" is longer than %d bytes.', $name, self::MAX_DEFAULT));
             }
         }
 
-        if ('' === trim((string) ($spec['template'] ?? ''))) {
+        $template = $spec['template'] ?? '';
+        if (! is_string($template) || '' === trim($template)) {
             return new \WP_Error('invalid_spec', 'A non-empty template is required.');
+        }
+        if (strlen($template) > self::MAX_TEMPLATE) {
+            return new \WP_Error('invalid_spec', sprintf('The template is longer than %d bytes.', self::MAX_TEMPLATE));
         }
 
         return true;

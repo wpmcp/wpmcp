@@ -200,11 +200,39 @@ class Widget_Compiler
             if (! isset($controls[$key])) {
                 continue;
             }
-            $escaper = $controls[$key]['escaper'];
-            $body   .= '        echo ' . $escaper . '((string) (' . self::settings_read($key, $controls[$key]['default']) . "));\n";
+            $body .= '        $value = ' . self::settings_read($key, $controls[$key]['default']) . ";\n";
+            $body .= self::scalarize($controls[$key]['type']);
+            $body .= '        echo ' . $controls[$key]['escaper'] . "(is_scalar(\$value) ? (string) \$value : '');\n";
         }
 
         return $body;
+    }
+
+    /**
+     * Reduce $value to the member its control type documents, mirroring
+     * Widget_Renderer::scalarize() statement for statement.
+     *
+     * Elementor returns URL and MEDIA values as ['url' => ..], and ICONS as
+     * ['value' => .., 'library' => ..] where an svg-library icon nests one more
+     * level (['value' => ['url' => ..]]). A cast to string would print the
+     * literal "Array"; an array under any other type is not a documented shape
+     * and renders empty rather than being promoted. The control type is known
+     * at compile time, so the emitted code carries only the branch its type
+     * needs, and every value still ends in an is_scalar() check before the
+     * escaper sees it.
+     */
+    private static function scalarize(string $type): string
+    {
+        switch ($type) {
+            case 'url':
+            case 'image':
+                return "        \$value = is_array(\$value) ? (\$value['url'] ?? '') : \$value;\n";
+            case 'icon':
+                return "        \$value = is_array(\$value) ? (\$value['value'] ?? '') : \$value;\n"
+                    . "        \$value = is_array(\$value) ? (\$value['url'] ?? '') : \$value;\n";
+            default:
+                return "        \$value = is_array(\$value) ? '' : \$value;\n";
+        }
     }
 
     /**
