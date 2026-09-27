@@ -12,9 +12,9 @@
 # asserts against its live atomic-widget schema and runs alongside its own
 # MCP module: an unpinned install let Elementor 4.3.0 (2026-09-22) turn every
 # open PR red overnight with no change on our side. Set ELEMENTOR_VERSION=latest
-# to test against the newest release instead; the scheduled Elementor drift
-# workflow (.github/workflows/elementor-drift.yml) does exactly that, so a new
-# release shows up as a red scheduled run rather than as a blocked merge train.
+# to test against the newest release instead: ELEMENTOR_VERSION=latest
+# bin/test-local.sh runs the suite on a separate install with it, so drift is
+# checked on demand without disturbing the pinned install.
 # When moving the pin, re-record tests/support/elementor-atomic-prop-fixtures.php.
 # The other plugins still track latest stable.
 #
