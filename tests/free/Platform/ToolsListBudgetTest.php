@@ -42,9 +42,25 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  That last raise was taken only after trimming the new descriptions:
      *  they still carry the refusal rules (duplicate slug, parent cycle,
      *  default term) because an agent that learns those from the description
-     *  avoids a failed call, which costs more than the bytes do.
-     *  Compact tool mode keeps clients with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 165000;
+     *  avoids a failed call, which costs more than the bytes do. The
+     *  WooCommerce variation and stock tools (#195: list-variations,
+     *  update-variation, list-low-stock-products) added roughly 1.9KB with no
+     *  raise; a free-tier-only run then measures 112912 bytes over 216 tools.
+     *  Raised 165000 -> 170000 in review for restore-site-backup (#190), the
+     *  one tool that can overwrite every table: its description is kept
+     *  short but still names the refusal rules (scope, prefix, multisite,
+     *  format_version, include_files) and the fact that this build only
+     *  produces the dry_run report, because an agent that reads that plans a
+     *  dry run instead of a failed restore. That puts the payload at 165928
+     *  bytes over 308 tools, after trimming. Raised 170000 -> 175000 in
+     *  review for the local-live sync export pair (#192: build-change-set,
+     *  get-change-set): main had reached 169146 bytes over 312 tools, so no
+     *  new tool fit; the two descriptions were trimmed from 1051 to 420
+     *  characters first, which puts the payload at 170104 bytes over 314
+     *  tools. Raised 175000 -> 180000 when the merge train landed #60, #61
+     *  and #62 together (176529 bytes over 319 tools). Compact tool mode keeps clients
+     *  with tool caps at ~2.8KB regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 180000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
@@ -96,12 +112,16 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
 
         // Ceiling raised from 25 -> 60 in review for the EMCP Elementor parity
         // expansion (global Kit, templates, theme builder, atomic elements,
-        // popups, dynamic tags). The invariant this protects is unchanged: the
-        // 44-widget catalog is consumed by a FIXED generic set, so adding a
-        // cataloged widget must never add a tool. New tools here are per-feature,
-        // never per-widget, and stay well under the catalog size.
+        // popups, dynamic tags); raised 60 -> 62 in review for the atomic
+        // system-slot replace tools (replace-system-colors,
+        // replace-system-typography, issue #60), then 62 -> 64 for issue #61's
+        // two read tools (export-template, resolve-theme-template). The
+        // invariant this protects is unchanged: the 44-widget catalog is
+        // consumed by a FIXED generic set, so adding a cataloged widget must
+        // never add a tool. New tools here are per-feature, never per-widget,
+        // and stay well under the catalog size.
         $this->assertLessThanOrEqual(
-            60,
+            64,
             count($elementor),
             'The Elementor tool surface must stay a fixed set of generic, per-feature tools; '
             . 'widgets belong in the catalog data, not in new per-widget abilities.'

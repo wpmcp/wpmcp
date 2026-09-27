@@ -50,6 +50,27 @@ class MemoryPageTest extends \WP_UnitTestCase
         $this->assertStringStartsWith('Memory ', $label);
     }
 
+    /**
+     * badged() returns markup, and the label is the only part of it not
+     * authored in the method, so both the badged and the quiet-site path
+     * escape it to keep the output well-formed whatever the label contains.
+     * (Not a security boundary: translations are trusted, as in core.)
+     */
+    public function test_the_label_is_escaped_on_both_the_badged_and_the_quiet_path(): void
+    {
+        $hostile = '<img src=x onerror=alert(1)>Memory';
+
+        $this->assertSame(esc_html($hostile), Memory_Page::badged($hostile, 0));
+        $this->assertStringNotContainsString('<img', Memory_Page::badged($hostile, 0));
+
+        Memory_Store::propose(['text' => 'One.']);
+        $badged = Memory_Page::badged($hostile);
+
+        $this->assertStringNotContainsString('<img', $badged);
+        $this->assertStringContainsString('&lt;img', $badged);
+        $this->assertStringContainsString('awaiting-mod', $badged);
+    }
+
     public function test_published_entries_do_not_count_towards_the_badge(): void
     {
         $id = Memory_Store::propose(['text' => 'One.']);

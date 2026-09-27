@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Analysis;
 
+use WPMCP\Tools\Content\Content_Extractor;
+
 if (! defined('ABSPATH')) {
     exit;
 }
