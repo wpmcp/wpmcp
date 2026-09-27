@@ -344,6 +344,35 @@ class Rollback_Service
     }
 
     /**
+     * Every object_type apply_snapshot() below actually knows how to restore.
+     * List_Operations reads this rather than keeping its own copy: the copy
+     * had gone stale for six object types at once, so every one of those
+     * operations was reported to agents (and to the audit-log screen's
+     * Restore button) as un-rollbackable while the tools that wrote them
+     * reported recoverable: true. Add a branch below, get the listing for
+     * free.
+     *
+     * @return string[]
+     */
+    public static function restorable_object_types(): array
+    {
+        return [
+            'post',
+            'option',
+            'user',
+            'comment',
+            'wc_order',
+            'db_rows',
+            'redirect',
+            'term',
+            'php_snippet',
+            'page_build',
+            'media_import',
+            'elementor_global_classes',
+        ];
+    }
+
+    /**
      * Restore an object to the exact state captured in $snapshot.
      *
      * For 'post' objects this must be a FULL restore, not an additive merge:
@@ -423,6 +452,11 @@ class Rollback_Service
 
         if ('term' === $snapshot['object_type']) {
             self::apply_term_snapshot($snapshot);
+            return;
+        }
+
+        if ('php_snippet' === $snapshot['object_type']) {
+            self::apply_php_snippet_snapshot($snapshot);
             return;
         }
 
@@ -958,6 +992,67 @@ class Rollback_Service
                 add_term_meta($term_id, (string) $key, maybe_unserialize($value));
             }
         }
+    }
+
+    /**
+     * Undo one stored PHP snippet write (issue #85; snapshot shape
+     * documented at Snapshot::capture_php_snippet()).
+     *
+     * manage_options is required for the same reason the redirect path
+     * requires it: the store holds PHP source, and restoring a record is a
+     * site-administration action, not a content edit.
+     *
+     * Two cases, and only the one captured record is touched either way, so
+     * snippets created or edited after this operation survive the rollback:
+     *  - the id existed: put the captured record back, with ONE deliberate
+     *    departure from verbatim, below.
+     *  - the id did not exist: the write created it, so remove it.
+     *
+     * THE STATUS FLAG IS NEVER RESTORED AS ACTIVE. rollback-operation and
+     * rollback-session are not in Opt_In_Gates and do not consult the PHP
+     * execution gate, the license check, the governance toggle or the
+     * identity scope of activate-php-snippet, and write no activation entry
+     * to the governance trail. Restoring a captured status='active'
+     * would make an undo a second, ungoverned door to activation (undo a
+     * deactivate-php-snippet, or an update that forced the snippet back to
+     * inactive, and the snippet is armed again). An open exec gate is not
+     * enough either, since it is only one part of that contract, so the
+     * restore is unconditionally INACTIVE. Every other field is restored
+     * exactly, and re-activation goes
+     * back through activate-php-snippet. This does not depend on "nothing
+     * executes from the status flag yet", which stops being true the moment
+     * the documented executor lands.
+     */
+    private static function apply_php_snippet_snapshot(array $snapshot): void
+    {
+        if (! current_user_can('manage_options')) {
+            throw new Mutation_Failed('Rollback refused: restoring a stored PHP snippet requires the manage_options capability.');
+        }
+
+        $data = (array) ($snapshot['data'] ?? []);
+        $id   = (string) ($data['id'] ?? '');
+        if ('' === $id) {
+            return;
+        }
+
+        if (empty($data['existed'])) {
+            \WPMCP\Tools\Code\Php_Snippet_Store::delete($id);
+            return;
+        }
+
+        $record = $data['record'] ?? null;
+        if (! is_array($record)) {
+            throw new Mutation_Failed('Rollback refused: the captured PHP snippet record is missing or malformed.');
+        }
+
+        // Restore under the key the record was captured under, which is what
+        // every snippet tool resolves it by. A record whose own id field had
+        // drifted would otherwise be written to a second, ghost key while the
+        // real one stayed as the undone write left it.
+        $record['id']     = $id;
+        $record['status'] = \WPMCP\Tools\Code\Php_Snippet_Store::STATUS_INACTIVE;
+
+        \WPMCP\Tools\Code\Php_Snippet_Store::save($record);
     }
 
     private static function apply_redirect_snapshot(array $snapshot): void
