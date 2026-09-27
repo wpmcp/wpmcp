@@ -101,10 +101,9 @@ class AtomicPropRepairTest extends Structural_Harness
     {
         $out = Atomic_Props::map('e-heading', ['title' => 'Plain text']);
 
-        $this->assertSame('html-v3', $out['settings']['title']['$$type']);
-        $this->assertSame('Plain text', $out['settings']['title']['value']['content']['value']);
+        $this->assertSame(['$$type' => 'escaped-html', 'value' => 'Plain text'], $out['settings']['title']);
         $this->assertSame([], $out['warnings']);
-        $this->assertStringContainsString('html-v3', $out['coerced'][0]);
+        $this->assertStringContainsString('escaped-html', $out['coerced'][0]);
     }
 
     public function test_aliased_prop_name_is_renamed_to_the_real_prop(): void
@@ -113,7 +112,7 @@ class AtomicPropRepairTest extends Structural_Harness
 
         $this->assertArrayHasKey('paragraph', $out['settings']);
         $this->assertArrayNotHasKey('text', $out['settings']);
-        $this->assertSame('Body copy', $out['settings']['paragraph']['value']['content']['value']);
+        $this->assertSame('Body copy', $out['settings']['paragraph']['value']);
         $this->assertStringContainsString('Renamed "text" to "paragraph"', $out['coerced'][0]);
     }
 
@@ -167,7 +166,7 @@ class AtomicPropRepairTest extends Structural_Harness
 
     public function test_already_typed_props_pass_through_untouched(): void
     {
-        $typed = ['$$type' => 'html-v3', 'value' => ['content' => ['$$type' => 'string', 'value' => 'Kept'], 'children' => []]];
+        $typed = ['$$type' => 'escaped-html', 'value' => 'Kept'];
 
         $out = Atomic_Props::map('e-heading', ['title' => $typed]);
 
@@ -184,6 +183,7 @@ class AtomicPropRepairTest extends Structural_Harness
             'number'       => ['count', '7', ['$$type' => 'number', 'value' => 7]],
             'boolean'      => ['toggle', 1, ['$$type' => 'boolean', 'value' => true]],
             'html'         => ['markup', '<b>x</b>', ['$$type' => 'html', 'value' => '<b>x</b>']],
+            'html-v3'      => ['rich', 'Legacy', ['$$type' => 'html-v3', 'value' => ['content' => ['$$type' => 'string', 'value' => 'Legacy'], 'children' => []]]],
             'url'          => ['href', 'https://example.com', ['$$type' => 'url', 'value' => 'https://example.com']],
             'color'        => ['shade', '#ff0000', ['$$type' => 'color', 'value' => '#ff0000']],
             'string array' => ['tags', ['a', 'b'], ['$$type' => 'string-array', 'value' => ['a', 'b']]],
@@ -233,9 +233,31 @@ class AtomicPropRepairTest extends Structural_Harness
         // Elementor declares rich text.
         $out = Atomic_Props::map('e-heading', ['title' => ['$$type' => 'string', 'value' => 'Was flat']]);
 
-        $this->assertSame('html-v3', $out['settings']['title']['$$type']);
-        $this->assertSame('Was flat', $out['settings']['title']['value']['content']['value']);
+        $this->assertSame(['$$type' => 'escaped-html', 'value' => 'Was flat'], $out['settings']['title']);
         $this->assertStringContainsString('Rewrapped "title"', $out['coerced'][0]);
+        $this->assertSame([], $out['warnings']);
+    }
+
+    public function test_pre_4_3_html_v3_rich_text_is_rewrapped_as_escaped_html(): void
+    {
+        // Pages and prompts written against Elementor 4.0 to 4.2 carry the
+        // nested html-v3 shape; 4.3 declares escaped-html for the same prop.
+        $legacy = ['$$type' => 'html-v3', 'value' => ['content' => ['$$type' => 'string', 'value' => 'From 4.2'], 'children' => []]];
+
+        $out = Atomic_Props::map('e-heading', ['title' => $legacy]);
+
+        $this->assertSame(['$$type' => 'escaped-html', 'value' => 'From 4.2'], $out['settings']['title']);
+        $this->assertStringContainsString('from $$type "html-v3" to "escaped-html"', $out['coerced'][0]);
+        $this->assertSame([], $out['warnings']);
+    }
+
+    public function test_escaped_html_is_rewrapped_as_html_v3_where_that_is_declared(): void
+    {
+        // The reverse, for a site still on Elementor 4.0 to 4.2.
+        $out = Atomic_Props::map('e-kinds', ['rich' => ['$$type' => 'escaped-html', 'value' => 'From 4.3']]);
+
+        $this->assertSame('html-v3', $out['settings']['rich']['$$type']);
+        $this->assertSame('From 4.3', $out['settings']['rich']['value']['content']['value']);
         $this->assertSame([], $out['warnings']);
     }
 
@@ -316,8 +338,7 @@ class AtomicPropRepairTest extends Structural_Harness
 
         $this->assertIsArray($out);
         $settings = $this->tree($post_id)[0]['settings'];
-        $this->assertSame('html-v3', $settings['title']['$$type']);
-        $this->assertSame('Aliased and plain', $settings['title']['value']['content']['value']);
+        $this->assertSame(['$$type' => 'escaped-html', 'value' => 'Aliased and plain'], $settings['title']);
         $this->assertSame('h1', $settings['tag']['value']);
         $this->assertNotEmpty($out['coerced']);
     }
@@ -356,7 +377,7 @@ class AtomicPropRepairTest extends Structural_Harness
         ]);
 
         $settings = $this->tree($post_id)[0]['settings'];
-        $this->assertSame('Patched via alias', $settings['title']['value']['content']['value']);
+        $this->assertSame('Patched via alias', $settings['title']['value']);
         $this->assertSame('h2', $settings['tag']['value'], 'Untouched props survive.');
     }
 

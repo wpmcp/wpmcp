@@ -37,7 +37,7 @@ class Atomic_Widget_Map
         switch ($widget_type) {
             case 'e-heading':
                 if (isset($params['title'])) {
-                    $out['title'] = Atomic_Props::html(self::text($params['title']));
+                    $out['title'] = Atomic_Props::rich_text('e-heading', 'title', self::text($params['title']));
                 }
                 if (isset($params['tag'])) {
                     $out['tag'] = Atomic_Props::string(self::text($params['tag']));
@@ -45,12 +45,12 @@ class Atomic_Widget_Map
                 break;
             case 'e-paragraph':
                 if (isset($params['content']) || isset($params['text'])) {
-                    $out['paragraph'] = Atomic_Props::html(self::text($params['content'] ?? $params['text']));
+                    $out['paragraph'] = Atomic_Props::rich_text('e-paragraph', 'paragraph', self::text($params['content'] ?? $params['text']));
                 }
                 break;
             case 'e-button':
                 if (isset($params['text'])) {
-                    $out['text'] = Atomic_Props::html(self::text($params['text']));
+                    $out['text'] = Atomic_Props::rich_text('e-button', 'text', self::text($params['text']));
                 }
                 break;
             case 'e-image':
@@ -95,11 +95,11 @@ class Atomic_Widget_Map
     {
         switch ($widget_type) {
             case 'e-heading':
-                return ['title' => Atomic_Props::html('Heading'), 'tag' => Atomic_Props::string('h2')];
+                return ['title' => Atomic_Props::rich_text('e-heading', 'title', 'Heading'), 'tag' => Atomic_Props::string('h2')];
             case 'e-paragraph':
-                return ['paragraph' => Atomic_Props::html('Paragraph text')];
+                return ['paragraph' => Atomic_Props::rich_text('e-paragraph', 'paragraph', 'Paragraph text')];
             case 'e-button':
-                return ['text' => Atomic_Props::html('Click here')];
+                return ['text' => Atomic_Props::rich_text('e-button', 'text', 'Click here')];
             default:
                 return [];
         }
