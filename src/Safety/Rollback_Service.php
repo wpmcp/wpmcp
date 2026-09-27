@@ -352,6 +352,7 @@ class Rollback_Service
             'db_rows',
             'redirect',
             'term',
+            'wc_tax_rate',
             'php_snippet',
             'page_build',
             'media_import',
