@@ -41,7 +41,7 @@ class Content_Guard
         foreach (array_keys($meta) as $key) {
             $key = (string) $key;
             if ('_' === substr($key, 0, 1) || is_protected_meta($key, 'post')) {
-                return "Refusing to write protected meta key \"{$key}\".";
+                return 'Refusing to write protected meta key "' . esc_html($key) . '".';
             }
         }
         return true;

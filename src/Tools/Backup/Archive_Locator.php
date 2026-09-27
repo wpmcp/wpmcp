@@ -36,7 +36,7 @@ class Archive_Locator
             }
             if ('completed' !== $job['status']) {
                 throw new \RuntimeException(
-                    sprintf('Backup job %d is %s, so it has no archive yet.', (int) $args['job_id'], (string) $job['status'])
+                    sprintf('Backup job %d is %s, so it has no archive yet.', (int) $args['job_id'], esc_html((string) $job['status']))
                 );
             }
             $path = (string) ($job['result']['file'] ?? '');
