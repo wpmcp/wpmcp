@@ -91,7 +91,7 @@ proxy, not a second one: #77's single-site pump now delegates to it.
   `DELETE /gateway/credential`) and add `Cloud_Client::delete()` for
   best-effort cloud cleanup after the local revoke.
 - Gateway refresh lifetime is #142's (`wpmcp_gateway_refresh_ttl` over the
-  30-day default). EMCP ships ten years; lengthening it is a one-line
+  30-day default). Some clients expect years; lengthening it is a one-line
   filter, deliberately not changed here.
 - Let the proxy authenticate with a gateway credential (refresh grant, with
   somewhere writable to persist the rotated refresh token) instead of an
