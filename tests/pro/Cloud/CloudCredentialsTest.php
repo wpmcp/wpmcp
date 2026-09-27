@@ -275,4 +275,48 @@ class CloudCredentialsTest extends \WP_UnitTestCase
 
         $this->assertFalse(get_option(Cloud_Credentials::OPTION));
     }
+
+    public function test_a_url_only_legacy_option_never_replaces_the_vault(): void
+    {
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'sk-sealed', 'refresh_token' => 'rt-1']);
+        update_option('wpmcp_cloud_url', 'https://attacker.example', true);
+
+        Cloud_Credentials::maybe_migrate_on_boot();
+
+        $all = Cloud_Credentials::all(true);
+        $this->assertSame('https://cloud.example', $all['base_url']);
+        $this->assertSame('rt-1', $all['refresh_token']);
+    }
+
+    public function test_a_legacy_import_never_overwrites_an_unreadable_vault(): void
+    {
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'sk-sealed', 'refresh_token' => 'rt-1']);
+        $sealed = (string) get_option(Cloud_Credentials::OPTION);
+
+        $rotated = static fn () => 'a-freshly-generated-auth-salt';
+        add_filter('salt', $rotated);
+        try {
+            update_option('wpmcp_cloud_url', 'https://cloud.example', true);
+            update_option('wpmcp_cloud_key', 'legacy-key', true);
+            Cloud_Credentials::maybe_migrate_on_boot();
+            $this->assertSame($sealed, get_option(Cloud_Credentials::OPTION));
+        } finally {
+            remove_filter('salt', $rotated);
+        }
+    }
+
+    public function test_redact_also_covers_an_unmigrated_legacy_key(): void
+    {
+        update_option('wpmcp_cloud_url', 'https://cloud.example');
+        update_option('wpmcp_cloud_key', 'sk-legacy-plain');
+
+        $this->assertStringNotContainsString('sk-legacy-plain', Cloud_Credentials::redact('bad key sk-legacy-plain'));
+    }
+
+    public function test_the_option_guard_is_case_insensitive_for_cloud_options(): void
+    {
+        foreach (['wpmcp_cloud_url', 'WPMCP_CLOUD_KEY', 'Wpmcp_Cloud_Unhealthy'] as $name) {
+            $this->assertTrue(\WPMCP\Tools\Meta\Option_Guard::is_denylisted($name), $name);
+        }
+    }
 }

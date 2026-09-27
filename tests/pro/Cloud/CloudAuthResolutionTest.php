@@ -166,4 +166,42 @@ class CloudAuthResolutionTest extends \WP_UnitTestCase
         $this->assertStringContainsString('cloud-connect', $out->get_error_message());
         $this->assertSame([], $this->requests, 'no request may go out with an empty bearer credential');
     }
+
+    public function test_cloud_requests_do_not_follow_redirects(): void
+    {
+        $seen   = [];
+        $filter = static function ($pre, $args) use (&$seen) {
+            $seen = $args;
+            return $pre;
+        };
+        add_filter('pre_http_request', $filter, 5, 2);
+        Cloud_Config::set('https://cloud.example', 'sk-fallback');
+
+        try {
+            (new Cloud_Client())->get('/me');
+        } finally {
+            remove_filter('pre_http_request', $filter, 5);
+        }
+
+        // A 30x would otherwise replay the Authorization header to wherever
+        // the Location header points.
+        $this->assertSame(0, $seen['redirection'] ?? null);
+    }
+
+    public function test_an_oauth_access_token_is_never_sent_over_plain_http(): void
+    {
+        Cloud_Credentials::replace([
+            'base_url'          => 'http://cloud.example',
+            'api_key'           => 'sk-fallback',
+            'access_token'      => 'fresh-access',
+            'refresh_token'     => 'rt-1',
+            'access_expires_at' => time() + 3600,
+        ]);
+
+        (new Cloud_Client())->get('/me');
+
+        // Phase A http connections keep working on their API key; the token
+        // bundle is only ever presented over https.
+        $this->assertSame('Bearer sk-fallback', $this->api_auth());
+    }
 }

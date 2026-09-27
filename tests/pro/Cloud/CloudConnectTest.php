@@ -130,4 +130,50 @@ class CloudConnectTest extends \WP_UnitTestCase
         $this->assertStringNotContainsString('sk-must-not-leak', $out->get_error_message());
         $this->assertStringNotContainsString('sk-must-not-leak', (string) wp_json_encode($out->get_error_data()));
     }
+
+    public function test_a_failed_probe_over_an_unreadable_vault_keeps_the_sealed_blob(): void
+    {
+        // A salt rotation leaves a blob that restoring the old salts would
+        // recover. A mistyped reconnect must not be what destroys it.
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'sk-old', 'refresh_token' => 'rt-1']);
+        $sealed = (string) get_option(Cloud_Credentials::OPTION);
+
+        $rotated = static fn () => 'a-freshly-generated-auth-salt';
+        add_filter('salt', $rotated);
+        try {
+            $this->status = 401;
+            $this->assertWPError((new Cloud_Connect())->handle(['url' => 'https://cloud.example', 'key' => 'sk-mistyped']));
+        } finally {
+            remove_filter('salt', $rotated);
+        }
+
+        $this->assertSame($sealed, get_option(Cloud_Credentials::OPTION));
+        $this->assertSame('rt-1', Cloud_Credentials::all(true)['refresh_token'] ?? null);
+    }
+
+    public function test_a_failed_probe_keeps_the_previous_bundles_rejection_backoff(): void
+    {
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'refresh_token' => 'rt-rejected']);
+        $marker = ['rejected_at' => time()];
+        update_option(\WPMCP\Cloud\Token_Refresher::HEALTH_OPTION, $marker, false);
+
+        $this->status = 401;
+        $this->assertWPError((new Cloud_Connect())->handle(['url' => 'https://cloud.example', 'key' => 'sk-mistyped']));
+
+        // The restored bundle is the one the cloud already rejected; wiping
+        // its backoff would have the next request re-present it.
+        $this->assertSame($marker, get_option(\WPMCP\Cloud\Token_Refresher::HEALTH_OPTION));
+    }
+
+    public function test_a_failed_probe_on_an_unmigrated_legacy_site_keeps_it_connected(): void
+    {
+        update_option('wpmcp_cloud_url', 'https://cloud.example', false);
+        update_option('wpmcp_cloud_key', 'sk-legacy', false);
+
+        $this->status = 401;
+        $this->assertWPError((new Cloud_Connect())->handle(['url' => 'https://cloud.example', 'key' => 'sk-mistyped']));
+
+        $this->assertSame('sk-legacy', \WPMCP\Cloud\Cloud_Config::api_key());
+        $this->assertFalse(get_option('wpmcp_cloud_key'), 'the key survives sealed, not in plaintext');
+    }
 }

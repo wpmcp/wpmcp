@@ -37,12 +37,21 @@ class CloudStatusTest extends \WP_UnitTestCase
         $this->assertSame('ok', $out['token_status']);
     }
 
-    public function test_an_un_raced_rejection_reports_rejected(): void
+    public function test_an_un_raced_rejection_of_a_token_only_connection_reports_rejected(): void
     {
-        Cloud_Config::set('https://cloud.example', 'sk-1');
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'refresh_token' => 'rt-1']);
         update_option(Token_Refresher::HEALTH_OPTION, ['rejected_at' => time()], false);
 
         $this->assertSame('rejected', (new Cloud_Status())->handle([])['token_status']);
+    }
+
+    public function test_a_rejected_token_with_a_working_api_key_still_reports_ok(): void
+    {
+        // Cloud_Client falls back to the key, so the connection works.
+        Cloud_Config::set('https://cloud.example', 'sk-1');
+        update_option(Token_Refresher::HEALTH_OPTION, ['rejected_at' => time()], false);
+
+        $this->assertSame('ok', (new Cloud_Status())->handle([])['token_status']);
     }
 
     public function test_a_site_that_was_never_connected_reports_none(): void

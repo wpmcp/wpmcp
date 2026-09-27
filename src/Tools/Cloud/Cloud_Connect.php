@@ -32,25 +32,21 @@ class Cloud_Connect
             return new \WP_Error('missing_credentials', 'Both a cloud url and an api key are required.');
         }
 
-        $previous = Cloud_Credentials::all();
+        // The exact prior state: the raw blob (so a salt-rotated vault stays
+        // recoverable) and the refresh health markers (so a rejected bundle
+        // stays in its backoff).
+        $previous = Cloud_Credentials::snapshot();
         if (! Cloud_Config::set($url, $key)) {
             // The vault did not take the new set (a failed seal, a filtered
-            // write, no sodium implementation). Whatever is stored now is
-            // either the previous set or nothing; make it exactly the
-            // previous set, and never echo the key back.
-            if ([] !== $previous) {
-                Cloud_Credentials::replace($previous);
-            }
+            // write, no sodium implementation). Put back exactly what was
+            // there, and never echo the key back.
+            Cloud_Credentials::restore($previous);
             return new \WP_Error('cloud_credentials_not_stored', 'The cloud credentials could not be stored encrypted on this site, so nothing was changed.');
         }
 
         $me = (new Cloud_Client())->get('/me');
         if (is_wp_error($me)) {
-            if ([] === $previous) {
-                Cloud_Credentials::clear();
-            } else {
-                Cloud_Credentials::replace($previous);
-            }
+            Cloud_Credentials::restore($previous);
             return $me;
         }
 

@@ -71,8 +71,10 @@ class Cloud_Client
 
         $url  = Cloud_Config::base_url() . self::API_BASE . $path;
         $args = [
-            'method'  => $method,
-            'timeout' => 20,
+            'method'      => $method,
+            'timeout'     => 20,
+            // Never replay the Authorization header to wherever a 30x points.
+            'redirection' => 0,
             'headers' => [
                 'Authorization' => 'Bearer ' . $credential,
                 'Accept'        => 'application/json',
@@ -113,10 +115,14 @@ class Cloud_Client
     private function auth_credential(): ?string
     {
         $bundle = Cloud_Credentials::all();
-        if (Token_Refresher::is_fresh($bundle)) {
+        // The OAuth bundle is only ever presented over https. A phase A
+        // connection on a plain http URL keeps working on its API key, as it
+        // always has, but it does not get to leak a bearer token too.
+        $secure = 'https' === strtolower((string) wp_parse_url(Cloud_Config::base_url(), PHP_URL_SCHEME));
+        if ($secure && Token_Refresher::is_fresh($bundle)) {
             return (string) $bundle['access_token'];
         }
-        if ('' !== (string) ($bundle['refresh_token'] ?? '')) {
+        if ($secure && '' !== (string) ($bundle['refresh_token'] ?? '')) {
             $token = (new Token_Refresher())->ensure_fresh_access_token();
             if (null !== $token && '' !== $token) {
                 return $token;

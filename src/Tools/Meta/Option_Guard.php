@@ -40,12 +40,6 @@ class Option_Guard
         'nonce_salt',
         'secure_auth_key',
         'secure_auth_salt',
-        // WP MCP Cloud (issue #141): the phase A plaintext key until it is
-        // migrated, and the refresh health marker, whose write would pin the
-        // connection in a rejection backoff. The sealed vault itself is
-        // already caught by the 'credential' pattern.
-        'wpmcp_cloud_key',
-        'wpmcp_cloud_unhealthy',
     ];
 
     /** Substrings (case-insensitive) that mark an option name as sensitive. */
@@ -60,6 +54,13 @@ class Option_Guard
         'private_key',
         'access_token',
         'credential',
+        // Every WP MCP Cloud option (issue #141): the sealed vault, the phase
+        // A plaintext key until it is migrated, a legacy URL whose import
+        // would replace the vault, and the refresh health marker, whose write
+        // would pin the connection in a rejection backoff. A pattern rather
+        // than exact names, because it is matched case-insensitively and the
+        // options table collation is too.
+        'wpmcp_cloud_',
     ];
 
     public static function is_denylisted(string $name): bool

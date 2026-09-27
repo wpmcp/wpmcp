@@ -18,7 +18,8 @@ if (! defined('ABSPATH')) {
  *
  *   ok         - usable credentials (an API key, or a token the cloud has not
  *                rejected)
- *   rejected   - the cloud rejected the refresh token; re-run cloud-connect
+ *   rejected   - the cloud rejected the refresh token of a connection with no
+ *                API key to fall back on; re-run cloud-connect
  *   unreadable - a sealed vault that no longer decrypts. wp_salt('auth')
  *                rotated (a moved or restored site with fresh salts), so the
  *                credentials are gone rather than never having been set
@@ -40,7 +41,9 @@ class Cloud_Status
         if (Cloud_Credentials::is_unreadable()) {
             return 'unreadable';
         }
-        if (Token_Refresher::is_unhealthy()) {
+        if (Token_Refresher::is_unhealthy() && '' === Cloud_Config::api_key()) {
+            // With an API key, Cloud_Client falls back to it and the
+            // connection works; only a token-only connection is dead.
             return 'rejected';
         }
         return Cloud_Config::is_configured() ? 'ok' : 'none';

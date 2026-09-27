@@ -498,4 +498,30 @@ class TokenRefresherTest extends \WP_UnitTestCase
         $this->assertSame(0, $seen['redirection'] ?? null);
         $this->assertTrue($seen['sslverify'] ?? false);
     }
+
+    public function test_the_lock_winner_re_reads_past_the_caches_and_skips_a_refresh_another_process_made(): void
+    {
+        // Seal the bundle the "other process" will have written, then put the
+        // stale one back so this request's caches and memo hold it.
+        Cloud_Credentials::replace([
+            'base_url'          => 'https://cloud.example',
+            'access_token'      => 'other-process-access',
+            'refresh_token'     => 'rt-2',
+            'access_expires_at' => time() + 3600,
+        ]);
+        $theirs = (string) get_option(Cloud_Credentials::OPTION);
+        $this->seed_stale();
+        $this->assertFalse(Token_Refresher::is_fresh(Cloud_Credentials::all()));
+
+        // While we wait on the lock, the holder writes straight to the
+        // database, behind this request's options cache.
+        $lock = static function () use ($theirs) {
+            global $wpdb;
+            $wpdb->update($wpdb->options, ['option_value' => $theirs], ['option_name' => Cloud_Credentials::OPTION]);
+            return true;
+        };
+
+        $this->assertSame('other-process-access', $this->refresher(new \WP_Error('boom', 'never called'), $lock)->ensure_fresh_access_token());
+        $this->assertSame([], $this->sent, 'the refresh token must not be presented once another process has rotated it');
+    }
 }

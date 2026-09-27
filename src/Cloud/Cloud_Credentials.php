@@ -13,7 +13,10 @@ if (! defined('ABSPATH')) {
  * refresh_token, access_expires_at, client_id, client_secret) is sealed as one
  * blob, following the shipped Stock_Key_Store pattern. The persisted option
  * never contains plaintext, and a copied database without the site's
- * wp-config salts cannot recover the secrets.
+ * wp-config salts cannot recover the secrets. That last guarantee holds only
+ * when AUTH_KEY / AUTH_SALT are defined in wp-config: when they are missing
+ * or left at the default phrase, wp_salt() generates them and stores them in
+ * the auth_key / auth_salt options, i.e. in the same database as the blob.
  *
  * Cryptography
  *
@@ -45,7 +48,9 @@ if (! defined('ABSPATH')) {
  *  - is reported by cloud-status as token_status "unreadable" (is_unreadable()),
  *    which tells the operator the credentials were lost to a key change rather
  *    than never set;
- *  - keeps the sealed blob untouched. Reads never overwrite or delete it, so
+ *  - keeps the sealed blob untouched. Reads never overwrite or delete it, a
+ *    legacy plaintext import never seals over it, and a cloud-connect whose
+ *    probe fails puts the raw blob back (snapshot() / restore()), so
  *    restoring the previous salts recovers the connection;
  *  - is replaced by the next successful cloud-connect, which seals a fresh set
  *    under the new key.
@@ -170,9 +175,14 @@ class Cloud_Credentials
             return $message;
         }
         $fields  = self::read_vault();
-        $secrets = [];
+        $values  = [(string) get_option(self::LEGACY_KEY_OPTION, '')];
         foreach (self::SECRET_FIELDS as $field) {
-            $value = (string) ($fields[ $field ] ?? '');
+            $values[] = (string) ($fields[ $field ] ?? '');
+        }
+        // The unmigrated legacy key too: a site whose import has not landed
+        // yet authenticates with it, so a backend can echo it back.
+        $secrets = [];
+        foreach ($values as $value) {
             if ('' !== $value) {
                 $secrets[ $value ] = '[redacted]';
             }
@@ -254,6 +264,56 @@ class Cloud_Credentials
         delete_option(self::LEGACY_URL_OPTION);
         delete_option(self::LEGACY_KEY_OPTION);
         Token_Refresher::clear_health();
+    }
+
+    /**
+     * The exact stored state (the raw sealed blob, readable or not, plus the
+     * refresh health markers) for a caller that must be able to put it back
+     * untouched: cloud-connect writes the new set before it can probe it.
+     * Restoring the raw blob rather than a decrypted copy is what keeps a
+     * salt-rotated vault recoverable, and restoring the markers keeps a
+     * rejected bundle in its backoff.
+     *
+     * The phase A plaintext pair is captured too: the write the caller is
+     * about to make deletes it, and when it was never imported (a vault that
+     * could not be written, or one that does not open) it is the only copy.
+     *
+     * @return array{blob:string,health:mixed,retry:mixed,legacy_url:string,legacy_key:string}
+     */
+    public static function snapshot(): array
+    {
+        self::all(true);
+        return [
+            'blob'       => (string) get_option(self::OPTION, ''),
+            'health'     => get_option(Token_Refresher::HEALTH_OPTION, false),
+            'retry'      => get_transient(Token_Refresher::RETRY_TRANSIENT),
+            'legacy_url' => (string) get_option(self::LEGACY_URL_OPTION, ''),
+            'legacy_key' => (string) get_option(self::LEGACY_KEY_OPTION, ''),
+        ];
+    }
+
+    /** @param array{blob:string,health:mixed,retry:mixed,legacy_url:string,legacy_key:string} $snapshot from snapshot() */
+    public static function restore(array $snapshot): void
+    {
+        self::forget_memos();
+        if ('' === (string) $snapshot['blob']) {
+            delete_option(self::OPTION);
+        } else {
+            update_option(self::OPTION, (string) $snapshot['blob'], false);
+        }
+        foreach ([self::LEGACY_URL_OPTION => 'legacy_url', self::LEGACY_KEY_OPTION => 'legacy_key'] as $option => $field) {
+            if ('' !== (string) ($snapshot[ $field ] ?? '')) {
+                update_option($option, (string) $snapshot[ $field ]);
+            }
+        }
+        Token_Refresher::clear_health();
+        if (false !== $snapshot['health']) {
+            update_option(Token_Refresher::HEALTH_OPTION, $snapshot['health'], false);
+        }
+        if (is_string($snapshot['retry']) && '' !== $snapshot['retry']) {
+            set_transient(Token_Refresher::RETRY_TRANSIENT, $snapshot['retry'], Token_Refresher::RETRY_BACKOFF);
+        }
+        self::read_vault(true);
     }
 
     /**
@@ -375,12 +435,19 @@ class Cloud_Credentials
     {
         $url = (string) get_option(self::LEGACY_URL_OPTION, '');
         $key = (string) get_option(self::LEGACY_KEY_OPTION, '');
-        if ('' === $url && '' === $key) {
+        if ('' === $key) {
+            // Nothing secret to protect, and a URL on its own was never a
+            // working phase A connection. Importing it would REPLACE the
+            // vault with a key-less set, which is exactly what a stray write
+            // to wpmcp_cloud_url must never be able to do.
             return [];
         }
 
         $fields = ['base_url' => rtrim($url, '/'), 'api_key' => $key];
-        if (self::$migration_failed) {
+        if (self::$migration_failed || self::is_unreadable()) {
+            // A vault that exists but does not open (rotated salts) may still
+            // be recovered by restoring the old salts; the legacy pair is
+            // usable meanwhile, but it must not be sealed over that blob.
             return $fields;
         }
         // write() keeps the plaintext when the seal did not land: it is then

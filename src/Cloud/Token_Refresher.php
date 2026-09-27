@@ -66,6 +66,16 @@ class Token_Refresher
 
     public const RETRY_BACKOFF = 60;
 
+    /** RFC 6749 section 5.2 error codes, the only ones echoed into an error. */
+    private const OAUTH_ERRORS = [
+        'invalid_request',
+        'invalid_client',
+        'invalid_grant',
+        'unauthorized_client',
+        'unsupported_grant_type',
+        'invalid_scope',
+    ];
+
     /** @var callable(string,int):?bool acquire a named mutex; null when the lock subsystem is unusable */
     private $lock;
 
@@ -345,9 +355,10 @@ class Token_Refresher
         if ('invalid_grant' === $error || (401 === $code && '' === $error)) {
             return ['auth_rejected' => true];
         }
-        // Only the status and a sanitized OAuth error code; never the body,
-        // which a misbehaving backend could fill with the presented token.
-        $error = Cloud_Credentials::redact(sanitize_key($error));
+        // Only the status and a registered OAuth error code (RFC 6749 5.2);
+        // never the body or a free-form value, which a misbehaving backend
+        // could fill with the presented token.
+        $error = in_array($error, self::OAUTH_ERRORS, true) ? $error : '';
         return new \WP_Error('cloud_token_refresh_failed', "HTTP {$code}" . ('' === $error ? '' : " ({$error})"));
     }
 }
