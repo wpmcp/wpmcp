@@ -662,7 +662,7 @@ class Rollback_Service
             if ([] === $restore) {
                 continue; // PK-only table: existing row is already the before-image.
             }
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- restores a captured before-image row in the Database_Guard-validated table; undo-critical write, no WP API covers raw table rows.
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- restores a captured before-image row in the Database_Guard-validated table; undo-critical write, no WP API covers raw table rows. Not cached: the object caches over this table are invalidated right after via Database_Guard::invalidate_caches().
             if (false === $wpdb->update($table, $restore, $where)) {
                 throw new Mutation_Failed('Rollback failed to restore row ' . esc_html($pk_desc) . ' in "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'update failed'));
             }
@@ -899,7 +899,7 @@ class Rollback_Service
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Restoring a deleted term at its original id; no core API preserves term_id or term_taxonomy_id.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Restoring a deleted term at its original id; no core API preserves term_id or term_taxonomy_id. Not cached: clean_term_cache() runs once both rows are back.
         $wpdb->insert($wpdb->terms, [
             'term_id'    => $term_id,
             'name'       => (string) ($captured['name'] ?? ''),
@@ -919,7 +919,7 @@ class Rollback_Service
             $row['term_taxonomy_id'] = $term_taxonomy_id;
         }
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- See above; term_taxonomy_id is what wp_term_relationships joins on.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- See above; term_taxonomy_id is what wp_term_relationships joins on. clean_term_cache() below invalidates.
         $wpdb->insert($wpdb->term_taxonomy, $row);
 
         clean_term_cache([$term_id], $taxonomy);
