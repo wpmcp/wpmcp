@@ -48,10 +48,14 @@ if (! defined('ABSPATH')) {
  * name the payload DOES mention wins for that name, which can re-enable an
  * ability or loosen an identity: that is what replicating a posture means,
  * and it is why apply() is an explicit, manage_options, snapshot-per-option
- * operation rather than something the cloud can push unasked. The one switch
- * that narrows only is wpmcp_mcp_exposure: a payload may turn the master MCP
- * kill switch off across a fleet, but one that would turn it back ON against
- * an operator who turned it off is refused outright.
+ * operation rather than something the cloud can push unasked.
+ *
+ * What apply() never changes, so that every write it makes stays undoable
+ * with rollback-operation over MCP: the wpmcp_mcp_exposure kill switch (in
+ * either direction; off would block every ability over MCP, rollback
+ * included) and any governance toggle that would switch off
+ * wpmcp/rollback-operation itself (ROLLBACK_PATH). Both are reported in
+ * skipped with the reason.
  *
  * apply() is the paid-cloud entitlement (Pro\Gate), requires manage_options,
  * re-filters the incoming blob against the same allowlist, and coerces every
@@ -76,8 +80,16 @@ class Settings_Sync
         Identity_Store::OPTION => 'identities',
     ];
 
-    /** The only identity fields that may cross sites; see the class docblock. */
-    private const IDENTITY_FIELDS = ['name', 'domains', 'operations', 'abilities', 'mode', 'exposure'];
+    /**
+     * The governance names that, switched off, would disable
+     * wpmcp/rollback-operation (ability, domain core, operation update). Sync
+     * drops an incoming "off" for any of them; see coerce_governance().
+     */
+    private const ROLLBACK_PATH = [
+        'ability'   => ['wpmcp/rollback-operation'],
+        'domain'    => ['core'],
+        'operation' => ['update'],
+    ];
 
     /**
      * Export the current governance posture as an allowlisted key => value map.
@@ -112,7 +124,11 @@ class Settings_Sync
      *                                         attributes the write to the
      *                                         session that asked for it, like
      *                                         every other option writer.
-     * @return array{applied:string[],skipped:array<int,array{key:string,reason:string}>,operation_ids:string[]}|\WP_Error
+     * @return array{applied:string[],operation_ids:string[],unchanged:string[],skipped:array<int,array{key:string,reason:string}>}|\WP_Error
+     *         applied and operation_ids are parallel: applied[i] was written
+     *         under the snapshot operation_ids[i]. unchanged lists allowlisted
+     *         options whose coerced value already matched, which are not
+     *         written and so carry no snapshot.
      */
     public static function apply(array $payload, string $session_id = 'default')
     {
@@ -122,8 +138,9 @@ class Settings_Sync
         }
 
         $applied       = [];
-        $skipped       = [];
         $operation_ids = [];
+        $unchanged     = [];
+        $skipped       = [];
 
         foreach ($payload as $option => $value) {
             $option = (string) $option;
@@ -140,15 +157,19 @@ class Settings_Sync
             }
 
             $coerced = self::coerce(self::ALLOWLIST[$option], $value, $option);
+            foreach ($coerced['dropped'] ?? [] as $dropped) {
+                $skipped[] = $dropped;
+            }
             if (! $coerced['ok']) {
                 $skipped[] = ['key' => $option, 'reason' => $coerced['reason']];
                 continue;
             }
 
             $next = $coerced['value'];
-            if ($next === get_option($option)) {
-                // No-op write: report it as applied without burning a snapshot.
-                $applied[] = $option;
+            if (! empty($coerced['unchanged']) || self::canonical($next) === self::canonical(get_option($option))) {
+                // No-op: nothing is written, so no snapshot is taken, and the
+                // option is reported apart from the writes that have one.
+                $unchanged[] = $option;
                 continue;
             }
 
@@ -178,8 +199,9 @@ class Settings_Sync
 
         return [
             'applied'       => $applied,
-            'skipped'       => $skipped,
             'operation_ids' => $operation_ids,
+            'unchanged'     => $unchanged,
+            'skipped'       => $skipped,
         ];
     }
 
@@ -230,15 +252,22 @@ class Settings_Sync
                     return ['ok' => false, 'reason' => 'invalid flag value'];
                 }
                 $on = self::truthy($value);
-                // Narrowing only, matching what Exposure itself is: a kill
-                // switch that other governance layers AND with. A cloud payload
-                // may turn the MCP surface OFF on a fleet, never back on -- an
-                // operator who killed agent access at the site must not have it
-                // silently restored by a stale or tampered blob.
-                if (Exposure::OPTION === $option && $on && ! Exposure::is_enabled()) {
-                    return ['ok' => false, 'reason' => 'settings sync may switch MCP exposure off, never back on'];
+                // The MCP kill switch is reported by export() but never
+                // changed by sync, in either direction. Back ON: an operator
+                // who killed agent access at the site must not have it
+                // restored by a stale or tampered blob. OFF: it denies every
+                // ability over MCP, rollback-operation and cloud-apply-settings
+                // included, so a synced "off" could not be undone the way
+                // every other synced write can. Flip it in wp-admin instead.
+                if ($on === Exposure::is_enabled()) {
+                    return ['ok' => true, 'value' => $on ? '1' : '0', 'unchanged' => true];
                 }
-                return ['ok' => true, 'value' => $on ? '1' : '0'];
+                return [
+                    'ok'     => false,
+                    'reason' => $on
+                        ? 'settings sync never switches MCP exposure back on; do it on the Connection screen'
+                        : 'settings sync never switches MCP exposure off, because that would also block rollback-operation over MCP; do it on the Connection screen',
+                ];
 
             case 'checkbox_flag':
                 if (! is_scalar($value)) {
@@ -285,12 +314,13 @@ class Settings_Sync
         $stored = get_option(Governance::OPTION, []);
         $stored = is_array($stored) ? $stored : [];
 
-        $out = ['ability' => [], 'domain' => [], 'operation' => []];
+        $out     = ['ability' => [], 'domain' => [], 'operation' => []];
+        $dropped = [];
         foreach (array_keys($out) as $dimension) {
             $existing = isset($stored[$dimension]) && is_array($stored[$dimension]) ? $stored[$dimension] : [];
             foreach ($existing as $name => $enabled) {
-                if (is_string($name) && '' !== $name && is_scalar($enabled)) {
-                    $out[$dimension][$name] = self::truthy($enabled);
+                if (self::is_name($name) && is_scalar($enabled)) {
+                    $out[$dimension][(string) $name] = self::truthy($enabled);
                 }
             }
 
@@ -302,22 +332,34 @@ class Settings_Sync
                 return ['ok' => false, 'reason' => "governance {$dimension} toggles must be a map"];
             }
             foreach ($entries as $name => $enabled) {
-                if (! is_string($name) || '' === $name || ! is_scalar($enabled)) {
+                if (! self::is_name($name) || ! is_scalar($enabled)) {
                     return ['ok' => false, 'reason' => "invalid governance {$dimension} toggle"];
                 }
-                $out[$dimension][$name] = self::truthy($enabled);
+                $name    = (string) $name;
+                $enabled = self::truthy($enabled);
+                if (! $enabled && in_array($name, self::ROLLBACK_PATH[ $dimension ], true)) {
+                    // Same reason the MCP kill switch is not synced: this
+                    // toggle would disable rollback-operation itself, and
+                    // with it the undo for everything else in the payload.
+                    $dropped[] = [
+                        'key'    => Governance::OPTION . ".{$dimension}.{$name}",
+                        'reason' => 'settings sync never disables rollback-operation; toggle it on the site',
+                    ];
+                    continue;
+                }
+                $out[$dimension][$name] = $enabled;
             }
         }
 
-        return ['ok' => true, 'value' => $out];
+        return ['ok' => true, 'value' => $out, 'dropped' => $dropped];
     }
 
     /**
      * Identities merge by name: a synced name replaces that one record, and
      * every identity the target defines locally survives. Each incoming record
-     * is projected through the same normalization Identity_Store::create()
-     * applies, so the stored shape is exactly what Governance and
-     * Tool_Exposure read, and nothing outside IDENTITY_FIELDS is kept. A
+     * goes through Identity_Store::normalize(), the normalization create()
+     * itself uses, so the stored shape is exactly what Governance and
+     * Tool_Exposure read and no field outside it is kept. A
      * malformed entry refuses the whole option rather than applying half a
      * map, matching coerce_governance().
      *
@@ -332,7 +374,7 @@ class Settings_Sync
 
         $incoming = [];
         foreach ($value as $name => $record) {
-            if (! is_string($name) || '' === $name || ! is_array($record)) {
+            if (! self::is_name($name) || ! is_array($record)) {
                 return ['ok' => false, 'reason' => 'invalid identity record'];
             }
             foreach (['domains', 'operations', 'abilities'] as $list) {
@@ -340,13 +382,17 @@ class Settings_Sync
                     return ['ok' => false, 'reason' => "identity {$list} must be a list"];
                 }
             }
-            $incoming[ $name ] = self::project_identity($name, $record);
+            $incoming[ (string) $name ] = Identity_Store::normalize($name, $record);
         }
 
-        $stored = get_option(Identity_Store::OPTION, []);
-        $stored = self::project_identities(is_array($stored) ? $stored : []);
+        // Key-by-key rather than array_merge(), which renumbers the int keys
+        // PHP gives digits-only names and would duplicate those identities.
+        $merged = self::project_identities(get_option(Identity_Store::OPTION, []));
+        foreach ($incoming as $name => $record) {
+            $merged[ $name ] = $record;
+        }
 
-        return ['ok' => true, 'value' => array_merge($stored, $incoming)];
+        return ['ok' => true, 'value' => $merged];
     }
 
     /**
@@ -360,42 +406,53 @@ class Settings_Sync
             return $out;
         }
         foreach ($value as $name => $record) {
-            if (is_string($name) && '' !== $name && is_array($record)) {
-                $out[ $name ] = self::project_identity($name, $record);
+            if (self::is_name($name) && is_array($record)) {
+                $out[ (string) $name ] = Identity_Store::normalize($name, $record);
             }
         }
         return $out;
     }
 
-    /** Mirrors Identity_Store::create()'s normalization, field for field. */
-    private static function project_identity(string $name, array $record): array
+    /**
+     * A usable map key. Accepts ints because PHP stores a digits-only string
+     * key ("2024") as an int, both in a stored option and after json_decode(),
+     * and such a name is as valid as any other.
+     *
+     * @param mixed $name
+     */
+    private static function is_name($name): bool
     {
-        $list = static function ($items): array {
-            if (! is_array($items)) {
-                return [];
-            }
-            return array_values(array_map('strval', array_filter($items, 'is_scalar')));
-        };
-        $exposure = $record['exposure'] ?? '';
-
-        $projected = [
-            'name'       => $name,
-            'domains'    => $list($record['domains'] ?? []),
-            'operations' => $list($record['operations'] ?? []),
-            'abilities'  => $list($record['abilities'] ?? []),
-            'mode'       => 'deny' === ($record['mode'] ?? 'allow') ? 'deny' : 'allow',
-            'exposure'   => in_array($exposure, ['full', 'compact'], true) ? $exposure : '',
-        ];
-
-        return array_intersect_key($projected, array_flip(self::IDENTITY_FIELDS));
+        return is_int($name) || (is_string($name) && '' !== $name);
     }
 
-    /** @param scalar $value */
+    /**
+     * An order-insensitive form for the no-op check, so a map whose keys
+     * merely come back in a different order is recognized as unchanged. List
+     * order still counts: in a scope list it is the stored value.
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    private static function canonical($value)
+    {
+        if (! is_array($value)) {
+            return $value;
+        }
+        $value = array_map([self::class, 'canonical'], $value);
+        if (! array_is_list($value)) {
+            ksort($value, SORT_STRING);
+        }
+        return $value;
+    }
+
+    /**
+     * Truthiness as the plugin's option normalizer defines it, expressed
+     * through that owner (Skills_Module::sanitize()) rather than restated.
+     *
+     * @param scalar $value
+     */
     private static function truthy($value): bool
     {
-        if (is_string($value)) {
-            return ! in_array($value, ['', '0', 'false'], true);
-        }
-        return (bool) $value;
+        return '1' === Skills_Module::sanitize($value);
     }
 }

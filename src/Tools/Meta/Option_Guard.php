@@ -40,11 +40,6 @@ class Option_Guard
         'nonce_salt',
         'secure_auth_key',
         'secure_auth_salt',
-        // This plugin's own WP MCP Cloud API key (issue #135). Phase A stores
-        // it as a plain option, and no name or pattern above matched it, so
-        // the registered get-option ability read the live credential straight
-        // out of the database.
-        'wpmcp_cloud_key',
     ];
 
     /** Substrings (case-insensitive) that mark an option name as sensitive. */

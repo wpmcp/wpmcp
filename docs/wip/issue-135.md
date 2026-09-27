@@ -26,8 +26,16 @@ rebuilt on `Cloud_Credentials`.
   fields `Identity_Store::create()` writes (name, domains, operations,
   abilities, mode, exposure) on export and on apply, so a stray field never
   leaves the source or lands on the target. Identities merge by name.
-- Governance toggles merge per dimension; MCP exposure narrows only (sync may
-  switch it off, never back on).
+- Governance toggles merge per dimension. Sync never changes the MCP exposure
+  kill switch (off would block rollback-operation over MCP, on would undo an
+  operator's decision) and drops any governance "off" for
+  wpmcp/rollback-operation, domain core or operation update, reporting each in
+  skipped.
+- `applied[i]` pairs with `operation_ids[i]`; options whose value already
+  matches (compared order-insensitively) are listed in `unchanged` and not
+  written.
+- `Identity_Store::normalize()` is the one identity shape, used by
+  `create()` and by sync; digits-only identity names (int keys) are kept.
 - `apply()` re-filters against the allowlist, re-checks `Option_Guard`, coerces
   per option and writes each option through `Safe_Mutation`, so a sync is one
   `rollback-operation` away.
@@ -37,8 +45,6 @@ rebuilt on `Cloud_Credentials`.
 - Abilities: `cloud-sync-settings` (preview, read), `cloud-push-settings`
   (POST /settings), `cloud-apply-settings` (a pasted payload, or with no
   payload GET /settings then apply).
-- `Option_Guard` refuses `wpmcp_cloud_key`, which the registered `get-option`
-  ability could read on main.
 - The wporg build removes `src/Cloud/Settings_Sync.php` by path
   (`scripts/flavors/wporg/policy.php`), since its gate is Pro\Gate.
 
@@ -50,8 +56,10 @@ rebuilt on `Cloud_Credentials`.
   slug pattern (no path or query characters), spec validated with
   `Widget_Spec::validate()` / `Block_Spec::validate()` (the validate-*-spec
   gate), template always run through `wp_kses_post` even for unfiltered_html
-  users, name collisions refused, stored as a draft via the new `$status`
-  argument on `Widget_Spec_Store::create()` / `Block_Spec_Store::create()`,
+  users, name collisions refused via a targeted `find_by_name()` lookup on
+  each store (not the 200-row `all()`), stored as a draft via the new `$status`
+  argument on `Widget_Spec_Store::create()` / `Block_Spec_Store::create()`
+  (anything but publish or draft is an error),
   provenance in `_wpmcp_marketplace_source`. Not snapshotted, like every other
   create-only path (Create_Post, create-custom-widget, cloud-pull-assets).
 - Publish and moderation are cloud backend scope.
@@ -66,7 +74,7 @@ rebuilt on `Cloud_Credentials`.
 ## Tests
 
 - `tests/pro/Cloud/CloudSettingsSyncTest.php`: allowlist, export, apply
-  filtering and coercion, governance merge, exposure narrowing, identities
+  filtering and coercion, governance merge, the exposure and rollback-path refusals, unchanged reporting, identities
   (projection, merge, normalization, malformed map, rollback), provenance,
   entitlement and capability, push, pull, and the option guard.
 - `tests/pro/Cloud/CloudMarketplaceTest.php`: browse projection and filters,

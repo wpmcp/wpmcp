@@ -13,15 +13,14 @@ use WPMCP\Tools\WidgetBuilder\Widget_Spec_Store;
  *
  * Installs land as INACTIVE drafts and only after the spec passes the same
  * validators validate-widget-spec / validate-block-spec run, the gate
- * cloud-pull-assets already enforces. HTTP is faked through pre_http_request
- * like the rest of the cloud suite, so no live network is involved.
+ * cloud-pull-assets already enforces. HTTP is faked through FakesCloudHttp,
+ * so no live network is involved.
  */
 class CloudMarketplaceTest extends \WP_UnitTestCase
 {
-    /** @var array<int,array{url:string,method:string,body:mixed,headers:array}> */
-    private array $requests = [];
+    use FakesCloudHttp;
 
-    /** @var array<string,mixed> path suffix => response body (or [code, body]) */
+    /** @var array<string,array> path => response body, or ['code' => int, 'body' => array] */
     private array $routes = [];
 
     protected function setUp(): void
@@ -29,42 +28,19 @@ class CloudMarketplaceTest extends \WP_UnitTestCase
         parent::setUp();
         Gate::set_pro_for_tests(true);
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
-        update_option('wpmcp_cloud_url', 'https://cloud.example');
-        update_option('wpmcp_cloud_key', 'secret-key');
-        $this->requests = [];
-        $this->routes   = [];
-        add_filter('pre_http_request', [$this, 'fake_http'], 10, 3);
+        $this->start_fake_cloud();
+        $this->routes    = [];
+        $this->responder = function (string $path): array {
+            $hit = $this->routes[ $path ] ?? ['code' => 404, 'body' => ['message' => 'not found']];
+            return self::cloud_json($hit['body'] ?? $hit, $hit['code'] ?? 200);
+        };
     }
 
     protected function tearDown(): void
     {
-        remove_filter('pre_http_request', [$this, 'fake_http'], 10);
-        delete_option('wpmcp_cloud_url');
-        delete_option('wpmcp_cloud_key');
+        $this->stop_fake_cloud();
         Gate::set_pro_for_tests(null);
         parent::tearDown();
-    }
-
-    public function fake_http($pre, $args, $url)
-    {
-        $body = $args['body'] ?? null;
-        $this->requests[] = [
-            'url'     => $url,
-            'method'  => strtoupper((string) ($args['method'] ?? 'GET')),
-            'body'    => is_string($body) ? json_decode($body, true) : $body,
-            'headers' => $args['headers'] ?? [],
-        ];
-
-        $path = (string) substr($url, strlen('https://cloud.example/wpmcp-cloud/v1'));
-        $hit  = $this->routes[ $path ] ?? ['code' => 404, 'body' => ['message' => 'not found']];
-        $code = $hit['code'] ?? 200;
-        $data = $hit['body'] ?? $hit;
-
-        return [
-            'headers'  => [],
-            'body'     => wp_json_encode($data),
-            'response' => ['code' => $code, 'message' => 'OK'],
-        ];
     }
 
     private static function widget_listing(array $spec_overrides = [], array $listing_overrides = []): array
@@ -146,7 +122,7 @@ class CloudMarketplaceTest extends \WP_UnitTestCase
 
     public function test_browse_requires_a_configured_cloud(): void
     {
-        delete_option('wpmcp_cloud_key');
+        $this->disconnect_fake_cloud();
 
         $out = (new Cloud_Marketplace_Browse())->handle([]);
 
@@ -338,5 +314,48 @@ class CloudMarketplaceTest extends \WP_UnitTestCase
         $this->assertInstanceOf(\WP_Error::class, $out);
         $this->assertSame('marketplace_forbidden', $out->get_error_code());
         $this->assertSame([], $this->requests);
+    }
+
+    /** The collision guard must not stop looking after the first 200 specs. */
+    public function test_install_finds_a_name_collision_past_two_hundred_specs(): void
+    {
+        for ($i = 0; $i < 205; $i++) {
+            Block_Spec_Store::create(self::block_listing(['name' => 'filler-' . $i, 'title' => 'A ' . $i])['spec'], 'draft');
+        }
+        Block_Spec_Store::create(self::block_listing(['title' => 'Zzz Callout'])['spec'], 'draft');
+        $this->routes['/marketplace/callout'] = ['listing' => self::block_listing()];
+
+        $out = (new Cloud_Marketplace_Install())->handle(['slug' => 'callout']);
+
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('marketplace_name_taken', $out->get_error_code());
+    }
+
+    public function test_find_by_name_ignores_a_control_that_shares_the_name(): void
+    {
+        Widget_Spec_Store::create(self::widget_listing([
+            'name'     => 'other-widget',
+            'controls' => [['name' => 'heading', 'type' => 'text', 'label' => 'Heading']],
+        ])['spec']);
+
+        $this->assertNull(Widget_Spec_Store::find_by_name('heading'));
+        $this->assertIsInt(Widget_Spec_Store::find_by_name('other-widget'));
+    }
+
+    /** @dataProvider store_classes */
+    public function test_spec_stores_refuse_an_unknown_status(string $store): void
+    {
+        $spec = 'widget' === $store ? self::widget_listing()['spec'] : self::block_listing()['spec'];
+        $out  = 'widget' === $store ? Widget_Spec_Store::create($spec, 'pending') : Block_Spec_Store::create($spec, 'private');
+
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('invalid_status', $out->get_error_code());
+        $this->assertSame([], 'widget' === $store ? Widget_Spec_Store::all() : Block_Spec_Store::all());
+    }
+
+    /** @return array<string,array{0:string}> */
+    public static function store_classes(): array
+    {
+        return ['widget' => ['widget'], 'block' => ['block']];
     }
 }

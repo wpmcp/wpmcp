@@ -23,53 +23,35 @@ use WPMCP\Tools\BlockBuilder\Block_Spec_Store;
  */
 class CloudSyncTest extends \WP_UnitTestCase
 {
-    /** @var array<int,array{url:string,method:string,body:mixed}> */
-    private array $requests = [];
+    use FakesCloudHttp;
 
     protected function setUp(): void
     {
         parent::setUp();
         Gate::set_pro_for_tests(true);
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
-        update_option('wpmcp_cloud_url', 'https://cloud.example');
-        update_option('wpmcp_cloud_key', 'secret-key');
-        $this->requests = [];
-        add_filter('pre_http_request', [$this, 'fake_http'], 10, 3);
+        $this->start_fake_cloud();
+        $this->responder = [$this, 'cloud_routes'];
     }
 
     protected function tearDown(): void
     {
-        remove_filter('pre_http_request', [$this, 'fake_http'], 10);
-        delete_option('wpmcp_cloud_url');
-        delete_option('wpmcp_cloud_key');
+        $this->stop_fake_cloud();
         Gate::set_pro_for_tests(null);
         parent::tearDown();
     }
 
-    /** Canned cloud API responses keyed by path; records every request. */
-    public function fake_http($pre, $args, $url)
+    /** Canned cloud API responses keyed by path. */
+    public function cloud_routes(string $path, string $method, $body): array
     {
-        $method = strtoupper((string) ($args['method'] ?? 'GET'));
-        $body   = isset($args['body']) ? json_decode((string) $args['body'], true) : null;
-        $this->requests[] = ['url' => $url, 'method' => $method, 'body' => $body];
-
-        // Auth header must always be present.
-        $this->assertSame('Bearer secret-key', $args['headers']['Authorization'] ?? null);
-
-        $json = static fn (array $data) => [
-            'headers'  => [],
-            'body'     => wp_json_encode($data),
-            'response' => ['code' => 200, 'message' => 'OK'],
-        ];
-
-        if (str_ends_with($url, '/wpmcp-cloud/v1/me')) {
-            return $json(['account' => ['id' => 'acct_1', 'email' => 'user@example.com', 'plan' => 'free']]);
+        if ('/me' === $path) {
+            return self::cloud_json(['account' => ['id' => 'acct_1', 'email' => 'user@example.com', 'plan' => 'free']]);
         }
-        if (str_ends_with($url, '/wpmcp-cloud/v1/assets') && 'POST' === $method) {
-            return $json(['asset' => ['id' => 'remote_' . $body['name'], 'type' => $body['type'], 'name' => $body['name']]]);
+        if ('/assets' === $path && 'POST' === $method) {
+            return self::cloud_json(['asset' => ['id' => 'remote_' . $body['name'], 'type' => $body['type'], 'name' => $body['name']]]);
         }
-        if (str_ends_with($url, '/wpmcp-cloud/v1/assets') && 'GET' === $method) {
-            return $json(['assets' => [
+        if ('/assets' === $path && 'GET' === $method) {
+            return self::cloud_json(['assets' => [
                 ['id' => 'r1', 'type' => 'widget', 'name' => 'cloud-hero', 'title' => 'Cloud Hero', 'spec' => [
                     'name' => 'cloud-hero', 'title' => 'Cloud Hero',
                     'controls' => [['name' => 'text', 'type' => 'text', 'label' => 'Text']],
@@ -83,7 +65,7 @@ class CloudSyncTest extends \WP_UnitTestCase
             ]]);
         }
 
-        return $json([]);
+        return self::cloud_json([]);
     }
 
     private function widget_spec(): array

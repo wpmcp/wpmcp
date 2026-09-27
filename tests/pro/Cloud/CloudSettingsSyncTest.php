@@ -19,34 +19,23 @@ use WPMCP\Tools\Meta\Option_Guard;
  * Cloud phase B (issue #135): settings sync over the governance-option
  * allowlist, its cloud transport, and the option guard on the cloud API key.
  *
- * HTTP is faked through pre_http_request exactly like CloudSyncTest, so no
- * live network is involved.
+ * HTTP is faked through FakesCloudHttp, so no live network is involved.
  */
 class CloudSettingsSyncTest extends \WP_UnitTestCase
 {
-    /** @var array<int,array{url:string,method:string,body:mixed,headers:array}> */
-    private array $requests = [];
-
-    /** @var callable|null */
-    private $responder = null;
+    use FakesCloudHttp;
 
     protected function setUp(): void
     {
         parent::setUp();
         Gate::set_pro_for_tests(true);
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
-        update_option('wpmcp_cloud_url', 'https://cloud.example');
-        update_option('wpmcp_cloud_key', 'secret-key');
-        $this->requests  = [];
-        $this->responder = null;
-        add_filter('pre_http_request', [$this, 'fake_http'], 10, 3);
+        $this->start_fake_cloud();
     }
 
     protected function tearDown(): void
     {
-        remove_filter('pre_http_request', [$this, 'fake_http'], 10);
-        delete_option('wpmcp_cloud_url');
-        delete_option('wpmcp_cloud_key');
+        $this->stop_fake_cloud();
         delete_option(Governance::OPTION);
         delete_option(Tool_Exposure::OPTION);
         delete_option(Skills_Module::OPTION);
@@ -54,39 +43,6 @@ class CloudSettingsSyncTest extends \WP_UnitTestCase
         delete_option(Identity_Store::OPTION);
         Gate::set_pro_for_tests(null);
         parent::tearDown();
-    }
-
-    public function fake_http($pre, $args, $url)
-    {
-        $body = $args['body'] ?? null;
-        if (is_string($body)) {
-            $body = json_decode($body, true);
-        }
-        $this->requests[] = [
-            'url'     => $url,
-            'method'  => strtoupper((string) ($args['method'] ?? 'GET')),
-            'body'    => $body,
-            'headers' => $args['headers'] ?? [],
-        ];
-
-        if (null !== $this->responder) {
-            return ($this->responder)($url, $args, count($this->requests));
-        }
-
-        return [
-            'headers'  => [],
-            'body'     => wp_json_encode([]),
-            'response' => ['code' => 200, 'message' => 'OK'],
-        ];
-    }
-
-    private static function json(array $data, int $code = 200): array
-    {
-        return [
-            'headers'  => [],
-            'body'     => wp_json_encode($data),
-            'response' => ['code' => $code, 'message' => 'OK'],
-        ];
     }
 
     // ---- Settings_Sync ------------------------------------------------------
@@ -257,14 +213,29 @@ class CloudSettingsSyncTest extends \WP_UnitTestCase
         $this->assertFalse($stored['domain']['media'], 'the payload still applies');
     }
 
-    public function test_apply_may_switch_mcp_exposure_off(): void
+    /**
+     * Off would deny every ability over MCP, rollback-operation included, so
+     * the write could not be undone the way every other synced write can.
+     */
+    public function test_apply_never_switches_mcp_exposure_off(): void
     {
         update_option(Exposure::OPTION, '1');
 
         $out = Settings_Sync::apply([Exposure::OPTION => '0']);
 
-        $this->assertSame([Exposure::OPTION], $out['applied']);
-        $this->assertSame('0', get_option(Exposure::OPTION));
+        $this->assertSame([], $out['applied']);
+        $this->assertSame(Exposure::OPTION, $out['skipped'][0]['key']);
+        $this->assertStringContainsString('rollback-operation', $out['skipped'][0]['reason']);
+        $this->assertSame('1', get_option(Exposure::OPTION));
+    }
+
+    public function test_apply_reports_a_matching_mcp_exposure_as_unchanged(): void
+    {
+        $out = Settings_Sync::apply([Exposure::OPTION => '1']);
+
+        $this->assertSame([], $out['applied']);
+        $this->assertSame([Exposure::OPTION], $out['unchanged']);
+        $this->assertFalse(get_option(Exposure::OPTION, false), 'nothing is written for a no-op');
     }
 
     public function test_apply_may_not_switch_mcp_exposure_back_on(): void
@@ -443,7 +414,7 @@ class CloudSettingsSyncTest extends \WP_UnitTestCase
     {
         update_option(Tool_Exposure::OPTION, 'compact');
         update_option('some_other_option', 'nope');
-        $this->responder = static fn ($url, $args) => self::json(['updated_at' => '2026-09-28T00:00:00Z']);
+        $this->responder = static fn () => self::cloud_json(['updated_at' => '2026-09-28T00:00:00Z']);
 
         $out = (new Cloud_Push_Settings())->handle([]);
 
@@ -491,7 +462,7 @@ class CloudSettingsSyncTest extends \WP_UnitTestCase
     public function test_apply_without_a_payload_pulls_the_posture_from_the_cloud(): void
     {
         update_option(Tool_Exposure::OPTION, 'full');
-        $this->responder = static fn ($url, $args) => self::json([
+        $this->responder = static fn () => self::cloud_json([
             'settings' => [
                 Tool_Exposure::OPTION => 'compact',
                 'active_plugins'      => ['evil/evil.php'],
@@ -511,7 +482,7 @@ class CloudSettingsSyncTest extends \WP_UnitTestCase
 
     public function test_apply_with_a_null_settings_argument_pulls(): void
     {
-        $this->responder = static fn ($url, $args) => self::json(['settings' => [Tool_Exposure::OPTION => 'compact']]);
+        $this->responder = static fn () => self::cloud_json(['settings' => [Tool_Exposure::OPTION => 'compact']]);
 
         $out = (new Cloud_Apply_Settings())->handle(['settings' => null]);
 
@@ -522,7 +493,7 @@ class CloudSettingsSyncTest extends \WP_UnitTestCase
 
     public function test_pull_reports_a_cloud_with_no_stored_posture(): void
     {
-        $this->responder = static fn ($url, $args) => self::json(['settings' => []]);
+        $this->responder = static fn () => self::cloud_json(['settings' => []]);
 
         $out = (new Cloud_Apply_Settings())->handle([]);
 
@@ -543,11 +514,110 @@ class CloudSettingsSyncTest extends \WP_UnitTestCase
 
     public function test_pull_surfaces_a_cloud_error(): void
     {
-        $this->responder = static fn ($url, $args) => self::json(['message' => 'down'], 503);
+        $this->responder = static fn () => self::cloud_json(['message' => 'down'], 503);
 
         $out = (new Cloud_Apply_Settings())->handle([]);
 
         $this->assertInstanceOf(\WP_Error::class, $out);
         $this->assertSame('cloud_error', $out->get_error_code());
+    }
+
+    // ---- Coordinator review fixes -------------------------------------------
+
+    public function test_apply_never_disables_rollback_operation_through_governance(): void
+    {
+        $out = Settings_Sync::apply([
+            Governance::OPTION => [
+                'ability'   => ['wpmcp/rollback-operation' => false, 'wpmcp/delete-post' => false],
+                'domain'    => ['core' => false, 'media' => false],
+                'operation' => ['update' => false, 'delete' => false],
+            ],
+        ]);
+
+        $this->assertSame([Governance::OPTION], $out['applied']);
+        $stored = get_option(Governance::OPTION);
+        $this->assertArrayNotHasKey('wpmcp/rollback-operation', $stored['ability']);
+        $this->assertArrayNotHasKey('core', $stored['domain']);
+        $this->assertArrayNotHasKey('update', $stored['operation']);
+        $this->assertFalse($stored['ability']['wpmcp/delete-post']);
+        $this->assertFalse($stored['domain']['media']);
+        $this->assertFalse($stored['operation']['delete']);
+        $this->assertSame(
+            [
+                Governance::OPTION . '.ability.wpmcp/rollback-operation',
+                Governance::OPTION . '.domain.core',
+                Governance::OPTION . '.operation.update',
+            ],
+            array_column($out['skipped'], 'key')
+        );
+    }
+
+    public function test_applied_and_operation_ids_are_parallel_and_no_ops_are_unchanged(): void
+    {
+        update_option(Tool_Exposure::OPTION, 'compact');
+        update_option(Skills_Module::OPTION, '1');
+
+        $out = Settings_Sync::apply([
+            Tool_Exposure::OPTION => 'compact',
+            Skills_Module::OPTION => 'false',
+        ]);
+
+        $this->assertSame([Skills_Module::OPTION], $out['applied']);
+        $this->assertCount(1, $out['operation_ids']);
+        $this->assertSame([Tool_Exposure::OPTION], $out['unchanged']);
+        $row = \WPMCP\Safety\Snapshot_Store::get_by_operation($out['operation_ids'][0]);
+        $this->assertSame(Skills_Module::OPTION, $row['object_id']);
+    }
+
+    public function test_applying_a_sites_own_export_writes_nothing(): void
+    {
+        update_option(Governance::OPTION, [
+            'operation' => ['delete' => false],
+            'domain'    => ['media' => false, 'database' => false],
+            'ability'   => ['wpmcp/delete-post' => false],
+        ]);
+        update_option(Identity_Store::OPTION, ['bot' => Identity_Store::normalize('bot', ['domains' => ['content']])]);
+        update_option(Tool_Exposure::OPTION, 'full');
+
+        $out = Settings_Sync::apply(Settings_Sync::export());
+
+        $this->assertSame([], $out['applied'], 'key order alone must not count as a change');
+        $this->assertSame([], $out['operation_ids']);
+        $this->assertEqualsCanonicalizing(
+            [Governance::OPTION, Identity_Store::OPTION, Tool_Exposure::OPTION],
+            $out['unchanged']
+        );
+    }
+
+    /**
+     * create-identity name=2024 stores an int key, and json_decode() turns a
+     * "42" key into an int too. Neither may be dropped or refused.
+     */
+    public function test_digits_only_identity_names_survive_export_and_apply(): void
+    {
+        Identity_Store::create('2024', ['domains' => ['content']]);
+
+        $this->assertArrayHasKey('2024', Settings_Sync::export()[ Identity_Store::OPTION ]);
+
+        $incoming = json_decode('{"42":{"domains":["media"]}}', true);
+        $out      = Settings_Sync::apply([Identity_Store::OPTION => $incoming]);
+
+        $this->assertSame([Identity_Store::OPTION], $out['applied']);
+        $this->assertSame(['content'], Identity_Store::get('2024')['domains'], 'the local digits-only identity survives');
+        $this->assertSame('42', Identity_Store::get('42')['name']);
+        $this->assertSame(['media'], Identity_Store::get('42')['domains']);
+        $this->assertCount(2, get_option(Identity_Store::OPTION));
+    }
+
+    public function test_synced_identities_match_what_create_identity_stores(): void
+    {
+        $fields = ['domains' => ['content', 3], 'mode' => 'deny', 'exposure' => 'compact', 'extra' => 'x'];
+
+        Settings_Sync::apply([Identity_Store::OPTION => ['synced' => $fields]]);
+        $created = Identity_Store::create('created', $fields);
+
+        $synced = Identity_Store::get('synced');
+        $synced['name'] = 'created';
+        $this->assertSame($created, $synced);
     }
 }

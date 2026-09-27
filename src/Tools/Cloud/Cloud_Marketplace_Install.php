@@ -105,8 +105,8 @@ class Cloud_Marketplace_Install
         }
 
         $name  = 'widget' === $type ? Widget_Spec::normalize($spec)['name'] : Block_Spec::normalize($spec)['name'];
-        $taken = array_column('widget' === $type ? Widget_Spec_Store::all() : Block_Spec_Store::all(), 'name');
-        if (in_array($name, $taken, true)) {
+        $taken = 'widget' === $type ? Widget_Spec_Store::find_by_name($name) : Block_Spec_Store::find_by_name($name);
+        if (null !== $taken) {
             return new \WP_Error('marketplace_name_taken', sprintf('A custom %1$s named "%2$s" already exists on this site; delete or rename it before installing this listing.', $type, $name));
         }
 

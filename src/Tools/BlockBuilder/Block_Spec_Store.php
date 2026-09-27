@@ -35,11 +35,14 @@ class Block_Spec_Store
     public static function create(array $spec, string $status = 'publish')
     {
         self::ensure_post_type();
+        if (! in_array($status, ['publish', 'draft'], true)) {
+            return new \WP_Error('invalid_status', 'status must be publish or draft.');
+        }
         $spec = Block_Spec::normalize($spec);
 
         $id = wp_insert_post([
             'post_type'   => self::POST_TYPE,
-            'post_status' => 'draft' === $status ? 'draft' : 'publish',
+            'post_status' => $status,
             'post_title'  => sanitize_text_field((string) $spec['title']),
         ], true);
 
@@ -103,5 +106,45 @@ class Block_Spec_Store
     public static function is_block(int $id): bool
     {
         return $id > 0 && self::POST_TYPE === get_post_type($id);
+    }
+
+    /**
+     * The id of the block whose stored spec name is exactly $name, or null.
+     *
+     * A targeted lookup rather than a scan of all(), which stops at 200 rows:
+     * a LIKE on the serialized spec's `"name";s:N:"<name>";` fragment narrows
+     * the candidates in SQL, and each candidate is then confirmed against the
+     * unserialized spec, since a control or attribute carrying the same name
+     * would match the fragment too.
+     */
+    public static function find_by_name(string $name): ?int
+    {
+        if ('' === $name) {
+            return null;
+        }
+        self::ensure_post_type();
+        $fragment = '"name";s:' . strlen($name) . ':"' . $name . '";';
+        $page     = 1;
+        do {
+            $ids = get_posts([
+                'post_type'      => self::POST_TYPE,
+                'post_status'    => ['publish', 'draft'],
+                'fields'         => 'ids',
+                'posts_per_page' => 50,
+                'paged'          => $page,
+                'orderby'        => 'ID',
+                'order'          => 'ASC',
+                'meta_query'     => [['key' => '_wpmcp_block_spec', 'value' => $fragment, 'compare' => 'LIKE']], // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Plugin-internal post type, queried only on a marketplace install; the alternative is loading every spec.
+            ]);
+            foreach ($ids as $id) {
+                $spec = get_post_meta((int) $id, '_wpmcp_block_spec', true);
+                if (is_array($spec) && ($spec['name'] ?? null) === $name) {
+                    return (int) $id;
+                }
+            }
+            $page++;
+        } while (50 === count($ids));
+
+        return null;
     }
 }

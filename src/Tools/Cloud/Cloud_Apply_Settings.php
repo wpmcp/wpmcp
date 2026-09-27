@@ -20,7 +20,8 @@ if (! defined('ABSPATH')) {
  *
  * Everything that makes this safe lives in Settings_Sync::apply(): the paid
  * entitlement gate, manage_options, the allowlist re-filter, the per-option
- * coercion, the merge-not-replace and narrow-not-widen rules, and a
+ * coercion, the merge-not-replace rules, the refusal to touch the MCP kill
+ * switch or anything that would disable rollback-operation, and a
  * Safe_Mutation snapshot per write so a synced posture is undoable with
  * rollback-operation. A pulled payload gets exactly the same treatment as a
  * pasted one: the cloud is not trusted any more than the caller is.
@@ -64,7 +65,7 @@ class Cloud_Apply_Settings
 
         return $result + [
             'source' => $source,
-            'note'   => 'Each applied option carries a rollback snapshot; undo any of them with rollback-operation and the matching operation id.',
+            'note'   => 'applied[i] was written under the snapshot operation_ids[i]; undo it with rollback-operation and that id. Options in unchanged already matched and were not written.',
         ];
     }
 }
