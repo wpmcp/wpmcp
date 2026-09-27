@@ -19,10 +19,18 @@ class SeoMetaFlowTest extends \WP_UnitTestCase
     {
         parent::setUp();
         Snapshot_Store::install();
+        // update-seo-meta re-checks edit_post on the target post.
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
 
         if ('' === SEO_Adapter::active_plugin()) {
             $this->markTestSkipped('No supported SEO plugin (Yoast/RankMath) active.');
         }
+    }
+
+    protected function tearDown(): void
+    {
+        wp_set_current_user(0);
+        parent::tearDown();
     }
 
     public function test_set_update_list_and_rollback_seo_meta_round_trips(): void

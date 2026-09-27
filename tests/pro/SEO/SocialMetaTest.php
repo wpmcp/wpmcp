@@ -5,6 +5,7 @@ namespace WPMCP\Tests\Pro\SEO;
 use WPMCP\Pro\Gate;
 use WPMCP\Tools\SEO\Get_Social_Meta;
 use WPMCP\Tools\SEO\SEO_Adapter;
+use WPMCP\Tools\SEO\Social_Meta;
 
 /**
  * Extended-vocabulary reads (issue #67): per-post OG/Twitter overrides, and
@@ -48,7 +49,7 @@ class SocialMetaTest extends \WP_UnitTestCase
         update_post_meta($id, '_yoast_wpseo_opengraph-title', 'OG title');
         update_post_meta($id, '_yoast_wpseo_twitter-description', 'Tweet copy');
 
-        $out = SEO_Adapter::get_social_meta($id);
+        $out = Social_Meta::get($id);
 
         $this->assertTrue($out['supported']);
         $this->assertSame('yoast', $out['plugin']);
@@ -75,7 +76,7 @@ class SocialMetaTest extends \WP_UnitTestCase
         update_post_meta($id, 'rank_math_twitter_description', 'RM tweet copy');
         update_post_meta($id, 'rank_math_twitter_image', 'https://example.com/tw.png');
 
-        $out = SEO_Adapter::get_social_meta($id);
+        $out = Social_Meta::get($id);
 
         $this->assertTrue($out['supported']);
         $this->assertSame('rankmath', $out['plugin']);
@@ -105,7 +106,7 @@ class SocialMetaTest extends \WP_UnitTestCase
         update_post_meta($id, '_seopress_social_twitter_desc', 'SP tweet copy');
         update_post_meta($id, '_seopress_social_twitter_img', 'https://example.com/tw.png');
 
-        $out = SEO_Adapter::get_social_meta($id);
+        $out = Social_Meta::get($id);
 
         $this->assertTrue($out['supported']);
         $this->assertSame('seopress', $out['plugin']);
@@ -137,7 +138,7 @@ class SocialMetaTest extends \WP_UnitTestCase
             ];
             update_post_meta($id, $keys[$plugin], 'Shared OG title');
 
-            $out = SEO_Adapter::get_social_meta($id);
+            $out = Social_Meta::get($id);
 
             $this->assertSame(
                 'Shared OG title',
@@ -160,7 +161,7 @@ class SocialMetaTest extends \WP_UnitTestCase
         update_post_meta($id, '_yoast_wpseo_opengraph-title', 'OG title');
         update_post_meta($id, '_yoast_wpseo_twitter-title', 'Tweet title');
 
-        $out = SEO_Adapter::get_social_meta($id);
+        $out = Social_Meta::get($id);
 
         $this->assertSame('Tweet title', $out['fields']['twitter_title']);
         $this->assertSame('override', $out['sources']['twitter_title']);
@@ -179,7 +180,7 @@ class SocialMetaTest extends \WP_UnitTestCase
         update_post_meta($id, 'rank_math_facebook_title', 'OG title');
         update_post_meta($id, 'rank_math_twitter_use_facebook', 'off');
 
-        $out = SEO_Adapter::get_social_meta($id);
+        $out = Social_Meta::get($id);
 
         $this->assertSame('', $out['fields']['twitter_title']);
         $this->assertSame('absent', $out['sources']['twitter_title']);
@@ -193,7 +194,7 @@ class SocialMetaTest extends \WP_UnitTestCase
 
         update_post_meta($id, 'rank_math_facebook_title', 'OG title');
 
-        $out = SEO_Adapter::get_social_meta($id);
+        $out = Social_Meta::get($id);
 
         $this->assertSame('OG title', $out['fields']['twitter_title']);
         $this->assertSame('inherited', $out['sources']['twitter_title']);
@@ -219,7 +220,7 @@ class SocialMetaTest extends \WP_UnitTestCase
         SEO_Adapter::set_active_plugin_for_tests('seoframework');
         $id = $this->post();
 
-        $out = SEO_Adapter::get_social_meta($id);
+        $out = Social_Meta::get($id);
 
         $this->assertFalse($out['supported']);
         $this->assertSame('seoframework', $out['plugin']);
@@ -231,7 +232,7 @@ class SocialMetaTest extends \WP_UnitTestCase
         SEO_Adapter::set_active_plugin_for_tests('');
         $id = $this->post();
 
-        $out = SEO_Adapter::get_social_meta($id);
+        $out = Social_Meta::get($id);
 
         $this->assertFalse($out['supported']);
         $this->assertSame('', $out['plugin']);
