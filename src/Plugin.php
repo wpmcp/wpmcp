@@ -3019,7 +3019,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-scoped-css',
             'pro',
-            'Store custom CSS scoped to one post/page (post_id required); it renders in wp_head only on that post. Pass a full css fragment, or a selector plus bare css declarations to wrap as selector { declarations }. Add element_id (an Elementor element id) to narrow scope to ONE element: declarations are prefixed with .elementor-element-<id>, and a selector alongside reads as a descendant of it. APPENDS to the stored page block; pass replace=true to overwrite. For site-wide CSS use add-custom-css. Requires edit_css (unfiltered_html) plus manage_options. CSS is sanitized on write and at render: markup, expression()/behavior, script URL schemes, @import and data: URLs are rejected, even when escape-obfuscated or split by a comment. Each page block is snapshotted separately, so rollback-operation reverts only this page',
+            'Store custom CSS scoped to one post/page (post_id required); it renders in wp_head only on that post. Pass a full css fragment, or a selector plus bare css declarations to wrap as selector { declarations }. Add element_id (an Elementor element id) to narrow scope to ONE element: declarations are prefixed with .elementor-element-<id>, and a selector alongside reads as a descendant of it. APPENDS to the stored page block; replace=true overwrites, css="" with replace=true clears. For site-wide CSS use add-custom-css. Requires edit_css (unfiltered_html) plus manage_options. CSS is sanitized on write and at render: markup, expression()/behavior, script URL schemes, @import and data: URLs are rejected, even when escape-obfuscated or split by a comment. Each page block is snapshotted separately, so rollback-operation reverts only this page',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3040,11 +3040,12 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-custom-js',
             'pro',
-            'Store the site-wide custom JS snippet (replaces any previous one) rendered in wp_footer. THIS IS AN XSS-CLASS SURFACE and is off by default: it refuses unless JS injection is enabled (WPMCP_ALLOW_JS_INJECTION constant or wpmcp_allow_js_injection filter) AND the caller holds unfiltered_html plus manage_options. The write is snapshotted and reversible via rollback-operation; closing the gate (constant or filter) also stops rendering stored JS, while disabling the ability in the governance grid only withdraws the tool',
+            'Store the site-wide custom JS snippet (replaces any previous one; js="" with replace=true clears it) rendered in wp_footer. THIS IS AN XSS-CLASS SURFACE and is off by default: it refuses unless JS injection is enabled (WPMCP_ALLOW_JS_INJECTION constant or wpmcp_allow_js_injection filter) AND the caller holds unfiltered_html plus manage_options. The write is snapshotted and reversible via rollback-operation; closing the gate (constant or filter) also stops rendering stored JS, while disabling the ability in the governance grid only withdraws the tool',
             [
                 'type'       => 'object',
                 'properties' => [
                     'js'         => [ 'type' => 'string' ],
+                    'replace'    => [ 'type' => 'boolean' ],
                     'session_id' => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'js' ],

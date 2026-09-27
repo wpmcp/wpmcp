@@ -48,6 +48,15 @@ if (! defined('ABSPATH')) {
 class Css_Sanitizer
 {
     /**
+     * Version of the rule set below. Bump it whenever a rule is added or
+     * tightened. Custom_Code_Store signs each block together with the version
+     * that accepted it, so the renderer can skip re-sanitizing blocks signed
+     * under the current rules and re-check (and cache the verdict for) blocks
+     * signed under an older set.
+     */
+    public const RULES_VERSION = 1;
+
+    /**
      * Vectors that are never legitimate in the CSS this plugin manages.
      * Matched case-insensitively against canonicalize()'s output.
      */
@@ -91,7 +100,7 @@ class Css_Sanitizer
         // a site whose blog_charset is legacy (wp_check_invalid_utf8() passes
         // such input through untouched) "<ESC(B/style>" is "</style>" to the
         // browser while no pattern below can see it.
-        if (1 === preg_match('/[\x00-\x08\x0b\x0e-\x1f]/', $clean)) {
+        if (0 !== preg_match('/' . Custom_Js_Guard::CONTROL_BYTES . '/', $clean)) {
             throw new \InvalidArgumentException('The CSS was rejected: it contains a control character.');
         }
 

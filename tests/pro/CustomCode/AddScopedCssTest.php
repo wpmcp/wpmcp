@@ -373,6 +373,164 @@ class AddScopedCssTest extends \WP_UnitTestCase
         $this->store($post, 'color: red; } .evil { position: fixed', ['element_id' => 'a1b2c3d']);
     }
 
+    /** Render the wp_head CSS output for a request to $url. */
+    private function printed_css_at(string $url): string
+    {
+        $this->go_to($url);
+        ob_start();
+        Custom_Code_Renderer::print_css();
+
+        return (string) ob_get_clean();
+    }
+
+    /**
+     * Only values this plugin wrote are printed. The generic DB row tools
+     * (update-rows on wp_options) never consult Option_Guard, so a
+     * manage_options caller without edit_css could otherwise write the
+     * option directly and have it served to every visitor.
+     */
+    public function test_a_directly_written_block_is_not_printed(): void
+    {
+        $post = self::factory()->post->create();
+        $name = Custom_Code_Store::post_option($post);
+
+        update_option($name, '.direct { color: red; }', false);
+        $this->assertStringNotContainsString('.direct', $this->printed_css_at(get_permalink($post)));
+
+        update_option($name, ['css' => '.forged { color: red; }', 'rules' => \WPMCP\Tools\CustomCode\Css_Sanitizer::RULES_VERSION, 'sig' => str_repeat('0', 64)], false);
+        $this->assertStringNotContainsString('.forged', $this->printed_css_at(get_permalink($post)));
+    }
+
+    /** A signature is bound to its option, so a block cannot be moved to another page. */
+    public function test_a_block_copied_to_another_page_is_not_printed(): void
+    {
+        $post_a = self::factory()->post->create();
+        $post_b = self::factory()->post->create();
+        $this->store($post_a, '.moved { color: red; }');
+
+        update_option(Custom_Code_Store::post_option($post_b), get_option(Custom_Code_Store::post_option($post_a)), false);
+
+        $this->assertStringContainsString('.moved', $this->printed_css_at(get_permalink($post_a)));
+        $this->assertStringNotContainsString('.moved', $this->printed_css_at(get_permalink($post_b)));
+    }
+
+    /** A block written under an older rule set is re-checked, and dropped if it now fails. */
+    public function test_a_block_signed_under_older_rules_is_rechecked_at_render(): void
+    {
+        $post = self::factory()->post->create();
+        Custom_Code_Store::write_css($post, '.old { color: red; }', 0);
+        $this->assertStringContainsString('.old', $this->printed_css_at(get_permalink($post)));
+
+        Custom_Code_Store::write_css($post, '.a{color:red} @import url("//evil.example/x.css");', 0);
+        $this->assertStringNotContainsString('@import', $this->printed_css_at(get_permalink($post)));
+    }
+
+    /**
+     * Post ids get_post() resolves but that never render as a singular page
+     * would store CSS that never prints; they are refused on write.
+     */
+    public function test_refuses_post_ids_that_never_render_as_a_page(): void
+    {
+        $parent     = self::factory()->post->create();
+        $revision   = wp_save_post_revision($parent) ?: self::factory()->post->create(['post_type' => 'revision', 'post_parent' => $parent, 'post_status' => 'inherit']);
+        $attachment = self::factory()->attachment->create(['post_parent' => $parent]);
+        register_post_type('wpmcp_hidden_type', ['public' => false]);
+        $hidden = self::factory()->post->create(['post_type' => 'wpmcp_hidden_type']);
+
+        foreach ([$revision, $attachment, $hidden] as $post_id) {
+            try {
+                $this->store((int) $post_id, '.a { color: red; }');
+                $this->fail("Post {$post_id} should have been refused.");
+            } catch (\InvalidArgumentException $e) {
+                $this->assertSame('', Custom_Code_Store::read_css((int) $post_id));
+            }
+        }
+
+        unregister_post_type('wpmcp_hidden_type');
+    }
+
+    /** The posts page is a WP_Post the builder can edit, but it is served by is_home(). */
+    public function test_css_renders_on_the_posts_page(): void
+    {
+        $page = self::factory()->post->create(['post_type' => 'page']);
+        update_option('show_on_front', 'page');
+        update_option('page_on_front', self::factory()->post->create(['post_type' => 'page']));
+        update_option('page_for_posts', $page);
+
+        $this->store($page, '.blog-index { color: red; }');
+
+        $this->assertStringContainsString('.blog-index', $this->printed_css_at(get_permalink($page)));
+
+        update_option('show_on_front', 'posts');
+        delete_option('page_for_posts');
+        delete_option('page_on_front');
+    }
+
+    /** css='' with replace=true clears the block, snapshot-first, so it can be undone. */
+    public function test_empty_css_with_replace_clears_the_block_reversibly(): void
+    {
+        $post = self::factory()->post->create();
+        $this->store($post, '.a { color: red; }');
+
+        $out = $this->store($post, '', ['replace' => true]);
+
+        $this->assertTrue($out['cleared']);
+        $this->assertFalse(get_option(Custom_Code_Store::post_option($post)));
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assertStringContainsString('.a { color: red; }', $this->printed_css_at(get_permalink($post)));
+    }
+
+    public function test_empty_css_without_replace_is_still_refused(): void
+    {
+        $post = self::factory()->post->create();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->store($post, '');
+    }
+
+    /** An optional element_id that is present but empty is simply absent. */
+    public function test_empty_or_null_element_id_means_page_scope(): void
+    {
+        $post = self::factory()->post->create();
+
+        $this->assertSame('post', $this->store($post, '.a { color: red; }', ['element_id' => ''])['scope']);
+        $this->assertSame('post', $this->store($post, '.b { color: red; }', ['element_id' => null])['scope']);
+    }
+
+    /**
+     * When the block ALREADY stored fails the current rules (or was not
+     * written by this plugin), an append must say so, not blame the caller.
+     */
+    public function test_append_onto_a_stored_block_that_now_fails_names_the_stored_block(): void
+    {
+        $post = self::factory()->post->create();
+        Custom_Code_Store::write_css($post, '.a{color:red} @import url("//evil.example/x.css");');
+
+        try {
+            $this->store($post, '.b { color: blue; }');
+            $this->fail('The append should have been refused.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('already stored', $e->getMessage());
+            $this->assertStringContainsString('replace=true', $e->getMessage());
+        }
+
+        $this->store($post, '.b { color: blue; }', ['replace' => true]);
+        $this->assertSame('.b { color: blue; }', Custom_Code_Store::read_css($post));
+    }
+
+    public function test_append_onto_a_directly_written_block_is_refused(): void
+    {
+        $post = self::factory()->post->create();
+        update_option(Custom_Code_Store::post_option($post), '.direct { color: red; }', false);
+
+        try {
+            $this->store($post, '.b { color: blue; }');
+            $this->fail('Appending onto an unsigned block should have been refused.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('replace=true', $e->getMessage());
+        }
+    }
+
     public function test_requires_an_existing_post(): void
     {
         $this->expectException(\InvalidArgumentException::class);

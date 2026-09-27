@@ -245,6 +245,64 @@ class AddCustomJsTest extends \WP_UnitTestCase
         $this->assertSame([], Custom_Code_Store::read());
     }
 
+    /**
+     * Only a snippet this plugin wrote is printed. update-rows on wp_options
+     * never consults Option_Guard, so without this a manage_options caller
+     * lacking unfiltered_html could write the option and serve script to
+     * every visitor.
+     */
+    public function test_a_directly_written_snippet_is_not_printed(): void
+    {
+        $this->open_gate();
+
+        update_option(Custom_Code_Store::OPTION, ['js' => ['site' => 'console.log("direct")']], false);
+        ob_start();
+        Custom_Code_Renderer::print_js();
+        $this->assertSame('', (string) ob_get_clean());
+
+        update_option(Custom_Code_Store::OPTION, ['js' => ['site' => 'console.log("forged")', 'sig' => str_repeat('0', 64)]], false);
+        ob_start();
+        Custom_Code_Renderer::print_js();
+        $this->assertSame('', (string) ob_get_clean());
+    }
+
+    public function test_a_tool_written_snippet_is_printed(): void
+    {
+        $this->open_gate();
+        $this->tool->handle(['js' => 'console.log(1)']);
+
+        ob_start();
+        Custom_Code_Renderer::print_js();
+        $this->assertStringContainsString('console.log(1)', (string) ob_get_clean());
+    }
+
+    /** js='' with replace=true clears the snippet, snapshot-first. */
+    public function test_empty_js_with_replace_clears_the_snippet_reversibly(): void
+    {
+        $this->open_gate();
+        $this->tool->handle(['js' => 'console.log(1)']);
+
+        $out = $this->tool->handle(['js' => '', 'replace' => true]);
+
+        $this->assertTrue($out['cleared']);
+        $this->assertSame('', (string) (Custom_Code_Store::read()['js']['site'] ?? ''));
+        $this->assertSame(Add_Custom_Js::REASON_CLEARED, $this->audit_rows()[0]['reason']);
+
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assertSame('console.log(1)', Custom_Code_Store::read()['js']['site']);
+    }
+
+    /** A legacy scalar under 'js' must not fatal inside Safe_Mutation after the snapshot. */
+    public function test_a_scalar_legacy_js_value_is_normalized(): void
+    {
+        $this->open_gate();
+        update_option(Custom_Code_Store::OPTION, ['js' => 'legacy'], false);
+
+        $this->tool->handle(['js' => 'console.log(1)']);
+
+        $this->assertSame('console.log(1)', Custom_Code_Store::read()['js']['site']);
+    }
+
     public function test_renderer_drops_a_stored_double_escape(): void
     {
         $this->open_gate();

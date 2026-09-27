@@ -3,7 +3,6 @@
 namespace WPMCP\Tools\CustomCode;
 
 use WPMCP\Governance\Governance_Audit_Log;
-use WPMCP\Identity\Identity_Context;
 use WPMCP\Safety\Safe_Mutation;
 
 if (! defined('ABSPATH')) {
@@ -45,24 +44,27 @@ class Add_Custom_Js
     public const REASON_SCRIPT_BREAKOUT    = 'script-breakout';
     public const REASON_EMPTY              = 'empty-js';
     public const REASON_STORED             = 'js-stored';
+    public const REASON_CLEARED            = 'js-cleared';
 
     public function handle(array $args): array
     {
-        $js = isset($args['js']) ? (string) $args['js'] : '';
+        $js      = isset($args['js']) ? (string) $args['js'] : '';
+        $replace = ! empty($args['replace']);
+        $clear   = '' === trim($js) && $replace;
 
         // Everything, input validation included, happens inside guard(): the
         // opt-in gate has to answer first. Checking the payload up here meant
         // an install that never opened the gate replied to an empty payload
         // with "A js value is required.", which tells the caller the gate is
         // open and the tool is live when neither is true.
-        $this->guard($js);
+        $this->guard($js, $clear);
 
         // One site-wide slot: a write REPLACES the stored snippet rather than
         // appending, because concatenating two scripts can change what both
         // mean. The response says whether something was replaced, so an
         // agent never discards earlier work without being told.
         $previous = Custom_Code_Store::read();
-        $replaced = '' !== trim((string) ($previous['js']['site'] ?? ''));
+        $replaced = is_array($previous['js'] ?? null) && '' !== trim((string) ($previous['js']['site'] ?? ''));
 
         $out = Safe_Mutation::run(
             [
@@ -77,18 +79,19 @@ class Add_Custom_Js
             }
         );
 
-        $this->audit(true, self::REASON_STORED);
+        Governance_Audit_Log::record_quietly('wpmcp/add-custom-js', true, $clear ? self::REASON_CLEARED : self::REASON_STORED);
 
         return [
             'scope'             => 'site',
             'replaced_previous' => $replaced,
+            'cleared'           => $clear,
             'operation_id'      => $out['operation_id'],
             'recoverable'       => true,
         ];
     }
 
     /** The guard chain, in refusal order. Every refusal is audited first. */
-    private function guard(string $js): void
+    private function guard(string $js, bool $clear): void
     {
         if (! Custom_Js_Guard::is_enabled()) {
             $this->refuse(
@@ -104,10 +107,18 @@ class Add_Custom_Js
             );
         }
 
-        if ('' === trim($js)) {
-            $this->audit(false, self::REASON_EMPTY);
+        // Clearing (js="" with replace=true) still passes the gate and the
+        // capability check above: it is a write to the same option. An empty
+        // payload WITHOUT replace is refused, so a blank call can never
+        // silently delete the snippet.
+        if ($clear) {
+            return;
+        }
 
-            throw new \InvalidArgumentException('A js value is required.');
+        if ('' === trim($js)) {
+            Governance_Audit_Log::record_quietly('wpmcp/add-custom-js', false, self::REASON_EMPTY);
+
+            throw new \InvalidArgumentException('A js value is required. To clear the stored snippet, pass js="" with replace=true.');
         }
 
         if (Custom_Js_Guard::has_breakout($js)) {
@@ -121,20 +132,9 @@ class Add_Custom_Js
     /** Record the denial, then raise it. Never returns. */
     private function refuse(string $message, string $reason): void
     {
-        $this->audit(false, $reason);
+        Governance_Audit_Log::record_quietly('wpmcp/add-custom-js', false, $reason);
 
         // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- every caller passes a plugin literal with no interpolated operand, and escaping it would mangle the <script> sequences the breakout message has to name.
         throw new \RuntimeException($message);
-    }
-
-    /** Audit the attempt; never logs the snippet source (it may embed secrets). */
-    private function audit(bool $allowed, string $reason = ''): void
-    {
-        try {
-            $identity = Identity_Context::current() ?? 'none';
-            Governance_Audit_Log::record('wpmcp/add-custom-js', $identity, $allowed, $reason);
-        } catch (\Throwable $e) {
-            // Auditing must never break (or block) the outcome it observes.
-        }
     }
 }

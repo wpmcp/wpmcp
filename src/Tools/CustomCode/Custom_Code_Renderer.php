@@ -23,13 +23,13 @@ if (! defined('ABSPATH')) {
  * strip CSS a site is already relying on, the same reasoning Memory_Store's
  * runtime hooks are registered under. JS output has its own gate below.
  *
- * CSS is re-run through Css_Sanitizer at print time. That is a SECOND CHANCE
- * at a value that reached the option by some other route - a direct DB edit,
- * another plugin, an older build of this one - and not an independent
- * barrier: it is the same decision run against the same rules, so anything
- * the write path would accept it accepts too. A block the sanitizer now
- * rejects is dropped from output AND logged, so an operator chasing "my CSS
- * stopped rendering" after a sanitizer rule change has something to find.
+ * Only SIGNED values are printed (see Custom_Code_Store): a value that
+ * reached the option by another route, such as a direct DB edit or another
+ * plugin, is ignored rather than trusted. A block signed under an older
+ * sanitizer rule version is re-checked against the current rules, once per
+ * block, and a block that now fails is dropped from output AND logged, so an
+ * operator chasing "my CSS stopped rendering" after a rule change has
+ * something to find.
  *
  * boot() also owns one non-output hook, 'deleted_post', because it is the
  * only wiring in this group that runs on every request. See
@@ -70,28 +70,62 @@ class Custom_Code_Renderer
             return;
         }
 
-        $block = Custom_Code_Store::read_css($post_id);
-        if ('' === trim($block)) {
+        // Only a block this plugin wrote is printed. An unsigned or forged
+        // value (written straight into wp_options by a DB row tool, or copied
+        // from another page's option) is ignored.
+        $block = Custom_Code_Store::verified_css($post_id);
+        if (null === $block || '' === trim($block['css'])) {
             return;
         }
 
+        if (! self::passes_current_rules($block, $post_id)) {
+            return;
+        }
+
+        echo "\n<style id=\"wpmcp-custom-css\">\n" . trim($block['css']) . "\n</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- signed at write time after Css_Sanitizer accepted it, and re-checked here when the rules changed since; escaping would corrupt CSS.
+    }
+
+    /**
+     * Whether a verified block passes the CURRENT sanitizer. A block signed
+     * under the current rule version passed them at write time, so the
+     * signature already answers the question and nothing is re-run. A block
+     * signed under an older version is re-checked once, and the verdict is
+     * cached against its signature and the current version, so a sanitizer
+     * change costs one pass per block rather than one per page view.
+     *
+     * @param array{css:string, rules:int, sig:string, current:bool} $block
+     */
+    private static function passes_current_rules(array $block, int $post_id): bool
+    {
+        if ($block['current']) {
+            return true;
+        }
+
+        $key     = 'wpmcp_css_verdict_' . substr($block['sig'], 0, 32) . '_' . Css_Sanitizer::RULES_VERSION;
+        $verdict = get_transient($key);
+        if ('pass' === $verdict) {
+            return true;
+        }
+        if ('fail' === $verdict) {
+            return false;
+        }
+
         try {
-            $safe = Css_Sanitizer::sanitize($block);
+            Css_Sanitizer::sanitize($block['css']);
+            set_transient($key, 'pass', DAY_IN_SECONDS);
+
+            return true;
         } catch (\InvalidArgumentException $e) {
-            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- operator signal for stored CSS that no longer passes the sanitizer; the block itself is dropped, not printed.
+            set_transient($key, 'fail', DAY_IN_SECONDS);
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- operator signal, logged once per block per rule version (the verdict is cached): stored CSS that no longer passes the sanitizer is dropped, not printed.
             error_log(sprintf(
                 '[wpmcp] Stored custom CSS for post %d was dropped at render: %s',
                 $post_id,
                 $e->getMessage()
             ));
-            return;
-        }
 
-        if ('' === $safe) {
-            return;
+            return false;
         }
-
-        echo "\n<style id=\"wpmcp-custom-css\">\n" . $safe . "\n</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- sanitized above; escaping would corrupt CSS.
     }
 
     /**
@@ -100,19 +134,37 @@ class Custom_Code_Renderer
      * get_queried_object_id() alone is wrong here: it returns a term_id on
      * category/tag archives and a user ID on author archives, and those ids
      * share an integer space with the post ids used as store keys, so
-     * /category/foo/ (term 12) would print the CSS stored for post 12. The
-     * ability promises "renders only on that page", so only a singular
-     * request for a real WP_Post qualifies.
+     * /category/foo/ (term 12) would print the CSS stored for post 12. So the
+     * id is derived per request type, never read off an arbitrary queried
+     * object:
+     *
+     *  - a singular request for a real WP_Post: that post;
+     *  - the posts page (page_for_posts), which WordPress serves through
+     *    is_home() rather than is_singular();
+     *  - the WooCommerce shop page, which is served as the product archive.
+     *
+     * Add_Scoped_Css refuses every other kind of post, so nothing is stored
+     * that this cannot reach.
      */
     private static function scoped_post_id(): int
     {
-        if (! is_singular()) {
-            return 0;
+        if (is_singular()) {
+            $object = get_queried_object();
+
+            return ($object instanceof \WP_Post) ? (int) $object->ID : 0;
         }
 
-        $object = get_queried_object();
+        if (is_home() && 'page' === get_option('show_on_front')) {
+            return (int) get_option('page_for_posts');
+        }
 
-        return ($object instanceof \WP_Post) ? (int) $object->ID : 0;
+        if (function_exists('is_shop') && function_exists('wc_get_page_id') && is_shop()) {
+            $shop = (int) wc_get_page_id('shop');
+
+            return $shop > 0 ? $shop : 0;
+        }
+
+        return 0;
     }
 
     public static function print_js(): void
@@ -121,13 +173,15 @@ class Custom_Code_Renderer
             return;
         }
 
-        $data = Custom_Code_Store::read();
-        $js   = isset($data['js']['site']) ? (string) $data['js']['site'] : '';
+        // Only a snippet this plugin wrote, behind the gate and the
+        // unfiltered_html check, is printed. A value written straight into
+        // wp_options (update-rows never consults Option_Guard) is ignored.
+        $js = Custom_Code_Store::verified_js();
 
         if ('' === trim($js) || Custom_Js_Guard::has_breakout($js)) {
             return;
         }
 
-        echo "\n<script id=\"wpmcp-custom-js\">\n" . $js . "\n</script>\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- gated by Custom_Js_Guard; stored via unfiltered_html holders only.
+        echo "\n<script id=\"wpmcp-custom-js\">\n" . $js . "\n</script>\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- signed at write time, which only Add_Custom_Js does after Custom_Js_Guard and the unfiltered_html check; printed only while the gate is open.
     }
 }
