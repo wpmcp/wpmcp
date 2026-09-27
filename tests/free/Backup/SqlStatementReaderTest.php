@@ -25,7 +25,7 @@ class SqlStatementReaderTest extends \WP_UnitTestCase
 
     private function file(string $sql): string
     {
-        $path = wp_tempnam('wpmcp-reader');
+        $path = (string) tempnam(get_temp_dir(), 'wpmcp-reader');
         file_put_contents($path, $sql);
         $this->files[] = $path;
         return $path;
@@ -123,7 +123,7 @@ class SqlStatementReaderTest extends \WP_UnitTestCase
     public function test_a_large_dump_streams_with_bounded_memory(): void
     {
         $row  = "INSERT INTO `t` (`a`) VALUES ('" . str_repeat('lorem \\\' ipsum ', 200) . "');\n";
-        $path = wp_tempnam('wpmcp-reader-big');
+        $path = (string) tempnam(get_temp_dir(), 'wpmcp-reader-big');
         $this->files[] = $path;
         for ($i = 0; $i < 10; $i++) {
             file_put_contents($path, str_repeat($row, 1000), FILE_APPEND);

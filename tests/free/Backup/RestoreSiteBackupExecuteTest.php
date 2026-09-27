@@ -343,7 +343,7 @@ class RestoreSiteBackupExecuteTest extends \WP_UnitTestCase
         $this->assertTrue($out['compatible']);
         $this->assertGreaterThan(0, $out['statements']);
         $this->assertSame(2, $out['tables']);
-        $this->assertStringContainsString($wpdb->options, implode(' ', $out['warnings']));
+        $this->assertStringContainsString('not in the archive and will be left exactly as they are', implode(' ', $out['warnings']));
     }
 
     public function test_a_legacy_placeholder_token_is_turned_back_into_a_percent_sign(): void
