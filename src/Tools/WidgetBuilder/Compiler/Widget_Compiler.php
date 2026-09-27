@@ -109,6 +109,14 @@ class Widget_Compiler
             );
         }
         $parts = array_map('ucfirst', array_filter(explode('_', $slug), 'strlen'));
+        if ([] === $parts) {
+            // "___" survives sanitize_key() but leaves no name segment, and
+            // the manifest refuses a class name with nothing after the id.
+            return new \WP_Error(
+                'wpmcp_compiler_invalid_target',
+                'The widget name has no compilable characters; rename it to something ascii before compiling.'
+            );
+        }
         return 'WPMCP_Compiled_Widget_' . $spec_id . '_' . implode('_', $parts);
     }
 

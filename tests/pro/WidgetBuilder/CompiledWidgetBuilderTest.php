@@ -410,6 +410,7 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
     public function test_class_name_rejects_a_name_with_no_compilable_characters(): void
     {
         $this->assertInstanceOf(\WP_Error::class, Widget_Compiler::class_name_for(3, ''));
+        $this->assertInstanceOf(\WP_Error::class, Widget_Compiler::class_name_for(3, '___'), 'underscores alone leave no name segment');
         $this->assertInstanceOf(\WP_Error::class, Widget_Compiler::class_name_for(3, '日本語'));
         $this->assertInstanceOf(\WP_Error::class, Widget_Compiler::class_name_for(0, 'hero'));
     }

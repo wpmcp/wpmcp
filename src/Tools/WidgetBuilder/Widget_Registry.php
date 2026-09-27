@@ -55,7 +55,7 @@ class Widget_Registry
                 continue;
             }
             $spec = Widget_Spec_Store::get($widget_id);
-            if (! is_array($spec) || true !== Widget_Spec::validate($spec)) {
+            if (! is_array($spec) || ! Widget_Spec::is_renderable($spec)) {
                 continue;
             }
             $widget = new Dynamic_Widget([], ['widget_name' => $spec['name']]);

@@ -155,6 +155,39 @@ class Widget_Spec
         return true;
     }
 
+    /**
+     * Whether an ALREADY-STORED spec is structurally renderable.
+     *
+     * validate() is the write-time gate and is deliberately strict (bounded
+     * sizes, strict identifier character sets, scalar defaults). Applying it
+     * at registration time would silently unregister every widget stored
+     * before those rules existed, e.g. a control named "My Heading" that has
+     * always worked through sanitize_key(). The runtime path only needs what
+     * Dynamic_Widget and Widget_Renderer themselves rely on, type-checked so
+     * nothing is cast from an array.
+     */
+    public static function is_renderable(array $spec): bool
+    {
+        $title    = $spec['title'] ?? '';
+        $controls = $spec['controls'] ?? null;
+        $template = $spec['template'] ?? '';
+        if (! is_scalar($title) || '' === trim((string) $title) || ! is_string($template) || '' === trim($template)) {
+            return false;
+        }
+        if (! is_array($controls) || [] === $controls) {
+            return false;
+        }
+        foreach ($controls as $control) {
+            if (! is_array($control) || ! is_scalar($control['name'] ?? null) || ! is_string($control['type'] ?? null)) {
+                return false;
+            }
+            if ('' === sanitize_key((string) $control['name']) || ! isset(self::CONTROL_TYPES[ $control['type'] ])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** Normalize a validated spec: derive a machine name from the title when absent. */
     public static function normalize(array $spec): array
     {

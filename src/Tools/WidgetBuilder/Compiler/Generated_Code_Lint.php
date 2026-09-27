@@ -30,8 +30,12 @@ if (! defined('ABSPATH')) {
  *     variable variables ($$x), dynamic method / static / property access
  *     ($o->$m(), C::$$m), dynamic instantiation (new $c), and complex string
  *     interpolation.
- *  3. Every call-position identifier - plain, qualified or fully qualified -
- *     must be in ALLOWED_CALLS.
+ *  3. Every call-position identifier must be a GLOBAL name in
+ *     ALLOWED_CALLS. Qualified and relative names are rejected (they share a
+ *     last segment with an allowed function and are a different function),
+ *     `use` and `namespace` statements are rejected (they re-point an allowed
+ *     name), and calling the result of an expression ("system"(), $a[0](),
+ *     f()()) is rejected, because no identifier is in call position there.
  *  4. Calls that are not free-function calls are allowlisted too, by RECEIVER
  *     as well as by name: `->` and `?->` are accepted only on a literal $this
  *     receiver, `::` only on self / static / parent, and the method named must
@@ -126,6 +130,13 @@ class Generated_Code_Lint
                 if ('$' === $token) {
                     return self::rejected('variable variable ($$x)');
                 }
+                // Calling the RESULT of an expression: "system"('id'),
+                // ('sys' . 'tem')('id'), $a[0]('id'), f()('id'). No identifier
+                // is in call position, so the name allowlist below would never
+                // see the callee. The emitter never produces any of these.
+                if ('(' === $token && self::ends_expression($prev)) {
+                    return self::rejected('call of an expression result');
+                }
                 continue;
             }
 
@@ -133,6 +144,13 @@ class Generated_Code_Lint
 
             if (in_array($id, [T_EVAL, T_INCLUDE, T_INCLUDE_ONCE, T_REQUIRE, T_REQUIRE_ONCE, T_HALT_COMPILER], true)) {
                 return self::rejected(trim($text));
+            }
+            // An allowlisted NAME only means the allowlisted FUNCTION in the
+            // global namespace with no imports: `use function system as
+            // esc_html;` or `namespace Evil;` would make esc_html() resolve
+            // somewhere else. The emitter writes neither statement.
+            if (T_USE === $id || T_NAMESPACE === $id) {
+                return self::rejected('use / namespace statement');
             }
             // A close tag would let trailing bytes leak out as raw output.
             if (T_CLOSE_TAG === $id || T_INLINE_HTML === $id) {
@@ -181,7 +199,7 @@ class Generated_Code_Lint
                 continue;
             }
 
-            if (! in_array($id, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)) {
+            if (! in_array($id, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED, T_NAME_RELATIVE], true)) {
                 continue;
             }
             // Only call position matters: `$this->copy`, a method named
@@ -209,17 +227,34 @@ class Generated_Code_Lint
             if (is_array($next) || '(' !== $next) {
                 continue;
             }
-            // A fully qualified call tokenizes as ONE token in PHP 8
-            // (`\exec` is a single T_NAME_FULLY_QUALIFIED), so match on the
-            // last namespace segment, not on the raw text.
-            $segments = explode('\\', ltrim($text, '\\'));
-            $callee   = strtolower((string) end($segments));
+            // A qualified call tokenizes as ONE token in PHP 8 (`\exec` is a
+            // single T_NAME_FULLY_QUALIFIED). Only a global name may match
+            // the allowlist: `\Evil\esc_html()` or `Evil\esc_html()` is a
+            // different function that merely shares the last segment.
+            $callee = strtolower(ltrim($text, '\\'));
+            if (T_NAME_QUALIFIED === $id || T_NAME_RELATIVE === $id || str_contains($callee, '\\')) {
+                return self::rejected($text . '() is a namespaced call; generated code calls global functions only');
+            }
             if (! in_array($callee, self::ALLOWED_CALLS, true)) {
                 return self::rejected($text . '() is not in the generated-code call allowlist');
             }
         }
 
         return true;
+    }
+
+    /**
+     * True when $prev closes an expression, so a `(` after it would call the
+     * expression's value rather than a named function.
+     *
+     * @param array{0:int,1:string,2:int}|string|null $prev
+     */
+    private static function ends_expression($prev): bool
+    {
+        if (is_array($prev)) {
+            return in_array($prev[0], [T_CONSTANT_ENCAPSED_STRING, T_END_HEREDOC], true);
+        }
+        return in_array($prev, [')', ']', '}', '"'], true);
     }
 
     private static function rejected(string $what): \WP_Error

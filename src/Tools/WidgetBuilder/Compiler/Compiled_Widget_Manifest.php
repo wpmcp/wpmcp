@@ -381,11 +381,39 @@ class Compiled_Widget_Manifest
      */
     public static function load_enabled(): array
     {
+        $loaded = [];
+        foreach (self::loadable() as $spec_id => $item) {
+            $class = $item['class'];
+            if (! class_exists($class, false)) {
+                require_once $item['path'];
+            }
+            if (! class_exists($class, false)) {
+                continue;
+            }
+            if (! self::class_came_from($class, $item['path'])) {
+                continue;
+            }
+            $loaded[ $spec_id ] = $class;
+        }
+        return $loaded;
+    }
+
+    /**
+     * Every entry that passes all the pre-require gates (execution allowed,
+     * enabled, spec published, plain file in the sandbox, bytes hash to the
+     * record), WITHOUT requiring anything. load_enabled() requires from this
+     * list; the read tools report from it, so reporting whether a class would
+     * load never executes generated PHP.
+     *
+     * @return array<int,array{class:string,path:string}>
+     */
+    public static function loadable(): array
+    {
         if (! self::execution_allowed()) {
             return [];
         }
 
-        $loaded = [];
+        $out = [];
         foreach (self::read() as $spec_id => $entry) {
             if (! $entry['enabled']) {
                 continue;
@@ -397,22 +425,13 @@ class Compiled_Widget_Manifest
             if ('' === $path || ! is_file($path) || is_link($path)) {
                 continue;
             }
-            $bytes = @file_get_contents($path);
+            $bytes = file_get_contents($path);
             if (! is_string($bytes) || ! hash_equals($entry['hash'], hash('sha256', $bytes))) {
                 continue;
             }
-            if (! class_exists($entry['class'], false)) {
-                require_once $path;
-            }
-            if (! class_exists($entry['class'], false)) {
-                continue;
-            }
-            if (! self::class_came_from($entry['class'], $path)) {
-                continue;
-            }
-            $loaded[ $spec_id ] = $entry['class'];
+            $out[ $spec_id ] = ['class' => $entry['class'], 'path' => $path];
         }
-        return $loaded;
+        return $out;
     }
 
     /**
@@ -496,7 +515,13 @@ class Compiled_Widget_Manifest
         $path = '' === $file ? '' : self::path_for($file);
         if ('' !== $path && ! is_link($path)) {
             if (isset($state['bytes']) && is_string($state['bytes'])) {
-                file_put_contents($path, $state['bytes']);
+                // An undo writes PHP into the sandbox, so the bytes are held
+                // to the same pre-write lint as a compile. Bytes that do not
+                // pass are not written; the entry below still comes back, and
+                // since nothing on disk hashes to it, the widget is inert.
+                if (true === Generated_Code_Lint::check($state['bytes'])) {
+                    file_put_contents($path, $state['bytes']);
+                }
             } elseif (is_file($path)) {
                 // The compile created this file; the prior state had none.
                 wp_delete_file($path);
@@ -568,7 +593,7 @@ class Compiled_Widget_Manifest
             'enabled'         => $entry['enabled'],
             'compiled_at'     => $entry['compiled_at'],
             'file_present'    => '' !== $path && is_file($path),
-            'loading'         => isset(self::load_enabled()[ $spec_id ]),
+            'loading'         => isset(self::loadable()[ $spec_id ]),
             'stale'           => $stale,
         ];
     }
@@ -576,6 +601,6 @@ class Compiled_Widget_Manifest
     /** Spec ids that currently have an enabled, hash-matching compiled class. */
     public static function enabled_spec_ids(): array
     {
-        return array_keys(self::load_enabled());
+        return array_keys(self::loadable());
     }
 }
