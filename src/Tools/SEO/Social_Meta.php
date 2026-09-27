@@ -220,7 +220,7 @@ class Social_Meta
             $resolved = self::get($post_id)['fields'];
             foreach (['twitter_title', 'twitter_description'] as $field) {
                 if ('' !== $resolved[$field]) {
-                    update_post_meta($post_id, self::MAPS[$active][$field], $resolved[$field]);
+                    update_post_meta($post_id, self::MAPS[$active][$field], wp_slash($resolved[$field]));
                 }
             }
             update_post_meta($post_id, self::RANKMATH_MIRROR_KEY, 'off');
