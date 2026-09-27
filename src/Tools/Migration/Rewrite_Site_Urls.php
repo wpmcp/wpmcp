@@ -84,10 +84,21 @@ class Rewrite_Site_Urls
     }
 
     /**
-     * @var array<string, array{table: string, pk: string, columns: array<int, string>}>
+     * Options this pass never rewrites. wpmcp_php_snippets (issue #85) holds
+     * stored PHP source whose code may only change through
+     * update-php-snippet, which re-validates it and forces the snippet back
+     * to inactive; a site-wide text replacement with a caller-chosen
+     * to_url must not splice into that code behind those rules. A literal,
+     * not Php_Snippet_Store::OPTION_NAME, so this class stays loadable in
+     * every build flavor.
+     */
+    private const EXCLUDED_OPTIONS = ['wpmcp_php_snippets'];
+
+    /**
+     * @var array<string, array{table: string, pk: string, columns: array<int, string>, exclude?: array{column: string, values: array<int, string>}}>
      */
     private const TABLES = [
-        'options'  => ['table' => 'options', 'pk' => 'option_id', 'columns' => ['option_value']],
+        'options'  => ['table' => 'options', 'pk' => 'option_id', 'columns' => ['option_value'], 'exclude' => ['column' => 'option_name', 'values' => self::EXCLUDED_OPTIONS]],
         'postmeta' => ['table' => 'postmeta', 'pk' => 'meta_id', 'columns' => ['meta_value']],
         'posts'    => ['table' => 'posts', 'pk' => 'ID', 'columns' => ['post_content', 'post_excerpt']],
         'termmeta' => ['table' => 'termmeta', 'pk' => 'meta_id', 'columns' => ['meta_value']],
@@ -221,13 +232,24 @@ class Rewrite_Site_Urls
         $col_list  = implode(', ', array_map(static fn (string $c): string => "`{$c}`", $columns));
         $where_any = implode(' OR ', array_map(static fn (string $c): string => "`{$c}` LIKE %s", $columns));
 
+        $exclude_sql    = '';
+        $exclude_values = [];
+        if (! empty($spec['exclude']['values'])) {
+            $exclude_values = array_values($spec['exclude']['values']);
+            $exclude_sql    = sprintf(
+                ' AND `%s` NOT IN (%s)',
+                $spec['exclude']['column'],
+                implode(', ', array_fill(0, count($exclude_values), '%s'))
+            );
+        }
+
         while (true) {
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table/column names come from the const map above, not input.
-            $sql  = "SELECT `{$pk}`, {$col_list} FROM `{$table}` WHERE `{$pk}` > %d AND ({$where_any}) ORDER BY `{$pk}` ASC LIMIT %d";
+            $sql  = "SELECT `{$pk}`, {$col_list} FROM `{$table}` WHERE `{$pk}` > %d AND ({$where_any}){$exclude_sql} ORDER BY `{$pk}` ASC LIMIT %d";
             // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- table/column names come from the const map above; every value is bound by prepare().
             $rows = $wpdb->get_results(
                 // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql is the literal-plus-const-map string built two lines above; every value is bound here.
-                $wpdb->prepare($sql, array_merge([$last], array_fill(0, count($columns), $like), [self::BATCH_SIZE])),
+                $wpdb->prepare($sql, array_merge([$last], array_fill(0, count($columns), $like), $exclude_values, [self::BATCH_SIZE])),
                 ARRAY_A
             );
             if (empty($rows)) {

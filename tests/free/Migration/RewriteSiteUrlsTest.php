@@ -75,6 +75,33 @@ class RewriteSiteUrlsTest extends \WP_UnitTestCase
         $this->tool->handle(['from_url' => self::FROM, 'to_url' => self::TO, 'tables' => ['users']]);
     }
 
+    /**
+     * The stored PHP snippet corpus (issue #85) holds PHP source, and a code
+     * change is only allowed through update-php-snippet, which re-validates
+     * it and forces the snippet back to inactive. A site-wide text rewrite
+     * with a caller-chosen replacement must not splice into that code behind
+     * the snippet tools' back, so the store is excluded from the pass.
+     */
+    public function test_the_php_snippet_store_is_never_rewritten(): void
+    {
+        $code  = "<?php return '" . self::FROM . "/hook';";
+        $store = [
+            'abc' => [
+                'id'     => 'abc',
+                'name'   => 'n',
+                'code'   => $code,
+                'status' => 'active',
+            ],
+        ];
+        update_option('wpmcp_php_snippets', $store, false);
+
+        $this->tool->handle(['from_url' => self::FROM, 'to_url' => self::TO, 'dry_run' => false, 'confirm' => true, 'tables' => ['options']]);
+
+        wp_cache_flush();
+        $this->assertSame($code, get_option('wpmcp_php_snippets')['abc']['code']);
+        delete_option('wpmcp_php_snippets');
+    }
+
     public function test_dry_run_is_the_default_and_writes_nothing(): void
     {
         global $wpdb;
