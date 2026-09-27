@@ -204,4 +204,65 @@ class CloudAuthResolutionTest extends \WP_UnitTestCase
         // bundle is only ever presented over https.
         $this->assertSame('Bearer sk-fallback', $this->api_auth());
     }
+
+    public function test_a_token_only_connection_in_its_transient_backoff_says_so_and_keeps_the_bundle(): void
+    {
+        Cloud_Credentials::replace([
+            'base_url'          => 'https://cloud.example',
+            'access_token'      => 'stale-access',
+            'refresh_token'     => 'rt-1',
+            'access_expires_at' => time() - 10,
+        ]);
+        set_transient(Token_Refresher::RETRY_TRANSIENT, Cloud_Credentials::fingerprint('rt-1'), Token_Refresher::RETRY_BACKOFF);
+
+        $out = (new Cloud_Client())->get('/me');
+
+        $this->assertWPError($out);
+        $this->assertSame('cloud_temporarily_unavailable', $out->get_error_code());
+        $this->assertGreaterThan(0, $out->get_error_data()['retry_after'] ?? 0);
+        $this->assertStringContainsString('do not re-run cloud-connect', $out->get_error_message());
+        $this->assertSame('rt-1', Cloud_Credentials::all(true)['refresh_token']);
+    }
+
+    public function test_a_token_only_connection_on_plain_http_names_the_url(): void
+    {
+        Cloud_Credentials::replace([
+            'base_url'          => 'http://cloud.example',
+            'access_token'      => 'fresh-access',
+            'refresh_token'     => 'rt-1',
+            'access_expires_at' => time() + 3600,
+        ]);
+
+        $out = (new Cloud_Client())->get('/me');
+
+        $this->assertWPError($out);
+        $this->assertSame('cloud_insecure_url', $out->get_error_code());
+        $this->assertSame([], $this->requests);
+    }
+
+    public function test_a_redirect_is_reported_as_such(): void
+    {
+        remove_filter('pre_http_request', [$this, 'fake_http'], 10);
+        $redirect = static fn () => [
+            'headers'  => ['location' => 'https://www.cloud.example/wpmcp-cloud/v1/me'],
+            'body'     => '',
+            'response' => ['code' => 301, 'message' => 'Moved Permanently'],
+            'cookies'  => [],
+            'filename' => null,
+        ];
+        add_filter('pre_http_request', $redirect, 10, 3);
+        Cloud_Config::set('https://cloud.example', 'sk-1');
+
+        try {
+            $out = (new Cloud_Client())->get('/me');
+        } finally {
+            remove_filter('pre_http_request', $redirect, 10);
+        }
+
+        $this->assertWPError($out);
+        $this->assertSame('cloud_redirect_not_followed', $out->get_error_code());
+        $this->assertStringContainsString('https://www.cloud.example', $out->get_error_message());
+        $this->assertStringContainsString('canonical https URL', $out->get_error_message());
+        $this->assertStringNotContainsString('sk-1', $out->get_error_message());
+    }
 }

@@ -2,6 +2,8 @@
 
 namespace WPMCP\Cloud;
 
+use WPMCP\Crypto\Secret_Box;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -20,22 +22,14 @@ if (! defined('ABSPATH')) {
  *
  * Cryptography
  *
- *  - AEAD: libsodium crypto_secretbox (XSalsa20-Poly1305). Every write draws a
- *    fresh random 24-byte nonce, stored in front of the ciphertext, and the
- *    whole thing is base64 encoded for the options table. The Poly1305 tag
- *    authenticates the blob, so a tampered or truncated value fails to open
- *    instead of decrypting to garbage.
- *  - Key: BLAKE2b-256 (crypto_generichash) over a domain-separation label and
- *    wp_salt('auth'). The label keeps this key distinct from Stock_Key_Store's
- *    and from the fingerprint key below, even though all three hang off the
- *    same salt.
- *  - Fallback: PHP's sodium extension when it is loaded, otherwise the
- *    sodium_compat polyfill WordPress core has bundled since 5.2 (same API,
- *    same wire format, pure PHP). If neither is present the vault fails
- *    CLOSED: write() returns false and nothing is stored, and it never falls
- *    back to plaintext. A failed write also means the phase A plaintext
- *    options are left where they are, because they are then the site's only
- *    copy of the credentials.
+ * Sealing is Crypto\Secret_Box, shared with Stock_Key_Store: libsodium
+ * crypto_secretbox (XSalsa20-Poly1305, a fresh random nonce per write), under
+ * a BLAKE2b-256 key over the 'wpmcp-cloud-credentials' label and
+ * wp_salt('auth'), with the sodium extension or WordPress's bundled
+ * sodium_compat as the implementation. With neither, the vault fails CLOSED:
+ * write() returns false and nothing is stored, it never falls back to
+ * plaintext, and the phase A plaintext options are left where they are,
+ * because they are then the site's only copy of the credentials.
  *
  * Salt rotation (documented behaviour)
  *
@@ -200,7 +194,7 @@ class Cloud_Credentials
      */
     public static function fingerprint(string $secret): string
     {
-        return hash_hmac('sha256', $secret, self::derive_key('wpmcp-cloud-fingerprint'));
+        return hash_hmac('sha256', $secret, Secret_Box::key('wpmcp-cloud-fingerprint'));
     }
 
     /**
@@ -216,10 +210,7 @@ class Cloud_Credentials
         if (! isset($autoloaded[ self::LEGACY_KEY_OPTION ]) && ! isset($autoloaded[ self::LEGACY_URL_OPTION ])) {
             return;
         }
-        // Legacy options can only coexist with a vault when an older build
-        // wrote them after the vault existed (a downgrade and reconnect), so
-        // they are the newer credentials: import them the same way a
-        // cloud-connect would, which replaces the set.
+        // migrate_plaintext() only imports when there is no vault to lose.
         self::migrate_plaintext();
     }
 
@@ -252,6 +243,7 @@ class Cloud_Credentials
             // Only a set that actually landed resets health: a failed write
             // leaves the previous bundle in place, backoff included.
             Token_Refresher::clear_health();
+            self::changed();
         }
         return $written;
     }
@@ -264,6 +256,16 @@ class Cloud_Credentials
         delete_option(self::LEGACY_URL_OPTION);
         delete_option(self::LEGACY_KEY_OPTION);
         Token_Refresher::clear_health();
+        self::changed();
+    }
+
+    /**
+     * Tell caches derived from the connection (the announcements feed) that
+     * the credential set was replaced or dropped.
+     */
+    private static function changed(): void
+    {
+        do_action('wpmcp_cloud_credentials_changed');
     }
 
     /**
@@ -278,11 +280,13 @@ class Cloud_Credentials
      * about to make deletes it, and when it was never imported (a vault that
      * could not be written, or one that does not open) it is the only copy.
      *
+     * Read-only: raw options only, no decrypt, no migration. A caller that
+     * wants the legacy pair sealed first calls migrate_plaintext() itself.
+     *
      * @return array{blob:string,health:mixed,retry:mixed,legacy_url:string,legacy_key:string}
      */
     public static function snapshot(): array
     {
-        self::all(true);
         return [
             'blob'       => (string) get_option(self::OPTION, ''),
             'health'     => get_option(Token_Refresher::HEALTH_OPTION, false),
@@ -349,7 +353,7 @@ class Cloud_Credentials
             return self::$memo_fields;
         }
 
-        $plain  = self::decrypt($blob);
+        $plain  = Secret_Box::open($blob, self::LABEL);
         $data   = null === $plain ? null : json_decode($plain, true);
         $fields = is_array($data) ? array_intersect_key($data, array_flip(self::FIELDS)) : [];
 
@@ -371,7 +375,7 @@ class Cloud_Credentials
         if (! is_string($json)) {
             return false;
         }
-        $sealed = self::encrypt($json);
+        $sealed = Secret_Box::seal($json, self::LABEL);
         if (null === $sealed) {
             // No usable sodium implementation: fail closed, store nothing.
             return false;
@@ -416,11 +420,13 @@ class Cloud_Credentials
     }
 
     /**
-     * Import of the phase A plaintext options for a site that has not written
-     * the vault yet. write() deletes the plaintext copies, and only once the
-     * sealed blob reads back with the same values, so a write that fails (or
-     * an encrypt that produced nothing) leaves the site connected on the
-     * legacy options instead of destroying them.
+     * Import of the phase A plaintext options, only for a site with no vault
+     * at all: a readable vault always wins (the legacy copies are removed,
+     * not imported) and an unreadable one is never sealed over. The import
+     * goes through replace(), whose write() deletes the plaintext copies only
+     * once the sealed blob reads back with the same values, so a write that
+     * fails leaves the site connected on the legacy options instead of
+     * destroying them.
      *
      * Migration also runs on init (maybe_migrate_on_boot(), for autoloaded
      * legacy options) and on activation, so on a normally loading site this
@@ -444,93 +450,42 @@ class Cloud_Credentials
         }
 
         $fields = ['base_url' => rtrim($url, '/'), 'api_key' => $key];
-        if (self::$migration_failed || self::is_unreadable()) {
+        if (self::is_unreadable()) {
             // A vault that exists but does not open (rotated salts) may still
             // be recovered by restoring the old salts; the legacy pair is
             // usable meanwhile, but it must not be sealed over that blob.
             return $fields;
         }
-        // write() keeps the plaintext when the seal did not land: it is then
-        // the only copy of the credentials. Either way the caller gets a
-        // working credential set back.
-        if (! self::write($fields)) {
+        if ([] !== self::read_vault()) {
+            // A readable vault is authoritative. Legacy options next to it
+            // were written out of band (WP-CLI, another plugin, a database
+            // import, a downgraded build): importing them would REPLACE a set
+            // that may hold a refresh token nobody can retype. They are not
+            // imported, and because a plaintext cloud key must not sit in
+            // wp_options, they are removed. Changing the connection is
+            // cloud-connect's job.
+            self::forget_legacy_plaintext();
+            return [];
+        }
+        if (self::$migration_failed) {
+            return $fields;
+        }
+        // replace(), the credential-set primitive, so the import also resets
+        // any stale refresh health state. write() keeps the plaintext when
+        // the seal did not land: it is then the only copy of the credentials.
+        // Either way the caller gets a working credential set back.
+        if (! self::replace($fields)) {
             self::$migration_failed = true;
         }
         return $fields;
     }
 
-    /** @return string|null base64(nonce . ciphertext), or null when no sodium implementation is usable. */
-    private static function encrypt(string $plaintext): ?string
-    {
-        if (! self::crypto_available()) {
-            return null;
-        }
-        try {
-            $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
-            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- makes the binary sodium nonce+ciphertext safe to store in the options table; not obfuscation.
-            return base64_encode($nonce . sodium_crypto_secretbox($plaintext, $nonce, self::key()));
-        } catch (\Throwable $e) {
-            // SodiumException or a missing RNG. The message is not surfaced:
-            // callers only learn that nothing was stored.
-            return null;
-        }
-    }
-
-    private static function decrypt(string $blob): ?string
-    {
-        if (! self::crypto_available()) {
-            return null;
-        }
-        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- decodes the storage encoding written by encrypt(); not obfuscation.
-        $raw = base64_decode($blob, true);
-        if (false === $raw || strlen($raw) < SODIUM_CRYPTO_SECRETBOX_NONCEBYTES + SODIUM_CRYPTO_SECRETBOX_MACBYTES) {
-            return null;
-        }
-        $nonce  = substr($raw, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
-        $cipher = substr($raw, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
-        try {
-            $plain = sodium_crypto_secretbox_open($cipher, $nonce, self::key());
-        } catch (\Throwable $e) {
-            return null;
-        }
-        return false === $plain ? null : $plain;
-    }
-
-    /**
-     * The sodium extension, or the sodium_compat polyfill WordPress bundles.
-     * Both define these functions and constants with identical semantics.
-     */
-    private static function crypto_available(): bool
-    {
-        return function_exists('sodium_crypto_secretbox')
-            && function_exists('sodium_crypto_secretbox_open')
-            && function_exists('sodium_crypto_generichash')
-            && defined('SODIUM_CRYPTO_SECRETBOX_NONCEBYTES')
-            && defined('SODIUM_CRYPTO_SECRETBOX_KEYBYTES')
-            && defined('SODIUM_CRYPTO_SECRETBOX_MACBYTES');
-    }
-
-    private static function key(): string
-    {
-        return self::derive_key('wpmcp-cloud-credentials');
-    }
+    /** Secret_Box domain label for the vault; changing it orphans every sealed set. */
+    private const LABEL = 'wpmcp-cloud-credentials';
 
     /** Identifies the current vault key for the memo without keeping a copy of it. */
     private static function key_id(): string
     {
-        return hash('sha256', self::derive_key('wpmcp-cloud-memo'));
-    }
-
-    /**
-     * 32-byte key for $label, bound to wp_salt('auth'). Labels separate the
-     * sealing key from every other key derived from the same salt.
-     */
-    private static function derive_key(string $label): string
-    {
-        $material = $label . '|' . wp_salt('auth');
-        if (function_exists('sodium_crypto_generichash')) {
-            return sodium_crypto_generichash($material, '', 32);
-        }
-        return hash('sha256', $material, true);
+        return hash('sha256', Secret_Box::key('wpmcp-cloud-memo'));
     }
 }

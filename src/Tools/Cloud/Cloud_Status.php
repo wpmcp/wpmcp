@@ -38,14 +38,16 @@ class Cloud_Status
 
     private static function token_status(): string
     {
-        if (Cloud_Credentials::is_unreadable()) {
-            return 'unreadable';
+        // Usable credentials first: an unreadable vault next to a working
+        // legacy pair is still a working connection.
+        if (Cloud_Config::is_configured()) {
+            if (Token_Refresher::is_unhealthy() && '' === Cloud_Config::api_key()) {
+                // With an API key, Cloud_Client falls back to it and the
+                // connection works; only a token-only connection is dead.
+                return 'rejected';
+            }
+            return 'ok';
         }
-        if (Token_Refresher::is_unhealthy() && '' === Cloud_Config::api_key()) {
-            // With an API key, Cloud_Client falls back to it and the
-            // connection works; only a token-only connection is dead.
-            return 'rejected';
-        }
-        return Cloud_Config::is_configured() ? 'ok' : 'none';
+        return Cloud_Credentials::is_unreadable() ? 'unreadable' : 'none';
     }
 }

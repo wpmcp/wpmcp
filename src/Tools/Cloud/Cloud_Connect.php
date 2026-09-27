@@ -32,6 +32,16 @@ class Cloud_Connect
             return new \WP_Error('missing_credentials', 'Both a cloud url and an api key are required.');
         }
 
+        // Cloud requests never follow redirects (they would replay the
+        // Authorization header), so resolve an http->https, bare->www or
+        // trailing-slash move now, with an unauthenticated probe, and store
+        // the address the cloud actually answers on.
+        $url = Cloud_Client::canonical_base_url($url);
+
+        // Seal any unmigrated phase A pair first, explicitly, so the
+        // snapshot below is a plain read of what is stored.
+        Cloud_Credentials::migrate_plaintext();
+
         // The exact prior state: the raw blob (so a salt-rotated vault stays
         // recoverable) and the refresh health markers (so a rejected bundle
         // stays in its backoff).

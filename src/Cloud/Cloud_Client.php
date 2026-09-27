@@ -58,15 +58,11 @@ class Cloud_Client
             return new \WP_Error('cloud_not_configured', 'Connect to WP MCP Cloud first with cloud-connect (URL + API key).');
         }
 
+        // Never "Bearer " with nothing after it (an opaque HTTP 401): when no
+        // credential resolves, say which of the distinct reasons applies.
         $credential = $this->auth_credential();
-        if (null === $credential) {
-            // A token-only connection whose refresh failed or is inside its
-            // backoff. Sending "Bearer " with nothing after it would come back
-            // as an opaque HTTP 401; say what actually has to happen instead.
-            return new \WP_Error(
-                'cloud_not_authenticated',
-                'WP MCP Cloud rejected or could not refresh this site\'s token. Re-run cloud-connect.'
-            );
+        if (is_wp_error($credential)) {
+            return $credential;
         }
 
         $url  = Cloud_Config::base_url() . self::API_BASE . $path;
@@ -95,6 +91,25 @@ class Cloud_Client
         $code = (int) wp_remote_retrieve_response_code($response);
         $data = json_decode((string) wp_remote_retrieve_body($response), true);
 
+        if ($code >= 300 && $code < 400) {
+            // Redirects are deliberately not followed (the Authorization
+            // header would be replayed to wherever Location points), so name
+            // the cause instead of a bare "HTTP 301".
+            $location = (string) wp_remote_retrieve_header($response, 'location');
+            $target   = (string) wp_parse_url($location, PHP_URL_HOST);
+            $scheme   = (string) wp_parse_url($location, PHP_URL_SCHEME);
+            $hint     = '' === $target ? '' : ' to ' . Cloud_Credentials::redact(('' === $scheme ? '' : $scheme . '://') . $target);
+            return new \WP_Error(
+                'cloud_redirect_not_followed',
+                sprintf(
+                    'WP MCP Cloud answered HTTP %d with a redirect%s. Redirects are not followed, so this site\'s credentials are never sent to another address. Re-run cloud-connect with the canonical https URL.',
+                    $code,
+                    $hint
+                ),
+                ['status' => $code]
+            );
+        }
+
         if ($code < 200 || $code >= 300) {
             $message = is_array($data) && isset($data['message']) ? Cloud_Credentials::redact((string) $data['message']) : "HTTP {$code}";
             return new \WP_Error('cloud_error', 'WP MCP Cloud returned an error: ' . $message, ['status' => $code]);
@@ -104,31 +119,133 @@ class Cloud_Client
     }
 
     /**
+     * Where the cloud really lives, found BEFORE any credential is stored or
+     * sent: an unauthenticated GET of the /me route with redirects off, and
+     * when it answers 30x with a Location that is the same route under
+     * another base (http to https, bare to www, a trailing slash), that base
+     * instead, up to three hops. Only a Location that ends in the probed
+     * route is followed, and never from https down to http, so a redirect to
+     * some unrelated page cannot become the stored cloud URL. Anything else
+     * (an error, a 200, a 401, an unrelated Location) keeps the URL as typed
+     * and lets the authenticated probe report what is wrong.
+     */
+    public static function canonical_base_url(string $url): string
+    {
+        $base  = rtrim(trim($url), '/');
+        $route = self::API_BASE . '/me';
+        for ($hop = 0; $hop < 3 && '' !== $base; $hop++) {
+            $response = wp_remote_get($base . $route, [
+                'timeout'     => 10,
+                'redirection' => 0,
+                'headers'     => ['Accept' => 'application/json'],
+            ]);
+            if (is_wp_error($response)) {
+                return $base;
+            }
+            $code = (int) wp_remote_retrieve_response_code($response);
+            if ($code < 300 || $code >= 400) {
+                return $base;
+            }
+            $location = trim((string) wp_remote_retrieve_header($response, 'location'));
+            if ('' !== $location && '/' === $location[0] && (strlen($location) < 2 || '/' !== $location[1])) {
+                $location = self::origin($base) . $location;
+            }
+            $path = (string) strtok($location, '?#');
+            if ('' === $path || substr($path, -strlen($route)) !== $route) {
+                return $base;
+            }
+            $next   = rtrim(substr($path, 0, -strlen($route)), '/');
+            $scheme = strtolower((string) wp_parse_url($next, PHP_URL_SCHEME));
+            if (! in_array($scheme, ['http', 'https'], true) || '' === (string) wp_parse_url($next, PHP_URL_HOST)) {
+                return $base;
+            }
+            if ('https' === strtolower((string) wp_parse_url($base, PHP_URL_SCHEME)) && 'https' !== $scheme) {
+                return $base;
+            }
+            if ($next === $base) {
+                return $base;
+            }
+            $base = $next;
+        }
+        return $base;
+    }
+
+    /** scheme://host[:port] of $url, for resolving a root-relative Location. */
+    private static function origin(string $url): string
+    {
+        $parts = wp_parse_url($url);
+        if (! is_array($parts) || empty($parts['host'])) {
+            return '';
+        }
+        return ($parts['scheme'] ?? 'https') . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '');
+    }
+
+    /**
      * Auth resolution (issue #141): prefer a fresh access token from the
      * vault, invoke Token_Refresher when stale, fall back to the API key
      * (phase A connections have no token bundle yet).
      *
-     * Returns null when nothing resolves, which is reachable now that
-     * is_configured() admits a token-only connection: the caller must error
-     * rather than put an empty bearer on the wire.
+     * When nothing resolves (reachable now that is_configured() admits a
+     * token-only connection) the answer is a WP_Error naming the actual
+     * reason, because the remedies differ: re-running cloud-connect is right
+     * for a rejected token and wrong for one that is waiting out a 60s
+     * backoff, which it would throw away.
+     *
+     * @return string|\WP_Error
      */
-    private function auth_credential(): ?string
+    private function auth_credential()
     {
-        $bundle = Cloud_Credentials::all();
-        // The OAuth bundle is only ever presented over https. A phase A
-        // connection on a plain http URL keeps working on its API key, as it
-        // always has, but it does not get to leak a bearer token too.
-        $secure = 'https' === strtolower((string) wp_parse_url(Cloud_Config::base_url(), PHP_URL_SCHEME));
-        if ($secure && Token_Refresher::is_fresh($bundle)) {
-            return (string) $bundle['access_token'];
-        }
-        if ($secure && '' !== (string) ($bundle['refresh_token'] ?? '')) {
-            $token = (new Token_Refresher())->ensure_fresh_access_token();
-            if (null !== $token && '' !== $token) {
-                return $token;
+        $bundle     = Cloud_Credentials::all();
+        $has_bundle = '' !== (string) ($bundle['access_token'] ?? '') || '' !== (string) ($bundle['refresh_token'] ?? '');
+        $failure    = ['reason' => Token_Refresher::FAILURE_REJECTED, 'retry_after' => 0];
+
+        if ($has_bundle) {
+            // The OAuth bundle is only ever presented over https. A phase A
+            // connection on a plain http URL keeps working on its API key, as
+            // it always has, but it does not get to leak a bearer token too.
+            $secure = 'https' === strtolower((string) wp_parse_url(Cloud_Config::base_url(), PHP_URL_SCHEME));
+            if (! $secure) {
+                $failure = ['reason' => Token_Refresher::FAILURE_INSECURE_URL, 'retry_after' => 0];
+            } elseif (Token_Refresher::is_fresh($bundle)) {
+                return (string) $bundle['access_token'];
+            } elseif ('' !== (string) ($bundle['refresh_token'] ?? '')) {
+                $refresher = new Token_Refresher();
+                $token     = $refresher->ensure_fresh_access_token();
+                if (null !== $token && '' !== $token) {
+                    return $token;
+                }
+                $failure = $refresher->last_failure();
             }
         }
+
         $key = Cloud_Config::api_key();
-        return '' === $key ? null : $key;
+        if ('' !== $key) {
+            return $key;
+        }
+        return self::auth_error($failure);
+    }
+
+    /** @param array{reason:string,retry_after:int} $failure */
+    private static function auth_error(array $failure): \WP_Error
+    {
+        switch ($failure['reason']) {
+            case Token_Refresher::FAILURE_INSECURE_URL:
+                return new \WP_Error(
+                    'cloud_insecure_url',
+                    'This site\'s WP MCP Cloud connection uses an OAuth token, which is only ever sent over https, and the stored cloud URL is not https. Re-run cloud-connect with the https URL.'
+                );
+            case Token_Refresher::FAILURE_UNAVAILABLE:
+                $retry = max(1, (int) $failure['retry_after']);
+                return new \WP_Error(
+                    'cloud_temporarily_unavailable',
+                    sprintf('WP MCP Cloud could not refresh this site\'s token right now. Try again in %d seconds. The connection is kept, so do not re-run cloud-connect.', $retry),
+                    ['retry_after' => $retry]
+                );
+            default:
+                return new \WP_Error(
+                    'cloud_not_authenticated',
+                    'WP MCP Cloud rejected this site\'s token. Re-run cloud-connect.'
+                );
+        }
     }
 }
