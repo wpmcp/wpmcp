@@ -58,14 +58,17 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  new tool fit; the two descriptions were trimmed from 1051 to 420
      *  characters first, which puts the payload at 170104 bytes over 314
      *  tools. Raised 175000 -> 180000 when the merge train landed #60, #61
-     *  and #62 together (176529 bytes over 319 tools). Raised 180000 -> 185000 in review
-     *  for the theme-builder site parts (#70: create/list/resolve/update/
-     *  set-status/delete-site-part), which put main at 180886 bytes over 325
-     *  tools; the descriptions were trimmed to the rule shape ({type, value?}
-     *  with the type enum) and the context keys first, because an agent that
-     *  cannot build a valid conditions object from tools/list pays a failed
-     *  call. Compact tool mode keeps clients with tool caps at ~2.8KB
-     *  regardless. */
+     *  and #62 together (176529 bytes over 319 tools). The PHP snippet
+     *  lifecycle store (#85) adds seven tools whose descriptions were trimmed
+     *  to the store-vs-Elementor-custom-code disambiguation, the
+     *  created-inactive rule and the execution-gate refusal. Raised 180000 ->
+     *  185000 in review for the theme-builder site parts (#70: create/list/
+     *  resolve/update/set-status/delete-site-part), which put main at 180886
+     *  bytes over 325 tools; the descriptions were trimmed to the rule shape
+     *  ({type, value?} with the type enum) and the context keys first, because
+     *  an agent that cannot build a valid conditions object from tools/list
+     *  pays a failed call. Compact tool mode keeps clients with tool caps at
+     *  ~2.8KB regardless. */
     private const TOOLS_LIST_BYTE_BUDGET = 185000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */

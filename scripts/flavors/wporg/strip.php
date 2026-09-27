@@ -930,6 +930,40 @@ $plugin_edits[] = [
     "'Trash a site part. Snapshot-first: the returned operation_id rolls it back',\n",
     1,
 ];
+// The PHP snippet store (issue #85) ships here; ACTIVATING a stored snippet
+// does not. Agent-facing ability descriptions and the readme must not point
+// at an ability this zip lacks, so those strings are rewritten. Docblocks may
+// still name stripped classes and abilities (COMPLIANCE.md, "What the strip
+// rewrites"); the one docblock edited below is edited only because it
+// describes a pro tier, which the build's prose gate rejects. Deactivation itself
+// stays and is not a no-op: a site that ran the full plugin and then swapped
+// to this build can still carry an active snippet in wp_options, and
+// revoking it must never require reinstalling the paid surface.
+$plugin_edits[] = [
+    "     * free tier: it stores and reads PHP source and never executes any of\n"
+        . "     * it. Deactivation lives here too, deliberately ungated, so an\n"
+        . "     * activated snippet can always be revoked. ACTIVATION is the pro,\n"
+        . "     * exec-gated half and is registered in\n"
+        . "     * register_php_exec_abilities() instead, next to run-php-snippet whose\n"
+        . "     * gate chain it shares.\n",
+    "     * free tier: it stores and reads PHP source, and NOTHING IN THIS BUILD\n"
+        . "     * CAN EXECUTE ANY OF IT. There is no activation ability here and no\n"
+        . "     * snippet runner, so 'inactive' is the only status this build can\n"
+        . "     * write. Deactivation stays anyway: a site that carried an active\n"
+        . "     * snippet from another build must be able to clear the flag without\n"
+        . "     * installing anything.\n",
+    1,
+];
+$plugin_edits[] = [
+    "Activation is separate and gated. Snapshot-first, reversible per snippet',",
+    "This build never executes or activates a stored snippet. Snapshot-first, reversible per snippet',",
+    1,
+];
+$plugin_edits[] = [
+    "            'Deactivate a stored PHP snippet by id (reverse of activate-php-snippet). Not gated on the PHP execution opt-in, so an active snippet can always be revoked. Snapshot-first; never executes anything',",
+    "            'Deactivate a stored PHP snippet by id: marks it inactive. This build cannot execute or activate a stored snippet, so this only clears a flag left by another install. Snapshot-first; never executes anything',",
+    1,
+];
 
 $edits['src/Plugin.php'] = $plugin_edits;
 
