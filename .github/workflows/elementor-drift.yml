@@ -1,0 +1,41 @@
+name: Elementor drift
+# The main CI pins Elementor (bin/install-test-plugins.sh) so a new Elementor
+# release cannot turn every open PR red with no change on our side, which is
+# what Elementor 4.3.0 did on 2026-09-22. This workflow runs the same suite
+# against the LATEST Elementor on a schedule, so drift is still seen within a
+# day, as a red run here, without blocking merges. When it goes red: fix the
+# code or fixtures for the new release, then move ELEMENTOR_VERSION's default.
+#
+# Deliberately a separate workflow and not a PR check: a red leg on every PR
+# for a release nobody has adapted to yet is exactly the failure mode the pin
+# removes. It also runs on PRs that edit this file or the plugin installer,
+# so changes to either are exercised before they land.
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/elementor-drift.yml
+      - bin/install-test-plugins.sh
+jobs:
+  test-latest-elementor:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mariadb:10.6
+        env: { MYSQL_ROOT_PASSWORD: root }
+        ports: ['3306:3306']
+        options: --health-cmd="healthcheck.sh --connect" --health-interval=10s --health-timeout=5s --health-retries=5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with: { php-version: '8.3', coverage: none }
+      - run: composer install --no-interaction
+      - name: Install subversion (required by install-wp-tests.sh)
+        run: sudo apt-get update && sudo apt-get install -y subversion
+      - run: bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 7.1
+      - name: Install test plugins with the latest Elementor
+        run: bash bin/install-test-plugins.sh
+        env: { ELEMENTOR_VERSION: latest }
+      - run: composer test
