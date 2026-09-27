@@ -167,15 +167,21 @@ jobs:
         uses: wordpress/plugin-check-action@v1
         with:
           build-dir: ./build/wporg/wpmcp
-          # No ignore-codes: every WordPressCS code this job once carried has
-          # been driven to zero and is pinned there by .phpcs-baseline.json,
-          # so Plugin Check now blocks on all of them.
+          # No ignore-codes. Both WordPressCS codes this job used to ignore
+          # have been driven to zero, so none are ignored any more and an
+          # error-level finding under either one fails this job:
           #   PreparedSQL.NotPrepared           left with #174 (identifiers bound with %i)
           #   EscapeOutput.ExceptionNotEscaped   left with #173 (operands escaped, remaining
           #                                      sites carry a justified phpcs:ignore)
-          # If a new pre-existing code ever has to be carried here, pass it as
-          # `ignore-codes:` on a single line with no spaces: the action splits
-          # that value unquoted.
+          # This job and `composer lint:wpcs` are two separate gates and their
+          # counts can disagree. .phpcs-baseline.json pins each code for the
+          # WordPressCS ratchet, which runs phpcs-wporg.xml.dist over the
+          # source tree. Plugin Check does not read that baseline: it scans the
+          # stripped build with the stock WordPress ruleset config and its own
+          # bundled WordPressCS, so it can report sites the baseline never
+          # counted, or miss ones it did.
+          # To ignore a code here again, pass it as `ignore-codes:` on a single
+          # line with no spaces: the action splits that value unquoted.
       # continue-on-error above keeps Plugin Check running when only the final
       # compliance gate (step 6 of the build script) regresses. A build that
       # died earlier, before it produced a tree, would otherwise skip Plugin
