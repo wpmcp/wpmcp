@@ -195,6 +195,12 @@ final class Tool_Inventory
      */
     private static function objectify_properties(array $node): array
     {
+        // WordPress REST-style schemas mark a property with a boolean
+        // 'required'; in JSON Schema 'required' is a list on the parent, and
+        // one invalid schema would fail the whole provider request.
+        if (isset($node['required']) && ! is_array($node['required'])) {
+            unset($node['required']);
+        }
         foreach ($node as $key => $value) {
             if ('properties' === $key && is_array($value)) {
                 if ([] === $value) {

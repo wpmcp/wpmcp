@@ -464,6 +464,41 @@ class Conversation_Store
         return $this->last_error;
     }
 
+    /** Meta key holding the turn lock, see lock(). */
+    private const LOCK_META = '_wpmcp_chat_lock';
+
+    /** Seconds after which a lock left by a request that died is ignored. */
+    private const LOCK_TTL = 180;
+
+    /**
+     * Takes the per-conversation turn lock so two requests (a double click,
+     * a retried continue, an approve racing a continue) cannot both call the
+     * provider or both rewrite the pending approval state. add_post_meta()
+     * with $unique is a check-then-insert, so this narrows the window rather
+     * than closing it; it exists to stop duplicate provider calls and lost
+     * state, not as a security boundary (approval tokens are that).
+     */
+    public function lock(int $post_id, int $user_id): bool
+    {
+        if (! $this->is_owned_by($post_id, $user_id)) {
+            return false;
+        }
+        if (add_post_meta($post_id, self::LOCK_META, time(), true)) {
+            return true;
+        }
+        $since = (int) get_post_meta($post_id, self::LOCK_META, true);
+        if ($since > 0 && time() - $since < self::LOCK_TTL) {
+            return false;
+        }
+        delete_post_meta($post_id, self::LOCK_META);
+        return (bool) add_post_meta($post_id, self::LOCK_META, time(), true);
+    }
+
+    public function unlock(int $post_id): void
+    {
+        delete_post_meta($post_id, self::LOCK_META);
+    }
+
     /** Whether the last append_message() was a retry that stored nothing new. */
     public function last_append_duplicate(): bool
     {

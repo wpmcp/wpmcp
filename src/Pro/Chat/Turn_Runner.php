@@ -80,6 +80,21 @@ final class Turn_Runner
         if (! $this->store->is_owned_by($conversation_id, $user_id)) {
             return self::error('invalid_conversation');
         }
+        if (! $this->store->lock($conversation_id, $user_id)) {
+            return self::error('busy');
+        }
+        try {
+            return $this->locked_step($user_id, $conversation_id);
+        } finally {
+            $this->store->unlock($conversation_id);
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function locked_step(int $user_id, int $conversation_id): array
+    {
 
         $state = $this->store->get_state($conversation_id, $user_id);
         if (! empty($state['pending']['proposals'])) {
@@ -253,6 +268,21 @@ final class Turn_Runner
         if (! $this->store->is_owned_by($conversation_id, $user_id)) {
             return self::error('invalid_conversation');
         }
+        if (! $this->store->lock($conversation_id, $user_id)) {
+            return self::error('busy');
+        }
+        try {
+            return $this->locked_resolve($user_id, $conversation_id, $tool_use_id, $approve, $token);
+        } finally {
+            $this->store->unlock($conversation_id);
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function locked_resolve(int $user_id, int $conversation_id, string $tool_use_id, bool $approve, string $token): array
+    {
 
         $state    = $this->store->get_state($conversation_id, $user_id);
         $pending  = is_array($state['pending'] ?? null) ? $state['pending'] : [];
@@ -318,14 +348,35 @@ final class Turn_Runner
     }
 
     /**
+     * The parked proposals of a conversation with fresh tokens, for a reload
+     * of the chat screen. Takes the turn lock and re-reads the state under
+     * it: writing back a state read before a concurrent approval would
+     * resurrect the proposal that approval just consumed.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function pending_proposals(int $user_id, int $conversation_id): array
+    {
+        if (! $this->store->lock($conversation_id, $user_id)) {
+            return [];
+        }
+        try {
+            return $this->reissue_proposals($user_id, $conversation_id, $this->store->get_state($conversation_id, $user_id));
+        } finally {
+            $this->store->unlock($conversation_id);
+        }
+    }
+
+    /**
      * The parked proposals with a freshly minted token each, for display.
      * Minting replaces the stored token hash, so only the newest token for a
-     * proposal is accepted and a reload of the chat screen can still approve.
+     * proposal is accepted. Callers must hold the turn lock and pass state
+     * they read under it.
      *
      * @param array<string, mixed> $state
      * @return array<int, array<string, mixed>>
      */
-    public function reissue_proposals(int $user_id, int $conversation_id, array $state): array
+    private function reissue_proposals(int $user_id, int $conversation_id, array $state): array
     {
         $out = [];
         if (empty($state['pending']['proposals']) || ! is_array($state['pending']['proposals'])) {

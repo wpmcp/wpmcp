@@ -399,7 +399,7 @@ class Chat_Rest_Controller
         }
         $code = match ((string) ($result['error'] ?? '')) {
             'invalid_conversation', 'unknown_proposal' => 404,
-            'no_usable_provider_key'                   => 409,
+            'no_usable_provider_key', 'busy'           => 409,
             'invalid_approval'                         => 403,
             'provider_error'                           => 502,
             'store_failed'                             => 500,
@@ -431,13 +431,12 @@ class Chat_Rest_Controller
             // to someone else: the difference is itself information.
             return new \WP_REST_Response(['error' => 'invalid_conversation'], 404);
         }
-        $state = $this->store()->get_state($id, $user_id);
         return new \WP_REST_Response([
             'conversation_id' => $id,
             'messages'        => $this->store()->get_messages($id, $user_id),
             // Parked calls come back with fresh tokens so a reload of the
             // chat screen can still approve or decline them.
-            'proposals'       => $this->runner()->reissue_proposals($user_id, $id, $state),
+            'proposals'       => $this->runner()->pending_proposals($user_id, $id),
         ]);
     }
 

@@ -259,7 +259,7 @@ class TurnRunnerTest extends \WP_UnitTestCase
         // Approval_Gate tokens carry a one-second expiry; minting the same
         // call in the same second yields the same token, so step past it.
         sleep(1);
-        $fresh = $this->runner->reissue_proposals($this->admin_id, $id, $this->store->get_state($id, $this->admin_id));
+        $fresh = $this->runner->pending_proposals($this->admin_id, $id);
         $new   = $fresh[0]['approval_token'];
         $this->assertNotSame($old, $new);
 
@@ -421,5 +421,20 @@ class TurnRunnerTest extends \WP_UnitTestCase
 
         $this->assertCount(1, $parked['proposals']);
         $this->assertSame('First', $parked['proposals'][0]['args']['title']);
+    }
+
+    public function test_a_second_concurrent_step_is_refused_while_one_holds_the_lock(): void
+    {
+        $id = $this->conversation('hello');
+        $this->assertTrue($this->store->lock($id, $this->admin_id));
+
+        $result = $this->runner->step($this->admin_id, $id);
+
+        $this->assertSame('busy', $result['error']);
+        $this->assertSame([], $this->provider->requests);
+
+        $this->store->unlock($id);
+        $this->assertSame(Turn_Runner::DONE, $this->runner->step($this->admin_id, $id)['status']);
+        $this->assertTrue($this->store->lock($id, $this->admin_id), 'step() must release the lock.');
     }
 }
