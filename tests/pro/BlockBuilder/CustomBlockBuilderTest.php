@@ -3,6 +3,8 @@
 namespace WPMCP\Tests\Pro\BlockBuilder;
 
 use WPMCP\Pro\Gate;
+use WPMCP\Safety\Rollback_Service;
+use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\BlockBuilder\Block_Spec;
 use WPMCP\Tools\BlockBuilder\Block_Renderer;
 use WPMCP\Tools\BlockBuilder\Block_Registry;
@@ -28,6 +30,7 @@ class CustomBlockBuilderTest extends \WP_UnitTestCase
     {
         parent::setUp();
         Gate::set_pro_for_tests(true);
+        Snapshot_Store::install();
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
     }
 
@@ -130,6 +133,86 @@ class CustomBlockBuilderTest extends \WP_UnitTestCase
         $this->assertSame('draft', get_post_status($bid));
 
         $this->assertSame('trashed', (new Delete_Custom_Block())->handle(['block_id' => $bid])['deleted']);
+    }
+
+    // ---- safety model: every write to an existing block is undoable (#86) --
+
+    public function test_update_is_snapshotted_and_rollback_restores_previous_spec(): void
+    {
+        $bid      = (new Create_Custom_Block())->handle(['spec' => $this->valid_spec()])['block_id'];
+        $original = get_post_meta($bid, '_wpmcp_block_spec', true);
+
+        $spec             = $this->valid_spec();
+        $spec['title']    = 'Rewritten';
+        $spec['template'] = '<p>{{heading}}</p>';
+        $out = (new Update_Custom_Block())->handle(['block_id' => $bid, 'spec' => $spec, 'session_id' => 's86']);
+
+        $this->assertArrayHasKey('operation_id', $out);
+        $this->assertSame('Rewritten', get_post_meta($bid, '_wpmcp_block_spec', true)['title']);
+        $this->assertSame('Rewritten', get_the_title($bid));
+
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+
+        $this->assertSame($original, get_post_meta($bid, '_wpmcp_block_spec', true));
+        $this->assertSame('Callout', get_post_field('post_title', $bid));
+    }
+
+    public function test_invalid_update_writes_nothing_and_records_no_operation(): void
+    {
+        $bid    = (new Create_Custom_Block())->handle(['spec' => $this->valid_spec()])['block_id'];
+        $before = get_post_meta($bid, '_wpmcp_block_spec', true);
+
+        $spec                          = $this->valid_spec();
+        $spec['attributes'][0]['type'] = 'bogus';
+        $out = (new Update_Custom_Block())->handle(['block_id' => $bid, 'spec' => $spec]);
+
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame($before, get_post_meta($bid, '_wpmcp_block_spec', true));
+    }
+
+    public function test_set_status_is_snapshotted_and_rollback_restores_previous_status(): void
+    {
+        $bid = (new Create_Custom_Block())->handle(['spec' => $this->valid_spec()])['block_id'];
+
+        $out = (new Set_Block_Status())->handle(['block_id' => $bid, 'status' => 'draft', 'session_id' => 's86']);
+
+        $this->assertArrayHasKey('operation_id', $out);
+        $this->assertSame('draft', get_post_status($bid));
+
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assertSame('publish', get_post_status($bid));
+    }
+
+    public function test_delete_is_snapshotted_and_rollback_restores_the_block(): void
+    {
+        $bid  = (new Create_Custom_Block())->handle(['spec' => $this->valid_spec()])['block_id'];
+        $spec = get_post_meta($bid, '_wpmcp_block_spec', true);
+
+        $out = (new Delete_Custom_Block())->handle(['block_id' => $bid, 'session_id' => 's86']);
+
+        $this->assertSame('trashed', $out['deleted']);
+        $this->assertArrayHasKey('operation_id', $out);
+        $this->assertSame('trash', get_post_status($bid));
+
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assertSame('publish', get_post_status($bid));
+        $this->assertSame($spec, get_post_meta($bid, '_wpmcp_block_spec', true));
+        $this->assertSame('', (string) get_post_meta($bid, '_wp_trash_meta_status', true));
+    }
+
+    public function test_writes_to_a_missing_block_record_no_operation(): void
+    {
+        $count = static function (): int {
+            global $wpdb;
+            return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}wpmcp_snapshots");
+        };
+        $before = $count();
+
+        $this->assertInstanceOf(\WP_Error::class, (new Update_Custom_Block())->handle(['block_id' => 999999, 'spec' => $this->valid_spec()]));
+        $this->assertInstanceOf(\WP_Error::class, (new Set_Block_Status())->handle(['block_id' => 999999, 'status' => 'draft']));
+        $this->assertInstanceOf(\WP_Error::class, (new Delete_Custom_Block())->handle(['block_id' => 999999]));
+
+        $this->assertSame($before, $count());
     }
 
     public function test_registry_registers_active_block_as_real_block_type(): void
