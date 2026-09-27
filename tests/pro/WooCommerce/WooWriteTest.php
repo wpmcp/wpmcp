@@ -291,6 +291,29 @@ class WooWriteTest extends \WP_UnitTestCase
         $this->assertSame($before, get_userdata($user)->user_pass);
     }
 
+    /** WooCommerce only strips underscore-prefixed meta, so capability keys must be refused here. */
+    public function test_customer_writes_refuse_capability_meta(): void
+    {
+        global $wpdb;
+        $user = self::factory()->user->create(['role' => 'customer']);
+        $key  = $wpdb->get_blog_prefix() . 'capabilities';
+
+        $update = (new Woo_Write())->handle([
+            'op'     => 'customers.update',
+            'params' => ['id' => $user, 'meta_data' => [['key' => $key, 'value' => ['administrator' => true]]]],
+        ]);
+        $create = (new Woo_Write())->handle([
+            'op'     => 'customers.create',
+            'params' => ['email' => 'mallory@example.com', 'meta_data' => [['key' => 'WP_User_Level', 'value' => 10]]],
+        ]);
+
+        $this->assertSame('forbidden_param', $update['error']['code']);
+        $this->assertSame('forbidden_param', $create['error']['code']);
+        clean_user_cache($user);
+        $this->assertSame(['customer'], get_userdata($user)->roles);
+        $this->assertFalse(get_user_by('email', 'mallory@example.com'));
+    }
+
     public function test_settings_update_is_snapshotted_as_the_backing_option_and_rolls_back(): void
     {
         update_option('woocommerce_currency', 'USD');
@@ -305,6 +328,23 @@ class WooWriteTest extends \WP_UnitTestCase
 
         (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
         $this->assertSame('USD', get_option('woocommerce_currency'));
+    }
+
+    /** Email settings live as keys inside one array option; the whole option is snapshotted. */
+    public function test_an_email_setting_is_snapshotted_as_its_array_option_and_rolls_back(): void
+    {
+        update_option('woocommerce_new_order_settings', ['enabled' => 'yes', 'recipient' => 'old@example.com']);
+
+        $out = (new Woo_Write())->handle([
+            'op'     => 'settings.update',
+            'params' => ['group_id' => 'email_new_order', 'id' => 'recipient', 'value' => 'new@example.com'],
+        ]);
+
+        $this->assertSame(200, $out['status']);
+        $this->assertSame('new@example.com', get_option('woocommerce_new_order_settings')['recipient']);
+
+        (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        $this->assertSame('old@example.com', get_option('woocommerce_new_order_settings')['recipient']);
     }
 
     public function test_settings_update_of_an_unknown_setting_is_refused_before_any_snapshot(): void

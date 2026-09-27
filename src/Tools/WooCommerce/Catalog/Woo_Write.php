@@ -22,7 +22,7 @@ if (! defined('ABSPATH')) {
  *   op is a write or destructive row -> WooCommerce available ->
  *   op-level governance -> per-op capability -> opt-in (destructive ops are
  *   off until the wpmcp_woo_op_enabled filter enables them) -> confirm:true
- *   for destructive ops -> forbidden params -> path params -> snapshot
+ *   for destructive ops -> forbidden params and meta keys -> path params -> snapshot
  *   target resolves -> Safe_Mutation (snapshot first) -> dispatch.
  *
  * Ops that change or remove existing state always run inside
@@ -217,6 +217,20 @@ class Woo_Write
             }
         }
 
+        if (null !== $def['forbidden_meta'] && array_key_exists('meta_data', $params)) {
+            $entries = is_array($params['meta_data']) ? $params['meta_data'] : [];
+            foreach ($entries as $entry) {
+                $key = is_array($entry) ? ($entry['key'] ?? '') : '';
+                if (! is_string($key) || preg_match($def['forbidden_meta'], trim($key))) {
+                    return Op_Guard::error(
+                        'forbidden_param',
+                        "Op \"{$op}\" does not accept that meta_data key: it would change roles, capabilities or sessions.",
+                        [ 'param' => 'meta_data' ]
+                    );
+                }
+            }
+        }
+
         try {
             [ $route, $body ] = Op_Catalog::resolve_route($op, $params);
         } catch (\InvalidArgumentException $e) {
@@ -328,8 +342,9 @@ class Woo_Write
      * The wp_options row backing one WooCommerce setting, read from the same
      * registry the wc/v3 settings controller writes through
      * (woocommerce_settings-{group} entries and their option_key). An
-     * option_key like "woocommerce_foo_settings[enabled]" is one key inside
-     * an array option, so the whole array option is what gets snapshotted.
+     * option_key like "woocommerce_foo_settings[enabled]", or an
+     * [option, key] pair as email settings use, is one key inside an array
+     * option, so the whole array option is what gets snapshotted.
      */
     private function setting_option(string $group, string $id): ?string
     {
@@ -350,7 +365,16 @@ class Woo_Write
             if (! is_array($setting) || ($setting['id'] ?? null) !== $id) {
                 continue;
             }
-            $key = (string) ($setting['option_key'] ?? $id);
+            // option_key is either a string (possibly "option[key]") or,
+            // for email settings, an [option, key] pair; either way the
+            // array option as a whole is what the controller rewrites.
+            $key = $setting['option_key'] ?? $id;
+            if (is_array($key)) {
+                $key = $key[0] ?? '';
+            }
+            if (! is_string($key)) {
+                return null;
+            }
             $pos = strpos($key, '[');
             $key = false === $pos ? $key : substr($key, 0, $pos);
             return '' === $key ? null : $key;

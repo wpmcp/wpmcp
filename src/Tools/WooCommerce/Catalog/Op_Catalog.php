@@ -78,10 +78,17 @@ class Op_Catalog
     private const MODES = ['read', 'write', 'destructive'];
 
     /**
+     * meta_data keys a write may never set: role and capability storage
+     * under any table prefix, and the login session store.
+     */
+    private const PRIVILEGE_META = '/(capabilities|user_level|session_tokens)$/i';
+
+    /**
      * op name => [method, route template, domain, capability, summary, mode?, snapshot?, extra?].
      * mode defaults to 'read' and snapshot to null. extra carries per-op
      * posture: 'recoverable' (false when the snapshot cannot undo the whole
-     * effect), 'forbidden_params' (refused before dispatch), 'defaults'
+     * effect), 'forbidden_params' (refused before dispatch), 'forbidden_meta'
+     * (a regex; a meta_data entry whose key matches is refused), 'defaults'
      * (injected unless the caller sets them), 'undo_op' (for creates) and
      * 'redact' (top-level keys of each returned record that are masked).
      * Keep op names domain.kebab-case and route templates rooted at /wc/v3.
@@ -134,8 +141,13 @@ class Op_Catalog
         // user-listing capability and writes the user-editing ones.
         'customers.list'      => [ 'GET', '/wc/v3/customers', 'customers', self::CAP_CUSTOMERS, 'Query store customers (email, role, search, paging)' ],
         'customers.get'       => [ 'GET', '/wc/v3/customers/{id}', 'customers', self::CAP_CUSTOMERS, 'One customer with billing/shipping profile' ],
-        'customers.create'    => [ 'POST', '/wc/v3/customers', 'customers', self::CAP_ADD_CUSTOMERS, 'Create a customer account (email required; billing and shipping optional)', 'write', null, [ 'undo_op' => null ] ],
-        'customers.update'    => [ 'PUT', '/wc/v3/customers/{id}', 'customers', self::CAP_EDIT_CUSTOMERS, 'Update a customer\'s name, email, billing and shipping profile. Password changes are refused: they could not be rolled back', 'write', [ 'type' => 'user', 'param' => 'id' ], [ 'forbidden_params' => [ 'password' ] ] ],
+        // meta_data keys that grant roles or capabilities are refused on
+        // both: WooCommerce only strips underscore-prefixed keys, so a
+        // "{prefix}capabilities" entry would otherwise let an identity that
+        // may edit customers (a shop manager, say) promote one to
+        // administrator.
+        'customers.create'    => [ 'POST', '/wc/v3/customers', 'customers', self::CAP_ADD_CUSTOMERS, 'Create a customer account (email required; billing and shipping optional)', 'write', null, [ 'undo_op' => null, 'forbidden_meta' => self::PRIVILEGE_META ] ],
+        'customers.update'    => [ 'PUT', '/wc/v3/customers/{id}', 'customers', self::CAP_EDIT_CUSTOMERS, 'Update a customer\'s name, email, billing and shipping profile. Password changes are refused: they could not be rolled back', 'write', [ 'type' => 'user', 'param' => 'id' ], [ 'forbidden_params' => [ 'password' ], 'forbidden_meta' => self::PRIVILEGE_META ] ],
 
         // Shipping.
         'shipping.zones'        => [ 'GET', '/wc/v3/shipping/zones', 'shipping', self::CAP_STORE, 'Configured shipping zones' ],
@@ -158,7 +170,7 @@ class Op_Catalog
     ];
 
     /**
-     * @return array<string, array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[]}>
+     * @return array<string, array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string}>
      */
     public static function ops(): array
     {
@@ -186,13 +198,14 @@ class Op_Catalog
                 'defaults'         => $extra['defaults'] ?? [],
                 'undo_op'          => $extra['undo_op'] ?? null,
                 'redact'           => $extra['redact'] ?? [],
+                'forbidden_meta'   => $extra['forbidden_meta'] ?? null,
             ];
         }
         return $out;
     }
 
     /**
-     * @return array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[]}
+     * @return array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string}
      */
     public static function get(string $op): array
     {
