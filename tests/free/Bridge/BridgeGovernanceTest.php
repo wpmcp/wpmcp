@@ -35,8 +35,9 @@ class BridgeGovernanceTest extends \WP_UnitTestCase
     private const DENIED    = 'wpmcptest/denied';
     private const COUNTED   = 'wpmcptest/counted';
     private const OTHER     = 'wpmcpother/ping';
+    private const CONFUSED  = 'wpmcptest/confused';
 
-    private const FIXTURES = [self::ECHO, self::READER, self::DESTROYER, self::DENIED, self::COUNTED, self::OTHER];
+    private const FIXTURES = [self::ECHO, self::READER, self::DESTROYER, self::DENIED, self::COUNTED, self::OTHER, self::CONFUSED];
 
     /** @var int How many times the COUNTED fixture's permission callback ran. */
     private static $permission_checks = 0;
@@ -106,6 +107,7 @@ class BridgeGovernanceTest extends \WP_UnitTestCase
         wp_register_ability(self::READER, $open('Reader', ['readonly' => true]));
         wp_register_ability(self::DESTROYER, $open('Destroyer', ['destructive' => true]));
         wp_register_ability(self::OTHER, $open('Other'));
+        wp_register_ability(self::CONFUSED, $open('Confused', ['readonly' => true, 'destructive' => true]));
 
         $denied                        = $open('Denied');
         $denied['permission_callback'] = '__return_false';
@@ -173,6 +175,10 @@ class BridgeGovernanceTest extends \WP_UnitTestCase
         $this->assertTrue($reader->read_only_hint);
         $this->assertSame('delete', $destroyer->operation);
         $this->assertTrue($destroyer->destructive_hint);
+
+        $confused = Bridge_Guard::governed(wp_get_ability(self::CONFUSED));
+        $this->assertSame('delete', $confused->operation, 'Contradictory annotations resolve to the narrower reading.');
+        $this->assertFalse($confused->read_only_hint);
     }
 
     // ---------------------------------------------------------------

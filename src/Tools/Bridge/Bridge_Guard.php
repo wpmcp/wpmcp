@@ -234,9 +234,12 @@ class Bridge_Guard
         $annotations = method_exists($ability, 'get_meta_item') ? $ability->get_meta_item('annotations') : null;
         $annotations = is_array($annotations) ? $annotations : [];
 
-        $readonly    = true === ($annotations['readonly'] ?? null);
-        $destructive = ! $readonly && true === ($annotations['destructive'] ?? null);
-        $operation   = $readonly ? 'read' : ($destructive ? 'delete' : 'update');
+        // Contradictory annotations resolve to the narrower reading: a
+        // target that claims to be both read-only and destructive is
+        // governed as a delete, never as a read.
+        $destructive = true === ($annotations['destructive'] ?? null);
+        $readonly    = ! $destructive && true === ($annotations['readonly'] ?? null);
+        $operation   = $destructive ? 'delete' : ($readonly ? 'read' : 'update');
 
         return new Ability(
             (string) $ability->get_name(),
