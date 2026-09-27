@@ -25,6 +25,7 @@
     "test": "phpunit",
     "test:free": "phpunit --testsuite free",
     "test:pro": "phpunit --testsuite pro",
+    "test:local": "bash bin/test-local.sh",
     "test:coverage": "phpunit --coverage-clover coverage/clover.xml --coverage-text",
     "drift:check": "php bin/check-ability-drift.php --strict",
     "manifest:regenerate": "WPMCP_REGENERATE_MANIFEST=1 phpunit --filter AbilityManifestTest",
