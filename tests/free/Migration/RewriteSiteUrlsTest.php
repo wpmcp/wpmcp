@@ -2,6 +2,9 @@
 
 namespace WPMCP\Tests\Free\Migration;
 
+use WPMCP\Tests\Free\Backup\RestoreArchiveFixtures;
+use WPMCP\Tools\Backup\Backup_Job_Store;
+use WPMCP\Tools\Backup\Restore_Site_Backup;
 use WPMCP\Tools\Database\Database_Guard;
 use WPMCP\Tools\Migration\Rewrite_Site_Urls;
 
@@ -15,6 +18,8 @@ use WPMCP\Tools\Migration\Rewrite_Site_Urls;
  */
 class RewriteSiteUrlsTest extends \WP_UnitTestCase
 {
+    use RestoreArchiveFixtures;
+
     private const FROM = 'https://old.example';
     private const TO   = 'https://new.example';
 
@@ -23,8 +28,21 @@ class RewriteSiteUrlsTest extends \WP_UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->tool = new Rewrite_Site_Urls();
+        global $wpdb;
+        delete_option(Backup_Job_Store::OPTION);
+        // The safety archive is real (a genuine dump in a real zip), but of
+        // wp_posts only: a whole-database dump per test would be slow and
+        // tells these tests nothing the backup suite does not.
+        $this->tool = new Rewrite_Site_Urls($this->safety_producer([$wpdb->posts]));
         delete_option(Database_Guard::AUDIT_OPTION);
+    }
+
+    protected function tearDown(): void
+    {
+        $this->clean_restore_fixtures();
+        delete_option(Backup_Job_Store::OPTION);
+        delete_option('wpmcp_maintenance');
+        parent::tearDown();
     }
 
     public function test_requires_absolute_http_urls(): void
@@ -67,6 +85,7 @@ class RewriteSiteUrlsTest extends \WP_UnitTestCase
 
         $this->assertTrue($out['dry_run']);
         $this->assertArrayNotHasKey('recoverable', $out);
+        $this->assertSame([], Backup_Job_Store::list(), 'A dry run must not take a safety archive.');
         $this->assertSame(1, $out['tables']['options']['rows_changed']);
         $this->assertSame(1, $out['tables']['options']['rows_skipped_object']);
         $this->assertSame(1, $out['tables']['posts']['rows_changed']);
@@ -84,7 +103,7 @@ class RewriteSiteUrlsTest extends \WP_UnitTestCase
         $this->assertSame([], get_option(Database_Guard::AUDIT_OPTION, []), 'A dry run must not audit a write.');
     }
 
-    public function test_apply_rewrites_every_form_and_reports_not_recoverable(): void
+    public function test_apply_rewrites_every_form_and_reports_its_safety_archive(): void
     {
         global $wpdb;
 
@@ -93,8 +112,12 @@ class RewriteSiteUrlsTest extends \WP_UnitTestCase
         $out = $this->tool->handle(['from_url' => self::FROM, 'to_url' => self::TO, 'dry_run' => false, 'confirm' => true]);
 
         $this->assertFalse($out['dry_run']);
-        $this->assertFalse($out['recoverable']);
-        $this->assertNotEmpty($out['recoverable_reason']);
+        $this->assertTrue($out['recoverable']);
+        $this->assertFileExists($out['safety_archive']['file']);
+        $job = Backup_Job_Store::get($out['safety_archive']['job_id']);
+        $this->assertSame('completed', $job['status']);
+        $this->assertSame('pre-rewrite safety archive', $job['purpose']);
+        $this->assertStringContainsString('job_id ' . $out['safety_archive']['job_id'], $out['undo']);
         $this->assertSame(1, $out['tables']['options']['rows_changed']);
         $this->assertSame(0, $out['tables']['options']['rows_failed']);
 
@@ -234,6 +257,96 @@ class RewriteSiteUrlsTest extends \WP_UnitTestCase
         $row = $wpdb->get_row($wpdb->prepare("SELECT post_content, post_excerpt FROM {$wpdb->posts} WHERE ID = %d", $post_id), ARRAY_A);
         $this->assertSame('see ' . self::TO . '/p', $row['post_content']);
         $this->assertSame(serialize((object) ['url' => self::FROM . '/e']), $row['post_excerpt']);
+    }
+
+    public function test_a_failed_safety_archive_refuses_the_pass_and_changes_nothing(): void
+    {
+        global $wpdb;
+
+        $ids  = $this->seed();
+        $tool = new Rewrite_Site_Urls(static function (): array {
+            throw new \RuntimeException('disk full');
+        });
+
+        try {
+            $tool->handle(['from_url' => self::FROM, 'to_url' => self::TO, 'dry_run' => false, 'confirm' => true]);
+            $this->fail('A rewrite without a safety archive must not run.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('pre-rewrite safety archive', $e->getMessage());
+            $this->assertStringContainsString('disk full', $e->getMessage());
+        }
+
+        $this->assertSame(
+            serialize(['url' => self::FROM . '/a', 'n' => 3]),
+            $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_id = %d", $ids['option']))
+        );
+        $this->assertSame([], get_option(Database_Guard::AUDIT_OPTION, []));
+    }
+
+    public function test_the_pass_rolls_back_through_its_safety_archive(): void
+    {
+        global $wpdb;
+
+        $ids  = $this->seed();
+        $tool = new Rewrite_Site_Urls($this->safety_producer([$wpdb->posts, $wpdb->postmeta]));
+
+        $out = $tool->handle(['from_url' => self::FROM, 'to_url' => self::TO, 'dry_run' => false, 'confirm' => true, 'tables' => ['posts', 'postmeta']]);
+        $this->assertStringContainsString('new.example', (string) $wpdb->get_var($wpdb->prepare("SELECT post_content FROM {$wpdb->posts} WHERE ID = %d", $ids['post'])));
+
+        $restore = (new Restore_Site_Backup($this->safety_producer([$wpdb->posts, $wpdb->postmeta])))->handle([
+            'job_id'  => $out['safety_archive']['job_id'],
+            'dry_run' => false,
+        ]);
+
+        $this->assertSame('restored', $restore['status']);
+        $this->assertSame(
+            '<!-- wp:image {"url":"https:\\/\\/old.example\\/a.png"} --><img src="https://old.example/a.png" /><!-- /wp:image -->',
+            $wpdb->get_var($wpdb->prepare("SELECT post_content FROM {$wpdb->posts} WHERE ID = %d", $ids['post']))
+        );
+        $this->assertSame(
+            '[{"settings":{"image":{"url":"https:\\/\\/old.example\\/b.png"}}}]',
+            $wpdb->get_var($wpdb->prepare("SELECT meta_value FROM {$wpdb->postmeta} WHERE meta_id = %d", $ids['meta']))
+        );
+    }
+
+    public function test_a_supplied_recovery_point_is_reported_instead_of_a_second_archive(): void
+    {
+        $this->seed();
+
+        $out = $this->tool->handle(
+            ['from_url' => self::FROM, 'to_url' => self::TO, 'dry_run' => false, 'confirm' => true],
+            ['job_id' => 41, 'file' => '/tmp/pre-migration.zip']
+        );
+
+        $this->assertSame([], Backup_Job_Store::list(), 'A caller that already holds a whole-database archive must not pay for another.');
+        $this->assertTrue($out['recoverable']);
+        $this->assertSame(41, $out['safety_archive']['job_id']);
+    }
+
+    /**
+     * The definition of done in user terms: after a move, theme mods and
+     * widget settings (both PHP-serialized arrays in wp_options) still read
+     * back as arrays, now carrying the new URL.
+     */
+    public function test_theme_mods_and_widget_settings_survive_with_the_new_url(): void
+    {
+        set_theme_mod('header_image', self::FROM . '/wp-content/uploads/header.jpg');
+        set_theme_mod('wpmcp_test_nested', ['logo' => ['src' => self::FROM . '/logo.png', 'w' => 120]]);
+        update_option('widget_text', [
+            2              => ['title' => 'Hi', 'text' => '<img src="' . self::FROM . '/w.png" />', 'filter' => true],
+            '_multiwidget' => 1,
+        ]);
+
+        $out = $this->tool->handle(['from_url' => self::FROM, 'to_url' => self::TO, 'dry_run' => false, 'confirm' => true, 'tables' => ['options']]);
+
+        $this->assertSame(0, $out['tables']['options']['rows_failed']);
+        wp_cache_flush();
+        $this->assertSame(self::TO . '/wp-content/uploads/header.jpg', get_theme_mod('header_image'));
+        $this->assertSame(['logo' => ['src' => self::TO . '/logo.png', 'w' => 120]], get_theme_mod('wpmcp_test_nested'));
+        $widgets = get_option('widget_text');
+        $this->assertIsArray($widgets);
+        $this->assertSame('<img src="' . self::TO . '/w.png" />', $widgets[2]['text']);
+        $this->assertTrue($widgets[2]['filter']);
     }
 
     /**
