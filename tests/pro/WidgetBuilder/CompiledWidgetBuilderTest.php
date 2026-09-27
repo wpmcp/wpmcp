@@ -47,8 +47,10 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
         remove_filter('wpmcp_enable_widget_compiler', '__return_true');
         remove_all_filters('wpmcp_compiled_widgets_dir');
         if (is_dir($this->sandbox)) {
-            foreach ((array) glob($this->sandbox . '/*') as $file) {
-                @unlink($file);
+            // scandir, not glob('/*'): glob skips dotfiles, and the sandbox
+            // hardening writes .htaccess, which would leave rmdir failing.
+            foreach (array_diff((array) scandir($this->sandbox), ['.', '..']) as $file) {
+                @unlink($this->sandbox . '/' . $file);
             }
             @rmdir($this->sandbox);
         }
