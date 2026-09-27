@@ -169,6 +169,11 @@ final class Turn_Runner
             $id    = (string) $use['id'];
             $tool  = (string) $use['name'];
             $input = is_array($use['input'] ?? null) ? $use['input'] : [];
+            if ('' === $id || in_array($id, $order, true)) {
+                // A repeated id would be answered twice (the provider rejects
+                // that) and would let one approval stand for two calls.
+                continue;
+            }
             $order[] = $id;
 
             if (Tool_Inventory::LOAD_TOOLS === $tool) {
@@ -549,7 +554,10 @@ final class Turn_Runner
     private static function outcome_block(string $id, array $outcome): array
     {
         if (Tool_Executor::OK === $outcome['status']) {
-            $json = wp_json_encode($outcome['result'] ?? null, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            // JSON_HEX_TAG encodes < and > inside the payload, so content the
+            // tool read cannot close the untrusted wrapper early and continue
+            // as if it were outside it.
+            $json = wp_json_encode($outcome['result'] ?? null, JSON_HEX_TAG | JSON_UNESCAPED_UNICODE);
             return self::result_block(
                 $id,
                 "<untrusted_tool_output>\n" . (false === $json ? 'null' : $json) . "\n</untrusted_tool_output>"
