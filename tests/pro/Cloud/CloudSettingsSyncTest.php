@@ -565,8 +565,8 @@ class CloudSettingsSyncTest extends \WP_UnitTestCase
         $this->assertSame([Skills_Module::OPTION], $out['applied']);
         $this->assertCount(1, $out['operation_ids']);
         $this->assertSame([Tool_Exposure::OPTION], $out['unchanged']);
-        $row = \WPMCP\Safety\Snapshot_Store::get_by_operation($out['operation_ids'][0]);
-        $this->assertSame(Skills_Module::OPTION, $row['object_id']);
+        (new \WPMCP\Tools\Rollback_Operation())->handle(['operation_id' => $out['operation_ids'][0]]);
+        $this->assertSame('1', get_option(Skills_Module::OPTION), 'operation_ids[0] is the snapshot of applied[0]');
     }
 
     public function test_applying_a_sites_own_export_writes_nothing(): void
