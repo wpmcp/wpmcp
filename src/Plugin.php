@@ -1018,7 +1018,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-post',
             'free',
-            'Delete a post, page, or custom post type. Trash by default (reversible). force:true permanently deletes: that path is disabled by default (site must opt in via the wpmcp_enable_delete_post filter) and requires confirm:true. Force-delete is snapshotted so the record can be rolled back',
+            'Delete a post, page or CPT entry. Trash by default (reversible). force:true deletes permanently, is off until the wpmcp_enable_delete_post filter opts in, needs confirm:true, and is snapshotted so it can be rolled back',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1060,7 +1060,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/duplicate-post',
             'free',
-            'Duplicate a post, page or CPT entry with its content, meta and terms, optionally including child posts. The copy is a draft unless another status is given, so a half-finished clone never lands live. Editor bookkeeping meta (_edit_lock, _wp_old_slug) is skipped; page-builder data is copied',
+            'Duplicate a post, page or CPT entry with content, meta and terms, optionally with child posts. The copy is a draft unless another status is given. Editor bookkeeping meta (_edit_lock, _wp_old_slug) is skipped; builder data is copied',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2476,7 +2476,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-skills',
             'free',
-            'List the agent skills installed on this site: versioned markdown playbooks for common WordPress, Elementor and WooCommerce work (slug, name, one-line description, version, tags). Bodies are not included; call get-skill for one. Skills whose required tools are not registered here are hidden unless include_unavailable is set. Read-only',
+            'List installed agent skills: versioned markdown playbooks for WordPress, Elementor and WooCommerce work (slug, name, description, version, tags). Bodies via get-skill. Skills whose required tools are missing are hidden unless include_unavailable is set. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2995,7 +2995,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-cli-job',
             'pro',
-            'Return a background CLI job\'s current record by job id: status (queued/running/completed/failed/canceled), the command as dispatched, and once it has run its captured stdout/stderr (size-capped), exit code, and timed-out flag, or the error that stopped it. Read-only',
+            'Return a background CLI job by id: status (queued/running/completed/failed/canceled), the dispatched command and, once run, size-capped stdout/stderr, exit code and timed-out flag, or the error that stopped it. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3175,7 +3175,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/unschedule-event',
             'free',
-            'Unschedule a single occurrence (wp_unschedule_event, when a timestamp and matching args are given) or every event for a hook (wp_clear_scheduled_hook). Unrestricted, including core hooks, but made safe by undoability: snapshotted via object_type option (the cron option), so rollback-operation restores the prior cron array',
+            'Unschedule one occurrence (wp_unschedule_event, given timestamp and matching args) or every event for a hook (wp_clear_scheduled_hook). Core hooks included, made safe by snapshotting the cron option: rollback-operation restores it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3432,7 +3432,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-block-types',
             'free',
-            'List the block types registered with WP_Block_Type_Registry: name, title, category, whether the block renders dynamically (is_dynamic), and its declared attribute names. Optional category (exact match) and/or search (substring match on block name) filters narrow the result. Read-only',
+            'List registered block types: name, title, category, is_dynamic and attribute names. Optional category (exact) and search (substring on name) filters. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3584,7 +3584,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/remove-block',
             'free',
-            'Surgically remove ONE block by "path" (array of zero-based indexes into the parse-blocks tree, descending innerBlocks); nested removals keep the container wrapper intact. Requires expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first and fully restorable via rollback-operation',
+            'Remove ONE block by "path" (zero-based indexes into the parse-blocks tree, descending innerBlocks); nested removals keep the container. Requires expected_hash (content_hash from parse-blocks); stale reads are refused. Snapshot-first, undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3642,7 +3642,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-patterns',
             'free',
-            'List the block patterns registered with WP_Block_Patterns_Registry: name, title, description, and categories. Optional search (case-insensitive substring match on name or title) narrows the result. Pattern markup is inserted server-side by insert-pattern, so it is not returned here. Read-only',
+            'List registered block patterns: name, title, description, categories. Optional search (substring on name or title). Markup is not returned; insert-pattern inserts it server-side. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4013,7 +4013,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
             'free',
-            'Queue an asynchronous backup job and schedule a WP-Cron event that produces the backup artifact and flips the job\'s status to completed or failed. Returns the job id immediately, before the backup itself has run, so a large-site backup does not have to complete within a single request. type=full produces a portable site archive (a zip holding a complete SQL dump, wp-content, and a manifest describing the origin site) that can be restored or migrated to another install; database, files and uploads produce the same archive format narrowed to that scope; content produces a WXR export via export-content',
+            'Queue an asynchronous backup job run by WP-Cron and return its job id at once, so a large backup need not finish in one request. type=full builds a portable site archive (zip with a full SQL dump, wp-content and an origin manifest) that can be restored or migrated; database, files and uploads build the same format narrowed to that scope; content produces a WXR export via export-content',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4079,7 +4079,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-backup-manifest',
             'free',
-            'Read the manifest of a completed site-backup archive, by job id or archive path: origin site_url/home_url, table prefix, multisite flag, WordPress/PHP/plugin versions, scope, per-table row counts, tables holding BLOB columns, and file count. Use this to confirm an archive is the right one, and what it would take to restore or migrate it, before touching anything. Read-only; the archive is not extracted. Paths outside the site-backup directory are refused',
+            'Read a completed site-backup archive\'s manifest by job id or path: origin site_url/home_url, table prefix, multisite, WordPress/PHP/plugin versions, scope, per-table row counts, BLOB tables and file count, to confirm the archive before restoring or migrating it. Read-only, nothing is extracted; paths outside the site-backup directory are refused',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4095,7 +4095,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-backup-archive',
             'free',
-            'Delete a site-backup archive from disk, by job id or archive path, and report the bytes freed. The job record is kept and its result flagged as deleted, so backup history never silently points at an artifact that is gone. Paths outside the site-backup directory are refused',
+            'Delete a site-backup archive by job id or path and report bytes freed. The job record stays, flagged deleted, so history never points at a missing file. Paths outside the site-backup directory are refused',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4167,7 +4167,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/rewrite-site-urls',
             'free',
-            'Rewrite every embedded URL in the database from one site URL to another, serialization-aware: walks wp_options, wp_postmeta, wp_posts, wp_termmeta, wp_usermeta and wp_comments in batches through the plugin\'s serialization-aware Url_Rewriter, replacing plain, JSON-escaped, percent-encoded and scheme-relative forms in one pass without corrupting PHP-serialized values, and refusing (and reporting) any value whose decoded structure contains an object rather than risk mangling it. This is the pass that fixes broken images, widgets and theme mods after a site is restored under a different URL. dry_run defaults to true and only reports per-table counts; applying requires dry_run:false and confirm:true. Snapshot first: an applied pass takes a database safety archive before writing (and refuses to run without one), then reports its job_id; restore-site-backup with that job_id undoes the pass. Tables protected by wpmcp_db_protected_tables (usermeta by default) are reported as skipped, not written. Post GUIDs are never rewritten',
+            'Rewrite every embedded URL in the database from one site URL to another, serialization-aware: walks options, postmeta, posts, termmeta, usermeta and comments in batches, replacing plain, JSON-escaped, percent-encoded and scheme-relative forms without corrupting serialized values; values holding an object are refused and reported. Fixes images, widgets and theme mods after a restore under a new URL. dry_run (default true) reports per-table counts; applying needs dry_run:false and confirm:true. Snapshot first: an applied pass takes a database safety archive (or refuses) and reports its job_id, which restore-site-backup uses to undo it. Tables in wpmcp_db_protected_tables (usermeta by default) are skipped; GUIDs are never rewritten',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4196,7 +4196,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/push-site-archive',
             'free',
-            'Push a site-backup archive (job_id or path, scope all or database) to another wpmcp site at target_url, authenticated as an administrator there (target_user + target_app_password, or target_token). dry_run (default true) only asks the target whether it can take the archive. dry_run:false + confirm:true uploads in resumable chunks for up to max_seconds; call again with the same arguments to continue. apply:true then has the target restore it (safety archive first) and rewrite its URLs, returning the per-step report and the safety archive job_id. Needs the outgoing-migration opt-in here and the incoming one on the target',
+            'Push a site-backup archive (job_id or path, scope all or database) to another wpmcp site at target_url as an administrator there (target_user + target_app_password, or target_token). dry_run (default true) only asks whether the target can take it. dry_run:false + confirm:true uploads resumable chunks for up to max_seconds; repeat the call to continue. apply:true has the target restore it (safety archive first) and rewrite URLs, returning the report and safety archive job_id. Needs the outgoing-migration opt-in here and the incoming one there',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4228,7 +4228,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/receive-site-archive',
             'free',
-            'Target side of push-site-archive; normally called by another site, not by an agent. action start (declare sha256, bytes, manifest; checked against this site before any upload; resumes a partial upload), chunk (upload_id, offset, base64 data), status, apply (verify sha256 and manifest, restore with a pre-restore safety archive, then rewrite URLs from the manifest\'s to this site\'s; dry_run defaults to true, applying needs confirm:true). Needs the incoming-migration opt-in on this site',
+            'Target side of push-site-archive, normally called by another site. action start (sha256, bytes, manifest; checked before any upload; resumes a partial one), chunk (upload_id, offset, base64 data), status, apply (verify, restore with a safety archive, rewrite URLs to this site; dry_run defaults to true, applying needs confirm:true). Needs the incoming-migration opt-in',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4350,7 +4350,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-governance-settings',
             'free',
-            'Batch-update stored governance toggles across the ability, domain, and operation dimensions, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}, operation: {"delete": false}}. Invalid individual entries are skipped and reported, not thrown for; only entirely empty input throws',
+            'Batch-update stored governance toggles by ability, domain and operation, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}, operation: {"delete": false}}. Invalid entries are skipped and reported; only empty input throws',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5019,7 +5019,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-widget',
             'pro',
-            'Patch a cataloged widget\'s settings by element id from typed curated params (same schema add-widget uses; see get-widget-schema), validated and merged into the existing settings. Non-cataloged widgets are refused toward update-element. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Patch a cataloged widget\'s settings by element id from typed params (add-widget\'s schema; see get-widget-schema), validated and merged. Non-cataloged widgets are refused toward update-element. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5652,7 +5652,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-brand-kits',
             'pro',
-            'List the brand kits available on this site (bundled presets plus any added via the wpmcp_brand_kits option or filter): slug, category, source, the four system colors, distinct font families, logo flag. Filter by category, source (bundled/site) or a search over slug/title/description. Read-only',
+            'List brand kits (bundled presets plus any from the wpmcp_brand_kits option or filter): slug, category, source, the four system colors, font families, logo flag. Filter by category, source (bundled/site) or search. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5672,7 +5672,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-brand-kit',
             'pro',
-            'Return one brand kit\'s full definition in the shape apply-brand-kit writes: system slots as hex, named swatches with their _id, typography already mapped to Elementor typography_* fields. Entries that failed validation are listed in "invalid", which makes the kit unappliable. Read-only',
+            'Return one brand kit in the shape apply-brand-kit writes: system slots as hex, named swatches with _id, typography mapped to Elementor typography_* fields. Entries failing validation are listed in "invalid" and make the kit unappliable. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5802,7 +5802,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-global-class',
             'pro',
-            'Update an Elementor v4 global class by g- id: rename it and/or merge styles into the variant for one breakpoint + state (replace_variant:true replaces that variant instead of merging), so an unrelated responsive or hover rule survives. Requires expected_hash from list-global-classes. Snapshotted and undoable via rollback-operation',
+            'Update an Elementor v4 global class by g- id: rename it and/or merge styles into one breakpoint + state variant (replace_variant:true replaces it), so other responsive or hover rules survive. Requires expected_hash from list-global-classes. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5916,7 +5916,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-container',
             'pro',
-            'Merge settings non-destructively into an Elementor layout element (container, section, or column) by id: given keys are overwritten or added, all other settings survive. Widgets are refused (use update-element). Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Merge settings into an Elementor container, section or column by id: given keys are set, others survive. Widgets are refused (use update-element). Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5938,7 +5938,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/batch-update',
             'pro',
-            'Apply N Elementor element settings updates atomically under ONE snapshot: every {element_id, settings} entry is validated before anything is written, one unknown id refuses the whole batch, and any failure rolls the entire batch back. Requires expected_hash from get-elementor-data. Undoable as a single rollback-operation',
+            'Apply N Elementor element settings updates atomically under ONE snapshot: every {element_id, settings} is validated first, one unknown id refuses the batch, and any failure rolls it all back. Requires expected_hash from get-elementor-data. One rollback-operation undoes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6975,7 +6975,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-redirect',
             'free',
-            'Create a managed redirect from a source path to a target URL or target_post_id (a post id keeps working after that post\'s slug changes). Chains are flattened to a single hop and loops are refused; the response reports the stored target. Snapshotted, so rollback-operation removes it',
+            'Create a managed redirect from a source path to a target URL or target_post_id (which survives slug changes). Chains are flattened to one hop and loops refused; the stored target is reported. Snapshotted; rollback-operation removes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7166,7 +7166,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/fix-color-contrast',
             'pro',
-            'Raise failing inline text/background color pairs in a post to a target WCAG ratio, moving lightness only so the hue survives. Reports before/after color, ratio and achieved level per pair. Dry run unless apply=true; applying writes the pass under one snapshot that one rollback reverts',
+            'Raise failing inline text/background color pairs in a post to a target WCAG ratio by moving lightness only, keeping the hue. Reports before/after color, ratio and level per pair. Dry run unless apply=true; one snapshot, one rollback',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7211,7 +7211,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/fix-link-text',
             'pro',
-            'Replace empty or generic anchor text ("click here", "read more") on internal links with the destination post\'s title, fixing WCAG 2.4.4 and weak SEO anchors at once. External links and anchors containing markup are skipped. Dry run unless apply=true; applying writes the pass under one snapshot that one rollback reverts',
+            'Replace empty or generic anchor text ("click here", "read more") on internal links with the destination title, fixing WCAG 2.4.4 and weak SEO anchors. External links and anchors with markup are skipped. Dry run unless apply=true; one snapshot, one rollback',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7260,7 +7260,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-tool-catalog',
             'free',
-            'List every wpmcp ability registered on this site, grouped by domain, with each entry\'s tier (free/pro), operation, required capability, and read-only/destructive hints, plus a per-domain summary count. Optional domain and/or tier filters narrow the result. Read-only',
+            'List every wpmcp ability here grouped by domain, with tier (free/pro), operation, required capability and read-only/destructive hints, plus per-domain counts. Optional domain and tier filters. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7299,7 +7299,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-builder',
             'pro',
-            'Detect which page builder authored a post (elementor / bricks / divi / gutenberg / classic), by inspecting plain postmeta/post_content markers: Elementor\'s _elementor_edit_mode, Bricks\' _bricks_page_content_2, Divi\'s _et_pb_use_builder, or Gutenberg block comments in post_content, falling back to classic. Read-only',
+            'Detect which builder authored a post (elementor / bricks / divi / gutenberg / classic) from _elementor_edit_mode, _bricks_page_content_2, _et_pb_use_builder or block comments, falling back to classic. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7381,7 +7381,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-tools',
             'free',
-            'List every tool this wpmcp install currently registers: name, a short summary, domain, operation, and tier, sorted by name. Optional domain filter narrows the result; full:true adds complete descriptions and MCP annotations. Schemas stay behind get-tool-schema. Read-only. With compact mode active this is the discovery entry point for every tool not directly listed',
+            'List every tool this install registers: name, short summary, domain, operation and tier, sorted by name. Optional domain filter; full:true adds full descriptions and MCP annotations; schemas stay behind get-tool-schema. Read-only. In compact mode this is the discovery entry point for unlisted tools',
             [
                 'type'       => 'object',
                 'properties' => [
