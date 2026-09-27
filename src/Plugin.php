@@ -3479,7 +3479,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/serialize-blocks',
             'free',
-            'Serialize a block tree (as produced by parse-blocks, or any array shaped the same way) back into valid block markup via serialize_blocks(). A pure transform, not a database write: it never touches a post. To write the resulting markup to a post use the existing update-blocks tool',
+            'Serialize a block tree (parse-blocks shape) back into block markup via serialize_blocks(). A pure transform that never touches a post; write the result with update-blocks',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3656,7 +3656,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/insert-pattern',
             'free',
-            'Insert a registered block pattern\'s parsed blocks into a post starting at "path" (same path semantics as add-block; pure-whitespace filler nodes are dropped). Requires expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first; every pre-existing block stays byte-identical',
+            'Insert a registered block pattern\'s blocks into a post at "path" (add-block\'s path semantics; whitespace filler dropped). Requires expected_hash (content_hash from parse-blocks); stale reads are refused. Snapshot-first; existing blocks stay byte-identical',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4210,7 +4210,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/build-change-set',
             'free',
-            'Build a local-live sync change set (objects, media bytes, terms, templates, global classes, base revisions) from one ledger marker (session_id, operation_id or since_id) and/or objects refs (post:ID, option:theme_mods_X, term:TAX:SLUG) into a JSON artifact in the site-backup dir. dry_run lists it without writing. Nothing is pushed',
+            'Build a local-live sync change set (objects, media bytes, terms, templates, global classes, base revisions) from a ledger marker (session_id, operation_id or since_id) and/or objects refs (post:ID, option:theme_mods_X, term:TAX:SLUG) into a JSON artifact in the site-backup dir. dry_run lists it without writing',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4247,7 +4247,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/apply-change-set',
             'free',
-            'Apply a change set (change_set from get-change-set raw=true, or path) to this site. dry_run defaults to true. Only selected objects are written, snapshot-first; media, terms and templates are only added; an object changed here since the base is refused unless its key is in force; deletions are never applied. rollback-session undoes it',
+            'Apply a change set (change_set from get-change-set raw=true, or path) here. dry_run defaults to true. Only selected objects are written, snapshot-first; media, terms and templates are only added; objects changed here since the base are refused unless keyed in force; deletions never apply. rollback-session undoes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4790,7 +4790,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-option',
             'free',
-            'Update a single wp_options value by name. Refuses the same denylist as get-option, and is disabled by default until a site opts in with the wpmcp_enable_option_write filter. Snapshotted via object_type option; rollback-operation restores the prior value (or removes the option if it did not exist before)',
+            'Update one wp_options value by name. Refuses get-option\'s denylist; off until the wpmcp_enable_option_write filter opts in. Snapshotted; rollback-operation restores the prior value or removes a new option',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5242,7 +5242,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-template',
             'pro',
-            'Export an elementor_library template to a portable structure (content element tree + page_settings + conditions + type + version), the envelope import-template accepts and re-applies, so a saved template round-trips as JSON between sites with its page settings and display conditions intact. Read-only',
+            'Export an elementor_library template as the portable envelope import-template accepts (element tree, page_settings, conditions, type, version), so it round-trips between sites intact. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5921,7 +5921,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/reorder-elements',
             'pro',
-            'Reorder the children of one Elementor parent element (or the top level when parent_id is omitted) to an explicit id order. The order must be an exact permutation of the current children; anything else is refused before any write. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Reorder the children of one Elementor parent (or the top level without parent_id) to an explicit id order, which must be an exact permutation of the current children. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6146,7 +6146,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-product',
             'free',
-            'Delete a WooCommerce product (trash by default, force for permanent). Disabled by default (site must opt in via the wpmcp_enable_delete_product filter) and requires confirm:true. Snapshotted so it can be rolled back: force-delete resurrects the product at its original id with its price, stock, and terms',
+            'Delete a WooCommerce product (trash by default, force for permanent). Off until the wpmcp_enable_delete_product filter opts in; requires confirm:true. Snapshotted: rollback resurrects a force-deleted product at its id with price, stock and terms',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6308,7 +6308,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-low-stock-products',
             'free',
-            'List products and variations whose managed stock is at or below a threshold (default: the store\'s own low-stock setting) or that are marked out of stock, as summary rows whose ids feed update-product/update-variation for restocking. total and has_more count matches, so page while has_more is true. Read-only',
+            'List products and variations at or below a managed-stock threshold (default: the store\'s low-stock setting) or out of stock, as rows whose ids feed update-product/update-variation. Page while has_more is true. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6792,7 +6792,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/link-post-translations',
             'free',
-            'Link a set of posts as translations of one another, given a list of {language, post_id} pairs, via the active multilingual plugin (Polylang or WPML). The relationship spans multiple posts but only the primary (first) post is snapshotted, so rollback restores only the primary post, not the other linked posts',
+            'Link posts as translations of one another from {language, post_id} pairs via Polylang or WPML. Only the primary (first) post is snapshotted, so rollback restores that post, not the others',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6992,7 +6992,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/find-broken-links',
             'free',
-            'Scan published content for internal links that are dead, point at a post that is not public yet, or go through a redirect instead of straight to its target. Call with background:true to queue a batched scan, then with scan_id to poll its progress and findings. Read-only: it proposes fixes and changes nothing',
+            'Scan published content for internal links that are dead, point at a non-public post or go through a redirect. background:true queues a batched scan; poll it with scan_id. Read-only: proposes fixes, changes nothing',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7141,7 +7141,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-alt-text-from-context',
             'pro',
-            'Write alt text for a post\'s images that have none, from the filename, nearest heading, or post title. Never overwrites existing alt text unless overwrite_existing=true, and never touches images marked decorative. Dry run unless apply=true; applying writes the pass under one snapshot that one rollback reverts',
+            'Write missing alt text for a post\'s images from the filename, nearest heading or post title. Existing alt text is kept unless overwrite_existing=true; decorative images are never touched. Dry run unless apply=true; one snapshot, one rollback',
             [
                 'type'       => 'object',
                 'properties' => [
