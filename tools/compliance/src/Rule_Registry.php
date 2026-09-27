@@ -24,6 +24,7 @@ use WPMCP\Compliance\Rules\Plugin_Install_Rule;
 use WPMCP\Compliance\Rules\Privacy_Claim_Rule;
 use WPMCP\Compliance\Rules\Readme_Rule;
 use WPMCP\Compliance\Rules\Short_Url_Rule;
+use WPMCP\Compliance\Rules\Suppress_Filters_Rule;
 use WPMCP\Compliance\Rules\Trademark_Rule;
 use WPMCP\Compliance\Rules\Updater_Rule;
 use WPMCP\Compliance\Rules\Wp_Load_Rule;
@@ -69,6 +70,7 @@ final class Rule_Registry
                 new Dangerous_Constructs_Rule(),
                 new Forbidden_Functions_Rule(),
                 new Php_Hygiene_Rule(),
+                new Suppress_Filters_Rule(),
                 new Wp_Load_Rule(),
             ],
             // Group C, security half.

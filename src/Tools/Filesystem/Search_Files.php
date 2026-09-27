@@ -26,7 +26,7 @@ class Search_Files
 
         $abs = Filesystem_Guard::resolve_path((string) ($args['path'] ?? '.'));
         if (is_wp_error($abs)) {
-            throw new \RuntimeException($abs->get_error_message());
+            throw new \RuntimeException(esc_html($abs->get_error_message()));
         }
 
         if (! is_dir($abs)) {

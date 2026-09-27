@@ -31,6 +31,7 @@ class List_Theme_Templates
             'posts_per_page' => 200,
             'orderby'        => 'title',
             'order'          => 'ASC',
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- bounded admin read: at most 200 rows over Elementor's template CPT, an inherently small set.
             'meta_query'     => [
                 [
                     'key'     => '_elementor_template_type',
