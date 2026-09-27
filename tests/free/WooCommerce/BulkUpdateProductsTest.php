@@ -15,6 +15,19 @@ class BulkUpdateProductsTest extends \WP_UnitTestCase
 {
     use VariableProductFixture;
 
+    /**
+     * The bulk tool re-checks each item against the registered single-item
+     * ability, so the Plugin's Registrar must be populated the way it is in
+     * production, where wp_abilities_api_init has always fired before any
+     * ability runs.
+     */
+    public static function wpSetUpBeforeClass(): void
+    {
+        if (0 === did_action('wp_abilities_api_init')) {
+            do_action('wp_abilities_api_init');
+        }
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -60,7 +73,7 @@ class BulkUpdateProductsTest extends \WP_UnitTestCase
             ],
         ]);
 
-        $this->assertSame(2, $out['updated']);
+        $this->assertSame(2, $out['updated'], (string) wp_json_encode($out['results']));
         $this->assertSame(2, $out['failed']);
         $this->assertStringStartsWith('bulk-update-products-', $out['session_id']);
 
@@ -91,7 +104,7 @@ class BulkUpdateProductsTest extends \WP_UnitTestCase
                 ['id' => $b, 'stock_quantity' => 60, 'regular_price' => '7.00'],
             ],
         ]);
-        $this->assertSame(2, $out['updated']);
+        $this->assertSame(2, $out['updated'], (string) wp_json_encode($out['results']));
 
         (new Rollback_Session())->handle(['session_id' => $out['session_id']]);
 
@@ -124,7 +137,7 @@ class BulkUpdateProductsTest extends \WP_UnitTestCase
         $this->assertFalse($out['results'][0]['ok']);
         $this->assertStringContainsString('update-variation', $out['results'][0]['error']);
         $this->assertSame(5, wc_get_product($ids['small'])->get_stock_quantity());
-        $this->assertTrue($out['results'][1]['ok']);
+        $this->assertTrue($out['results'][1]['ok'], (string) wp_json_encode($out['results']));
     }
 
     public function test_refuses_malformed_batches_before_writing_anything(): void
