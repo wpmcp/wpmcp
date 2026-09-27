@@ -22,7 +22,7 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
     public function test_all_free_abilities_register_by_default(): void
     {
         $registrar = Plugin::instance()->registrar();
-        $this->assertCount(230, $registrar->all());
+        $this->assertCount(231, $registrar->all());
     }
 
     public function test_no_pro_tier_ability_registers_without_a_license(): void
@@ -77,6 +77,7 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
                 'wpmcp/create-site-part'     => 'create',
                 'wpmcp/list-site-parts'      => 'read',
                 'wpmcp/resolve-site-part'    => 'read',
+                'wpmcp/update-site-part'     => 'update',
                 'wpmcp/set-site-part-status' => 'update',
                 'wpmcp/delete-site-part'     => 'delete',
             ] as $name => $operation
