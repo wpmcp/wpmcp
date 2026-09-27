@@ -208,6 +208,7 @@ use WPMCP\Tools\Backup\Get_Backup_Manifest;
 use WPMCP\Tools\Backup\Delete_Backup_Archive;
 use WPMCP\Tools\Backup\Restore_Site_Backup;
 use WPMCP\Tools\Migration\Rewrite_Site_Urls;
+use WPMCP\Tools\Sync\Apply_Change_Set;
 use WPMCP\Tools\Sync\Build_Change_Set;
 use WPMCP\Tools\Sync\Get_Change_Set;
 use WPMCP\Tools\Governance\Get_Governance_Settings;
@@ -4007,35 +4008,41 @@ final class Plugin
     }
 
     /**
-     * Local-live sync, phase 1 (issue #192): change-set export derived from
-     * the snapshot ledger. The unit of sync is a set of explicitly selected
-     * objects touched during a build session, never the whole database, so
-     * live-side data the local copy has never seen (orders, comments, form
-     * entries) is left alone by construction.
+     * Local-live sync (issue #192): change-set export derived from the
+     * snapshot ledger, inspection, and apply. The unit of sync is a set of
+     * explicitly selected objects, never the whole database, so live-side
+     * data the local copy has never seen (orders, comments, form entries) is
+     * left alone by construction.
      *
-     * Both tools are read-only with respect to user content (build writes
+     * build-change-set and get-change-set only read site data (build writes
      * one artifact file into the protected site-backup dir), so neither is
-     * routed through Safe_Mutation. The phase 2 apply side is the mutating
-     * half and will go snapshot-first through Rollback_Service on the
-     * target. Gated at manage_options like the backup group it builds on.
+     * routed through Safe_Mutation. apply-change-set is the mutating half:
+     * every update is snapshot-first through Safe_Mutation, every creation
+     * records a creation row, all under one session so rollback-session
+     * undoes a whole sync. It defaults to dry_run and is advertised as
+     * destructive because it can overwrite live content (never without a
+     * snapshot). Gated at manage_options like the backup group it builds on.
      * Free/Pro placement is an open question on the issue; registered free
-     * here so the WIP is exercisable, revisit before release.
+     * so the feature is exercisable, revisit before release.
      */
     private function register_sync_abilities(Registrar $registrar): void
     {
         $build_change_set = new Build_Change_Set();
         $get_change_set   = new Get_Change_Set();
+        $apply_change_set = new Apply_Change_Set();
 
         $registrar->register(new Ability(
             'wpmcp/build-change-set',
             'free',
-            'Derive a local-live sync change set from the snapshot ledger for one marker (session_id, operation_id or since_id) into an inspectable JSON artifact in the site-backup dir. Export only: deletions are reported, never applied, and nothing is pushed',
+            'Build a local-live sync change set (objects, media bytes, terms, templates, global classes, base revisions) from one ledger marker (session_id, operation_id or since_id) and/or objects refs (post:ID, option:theme_mods_X, term:TAX:SLUG) into a JSON artifact in the site-backup dir. dry_run lists it without writing. Nothing is pushed',
             [
                 'type'       => 'object',
                 'properties' => [
                     'session_id'   => [ 'type' => 'string' ],
                     'operation_id' => [ 'type' => 'string' ],
                     'since_id'     => [ 'type' => 'integer' ],
+                    'objects'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'dry_run'      => [ 'type' => 'boolean' ],
                 ],
             ],
             [$build_change_set, 'handle'],
@@ -4046,12 +4053,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-change-set',
             'free',
-            'Inspect a change-set artifact before it is applied: origin, objects, attachments, exclusions, truncation. include_objects=true adds full data. Read-only; site-backup dir only',
+            'Inspect a change-set artifact before it is applied: origin, objects, dependencies, exclusions, truncation. include_objects=true adds full data; raw=true returns the artifact to pass to apply-change-set on the target. Read-only; site-backup dir only',
             [
                 'type'       => 'object',
                 'properties' => [
                     'path'            => [ 'type' => 'string' ],
                     'include_objects' => [ 'type' => 'boolean' ],
+                    'raw'             => [ 'type' => 'boolean' ],
                 ],
                 'required'   => [ 'path' ],
             ],
@@ -4059,6 +4067,28 @@ final class Plugin
             'manage_options',
             'sync',
             'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/apply-change-set',
+            'free',
+            'Apply a change set (change_set from get-change-set raw=true, or path) to this site. dry_run defaults to true. Only selected objects are written, snapshot-first; media, terms and templates are only added; an object changed here since the base is refused unless its key is in force; deletions are never applied. rollback-session undoes it',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'change_set' => [ 'type' => 'object' ],
+                    'path'       => [ 'type' => 'string' ],
+                    'dry_run'    => [ 'type' => 'boolean' ],
+                    'force'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+            ],
+            [$apply_change_set, 'handle'],
+            'manage_options',
+            'sync',
+            'update',
+            false,
+            true,
+            true
         ));
     }
 
