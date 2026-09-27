@@ -39,8 +39,18 @@ if (! defined('ABSPATH')) {
  */
 class Cloud_Marketplace_Install
 {
+    /**
+     * The spec keys each type's store and renderer read. Anything else in a
+     * listing is dropped before it is stored: nobody on this site wrote it,
+     * and an unread key is only somewhere for a payload to hide.
+     */
+    private const SPEC_KEYS = [
+        'widget' => ['name', 'title', 'icon', 'keywords', 'controls', 'template'],
+        'block'  => ['name', 'title', 'category', 'attributes', 'template'],
+    ];
+
     /** Lowercase slug, no path or query characters: it is interpolated into the request path. */
-    private const SLUG_PATTERN = '/^[a-z0-9][a-z0-9_-]{0,99}$/';
+    public const SLUG_PATTERN = '/^[a-z0-9][a-z0-9_-]{0,99}$/';
 
     public function handle(array $args)
     {
@@ -67,13 +77,25 @@ class Cloud_Marketplace_Install
             return new \WP_Error('marketplace_invalid_listing', 'The listing is not a widget or block spec, so it cannot be installed.');
         }
 
-        $spec  = $listing['spec'];
+        $spec = array_intersect_key($listing['spec'], array_flip(self::SPEC_KEYS[ $type ]));
+        foreach (['title', 'template'] as $field) {
+            if (! is_string($spec[ $field ] ?? null)) {
+                return new \WP_Error('marketplace_invalid_spec', "The listing spec has no string {$field}, so it was not installed.");
+            }
+        }
+        if (isset($spec['name']) && ! is_string($spec['name'])) {
+            unset($spec['name']); // normalize() then derives it from the title.
+        }
+        if (isset($spec['icon'])) {
+            // Elementor prints the icon as a CSS class; keep it to class characters.
+            $spec['icon'] = is_string($spec['icon']) ? (string) preg_replace('/[^A-Za-z0-9_ -]/', '', $spec['icon']) : '';
+        }
         $valid = 'widget' === $type ? Widget_Spec::validate($spec) : Block_Spec::validate($spec);
         if (is_wp_error($valid)) {
             return new \WP_Error('marketplace_invalid_spec', 'The listing failed spec validation and was not installed: ' . $valid->get_error_message());
         }
 
-        $template         = (string) $spec['template'];
+        $template         = $spec['template'];
         $spec['template'] = wp_kses_post($template);
         $filtered         = $spec['template'] !== $template;
         // kses can empty a template that was nothing but disallowed markup.

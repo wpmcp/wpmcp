@@ -110,6 +110,7 @@ class CloudMarketplaceTest extends \WP_UnitTestCase
             self::block_listing(),
             'garbage',
             ['type' => 'widget'],
+            self::widget_listing([], ['slug' => '../me']),
         ]];
 
         $out = (new Cloud_Marketplace_Browse())->handle([]);
@@ -292,6 +293,32 @@ class CloudMarketplaceTest extends \WP_UnitTestCase
         $this->assertStringNotContainsString('<script', Widget_Spec_Store::get($widget['id'])['template']);
         $this->assertStringNotContainsString('<script', Block_Spec_Store::get($block['id'])['template']);
         $this->assertStringNotContainsString('onclick', Block_Spec_Store::get($block['id'])['template']);
+    }
+
+    public function test_install_keeps_only_the_spec_keys_the_store_reads(): void
+    {
+        $this->routes['/marketplace/hero-banner'] = ['listing' => self::widget_listing([
+            'icon'    => 'eicon-code" onmouseover="x()',
+            'payload' => '<?php evil(); ?>',
+        ])];
+
+        $out = (new Cloud_Marketplace_Install())->handle(['slug' => 'hero-banner']);
+
+        $this->assertNotInstanceOf(\WP_Error::class, $out);
+        $stored = Widget_Spec_Store::get($out['id']);
+        $this->assertArrayNotHasKey('payload', $stored);
+        $this->assertSame('eicon-code onmouseoverx', $stored['icon']);
+    }
+
+    public function test_install_refuses_a_non_string_template(): void
+    {
+        $this->routes['/marketplace/callout'] = ['listing' => self::block_listing(['template' => ['<p>x</p>']])];
+
+        $out = (new Cloud_Marketplace_Install())->handle(['slug' => 'callout']);
+
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('marketplace_invalid_spec', $out->get_error_code());
+        $this->assertSame([], Block_Spec_Store::all());
     }
 
     public function test_install_surfaces_a_missing_listing(): void

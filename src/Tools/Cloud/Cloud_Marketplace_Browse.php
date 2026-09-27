@@ -16,7 +16,9 @@ if (! defined('ABSPATH')) {
  * { listings: [ { slug, type, title, description?, author?, version? } ] }.
  * Listings are projected onto those scalar fields; the spec itself is not
  * returned here, because nothing should act on a spec that has not been
- * through cloud-marketplace-install's validation.
+ * through cloud-marketplace-install's validation. A listing whose slug
+ * cloud-marketplace-install would refuse is dropped, so every slug listed is
+ * one that can actually be installed.
  */
 class Cloud_Marketplace_Browse
 {
@@ -75,11 +77,11 @@ class Cloud_Marketplace_Browse
         }
         $slug = is_string($listing['slug'] ?? null) ? $listing['slug'] : '';
         $type = is_string($listing['type'] ?? null) ? $listing['type'] : '';
-        if ('' === $slug || ! in_array($type, self::TYPES, true)) {
+        if (1 !== preg_match(Cloud_Marketplace_Install::SLUG_PATTERN, $slug) || ! in_array($type, self::TYPES, true)) {
             return null;
         }
 
-        $out = ['slug' => sanitize_title($slug), 'type' => $type];
+        $out = ['slug' => $slug, 'type' => $type];
         foreach (['title', 'description', 'author', 'version'] as $field) {
             $out[ $field ] = is_scalar($listing[ $field ] ?? null) ? sanitize_text_field((string) $listing[ $field ]) : '';
         }

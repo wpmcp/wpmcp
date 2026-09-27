@@ -509,6 +509,17 @@ class CloudSettingsSyncTest extends \WP_UnitTestCase
         $this->assertNotContains('evil/evil.php', (array) get_option('active_plugins', []));
     }
 
+    public function test_apply_with_a_null_settings_argument_pulls(): void
+    {
+        $this->responder = static fn ($url, $args) => self::json(['settings' => [Tool_Exposure::OPTION => 'compact']]);
+
+        $out = (new Cloud_Apply_Settings())->handle(['settings' => null]);
+
+        $this->assertNotInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('cloud', $out['source']);
+        $this->assertSame('compact', get_option(Tool_Exposure::OPTION));
+    }
+
     public function test_pull_reports_a_cloud_with_no_stored_posture(): void
     {
         $this->responder = static fn ($url, $args) => self::json(['settings' => []]);

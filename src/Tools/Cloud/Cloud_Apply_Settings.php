@@ -31,7 +31,9 @@ class Cloud_Apply_Settings
     {
         $source = 'payload';
 
-        if (array_key_exists('settings', $args)) {
+        // An explicit null is "omitted": MCP clients commonly send null for an
+        // optional argument, and that must mean "pull", not "empty payload".
+        if (null !== ($args['settings'] ?? null)) {
             $payload = $args['settings'];
             if (! is_array($payload) || [] === $payload) {
                 return new \WP_Error('missing_settings', 'The settings map is empty; run cloud-sync-settings on the source site to produce one, or omit settings to pull the posture from WP MCP Cloud.');

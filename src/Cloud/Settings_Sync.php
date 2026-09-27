@@ -20,9 +20,10 @@ if (! defined('ABSPATH')) {
  *
  * The payload is the site's PERSISTED governance posture: the ability/domain/
  * operation toggle maps, the MCP exposure switch, the tool-exposure mode, the
- * skills switch, and the scoped identities minus secrets. Every entry is the ::OPTION constant of the class that
- * owns the state, so export() reads something real and apply() writes
- * something a subsequent request actually consults.
+ * skills switch, and the scoped identities minus secrets. Every entry is the
+ * ::OPTION constant of the class that owns the state, so export() reads
+ * something real and apply() writes something a subsequent request actually
+ * consults.
  *
  * What deliberately cannot sync:
  *  - The code-level safety gates (wpmcp_enable_db_writes, wpmcp_allow_php_exec,
@@ -41,12 +42,16 @@ if (! defined('ABSPATH')) {
  *    maps to which identity is the wpmcp_current_identity filter's business,
  *    per site, and is not part of the posture.
  *
- * apply() MERGES rather than replaces, and it narrows rather than widens: the
- * governance toggle map is merged per dimension (see coerce_governance()) and a
- * payload that would switch wpmcp_mcp_exposure back ON against an operator who
- * turned it off is refused outright. Both follow from the same rule the whole
- * governance layer is built on -- a remote party may take agent access away,
- * never hand it back.
+ * apply() MERGES rather than replaces. The governance toggle map merges per
+ * dimension (see coerce_governance()) and identities merge per name (see
+ * coerce_identities()), so nothing the payload does not mention is reset. A
+ * name the payload DOES mention wins for that name, which can re-enable an
+ * ability or loosen an identity: that is what replicating a posture means,
+ * and it is why apply() is an explicit, manage_options, snapshot-per-option
+ * operation rather than something the cloud can push unasked. The one switch
+ * that narrows only is wpmcp_mcp_exposure: a payload may turn the master MCP
+ * kill switch off across a fleet, but one that would turn it back ON against
+ * an operator who turned it off is refused outright.
  *
  * apply() is the paid-cloud entitlement (Pro\Gate), requires manage_options,
  * re-filters the incoming blob against the same allowlist, and coerces every
