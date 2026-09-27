@@ -101,7 +101,7 @@ class GatewayGrantPolicyTest extends \WP_UnitTestCase
         ]);
     }
 
-    /** @return array<int, string> */
+    /** @return array<string, array{0: string}> */
     public static function gateway_scope_strings(): array
     {
         return [
