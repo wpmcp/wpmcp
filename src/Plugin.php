@@ -234,6 +234,7 @@ use WPMCP\Tools\Identity\List_Identities;
 use WPMCP\Tools\Identity\Delete_Identity;
 use WPMCP\Tools\Elementor\List_Widgets;
 use WPMCP\Tools\Elementor\Get_Widget_Schema;
+use WPMCP\Tools\Elementor\Regenerate_Elementor_Css;
 use WPMCP\Tools\Elementor\Get_Elementor_Data;
 use WPMCP\Tools\Elementor\Update_Element;
 use WPMCP\Tools\Elementor\Update_Widget;
@@ -4845,6 +4846,27 @@ final class Plugin
             'edit_posts',
             'elementor',
             'read'
+        ));
+
+        // A cache operation, not a content write: like clear-cache it is not
+        // snapshotted, since generated CSS has no before-image worth restoring.
+        $regenerate_elementor_css = new Regenerate_Elementor_Css();
+
+        $registrar->register(new Ability(
+            'wpmcp/regenerate-elementor-css',
+            'free',
+            'Rebuild Elementor CSS and render cache for post_id, or site-wide with confirm:true. Cache only, not snapshotted',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                    'confirm' => [ 'type' => 'boolean' ],
+                ],
+            ],
+            [$regenerate_elementor_css, 'handle'],
+            'edit_posts',
+            'elementor',
+            'update'
         ));
 
         $this->register_elementor_pro_abilities($registrar);

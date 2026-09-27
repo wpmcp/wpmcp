@@ -61,9 +61,11 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  and #62 together (176529 bytes over 319 tools). The PHP snippet
      *  lifecycle store (#85) adds seven tools whose descriptions were trimmed
      *  to the store-vs-Elementor-custom-code disambiguation, the
-     *  created-inactive rule and the execution-gate refusal. Compact tool mode keeps clients
-     *  with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 180000;
+     *  created-inactive rule and the execution-gate refusal. Raised 180000
+     *  -> 180500 for regenerate-elementor-css (180237 bytes over 327 tools;
+     *  the base surface was already within ~250 bytes of the old ceiling).
+     *  Compact tool mode keeps clients with tool caps at ~2.8KB regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 180500;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
@@ -122,9 +124,10 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
         // invariant this protects is unchanged: the 44-widget catalog is
         // consumed by a FIXED generic set, so adding a cataloged widget must
         // never add a tool. New tools here are per-feature, never per-widget,
-        // and stay well under the catalog size.
+        // and stay well under the catalog size. Raised 64 -> 65 for
+        // regenerate-elementor-css, a per-feature cache tool.
         $this->assertLessThanOrEqual(
-            64,
+            65,
             count($elementor),
             'The Elementor tool surface must stay a fixed set of generic, per-feature tools; '
             . 'widgets belong in the catalog data, not in new per-widget abilities.'

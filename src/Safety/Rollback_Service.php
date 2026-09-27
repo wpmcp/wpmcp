@@ -7,6 +7,7 @@
 namespace WPMCP\Safety;
 
 use WPMCP\Tools\Database\Database_Guard;
+use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -480,6 +481,7 @@ class Rollback_Service
 
         $snapshotted_meta = (array) $snapshot['data']['meta'];
         $current_meta     = get_post_meta($object_id);
+        $is_elementor     = self::is_elementor_document($snapshotted_meta) || self::is_elementor_document($current_meta);
 
         // Purge any meta key that didn't exist at snapshot time (newly added by the mutation).
         foreach (array_keys(array_diff_key($current_meta, $snapshotted_meta)) as $key) {
@@ -503,7 +505,36 @@ class Rollback_Service
 
         self::restore_files($snapshot['data']['files'] ?? null);
 
+        if ($is_elementor) {
+            self::refresh_elementor_caches($object_id, $snapshotted_meta);
+        }
+
         self::refresh_woocommerce_product($object_id);
+    }
+
+    /** Whether a post meta map (get_post_meta() shape) carries Elementor document data. */
+    private static function is_elementor_document(array $meta): bool
+    {
+        return isset($meta['_elementor_data']) || isset($meta['_elementor_page_settings']);
+    }
+
+    /**
+     * Drop Elementor's derived caches after a raw post restore.
+     *
+     * The meta restore above puts back whatever `_elementor_css` and render
+     * cache the snapshot held, while the CSS file on disk was regenerated for
+     * the content being rolled back, so the page would be served that CSS for
+     * the restored data. A kit's settings feed every document's CSS, so
+     * restoring the kit purges site-wide.
+     */
+    private static function refresh_elementor_caches(int $object_id, array $snapshotted_meta): void
+    {
+        Elementor_Cache::invalidate_document($object_id);
+
+        $type = $snapshotted_meta['_elementor_template_type'][0] ?? get_post_meta($object_id, '_elementor_template_type', true);
+        if ('kit' === maybe_unserialize($type)) {
+            Elementor_Cache::clear_all();
+        }
     }
 
     /**
@@ -1121,6 +1152,9 @@ class Rollback_Service
         } catch (\Throwable $e) {
             self::warn('Elementor refused the global classes restore: ' . $e->getMessage());
         }
+
+        // Class styles are compiled into generated CSS across the site.
+        Elementor_Cache::clear_all();
     }
 
     /** Human-readable "pk=value" description of a row's primary-key values, for warnings and errors. */
