@@ -66,14 +66,18 @@ class Gateway_Revoke
             $out = [
                 'operation_id' => null,
                 'result'       => Gateway_Credential::deprovision(),
-                'undo_point'   => false,
+                'undo_point'   => 'none',
             ];
         }
         $removed = (bool) $out['result'];
 
         return [
             'operation_id' => $out['operation_id'],
-            'undo_point'   => $out['undo_point'] ?? true,
+            // Never a restore point for the credential itself: at most the
+            // bookkeeping pointer was snapshotted, and restoring it cannot
+            // bring the client or its tokens back. Reported as such so an
+            // agent does not offer "undo" as a way to un-revoke.
+            'undo_point'   => $out['undo_point'] ?? 'pointer_only',
             'revoked' => $removed,
             // Re-evaluated, not assumed: the only honest way to report the
             // end state when a store can hold more than one matching row.

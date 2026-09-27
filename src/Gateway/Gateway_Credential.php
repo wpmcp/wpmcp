@@ -81,7 +81,7 @@ class Gateway_Credential
     public const REGISTRAR_KEY = 'wpmcp-gateway-local';
 
     /** Scope stamped on gateway refresh tokens and the access tokens they mint. */
-    public const SCOPE = 'gateway';
+    public const SCOPE = Refresh_Token_Store::GATEWAY_SCOPE;
 
     /**
      * The gateway client record, provisioning it if absent. Idempotent:
@@ -173,7 +173,7 @@ class Gateway_Credential
             throw new \RuntimeException('Gateway client disappeared while provisioning.');
         }
 
-        $refresh_token = Refresh_Token_Store::issue($client_id, $user_id, self::SCOPE);
+        $refresh_token = Refresh_Token_Store::issue($client_id, $user_id, self::SCOPE, '', true);
 
         return [
             'client_id'     => $client_id,

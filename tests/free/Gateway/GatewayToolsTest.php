@@ -235,6 +235,7 @@ class GatewayToolsTest extends \WP_UnitTestCase
         $this->assertStringNotContainsString($out['client_secret'], $serialized);
         $this->assertStringNotContainsString($out['refresh_token'], $serialized);
         $this->assertStringNotContainsString('client_secret_hash', $serialized);
+        $this->assertSame('pointer_only', $out['undo_point']);
     }
 
     public function test_revoke_runs_through_safe_mutation(): void
@@ -246,6 +247,7 @@ class GatewayToolsTest extends \WP_UnitTestCase
 
         $this->assertIsString($out['operation_id'] ?? null);
         $this->assertNotNull(Snapshot_Store::get_by_operation($out['operation_id']));
+        $this->assertSame('pointer_only', $out['undo_point'], 'the undo point never claims it can un-revoke');
     }
 
     public function test_rolling_back_a_revoke_does_not_resurrect_the_credential(): void
@@ -291,8 +293,36 @@ class GatewayToolsTest extends \WP_UnitTestCase
 
         $this->assertTrue($out['revoked']);
         $this->assertNull($out['operation_id']);
-        $this->assertFalse($out['undo_point']);
+        $this->assertSame('none', $out['undo_point']);
         $this->assertFalse(Gateway_Credential::is_provisioned());
         $this->assertFalse(Client_Store::verify_secret($credential['client_id'], $credential['client_secret']));
+    }
+
+    public function test_provision_refuses_distinctly_when_the_undo_point_cannot_be_saved(): void
+    {
+        global $wpdb;
+        $this->as_admin();
+
+        $table  = Snapshot_Store::table_name();
+        $filter = static function ($query) use ($table) {
+            if (str_starts_with(strtoupper(ltrim((string) $query)), 'INSERT') && str_contains((string) $query, $table)) {
+                return str_replace($table, $table . '_does_not_exist', (string) $query);
+            }
+            return $query;
+        };
+        add_filter('query', $filter);
+        $suppress = $wpdb->suppress_errors(true);
+
+        try {
+            $result = (new Gateway_Provision())->handle(['confirm' => true]);
+        } finally {
+            remove_filter('query', $filter);
+            $wpdb->suppress_errors($suppress);
+        }
+
+        $this->assertWPError($result);
+        $this->assertSame('undo_point_unwritable', $result->get_error_code());
+        $this->assertFalse(Gateway_Credential::is_provisioned(), 'nothing is minted without an undo point');
+        $this->assertSame(0, Client_Store::count());
     }
 }

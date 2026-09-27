@@ -272,12 +272,38 @@ class GatewayGrantPolicyTest extends \WP_UnitTestCase
         $this->assertNull(Token_Store::validate($granted['access_token']));
     }
 
-    public function test_a_gateway_scoped_access_token_on_an_ordinary_client_does_not_authenticate(): void
+    public function test_a_gateway_flagged_access_token_on_an_ordinary_client_does_not_authenticate(): void
     {
         $client = Client_Store::create(['Some App'], ['https://example.com/cb']);
-        $token  = Token_Store::issue($client['client_id'], $this->admin(), Gateway_Credential::SCOPE);
+        $token  = Token_Store::issue($client['client_id'], $this->admin(), 'read', '', true);
 
         $this->assertNull(Token_Store::validate($token));
+    }
+
+    public function test_a_gateway_flagged_refresh_token_on_an_ordinary_client_is_refused(): void
+    {
+        $client = Client_Store::create(['Some App'], ['https://example.com/cb']);
+        $token  = Refresh_Token_Store::issue($client['client_id'], $this->admin(), 'read', '', true);
+
+        $result = $this->refresh($client['client_id'], $client['client_secret'], $token);
+
+        $this->assertWPError($result);
+        $this->assertSame('invalid_grant', $result->get_error_code());
+        $this->assertSame([], get_option(Token_Store::OPTION, []));
+    }
+
+    public function test_grace_and_ttl_key_on_the_flag_not_the_scope_string(): void
+    {
+        $this->assertSame(0, Refresh_Token_Store::grace(true));
+        $this->assertSame(Refresh_Token_Store::GRACE_SECONDS, Refresh_Token_Store::grace(false));
+
+        add_filter('wpmcp_gateway_refresh_ttl', fn () => 3600);
+        try {
+            $this->assertSame(3600, Refresh_Token_Store::ttl(true));
+            $this->assertSame(Refresh_Token_Store::TTL_SECONDS, Refresh_Token_Store::ttl(false));
+        } finally {
+            remove_all_filters('wpmcp_gateway_refresh_ttl');
+        }
     }
 
     public function test_ordinary_access_tokens_are_unaffected_by_the_gateway_check(): void

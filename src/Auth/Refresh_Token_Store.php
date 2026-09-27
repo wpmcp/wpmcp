@@ -90,24 +90,36 @@ class Refresh_Token_Store
         return null !== self::$clock_override ? (int) (self::$clock_override)() : time();
     }
 
-    /** Scope stamped on gateway refresh tokens (Gateway_Credential::SCOPE). */
+    /**
+     * The reserved scope string of the gateway credential (issue #142).
+     * Gateway_Credential::SCOPE is defined as this constant. It is NOT what
+     * makes a token a gateway token: that is the explicit 'gateway' flag
+     * stamped at issuance (see issue()). The scope is reserved only so no
+     * ordinary client can present itself as the gateway by asking for it.
+     */
     public const GATEWAY_SCOPE = 'gateway';
 
     /**
-     * Refresh token lifetime in seconds, filterable. Floored at one minute.
+     * Refresh token lifetime in seconds. Floored at one minute.
      *
-     * Gateway tokens (issue #142) get a second, narrower filter on top:
-     * `wpmcp_gateway_refresh_ttl` receives the general value and may shorten
-     * or lengthen it for the proxy credential alone, so an operator can run
-     * a 30-day interactive session and a 24-hour gateway credential without
-     * the two settings fighting. The literal scope string is used rather
-     * than a use-statement so src/Auth keeps no dependency on src/Gateway.
+     * Two filters, with deliberately separate reach:
+     *
+     *  - `wpmcp_oauth_refresh_ttl` (int $seconds, default TTL_SECONDS, 30
+     *    days) sets the lifetime of every ordinary refresh token.
+     *  - `wpmcp_gateway_refresh_ttl` (int $seconds) sets the lifetime of
+     *    refresh tokens flagged as gateway credentials, and ONLY those. Its
+     *    input value is the already-filtered general lifetime, so with no
+     *    callback a gateway token lives exactly as long as an ordinary one;
+     *    return any value to decouple them (a 24-hour or a multi-year proxy
+     *    credential) without touching interactive sessions.
+     *
+     * @param bool $gateway Whether the record carries the gateway flag.
      */
-    public static function ttl(string $scope = ''): int
+    public static function ttl(bool $gateway = false): int
     {
         $ttl = max(60, (int) apply_filters('wpmcp_oauth_refresh_ttl', self::TTL_SECONDS));
 
-        if (self::is_gateway_scope($scope)) {
+        if ($gateway) {
             $ttl = max(60, (int) apply_filters('wpmcp_gateway_refresh_ttl', $ttl));
         }
 
@@ -115,20 +127,24 @@ class Refresh_Token_Store
     }
 
     /**
-     * The idempotent-refresh grace window in seconds, filterable. Floored
-     * at 0, which restores strict single-use rotation (any reuse is a
-     * breach) for deployments that want it.
+     * The idempotent-refresh grace window in seconds. Floored at 0, which
+     * means strict single-use rotation: any replay of a rotated token, even
+     * inside the same second, is a breach.
+     *
+     *  - `wpmcp_oauth_refresh_grace` (int $seconds, default GRACE_SECONDS)
+     *    applies to ordinary refresh tokens only.
+     *  - `wpmcp_gateway_refresh_grace` (int $seconds, default 0) applies to
+     *    gateway-flagged tokens only. The window exists for interactive
+     *    clients on flaky connections; the gateway is a server-side proxy,
+     *    and issue #142's contract is that a rotated-away gateway token is
+     *    rejected on replay. An operator who wants a retry allowance for the
+     *    proxy opts in here; the general filter never reaches it.
+     *
+     * @param bool $gateway Whether the record carries the gateway flag.
      */
-    public static function grace(string $scope = ''): int
+    public static function grace(bool $gateway = false): int
     {
-        // The gateway credential (issue #142) gets NO grace window by
-        // default, and the general filter does not reach it. The window
-        // exists for interactive clients on flaky connections; the gateway
-        // is a server-side proxy, and the issue's contract is that a
-        // rotated-away gateway token is rejected on replay. An operator who
-        // wants the retry allowance back for the proxy can opt in through
-        // wpmcp_gateway_refresh_grace.
-        if (self::is_gateway_scope($scope)) {
+        if ($gateway) {
             return max(0, (int) apply_filters('wpmcp_gateway_refresh_grace', 0));
         }
 
@@ -164,12 +180,18 @@ class Refresh_Token_Store
      * authorization_code exchange); pass the redeemed token's chain_id to
      * continue an existing one (a rotation).
      *
-     * @return string The plaintext token, returned exactly once.
+     * A $user_id that does not resolve is not an error: the record is
+     * stored unbound and adopts the fingerprint on its first redeem (see
+     * redeem()).
      *
-     * @throws \InvalidArgumentException When $user_id does not resolve to a
-     *         user, so the token could not be bound to a credential state.
+     * @param bool $gateway Stamp the record as a gateway credential (issue
+     *                      #142). Only Gateway_Credential::issue_for_user()
+     *                      and rotations of an already-flagged record pass
+     *                      true; the flag, not the scope string, is what
+     *                      TTL, grace and the grant policy key on.
+     * @return string The plaintext token, returned exactly once.
      */
-    public static function issue(string $client_id, int $user_id, string $scope, string $chain_id = ''): string
+    public static function issue(string $client_id, int $user_id, string $scope, string $chain_id = '', bool $gateway = false): string
     {
         // May be null when the user does not resolve (synthetic ids in the
         // store's own unit tests, a user deleted between authorisation and
@@ -189,6 +211,7 @@ class Refresh_Token_Store
             'issued_at'        => self::now(),
             'rotated_at'       => 0,
             'pass_fingerprint' => $fingerprint,
+            'gateway'          => $gateway,
         ];
         self::save($stored);
 
@@ -229,7 +252,7 @@ class Refresh_Token_Store
             return ['status' => 'client_mismatch'];
         }
 
-        if ($now > (int) $record['issued_at'] + self::ttl((string) ($record['scope'] ?? ''))) {
+        if ($now > (int) $record['issued_at'] + self::ttl(! empty($record['gateway']))) {
             unset($stored[ $key ]);
             self::save($stored);
             return ['status' => 'expired'];
@@ -248,7 +271,7 @@ class Refresh_Token_Store
         // A zero window means "no retry allowance at all", including a
         // replay inside the same second as the rotation, which the plain
         // "now > rotated_at + 0" comparison would let through as a grace hit.
-        $grace = self::grace((string) ($record['scope'] ?? ''));
+        $grace = self::grace(! empty($record['gateway']));
         if (0 !== $rotated_at && (0 === $grace || $now > $rotated_at + $grace)) {
             self::revoke_chain((string) ($record['chain_id'] ?? ''));
             return ['status' => 'reuse_detected'];
@@ -271,6 +294,7 @@ class Refresh_Token_Store
         // get_userdata() before minting.
         $current = Token_Store::pass_fingerprint((int) ($record['user_id'] ?? 0));
         $bound   = $record['pass_fingerprint'] ?? null;
+        $adopted = false;
 
         if (is_string($bound)) {
             if (null === $current || ! hash_equals($bound, $current)) {
@@ -284,16 +308,21 @@ class Refresh_Token_Store
             // existing session out on deploy, so instead the current
             // fingerprint is stamped on the first successful redeem: the
             // session in flight survives, and every password change AFTER
-            // this moment kills it like any post-#142 token.
+            // this moment kills it like any post-#142 token. The stamp rides
+            // on the single save below rather than costing a write of its own.
             $stored[ $key ]['pass_fingerprint'] = $current;
             $record['pass_fingerprint']         = $current;
-            self::save($stored);
+            $adopted                            = true;
         }
 
         if (0 === $rotated_at) {
             $stored[ $key ]['rotated_at'] = $now;
             self::save($stored);
             return ['status' => 'ok', 'record' => $record];
+        }
+
+        if ($adopted) {
+            self::save($stored);
         }
 
         // Deliberately does not re-stamp rotated_at: the window is anchored
@@ -374,8 +403,13 @@ class Refresh_Token_Store
         $now     = self::now();
         $removed = 0;
 
+        // Resolved once, not per record: each call dispatches a filter.
+        $ttl_ordinary = self::ttl(false);
+        $ttl_gateway  = self::ttl(true);
+
         foreach ($stored as $key => $record) {
-            if ($now > (int) ($record['issued_at'] ?? 0) + self::ttl((string) ($record['scope'] ?? ''))) {
+            $ttl = ! empty($record['gateway']) ? $ttl_gateway : $ttl_ordinary;
+            if ($now > (int) ($record['issued_at'] ?? 0) + $ttl) {
                 unset($stored[ $key ]);
                 $removed++;
             }
