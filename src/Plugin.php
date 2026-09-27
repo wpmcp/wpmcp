@@ -2729,6 +2729,7 @@ final class Plugin
             new \WPMCP\Integrations\Forminator_Integration(),
             new \WPMCP\Integrations\SureForms_Integration(),
             new \WPMCP\Integrations\MetForm_Integration(),
+            new \WPMCP\Integrations\Theme_Integration(),
         ];
 
         foreach ($integrations as $integration) {
