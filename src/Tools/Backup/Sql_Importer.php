@@ -86,7 +86,7 @@ class Sql_Importer
         }
 
         if (0 === $count) {
-            throw new \RuntimeException('The SQL dump contains no statements.');
+            throw new \RuntimeException('The SQL dump contains no statements; it is empty or truncated.');
         }
 
         return [

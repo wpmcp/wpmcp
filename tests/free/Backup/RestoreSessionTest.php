@@ -60,7 +60,12 @@ class RestoreSessionTest extends \WP_UnitTestCase
         $this->assertTrue(\WP_Session_Tokens::get_instance($admin)->verify($session));
         $passwords = \WP_Application_Passwords::get_user_application_passwords($admin);
         $this->assertCount(1, $passwords);
-        $this->assertTrue(wp_check_password($app_password, $passwords[0]['password']));
+        // WordPress 6.8 moved application passwords to wp_fast_hash(), with
+        // its own verifier; wp_check_password() is the older path.
+        $matches = method_exists(\WP_Application_Passwords::class, 'check_password')
+            ? \WP_Application_Passwords::check_password($app_password, $passwords[0]['password'])
+            : wp_check_password($app_password, $passwords[0]['password']);
+        $this->assertTrue($matches);
         $this->assertNotNull(Token_Store::validate($bearer));
         $this->assertNotNull(Client_Store::get($client['client_id']));
         $this->assertArrayHasKey(hash('sha256', $refresh), (array) get_option(Refresh_Token_Store::OPTION));

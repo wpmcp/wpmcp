@@ -269,7 +269,9 @@ class RestoreSiteBackupExecuteTest extends \WP_UnitTestCase
 
     public function test_a_truncated_dump_without_a_byte_count_is_refused_by_the_parser(): void
     {
+        self::factory()->post->create(['post_title' => 'Needs at least one INSERT to cut through']);
         [$sql, $result] = $this->dump_tables($this->posts_tables());
+        $this->assertNotFalse(strrpos($sql, 'INSERT INTO'));
         $cut  = substr($sql, 0, (int) strrpos($sql, 'INSERT INTO') + 40);
         $path = $this->archive_from_sql($cut, $result['tables'], ['database.bytes' => null]);
 
