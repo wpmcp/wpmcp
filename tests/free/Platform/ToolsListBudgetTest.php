@@ -61,9 +61,15 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  and #62 together (176529 bytes over 319 tools). The PHP snippet
      *  lifecycle store (#85) adds seven tools whose descriptions were trimmed
      *  to the store-vs-Elementor-custom-code disambiguation, the
-     *  created-inactive rule and the execution-gate refusal. Compact tool mode keeps clients
-     *  with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 180000;
+     *  created-inactive rule and the execution-gate refusal, with no raise,
+     *  which left main within a few hundred bytes of the budget. Raised
+     *  180000 -> 185000 in review for the WooCommerce operations catalog
+     *  (#68: woo-ops, woo-read, woo-write): no new tool fit, so the three
+     *  descriptions were trimmed first to the op model, the gates and the
+     *  rollback contract, which puts the payload at 182162 bytes over 329
+     *  tools. Compact tool mode keeps clients with tool caps at ~2.8KB
+     *  regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 185000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

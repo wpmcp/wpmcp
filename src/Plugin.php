@@ -6327,7 +6327,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-ops',
             'pro',
-            'List the deep WooCommerce operations catalog: named ops (e.g. products.list, products.update) over internal wc/v3 routes, grouped by domain (products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks, settings), each with mode (read, write, destructive), route, path params, capability, confirm requirement, enabled state, snapshot type and whether rollback fully undoes it. Reports available:false when WooCommerce is inactive. Read-only',
+            'List the WooCommerce operations catalog: named ops (e.g. products.update) over wc/v3 routes by domain (products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks, settings), each with mode, route, path params, capability, confirm, enabled, snapshot type and full-rollback flag. available:false when WooCommerce is inactive. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6342,7 +6342,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-read',
             'pro',
-            'Run one read op from the WooCommerce catalog (see woo-ops) as an in-process wc/v3 request as the current user: the endpoint\'s own permission checks apply on top of the op\'s capability and per-op governance (wpmcp/woo-{op}, dots as dashes). Path params fill the route; other params are query params. Returns the RAW wc/v3 body (order and customer ops include personal data; webhook secrets redacted); list ops default to 20 records, max 50. Read-only',
+            'Run one read op from woo-ops as an in-process wc/v3 request as the current user; endpoint permission checks apply on top of the op capability and governance (wpmcp/woo-{op}, dots as dashes). Path params fill the route, the rest are query params. Returns the raw wc/v3 body (orders and customers include personal data; webhook secrets redacted); lists default to 20, max 50. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6359,7 +6359,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-write',
             'pro',
-            'Run one write or destructive op from the WooCommerce catalog (see woo-ops), or a batch of up to 25, as in-process wc/v3 requests as the current user, with per-op capability and governance. Path params fill the route; other params are the body (query for deletes). Changes to existing state are snapshotted first and return an operation_id for rollback-operation; creates return recoverable:false and an undo_op. refunds.create is recoverable:false and only calls the gateway with api_refund:true. Destructive ops (deletes, refunds) are off until enabled with the wpmcp_woo_op_enabled filter and need confirm:true. batch:[{op, params}] checks every item first and refuses the whole batch on any failure, then runs items under one session_id for rollback-session',
+            'Run one write or destructive op from woo-ops, or a batch of up to 25, as in-process wc/v3 requests as the current user, with per-op capability and governance. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. refunds.create is not recoverable and calls the gateway only with api_refund:true. Deletes and refunds are off until the wpmcp_woo_op_enabled filter allows them, and need confirm:true. batch:[{op, params}] prechecks every item, refuses the whole batch on any failure, and runs under one session_id for rollback-session',
             [
                 'type'       => 'object',
                 'properties' => [
