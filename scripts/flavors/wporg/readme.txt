@@ -191,7 +191,7 @@ The Model Context Protocol is an open standard that lets AI assistants use tools
 
 = Can an agent destroy my site? =
 
-Every mutating tool snapshots the data it is about to change, and you can restore any snapshot or roll back a whole agent session. This build contains no code-execution tools at all.
+Every mutating tool snapshots the data it is about to change, and you can restore any snapshot or roll back a whole agent session. This build contains no code-execution tools at all. It can store PHP snippets as text for review (inactive, never run), but nothing in this build executes or activates them.
 
 = Does this replace my backup plugin? =
 
