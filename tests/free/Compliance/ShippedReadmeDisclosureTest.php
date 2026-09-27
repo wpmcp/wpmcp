@@ -150,47 +150,121 @@ class ShippedReadmeDisclosureTest extends \WP_UnitTestCase
     }
 
     /**
+     * Third-party providers whose entry must link both a terms page and a
+     * privacy page (issue #187), keyed by a string found only in that entry.
+     * api.wordpress.org is deliberately absent: WordPress.org publishes a
+     * privacy policy but no terms for its APIs, so its entries carry only the
+     * privacy link.
+     */
+    private const PROVIDER_POLICIES = [
+        'api.openverse.org'    => ['https://openverse.org/terms', 'https://openverse.org/privacy'],
+        'api.pexels.com'       => ['https://www.pexels.com/terms-of-service/', 'https://www.pexels.com/privacy-policy/'],
+        'api.unsplash.com'     => ['https://unsplash.com/terms', 'https://unsplash.com/privacy'],
+        'upload.wikimedia.org' => ['https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use', 'https://foundation.wikimedia.org/wiki/Policy:Privacy_policy'],
+        'staticflickr.com'     => ['https://www.flickr.com/help/terms', 'https://www.flickr.com/help/privacy'],
+        'WP MCP Cloud ('       => ['https://wpmcp-pro.com/terms.html', 'https://wpmcp-pro.com/privacy.html'],
+    ];
+
+    /**
+     * Shipped readmes that carry no WP MCP Cloud entry, with the reason.
+     * Empty on purpose: every build ships src/Admin/Announcements.php, which
+     * Plugin boots unconditionally and which fetches /announcements through
+     * Cloud_Client whenever a cloud URL and key are saved. The directory cut
+     * keeps src/Cloud for that reason (scripts/flavors/wporg/policy.php), and
+     * the WooCommerce cut keeps it too since issue #257 (without it the
+     * vertical fatals on load), so all three readmes must disclose it.
+     */
+    private const CLOUD_ENTRY_EXCLUSIONS = [];
+
+    /**
+     * One "External services" entry: the bullet (full plugin readme, one
+     * line per service) or the "= Heading =" block (flavor readmes) that
+     * contains $needle. Entries are split on their own boundaries, so the
+     * order of services in the readme does not matter.
+     */
+    private function entry(string $section, string $needle): string
+    {
+        $found = [];
+        foreach (preg_split('/^(?=\* |= )/m', $section) as $chunk) {
+            if (false !== strpos($chunk, $needle)) {
+                $found[] = $chunk;
+            }
+        }
+        $this->assertCount(1, $found, 'expected exactly one External services entry containing "' . $needle . '"');
+        return $found[0];
+    }
+
+    /**
      * Issue #187: Openverse needs no key, so nothing resembling consent
      * happens before the request. search-stock-images falls back to it when
      * no provider is named, and the readme has to say so rather than imply
-     * the user picked it. Its entry also needs both policy links.
+     * the user picked it.
      */
-    public function test_openverse_is_documented_as_the_unconditional_default_with_both_policy_links(): void
+    public function test_openverse_is_documented_as_the_unconditional_default(): void
     {
         foreach (self::SHIPPED_READMES as $relative) {
-            $section = $this->external_services($this->readme($relative));
-            // The Openverse entry runs from its host up to the Pexels entry that follows it.
-            $this->assertSame(1, preg_match('/api\.openverse\.org(.*?)api\.pexels\.com/is', $section, $entry), $relative . ' has no Openverse entry ahead of Pexels');
-            $this->assertMatchesRegularExpression(
-                '/\bdefault\b/i',
-                $entry[1],
-                $relative . ' does not say that Openverse is the default stock provider'
-            );
-            $this->assertStringContainsString('https://openverse.org/terms', $section, $relative . ' lacks the Openverse terms link');
-            $this->assertStringContainsString('https://openverse.org/privacy', $section, $relative . ' lacks the Openverse privacy link');
+            $entry = preg_replace('/\s+/', ' ', $this->entry($this->external_services($this->readme($relative)), 'api.openverse.org'));
+            $this->assertMatchesRegularExpression('/\bdefault provider\b/i', $entry, $relative . ' does not say that Openverse is the default stock provider');
+            $this->assertMatchesRegularExpression('/\bnot opt-in\b/i', $entry, $relative . ' does not say that Openverse is not opt-in');
         }
     }
 
-    /** Issue #187: a link labelled as terms of use must not be a privacy policy. */
-    public function test_no_terms_link_points_at_a_privacy_page(): void
+    /** Issue #187: every third-party provider entry links both its terms and its privacy policy. */
+    public function test_every_provider_entry_links_its_terms_and_privacy_policy(): void
+    {
+        foreach (self::SHIPPED_READMES as $relative) {
+            $section = $this->external_services($this->readme($relative));
+            foreach (self::PROVIDER_POLICIES as $needle => [$terms, $privacy]) {
+                if ('WP MCP Cloud (' === $needle && in_array($relative, self::CLOUD_ENTRY_EXCLUSIONS, true)) {
+                    continue;
+                }
+                $entry = preg_replace('/\s+/', ' ', $this->entry($section, $needle));
+                $this->assertStringContainsString($terms, $entry, $relative . ': the "' . $needle . '" entry lacks its terms link');
+                $this->assertStringContainsString($privacy, $entry, $relative . ': the "' . $needle . '" entry lacks its privacy link');
+            }
+        }
+    }
+
+    /**
+     * Issue #187: the announcements feed reaches the cloud on admin page
+     * loads, not only from the cloud abilities, so the Cloud entry must say
+     * so and say what is sent.
+     */
+    public function test_the_cloud_entry_discloses_the_announcements_request(): void
+    {
+        foreach (array_diff(self::SHIPPED_READMES, self::CLOUD_ENTRY_EXCLUSIONS) as $relative) {
+            $entry = preg_replace('/\s+/', ' ', $this->entry($this->external_services($this->readme($relative)), 'WP MCP Cloud ('));
+            $this->assertStringContainsString('/announcements', $entry, $relative . ': the Cloud entry does not disclose the announcements fetch');
+            $this->assertMatchesRegularExpression('/API key in the Authorization header/i', $entry, $relative . ': the Cloud entry does not say the API key is sent');
+            $this->assertMatchesRegularExpression('/admin screen/i', $entry, $relative . ': the Cloud entry does not say when the announcements fetch fires');
+        }
+    }
+
+    /**
+     * Issue #187: a link labelled as terms must point at a terms page. The
+     * label family is Terms, Terms of use, Terms of service and the combined
+     * "Terms and privacy policy"; the URL fails when its last path segment
+     * names a privacy page, or, for the combined label, when it is a bare
+     * home page standing in for both documents.
+     */
+    public function test_no_terms_label_points_at_a_privacy_page(): void
     {
         foreach (self::SHIPPED_READMES as $relative) {
             $section = preg_replace('/\s+/', ' ', $this->external_services($this->readme($relative)));
-            $this->assertSame(
-                0,
-                preg_match('/Terms(?: of use)?: https?:\/\/\S*privacy/i', $section),
-                $relative . ' labels a privacy policy URL as its terms of use'
-            );
-        }
-    }
-
-    /** Issue #187: the Cloud entry must link real terms and privacy pages, not the home page. */
-    public function test_the_cloud_entry_links_its_terms_and_privacy_pages(): void
-    {
-        foreach (['readme.txt', 'scripts/flavors/wporg/readme.txt'] as $relative) {
-            $section = $this->external_services($this->readme($relative));
-            $this->assertStringContainsString('https://wpmcp-pro.com/terms.html', $section, $relative . ' Cloud entry lacks a terms link');
-            $this->assertStringContainsString('https://wpmcp-pro.com/privacy.html', $section, $relative . ' Cloud entry lacks a privacy link');
+            preg_match_all('/\b(Terms(?: of (?:use|service))?( and privacy policy)?): (https?:\/\/\S+)/i', $section, $matches, PREG_SET_ORDER);
+            foreach ($matches as [, $label, $combined, $url]) {
+                $path     = (string) parse_url(rtrim($url, '.,;)'), PHP_URL_PATH);
+                $segments = array_values(array_filter(explode('/', $path), 'strlen'));
+                $last     = (string) end($segments);
+                $this->assertDoesNotMatchRegularExpression(
+                    '/privacy/i',
+                    $last,
+                    $relative . ' labels a privacy page as "' . $label . '": ' . $url
+                );
+                if ('' !== $combined) {
+                    $this->assertNotSame('', $last, $relative . ' points "' . $label . '" at a home page: ' . $url);
+                }
+            }
         }
     }
 
