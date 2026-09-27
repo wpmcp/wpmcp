@@ -60,6 +60,77 @@ class Content_Guard
         return ! in_array($post_type, self::PRIVATE_TYPES, true);
     }
 
+    /** Whether a post id refers to a post of a private type. */
+    public static function is_private_post(int $post_id): bool
+    {
+        if ($post_id <= 0) {
+            return false;
+        }
+        $type = get_post_type($post_id);
+        return is_string($type) && ! self::is_agent_readable_post_type($type);
+    }
+
+    /**
+     * Input keys that name a post on every ability that has them.
+     */
+    private const POST_ID_KEYS = ['post_id', 'post_ids', 'source_id', 'object_id', 'page_id', 'template_id'];
+
+    /** Keys that name a post type. */
+    private const POST_TYPE_KEYS = ['post_type', 'post_types'];
+
+    /**
+     * Domains whose abilities use a bare 'id', 'ids' or 'parent' for a post.
+     * Elsewhere those keys name users, comments, menus, terms or orders, and
+     * checking them against posts would refuse legitimate calls whenever the
+     * number happened to match a private post's id.
+     */
+    private const POST_ID_DOMAINS = ['content', 'core', 'blocks'];
+
+    /**
+     * Whether an ability invocation targets a private post or post type.
+     *
+     * Called from Registrar's permission decision, so it covers every
+     * ability, including the dozens of generic tools that take an arbitrary
+     * post id (duplicate-post, get-post-meta, extract-content, the block and
+     * builder editors, revisions, ...) without each one having to remember
+     * the private-type list. Without it, an edit_posts caller could, for
+     * example, duplicate another administrator's chat conversation (meta and
+     * all) into a post they own.
+     *
+     * @param array<string, mixed> $input
+     */
+    public static function input_targets_private_post(string $domain, array $input): bool
+    {
+        $keys = self::POST_ID_KEYS;
+        if (in_array($domain, self::POST_ID_DOMAINS, true)) {
+            $keys = array_merge($keys, ['id', 'ids', 'parent']);
+        }
+
+        foreach ($keys as $key) {
+            if (! array_key_exists($key, $input)) {
+                continue;
+            }
+            foreach ((array) $input[ $key ] as $value) {
+                if (is_numeric($value) && self::is_private_post((int) $value)) {
+                    return true;
+                }
+            }
+        }
+
+        foreach (self::POST_TYPE_KEYS as $key) {
+            if (! array_key_exists($key, $input)) {
+                continue;
+            }
+            foreach ((array) $input[ $key ] as $value) {
+                if (is_string($value) && ! self::is_agent_readable_post_type($value)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public static function is_writable_post_type(string $post_type): bool
     {
         if ('' === $post_type || ! post_type_exists($post_type)) {

@@ -158,9 +158,13 @@ class Chat_Page
         log.scrollTop = log.scrollHeight;
         return p;
     }
+    // Send stays disabled while any approval card is open: the server
+    // refuses a new message until every parked call is answered, and the
+    // typed text would be lost to that 409.
+    function parked() { return log.querySelector('[data-proposal]') !== null; }
     function setBusy(on, text) {
         busy = on;
-        sendBtn.disabled = on;
+        sendBtn.disabled = on || parked();
         status.textContent = text || '';
     }
     function call(path, body) {
@@ -185,15 +189,14 @@ class Chat_Page
         if (d.reply) { line(c.i18n.assistant, d.reply); }
         events(d.tool_events);
         if (!r.ok || d.status === 'error') {
-            setBusy(false, (d.error || c.i18n.failed) + (d.key_status ? ' (' + d.key_status + ')' : '') + (d.message ? ': ' + d.message : ''));
             if (d.proposals) { d.proposals.forEach(propose); }
+            setBusy(false, (d.error || c.i18n.failed) + (d.key_status ? ' (' + d.key_status + ')' : '') + (d.message ? ': ' + d.message : ''));
             return;
         }
         if (d.status === 'duplicate') { setBusy(false, c.i18n.duplicate); return; }
         if (d.status === 'approval_required') {
             (d.proposals || []).forEach(propose);
             setBusy(false, c.i18n.waiting);
-            sendBtn.disabled = true;
             return;
         }
         if (d.status === 'continue') {
@@ -207,13 +210,15 @@ class Chat_Page
     }
     function fail() { setBusy(false, c.i18n.failed); }
     function propose(p) {
-        if (document.getElementById('wpmcp-prop-' + p.tool_use_id)) {
-            document.getElementById('wpmcp-prop-' + p.tool_use_id).dataset.token = p.approval_token;
+        var existing = document.getElementById('wpmcp-prop-' + p.tool_use_id);
+        if (existing) {
+            existing.dataset.token = p.approval_token || '';
             return;
         }
         var box = document.createElement('div');
         box.id = 'wpmcp-prop-' + p.tool_use_id;
-        box.dataset.token = p.approval_token;
+        box.dataset.proposal = '1';
+        box.dataset.token = p.approval_token || '';
         box.style.cssText = 'border-left:4px solid #dba617;background:#fcf9e8;padding:6px 10px;margin:8px 0;';
         var h = document.createElement('strong');
         h.textContent = c.i18n.approveTitle + ' ' + p.ability;
@@ -228,6 +233,11 @@ class Chat_Page
             btn.className = a[2];
             btn.textContent = a[1];
             btn.style.marginRight = '6px';
+            if (a[0] === 'approve' && !p.approval_token) {
+                // No token could be minted: the call can only be declined.
+                btn.disabled = true;
+                btn.title = c.i18n.noToken;
+            }
             btn.addEventListener('click', function () {
                 if (busy) { return; }
                 box.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
@@ -238,8 +248,13 @@ class Chat_Page
                     decision: a[0],
                     approval_token: a[0] === 'approve' ? box.dataset.token : ''
                 }).then(function (r) {
-                    if (r.ok) { box.remove(); } else { box.querySelectorAll('button').forEach(function (x) { x.disabled = false; }); }
-                    if (r.ok && r.data.status === 'approval_required') { events(r.data.tool_events); setBusy(false, c.i18n.waiting); sendBtn.disabled = true; return; }
+                    if (r.ok) {
+                        box.remove();
+                    } else {
+                        box.querySelectorAll('button').forEach(function (x) { x.disabled = false; });
+                        if (!box.dataset.token) { box.querySelector('.button-primary').disabled = true; }
+                    }
+                    if (r.ok && r.data.status === 'approval_required') { events(r.data.tool_events); setBusy(false, c.i18n.waiting); return; }
                     handle(r);
                 }, fail);
             });
@@ -285,6 +300,7 @@ JS;
                     'approveTitle' => __('The assistant wants to run', 'wpmcp'),
                     'approve'      => __('Approve this call', 'wpmcp'),
                     'deny'         => __('Decline', 'wpmcp'),
+                    'noToken'      => __('This call could not be prepared for approval. You can decline it.', 'wpmcp'),
                 ],
             ]) . ";\n" . $script
         );

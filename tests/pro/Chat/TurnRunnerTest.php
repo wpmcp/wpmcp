@@ -437,4 +437,91 @@ class TurnRunnerTest extends \WP_UnitTestCase
         $this->assertSame(Turn_Runner::DONE, $this->runner->step($this->admin_id, $id)['status']);
         $this->assertTrue($this->store->lock($id, $this->admin_id), 'step() must release the lock.');
     }
+
+    public function test_send_refuses_a_new_message_while_a_call_is_parked(): void
+    {
+        $post_id = self::factory()->post->create(['post_title' => 'Before']);
+        $id      = $this->store->create($this->admin_id);
+        $this->provider->queue(Fake_Chat_Provider::tool_calls([['tu_1', 'wpmcp__update-post', ['post_id' => $post_id, 'title' => 'After']]]));
+
+        $first  = $this->runner->send($this->admin_id, $id, 'rename it');
+        $second = $this->runner->send($this->admin_id, $id, 'and something else');
+
+        $this->assertSame(Turn_Runner::APPROVAL_REQUIRED, $first['status']);
+        $this->assertSame('approval_pending', $second['error']);
+        $users = array_filter($this->store->get_messages($id, $this->admin_id), fn ($m) => 'user' === $m['role']);
+        $this->assertCount(1, $users, 'A user turn was stored between a tool_use and its result.');
+    }
+
+    public function test_send_appends_nothing_while_another_request_holds_the_lock(): void
+    {
+        $id = $this->store->create($this->admin_id);
+        $this->store->lock($id, $this->admin_id);
+
+        $result = $this->runner->send($this->admin_id, $id, 'hello');
+
+        $this->assertSame('busy', $result['error']);
+        $this->assertSame([], $this->store->get_messages($id, $this->admin_id));
+        $this->store->unlock($id);
+    }
+
+    public function test_a_proposal_whose_token_cannot_be_minted_can_still_be_declined(): void
+    {
+        $failing = new class ('turn_runner_test_salt') extends Approval_Gate {
+            public function issue_token(int $user_id, string $ability_name, array $args, int $ttl_seconds = 300): string
+            {
+                throw new \RuntimeException('Failed to store approval token transient.');
+            }
+        };
+        $runner  = new Turn_Runner(
+            $this->store,
+            $this->vault,
+            $this->provider,
+            null,
+            new Tool_Inventory(Plugin::instance()->registrar()),
+            $failing
+        );
+        $post_id = self::factory()->post->create(['post_title' => 'Before']);
+        $id      = $this->conversation('rename it');
+        $this->provider->queue(Fake_Chat_Provider::tool_calls([['tu_1', 'wpmcp__update-post', ['post_id' => $post_id, 'title' => 'After']]]));
+
+        $parked = $runner->step($this->admin_id, $id);
+
+        $this->assertCount(1, $parked['proposals']);
+        $this->assertNull($parked['proposals'][0]['approval_token']);
+        $this->assertSame('invalid_approval', $runner->resolve($this->admin_id, $id, 'tu_1', true, '')['error']);
+        $this->assertSame(Turn_Runner::CONTINUE, $runner->resolve($this->admin_id, $id, 'tu_1', false)['status']);
+        $this->assertSame('Before', get_post($post_id)->post_title);
+    }
+
+    public function test_a_large_tool_result_is_truncated_inside_a_closed_wrapper(): void
+    {
+        $post_id = self::factory()->post->create(['post_content' => str_repeat('lorem ipsum ', 3000)]);
+        $id      = $this->conversation('read it');
+        $this->provider->queue(Fake_Chat_Provider::tool_calls([['tu_1', 'wpmcp__get-post', ['post_id' => $post_id]]]));
+
+        $this->runner->step($this->admin_id, $id);
+        $this->runner->step($this->admin_id, $id);
+
+        $sent    = $this->provider->requests[1]['messages'];
+        $content = $sent[ count($sent) - 1 ]['content'][0]['content'];
+        $this->assertLessThanOrEqual(Turn_Runner::MAX_RESULT_BYTES, strlen($content));
+        $this->assertStringContainsString('[truncated]', $content);
+        $this->assertStringEndsWith('</untrusted_tool_output>', $content);
+    }
+
+    public function test_no_tools_are_sent_when_governance_allows_none(): void
+    {
+        $this->assertSame([], Tool_Inventory::definitions([], []));
+    }
+
+    public function test_listing_reports_the_message_count_without_reading_histories(): void
+    {
+        $id = $this->conversation('one');
+        $this->store->append_message($id, $this->admin_id, ['role' => 'user', 'content' => 'two']);
+
+        $rows = $this->store->list_for_user($this->admin_id);
+
+        $this->assertSame(2, $rows[0]['messages']);
+    }
 }

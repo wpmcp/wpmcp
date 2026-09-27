@@ -67,10 +67,15 @@ final class Tool_Executor
     }
 
     /**
-     * @param array<string, mixed> $args
+     * @param array<string, mixed>        $args
+     * @param array<string, Ability>|null $advertised The inventory the caller already computed
+     *                                                under the chat identity in this request, to
+     *                                                avoid a full Registrar walk per call. It only
+     *                                                narrows: the registered ability's own
+     *                                                permission callback still decides.
      * @return array{status: string, result?: mixed, code?: string, message?: string}
      */
-    public function execute(int $user_id, string $ability_name, array $args, ?string $approval_token = null): array
+    public function execute(int $user_id, string $ability_name, array $args, ?string $approval_token = null, ?array $advertised = null): array
     {
         // The governed path checks capabilities against the CURRENT user. A
         // caller asking to act for anyone else is refused outright rather
@@ -79,8 +84,13 @@ final class Tool_Executor
             return self::error('user_mismatch', 'Tool calls run as the signed-in administrator only.');
         }
 
-        return Chat_Identity::run(function () use ($user_id, $ability_name, $args, $approval_token): array {
-            $ability = $this->inventory()->resolve_ability($ability_name);
+        return Chat_Identity::run(function () use ($user_id, $ability_name, $args, $approval_token, $advertised): array {
+            $ability = null !== $advertised
+                ? ($advertised[ Tool_Inventory::tool_name($ability_name) ] ?? null)
+                : $this->inventory()->resolve_ability($ability_name);
+            if (null !== $ability && $ability->name !== $ability_name) {
+                $ability = null;
+            }
             if (null === $ability) {
                 return self::error(
                     'tool_not_available',

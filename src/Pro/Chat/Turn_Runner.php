@@ -71,6 +71,55 @@ final class Turn_Runner
     }
 
     /**
+     * Appends the administrator's message and runs one model step, all under
+     * the turn lock, so a concurrent request can neither slip a user turn in
+     * between a tool_use and its result nor lose a message.
+     *
+     * @return array<string, mixed>
+     */
+    public function send(int $user_id, int $conversation_id, string $text, string $client_id = ''): array
+    {
+        if (! $this->store->is_owned_by($conversation_id, $user_id)) {
+            return self::error('invalid_conversation');
+        }
+        if (! $this->store->lock($conversation_id, $user_id)) {
+            return self::error('busy');
+        }
+        try {
+            $state = $this->store->get_state($conversation_id, $user_id);
+            if (! empty($state['pending']['proposals'])) {
+                // The model is waiting on the administrator. A new message
+                // now would strand the parked calls without an answer.
+                return self::error('approval_pending');
+            }
+
+            $ok = $this->store->append_message($conversation_id, $user_id, [
+                'role'      => 'user',
+                'content'   => $text,
+                'client_id' => $client_id,
+            ]);
+            if (! $ok) {
+                return self::error(
+                    Conversation_Store::APPEND_WRITE_FAILED === $this->store->last_append_error()
+                        ? 'store_failed'
+                        : 'invalid_conversation'
+                );
+            }
+
+            $trimmed = $this->store->last_append_trimmed();
+            if ($this->store->last_append_duplicate()) {
+                // A retry of a message already stored: no second provider
+                // call. The client reloads the conversation.
+                return ['status' => 'duplicate', 'history_trimmed' => $trimmed];
+            }
+
+            return array_merge($this->locked_step($user_id, $conversation_id), ['history_trimmed' => $trimmed]);
+        } finally {
+            $this->store->unlock($conversation_id);
+        }
+    }
+
+    /**
      * Runs one model step for a conversation the caller owns.
      *
      * @return array<string, mixed>
@@ -222,7 +271,7 @@ final class Turn_Runner
                 continue;
             }
 
-            $outcome        = $this->executor()->execute($user_id, $ability->name, $input);
+            $outcome        = $this->executor()->execute($user_id, $ability->name, $input, null, $advertised);
             $results[ $id ] = self::outcome_block($id, $outcome);
             $events[]       = self::event($tool, $outcome);
         }
@@ -387,9 +436,13 @@ final class Turn_Runner
             try {
                 $token = $this->gate()->issue_token($user_id, (string) $proposal['ability'], $args);
             } catch (\Throwable) {
-                continue;
+                // Minting failed (arguments that cannot be canonicalised, or
+                // a transient write failure). The card is still shown with no
+                // token, so the administrator can decline it and the
+                // conversation is never stuck behind an unanswerable call.
+                $token = null;
             }
-            $state['pending']['proposals'][ $id ]['token_hash'] = hash('sha256', $token);
+            $state['pending']['proposals'][ $id ]['token_hash'] = null === $token ? '' : hash('sha256', $token);
             $out[] = [
                 'tool_use_id'    => (string) $id,
                 'tool'           => (string) $proposal['tool'],
@@ -609,10 +662,14 @@ final class Turn_Runner
             // tool read cannot close the untrusted wrapper early and continue
             // as if it were outside it.
             $json = wp_json_encode($outcome['result'] ?? null, JSON_HEX_TAG | JSON_UNESCAPED_UNICODE);
-            return self::result_block(
-                $id,
-                "<untrusted_tool_output>\n" . (false === $json ? 'null' : $json) . "\n</untrusted_tool_output>"
-            );
+            $json = false === $json ? 'null' : $json;
+            // Truncate the payload BEFORE wrapping it, so the closing tag
+            // always survives and the model never sees an open wrapper.
+            $room = self::MAX_RESULT_BYTES - 64;
+            if (strlen($json) > $room) {
+                $json = mb_strcut($json, 0, $room, 'UTF-8') . ' [truncated]';
+            }
+            return self::result_block($id, "<untrusted_tool_output>\n" . $json . "\n</untrusted_tool_output>");
         }
         return self::result_block(
             $id,

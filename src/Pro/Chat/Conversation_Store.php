@@ -40,6 +40,18 @@ class Conversation_Store
     private const MESSAGES_META = '_wpmcp_chat_messages';
 
     /**
+     * The owning user id, written once at creation and checked alongside
+     * post_author. A copy of the row (a duplicate tool, an import, a raw
+     * UPDATE of post_author) changes the author but carries the original
+     * owner here, so the copy is owned by nobody instead of by whoever made
+     * it.
+     */
+    private const OWNER_META = '_wpmcp_chat_owner';
+
+    /** Number of stored history entries, so listing never reads histories. */
+    private const COUNT_META = '_wpmcp_chat_count';
+
+    /**
      * One row per client_id seen in this conversation. Kept as its own meta
      * key rather than read out of the history because the idempotency lookup
      * has to work across a user's conversations, before we know which
@@ -222,7 +234,9 @@ class Conversation_Store
         if (is_wp_error($post_id) || ! is_int($post_id)) {
             return 0;
         }
+        update_post_meta($post_id, self::OWNER_META, $user_id);
         update_post_meta($post_id, self::MESSAGES_META, []);
+        update_post_meta($post_id, self::COUNT_META, 0);
         return $post_id;
     }
 
@@ -235,9 +249,11 @@ class Conversation_Store
     public function is_owned_by(int $post_id, int $user_id): bool
     {
         $post = get_post($post_id);
-        return $post instanceof \WP_Post
+        return $user_id > 0
+            && $post instanceof \WP_Post
             && $post->post_type === self::POST_TYPE
-            && (int) $post->post_author === $user_id;
+            && (int) $post->post_author === $user_id
+            && (int) get_post_meta($post_id, self::OWNER_META, true) === $user_id;
     }
 
     /**
@@ -302,7 +318,7 @@ class Conversation_Store
                 'id'       => $id,
                 'title'    => (string) $post->post_title,
                 'modified' => (string) $post->post_modified_gmt,
-                'messages' => count($this->get_messages($id, $user_id)),
+                'messages' => (int) get_post_meta($id, self::COUNT_META, true),
             ];
         }
         return $rows;
@@ -439,6 +455,7 @@ class Conversation_Store
             $this->last_error = self::APPEND_WRITE_FAILED;
             return false;
         }
+        update_post_meta($post_id, self::COUNT_META, count($messages));
         if ($client_id !== '') {
             add_post_meta($post_id, self::CLIENT_ID_META, $client_id);
         }

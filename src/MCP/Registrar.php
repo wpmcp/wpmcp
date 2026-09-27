@@ -9,6 +9,7 @@ use WPMCP\Memory\Memory_Guard;
 use WPMCP\Pro\Gate;
 use WPMCP\RateLimit\Rate_Limiter;
 use WPMCP\Safety\Operation_Context;
+use WPMCP\Tools\Content\Content_Guard;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -132,6 +133,7 @@ class Registrar
     /**
      * Null when the ability is permitted for the current caller, otherwise
      * the audit reason ('' for a capability/tier/governance/identity denial,
+     * 'private-post' for an input naming a plugin-private post or post type,
      * 'memory-block:<id>' for a project-memory denial).
      *
      * @param array<string, mixed> $input
@@ -145,6 +147,13 @@ class Registrar
 
         if (! $allowed) {
             return '';
+        }
+
+        // Plugin-private post types (the chat conversation store) are never
+        // a valid target for any ability, whatever the caller's capability:
+        // one check here instead of one per generic post tool.
+        if (Content_Guard::input_targets_private_post($a->domain, $input)) {
+            return 'private-post';
         }
 
         $rule = Memory_Guard::blocking_rule($a, $input);

@@ -129,6 +129,11 @@ final class Tool_Inventory
      */
     public static function definitions(array $advertised, array $loaded_domains): array
     {
+        if ([] === $advertised) {
+            // Nothing to offer: no tools at all, rather than a load_tools
+            // meta-tool whose enum is empty (invalid for strict validators).
+            return [];
+        }
         $domains = array_keys(self::by_domain($advertised));
 
         $tools = [[

@@ -289,18 +289,6 @@ class Chat_Rest_Controller
             $conversation_id = $this->store()->find_by_client_id($user_id, $client_id);
         }
 
-        if ($conversation_id > 0 && $this->store()->is_owned_by($conversation_id, $user_id)) {
-            $state = $this->store()->get_state($conversation_id, $user_id);
-            if (! empty($state['pending']['proposals'])) {
-                // The model is waiting on the administrator. A new message
-                // now would strand the parked calls without an answer.
-                return new \WP_REST_Response([
-                    'conversation_id' => $conversation_id,
-                    'error'           => 'approval_pending',
-                ], 409);
-            }
-        }
-
         if ($conversation_id === 0) {
             $conversation_id = $this->store()->create($user_id);
             if ($conversation_id === 0) {
@@ -308,39 +296,10 @@ class Chat_Rest_Controller
             }
         }
 
-        $ok = $this->store()->append_message($conversation_id, $user_id, [
-            'role'      => 'user',
-            'content'   => $text,
-            'client_id' => $client_id,
-        ]);
-        if (! $ok) {
-            if ($this->store()->last_append_error() === Conversation_Store::APPEND_WRITE_FAILED) {
-                // A lost write is a storage fault, not an authorization
-                // result. Reporting it as a missing conversation would send
-                // the client hunting for a conversation that is right there.
-                return new \WP_REST_Response(['error' => 'store_failed'], 500);
-            }
-            // Ownership mismatch or unknown conversation: fail closed with no
-            // detail about whether the conversation exists for someone else.
-            return new \WP_REST_Response(['error' => 'invalid_conversation'], 404);
-        }
-
-        $trimmed = $this->store()->last_append_trimmed();
-
-        if ($this->store()->last_append_duplicate()) {
-            // A retry of a message already stored: do not bill the admin for
-            // a second provider call. The client reloads the conversation.
-            return new \WP_REST_Response([
-                'conversation_id' => $conversation_id,
-                'status'          => 'duplicate',
-                'history_trimmed' => $trimmed,
-            ], 200);
-        }
-
-        $result = $this->runner()->step($user_id, $conversation_id);
-        // The caller is told when the oldest turns fell off the history
-        // rather than discovering it in the model's context later.
-        return $this->turn_response($conversation_id, $result, ['history_trimmed' => $trimmed]);
+        // The pending-approval check, the append and the model step all run
+        // under the conversation's turn lock inside the runner.
+        $result = $this->runner()->send($user_id, $conversation_id, $text, $client_id);
+        return $this->turn_response($conversation_id, $result);
     }
 
     /** Runs the next model step after tool results were recorded. */
@@ -399,7 +358,7 @@ class Chat_Rest_Controller
         }
         $code = match ((string) ($result['error'] ?? '')) {
             'invalid_conversation', 'unknown_proposal' => 404,
-            'no_usable_provider_key', 'busy'           => 409,
+            'no_usable_provider_key', 'busy', 'approval_pending' => 409,
             'invalid_approval'                         => 403,
             'provider_error'                           => 502,
             'store_failed'                             => 500,
