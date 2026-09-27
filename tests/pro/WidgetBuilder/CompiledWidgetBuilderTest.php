@@ -870,6 +870,247 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
         $this->assertArrayHasKey($id, Compiled_Widget_Manifest::load_enabled(), 'a restored widget must actually load again');
     }
 
+    /**
+     * restore_session() dedups whole-object snapshots per object. Every
+     * compile snapshot is an 'option' snapshot of one shared option, so an
+     * option-name identity collapsed them all and only the oldest compile in
+     * a session was undone while the rest were counted as restored.
+     */
+    public function test_restore_session_undoes_every_compile_in_the_session(): void
+    {
+        $session = 'compile-session-' . wp_generate_password(6, false);
+        $a       = $this->create();
+        $spec_b  = $this->valid_spec();
+        $spec_b['name'] = 'second-box';
+        $b = $this->create($spec_b);
+
+        $out_a = (new Compile_Custom_Widget())->handle(['widget_id' => $a, 'session_id' => $session]);
+        $out_b = (new Compile_Custom_Widget())->handle(['widget_id' => $b, 'session_id' => $session]);
+        $this->assertIsArray($out_a);
+        $this->assertIsArray($out_b);
+        // A recompile of A in the same session: undoing the session must still
+        // land on "never compiled", not on the first compile's bytes.
+        $this->assertIsArray((new Compile_Custom_Widget())->handle(['widget_id' => $a, 'session_id' => $session]));
+
+        \WPMCP\Safety\Rollback_Service::restore_session($session);
+
+        $this->assertNull(Compiled_Widget_Manifest::get($a), 'compile A survived a session undo');
+        $this->assertNull(Compiled_Widget_Manifest::get($b), 'compile B survived a session undo');
+        $this->assertFileDoesNotExist(Compiled_Widget_Manifest::path_for($out_a['file']));
+        $this->assertFileDoesNotExist(Compiled_Widget_Manifest::path_for($out_b['file']));
+    }
+
+    /**
+     * A disable followed by a recompile in one session: unwinding must land on
+     * the pre-session state (first compile, enabled), which needs every
+     * manifest change undone newest first.
+     */
+    public function test_restore_session_unwinds_status_and_recompile_in_order(): void
+    {
+        $id  = $this->create();
+        $out = (new Compile_Custom_Widget())->handle(['widget_id' => $id]);
+        $this->assertIsArray($out);
+        $path  = Compiled_Widget_Manifest::path_for($out['file']);
+        $first = (string) file_get_contents($path);
+
+        $session = 'status-session-' . wp_generate_password(6, false);
+        $this->assertIsArray((new Set_Widget_Status())->handle(['widget_id' => $id, 'status' => 'draft', 'session_id' => $session]));
+        $this->assertIsArray((new Set_Widget_Status())->handle(['widget_id' => $id, 'status' => 'publish', 'session_id' => $session]));
+        $spec             = $this->valid_spec();
+        $spec['template'] = '<section>{{heading}} v2</section>';
+        \WPMCP\Tools\WidgetBuilder\Widget_Spec_Store::update($id, $spec);
+        $this->assertIsArray((new Compile_Custom_Widget())->handle(['widget_id' => $id, 'session_id' => $session]));
+
+        \WPMCP\Safety\Rollback_Service::restore_session($session);
+
+        $this->assertSame($first, (string) file_get_contents($path));
+        $this->assertSame($out['hash'], Compiled_Widget_Manifest::get($id)['hash']);
+        $this->assertTrue(Compiled_Widget_Manifest::get($id)['enabled']);
+        $this->assertSame('publish', get_post_status($id));
+    }
+
+    /**
+     * set-widget-status and update-custom-widget flip the manifest flag; the
+     * operation's snapshot must carry the entry so undoing it restores the
+     * compiled path, not just the post.
+     */
+    public function test_undoing_a_status_change_restores_the_compiled_flag(): void
+    {
+        $id = $this->create();
+        $this->assertIsArray((new Compile_Custom_Widget())->handle(['widget_id' => $id]));
+
+        $off = (new Set_Widget_Status())->handle(['widget_id' => $id, 'status' => 'draft']);
+        $this->assertFalse(Compiled_Widget_Manifest::get($id)['enabled']);
+
+        \WPMCP\Safety\Rollback_Service::restore_operation($off['operation_id']);
+
+        $this->assertSame('publish', get_post_status($id));
+        $this->assertTrue(Compiled_Widget_Manifest::get($id)['enabled'], 'undo republished the spec but left the compiled class off');
+        $this->assertArrayHasKey($id, Compiled_Widget_Manifest::loadable());
+    }
+
+    public function test_undoing_a_spec_update_re_enables_the_compiled_class(): void
+    {
+        $id = $this->create();
+        $this->assertIsArray((new Compile_Custom_Widget())->handle(['widget_id' => $id]));
+
+        $spec             = $this->valid_spec();
+        $spec['template'] = '<section>{{heading}} v2</section>';
+        $out              = (new \WPMCP\Tools\WidgetBuilder\Update_Custom_Widget())->handle(['widget_id' => $id, 'spec' => $spec]);
+        $this->assertTrue($out['compiled_disabled']);
+
+        \WPMCP\Safety\Rollback_Service::restore_operation($out['operation_id']);
+
+        $this->assertTrue(Compiled_Widget_Manifest::get($id)['enabled']);
+        $this->assertArrayHasKey($id, Compiled_Widget_Manifest::loadable(), 'the previous spec and its compiled class are back together');
+    }
+
+    /** Reporting compiled_enabled=false must also be what the manifest holds. */
+    public function test_enabling_while_the_opt_in_is_off_persists_disabled(): void
+    {
+        $id = $this->create();
+        $this->assertIsArray((new Compile_Custom_Widget())->handle(['widget_id' => $id]));
+
+        remove_filter('wpmcp_enable_widget_compiler', '__return_true');
+        $out = (new Set_Widget_Status())->handle(['widget_id' => $id, 'status' => 'publish']);
+        $this->assertFalse($out['compiled_enabled']);
+        $this->assertFalse(Compiled_Widget_Manifest::get($id)['enabled'], 'reported off but stored on');
+
+        add_filter('wpmcp_enable_widget_compiler', '__return_true');
+        $this->assertArrayNotHasKey($id, Compiled_Widget_Manifest::loadable(), 're-enabling the filter must not silently start executing it');
+    }
+
+    /**
+     * The new bytes must not be on disk before the operation's snapshot is:
+     * if anything in the operation throws, the previous good file comes back.
+     */
+    public function test_a_throw_inside_the_compile_operation_keeps_the_previous_file(): void
+    {
+        $id  = $this->create();
+        $out = (new Compile_Custom_Widget())->handle(['widget_id' => $id]);
+        $this->assertIsArray($out);
+        $path     = Compiled_Widget_Manifest::path_for($out['file']);
+        $previous = (string) file_get_contents($path);
+
+        $spec             = $this->valid_spec();
+        $spec['template'] = '<section>{{heading}} v2</section>';
+        \WPMCP\Tools\WidgetBuilder\Widget_Spec_Store::update($id, $spec);
+
+        $boom = static function () {
+            throw new \RuntimeException('manifest write exploded');
+        };
+        add_filter('pre_update_option_' . Compiled_Widget_Manifest::OPTION, $boom);
+        try {
+            (new Compile_Custom_Widget())->handle(['widget_id' => $id]);
+            $this->fail('the throw should propagate');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('manifest write exploded', $e->getMessage());
+        } finally {
+            remove_filter('pre_update_option_' . Compiled_Widget_Manifest::OPTION, $boom);
+        }
+
+        $this->assertSame($previous, (string) file_get_contents($path), 'the previous good bytes were lost');
+        $this->assertArrayHasKey($id, Compiled_Widget_Manifest::loadable());
+    }
+
+    /** The manifest records the class the emitter actually wrote. */
+    public function test_manifest_class_is_the_class_the_emitter_wrote(): void
+    {
+        $spec = $this->valid_spec();
+        unset($spec['name']);
+        $id  = $this->create($spec);
+        $out = (new Compile_Custom_Widget())->handle(['widget_id' => $id]);
+        $this->assertIsArray($out);
+        $source = (string) file_get_contents(Compiled_Widget_Manifest::path_for($out['file']));
+        $this->assertStringContainsString('class ' . $out['class'] . ' extends', $source);
+        $this->assertSame($out['class'], Compiled_Widget_Manifest::get($id)['class']);
+    }
+
+    /**
+     * A failed manifest write must not be reported as a successful disable,
+     * and the spec update must not land while the stale class keeps winning.
+     */
+    public function test_update_reports_a_failed_compiled_disable(): void
+    {
+        $id = $this->create();
+        $this->assertIsArray((new Compile_Custom_Widget())->handle(['widget_id' => $id]));
+        $before = \WPMCP\Tools\WidgetBuilder\Widget_Spec_Store::get($id);
+
+        // update_option() is refused: the filter hands back the old value.
+        $refuse = static function ($value, $old) {
+            return $old;
+        };
+        add_filter('pre_update_option_' . Compiled_Widget_Manifest::OPTION, $refuse, 10, 2);
+        $this->assertInstanceOf(\WP_Error::class, Compiled_Widget_Manifest::set_enabled($id, false), 'a refused write must surface');
+
+        $spec             = $this->valid_spec();
+        $spec['template'] = '<section>{{heading}} v2</section>';
+        $out              = (new \WPMCP\Tools\WidgetBuilder\Update_Custom_Widget())->handle(['widget_id' => $id, 'spec' => $spec]);
+        remove_filter('pre_update_option_' . Compiled_Widget_Manifest::OPTION, $refuse, 10);
+
+        $this->assertInstanceOf(\WP_Error::class, $out, 'reported compiled_disabled while the stale class kept rendering');
+        $this->assertTrue(Compiled_Widget_Manifest::get($id)['enabled']);
+        $this->assertSame($before['template'], \WPMCP\Tools\WidgetBuilder\Widget_Spec_Store::get($id)['template'], 'the spec changed although the stale class still wins');
+    }
+
+    /** Duplicate control names would register the same Elementor control id twice. */
+    public function test_is_renderable_refuses_duplicate_control_names(): void
+    {
+        $spec = [
+            'title'    => 'Dup',
+            'controls' => [
+                ['name' => 'Heading', 'type' => 'text', 'label' => 'A'],
+                ['name' => 'heading', 'type' => 'text', 'label' => 'B'],
+            ],
+            'template' => '<p>{{heading}}</p>',
+        ];
+        $this->assertFalse(Widget_Spec::is_renderable($spec));
+    }
+
+    /**
+     * A widget stored under the older rules can still be updated, and when
+     * the update itself breaks a rule the error names the field to fix.
+     */
+    public function test_update_of_a_legacy_spec_names_the_failing_field(): void
+    {
+        $id     = $this->create();
+        $legacy = [
+            'name'     => 'promo-box',
+            'title'    => 'Promo Box',
+            'controls' => [['name' => 'My Heading', 'type' => 'text', 'label' => 'H']],
+            'template' => '<h2>{{myheading}}</h2>',
+        ];
+        update_post_meta($id, '_wpmcp_widget_spec', $legacy);
+
+        $err = (new \WPMCP\Tools\WidgetBuilder\Update_Custom_Widget())->handle(['widget_id' => $id, 'spec' => $legacy]);
+        $this->assertInstanceOf(\WP_Error::class, $err);
+        $data = (array) $err->get_error_data();
+        $this->assertSame('controls[0].name', $data['field'] ?? null);
+        $this->assertStringContainsString('controls[0].name', $err->get_error_message());
+
+        $fixed                        = $legacy;
+        $fixed['controls'][0]['name'] = 'my_heading';
+        $fixed['template']            = '<h2>{{my_heading}}</h2>';
+        $this->assertIsArray((new \WPMCP\Tools\WidgetBuilder\Update_Custom_Widget())->handle(['widget_id' => $id, 'spec' => $fixed]));
+    }
+
+    /**
+     * list-custom-widgets computes loadability once and hands it to every
+     * row; status_for() must use what it is given rather than re-hashing
+     * every compiled file per row.
+     */
+    public function test_status_for_uses_a_precomputed_loadable_set(): void
+    {
+        $id = $this->create();
+        $this->assertIsArray((new Compile_Custom_Widget())->handle(['widget_id' => $id]));
+
+        $this->assertTrue(Compiled_Widget_Manifest::status_for($id)['loading']);
+        $this->assertFalse(Compiled_Widget_Manifest::status_for($id, null, [])['loading'], 'the precomputed set was ignored');
+
+        $listed = (new \WPMCP\Tools\WidgetBuilder\List_Custom_Widgets())->handle([]);
+        $this->assertTrue($listed['widgets'][0]['compiled']['loading']);
+    }
+
     public function test_restore_touches_only_its_own_widget(): void
     {
         $a = $this->create();
