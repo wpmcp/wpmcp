@@ -901,6 +901,74 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
         $this->assertSame([], Compiled_Widget_Manifest::load_enabled());
     }
 
+    /**
+     * get-custom-widget and list-custom-widgets are read tools. Reporting
+     * whether a compiled class would load must not require() it: a read must
+     * never execute generated PHP, and list would otherwise re-hash and
+     * re-require every file once per row.
+     */
+    public function test_read_tools_report_loading_without_executing_generated_php(): void
+    {
+        $id  = $this->create();
+        $out = (new Compile_Custom_Widget())->handle(['widget_id' => $id]);
+        $this->assertIsArray($out);
+        $this->assertFalse(class_exists($out['class'], false), 'compiling must not load the class');
+
+        $got = (new \WPMCP\Tools\WidgetBuilder\Get_Custom_Widget())->handle(['widget_id' => $id])['compiled'];
+        $this->assertTrue($got['loading'], 'the class would load: gates open, enabled, published, hash matches');
+        (new \WPMCP\Tools\WidgetBuilder\List_Custom_Widgets())->handle([]);
+        $this->assertFalse(class_exists($out['class'], false), 'a read tool required generated PHP');
+
+        wp_update_post(['ID' => $id, 'post_status' => 'draft']);
+        $this->assertFalse(
+            (new \WPMCP\Tools\WidgetBuilder\Get_Custom_Widget())->handle(['widget_id' => $id])['compiled']['loading'],
+            'a draft spec does not load, and the read tool must say so'
+        );
+    }
+
+    /**
+     * Stricter write-time validation must not unregister widgets that were
+     * stored before it existed. A legacy spec whose control name only became
+     * valid through sanitize_key() keeps rendering through the dynamic widget.
+     */
+    public function test_legacy_stored_specs_stay_renderable(): void
+    {
+        $legacy = [
+            'name'     => 'legacy',
+            'title'    => 'Legacy',
+            'controls' => [['name' => 'My Heading', 'type' => 'text', 'label' => 'H', 'default' => ['odd']]],
+            'template' => '<h2>{{myheading}}</h2>',
+        ];
+        $this->assertInstanceOf(\WP_Error::class, Widget_Spec::validate($legacy), 'new writes are held to the strict rules');
+        $this->assertTrue(Widget_Spec::is_renderable($legacy), 'an already-stored spec keeps registering');
+        $this->assertFalse(Widget_Spec::is_renderable(['title' => ['x'], 'controls' => 'no', 'template' => []]));
+        $this->assertFalse(Widget_Spec::is_renderable(['title' => 'T', 'controls' => [['name' => 'a', 'type' => 'eval', 'label' => 'A']], 'template' => 'x']));
+    }
+
+    /**
+     * An undo writes PHP back into the sandbox, so the bytes it writes are
+     * held to the same pre-write lint as a compile. A snapshot payload that
+     * does not pass (tampered history, or anything not produced by the
+     * emitter) is not written; the entry still comes back, and because the
+     * bytes on disk no longer hash to it, the widget is inert, not executing.
+     */
+    public function test_restore_refuses_bytes_that_fail_the_pre_write_lint(): void
+    {
+        $id  = $this->create();
+        $out = (new Compile_Custom_Widget())->handle(['widget_id' => $id]);
+        $this->assertIsArray($out);
+        $path  = Compiled_Widget_Manifest::path_for($out['file']);
+        $good  = (string) file_get_contents($path);
+        $entry = Compiled_Widget_Manifest::get($id);
+
+        $evil  = "<?php\nsystem('id');\n";
+        $entry['hash'] = hash('sha256', $evil);
+        Compiled_Widget_Manifest::restore(['spec_id' => $id, 'entry' => $entry, 'file' => $out['file'], 'bytes' => $evil]);
+
+        $this->assertSame($good, (string) file_get_contents($path), 'restore wrote bytes that fail the lint');
+        $this->assertSame([], Compiled_Widget_Manifest::load_enabled(), 'the vouched hash matches nothing on disk, so nothing loads');
+    }
+
     public function test_read_tools_surface_compiled_and_stale_state(): void
     {
         $id = $this->create();
