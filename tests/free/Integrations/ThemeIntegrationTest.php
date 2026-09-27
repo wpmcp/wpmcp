@@ -728,7 +728,7 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
      */
     public function test_image_url_refuses_values_that_are_not_http_urls(): void
     {
-        foreach ([ '//evil.tld/x.png', '/x.png', '#x' ] as $candidate) {
+        foreach ([ '//evil.tld/x.png', '/x.png', '#x', 'example.org/x.png', 'remove-header', 'http://', 'javascript:alert(1)' ] as $candidate) {
             $out = $this->withWritesEnabled(fn () => $this->integration->handle_write([
                 'operation' => 'set-mods',
                 'args'      => [ 'values' => [ 'background_image' => $candidate ] ],
