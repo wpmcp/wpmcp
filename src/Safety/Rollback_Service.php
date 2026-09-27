@@ -369,6 +369,7 @@ class Rollback_Service
             'page_build',
             'media_import',
             'elementor_global_classes',
+            'theme_scaffold',
         ];
     }
 
