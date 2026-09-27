@@ -29,7 +29,11 @@ TMPDIR=$(echo "$TMPDIR" | sed -e "s/\/$//")
 WP_CORE_DIR=${WP_CORE_DIR-$TMPDIR/wordpress/}
 WP_CORE_DIR=$(echo "$WP_CORE_DIR" | sed "s:/\+$::")
 PLUGINS_DIR="$WP_CORE_DIR/wp-content/plugins"
-ELEMENTOR_VERSION=${ELEMENTOR_VERSION-4.3.2}
+ELEMENTOR_VERSION=${ELEMENTOR_VERSION:-4.3.2}
+if [ "$ELEMENTOR_VERSION" != "latest" ] && ! [[ "$ELEMENTOR_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}(-[A-Za-z0-9.]+)?$ ]]; then
+	echo "ELEMENTOR_VERSION must be 'latest' or a version such as 4.3.2 (got '$ELEMENTOR_VERSION')." >&2
+	exit 1
+fi
 
 # slug => plugin main file relative to the plugin directory.
 # Used to sanity-check an install without unpacking assumptions elsewhere.
@@ -60,6 +64,11 @@ plugin_version() {
 	esac
 }
 
+# The Version header of a plugin main file.
+header_version() {
+	sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$1" | head -n 1 | tr -d '[:space:]'
+}
+
 install_plugin() {
 	local slug=$1
 	local main_file=$2
@@ -72,8 +81,16 @@ install_plugin() {
 	fi
 
 	if [ -f "$target/$main_file" ]; then
-		echo "Plugin '$slug' already installed, skipping."
-		return 0
+		local present
+		present=$(header_version "$target/$main_file")
+		# A pinned plugin must be the pinned version, or the pin means nothing
+		# on a reused install; "latest" keeps whatever is already there.
+		if [ "$ref" = "latest-stable" ] || [ "$present" = "$version" ]; then
+			echo "Plugin '$slug' ${present} already installed, skipping."
+			return 0
+		fi
+		echo "Plugin '$slug' is ${present:-an unknown version}, pinned to ${version}: reinstalling."
+		rm -rf "$target"
 	fi
 
 	echo "Installing plugin '$slug' ($ref) from wordpress.org..."
@@ -87,7 +104,7 @@ install_plugin() {
 		exit 1
 	fi
 	local installed
-	installed=$(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$target/$main_file" | head -n 1)
+	installed=$(header_version "$target/$main_file")
 	echo "Installed plugin '$slug' ${installed}."
 }
 

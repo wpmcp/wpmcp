@@ -251,6 +251,49 @@ class AtomicPropRepairTest extends Structural_Harness
         $this->assertSame([], $out['warnings']);
     }
 
+    public function test_rich_text_follows_the_declared_kind(): void
+    {
+        $this->assertSame(['$$type' => 'escaped-html', 'value' => 'Hi'], Atomic_Props::rich_text('e-heading', 'title', 'Hi'));
+        $this->assertSame('html-v3', Atomic_Props::rich_text('e-kinds', 'rich', 'Hi')['$$type']);
+    }
+
+    public function test_rich_text_without_schema_falls_back_on_the_elementor_version(): void
+    {
+        // An unreadable registry: no element type has metadata.
+        Atomic_Prop_Schema::set_for_tests([]);
+
+        $expected = Atomic_Props::fallback_rich_kind(defined('ELEMENTOR_VERSION') ? (string) ELEMENTOR_VERSION : null);
+        $prop     = Atomic_Props::rich_text('e-heading', 'title', 'Hi');
+
+        $this->assertSame($expected, $prop['$$type']);
+        if ('escaped-html' === $expected) {
+            $this->assertSame('Hi', $prop['value']);
+        } else {
+            $this->assertSame('Hi', $prop['value']['content']['value']);
+        }
+    }
+
+    /** @return array<string, array{0: ?string, 1: string}> */
+    public function fallback_versions(): array
+    {
+        return [
+            'unknown'     => [null, 'html-v3'],
+            'empty'       => ['', 'html-v3'],
+            '4.0.0'       => ['4.0.0', 'html-v3'],
+            '4.2.4'       => ['4.2.4', 'html-v3'],
+            '4.3.0-beta1' => ['4.3.0-beta1', 'escaped-html'],
+            '4.3.0'       => ['4.3.0', 'escaped-html'],
+            '4.3.2'       => ['4.3.2', 'escaped-html'],
+            '5.0.0'       => ['5.0.0', 'escaped-html'],
+        ];
+    }
+
+    /** @dataProvider fallback_versions */
+    public function test_fallback_rich_kind_per_elementor_version(?string $version, string $expected): void
+    {
+        $this->assertSame($expected, Atomic_Props::fallback_rich_kind($version));
+    }
+
     public function test_escaped_html_is_rewrapped_as_html_v3_where_that_is_declared(): void
     {
         // The reverse, for a site still on Elementor 4.0 to 4.2.

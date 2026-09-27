@@ -141,6 +141,39 @@ class AtomicElementsTest extends Structural_Harness
         $this->assertSame('Body copy', $this->rich_text_of($settings['paragraph']));
     }
 
+    public function test_rich_text_params_keep_allowed_inline_html_and_drop_the_rest(): void
+    {
+        $post_id = $this->atomic_page();
+
+        (new Add_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'parent_id'     => 'flex001',
+            'widget_type'   => 'e-heading',
+            'params'        => ['title' => ' <strong>Bold</strong> <script>alert(1)</script><em onclick="x()">it</em><img src=x onerror=y> '],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+        (new Add_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'parent_id'     => 'flex001',
+            'widget_type'   => 'e-paragraph',
+            'params'        => ['content' => 'See <a href="https://example.com" onclick="x()">docs</a><br><iframe src="https://evil.test"></iframe>'],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+        (new Add_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'parent_id'     => 'flex001',
+            'widget_type'   => 'e-button',
+            'params'        => ['text' => 'Go <a href="https://example.com">now</a>'],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+
+        [$heading, $paragraph, $button] = $this->tree($post_id)[0]['elements'];
+        $this->assertSame('<strong>Bold</strong> alert(1)<em>it</em>', $this->rich_text_of($heading['settings']['title']));
+        $this->assertSame('See <a href="https://example.com">docs</a><br>', $this->rich_text_of($paragraph['settings']['paragraph']));
+        // Buttons are links themselves: Elementor allows no nested <a>.
+        $this->assertSame('Go now', $this->rich_text_of($button['settings']['text']));
+    }
+
     public function test_add_atomic_widget_accepts_raw_settings(): void
     {
         $post_id = $this->atomic_page();

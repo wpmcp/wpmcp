@@ -79,8 +79,31 @@ class Atomic_Props
     {
         $kind  = Atomic_Prop_Schema::kind($element_type, $prop);
         $built = null !== $kind ? self::build($kind, $text) : null;
+        if (null !== $built) {
+            return $built;
+        }
 
-        return $built ?? self::html($text);
+        // No usable metadata (registry not readable yet, or no Elementor):
+        // fall back on the version, so a 4.3+ site never gets the old shape.
+        $version = defined('ELEMENTOR_VERSION') ? (string) ELEMENTOR_VERSION : null;
+
+        return 'escaped-html' === self::fallback_rich_kind($version)
+            ? self::escaped_html($text)
+            : self::html($text);
+    }
+
+    /**
+     * The rich-text `$$type` to write when the prop schema cannot be read:
+     * escaped-html from Elementor 4.3 (pre-releases included), html-v3 before
+     * that and when the Elementor version is unknown.
+     */
+    public static function fallback_rich_kind(?string $elementor_version): string
+    {
+        if (null === $elementor_version || '' === $elementor_version) {
+            return 'html-v3';
+        }
+
+        return version_compare($elementor_version, '4.3.0-dev', '>=') ? 'escaped-html' : 'html-v3';
     }
 
     /** @param array<int,string> $class_ids */

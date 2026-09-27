@@ -18,6 +18,17 @@ if (! defined('ABSPATH')) {
  */
 class Atomic_Widget_Map
 {
+    /**
+     * Inline tags Elementor 4.3.2 allows in each rich-text prop
+     * (Escaped_Html_Prop_Type::get_allowed_html_tags_for_prop). Used only when
+     * the installed Elementor does not expose that method itself.
+     */
+    private const INLINE_TAGS = [
+        'e-heading'   => ['b', 'strong', 'sup', 'sub', 's', 'em', 'i', 'u', 'a', 'del', 'span', 'br'],
+        'e-paragraph' => ['b', 'strong', 'sup', 'sub', 's', 'em', 'u', 'ul', 'ol', 'li', 'blockquote', 'a', 'del', 'span', 'br'],
+        'e-button'    => ['b', 'strong', 'sup', 'sub', 's', 'em', 'i', 'u', 'del', 'span', 'br'],
+    ];
+
     /** Atomic widget types this class can build from friendly params. */
     public const KNOWN = ['e-heading', 'e-paragraph', 'e-button', 'e-image', 'e-divider'];
 
@@ -37,7 +48,7 @@ class Atomic_Widget_Map
         switch ($widget_type) {
             case 'e-heading':
                 if (isset($params['title'])) {
-                    $out['title'] = Atomic_Props::rich_text('e-heading', 'title', self::text($params['title']));
+                    $out['title'] = self::rich('e-heading', 'title', $params['title']);
                 }
                 if (isset($params['tag'])) {
                     $out['tag'] = Atomic_Props::string(self::text($params['tag']));
@@ -45,12 +56,12 @@ class Atomic_Widget_Map
                 break;
             case 'e-paragraph':
                 if (isset($params['content']) || isset($params['text'])) {
-                    $out['paragraph'] = Atomic_Props::rich_text('e-paragraph', 'paragraph', self::text($params['content'] ?? $params['text']));
+                    $out['paragraph'] = self::rich('e-paragraph', 'paragraph', $params['content'] ?? $params['text']);
                 }
                 break;
             case 'e-button':
                 if (isset($params['text'])) {
-                    $out['text'] = Atomic_Props::rich_text('e-button', 'text', self::text($params['text']));
+                    $out['text'] = self::rich('e-button', 'text', $params['text']);
                 }
                 break;
             case 'e-image':
@@ -124,5 +135,39 @@ class Atomic_Widget_Map
     private static function text(string $value): string
     {
         return sanitize_text_field($value);
+    }
+
+    /**
+     * A rich-text friendly param (heading title, paragraph body, button
+     * label). Rich text is inline HTML by contract, so it is filtered to the
+     * tags Elementor allows in that prop rather than stripped to plain text.
+     */
+    /** @param mixed $value */
+    private static function rich(string $widget_type, string $prop, $value): array
+    {
+        $text  = is_scalar($value) ? (string) $value : '';
+        $clean = wp_kses(wp_check_invalid_utf8($text), self::allowed_inline_html($widget_type, $prop));
+
+        return Atomic_Props::rich_text($widget_type, $prop, trim($clean));
+    }
+
+    /** @return array<string, array<string, bool>> wp_kses allowed-HTML map. */
+    private static function allowed_inline_html(string $widget_type, string $prop): array
+    {
+        $tags  = null;
+        $class = '\\Elementor\\Modules\\AtomicWidgets\\PropTypes\\Escaped_Html_Prop_Type';
+        if (class_exists($class) && method_exists($class, 'get_allowed_html_tags_for_prop')) {
+            $tags = $class::get_allowed_html_tags_for_prop($widget_type, $prop);
+        }
+        if (! is_array($tags)) {
+            $tags = self::INLINE_TAGS[ $widget_type ] ?? [];
+        }
+
+        $allowed = [];
+        foreach ($tags as $tag) {
+            $allowed[ (string) $tag ] = 'a' === $tag ? ['href' => true, 'target' => true] : [];
+        }
+
+        return $allowed;
     }
 }
