@@ -467,11 +467,12 @@ class BridgeGovernanceTest extends \WP_UnitTestCase
         Bridge_Guard::governed(wp_get_ability(self::ECHO));
 
         $registrar = Plugin::instance()->registrar();
+        $declared  = array_map(static fn ($ability) => $ability->name, $registrar->declared());
         foreach (self::FIXTURES as $name) {
             $this->assertNull($registrar->get($name), "{$name} leaked into Registrar::all().");
-            $this->assertArrayNotHasKey($name, $registrar->declared(), "{$name} leaked into Registrar::declared().");
+            $this->assertNotContains($name, $declared, "{$name} leaked into Registrar::declared().");
         }
-        foreach (array_keys($registrar->declared()) as $name) {
+        foreach ($declared as $name) {
             $this->assertStringStartsWith('wpmcp/', $name, 'Only wpmcp abilities are declared, so the manifest stays ours.');
         }
     }
