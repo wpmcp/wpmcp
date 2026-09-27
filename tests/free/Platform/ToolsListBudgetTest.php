@@ -68,8 +68,13 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  descriptions were trimmed first (182841 -> 182175 bytes) but still
      *  name what never syncs, the merge-not-replace and never-disable
      *  rollback rules, and the inactive-draft install, since an agent that
-     *  misses those makes a failed or unsafe call. Compact tool mode keeps
-     *  clients with tool caps at ~2.8KB regardless. */
+     *  misses those makes a failed or unsafe call.
+     *  The same 185000 also covers main being merged into the theme
+     *  dispatcher branches (#144, #69): main itself measured 180308 bytes over 326 tools once #85 and #262
+     *  had both landed, and the theme-read/theme-write pair adds about 820
+     *  bytes that are almost all the shared dispatcher text, so no
+     *  theme-specific trim could make it fit. Compact tool mode keeps clients
+     *  with tool caps at ~2.8KB regardless. */
     private const TOOLS_LIST_BYTE_BUDGET = 185000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
