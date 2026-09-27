@@ -85,6 +85,9 @@ class Push_Site_Archive
         $include_files = true === ($args['include_files'] ?? false);
         $restart       = true === ($args['restart'] ?? false);
         $max_seconds   = max(1, min(self::MAX_MAX_SECONDS, (int) ($args['max_seconds'] ?? self::DEFAULT_MAX_SECONDS)));
+        // The preview and the apply both hash the whole archive on the
+        // target and parse its dump; the restore itself can take minutes.
+        $apply_timeout = max(60, (int) ($args['apply_timeout'] ?? self::DEFAULT_APPLY_TIMEOUT));
 
         if (! $dry_run && ! $confirm) {
             throw new \InvalidArgumentException('Pushing an archive requires confirm:true (and apply:true replaces the target\'s database). Run with dry_run:true first.');
@@ -149,14 +152,18 @@ class Push_Site_Archive
         $base['upload_id'] = $upload_id;
         $base['resumed']   = ! empty($start['resumed']);
 
-        if (in_array($state, ['applied', 'failed', 'applying'], true)) {
+        if (in_array($state, ['applied', 'applying'], true) || ('failed' === $state && ! $apply)) {
+            $next = [
+                'applied'  => 'The target already applied this archive; target_result is what happened. To push it again from scratch, add restart:true.',
+                'applying' => 'The target is applying this archive now; call again later to read the result. If the target\'s request died part-way, restart:true discards the record.',
+                'failed'   => 'The target\'s last apply of this archive failed; target_result says why. Call again with apply:true to retry without re-uploading.',
+            ];
+
             return $base + [
-                'status'         => 'applying' === $state ? 'applying' : 'already_applied',
+                'status'         => 'failed' === $state ? 'previous_apply_failed' : ('applying' === $state ? 'applying' : 'already_applied'),
                 'received_bytes' => $received,
                 'target_result'  => $start['result'] ?? null,
-                'next'           => 'applying' === $state
-                    ? 'The target is applying this archive now; call again later to read the result.'
-                    : 'The target already applied this archive; target_result is what happened. To push it again from scratch, add restart:true.',
+                'next'           => $next[ $state ],
             ];
         }
 
@@ -240,7 +247,7 @@ class Push_Site_Archive
                 'upload_id'     => $upload_id,
                 'dry_run'       => true,
                 'include_files' => $include_files,
-            ]);
+            ], $apply_timeout);
 
             return $base + [
                 'status'        => is_wp_error($preview) ? 'uploaded_unverified' : 'uploaded',
@@ -255,7 +262,7 @@ class Push_Site_Archive
             'dry_run'       => false,
             'confirm'       => true,
             'include_files' => $include_files,
-        ], max(60, (int) ($args['apply_timeout'] ?? self::DEFAULT_APPLY_TIMEOUT)));
+        ], $apply_timeout);
 
         if (is_wp_error($applied)) {
             $sent_but_unanswered = 'wpmcp_migration_unreachable' === $applied->get_error_code();

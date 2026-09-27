@@ -32,7 +32,8 @@ if (! defined('ABSPATH')) {
  *  - chunk:  one base64 chunk at an offset (see Incoming_Archive_Store).
  *  - status: where an upload stands, including the result of an apply
  *            whose response the source never saw (a timeout mid-restore).
- *  - apply:  verify the whole archive (sha256, and the manifest inside it
+ *  - apply:  (a failed apply may be retried; a successful one is
+ *            reported, never repeated) verify the whole archive (sha256, and the manifest inside it
  *            against the declared one), restore it with restore-site-backup's
  *            engine (which takes the pre-restore safety archive, and refuses
  *            to start without one), then rewrite every URL from the source's
@@ -153,11 +154,11 @@ class Receive_Site_Archive
         $include_files = true === ($args['include_files'] ?? false);
 
         $state = Incoming_Archive_Store::get($upload_id);
-        if ('applied' === $state['status'] || 'failed' === $state['status']) {
+        if ('applied' === $state['status']) {
             return ['already_applied' => true] + (array) $state['result'];
         }
         if ('applying' === $state['status']) {
-            return new \WP_Error('wpmcp_migration_busy', 'That upload is being applied right now; poll action=status for the result.', ['status' => 409]);
+            return new \WP_Error('wpmcp_migration_busy', 'That upload is being applied right now; poll action=status for the result. If the request applying it died, start with restart:true discards this record.', ['status' => 409]);
         }
         if (! $dry_run && ! $confirm) {
             throw new \InvalidArgumentException('Applying a migration replaces this site\'s database and requires confirm:true. Run with dry_run:true first.');
@@ -192,7 +193,7 @@ class Receive_Site_Archive
             ];
         }
 
-        Incoming_Archive_Store::update($upload_id, ['status' => 'applying']);
+        Incoming_Archive_Store::begin_apply($upload_id);
         if (function_exists('ignore_user_abort')) {
             ignore_user_abort(true);
         }

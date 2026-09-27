@@ -240,6 +240,25 @@ class Incoming_Archive_Store
         });
     }
 
+    /**
+     * Claim a verified upload for applying, atomically: two apply calls
+     * racing must not both start a restore. A failed earlier apply may be
+     * retried; the archive is still on disk.
+     *
+     * @return array<string, mixed>
+     */
+    public static function begin_apply(string $upload_id): array
+    {
+        return self::locked($upload_id, static function () use ($upload_id): array {
+            $state = self::get($upload_id);
+            if (! in_array($state['status'], ['verified', 'failed'], true)) {
+                throw new \RuntimeException(sprintf('Upload %s is %s and cannot be applied now.', esc_html($upload_id), esc_html((string) $state['status'])));
+            }
+
+            return self::update($upload_id, ['status' => 'applying', 'result' => null]);
+        });
+    }
+
     /** @return array<string, mixed> */
     public static function get(string $upload_id): array
     {

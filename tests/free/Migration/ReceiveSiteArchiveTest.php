@@ -354,6 +354,25 @@ class ReceiveSiteArchiveTest extends \WP_UnitTestCase
         clean_post_cache($post);
         $this->assertSame('Live value', get_post($post)->post_title);
         $this->assertSame('failed', $this->tool()->handle(['action' => 'status', 'upload_id' => $upload])['status']);
+
+        // The archive is still on disk: a retry applies it without a re-upload.
+        $retry = $this->tool()->handle(['action' => 'apply', 'upload_id' => $upload, 'dry_run' => false, 'confirm' => true]);
+        $this->assertSame('migrated', $retry['status'], (string) wp_json_encode($retry));
+        clean_post_cache($post);
+        $this->assertSame('Untouched', get_post($post)->post_title);
+    }
+
+    public function test_an_upload_being_applied_cannot_be_applied_again_concurrently(): void
+    {
+        $upload = $this->upload($this->source_archive());
+        Incoming_Archive_Store::finalize($upload);
+        Incoming_Archive_Store::begin_apply($upload);
+
+        $out = $this->tool()->handle(['action' => 'apply', 'upload_id' => $upload, 'dry_run' => false, 'confirm' => true]);
+
+        $this->assertWPError($out);
+        $this->assertSame('wpmcp_migration_busy', $out->get_error_code());
+        $this->assertSame([], Backup_Job_Store::list());
     }
 
     public function test_rewrite_pairs_cover_site_url_through_the_home_pair_when_the_layout_matches(): void
