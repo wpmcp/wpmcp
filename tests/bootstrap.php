@@ -6,6 +6,13 @@ if ( ! defined( 'WPMCP_TESTING' ) ) {
 
 $_tests_dir = getenv( 'WP_TESTS_DIR' ) ?: rtrim( sys_get_temp_dir(), '/' ) . '/wordpress-tests-lib';
 
+// bin/test-local.sh gives each checkout its own database by pointing the
+// WordPress harness at a generated config instead of the one in the tests lib.
+$_tests_config = getenv( 'WP_TESTS_CONFIG_FILE_PATH' );
+if ( $_tests_config && ! defined( 'WP_TESTS_CONFIG_FILE_PATH' ) ) {
+    define( 'WP_TESTS_CONFIG_FILE_PATH', $_tests_config );
+}
+
 require_once dirname( __DIR__ ) . '/vendor/autoload.php';
 
 require $_tests_dir . '/includes/functions.php';

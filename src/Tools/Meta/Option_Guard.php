@@ -40,6 +40,15 @@ class Option_Guard
         'nonce_salt',
         'secure_auth_key',
         'secure_auth_salt',
+        // The stored PHP snippet corpus (issue #85). Its 'status' and
+        // 'validation' fields are the bookkeeping the activation flow
+        // writes, and update-option / get-option are not the right door to
+        // either: rewriting them would let a caller blank a validation
+        // report or flip a snippet to active outside Php_Snippet_Guard, and
+        // reading them back through the generic option reader dumps PHP
+        // source into a tool response that never expected it. The snippet
+        // tools are the only supported way in.
+        'wpmcp_php_snippets',
     ];
 
     /** Substrings (case-insensitive) that mark an option name as sensitive. */
@@ -70,9 +79,11 @@ class Option_Guard
 
     public static function is_denylisted(string $name): bool
     {
-        $lower = strtolower($name);
+        // Folded like every other comparison below, so a padded or
+        // upper-cased spelling of a locked name cannot slip past the prefix.
+        $folded = self::fold($name);
         foreach (self::LOCKED_PREFIXES as $prefix) {
-            if (0 === strpos($lower, $prefix)) {
+            if (0 === strpos($folded, $prefix)) {
                 return true;
             }
         }
@@ -80,16 +91,58 @@ class Option_Guard
         $denylisted_names    = (array) apply_filters('wpmcp_option_denylist', self::DENYLISTED_NAMES);
         $denylisted_patterns = (array) apply_filters('wpmcp_option_denylist_patterns', self::DENYLISTED_PATTERNS);
 
-        if (in_array($name, $denylisted_names, true)) {
+        // Fold the name the way the database will match it. WordPress trims
+        // option names, and option_name is compared under a case- and
+        // accent-insensitive collation by default, so 'SITEURL' or a padded
+        // or accented variant reaches the very same row a strict in_array()
+        // would wave through.
+        //
+        // Folding cannot see collation-IGNORABLE code points: a zero-width
+        // space or a soft hyphen survives remove_accents() but is skipped by
+        // utf8mb4_unicode_ci, so 'wpmcp_php_snippets' plus U+200B lands on
+        // the real row. Option names are printable ASCII in practice, so any
+        // name that is not is treated as denied outright rather than folded.
+        if (! self::is_plain_name($name)) {
             return true;
         }
 
+        foreach ($denylisted_names as $denylisted) {
+            if ($folded === self::fold((string) $denylisted)) {
+                return true;
+            }
+        }
+
+        // Patterns are folded like the name, including the ones a filter
+        // supplies, so '  MyVendor_Token ' matches as 'myvendor_token'.
         foreach ($denylisted_patterns as $pattern) {
-            if ('' !== $pattern && false !== strpos($lower, strtolower((string) $pattern))) {
+            $pattern = self::fold((string) $pattern);
+            if ('' !== $pattern && false !== strpos($folded, $pattern)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * Whether an option name is printable ASCII only (0x20 to 0x7E). Anything
+     * else, a control character, a non-ASCII letter or an invisible format
+     * character, can match a different row than it appears to under the
+     * database collation, so the generic option tools refuse it.
+     */
+    public static function is_plain_name(string $name): bool
+    {
+        return 1 === preg_match('/\A[\x20-\x7E]*\z/', $name);
+    }
+
+    /** Trimmed, accent-stripped, lower-cased form of an option name. */
+    private static function fold(string $name): string
+    {
+        $name = trim($name);
+        if (function_exists('remove_accents')) {
+            $name = remove_accents($name);
+        }
+
+        return strtolower($name);
     }
 }

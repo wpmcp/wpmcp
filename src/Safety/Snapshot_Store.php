@@ -228,6 +228,22 @@ class Snapshot_Store
     }
 
     /**
+     * Void the undo point of a mutation that did not happen. Safe_Mutation
+     * persists the snapshot before it runs the closure, so a closure that
+     * throws (a refused write, a concurrency check) leaves a row whose
+     * captured state may predate a write that DID land in the meantime;
+     * restoring it later would clobber that newer write. Callers that refuse
+     * inside the closure remove the row with this rather than leave a
+     * restorable operation that describes nothing.
+     */
+    public static function delete_operation(string $operation_id): void
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; voiding one undo point is a direct row delete.
+        $wpdb->query($wpdb->prepare('DELETE FROM %i WHERE operation_id = %s', self::table_name(), $operation_id));
+    }
+
+    /**
      * Resolve an operation_id to its ledger row id. operation_id is the
      * identifier every tool hands back to clients (list-operations, the
      * history screen); the numeric row id is not exposed anywhere, so a

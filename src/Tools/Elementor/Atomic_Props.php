@@ -43,7 +43,11 @@ class Atomic_Props
         return ['$$type' => 'boolean', 'value' => $value];
     }
 
-    /** Rich-text prop (headings, paragraphs, button labels). */
+    /**
+     * Rich-text prop in the Elementor 4.0 to 4.2 `html-v3` shape. Kept for
+     * installs on those versions and as the fallback when no prop metadata is
+     * available; prefer rich_text(), which follows the installed build.
+     */
     public static function html(string $text): array
     {
         return [
@@ -53,6 +57,53 @@ class Atomic_Props
                 'children' => [],
             ],
         ];
+    }
+
+    /**
+     * Elementor 4.3+ `escaped-html` rich text: a plain string value, where
+     * html-v3 nested it under value.content.value.
+     */
+    public static function escaped_html(string $text): array
+    {
+        return ['$$type' => 'escaped-html', 'value' => $text];
+    }
+
+    /**
+     * Rich text (heading title, paragraph body, button label) in whatever
+     * shape the installed Elementor declares for that prop. Elementor 4.3
+     * moved these props from html-v3 to escaped-html; writing the old shape
+     * would only work until Elementor's read-time migration is removed, and
+     * the shared mapper would otherwise have to rewrap it on every write.
+     */
+    public static function rich_text(string $element_type, string $prop, string $text): array
+    {
+        $kind  = Atomic_Prop_Schema::kind($element_type, $prop);
+        $built = null !== $kind ? self::build($kind, $text) : null;
+        if (null !== $built) {
+            return $built;
+        }
+
+        // No usable metadata (registry not readable yet, or no Elementor):
+        // fall back on the version, so a 4.3+ site never gets the old shape.
+        $version = defined('ELEMENTOR_VERSION') ? (string) ELEMENTOR_VERSION : null;
+
+        return 'escaped-html' === self::fallback_rich_kind($version)
+            ? self::escaped_html($text)
+            : self::html($text);
+    }
+
+    /**
+     * The rich-text `$$type` to write when the prop schema cannot be read:
+     * escaped-html from Elementor 4.3 (pre-releases included), html-v3 before
+     * that and when the Elementor version is unknown.
+     */
+    public static function fallback_rich_kind(?string $elementor_version): string
+    {
+        if (null === $elementor_version || '' === $elementor_version) {
+            return 'html-v3';
+        }
+
+        return version_compare($elementor_version, '4.3.0-dev', '>=') ? 'escaped-html' : 'html-v3';
     }
 
     /** @param array<int,string> $class_ids */
@@ -361,6 +412,8 @@ class Atomic_Props
                 return is_scalar($value) ? ['$$type' => $kind, 'value' => self::stringify($value)] : null;
             case 'html-v3':
                 return is_scalar($value) ? self::html(self::stringify($value)) : null;
+            case 'escaped-html':
+                return is_scalar($value) ? self::escaped_html(self::stringify($value)) : null;
             case 'url':
             case 'color':
             case 'date-string':
@@ -525,6 +578,7 @@ class Atomic_Props
         $inner = $value['value'] ?? null;
 
         // html-v3 nests its text one level deeper: value.content.value.
+        // escaped-html (Elementor 4.3+) keeps it flat, so it falls through.
         if (is_array($inner) && isset($inner['content'])) {
             $content = $inner['content'];
             if (is_array($content) && array_key_exists('value', $content)) {
