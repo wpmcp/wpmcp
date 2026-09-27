@@ -874,18 +874,19 @@ class Theme_Integration extends Integration_Dispatcher
                 if ('' === $value) {
                     return [ 'ok' => true, 'value' => $value ];
                 }
-                $url = esc_url_raw($value, [ 'http', 'https' ]);
-                if ('' === $url) {
+                // The INPUT must already be an absolute http(s) URL with a
+                // host. esc_url_raw() only vets the protocol, passes
+                // protocol-relative (//evil.tld/x.png), root-relative (/x.png)
+                // and fragment (#x) values through, and prepends http:// to a
+                // bare word, so "remove-header" would come back as
+                // http://remove-header and pass a check on its output.
+                $scheme = wp_parse_url($value, PHP_URL_SCHEME);
+                $host   = wp_parse_url($value, PHP_URL_HOST);
+                if (! is_string($scheme) || ! in_array(strtolower($scheme), [ 'http', 'https' ], true) || ! is_string($host) || '' === $host) {
                     return $bad;
                 }
-                // esc_url_raw() only vets the PROTOCOL, so it happily returns
-                // protocol-relative (//evil.tld/x.png), root-relative (/x.png)
-                // and fragment (#x) values. The refusal text promises an
-                // http(s) URL; enforce exactly that.
-                $scheme = wp_parse_url($url, PHP_URL_SCHEME);
-                return in_array($scheme, [ 'http', 'https' ], true)
-                    ? [ 'ok' => true, 'value' => $url ]
-                    : $bad;
+                $url = esc_url_raw($value, [ 'http', 'https' ]);
+                return '' === $url ? $bad : [ 'ok' => true, 'value' => $url ];
         }
 
         return null;
