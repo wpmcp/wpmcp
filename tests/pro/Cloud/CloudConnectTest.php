@@ -85,4 +85,49 @@ class CloudConnectTest extends \WP_UnitTestCase
         $this->assertTrue($out['connected']);
         $this->assertSame('sk-good', Cloud_Credentials::all(true)['api_key']);
     }
+
+    public function test_a_connect_whose_seal_does_not_land_reports_it_and_keeps_the_previous_set(): void
+    {
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'sk-working', 'refresh_token' => 'rt-1']);
+
+        $block = static fn ($value, $old) => $old;
+        add_filter('pre_update_option_' . Cloud_Credentials::OPTION, $block, 10, 2);
+
+        try {
+            $out = (new Cloud_Connect())->handle(['url' => 'https://cloud.example', 'key' => 'sk-typed-by-the-operator']);
+        } finally {
+            remove_filter('pre_update_option_' . Cloud_Credentials::OPTION, $block, 10);
+        }
+
+        $this->assertWPError($out);
+        $this->assertSame('cloud_credentials_not_stored', $out->get_error_code());
+        $this->assertStringNotContainsString('sk-typed-by-the-operator', $out->get_error_message());
+        $this->assertSame('rt-1', Cloud_Credentials::all(true)['refresh_token'] ?? null);
+    }
+
+    public function test_a_cloud_error_that_echoes_the_key_never_reaches_the_caller(): void
+    {
+        remove_filter('pre_http_request', [$this, 'fake_http'], 10);
+        $echo = static function ($pre, $args) {
+            $auth = (string) ($args['headers']['Authorization'] ?? '');
+            return [
+                'headers'  => [],
+                'body'     => (string) wp_json_encode(['message' => 'Unknown key ' . substr($auth, 7)]),
+                'response' => ['code' => 401, 'message' => ''],
+                'cookies'  => [],
+                'filename' => null,
+            ];
+        };
+        add_filter('pre_http_request', $echo, 10, 2);
+
+        try {
+            $out = (new Cloud_Connect())->handle(['url' => 'https://cloud.example', 'key' => 'sk-must-not-leak']);
+        } finally {
+            remove_filter('pre_http_request', $echo, 10);
+        }
+
+        $this->assertWPError($out);
+        $this->assertStringNotContainsString('sk-must-not-leak', $out->get_error_message());
+        $this->assertStringNotContainsString('sk-must-not-leak', (string) wp_json_encode($out->get_error_data()));
+    }
 }

@@ -445,4 +445,57 @@ class TokenRefresherTest extends \WP_UnitTestCase
             'https://cloud.example' . \WPMCP\Cloud\Cloud_Client::TOKEN_PATH
         );
     }
+
+    // ---- transport hardening ------------------------------------------------
+
+    public function test_the_refresh_token_is_never_sent_over_plain_http(): void
+    {
+        $this->seed_stale(['base_url' => 'http://cloud.example']);
+        $calls  = 0;
+        $filter = static function () use (&$calls) {
+            ++$calls;
+            return new \WP_Error('should_not_be_called', 'no request expected');
+        };
+        add_filter('pre_http_request', $filter, 10, 3);
+
+        try {
+            $refresher = new Token_Refresher(static fn () => true, static function (): void {
+            });
+            $this->assertNull($refresher->ensure_fresh_access_token());
+        } finally {
+            remove_filter('pre_http_request', $filter, 10);
+        }
+
+        $this->assertSame(0, $calls, 'a bearer-grade secret must not cross the wire in cleartext');
+        $this->assertFalse(get_option(Token_Refresher::HEALTH_OPTION), 'a misconfigured URL is not a revocation');
+    }
+
+    public function test_the_grant_does_not_follow_redirects(): void
+    {
+        $this->seed_stale();
+        $seen   = [];
+        $filter = static function ($pre, $args) use (&$seen) {
+            $seen = $args;
+            return [
+                'headers'  => [],
+                'body'     => (string) wp_json_encode(['access_token' => 'new-access', 'refresh_token' => 'rt-2', 'expires_in' => 3600]),
+                'response' => ['code' => 200, 'message' => 'OK'],
+                'cookies'  => [],
+                'filename' => null,
+            ];
+        };
+        add_filter('pre_http_request', $filter, 10, 2);
+
+        try {
+            (new Token_Refresher(static fn () => true, static function (): void {
+            }))->ensure_fresh_access_token();
+        } finally {
+            remove_filter('pre_http_request', $filter, 10);
+        }
+
+        // A 30x would otherwise re-send the refresh token to wherever the
+        // Location header points.
+        $this->assertSame(0, $seen['redirection'] ?? null);
+        $this->assertTrue($seen['sslverify'] ?? false);
+    }
 }

@@ -167,4 +167,112 @@ class CloudCredentialsTest extends \WP_UnitTestCase
 
         $this->assertSame('k', Cloud_Credentials::all(true)['api_key'] ?? null);
     }
+
+    // ---- salt rotation --------------------------------------------------------
+
+    public function test_a_rotated_auth_salt_reads_as_unreadable_and_keeps_the_ciphertext(): void
+    {
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'sk-sealed']);
+        $sealed = (string) get_option(Cloud_Credentials::OPTION);
+
+        $rotated = static fn () => 'a-freshly-generated-auth-salt';
+        add_filter('salt', $rotated);
+
+        try {
+            // Documented behaviour: the vault cannot be opened under the new
+            // key, so the site reads as not connected (never as a plaintext
+            // fallback), cloud-status says why, and the sealed blob is left
+            // exactly as it was.
+            $this->assertSame([], Cloud_Credentials::all(true));
+            $this->assertTrue(Cloud_Credentials::is_unreadable());
+            $this->assertFalse(Cloud_Config::is_configured());
+            $this->assertSame($sealed, get_option(Cloud_Credentials::OPTION), 'an unreadable vault must not be overwritten or deleted by a read');
+        } finally {
+            remove_filter('salt', $rotated);
+        }
+
+        // Restoring the previous salts (a rolled-back wp-config) recovers the
+        // credentials, which is why the ciphertext is kept.
+        $this->assertSame('sk-sealed', Cloud_Credentials::all(true)['api_key'] ?? null);
+        $this->assertFalse(Cloud_Credentials::is_unreadable());
+    }
+
+    public function test_reconnecting_after_a_salt_rotation_reseals_under_the_new_key(): void
+    {
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'sk-old']);
+
+        $rotated = static fn () => 'a-freshly-generated-auth-salt';
+        add_filter('salt', $rotated);
+
+        try {
+            $this->assertTrue(Cloud_Config::set('https://cloud.example', 'sk-new'));
+            $this->assertSame('sk-new', Cloud_Credentials::all(true)['api_key'] ?? null);
+            $this->assertFalse(Cloud_Credentials::is_unreadable());
+        } finally {
+            remove_filter('salt', $rotated);
+        }
+    }
+
+    // ---- secret hygiene ---------------------------------------------------------
+
+    public function test_redact_scrubs_every_stored_secret_from_a_message(): void
+    {
+        Cloud_Credentials::replace([
+            'base_url'          => 'https://cloud.example',
+            'api_key'           => 'sk-live-123456',
+            'access_token'      => 'at-abcdef',
+            'refresh_token'     => 'rt-ghijkl',
+            'access_expires_at' => time() + 3600,
+            'client_id'         => 'client-1',
+            'client_secret'     => 'cs-mnopqr',
+        ]);
+
+        $out = Cloud_Credentials::redact('key sk-live-123456, at-abcdef, rt-ghijkl and cs-mnopqr for client-1');
+
+        foreach (['sk-live-123456', 'at-abcdef', 'rt-ghijkl', 'cs-mnopqr'] as $secret) {
+            $this->assertStringNotContainsString($secret, $out);
+        }
+        $this->assertStringContainsString('client-1', $out, 'a client id is an identifier, not a secret');
+        $this->assertSame('nothing secret here', Cloud_Credentials::redact('nothing secret here'));
+    }
+
+    public function test_fingerprint_is_keyed_rather_than_a_bare_hash_of_the_secret(): void
+    {
+        $fingerprint = Cloud_Credentials::fingerprint('rt-1');
+
+        $this->assertSame(64, strlen($fingerprint));
+        $this->assertNotSame(hash('sha256', 'rt-1'), $fingerprint, 'an unkeyed digest of a token is an offline oracle for it');
+        $this->assertSame($fingerprint, Cloud_Credentials::fingerprint('rt-1'));
+        $this->assertNotSame($fingerprint, Cloud_Credentials::fingerprint('rt-2'));
+    }
+
+    public function test_the_generic_option_tools_refuse_every_cloud_credential_option(): void
+    {
+        foreach ([Cloud_Credentials::OPTION, 'wpmcp_cloud_key', Token_Refresher::HEALTH_OPTION] as $name) {
+            $this->assertTrue(\WPMCP\Tools\Meta\Option_Guard::is_denylisted($name), $name . ' must not be readable or writable through the option tools');
+        }
+    }
+
+    // ---- eager migration ----------------------------------------------------------
+
+    public function test_boot_migration_imports_autoloaded_plaintext_without_a_cloud_call(): void
+    {
+        update_option('wpmcp_cloud_url', 'https://cloud.example', true);
+        update_option('wpmcp_cloud_key', 'legacy-key', true);
+
+        Cloud_Credentials::maybe_migrate_on_boot();
+
+        $this->assertFalse(get_option('wpmcp_cloud_key'), 'an updated site must not keep the plaintext key until some cloud tool happens to run');
+        $this->assertFalse(get_option('wpmcp_cloud_url'));
+        $stored = (string) get_option(Cloud_Credentials::OPTION);
+        $this->assertStringNotContainsString('legacy-key', $stored);
+        $this->assertSame('legacy-key', Cloud_Credentials::all(true)['api_key'] ?? null);
+    }
+
+    public function test_boot_migration_writes_nothing_on_a_site_without_legacy_options(): void
+    {
+        Cloud_Credentials::maybe_migrate_on_boot();
+
+        $this->assertFalse(get_option(Cloud_Credentials::OPTION));
+    }
 }
