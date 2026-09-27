@@ -1,63 +1,23 @@
 name: CI
 on: [push, pull_request]
 jobs:
-  test:
+  # PHPUnit does not run here. The WordPress integration suite runs locally
+  # through bin/test-local.sh, which the pre-push hook (.githooks/pre-push)
+  # calls before every push; see README "Development". GitHub keeps the static
+  # gates only: this job, compliance and plugin-check.
+  #
+  # Static registration drift guard (issue #86) and the lint ratchet. Both are
+  # WordPress-free and take seconds, so they stay here as the backstop for a
+  # push made with --no-verify.
+  static:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        php: ['8.1','8.2','8.3','8.4']
-        # The WordPress release under test. The main axis is the release the
-        # shipped headers declare as Tested up to; ReleaseHeadersTest pins it
-        # to TESTED_UP_TO_FLOOR so the header cannot outrun the suite. The
-        # include leg keeps Requires at least honest on the oldest PHP.
-        wp: ['7.1']
-        include:
-          - { php: '8.1', wp: '6.9' }
-    services:
-      mysql:
-        image: mariadb:10.6
-        env: { MYSQL_ROOT_PASSWORD: root }
-        ports: ['3306:3306']
-        options: --health-cmd="healthcheck.sh --connect" --health-interval=10s --health-timeout=5s --health-retries=5
     steps:
       - uses: actions/checkout@v5
       - uses: shivammathur/setup-php@v2
-        with: { php-version: '${{ matrix.php }}', coverage: pcov }
+        with: { php-version: '8.3', coverage: none }
       - run: composer install --no-interaction
       - run: composer lint
-      # Static registration drift guard (issue #86). WordPress-free and runs
-      # in under a second, so it gates before the WP test environment is even
-      # installed: a rename, a re-tier, a deleted tool class still named in
-      # code, or a tool that survived with no registration path into it all
-      # fail here rather than in the matrix.
       - run: composer drift:check
-      - name: Install subversion (required by install-wp-tests.sh)
-        run: sudo apt-get update && sudo apt-get install -y subversion
-      - run: bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 ${{ matrix.wp }}
-      - name: Install optional test plugins (Elementor, WooCommerce, ACF, Yoast SEO, Polylang)
-        run: bash bin/install-test-plugins.sh
-      - run: composer test
-        if: matrix.php != '8.4'
-      # On one matrix leg the plain run is replaced by a pcov coverage run of
-      # the same suite: it emits clover + text reports, enforces the coverage
-      # floor (a ratchet: only ever raise it), and uploads the report as a
-      # per-run artifact. See issue #55.
-      - name: Run suite with coverage (pcov)
-        if: matrix.php == '8.4'
-        run: composer test:coverage
-      - name: Enforce coverage floor
-        if: matrix.php == '8.4'
-        # Floor lowered 90.5 -> 90.3 on 2026-08-03: actual coverage sits at
-        # ~90.5 and run-to-run CI variance (~0.1-0.2%) made the exact-floor
-        # check flake (PR runs green, main push runs red since #124).
-        # Re-ratchet once coverage has real headroom again.
-        run: php bin/check-coverage.php coverage/clover.xml 90.3
-      - name: Upload coverage artifact
-        if: matrix.php == '8.4'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/
 
   # WordPress's own Plugin Check, run against the assembled directory zip
   # rather than the checkout, with vendor/ left in scope. This is the

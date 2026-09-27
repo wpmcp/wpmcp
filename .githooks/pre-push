@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+#
+# Runs the test gate (bin/test-local.sh) before every push that sends commits.
+# PHPUnit does not run on GitHub Actions, so this is where a red suite is caught.
+#
+# Skip it for one push with WPMCP_SKIP_LOCAL_TESTS=1 git push, or git push --no-verify.
+
+set -euo pipefail
+
+if [ "${WPMCP_SKIP_LOCAL_TESTS:-}" = 1 ]; then
+	echo "[pre-push] WPMCP_SKIP_LOCAL_TESTS=1: skipping the local test gate." >&2
+	exit 0
+fi
+
+# Branch or tag deletions send no commits and need no suite.
+sends_commits=false
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+	case "$local_sha" in
+		*[!0]*) sends_commits=true ;;
+	esac
+done
+[ "$sends_commits" = true ] || exit 0
+
+if [ ! -x bin/test-local.sh ]; then
+	echo "[pre-push] bin/test-local.sh is missing on this branch; merge main to get the local test gate." >&2
+	exit 0
+fi
+
+exec bin/test-local.sh </dev/null

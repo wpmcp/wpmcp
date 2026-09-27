@@ -155,8 +155,7 @@ class BuildPageDryRunBuilderTest extends \WP_UnitTestCase
 
         $elements = json_decode(get_post_meta($real['post_id'], '_elementor_data', true), true);
         $settings = $elements[0]['elements'][0]['settings'];
-        $this->assertSame('html-v3', $settings['title']['$$type']);
-        $this->assertSame('Aliased', $settings['title']['value']['content']['value']);
+        $this->assertSame(['$$type' => 'escaped-html', 'value' => 'Aliased'], $settings['title']);
         $this->assertSame('h1', $settings['tag']['value']);
     }
 
