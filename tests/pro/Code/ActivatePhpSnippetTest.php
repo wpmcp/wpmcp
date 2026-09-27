@@ -233,6 +233,55 @@ class ActivatePhpSnippetTest extends \WP_UnitTestCase
         );
     }
 
+    public function test_a_refused_activation_leaves_no_restorable_ledger_row(): void
+    {
+        // The refused write captured a record that predates the concurrent
+        // update. Leaving that row restorable would let a later rollback
+        // clobber the newer code with the older one.
+        $this->enable_exec();
+        $id = $this->stored_id('<?php return 1;');
+
+        $reads = 0;
+        $swap  = function ($snippets) use (&$reads, $id) {
+            $reads++;
+            if ($reads > 2 && is_array($snippets) && isset($snippets[$id])) {
+                $snippets[$id]['code'] = '<?php return 999;';
+            }
+            return $snippets;
+        };
+        add_filter('option_' . Php_Snippet_Store::OPTION_NAME, $swap);
+
+        global $wpdb;
+        $table  = \WPMCP\Safety\Snapshot_Store::table_name();
+        $before = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}");
+
+        try {
+            (new Activate_Php_Snippet())->handle(['id' => $id]);
+            $this->fail('Activation of moved code must be refused.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('code changed after it was', $e->getMessage());
+        } finally {
+            remove_filter('option_' . Php_Snippet_Store::OPTION_NAME, $swap);
+        }
+
+        $this->assertSame($before, (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}"), 'A refused activation must not leave an undo point behind.');
+    }
+
+    public function test_activation_audit_entries_carry_a_refusal_class(): void
+    {
+        $id = $this->stored_id();
+
+        try {
+            (new Activate_Php_Snippet())->handle(['id' => $id]);
+        } catch (\RuntimeException $e) {
+            // expected: exec disabled
+        }
+
+        $newest = Governance_Audit_Log::list(1)[0];
+        $this->assertSame('wpmcp/activate-php-snippet', $newest['ability']);
+        $this->assertSame('exec_disabled', $newest['reason']);
+    }
+
     /**
      * "Every attempt, allowed or refused, is written to the governance audit
      * trail" is what the shipped ability description tells an agent. A

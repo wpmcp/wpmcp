@@ -2,6 +2,9 @@
 
 namespace WPMCP\Tools\Code;
 
+use WPMCP\Governance\Governance_Audit_Log;
+use WPMCP\Identity\Identity_Context;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -117,5 +120,46 @@ class Php_Snippet_Guard
         $default = defined('WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION') && WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION;
 
         return (bool) apply_filters('wpmcp_allow_php_exec_on_production', $default);
+    }
+
+    /**
+     * Record one attempt on a PHP snippet surface to Governance_Audit_Log:
+     * ability name, active identity, allow/deny outcome and a short
+     * machine-readable reason, and nothing else. Never the snippet source,
+     * its output or its validation detail, any of which could echo secrets
+     * into the trail. One copy shared by every snippet surface that audits.
+     * Auditing must never break or block the outcome it observes.
+     */
+    public static function audit(string $ability, bool $allowed, string $reason = ''): void
+    {
+        try {
+            $identity = Identity_Context::current() ?? 'none';
+            Governance_Audit_Log::record($ability, $identity, $allowed, $reason);
+        } catch (\Throwable $e) {
+            // Deliberately swallowed; see the docblock.
+        }
+    }
+
+    /**
+     * The class of refusal a snippet surface threw, for audit()'s $reason.
+     * The gate conditions are re-asked rather than parsed out of the message,
+     * so rewording a message cannot change what the trail says.
+     */
+    public static function refusal_class(\Throwable $e): string
+    {
+        if (! self::is_enabled()) {
+            return 'exec_disabled';
+        }
+        if (! self::is_allowed_on_environment()) {
+            return 'environment_refused';
+        }
+        if ($e instanceof \InvalidArgumentException) {
+            return 'invalid_argument';
+        }
+        if ($e instanceof Php_Snippet_Refusal) {
+            return $e->reason();
+        }
+
+        return 'error';
     }
 }

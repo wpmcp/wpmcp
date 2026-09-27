@@ -2,8 +2,6 @@
 
 namespace WPMCP\Tools\Code;
 
-use WPMCP\Governance\Governance_Audit_Log;
-use WPMCP\Identity\Identity_Context;
 use WPMCP\Safety\Safe_Mutation;
 
 if (! defined('ABSPATH')) {
@@ -22,41 +20,57 @@ if (! defined('ABSPATH')) {
  * Deactivation only ever reduces what a snippet is allowed to do, so it is
  * free tier and requires nothing but manage_options. It is still audited,
  * because the activation state of an exec-adjacent object is exactly what
- * the governance trail is for. "Still audited" means every attempt, not
- * only the ones that work: the whole body runs inside one
- * try/catch(\Throwable) so an unknown id, a Mutation_Failed from the
- * snapshot and a rejected store write all reach the trail as denials before
- * they are rethrown. Snapshot-first per record; never executes.
+ * the governance trail is for. Audited means every attempt that reaches a
+ * stored record, allowed or failed: a Mutation_Failed from the snapshot or
+ * a rejected store write lands in the trail as a denial before it is
+ * rethrown. A missing or unknown id is refused WITHOUT an entry: this tool
+ * is free and ungated, and auditing every bogus id would let any caller
+ * flush the 500-entry ring that also holds the exec-gate trail.
+ *
+ * Deactivating a snippet that is already inactive changes nothing, so it
+ * reports changed: false and writes no snapshot rather than burning a
+ * history slot. Snapshot-first per record otherwise; never executes.
  */
 class Deactivate_Php_Snippet
 {
     public function handle(array $args): array
-    {
-        try {
-            $result = $this->deactivate($args);
-        } catch (\Throwable $e) {
-            $this->audit(false);
-            throw $e;
-        }
-
-        $this->audit(true);
-
-        return $result;
-    }
-
-    /** The deactivation itself; see handle() for why it is wrapped. */
-    private function deactivate(array $args): array
     {
         $id = trim((string) ($args['id'] ?? ''));
         if ('' === $id) {
             throw new \InvalidArgumentException('A snippet id is required.');
         }
 
-        if (! Php_Snippet_Store::exists($id)) {
+        $snippet = Php_Snippet_Store::get($id);
+        if (null === $snippet) {
+            // Deliberately not audited; see the class docblock.
             throw new \RuntimeException(sprintf('No stored snippet with id "%s".', esc_html($id)));
         }
 
-        $snippet = null;
+        try {
+            $result = $this->deactivate($id, $snippet, $args);
+        } catch (\Throwable $e) {
+            Php_Snippet_Guard::audit('wpmcp/deactivate-php-snippet', false, Php_Snippet_Guard::refusal_class($e));
+            throw $e;
+        }
+
+        Php_Snippet_Guard::audit('wpmcp/deactivate-php-snippet', true, $result['changed'] ? '' : 'already_inactive');
+
+        return $result;
+    }
+
+    /** The deactivation itself, on a record known to exist. */
+    private function deactivate(string $id, array $snippet, array $args): array
+    {
+        if (Php_Snippet_Store::STATUS_ACTIVE !== ($snippet['status'] ?? Php_Snippet_Store::STATUS_INACTIVE)) {
+            return [
+                'snippet'      => $snippet,
+                'changed'      => false,
+                'operation_id' => null,
+                'recoverable'  => false,
+            ];
+        }
+
+        $updated = null;
 
         $out = Safe_Mutation::run(
             [
@@ -66,30 +80,16 @@ class Deactivate_Php_Snippet
                 'tool_name'   => 'deactivate-php-snippet',
                 'args'        => $args,
             ],
-            function () use ($id, &$snippet): void {
-                $snippet = Php_Snippet_Store::set_status($id, Php_Snippet_Store::STATUS_INACTIVE);
+            function () use ($id, &$updated): void {
+                $updated = Php_Snippet_Store::set_status($id, Php_Snippet_Store::STATUS_INACTIVE);
             }
         );
 
         return [
-            'snippet'      => $snippet,
+            'snippet'      => $updated,
+            'changed'      => true,
             'operation_id' => $out['operation_id'],
             'recoverable'  => true,
         ];
-    }
-
-    /**
-     * Same shape as Activate_Php_Snippet::audit(). A deactivation that
-     * happened is an allow; one that was refused or failed is a denial, and
-     * the trail records the difference rather than only the happy path.
-     */
-    private function audit(bool $allowed): void
-    {
-        try {
-            $identity = Identity_Context::current() ?? 'none';
-            Governance_Audit_Log::record('wpmcp/deactivate-php-snippet', $identity, $allowed);
-        } catch (\Throwable $e) {
-            // Auditing must never break (or block) the outcome it observes.
-        }
     }
 }

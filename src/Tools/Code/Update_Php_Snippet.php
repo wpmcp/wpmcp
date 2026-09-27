@@ -68,19 +68,27 @@ class Update_Php_Snippet
             throw new \InvalidArgumentException('Provide a new name and/or code to update.');
         }
 
+        $current = Php_Snippet_Store::get($id);
+
+        // A field resubmitted with the value already stored is not a change.
+        // Identical code has not left the approval it was activated under, so
+        // it is neither re-validated nor silently deactivated, and a request
+        // that changes nothing at all is refused BEFORE Safe_Mutation, so it
+        // neither burns a history slot nor bumps updated_at.
+        if ($has_code && (string) $args['code'] === (string) ($current['code'] ?? '')) {
+            $has_code = false;
+        }
+        if ($has_name && $name === (string) ($current['name'] ?? '')) {
+            $has_name = false;
+        }
+        if (! $has_name && ! $has_code) {
+            throw new \InvalidArgumentException('Nothing to update: the name and code given match what is already stored.');
+        }
+
         $fields = [];
 
         if ($has_name) {
             $fields['name'] = $name;
-        }
-
-        $current = Php_Snippet_Store::get($id);
-
-        // Identical code is not a code change: it has not left the approval
-        // it was activated under, so it is neither re-validated nor silently
-        // deactivated. Only a real change re-enters the governed flow.
-        if ($has_code && (string) $args['code'] === (string) ($current['code'] ?? '')) {
-            $has_code = false;
         }
 
         if ($has_code) {

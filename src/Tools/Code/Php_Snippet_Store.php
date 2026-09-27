@@ -126,8 +126,9 @@ class Php_Snippet_Store
         }
 
         if (! update_option(self::OPTION_NAME, $snippets, false)) {
-            throw new \RuntimeException(
-                'Refusing to report success: the snippet store write did not persist. The most likely cause is the stored size exceeding the database packet limit; lower wpmcp_php_snippet_max_total_bytes or delete a snippet.'
+            throw new Php_Snippet_Refusal(
+                'Refusing to report success: the snippet store write did not persist. The most likely cause is the stored size exceeding the database packet limit; lower wpmcp_php_snippet_max_total_bytes or delete a snippet.',
+                'store_write_failed'
             );
         }
     }
@@ -166,11 +167,11 @@ class Php_Snippet_Store
     {
         $snippet = self::get($id);
         if (null === $snippet) {
-            throw new \RuntimeException(sprintf('No stored snippet with id "%s"; it was removed since this operation started.', esc_html($id)));
+            throw new Php_Snippet_Refusal(sprintf('No stored snippet with id "%s"; it was removed since this operation started.', esc_html($id)), 'snippet_missing');
         }
 
         if (null !== $expected_code_hash && ! hash_equals($expected_code_hash, hash('sha256', (string) ($snippet['code'] ?? '')))) {
-            throw new \RuntimeException('Refusing to write snippet: its code changed after it was checked. Re-read the snippet and try again.');
+            throw new Php_Snippet_Refusal('Refusing to write snippet: its code changed after it was checked. Re-read the snippet and try again.', 'code_moved');
         }
 
         $snippet               = array_merge($snippet, $fields);

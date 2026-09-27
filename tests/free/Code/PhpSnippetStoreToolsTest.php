@@ -269,6 +269,23 @@ class PhpSnippetStoreToolsTest extends \WP_UnitTestCase
         $this->assertSame('keep-me', Php_Snippet_Store::get($id)['name']);
     }
 
+    public function test_an_update_that_changes_nothing_is_refused_without_a_write(): void
+    {
+        $id      = $this->create('same', '<?php return 1;')['snippet']['id'];
+        $stamp   = Php_Snippet_Store::get($id)['updated_at'];
+        $before  = $this->snapshot_count();
+
+        try {
+            (new Update_Php_Snippet())->handle(['id' => $id, 'code' => '<?php return 1;']);
+            $this->fail('Resubmitting the stored code alone is not an update.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('nothing to update', strtolower($e->getMessage()));
+        }
+
+        $this->assertSame($before, $this->snapshot_count());
+        $this->assertSame($stamp, Php_Snippet_Store::get($id)['updated_at']);
+    }
+
     public function test_an_update_with_identical_code_does_not_deactivate(): void
     {
         $id = $this->create('same', '<?php return 1;')['snippet']['id'];
@@ -656,8 +673,10 @@ class PhpSnippetStoreToolsTest extends \WP_UnitTestCase
     // deactivation is audited on the paths that fail, not only the one that works
     // -----------------------------------------------------------------
 
-    public function test_a_refused_deactivation_is_still_written_to_the_governance_trail(): void
+    public function test_a_deactivation_of_an_unknown_id_does_not_write_to_the_governance_trail(): void
     {
+        // A free, ungated tool must not be able to flush the 500-entry
+        // exec-gate trail with a loop of bogus ids.
         $before = count($this->audit_entries());
 
         try {
@@ -667,12 +686,44 @@ class PhpSnippetStoreToolsTest extends \WP_UnitTestCase
             // expected
         }
 
-        $entries = $this->audit_entries();
-        $this->assertGreaterThan($before, count($entries), 'A refused deactivation must reach the audit trail.');
+        $this->assertSame($before, count($this->audit_entries()));
+    }
 
-        $newest = $entries[0];
+    public function test_a_deactivation_that_fails_on_a_stored_record_is_audited_as_a_denial(): void
+    {
+        $id = $this->create()['snippet']['id'];
+        Php_Snippet_Store::set_status($id, Php_Snippet_Store::STATUS_ACTIVE);
+
+        $fail = static function () {
+            throw new \RuntimeException('write refused');
+        };
+        add_filter('pre_update_option_' . Php_Snippet_Store::OPTION_NAME, $fail);
+
+        try {
+            (new Deactivate_Php_Snippet())->handle(['id' => $id]);
+            $this->fail('A failed store write must surface.');
+        } catch (\RuntimeException $e) {
+            // expected
+        } finally {
+            remove_filter('pre_update_option_' . Php_Snippet_Store::OPTION_NAME, $fail);
+        }
+
+        $newest = $this->audit_entries()[0];
         $this->assertSame('wpmcp/deactivate-php-snippet', $newest['ability']);
-        $this->assertFalse((bool) $newest['allowed'], 'A refusal must be recorded as a denial, not an allow.');
+        $this->assertFalse((bool) $newest['allowed']);
+        $this->assertNotSame('', (string) $newest['reason'], 'A denial carries its refusal class.');
+    }
+
+    public function test_deactivating_an_already_inactive_snippet_writes_nothing(): void
+    {
+        $id     = $this->create()['snippet']['id'];
+        $before = $this->snapshot_count();
+
+        $out = (new Deactivate_Php_Snippet())->handle(['id' => $id]);
+
+        $this->assertFalse($out['changed']);
+        $this->assertNull($out['operation_id']);
+        $this->assertSame($before, $this->snapshot_count(), 'A no-op must not burn a history slot.');
     }
 
     /** Newest-first governance trail entries. */
@@ -698,6 +749,55 @@ class PhpSnippetStoreToolsTest extends \WP_UnitTestCase
         $this->assertTrue(Option_Guard::is_denylisted("wpmcp_php_snipp\u{00E9}ts"), 'An accent variant matches the same row under the default collation.');
         $this->assertTrue(Option_Guard::is_denylisted('SITEURL'), 'The fold applies to every exact-name entry, not only the snippet store.');
         $this->assertFalse(Option_Guard::is_denylisted('blogname'));
+    }
+
+    /**
+     * Collation-ignorable code points (zero-width space, soft hyphen) survive
+     * remove_accents() but are skipped by utf8mb4_unicode_ci, so such a name
+     * lands on the real row. Option names are ASCII in practice: anything
+     * outside printable ASCII is refused outright by the generic option tools.
+     */
+    public function test_names_with_invisible_or_non_ascii_characters_are_refused(): void
+    {
+        foreach (["wpmcp_php_snippets\u{200B}", "wpmcp_php_\u{00AD}snippets", "blog\u{00E9}name", "blogname\x07"] as $name) {
+            $this->assertFalse(Option_Guard::is_plain_name($name), 'Not a plain ASCII option name: ' . bin2hex($name));
+            $this->assertTrue(Option_Guard::is_denylisted($name), 'A non-plain name must be treated as denied: ' . bin2hex($name));
+        }
+
+        $this->assertTrue(Option_Guard::is_plain_name('blogname'));
+        $this->assertTrue(Option_Guard::is_plain_name('_transient_wc-foo.bar:1'));
+    }
+
+    public function test_update_option_refuses_a_zero_width_variant_of_the_snippet_store(): void
+    {
+        add_filter('wpmcp_enable_option_write', '__return_true');
+        $this->create('keep', '<?php return 1;');
+
+        try {
+            (new \WPMCP\Tools\Meta\Update_Option())->handle(['name' => "wpmcp_php_snippets\u{200B}", 'value' => []]);
+            $this->fail('A zero-width variant of the store name must be refused.');
+        } catch (\RuntimeException $e) {
+            $this->assertNotEmpty($e->getMessage());
+        } finally {
+            remove_all_filters('wpmcp_enable_option_write');
+        }
+
+        $this->assertCount(1, Php_Snippet_Store::all());
+    }
+
+    public function test_filter_supplied_patterns_are_folded_like_the_name(): void
+    {
+        $add = static function (array $patterns): array {
+            $patterns[] = '  MyVendor_Token ';
+            return $patterns;
+        };
+        add_filter('wpmcp_option_denylist_patterns', $add);
+
+        try {
+            $this->assertTrue(Option_Guard::is_denylisted('myvendor_token_cache'));
+        } finally {
+            remove_filter('wpmcp_option_denylist_patterns', $add);
+        }
     }
 
     public function test_activation_is_listed_as_an_rce_class_gated_ability(): void

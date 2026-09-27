@@ -821,8 +821,11 @@ $plugin_edits[] = [
     1,
 ];
 // The PHP snippet store (issue #85) ships here; ACTIVATING a stored snippet
-// does not, so neither may the prose that points a reviewer (or an agent) at
-// an ability and a method this zip does not contain. Deactivation itself
+// does not. Agent-facing ability descriptions and the readme must not point
+// at an ability this zip lacks, so those strings are rewritten. Docblocks may
+// still name stripped classes and abilities (COMPLIANCE.md, "What the strip
+// rewrites"); the one docblock edited below is edited only because it
+// describes a pro tier, which the build's prose gate rejects. Deactivation itself
 // stays and is not a no-op: a site that ran the full plugin and then swapped
 // to this build can still carry an active snippet in wp_options, and
 // revoking it must never require reinstalling the paid surface.
@@ -919,55 +922,6 @@ $edits['src/MCP/Server.php'] = [
             . "     * without a licence, governance-disabled, memory-blocked) is absent from\n",
         "     * Registrar, so an ability that was declared but gated away\n"
             . "     * (governance-disabled, memory-blocked) is absent from\n",
-        1,
-    ],
-];
-
-// ------------------------------------------------------- Php_Snippet_Guard
-// The guard ships (Governance\Opt_In_Gates references it) but the two
-// surfaces its docblock names as callers do not, so its prose is rewritten to
-// say this build has nothing that runs PHP.
-$edits['src/Tools/Code/Php_Snippet_Guard.php'] = [
-    [
-        " * Security core for the guarded PHP snippet executor (issue #45). This is\n"
-            . " * the single most dangerous feature in the plugin: running arbitrary PHP is\n"
-            . " * remote code execution by definition, and it cannot be sandboxed in-process\n"
-            . " * or made undoable. Every guard Run_Php_Snippet relies on lives here as a\n"
-            . " * pure, independently testable check, mirroring Wp_Cli_Guard's shape:\n"
-            . " * enable/disable and environment refusal live here; Run_Php_Snippet composes\n"
-            . " * these checks and is the only caller that ever actually evaluates a\n"
-            . " * snippet.\n"
-            . " *\n"
-            . " * This tool is the ONE explicit escape hatch outside the snapshot/rollback\n"
-            . " * safety model: its effects are not captured and not undoable, and enabling\n"
-            . " * it grants RCE to anyone who can call it with manage_options. The product's\n"
-            . " * \"AI physically can't wreck your site\" promise holds only because this is\n"
-            . " * default-off, dev-only, and must be deliberately enabled.\n",
-        " * The PHP snippet execution gate (issue #45). THIS BUILD SHIPS NO PHP\n"
-            . " * EXECUTOR AND NO ABILITY THAT RUNS PHP, so nothing here can evaluate\n"
-            . " * anything; the class is kept because Governance\\Opt_In_Gates names\n"
-            . " * the same enablement flag when it reports which gates are open.\n"
-            . " *\n"
-            . " * Both checks fail closed: execution is off unless deliberately\n"
-            . " * enabled, and refused outright on production or on any environment\n"
-            . " * that cannot be positively identified as local, development or\n"
-            . " * staging.\n",
-        1,
-    ],
-    [
-        "     * The execution gate chain, in order, as ONE shared refusal. Both\n"
-            . "     * surfaces that can put a snippet on the path to running call this:\n"
-            . "     * Run_Php_Snippet::guard() before it evaluates anything, and\n"
-            . "     * Activate_Php_Snippet before it marks a stored snippet active. It\n"
-            . "     * lives here rather than being re-typed at each call site so a third\n"
-            . "     * gate added to this chain applies to every such surface at once,\n"
-            . "     * which is the drift the split between \"execution\" and\n"
-            . "     * \"exec-adjacent\" would otherwise invite.\n",
-        "     * The execution gate chain, in order, as ONE shared refusal. Every\n"
-            . "     * surface that can put a snippet on the path to running asks this\n"
-            . "     * one question rather than re-typing the checks, so a third gate\n"
-            . "     * added here applies to all of them at once. This build ships no\n"
-            . "     * such surface, so nothing here calls it.\n",
         1,
     ],
 ];

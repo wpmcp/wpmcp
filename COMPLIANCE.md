@@ -221,6 +221,10 @@ Keeping the Freemius SDK in the directory build is defensible once the gating is
 
 Two slugs is the clean end state: the free plugin on wp.org, and the pro add-on distributed off-directory. Note guideline 3 then applies — the directory copy has to be released in lockstep, not left stale.
 
+### What the strip rewrites
+
+`scripts/flavors/wporg/strip.php` rewrites what a user, an agent or a reviewer reads as a statement about the plugin: ability descriptions (what an MCP client shows), the readme, and any text that describes a paid tier (gate 3's prose check fails the build on it, docblocks included). It does not chase docblocks that merely name a class or ability the directory build removes, such as `Activate_Php_Snippet` or `run-php-snippet` in a code comment. Those are developer cross-references, not claims about functionality, and rewriting each one string by string made every docblock edit in the source tree a potential build break. What stops a removed class from being used is gate 4 (`scripts/lib/class-ref-gate.php`), not the prose.
+
 ---
 
 ## Engine changes this run

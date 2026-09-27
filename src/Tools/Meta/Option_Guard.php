@@ -75,6 +75,16 @@ class Option_Guard
         // accent-insensitive collation by default, so 'SITEURL' or a padded
         // or accented variant reaches the very same row a strict in_array()
         // would wave through.
+        //
+        // Folding cannot see collation-IGNORABLE code points: a zero-width
+        // space or a soft hyphen survives remove_accents() but is skipped by
+        // utf8mb4_unicode_ci, so 'wpmcp_php_snippets' plus U+200B lands on
+        // the real row. Option names are printable ASCII in practice, so any
+        // name that is not is treated as denied outright rather than folded.
+        if (! self::is_plain_name($name)) {
+            return true;
+        }
+
         $folded = self::fold($name);
         foreach ($denylisted_names as $denylisted) {
             if ($folded === self::fold((string) $denylisted)) {
@@ -82,14 +92,27 @@ class Option_Guard
             }
         }
 
-        $lower = $folded;
+        // Patterns are folded like the name, including the ones a filter
+        // supplies, so '  MyVendor_Token ' matches as 'myvendor_token'.
         foreach ($denylisted_patterns as $pattern) {
-            if ('' !== $pattern && false !== strpos($lower, strtolower((string) $pattern))) {
+            $pattern = self::fold((string) $pattern);
+            if ('' !== $pattern && false !== strpos($folded, $pattern)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * Whether an option name is printable ASCII only (0x20 to 0x7E). Anything
+     * else, a control character, a non-ASCII letter or an invisible format
+     * character, can match a different row than it appears to under the
+     * database collation, so the generic option tools refuse it.
+     */
+    public static function is_plain_name(string $name): bool
+    {
+        return 1 === preg_match('/\A[\x20-\x7E]*\z/', $name);
     }
 
     /** Trimmed, accent-stripped, lower-cased form of an option name. */

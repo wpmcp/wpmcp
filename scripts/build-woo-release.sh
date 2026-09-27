@@ -259,27 +259,11 @@ esac
 # is the mistake this catches, and the one it was written for: pruning
 # Php_Snippet_Store.php built green and fataled at runtime on any pre-existing
 # php_snippet snapshot row. Same technique as gate 4 in
-# build-wporg-release.sh, resolved against composer's authoritative classmap.
-php -r '
-$map = require $argv[1] . "/vendor/composer/autoload_classmap.php";
-$known = [];
-foreach (array_keys($map) as $class) { $known[strtolower($class)] = true; }
-$missing = [];
-$it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($argv[1] . "/src/Safety"));
-foreach ($it as $f) {
-    if ($f->getExtension() !== "php") { continue; }
-    $src = file_get_contents($f->getPathname());
-    preg_match_all("/^use\s+(WPMCP\\\\[A-Za-z0-9_\\\\]+);/m", $src, $uses);
-    preg_match_all("/new\s+(\\\\?WPMCP\\\\[A-Za-z0-9_\\\\]+)\s*\(/", $src, $news);
-    preg_match_all("/(\\\\?WPMCP\\\\[A-Za-z0-9_\\\\]+)::/", $src, $statics);
-    $named = array_merge($uses[1], $news[1], $statics[1]);
-    foreach ($named as $class) {
-        $class = ltrim($class, "\\\\");
-        if (!isset($known[strtolower($class)])) { $missing[] = $f->getPathname() . " -> " . $class; }
-    }
-}
-if ($missing) { fwrite(STDERR, implode("\n", array_unique($missing)) . "\n"); exit(1); }
-' "$STAGE" || { echo "ERROR: the $SLUG safety core names a class the build does not ship" >&2; exit 1; }
+# build-wporg-release.sh (both call scripts/lib/class-ref-gate.php, which
+# also resolves aliased, comma-listed and grouped imports), resolved against
+# composer's authoritative classmap.
+php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src/Safety \
+  || { echo "ERROR: the $SLUG safety core names a class the build does not ship" >&2; exit 1; }
 
 mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
