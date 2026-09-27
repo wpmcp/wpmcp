@@ -78,10 +78,12 @@ class Compile_Custom_Widget
             );
         }
 
-        $source = Widget_Compiler::compile($spec, $widget_id);
-        if (is_wp_error($source)) {
-            return $source;
+        $built = Widget_Compiler::build($spec, $widget_id);
+        if (is_wp_error($built)) {
+            return $built;
         }
+        $source = $built['source'];
+        $class  = $built['class'];
 
         $lint = Generated_Code_Lint::check($source);
         if (is_wp_error($lint)) {
@@ -89,10 +91,6 @@ class Compile_Custom_Widget
             return $lint;
         }
 
-        $class = Widget_Compiler::class_name_for($widget_id, (string) ($spec['name'] ?? ''));
-        if (is_wp_error($class)) {
-            return $class;
-        }
         $file = Widget_Compiler::file_name_for($widget_id);
 
         if (! Compiled_Widget_Manifest::protect()) {
@@ -115,14 +113,9 @@ class Compile_Custom_Widget
         // manifest entry still points at.
         $previous = Compiled_Widget_Manifest::capture($widget_id, $file);
 
-        $written = self::write_atomic($path, $source);
-        if (is_wp_error($written)) {
-            return $written;
-        }
-
         $entry = [
             'spec_id'     => $widget_id,
-            'name'        => (string) ($spec['name'] ?? ''),
+            'name'        => $built['name'],
             'class'       => $class,
             'file'        => $file,
             'hash'        => hash('sha256', $source),
@@ -130,30 +123,50 @@ class Compile_Custom_Widget
             'compiled_at' => gmdate('c'),
         ];
 
-        $recorded = null;
-        $out      = Safe_Mutation::run(
-            [
-                'object_type'         => 'option',
-                'object_id'           => Compiled_Widget_Manifest::OPTION,
-                'session_id'          => (string) ($args['session_id'] ?? 'default'),
-                'tool_name'           => 'compile-custom-widget',
-                'args'                => ['widget_id' => $widget_id],
-                // Undo this compile only, bytes and hash together. Restoring
-                // the whole option would also revert every other widget
-                // compiled since the snapshot.
-                'extra_snapshot_data' => ['compiled_widget' => $previous],
-            ],
-            static function () use ($entry, &$recorded): void {
-                $recorded = Compiled_Widget_Manifest::put($entry);
+        // The file write happens INSIDE the operation, after Safe_Mutation has
+        // persisted the snapshot, so the new bytes never reach disk without an
+        // undo point that can put the previous ones back. Anything that throws
+        // once the write has happened (a manifest filter, a failed query)
+        // restores the captured file and entry before the throw escapes.
+        try {
+            $out = Safe_Mutation::run(
+                [
+                    'object_type'         => 'option',
+                    'object_id'           => Compiled_Widget_Manifest::OPTION,
+                    'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                    'tool_name'           => 'compile-custom-widget',
+                    'args'                => ['widget_id' => $widget_id],
+                    // Undo this compile only, bytes and hash together.
+                    // Restoring the whole option would also revert every
+                    // other widget compiled since the snapshot.
+                    'extra_snapshot_data' => ['compiled_widget' => $previous],
+                ],
+                static function () use ($path, $source, $entry) {
+                    $written = self::write_atomic($path, $source);
+                    if (is_wp_error($written)) {
+                        return $written;
+                    }
+                    return Compiled_Widget_Manifest::put($entry);
+                }
+            );
+        } catch (\Throwable $e) {
+            try {
+                Compiled_Widget_Manifest::restore($previous);
+            } catch (\Throwable $ignored) {
+                // restore() puts the bytes back before it touches the option,
+                // so the file is already safe; whatever broke the manifest
+                // write broke this one too. Report the original failure.
+                unset($ignored);
             }
-        );
+            throw $e;
+        }
 
-        if (is_wp_error($recorded)) {
+        if (is_wp_error($out['result'])) {
             // Put back exactly what was there. Unlinking unconditionally
             // would destroy a working compiled widget whose manifest entry
             // survived this failed recompile.
             Compiled_Widget_Manifest::restore($previous);
-            return $recorded;
+            return $out['result'];
         }
 
         Filesystem_Guard::log('compile-widget', 'wp-content/' . Compiled_Widget_Manifest::DIR_NAME . '/' . $file);

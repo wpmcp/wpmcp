@@ -849,28 +849,19 @@ $edits['src/Tools/Connect/List_Tool_Catalog.php'] = [
 ];
 
 // ----------------------------------------------------------- Rollback_Service
-// The compiled-widget undo branch names the compiler's manifest class, which
-// leaves with src/Tools/WidgetBuilder. It is guarded by class_exists() so it
-// could never run here, but the class-reference gate in the build script
-// rejects any name the zip does not ship, guarded or not.
+// The compiled-widget undo helpers resolve the compiler's manifest class,
+// which leaves with src/Tools/WidgetBuilder. The lookup is guarded by
+// class_exists() so it could never succeed here, but the class-reference gate
+// in the build script rejects any name the zip does not ship, guarded or not.
+// Every compiled-widget branch in Rollback_Service goes through this one
+// helper, so returning null here makes all of them inert.
 $edits['src/Safety/Rollback_Service.php'] = [
     [
-        "        // A compiled-widget snapshot carries the single manifest entry it\n"
-            . "        // changed plus the generated file's previous bytes. Restoring those\n"
-            . "        // together is the only correct undo: putting the whole option back\n"
-            . "        // would revert every other widget compiled since, and putting the old\n"
-            . "        // hash back against the new bytes would leave the widget inert.\n"
-            . "        if (\n"
-            . "            ! empty(\$snapshot['data']['compiled_widget']) && is_array(\$snapshot['data']['compiled_widget'])\n"
-            . "            && class_exists('\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Compiler\\\\Compiled_Widget_Manifest')\n"
-            . "        ) {\n"
-            . "            \\WPMCP\\Tools\\WidgetBuilder\\Compiler\\Compiled_Widget_Manifest::restore(\n"
-            . "                \$snapshot['data']['compiled_widget']\n"
-            . "            );\n"
-            . "            return;\n"
-            . "        }\n\n",
+        "        \$class = '\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Compiler\\\\Compiled_Widget_Manifest';\n"
+            . "        return class_exists(\$class) ? \$class : null;\n",
         "        // The widget compiler is part of the off-directory add-on, so no\n"
-            . "        // snapshot in this build carries a compiled-widget payload.\n",
+            . "        // snapshot in this build carries a compiled-widget payload.\n"
+            . "        return null;\n",
         1,
     ],
 ];

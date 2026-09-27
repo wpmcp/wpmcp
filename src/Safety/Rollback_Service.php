@@ -80,6 +80,22 @@ class Rollback_Service
                 $count++;
                 continue;
             }
+            // Compiled-widget manifest changes (issue #72) are unwound the
+            // same way, newest first, every one of them. A compile snapshot
+            // holds ONE widget's entry and bytes, and a status or spec update
+            // holds one widget's enabled flag, so several of them touch the
+            // same widget in different ways; only a reverse-chronological
+            // unwind lands on the pre-session manifest.
+            if (self::is_compiled_widget_snapshot($snapshot)) {
+                self::apply_snapshot($snapshot);
+                $count++;
+                continue;
+            }
+            if (is_array($snapshot['data']['compiled_widget_entry'] ?? null)) {
+                self::restore_compiled_widget_entry($snapshot['data']['compiled_widget_entry']);
+                // The post half still goes through the oldest-first pass.
+                unset($snapshot['data']['compiled_widget_entry']);
+            }
             $legacy[] = $snapshot;
         }
 
@@ -114,6 +130,12 @@ class Rollback_Service
      */
     private static function object_identity(array $snapshot): string
     {
+        // Every compile snapshot is an 'option' snapshot of the ONE shared
+        // manifest option, but it only ever describes one widget. Keyed by the
+        // option name, all compiles in a session collapsed onto one identity.
+        if (self::is_compiled_widget_snapshot($snapshot)) {
+            return 'compiled_widget:' . (int) ($snapshot['data']['compiled_widget']['spec_id'] ?? 0);
+        }
         if ('option' === $snapshot['object_type']) {
             return 'option:' . $snapshot['data']['name'];
         }
@@ -137,6 +159,32 @@ class Rollback_Service
         return $snapshot['object_type'] . ':' . $snapshot['object_id'];
     }
 
+    /** A compile-custom-widget snapshot: one widget's manifest entry plus bytes. */
+    private static function is_compiled_widget_snapshot(array $snapshot): bool
+    {
+        return 'option' === $snapshot['object_type']
+            && is_array($snapshot['data']['compiled_widget'] ?? null);
+    }
+
+    private static function restore_compiled_widget_entry(array $state): void
+    {
+        $manifest = self::compiled_widget_manifest();
+        if (null !== $manifest) {
+            $manifest::restore_entry($state);
+        }
+    }
+
+    /**
+     * The compiled-widget manifest class, when this build ships it. The only
+     * place Rollback_Service names it, so a build without the compiler has
+     * exactly one thing to remove.
+     */
+    private static function compiled_widget_manifest(): ?string
+    {
+        $class = '\\WPMCP\\Tools\\WidgetBuilder\\Compiler\\Compiled_Widget_Manifest';
+        return class_exists($class) ? $class : null;
+    }
+
     /**
      * Restore a WordPress option to its pre-mutation state. Unlike a post,
      * an option has no trash/soft-delete; the only two prior states a
@@ -152,13 +200,9 @@ class Rollback_Service
         // together is the only correct undo: putting the whole option back
         // would revert every other widget compiled since, and putting the old
         // hash back against the new bytes would leave the widget inert.
-        if (
-            ! empty($snapshot['data']['compiled_widget']) && is_array($snapshot['data']['compiled_widget'])
-            && class_exists('\\WPMCP\\Tools\\WidgetBuilder\\Compiler\\Compiled_Widget_Manifest')
-        ) {
-            \WPMCP\Tools\WidgetBuilder\Compiler\Compiled_Widget_Manifest::restore(
-                $snapshot['data']['compiled_widget']
-            );
+        $manifest = self::compiled_widget_manifest();
+        if (null !== $manifest && self::is_compiled_widget_snapshot($snapshot)) {
+            $manifest::restore($snapshot['data']['compiled_widget']);
             return;
         }
 
@@ -393,6 +437,18 @@ class Rollback_Service
      */
     public static function apply_snapshot(array $snapshot): void
     {
+        // A post snapshot that also carries a compiled widget's enabled flag
+        // (set-widget-status, update-custom-widget): restore the post first,
+        // then the flag, so the undo brings back the spec AND the compiled
+        // path it was rendering through.
+        if (is_array($snapshot['data']['compiled_widget_entry'] ?? null)) {
+            $entry = $snapshot['data']['compiled_widget_entry'];
+            unset($snapshot['data']['compiled_widget_entry']);
+            self::apply_snapshot($snapshot);
+            self::restore_compiled_widget_entry($entry);
+            return;
+        }
+
         if ('option' === $snapshot['object_type']) {
             self::apply_option_snapshot($snapshot);
             return;

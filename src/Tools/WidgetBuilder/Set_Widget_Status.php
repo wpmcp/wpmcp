@@ -21,9 +21,11 @@ if (! defined('ABSPATH')) {
  * switch, and the two directions are not equally privileged:
  *
  *  - Disabling always flips. Turning execution OFF must never be blocked.
- *  - Enabling is what makes generated PHP execute again, so it is refused on a
- *    site that has since turned the compiler opt-in off. Otherwise an agent
- *    could undo an operator's deliberate shutdown of the feature.
+ *  - Enabling is what makes generated PHP execute again, so on a site that
+ *    has since turned the compiler opt-in off the entry is STORED disabled
+ *    (and reported so). Otherwise an agent could undo an operator's
+ *    deliberate shutdown, or leave a flag that starts executing the moment
+ *    the filter is turned back on.
  *
  * Neither direction deletes the spec or the generated file, so re-enabling is
  * one call and needs no recompile.
@@ -37,37 +39,46 @@ class Set_Widget_Status
             return new \WP_Error('widget_not_found', "No custom widget found with id {$id}.");
         }
 
-        $status = 'draft' === ($args['status'] ?? '') ? 'draft' : 'publish';
-        $run    = Safe_Mutation::run(
+        $status  = 'draft' === ($args['status'] ?? '') ? 'draft' : 'publish';
+        $enable  = 'publish' === $status;
+        $has     = null !== Compiled_Widget_Manifest::get($id);
+        $allowed = Compile_Custom_Widget::is_enabled();
+
+        // The operation's snapshot carries the compiled entry alongside the
+        // post, so undoing a status change restores both: republishing the
+        // spec while leaving its compiled class off would silently switch the
+        // widget to the dynamic render path.
+        $run = Safe_Mutation::run(
             [
-                'object_type' => 'post',
-                'object_id'   => $id,
-                'session_id'  => (string) ($args['session_id'] ?? 'default'),
-                'tool_name'   => 'set-widget-status',
-                'args'        => $args,
+                'object_type'         => 'post',
+                'object_id'           => $id,
+                'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'           => 'set-widget-status',
+                'args'                => $args,
+                'extra_snapshot_data' => $has ? ['compiled_widget_entry' => Compiled_Widget_Manifest::capture_entry($id)] : [],
             ],
-            static function () use ($id, $status): void {
+            static function () use ($id, $status, $has, $enable, $allowed) {
                 wp_update_post(['ID' => $id, 'post_status' => $status]);
+                if (! $has) {
+                    return null;
+                }
+                // Enabling on a site that has turned the compiler opt-in off
+                // stores the entry as DISABLED, not merely reports it: the
+                // flag is what decides, the moment the filter comes back on,
+                // whether generated PHP executes again.
+                return Compiled_Widget_Manifest::set_enabled($id, $enable && $allowed);
             }
         );
 
-        $enable   = 'publish' === $status;
-        $compiled = null;
-        $note     = null;
-
-        if (null === Compiled_Widget_Manifest::get($id)) {
-            $compiled = null; // Not compiled; nothing to flip.
-        } elseif ($enable && ! Compile_Custom_Widget::is_enabled()) {
-            $compiled = false;
-            $note     = 'The widget compiler is disabled on this site, so the compiled class stays off; the spec still renders dynamically.';
-        } else {
-            $flipped = Compiled_Widget_Manifest::set_enabled($id, $enable);
-            if (is_wp_error($flipped)) {
-                // Do not swallow a failed write as "not compiled".
-                return $flipped;
-            }
-            $compiled = $enable;
+        if (is_wp_error($run['result'])) {
+            // Do not swallow a failed write as "not compiled".
+            return $run['result'];
         }
+
+        $compiled = $has ? ($enable && $allowed) : null;
+        $note     = ($has && $enable && ! $allowed)
+            ? 'The widget compiler is disabled on this site, so the compiled class is stored as disabled; the spec renders dynamically. Re-enable it with set-widget-status after turning the compiler back on.'
+            : null;
 
         $out = [
             'widget_id'        => $id,

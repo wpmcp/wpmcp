@@ -35,19 +35,42 @@ class Update_Custom_Widget
         $spec  = is_array($args['spec'] ?? null) ? $args['spec'] : [];
         $valid = Widget_Spec::validate($spec);
         if (is_wp_error($valid)) {
-            return $valid;
+            return self::explain_legacy($id, $valid);
         }
+
+        // Capture the compiled entry with the post, so undoing this update
+        // restores the previous spec AND re-enables the compiled class that
+        // was rendering it.
+        $compiled = null !== Compiler\Compiled_Widget_Manifest::get($id);
+        $captured = Compiler\Compiled_Widget_Manifest::capture_entry($id);
 
         $run = Safe_Mutation::run(
             [
-                'object_type' => 'post',
-                'object_id'   => $id,
-                'session_id'  => (string) ($args['session_id'] ?? 'default'),
-                'tool_name'   => 'update-custom-widget',
-                'args'        => $args,
+                'object_type'         => 'post',
+                'object_id'           => $id,
+                'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'           => 'update-custom-widget',
+                'args'                => $args,
+                'extra_snapshot_data' => $compiled ? ['compiled_widget_entry' => $captured] : [],
             ],
-            static function () use ($id, $spec) {
-                return Widget_Spec_Store::update($id, $spec);
+            static function () use ($id, $spec, $compiled, $captured) {
+                // Disable the stale compiled class FIRST. If that write fails,
+                // the spec is not touched: accepting the update while the old
+                // class keeps winning at registration would be a silent no-op
+                // on the front end.
+                if ($compiled) {
+                    $off = Compiler\Compiled_Widget_Manifest::set_enabled($id, false);
+                    if (is_wp_error($off)) {
+                        return $off;
+                    }
+                }
+                $updated = Widget_Spec_Store::update($id, $spec);
+                if (is_wp_error($updated) && $compiled) {
+                    // The spec stayed as it was, so its compiled class is
+                    // still the right one to render.
+                    Compiler\Compiled_Widget_Manifest::restore_entry($captured);
+                }
+                return $updated;
             }
         );
         if (is_wp_error($run['result'])) {
@@ -57,12 +80,37 @@ class Update_Custom_Widget
         $out                 = Create_Custom_Widget::response($id, $spec);
         $out['operation_id'] = $run['operation_id'];
 
-        if (null !== Compiler\Compiled_Widget_Manifest::get($id)) {
-            Compiler\Compiled_Widget_Manifest::set_enabled($id, false);
+        if ($compiled) {
             $out['compiled_disabled'] = true;
             $out['note']              = 'This widget had a compiled class built from the previous spec. It has been disabled so the updated spec is what renders; run compile-custom-widget to compile the new spec.';
         }
 
         return $out;
+    }
+
+    /**
+     * A spec stored before the current validation rules keeps rendering
+     * (Widget_Spec::is_renderable()), but an update is a new write and must
+     * meet them. When the stored spec itself fails, say so and name the
+     * field, so an agent resubmitting the spec it just read knows exactly
+     * what to change rather than seeing a bare refusal.
+     */
+    private static function explain_legacy(int $id, \WP_Error $error): \WP_Error
+    {
+        $stored = Widget_Spec_Store::get($id);
+        if (! is_array($stored) || true === Widget_Spec::validate($stored)) {
+            return $error;
+        }
+        $data  = (array) $error->get_error_data();
+        $field = (string) ($data['field'] ?? '');
+        $data['stored_spec_predates_rules'] = true;
+
+        return new \WP_Error(
+            $error->get_error_code(),
+            $error->get_error_message()
+                . ' This widget was stored under older, looser rules and still renders as stored; the update has to fix '
+                . ('' !== $field ? $field : 'the field named above') . ' before it can be saved.',
+            $data
+        );
     }
 }

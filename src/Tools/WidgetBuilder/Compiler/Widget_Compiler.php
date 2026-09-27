@@ -44,6 +44,21 @@ class Widget_Compiler
      */
     public static function compile(array $spec, int $spec_id)
     {
+        $built = self::build($spec, $spec_id);
+        return is_wp_error($built) ? $built : $built['source'];
+    }
+
+    /**
+     * compile(), plus the class name and machine name the source was emitted
+     * with. The caller records exactly these in the manifest; recomputing
+     * them from the raw spec could diverge from what normalize() produced
+     * (an empty name derives from the title), and the loader would then look
+     * for a class the file never declares.
+     *
+     * @return array{source:string,class:string,name:string}|\WP_Error
+     */
+    public static function build(array $spec, int $spec_id)
+    {
         $valid = Widget_Spec::validate($spec);
         if (is_wp_error($valid)) {
             return $valid;
@@ -81,7 +96,11 @@ class Widget_Compiler
             ];
         }
 
-        return self::emit($class, $spec_id, $spec, $controls);
+        return [
+            'source' => self::emit($class, $spec_id, $spec, $controls),
+            'class'  => $class,
+            'name'   => (string) $spec['name'],
+        ];
     }
 
     /**

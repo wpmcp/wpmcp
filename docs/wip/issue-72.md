@@ -160,6 +160,35 @@ the trash is reversible, so `restore-post` alone is a complete undo.
 - Registration uses `Widget_Spec::is_renderable()`, a structural check, so
   specs stored before the stricter write-time `validate()` keep rendering.
 
+### Coordinator review fixes
+
+- Session undo: compile snapshots and the compiled-entry half of status and
+  spec-update snapshots are unwound newest first in `restore_session()`'s
+  first pass (like `db_rows`), and a compile snapshot's identity is
+  `compiled_widget:<spec_id>` rather than the shared option name, so every
+  compile in a session is undone, not only the oldest.
+- `set-widget-status` and `update-custom-widget` attach the manifest entry to
+  their post snapshot (`compiled_widget_entry`); `Rollback_Service` restores
+  the post, then the flag. `restore_entry()` only puts the flag back while the
+  entry still vouches for the same hash, so it never re-enables a different
+  build.
+- `compile-custom-widget` writes the file INSIDE the `Safe_Mutation` closure,
+  after the snapshot is persisted, and restores the captured file and entry
+  if anything throws.
+- `update-custom-widget` disables the stale compiled class first and leaves
+  the spec untouched when that write fails; `Compiled_Widget_Manifest::write()`
+  reads back and reports a refused write instead of trusting
+  `update_option()`.
+- Enabling while the compiler opt-in is off stores the entry as disabled.
+- `Widget_Compiler::build()` returns the class and name it emitted; the
+  manifest records those.
+- `list-custom-widgets` computes `loadable()` once.
+- `is_renderable()` keeps the duplicate-name check.
+- Validation errors name their field (`field` in the error data and in the
+  message); an update refused on a spec stored under the older rules says so.
+  `cloud-pull-assets` reports every refused asset under `skipped` with the
+  reason.
+
 ## Acceptance criteria
 
 - [x] validate-spec rejects malformed/hostile specs without side effects

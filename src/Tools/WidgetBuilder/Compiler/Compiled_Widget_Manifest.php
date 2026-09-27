@@ -274,6 +274,13 @@ class Compiled_Widget_Manifest
         }
 
         update_option(self::OPTION, $clean, false);
+        // update_option() reports false both for "unchanged" and for "refused"
+        // (a pre_update_option filter, a failed query), so read back instead:
+        // a caller that tells an agent a compiled class is now off must not
+        // say so while the stored flag still says on.
+        if (get_option(self::OPTION, []) != $clean) { // phpcs:ignore Universal.Operators.StrictComparisons.LooseNotEqual -- option round-trips may reorder nothing but can retype scalars; structural equality is the point.
+            return new \WP_Error('wpmcp_widget_manifest_write_failed', 'The compiled-widget manifest could not be written.');
+        }
         return true;
     }
 
@@ -324,6 +331,47 @@ class Compiled_Widget_Manifest
         $entries[ $spec_id ]['enabled'] = $enabled;
         $written = self::write($entries);
         return true === $written ? true : $written;
+    }
+
+    /**
+     * The manifest ENTRY alone (no file bytes), for operations that change a
+     * compiled widget's enabled flag but not its code: set-widget-status and
+     * update-custom-widget attach this to their post snapshot so undoing them
+     * restores the compiled path together with the spec.
+     *
+     * @return array{spec_id:int,entry:?array<string,mixed>,entry_only:bool}
+     */
+    public static function capture_entry(int $spec_id): array
+    {
+        return ['spec_id' => $spec_id, 'entry' => self::get($spec_id), 'entry_only' => true];
+    }
+
+    /**
+     * Put back the enabled flag an entry-only capture recorded.
+     *
+     * Only the flag, and only while the entry still vouches for the same
+     * bytes it did at capture time. A flag belongs to a specific compile: if
+     * the widget has been recompiled (or purged) since, the capture no longer
+     * describes it, and restoring it would re-enable or disable a different
+     * build. Session undo unwinds every manifest change newest first, so by
+     * the time an older capture is applied, the later compiles are already
+     * gone and the hashes line up again.
+     *
+     * @param array<string,mixed> $state
+     * @return true|\WP_Error|null null when there was nothing to restore.
+     */
+    public static function restore_entry(array $state)
+    {
+        $spec_id  = isset($state['spec_id']) ? (int) $state['spec_id'] : 0;
+        $captured = isset($state['entry']) && is_array($state['entry']) ? $state['entry'] : null;
+        $current  = $spec_id > 0 ? self::get($spec_id) : null;
+        if (null === $captured || null === $current || ! isset($captured['hash']) || ! is_string($captured['hash'])) {
+            return null;
+        }
+        if (! hash_equals($current['hash'], strtolower($captured['hash']))) {
+            return null;
+        }
+        return self::set_enabled($spec_id, ! empty($captured['enabled']));
     }
 
     public static function remove(int $spec_id): bool
@@ -566,9 +614,13 @@ class Compiled_Widget_Manifest
      * recompile. Without this surfaced, that divergence is invisible from
      * every read tool.
      *
+     * $loadable is the result of loadable(), when a caller reporting many
+     * widgets has already computed it: loadable() hashes every compiled file,
+     * so computing it per row would be quadratic.
+     *
      * @return array<string,mixed>
      */
-    public static function status_for(int $spec_id, ?array $spec = null): array
+    public static function status_for(int $spec_id, ?array $spec = null, ?array $loadable = null): array
     {
         $entry = self::get($spec_id);
         if (null === $entry) {
@@ -593,7 +645,7 @@ class Compiled_Widget_Manifest
             'enabled'         => $entry['enabled'],
             'compiled_at'     => $entry['compiled_at'],
             'file_present'    => '' !== $path && is_file($path),
-            'loading'         => isset(self::loadable()[ $spec_id ]),
+            'loading'         => isset(($loadable ?? self::loadable())[ $spec_id ]),
             'stale'           => $stale,
         ];
     }

@@ -69,90 +69,95 @@ class Widget_Spec
     {
         $title = $spec['title'] ?? '';
         if (! is_string($title) || '' === trim($title)) {
-            return new \WP_Error('invalid_spec', 'A non-empty title is required.');
+            return self::invalid('invalid_spec', 'title', 'A non-empty title is required.');
         }
         if (strlen($title) > self::MAX_TEXT) {
-            return new \WP_Error('invalid_spec', sprintf('The title is longer than %d bytes.', self::MAX_TEXT));
+            return self::invalid('invalid_spec', 'title', sprintf('The title is longer than %d bytes.', self::MAX_TEXT));
         }
         if (isset($spec['name']) && (! is_string($spec['name']) || strlen($spec['name']) > self::MAX_TEXT)) {
-            return new \WP_Error('invalid_spec', 'The name must be a short string.');
+            return self::invalid('invalid_spec', 'name', 'The name must be a short string.');
         }
         if (isset($spec['icon']) && (! is_string($spec['icon']) || 1 !== preg_match('/^[A-Za-z0-9_\- ]{1,100}$/', $spec['icon']))) {
-            return new \WP_Error('invalid_spec', 'The icon must be an icon class name (letters, digits, "-", "_" and spaces).');
+            return self::invalid('invalid_spec', 'icon', 'The icon must be an icon class name (letters, digits, "-", "_" and spaces).');
         }
         if (isset($spec['keywords'])) {
             $keywords = $spec['keywords'];
             if (! is_array($keywords) || count($keywords) > self::MAX_KEYWORDS) {
-                return new \WP_Error('invalid_spec', sprintf('Keywords must be a list of at most %d strings.', self::MAX_KEYWORDS));
+                return self::invalid('invalid_spec', 'keywords', sprintf('Keywords must be a list of at most %d strings.', self::MAX_KEYWORDS));
             }
             foreach ($keywords as $keyword) {
                 if (! is_string($keyword) || strlen($keyword) > self::MAX_TEXT) {
-                    return new \WP_Error('invalid_spec', 'Each keyword must be a short string.');
+                    return self::invalid('invalid_spec', 'keywords', 'Each keyword must be a short string.');
                 }
             }
         }
 
         $controls = $spec['controls'] ?? null;
         if (! is_array($controls) || [] === $controls) {
-            return new \WP_Error('invalid_spec', 'At least one control is required.');
+            return self::invalid('invalid_spec', 'controls', 'At least one control is required.');
         }
         if (count($controls) > self::MAX_CONTROLS) {
-            return new \WP_Error('invalid_spec', sprintf('A widget may declare at most %d controls.', self::MAX_CONTROLS));
+            return self::invalid('invalid_spec', 'controls', sprintf('A widget may declare at most %d controls.', self::MAX_CONTROLS));
         }
 
         $seen = [];
-        foreach ($controls as $control) {
+        foreach (array_values($controls) as $index => $control) {
             if (! is_array($control)) {
-                return new \WP_Error('invalid_control', 'Each control must be an object.');
+                return self::invalid('invalid_control', sprintf('controls[%d]', $index), 'Each control must be an object.');
             }
             $raw_name = $control['name'] ?? '';
             if (! is_string($raw_name) || '' === $raw_name) {
-                return new \WP_Error('invalid_control', 'Each control needs a name.');
+                return self::invalid('invalid_control', sprintf('controls[%d].name', $index), 'Each control needs a name.');
             }
             if (1 !== preg_match('/^[A-Za-z0-9_\-]{1,' . self::MAX_NAME . '}$/', $raw_name)) {
-                return new \WP_Error(
-                    'invalid_control',
-                    sprintf('Control names may use only letters, digits, "-" and "_", up to %d characters.', self::MAX_NAME)
-                );
+                return self::invalid('invalid_control', sprintf('controls[%d].name', $index), sprintf('Control names may use only letters, digits, "-" and "_", up to %d characters.', self::MAX_NAME));
             }
             $name = sanitize_key($raw_name);
             if (isset($seen[$name])) {
-                return new \WP_Error('invalid_control', sprintf('Duplicate control name "%s".', $name));
+                return self::invalid('invalid_control', sprintf('controls[%d].name', $index), sprintf('Duplicate control name "%s".', $name));
             }
             $seen[$name] = true;
 
             $type = $control['type'] ?? '';
             if (! is_string($type) || ! isset(self::CONTROL_TYPES[$type])) {
-                return new \WP_Error(
-                    'invalid_control',
-                    sprintf('Control "%s" has an unsupported type; use one of: %s.', $name, implode(', ', array_keys(self::CONTROL_TYPES)))
-                );
+                return self::invalid('invalid_control', sprintf('controls[%d].type', $index), sprintf('Control "%s" has an unsupported type; use one of: %s.', $name, implode(', ', array_keys(self::CONTROL_TYPES))));
             }
             $label = $control['label'] ?? '';
             if (! is_string($label) || '' === trim($label)) {
-                return new \WP_Error('invalid_control', sprintf('Control "%s" needs a label.', $name));
+                return self::invalid('invalid_control', sprintf('controls[%d].label', $index), sprintf('Control "%s" needs a label.', $name));
             }
             if (strlen($label) > self::MAX_TEXT) {
-                return new \WP_Error('invalid_control', sprintf('The label of control "%s" is longer than %d bytes.', $name, self::MAX_TEXT));
+                return self::invalid('invalid_control', sprintf('controls[%d].label', $index), sprintf('The label of control "%s" is longer than %d bytes.', $name, self::MAX_TEXT));
             }
             $default = $control['default'] ?? null;
             if (null !== $default && ! is_scalar($default)) {
-                return new \WP_Error('invalid_control', sprintf('The default of control "%s" must be a plain value.', $name));
+                return self::invalid('invalid_control', sprintf('controls[%d].default', $index), sprintf('The default of control "%s" must be a plain value.', $name));
             }
             if (is_string($default) && strlen($default) > self::MAX_DEFAULT) {
-                return new \WP_Error('invalid_control', sprintf('The default of control "%s" is longer than %d bytes.', $name, self::MAX_DEFAULT));
+                return self::invalid('invalid_control', sprintf('controls[%d].default', $index), sprintf('The default of control "%s" is longer than %d bytes.', $name, self::MAX_DEFAULT));
             }
         }
 
         $template = $spec['template'] ?? '';
         if (! is_string($template) || '' === trim($template)) {
-            return new \WP_Error('invalid_spec', 'A non-empty template is required.');
+            return self::invalid('invalid_spec', 'template', 'A non-empty template is required.');
         }
         if (strlen($template) > self::MAX_TEMPLATE) {
-            return new \WP_Error('invalid_spec', sprintf('The template is longer than %d bytes.', self::MAX_TEMPLATE));
+            return self::invalid('invalid_spec', 'template', sprintf('The template is longer than %d bytes.', self::MAX_TEMPLATE));
         }
 
         return true;
+    }
+
+    /**
+     * A validation failure that names the field it is about, both in the
+     * message and as `field` in the error data, so a caller (an agent editing
+     * a spec stored under older rules, or a cloud pull report) can tell which
+     * field to fix without guessing.
+     */
+    private static function invalid(string $code, string $field, string $message): \WP_Error
+    {
+        return new \WP_Error($code, $message . ' (field: ' . $field . ')', ['field' => $field]);
     }
 
     /**
@@ -177,13 +182,21 @@ class Widget_Spec
         if (! is_array($controls) || [] === $controls) {
             return false;
         }
+        $seen = [];
         foreach ($controls as $control) {
             if (! is_array($control) || ! is_scalar($control['name'] ?? null) || ! is_string($control['type'] ?? null)) {
                 return false;
             }
-            if ('' === sanitize_key((string) $control['name']) || ! isset(self::CONTROL_TYPES[ $control['type'] ])) {
+            $name = sanitize_key((string) $control['name']);
+            if ('' === $name || ! isset(self::CONTROL_TYPES[ $control['type'] ])) {
                 return false;
             }
+            // Two controls collapsing onto one key would register the same
+            // Elementor control id twice.
+            if (isset($seen[ $name ])) {
+                return false;
+            }
+            $seen[ $name ] = true;
         }
         return true;
     }
