@@ -28,7 +28,7 @@ if (! defined('ABSPATH')) {
  * and the response is honestly flagged recoverable:false rather than
  * pretending rollback-operation could undo it.
  */
-class SureForms_Integration extends Integration_Dispatcher
+class SureForms_Integration extends Forms_Integration
 {
     private const FORM_CPT = 'sureforms_form';
 
@@ -182,6 +182,7 @@ class SureForms_Integration extends Integration_Dispatcher
             ],
             'list-entries' => [
                 'mode'         => 'read',
+                'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'List a SureForms form\'s entries with paging (page_size default 20, max 100), each with status, timestamp, and decoded field values',
                 'input_schema' => [
                     'type'       => 'object',
@@ -215,6 +216,7 @@ class SureForms_Integration extends Integration_Dispatcher
             ],
             'get-entry' => [
                 'mode'         => 'read',
+                'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Read one SureForms entry by entry_id, with its status, timestamp, and decoded field values',
                 'input_schema' => [
                     'type'       => 'object',

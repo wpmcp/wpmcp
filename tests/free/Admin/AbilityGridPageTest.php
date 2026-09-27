@@ -10,6 +10,8 @@ use WPMCP\Plugin;
 use WPMCP\Pro\Gate;
 use WPMCP\Tests\Free\Platform\RegisteredAbilities;
 
+require_once __DIR__ . '/../../support/forms-adapters.php';
+
 /**
  * Issue #78: the per-ability admin toggle grid.
  *
@@ -98,9 +100,12 @@ class AbilityGridPageTest extends \WP_UnitTestCase
         // unlicensed installs simply omit the pro rows (issue #161).
         Gate::set_pro_for_tests(true);
 
+        // Forms pairs follow their host plugin's presence at boot (issue #66);
+        // see test_the_unlicensed_grid_is_exactly_the_free_tier_of_the_manifest.
+        $conditional = wpmcp_forms_pair_names();
         $this->assertSame(
-            $expected,
-            $this->row_names(),
+            array_values(array_diff($expected, $conditional)),
+            array_values(array_diff($this->row_names(), $conditional)),
             'Grid rows must be exactly the Registrar\'s declared ability surface — not a hardcoded list.'
         );
     }
@@ -206,11 +211,19 @@ class AbilityGridPageTest extends \WP_UnitTestCase
         sort($free);
 
         $this->assertNotEmpty($free, 'The manifest must declare free abilities for this test to mean anything.');
+
+        // A forms pair (issue #66) is only declared while its host plugin
+        // was loaded at boot, which for a harness double depends on test
+        // order, so those names are compared separately: the grid may list a
+        // free one, and must never list one from the paid pack.
+        $conditional = wpmcp_forms_pair_names();
+        $rows        = $this->row_names();
         $this->assertSame(
-            $free,
-            $this->row_names(),
+            array_values(array_diff($free, $conditional)),
+            array_values(array_diff($rows, $conditional)),
             'Unlicensed, the grid must be exactly the free tier: nothing withheld is listed, nothing free is lost.'
         );
+        $this->assertSame([], array_values(array_diff(array_intersect($rows, $conditional), $free)), 'No paid forms pair is listed unlicensed');
     }
 
     public function test_a_named_pro_ability_has_no_row_while_a_named_free_one_does(): void

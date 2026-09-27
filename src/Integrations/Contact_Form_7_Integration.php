@@ -40,7 +40,7 @@ if (! defined('ABSPATH')) {
  * restore a flamingo_inbound snapshot without edit_users, so the guard is not
  * one-way even though rollback-operation itself is an edit_posts ability.
  */
-class Contact_Form_7_Integration extends Integration_Dispatcher
+class Contact_Form_7_Integration extends Forms_Integration
 {
     /**
      * Extra capability guarding submission (PII) operations: exactly the cap
@@ -49,7 +49,7 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
      * onto the same data than the host plugin's own UI. On multisite this is
      * strictly narrower than manage_options (see the class docblock).
      */
-    private const ENTRY_CAPABILITY = 'edit_users';
+    public const ENTRY_CAPABILITY = 'edit_users';
 
     /** CF7 post meta holding the Flamingo channel binding for a form. */
     private const CHANNEL_META = '_flamingo';
@@ -211,6 +211,67 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
                     ];
                 },
             ],
+            'list-fields' => [
+                'mode'         => 'read',
+                'description'  => 'List one form\'s fields as Contact Form 7 parses them out of the form markup: name, type, whether it is required, and its options',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [ 'form_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
+                    'required'   => [ 'form_id' ],
+                ],
+                'handler'      => function (array $args): array {
+                    $form = \WPCF7_ContactForm::get_instance((int) $args['form_id']);
+                    if (! $form instanceof \WPCF7_ContactForm) {
+                        return [ 'form_id' => (int) $args['form_id'], 'fields' => null ];
+                    }
+                    $fields = [];
+                    foreach ((array) $form->scan_form_tags() as $tag) {
+                        $name = (string) ($tag->name ?? '');
+                        if ('' === $name) {
+                            continue; // submit buttons and other unnamed tags carry no data
+                        }
+                        $type     = (string) ($tag->type ?? '');
+                        $fields[] = [
+                            'name'     => $name,
+                            'type'     => (string) ($tag->basetype ?? rtrim($type, '*')),
+                            'required' => '*' === substr($type, -1),
+                            'options'  => array_values(array_map('strval', (array) ($tag->values ?? []))),
+                        ];
+                    }
+                    return [ 'form_id' => (int) $form->id(), 'fields' => $fields ];
+                },
+            ],
+            'list-notifications' => [
+                'mode'         => 'read',
+                'description'  => 'List a form\'s mail notifications: the primary Mail template and the optional Mail (2) autoresponder, each with whether it is active, recipient, sender, subject, and body template',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [ 'form_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
+                    'required'   => [ 'form_id' ],
+                ],
+                'handler'      => function (array $args): array {
+                    $form = \WPCF7_ContactForm::get_instance((int) $args['form_id']);
+                    if (! $form instanceof \WPCF7_ContactForm) {
+                        return [ 'form_id' => (int) $args['form_id'], 'notifications' => null ];
+                    }
+                    $out = [];
+                    foreach ([ 'mail' => true, 'mail_2' => false ] as $key => $always_on) {
+                        $mail = $form->prop($key);
+                        if (! is_array($mail)) {
+                            continue;
+                        }
+                        $out[] = [
+                            'id'        => $key,
+                            'active'    => $always_on || ! empty($mail['active']),
+                            'recipient' => (string) ($mail['recipient'] ?? ''),
+                            'sender'    => (string) ($mail['sender'] ?? ''),
+                            'subject'   => (string) ($mail['subject'] ?? ''),
+                            'body'      => (string) ($mail['body'] ?? ''),
+                        ];
+                    }
+                    return [ 'form_id' => (int) $form->id(), 'notifications' => $out ];
+                },
+            ],
             'list-entries' => [
                 'mode'         => 'read',
                 'capability'   => self::ENTRY_CAPABILITY,
@@ -219,17 +280,14 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
-                        'form_id'   => [ 'type' => 'integer', 'minimum' => 1 ],
-                        'page_size' => [ 'type' => 'integer', 'minimum' => 1, 'maximum' => 100 ],
-                        'offset'    => [ 'type' => 'integer', 'minimum' => 0 ],
-                        'status'    => [ 'type' => 'string', 'enum' => [ 'inbox', 'spam', 'trash' ] ],
-                    ],
+                        'form_id' => [ 'type' => 'integer', 'minimum' => 1 ],
+                        'status'  => [ 'type' => 'string', 'enum' => [ 'inbox', 'spam', 'trash' ] ],
+                    ] + self::paging_properties(),
                     'required'   => [ 'form_id' ],
                 ],
                 'handler'      => function (array $args): array {
-                    $page_size = (int) ($args['page_size'] ?? 20);
-                    $offset    = max(0, (int) ($args['offset'] ?? 0));
-                    $status    = (string) ($args['status'] ?? 'inbox');
+                    [ $page_size, $offset ] = self::page_window($args);
+                    $status                 = (string) ($args['status'] ?? 'inbox');
 
                     // form_id is REQUIRED, matching every other forms adapter:
                     // an unscoped listing would dump every form's submissions
@@ -305,6 +363,53 @@ class Contact_Form_7_Integration extends Integration_Dispatcher
                         return [ 'entry' => null ];
                     }
                     return [ 'entry' => self::shape_entry(new \Flamingo_Inbound_Message($post), true) ];
+                },
+            ],
+            'update-entry-status' => [
+                'mode'         => 'write',
+                'capability'   => self::ENTRY_CAPABILITY,
+                'requires'     => static fn () => self::requires_flamingo(),
+                'description'  => 'Move one Flamingo-stored submission between the inbox and the trash, through Flamingo\'s own trash()/untrash() so it lands where Flamingo\'s screen expects it. Snapshotted first and restorable with rollback-operation. Spam flagging is deliberately not offered: Flamingo reports spam to Akismet, which would send the submission to a third-party service. Requires the Flamingo plugin and the edit_users capability',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ],
+                        'status'   => [ 'type' => 'string', 'enum' => [ 'inbox', 'trash' ] ],
+                    ],
+                    'required'   => [ 'entry_id', 'status' ],
+                ],
+                'handler'      => function (array $args): array {
+                    $entry_id = (int) $args['entry_id'];
+                    $post     = get_post($entry_id);
+                    if (! $post instanceof \WP_Post || self::entry_post_type() !== $post->post_type) {
+                        throw new Operation_Error('entry_not_found', 'No Flamingo submission has that id.', [ 'entry_id' => (int) $args['entry_id'] ]);
+                    }
+                    $previous = 'trash' === $post->post_status ? 'trash' : 'inbox';
+                    $status   = (string) $args['status'];
+                    if ($previous === $status) {
+                        return [ 'entry_id' => $entry_id, 'status' => $status, 'previous_status' => $previous, 'changed' => false ];
+                    }
+                    if ('trash' === $status && ! EMPTY_TRASH_DAYS) {
+                        // With the trash disabled, trashing IS permanent
+                        // deletion (Flamingo's trash() calls delete()). That
+                        // is delete-entry's job, behind its own opt-in and
+                        // confirm, not something a status change may do.
+                        throw new Operation_Error('trash_disabled', 'This site has the trash disabled (EMPTY_TRASH_DAYS is 0), so trashing would permanently delete the submission. Use delete-entry instead.', [ 'entry_id' => (int) $args['entry_id'] ]);
+                    }
+                    $message = new \Flamingo_Inbound_Message($post);
+                    $done    = 'trash' === $status ? $message->trash() : $message->untrash();
+                    if (! $done) {
+                        throw new Operation_Error('update_failed', 'Flamingo did not change the submission\'s status.', [ 'entry_id' => (int) $args['entry_id'] ]);
+                    }
+                    return [ 'entry_id' => $entry_id, 'status' => $status, 'previous_status' => $previous, 'changed' => true ];
+                },
+                'snapshot'     => static function (array $args): ?array {
+                    $entry_id = (int) $args['entry_id'];
+                    $post     = get_post($entry_id);
+                    if (! $post instanceof \WP_Post || self::entry_post_type() !== $post->post_type) {
+                        return null;
+                    }
+                    return [ 'object_type' => 'post', 'object_id' => $entry_id ];
                 },
             ],
             'delete-entry' => [

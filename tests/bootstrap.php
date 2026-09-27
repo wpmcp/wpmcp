@@ -22,6 +22,15 @@ tests_add_filter( 'muplugins_loaded', function () {
     wpmcp_maybe_require_plugin( 'advanced-custom-fields/acf.php' );
     wpmcp_maybe_require_plugin( 'wordpress-seo/wp-seo.php' );
     wpmcp_maybe_require_plugin( 'polylang/polylang.php' );
+
+    // The live forms job (issue #66, WPMCP_LIVE_FORMS=1) runs the Contact
+    // Form 7 adapter against the real plugin and its Flamingo store. Loaded
+    // only on request: with the real classes present the harness doubles
+    // stand down, which the stub-backed suite is not written for.
+    if ( getenv( 'WPMCP_LIVE_FORMS' ) ) {
+        wpmcp_maybe_require_plugin( 'contact-form-7/wp-contact-form-7.php' );
+        wpmcp_maybe_require_plugin( 'flamingo/flamingo.php' );
+    }
 } );
 
 // Recreate the wpmcp snapshots table once per run, BEFORE any test

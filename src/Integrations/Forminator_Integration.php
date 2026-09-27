@@ -27,7 +27,7 @@ if (! defined('ABSPATH')) {
  * directly and honestly flags recoverable:false in the response instead of
  * implying a rollback that does not exist.
  */
-class Forminator_Integration extends Integration_Dispatcher
+class Forminator_Integration extends Forms_Integration
 {
     public function integration(): string
     {
@@ -157,6 +157,7 @@ class Forminator_Integration extends Integration_Dispatcher
             ],
             'list-entries' => [
                 'mode'         => 'read',
+                'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'List a Forminator form\'s submissions with paging (page_size default 20, max 100) and their decoded field values',
                 'input_schema' => [
                     'type'       => 'object',
@@ -186,6 +187,7 @@ class Forminator_Integration extends Integration_Dispatcher
             ],
             'get-entry' => [
                 'mode'         => 'read',
+                'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Read one Forminator submission by form_id plus entry_id, with its decoded field values',
                 'input_schema' => [
                     'type'       => 'object',

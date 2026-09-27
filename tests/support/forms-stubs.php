@@ -1,11 +1,14 @@
 <?php
 /**
- * Faithful global test doubles for the Formidable, Contact Form 7, and
- * WPForms read integrations. These plugins cannot all be installed from
- * wordpress.org in the harness (paid tiers, entry storage, heavy bootstraps),
- * so these reproduce the exact public API surface each integration calls,
- * verified against Formidable 6.x, Contact Form 7 5.x, and WPForms 1.8.x.
- * Live plugins remain production-verified. Real classes always win.
+ * Faithful global test doubles for the Formidable, Contact Form 7 (plus
+ * Flamingo), and WPForms integrations. These plugins cannot all be installed
+ * from wordpress.org in the harness (paid tiers, entry storage, heavy
+ * bootstraps), so these reproduce the exact public API surface each
+ * integration calls, verified against Formidable 6.x, Contact Form 7 6.x,
+ * Flamingo 2.x, and WPForms 1.9. Contact Form 7 and Flamingo are additionally
+ * exercised against the real plugins in CI's live forms job
+ * (tests/free/Integrations/ContactForm7LiveTest.php); the paid plugins remain
+ * production-verified. Real classes always win.
  */
 
 // ---- Formidable: FrmForm / FrmEntry ----------------------------------------
@@ -32,15 +35,67 @@ if (! class_exists('FrmEntry')) {
         /** @var array<int,object> */
         public static array $entries = [];
 
-        public static function getAll($where = [], $order_by = '', $limit = '', $meta = false)
+        /**
+         * Formidable 6.x signature. Honours the it.form_id WHERE, an
+         * " ORDER BY it.created_at DESC" order clause, and a " LIMIT o,n" /
+         * " LIMIT n" limit, the three shapes the adapter passes.
+         */
+        public static function getAll($where = [], $order_by = '', $limit = '', $meta = false, $inc_form = true)
         {
             $form_id = (int) ($where['it.form_id'] ?? 0);
-            return array_values(array_filter(self::$entries, static fn ($e) => (int) ($e->form_id ?? 0) === $form_id));
+            $rows    = array_values(array_filter(self::$entries, static fn ($e) => (int) ($e->form_id ?? 0) === $form_id));
+            if (false !== stripos((string) $order_by, 'created_at DESC')) {
+                usort($rows, static fn ($a, $b) => [ $b->created_at ?? '', $b->id ] <=> [ $a->created_at ?? '', $a->id ]);
+            }
+            if (preg_match('/LIMIT\s+(\d+)\s*(?:,\s*(\d+))?/i', (string) $limit, $m)) {
+                $rows = isset($m[2]) ? array_slice($rows, (int) $m[1], (int) $m[2]) : array_slice($rows, 0, (int) $m[1]);
+            }
+            return $rows;
         }
 
         public static function getOne($id, $meta = false)
         {
             return self::$entries[(int) $id] ?? false;
+        }
+
+        /** Formidable counts frm_items by form when handed a numeric form id. */
+        public static function getRecordCount($where = '')
+        {
+            $form_id = is_numeric($where) ? (int) $where : (int) ($where['it.form_id'] ?? ($where['form_id'] ?? 0));
+            return count(array_filter(self::$entries, static fn ($e) => (int) ($e->form_id ?? 0) === $form_id));
+        }
+    }
+}
+if (! class_exists('FrmField')) {
+    class FrmField
+    {
+        /** @var array<int,array<int,object>> form id => field rows */
+        public static array $fields = [];
+
+        public static function get_all_for_form($form_id, $limit = '', $inc_embed = 'exclude', $inc_repeat = 'include')
+        {
+            return self::$fields[(int) $form_id] ?? [];
+        }
+    }
+}
+if (! class_exists('FrmFormAction')) {
+    class FrmFormAction
+    {
+        /**
+         * form id => prepared action posts. Real prepare_action() decodes
+         * post_content into the settings array, which is what is stored here.
+         *
+         * @var array<int,array<int,object>>
+         */
+        public static array $actions = [];
+
+        public static function get_action_for_form($form_id, $type = 'all', $atts = [])
+        {
+            $all = self::$actions[(int) $form_id] ?? [];
+            if ('all' === $type) {
+                return $all;
+            }
+            return array_filter($all, static fn ($a) => ($a->post_excerpt ?? '') === $type);
         }
     }
 }
@@ -96,6 +151,28 @@ if (! class_exists('WPCF7_ContactForm')) {
         {
             return $this->_props[$name] ?? '';
         }
+
+        /**
+         * CF7 parses its form markup into WPCF7_FormTag objects. This double
+         * parses the same [type* name "value" ...] syntax into objects with
+         * the public properties the adapter reads (type, basetype, name,
+         * values); the real tag's pipes, options and attr are not modelled.
+         */
+        public function scan_form_tags($cond = null)
+        {
+            preg_match_all('/\[([a-zA-Z0-9_]+\*?)(?:\s+([a-zA-Z0-9_:.-]+))?((?:\s+"[^"]*")*)[^\]]*\]/', (string) $this->prop('form'), $m, PREG_SET_ORDER);
+            $tags = [];
+            foreach ($m as $match) {
+                preg_match_all('/"([^"]*)"/', $match[3] ?? '', $values);
+                $tags[] = (object) [
+                    'type'     => $match[1],
+                    'basetype' => rtrim($match[1], '*'),
+                    'name'     => $match[2] ?? '',
+                    'values'   => $values[1],
+                ];
+            }
+            return $tags;
+        }
     }
 }
 
@@ -114,12 +191,117 @@ if (! function_exists('wpforms')) {
             return $this->forms[(int) $id] ?? null;
         }
     }
+
+    /**
+     * Double of WPForms Pro's entry handler (WPForms_Entry_Handler, a
+     * WPForms_DB over the wpforms_entries table, primary key entry_id),
+     * backed by a REAL table so the db_rows snapshot and rollback path runs
+     * for real. Reproduced: get($id, ['cap' => false]) returning a row object
+     * or null, get_entries($args, $count) honouring form_id, status, number,
+     * offset and orderby entry_id / order, and update($id, $data, '', '',
+     * $args) returning bool. Not reproduced: the capability checks the real
+     * handler runs when 'cap' is not false, and every filter argument the
+     * adapter does not pass.
+     */
+    class WPMCP_WPForms_Entry_Stub
+    {
+        public const TABLE = 'wpforms_entries';
+
+        public static function table(): string
+        {
+            global $wpdb;
+            return $wpdb->prefix . self::TABLE;
+        }
+
+        /** DDL: call from set_up_before_class, never inside a test transaction. */
+        public static function install(): void
+        {
+            global $wpdb;
+            $wpdb->query('CREATE TABLE IF NOT EXISTS ' . self::table() . " (
+                entry_id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+                form_id bigint(20) unsigned NOT NULL DEFAULT 0,
+                status varchar(30) NOT NULL DEFAULT '',
+                starred tinyint(1) NOT NULL DEFAULT 0,
+                viewed tinyint(1) NOT NULL DEFAULT 0,
+                fields longtext NOT NULL,
+                ip_address varchar(128) NOT NULL DEFAULT '',
+                user_agent varchar(256) NOT NULL DEFAULT '',
+                date datetime NOT NULL DEFAULT '2026-01-01 00:00:00',
+                PRIMARY KEY  (entry_id)
+            )");
+        }
+
+        public static function uninstall(): void
+        {
+            global $wpdb;
+            $wpdb->query('DROP TABLE IF EXISTS ' . self::table());
+        }
+
+        public static function seed(array $row): int
+        {
+            global $wpdb;
+            $row += [ 'fields' => '[]', 'date' => '2026-01-01 00:00:00' ];
+            if (is_array($row['fields'])) {
+                $row['fields'] = wp_json_encode($row['fields']);
+            }
+            $wpdb->insert(self::table(), $row);
+            return (int) $wpdb->insert_id;
+        }
+
+        public function get($row_id, $args = [])
+        {
+            global $wpdb;
+            $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM %i WHERE entry_id = %d', self::table(), (int) $row_id));
+            return $row ?: null;
+        }
+
+        public function get_entries($args = [], $count = false)
+        {
+            global $wpdb;
+            $args  = wp_parse_args($args, [ 'number' => 30, 'offset' => 0, 'form_id' => 0, 'status' => '', 'orderby' => 'entry_id', 'order' => 'DESC' ]);
+            $where = $wpdb->prepare('form_id = %d', (int) $args['form_id']);
+            if (array_key_exists('status', $args) && '' !== $args['status']) {
+                $where .= $wpdb->prepare(' AND status = %s', (string) $args['status']);
+            }
+            if ($count) {
+                return (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE ', self::table()) . $where);
+            }
+            $order = 'ASC' === strtoupper((string) $args['order']) ? 'ASC' : 'DESC';
+            return $wpdb->get_results(
+                $wpdb->prepare('SELECT * FROM %i WHERE ', self::table()) . $where
+                . " ORDER BY entry_id {$order}"
+                . $wpdb->prepare(' LIMIT %d, %d', (int) $args['offset'], (int) $args['number'])
+            );
+        }
+
+        public function update($row_id, $data = [], $where = '', $type = '', $args = [])
+        {
+            global $wpdb;
+            return false !== $wpdb->update(self::table(), $data, [ 'entry_id' => (int) $row_id ]);
+        }
+    }
+
     class WPMCP_WPForms_Stub
     {
+        /** Toggle to model WPForms Lite, which registers no entry handler. */
+        public static bool $lite = false;
+
         public WPMCP_WPForms_Form_Stub $form;
+        private WPMCP_WPForms_Entry_Stub $entry;
+
         public function __construct()
         {
-            $this->form = new WPMCP_WPForms_Form_Stub();
+            $this->form  = new WPMCP_WPForms_Form_Stub();
+            $this->entry = new WPMCP_WPForms_Entry_Stub();
+        }
+
+        /** WPForms 1.7+: the class registry accessor. */
+        public function obj(string $name): ?object
+        {
+            if ('form' === $name) {
+                return $this->form;
+            }
+            return 'entry' === $name && ! self::$lite ? $this->entry : null;
         }
     }
     $GLOBALS['wpmcp_wpforms_stub'] = new WPMCP_WPForms_Stub();
@@ -317,6 +499,37 @@ if (! class_exists('Flamingo_Inbound_Message')) {
         public function __get($name)
         {
             return 'id' === $name ? $this->id : null;
+        }
+
+        /** Flamingo 2.x: trash, or delete outright when the trash is off. */
+        public function trash()
+        {
+            if (empty($this->id)) {
+                return;
+            }
+            if (! EMPTY_TRASH_DAYS) {
+                return (bool) wp_delete_post($this->id, true);
+            }
+            return (bool) wp_trash_post($this->id);
+        }
+
+        /**
+         * Flamingo 2.x: untrash, with Flamingo's wp_untrash_post_status filter
+         * (registered at init in the real plugin) putting the message back in
+         * the status it was trashed from rather than core's default draft.
+         */
+        public function untrash()
+        {
+            if (empty($this->id)) {
+                return;
+            }
+            $restore = static fn ($new, $post_id, $previous) => self::post_type === get_post_type($post_id) ? $previous : $new;
+            add_filter('wp_untrash_post_status', $restore, 10, 3);
+            try {
+                return (bool) wp_untrash_post($this->id);
+            } finally {
+                remove_filter('wp_untrash_post_status', $restore, 10);
+            }
         }
     }
 }

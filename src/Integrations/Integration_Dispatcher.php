@@ -37,19 +37,22 @@ if (! defined('ABSPATH')) {
  *      'enabled_by_default' bool (default true); a default-off op is refused
  *                           until the site opts in via the
  *                           wpmcp_integration_op_enabled filter
- *      'requires'           callable(): true|array — per-op dependency check
+ *      'requires'           callable(): true|array, a per-op dependency check
  *                           for an op that needs a companion plugin the
  *                           integration as a whole does not (CF7 entries need
  *                           Flamingo). Returns true when satisfied, or
  *                           ['code' => ..., 'message' => ...] naming what is
  *                           missing, which the dispatcher emits as its own
  *                           top-level error. The op stays in the catalog
- *                           (flagged available:false) so list-operations still
+ *                           (flagged dependency_met:false) so list-operations still
  *                           documents it, but the handler is never reached and
  *                           no snapshot is written
  *      'snapshot'           write/destructive ops only: callable(array $args)
  *                           returning ['object_type' => ..., 'object_id' => ...]
- *                           (or null) naming the snapshotable target. When it
+ *                           (plus optional 'extra_snapshot_data', merged into
+ *                           the persisted snapshot, e.g. a db_rows
+ *                           before-image) or null, naming the snapshotable
+ *                           target. When it
  *                           yields a target the write routes through
  *                           Safe_Mutation (snapshot first, operation_id out,
  *                           restorable via rollback-operation); when absent
@@ -91,6 +94,31 @@ abstract class Integration_Dispatcher
 
     /** @return array<string, array> op name => definition (see class docblock). */
     abstract protected function operations(): array;
+
+    /**
+     * Whether the pair registers only while its host plugin is loaded. The
+     * default keeps the #65 contract (register unconditionally so
+     * list-operations can report available:false); an integration family can
+     * opt into "absent plugin, absent tools" instead, which keeps a site's
+     * tool list free of pairs that could only ever answer
+     * integration_unavailable (issue #66 does this for every forms adapter).
+     */
+    public function registers_only_when_available(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Whether Plugin should register this pair on the current site right now.
+     * Filterable through wpmcp_integration_should_register (bool, slug,
+     * integration) so a site can keep an integration's tools off its surface
+     * entirely, or list a forms pair even while its plugin is absent.
+     */
+    public function should_register(): bool
+    {
+        $default = ! $this->registers_only_when_available() || $this->is_available();
+        return (bool) apply_filters('wpmcp_integration_should_register', $default, $this->integration(), $this);
+    }
 
     /** Tier of the dispatcher pair; Registrar drops 'pro' pairs without a license. */
     public function tier(): string
@@ -322,16 +350,21 @@ abstract class Integration_Dispatcher
             return $this->ok($op, ($def['handler'])($op_args)) + [ 'recoverable' => false ];
         }
 
-        $out = Safe_Mutation::run(
-            [
-                'object_type' => (string) $target['object_type'],
-                'object_id'   => $target['object_id'],
-                'session_id'  => $session_id,
-                'tool_name'   => sprintf('%s-write', $this->integration()),
-                'args'        => [ 'operation' => $op, 'args' => $op_args ],
-            ],
-            fn () => ($def['handler'])($op_args)
-        );
+        $context = [
+            'object_type' => (string) $target['object_type'],
+            'object_id'   => $target['object_id'],
+            'session_id'  => $session_id,
+            'tool_name'   => sprintf('%s-write', $this->integration()),
+            'args'        => [ 'operation' => $op, 'args' => $op_args ],
+        ];
+        // A target whose object type needs caller-captured recovery data (a
+        // db_rows before-image for a row in a host plugin's own table) hands
+        // it over here; Safe_Mutation merges it into the persisted snapshot.
+        if (! empty($target['extra_snapshot_data']) && is_array($target['extra_snapshot_data'])) {
+            $context['extra_snapshot_data'] = $target['extra_snapshot_data'];
+        }
+
+        $out = Safe_Mutation::run($context, fn () => ($def['handler'])($op_args));
 
         return $this->ok($op, $out['result']) + [
             'operation_id' => $out['operation_id'],

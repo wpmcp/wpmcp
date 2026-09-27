@@ -59,6 +59,35 @@ jobs:
           name: coverage-report
           path: coverage/
 
+  # Issue #66: the Contact Form 7 adapter against a REAL Contact Form 7 +
+  # Flamingo install, not the harness doubles. A form is created and submitted
+  # through Contact Form 7's own submission path, so Flamingo stores the
+  # entries and Contact Form 7 writes the form's channel binding itself; the
+  # adapter then lists, reads, re-statuses and deletes them. Separate from the
+  # matrix because the doubles stand down when the real classes are loaded.
+  forms-live:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mariadb:10.6
+        env: { MYSQL_ROOT_PASSWORD: root }
+        ports: ['3306:3306']
+        options: --health-cmd="healthcheck.sh --connect" --health-interval=10s --health-timeout=5s --health-retries=5
+    env:
+      WPMCP_LIVE_FORMS: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with: { php-version: '8.3', coverage: none }
+      - run: composer install --no-interaction
+      - name: Install subversion (required by install-wp-tests.sh)
+        run: sudo apt-get update && sudo apt-get install -y subversion
+      - run: bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 7.1
+      - name: Install Contact Form 7 and Flamingo
+        run: bash bin/install-test-plugins.sh
+      - name: Run the live forms group
+        run: vendor/bin/phpunit --group forms-live --fail-on-skipped
+
   # WordPress's own Plugin Check, run against the assembled directory zip
   # rather than the checkout, with vendor/ left in scope. This is the
   # authoritative answer to issue #165's third definition-of-done bullet:

@@ -29,7 +29,7 @@ if (! defined('ABSPATH')) {
  * wpmcp/metform-delete-entry name, and it demands manage_options on top of the
  * pair's own capability because a submission is personal data.
  */
-class MetForm_Integration extends Integration_Dispatcher
+class MetForm_Integration extends Forms_Integration
 {
     private const FORM_CPT  = 'metform-form';
     private const ENTRY_CPT = 'metform-entry';
@@ -179,6 +179,7 @@ class MetForm_Integration extends Integration_Dispatcher
             ],
             'list-entries' => [
                 'mode'         => 'read',
+                'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'List a MetForm form\'s entries, newest first, with paging (page_size default 20, max 100) and their stored field values',
                 'input_schema' => [
                     'type'       => 'object',
@@ -213,6 +214,7 @@ class MetForm_Integration extends Integration_Dispatcher
             ],
             'get-entry' => [
                 'mode'         => 'read',
+                'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Read one MetForm entry by entry_id, with its source form, timestamp, and stored field values',
                 'input_schema' => [
                     'type'       => 'object',

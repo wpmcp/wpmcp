@@ -446,6 +446,59 @@ class ContactForm7EntriesTest extends \WP_UnitTestCase
         $this->assertTrue($ops['list-forms']['dependency_met'], 'The form ops depend on nothing but CF7');
     }
 
+    // ---- update-entry-status -----------------------------------------------
+
+    public function test_update_entry_status_trashes_and_restores_through_flamingo(): void
+    {
+        $id  = $this->entries_a[0];
+        $out = $this->integration->handle_write([ 'operation' => 'update-entry-status', 'args' => [ 'entry_id' => $id, 'status' => 'trash' ] ]);
+
+        $this->assertArrayNotHasKey('error', $out);
+        $this->assertTrue($out['recoverable'], 'A Flamingo entry is a post, so the change is snapshot-backed');
+        $this->assertSame('trash', get_post_status($id));
+        $this->assertSame(2, $this->read('list-entries', [ 'form_id' => $this->form_a ])['result']['total'], 'Trashed entries leave the inbox');
+
+        $back = $this->integration->handle_write([ 'operation' => 'update-entry-status', 'args' => [ 'entry_id' => $id, 'status' => 'inbox' ] ]);
+        $this->assertSame('trash', $back['result']['previous_status']);
+        $this->assertSame('publish', get_post_status($id), 'Flamingo puts the message back in the inbox, not in core\'s default draft');
+    }
+
+    public function test_update_entry_status_is_undone_by_rollback_operation(): void
+    {
+        $id  = $this->entries_a[1];
+        $out = $this->integration->handle_write([ 'operation' => 'update-entry-status', 'args' => [ 'entry_id' => $id, 'status' => 'trash' ] ]);
+
+        (new Rollback_Operation())->handle([ 'operation_id' => $out['operation_id'] ]);
+
+        $this->assertSame('publish', get_post_status($id));
+    }
+
+    public function test_update_entry_status_refuses_foreign_posts_and_offers_no_spam_flag(): void
+    {
+        $post = self::factory()->post->create();
+        $out  = $this->integration->handle_write([ 'operation' => 'update-entry-status', 'args' => [ 'entry_id' => $post, 'status' => 'trash' ] ]);
+        $this->assertSame('entry_not_found', $out['error']['code']);
+        $this->assertSame('publish', get_post_status($post));
+
+        // Flamingo reports spam to Akismet, a third-party service, so marking
+        // spam is not something this op does.
+        $spam = $this->integration->handle_write([ 'operation' => 'update-entry-status', 'args' => [ 'entry_id' => $this->entries_a[0], 'status' => 'spam' ] ]);
+        $this->assertSame('invalid_args', $spam['error']['code']);
+    }
+
+    public function test_update_entry_status_requires_edit_users_and_flamingo(): void
+    {
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'editor' ]));
+        $denied = $this->integration->handle_write([ 'operation' => 'update-entry-status', 'args' => [ 'entry_id' => $this->entries_a[0], 'status' => 'trash' ] ]);
+        $this->assertSame('operation_denied', $denied['error']['code']);
+
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        add_filter('wpmcp_contactform7_flamingo_active', '__return_false');
+        $absent = $this->integration->handle_write([ 'operation' => 'update-entry-status', 'args' => [ 'entry_id' => $this->entries_a[0], 'status' => 'trash' ] ]);
+        $this->assertSame('flamingo_unavailable', $absent['error']['code']);
+        $this->assertSame('publish', get_post_status($this->entries_a[0]));
+    }
+
     // ---- catalog -----------------------------------------------------------
 
     public function test_catalog_reports_the_entry_ops_guarded_and_available(): void
@@ -455,7 +508,7 @@ class ContactForm7EntriesTest extends \WP_UnitTestCase
 
         $this->assertSame('contactform7', $catalog['integration']);
         $this->assertSame(
-            [ 'list-forms', 'get-form', 'list-entries', 'get-entry', 'delete-entry' ],
+            [ 'list-forms', 'get-form', 'list-fields', 'list-notifications', 'list-entries', 'get-entry', 'update-entry-status', 'delete-entry' ],
             array_keys($ops)
         );
         // edit_users, not manage_options: it is the cap Flamingo maps every
@@ -466,6 +519,7 @@ class ContactForm7EntriesTest extends \WP_UnitTestCase
         $this->assertSame('edit_users', $ops['list-entries']['capability']);
         $this->assertSame('edit_users', $ops['get-entry']['capability']);
         $this->assertSame('edit_users', $ops['delete-entry']['capability']);
+        $this->assertSame('edit_users', $ops['update-entry-status']['capability']);
         $this->assertNotSame($this->integration->capability(), $ops['delete-entry']['capability']);
         $this->assertTrue($ops['delete-entry']['requires_confirm']);
         $this->assertFalse($ops['delete-entry']['enabled'], 'Entry deletion is default-off');
