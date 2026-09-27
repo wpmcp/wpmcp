@@ -303,35 +303,11 @@ exit(1);
 # 4. Every WPMCP class the shipped code names must still exist, so a file the
 #    strip removed cannot leave a fatal behind. Resolved against composer's
 #    authoritative classmap, which is the same map WordPress will autoload
-#    from at runtime.
-php -r '
-$map = require $argv[1] . "/vendor/composer/autoload_classmap.php";
-$known = [];
-foreach (array_keys($map) as $class) { $known[strtolower($class)] = true; }
-$missing = [];
-$it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($argv[1] . "/src"));
-foreach ($it as $f) {
-    if ($f->getExtension() !== "php") { continue; }
-    $src = file_get_contents($f->getPathname());
-    preg_match_all("/^use\s+(WPMCP\\\\[A-Za-z0-9_\\\\]+);/m", $src, $uses);
-    preg_match_all("/new\s+(\\\\?WPMCP\\\\[A-Za-z0-9_\\\\]+)\s*\(/", $src, $news);
-    // Static calls and ::class, which resolve at compile time and so slip
-    // past a plain `new` scan.
-    preg_match_all("/(\\\\?WPMCP\\\\[A-Za-z0-9_\\\\]+)::/", $src, $statics);
-    // String callables, the shape add_action() takes. These fatal on the hook
-    // rather than at load, which is worse, not better.
-    preg_match_all("/[\x27\"]\\\\{0,2}(WPMCP(?:\\\\{1,2}[A-Za-z0-9_]+)+)[\x27\"]/", $src, $strings);
-    $named = array_merge($uses[1], $news[1], $statics[1], array_map(
-        static fn ($c) => str_replace("\\\\", "\\", $c),
-        $strings[1]
-    ));
-    foreach ($named as $class) {
-        $class = ltrim($class, "\\");
-        if (!isset($known[strtolower($class)])) { $missing[] = $f->getPathname() . " -> " . $class; }
-    }
-}
-if ($missing) { fwrite(STDERR, implode("\n", array_unique($missing)) . "\n"); exit(1); }
-' "$STAGE" || fail "the $SLUG build names a class it does not ship"
+#    from at runtime. Shared with the woo build (scripts/lib/class-ref-gate.php):
+#    imports with an alias, a comma list or group use, new, static calls,
+#    ::class and string callables.
+php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --strings \
+  || fail "the $SLUG build names a class it does not ship"
 
 # 4b. Compatibility headers, re-derived from the staged files rather than
 #     from the checkout the strip ran over. `Tested up to` is a Plugin Check
