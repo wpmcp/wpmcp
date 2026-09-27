@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Fail a vertical build whose prune list left a dangling inheritance edge.
  *

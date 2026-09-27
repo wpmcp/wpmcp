@@ -99,6 +99,7 @@ return [
         // that stopped applying in this build would be worse than not
         // shipping it.
         'src/Tools/Memory',
+        'src/Tools/WooCommerce/Catalog',
     ],
 
     /**

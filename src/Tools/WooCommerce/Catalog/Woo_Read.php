@@ -14,27 +14,23 @@ if (! defined('ABSPATH')) {
  * current authenticated user so the endpoint's own permission_callback (and
  * therefore WooCommerce's store permission model) is the final gate.
  *
- * On top of that inherited check this class applies three wpmcp-layer gates
- * BEFORE dispatch, mirroring Integration_Dispatcher's guard chain (which the
- * catalog cannot extend directly: the vertical wpmcp-for-woocommerce build
- * prunes src/Integrations while still registering the woocommerce group):
+ * On top of that inherited check this class applies the wpmcp-layer gates
+ * BEFORE dispatch:
  *
- *  1. availability: WooCommerce absent returns a structured
- *     integration_unavailable error instead of a bare rest_no_route 404;
- *  2. per-op capability: order, note and refund ops require
- *     edit_shop_orders and customer ops require list_users, so this surface
- *     is never looser than the free tool covering the same data;
- *  3. read-only: the op must exist in the catalog AND its row's method must
- *     be GET. Wc_Rest_Dispatch is GET-only by construction as well, so the
- *     invariant survives a caller that forgets to check.
+ *  1. read-only: the op must exist in the catalog AND its row must be a
+ *     read-mode GET. Wc_Rest_Dispatch is GET-only by construction as well,
+ *     so the invariant survives a caller that forgets to check;
+ *  2. the gates shared with woo-write (Op_Guard): WooCommerce availability
+ *     (a structured integration_unavailable error instead of a bare
+ *     rest_no_route 404), op-level governance (a synthetic
+ *     wpmcp/woo-{op} ability through the six-layer model), and the per-op
+ *     capability (order, note and refund ops require edit_shop_orders and
+ *     customer ops list_users, so this surface is never looser than the free
+ *     tool covering the same data).
  *
  * Raw wc/v3 bodies are large: list ops get a conservative per_page default
  * and a hard cap, so a single call cannot flood a model context with a
  * hundred full order or customer records.
- *
- * TODO(#68): companion Woo_Write dispatcher with its OWN mutating dispatch
- *            carrying the confirm gate and the opt-in filter inside it, plus
- *            snapshots where a snapshot type exists and batch support.
  */
 class Woo_Read
 {
@@ -62,19 +58,9 @@ class Woo_Read
         $def = Op_Catalog::get($op);
         $this->assert_read_op($op, $def);
 
-        if (! self::is_available()) {
-            return self::error(
-                'integration_unavailable',
-                'WooCommerce is not active on this site, so no store op can be dispatched.'
-            );
-        }
-
-        if (! current_user_can($def['capability'])) {
-            return self::error(
-                'operation_denied',
-                "Op \"{$op}\" requires the \"{$def['capability']}\" capability.",
-                [ 'reason' => 'capability' ]
-            );
+        $denied = Op_Guard::check($op, $def);
+        if (null !== $denied) {
+            return $denied;
         }
 
         $params = isset($args['params']) && is_array($args['params']) ? $args['params'] : [];
@@ -93,19 +79,19 @@ class Woo_Read
     /** Whether the host plugin is loaded, mirroring Integration_Dispatcher. */
     public static function is_available(): bool
     {
-        return class_exists('WooCommerce');
+        return Op_Guard::is_available();
     }
 
     /**
-     * Defense in depth for when write rows join the catalog: this dispatcher
-     * refuses anything whose row is not a GET.
+     * This dispatcher refuses anything whose row is not a read-mode GET;
+     * write and destructive rows belong to woo-write.
      *
-     * @param array{method: string, path_params: string[]} $def
+     * @param array{method: string, mode?: string} $def
      */
     protected function assert_read_op(string $op, array $def): void
     {
-        if ('GET' !== ($def['method'] ?? '')) {
-            throw new \RuntimeException("Op \"{$op}\" is not a read op and cannot be dispatched by woo-read.");
+        if ('GET' !== ($def['method'] ?? '') || 'read' !== ($def['mode'] ?? 'read')) {
+            throw new \RuntimeException(esc_html("Op \"{$op}\" is not a read op and cannot be dispatched by woo-read."));
         }
     }
 
@@ -142,18 +128,5 @@ class Woo_Read
     private function is_single_resource(array $def): bool
     {
         return in_array('id', $def['path_params'] ?? [], true);
-    }
-
-    /** @param array<string, mixed> $data */
-    private static function error(string $code, string $message, array $data = []): array
-    {
-        return [
-            'integration' => 'woocommerce',
-            'error'       => [
-                'code'    => $code,
-                'message' => $message,
-                'data'    => $data,
-            ],
-        ];
     }
 }
