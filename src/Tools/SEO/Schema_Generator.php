@@ -389,7 +389,12 @@ class Schema_Generator
         return wp_strip_all_tags($description);
     }
 
-    private static function has_unrendered_variables(string $value): bool
+    /**
+     * Whether a stored SEO string still carries plugin template variables
+     * ('%%title%%', '%sep%'). Public because Generate_Meta_Tags applies the
+     * same rule to titles and descriptions.
+     */
+    public static function has_unrendered_variables(string $value): bool
     {
         return str_contains($value, '%%') || 1 === preg_match('/%[a-z_]+%/i', $value);
     }

@@ -27,6 +27,6 @@ class Get_Social_Meta
 
         Post_Access::assert_readable($post_id);
 
-        return array_merge(['post_id' => $post_id], SEO_Adapter::get_social_meta($post_id));
+        return array_merge(['post_id' => $post_id], Social_Meta::get($post_id));
     }
 }

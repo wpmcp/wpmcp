@@ -102,6 +102,10 @@ use WPMCP\Tools\SEO\SEO_Adapter;
 use WPMCP\Tools\SEO\Generate_Schema_Markup;
 use WPMCP\Tools\SEO\Schema_Generator;
 use WPMCP\Tools\SEO\Get_Social_Meta;
+use WPMCP\Tools\SEO\Generate_Meta_Tags;
+use WPMCP\Tools\SEO\Set_Social_Image;
+use WPMCP\Tools\SEO\Get_Term_SEO_Meta;
+use WPMCP\Tools\SEO\Update_Term_SEO_Meta;
 use WPMCP\Tools\I18n\I18n_Adapter;
 use WPMCP\Tools\I18n\List_Languages;
 use WPMCP\Tools\I18n\Get_Post_Translations;
@@ -6440,19 +6444,12 @@ final class Plugin
     }
 
     /**
-     * Register the SEO tool group. Mixed tiers since issue #67: the
-     * post-meta surface (get-seo-status, get-seo-meta, update-seo-meta) is
-     * free, and the generation and extended-vocabulary tools
-     * (generate-schema-markup, get-social-meta) declare tier 'pro', which the
-     * Registrar enforces centrally rather than each handler re-checking.
+     * Register the SEO tools as free-tier abilities.
      *
      * get-seo-status is registered unconditionally: it must be reachable to
      * report "no SEO plugin active" at all, and it does not touch any
-     * plugin-specific postmeta so it has nothing to degrade.
-     * generate-schema-markup registers unconditionally for the same reason:
-     * it builds the graph from the post's own record, so it works on a site
-     * with no SEO plugin at all. get-seo-meta, update-seo-meta and
-     * get-social-meta are registered conditionally on SEO_Adapter detecting a
+     * plugin-specific postmeta so it has nothing to degrade. get-seo-meta and
+     * update-seo-meta are registered conditionally on SEO_Adapter detecting a
      * supported plugin, following the same conditional-registration pattern
      * as the ACF tool group: no supported plugin has a free/pro split of its
      * own to key off, so plugin absence is the only signal, and skipping
@@ -6476,38 +6473,7 @@ final class Plugin
             'read'
         ));
 
-        // Schema generation (issue #67): a proposal (read) tool that builds
-        // JSON-LD from the post's own record, so it is useful even with no
-        // SEO plugin active and registers unconditionally like get-seo-status.
-        $generate_schema = new Generate_Schema_Markup();
-
-        $registrar->register(new Ability(
-            'wpmcp/generate-schema-markup',
-            'pro',
-            'Generate schema.org JSON-LD for a post (Article, WebPage, LocalBusiness or Product) from its title, dates, author, excerpt or SEO description, featured image, permalink, and, for Product, its WooCommerce record. Proposal only: returns the encoded JSON-LD, writes nothing',
-            [
-                'type'       => 'object',
-                'properties' => [
-                    'post_id'     => [ 'type' => 'integer' ],
-                    'schema_type' => [
-                        'type' => 'string',
-                        // From SUPPORTED_TYPES on the generator itself: a
-                        // type added there must not stay undiscoverable, and
-                        // one removed must not stay advertised on a schema
-                        // that now throws. (No apostrophes in comments inside
-                        // a register() call: the wp.org strip scans the
-                        // statement text for quotes and one would unbalance
-                        // it.)
-                        'enum' => Schema_Generator::SUPPORTED_TYPES,
-                    ],
-                ],
-                'required'   => [ 'post_id' ],
-            ],
-            [$generate_schema, 'handle'],
-            'edit_posts',
-            'seo',
-            'read'
-        ));
+        $this->register_seo_pro_abilities($registrar);
 
         if ('' === SEO_Adapter::active_plugin()) {
             return;
@@ -6515,28 +6481,6 @@ final class Plugin
 
         $get_seo_meta    = new Get_SEO_Meta();
         $update_seo_meta = new Update_SEO_Meta();
-
-        // Extended vocabulary (issue #67): per-post OG/Twitter reads in one
-        // neutral field set. Plugins whose social storage is not mapped yet
-        // answer with a structured "unsupported", never an error.
-        $get_social_meta = new Get_Social_Meta();
-
-        $registrar->register(new Ability(
-            'wpmcp/get-social-meta',
-            'pro',
-            'Read a post\'s OpenGraph and Twitter card overrides (title, description, image) via the active SEO plugin\'s postmeta keys, in one neutral field set. Returns a structured unsupported response for plugins whose per-post social storage is not mapped',
-            [
-                'type'       => 'object',
-                'properties' => [
-                    'post_id' => [ 'type' => 'integer' ],
-                ],
-                'required'   => [ 'post_id' ],
-            ],
-            [$get_social_meta, 'handle'],
-            'edit_posts',
-            'seo',
-            'read'
-        ));
 
         $registrar->register(new Ability(
             'wpmcp/get-seo-meta',
@@ -6574,6 +6518,161 @@ final class Plugin
             ],
             [$update_seo_meta, 'handle'],
             'edit_posts',
+            'seo',
+            'update'
+        ));
+    }
+
+    /**
+     * The paid half of the SEO group (issue #67): generation tools, the
+     * extended social vocabulary, and term-level SEO. Every one declares tier
+     * 'pro', which the Registrar enforces centrally rather than each handler
+     * re-checking. Kept in its own method, called from
+     * register_seo_abilities(), so the directory build removes the paid
+     * surface as one method instead of editing registrations out one by one.
+     *
+     * generate-schema-markup and generate-meta-tags register unconditionally
+     * (like get-seo-status): both build from the post's own record, so they
+     * work on a site with no SEO plugin at all. The rest read or write the
+     * active plugin's storage and register only when one is detected. Plugin
+     * and field combinations that are not mapped answer with a structured
+     * "unsupported" payload, never an error.
+     */
+    private function register_seo_pro_abilities(Registrar $registrar): void
+    {
+        $generate_schema = new Generate_Schema_Markup();
+        $generate_tags   = new Generate_Meta_Tags();
+
+        $registrar->register(new Ability(
+            'wpmcp/generate-schema-markup',
+            'pro',
+            'Generate schema.org JSON-LD for a post (Article, WebPage, LocalBusiness or Product) from its title, dates, author, excerpt or SEO description, featured image, permalink, and, for Product, its WooCommerce record. Proposal only: returns the encoded JSON-LD, writes nothing',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'     => [ 'type' => 'integer' ],
+                    'schema_type' => [
+                        'type' => 'string',
+                        // From SUPPORTED_TYPES on the generator itself: a
+                        // type added there must not stay undiscoverable, and
+                        // one removed must not stay advertised on a schema
+                        // that now throws.
+                        'enum' => Schema_Generator::SUPPORTED_TYPES,
+                    ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$generate_schema, 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/generate-meta-tags',
+            'pro',
+            'Propose the title, meta description, canonical, robots, OpenGraph and Twitter card tags for a post, from the active SEO plugin fields where set and the post record otherwise. Each tag reports its source (plugin or post). Proposal only: returns the tags and escaped HTML, writes nothing',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$generate_tags, 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
+        ));
+
+        if ('' === SEO_Adapter::active_plugin()) {
+            return;
+        }
+
+        $get_social_meta      = new Get_Social_Meta();
+        $set_social_image     = new Set_Social_Image();
+        $get_term_seo_meta    = new Get_Term_SEO_Meta();
+        $update_term_seo_meta = new Update_Term_SEO_Meta();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-social-meta',
+            'pro',
+            'Read a post\'s OpenGraph and Twitter card overrides (title, description, image) via the active SEO plugin\'s postmeta keys, in one neutral field set. Returns a structured unsupported response for plugins whose per-post social storage is not mapped',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$get_social_meta, 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/set-social-image',
+            'pro',
+            'Set a post\'s social sharing image (target og, twitter or both; default both) from a media library image attachment_id or an absolute image_url, via the active SEO plugin\'s postmeta keys. Snapshotted via object_type post; rollback-operation restores the previous image. Returns a structured unsupported response for plugins whose per-post social storage is not mapped',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'attachment_id' => [ 'type' => 'integer' ],
+                    'image_url'     => [ 'type' => 'string' ],
+                    'target'        => [ 'type' => 'string', 'enum' => [ 'og', 'twitter', 'both' ] ],
+                    'session_id'    => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$set_social_image, 'handle'],
+            'edit_posts',
+            'seo',
+            'update'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/get-term-seo-meta',
+            'pro',
+            'Read a taxonomy term\'s SEO title, meta description, focus keyword, canonical URL, and robots flags (noindex/nofollow) via the active SEO plugin, in the same field set get-seo-meta returns for posts. Identify the term by taxonomy plus term_id or slug. Fields the plugin does not store on terms are listed in unsupported_fields; plugins with no term storage return a structured unsupported response',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'taxonomy' => [ 'type' => 'string' ],
+                    'term_id'  => [ 'type' => 'integer' ],
+                    'slug'     => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'taxonomy' ],
+            ],
+            [$get_term_seo_meta, 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/update-term-seo-meta',
+            'pro',
+            'Set a taxonomy term\'s SEO title, meta description, focus keyword, canonical URL, and/or robots flags (noindex/nofollow) via the active SEO plugin, with the same fields update-seo-meta takes for posts. Identify the term by taxonomy plus term_id or slug. Snapshotted first (the term, or the Yoast taxonomy option); rollback-operation restores the prior values. Fields the plugin does not store on terms are returned in skipped_fields rather than failing',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'taxonomy'      => [ 'type' => 'string' ],
+                    'term_id'       => [ 'type' => 'integer' ],
+                    'slug'          => [ 'type' => 'string' ],
+                    'title'         => [ 'type' => 'string' ],
+                    'description'   => [ 'type' => 'string' ],
+                    'focus_keyword' => [ 'type' => 'string' ],
+                    'canonical'     => [ 'type' => 'string' ],
+                    'noindex'       => [ 'type' => 'boolean' ],
+                    'nofollow'      => [ 'type' => 'boolean' ],
+                    'session_id'    => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'taxonomy' ],
+            ],
+            [$update_term_seo_meta, 'handle'],
+            'manage_categories',
             'seo',
             'update'
         ));

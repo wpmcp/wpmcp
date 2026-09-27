@@ -66,4 +66,35 @@ class Post_Access
 
         return $post;
     }
+
+    /**
+     * The post, if the current user may write to it through an SEO tool.
+     *
+     * The write abilities are gated on `edit_posts` like the reads, and the
+     * same reasoning applies in the other direction: a contributor holds
+     * `edit_posts`, which does not entitle them to rewrite the title,
+     * robots flags or social image of a post someone else published.
+     *
+     * @throws \InvalidArgumentException when the id is absent or no such post.
+     * @throws \RuntimeException         when the caller may not edit it.
+     */
+    public static function assert_editable(int $post_id): \WP_Post
+    {
+        if ($post_id <= 0) {
+            throw new \InvalidArgumentException('A post id is required.');
+        }
+
+        $post = get_post($post_id);
+        if (! $post instanceof \WP_Post) {
+            throw new \InvalidArgumentException('Post not found: ' . (int) $post_id);
+        }
+
+        if (! current_user_can('edit_post', $post_id)) {
+            throw new \RuntimeException(
+                'You do not have permission to edit post ' . (int) $post_id . '.'
+            );
+        }
+
+        return $post;
+    }
 }
