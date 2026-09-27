@@ -4,7 +4,6 @@ namespace WPMCP\Tests\Free\Integrations;
 
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Integrations\Theme_Integration;
-use WPMCP\MCP\Request_Log;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Rollback_Operation;
 
@@ -124,7 +123,7 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
         set_theme_mod('header_textcolor', 'aabbcc');
         set_theme_mod('nav_menu_locations', []);
 
-        $out = $this->integration->handle_read([ 'operation' => 'get-mods' ]);
+        $out = $this->withWritesEnabled(fn () => $this->integration->handle_read([ 'operation' => 'get-mods' ]));
 
         $this->assertArrayNotHasKey('error', $out);
         $result = $out['result'];
@@ -266,7 +265,7 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
         $this->assertSame([], $out['result']['updated']);
         $this->assertSame('invalid_value', $out['result']['refused'][0]['reason']);
 
-        $attachment = self::factory()->post->create([ 'post_type' => 'attachment' ]);
+        $attachment = self::factory()->post->create([ 'post_type' => 'attachment', 'post_mime_type' => 'image/png' ]);
         $ok         = $this->withWritesEnabled(fn () => $this->integration->handle_write([
             'operation' => 'set-mods',
             'args'      => [ 'values' => [ 'custom_logo' => (string) $attachment ] ],
@@ -326,7 +325,7 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
         add_filter('wpmcp_theme_mod_allowlist', $open_everything);
 
         try {
-            $advertised = $this->integration->handle_read([ 'operation' => 'get-mods' ])['result'];
+            $advertised = $this->withWritesEnabled(fn () => $this->integration->handle_read([ 'operation' => 'get-mods' ]))['result'];
         } finally {
             remove_filter('wpmcp_theme_mod_allowlist', $open_everything);
         }
@@ -344,7 +343,7 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
     {
         remove_theme_mod('custom_logo');
 
-        $result = $this->integration->handle_read([ 'operation' => 'get-mods' ])['result'];
+        $result = $this->withWritesEnabled(fn () => $this->integration->handle_read([ 'operation' => 'get-mods' ]))['result'];
 
         $this->assertContains('custom_logo', $result['writable']);
         $this->assertNotContains('custom_logo', $result['writable_present']);
@@ -812,22 +811,163 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
     }
 
     /**
-     * The read half must use the shared Request_Log redaction primitive, not
-     * a hand-copied fork of it: a stored object handed to the model unfiltered
-     * (and an unbounded string) is exactly what that convention prevents.
+     * get-mods is a read tool: it must return presentation mods verbatim. A
+     * substring secret match masked ordinary keys (post_author_box,
+     * meta_keywords, cookie_notice_text), and the request-log helper
+     * truncated long strings and collapsed deep arrays with no marker.
      */
-    public function test_get_mods_follows_the_shared_request_log_redaction_convention(): void
+    public function test_get_mods_returns_presentation_mods_verbatim(): void
     {
-        set_theme_mod('vendor_license', 'lic-should-never-be-echoed');
-        set_theme_mod('some_object_mod', new \stdClass());
-        set_theme_mod('long_mod', str_repeat('a', 500));
+        $ordinary = [
+            'post_author_box'    => 'on',
+            'meta_keywords'      => 'shop, travel',
+            'cookie_notice_text' => 'We use cookies.',
+            'show_author'        => true,
+            'neve_author_avatar' => 1,
+            'passive_header'     => 'yes',
+        ];
+        foreach ($ordinary as $key => $value) {
+            set_theme_mod($key, $value);
+        }
+        $long = str_repeat('a', 500);
+        set_theme_mod('long_mod', $long);
+        $deep = [ 'a' => [ 'b' => [ 'c' => [ 'd' => [ 'e' => 'leaf' ] ] ] ] ];
+        set_theme_mod('deep_mod', $deep);
 
         $result = $this->integration->handle_read([ 'operation' => 'get-mods' ])['result'];
 
-        $this->assertSame(Request_Log::REDACTED, $result['mods']['vendor_license']);
-        $this->assertContains('vendor_license', $result['redacted']);
-        $this->assertSame('[object]', $result['mods']['some_object_mod']);
-        $this->assertLessThan(500, strlen($result['mods']['long_mod']));
+        foreach ($ordinary as $key => $value) {
+            $this->assertSame($value, $result['mods'][ $key ], $key);
+        }
+        $this->assertSame($long, $result['mods']['long_mod']);
+        $this->assertSame($deep, $result['mods']['deep_mod']);
+        $this->assertSame([], $result['redacted']);
+    }
+
+    /**
+     * Secret-shaped keys are masked wherever they sit, and every masked
+     * path, nested ones included, is reported.
+     */
+    public function test_get_mods_masks_secret_keys_at_any_depth_and_reports_their_paths(): void
+    {
+        set_theme_mod('license_key', 'lic-should-never-be-echoed');
+        set_theme_mod('vendor', [
+            'label'    => 'fine',
+            'settings' => [ 'api_key' => 'sk-nested', 'accessToken' => 'tok', 'color' => 'red' ],
+        ]);
+
+        $result = $this->integration->handle_read([ 'operation' => 'get-mods' ])['result'];
+
+        $this->assertSame('[redacted]', $result['mods']['license_key']);
+        $this->assertSame('fine', $result['mods']['vendor']['label']);
+        $this->assertSame('[redacted]', $result['mods']['vendor']['settings']['api_key']);
+        $this->assertSame('[redacted]', $result['mods']['vendor']['settings']['accessToken']);
+        $this->assertSame('red', $result['mods']['vendor']['settings']['color']);
+        $this->assertEqualsCanonicalizing(
+            [ 'license_key', 'vendor.settings.api_key', 'vendor.settings.accessToken' ],
+            $result['redacted']
+        );
+    }
+
+    /** Stored objects (core's header_image_data) come back as their fields. */
+    public function test_get_mods_does_not_collapse_stored_objects(): void
+    {
+        set_theme_mod('header_image_data', (object) [ 'attachment_id' => 7, 'width' => 10 ]);
+
+        $result = $this->integration->handle_read([ 'operation' => 'get-mods' ])['result'];
+
+        $this->assertSame([ 'attachment_id' => 7, 'width' => 10 ], $result['mods']['header_image_data']);
+    }
+
+    /**
+     * set-mods is off by default, so advertising the allowlist as writable
+     * would promise writes that are refused.
+     */
+    public function test_get_mods_reports_nothing_writable_while_set_mods_is_disabled(): void
+    {
+        $off = $this->integration->handle_read([ 'operation' => 'get-mods' ])['result'];
+        $this->assertFalse($off['write_enabled']);
+        $this->assertSame([], $off['writable']);
+        $this->assertSame([], $off['writable_present']);
+
+        $on = $this->withWritesEnabled(fn () => $this->integration->handle_read([ 'operation' => 'get-mods' ]))['result'];
+        $this->assertTrue($on['write_enabled']);
+        $this->assertContains('custom_logo', $on['writable']);
+    }
+
+    /**
+     * The per-op wpmcp_integration_op_enabled filter can also switch set-mods
+     * off; get-mods must agree with it.
+     */
+    public function test_get_mods_writable_honours_the_integration_op_filter(): void
+    {
+        $off = static fn ($enabled, $integration, $op) => 'theme' === $integration && 'set-mods' === $op ? false : $enabled;
+        add_filter('wpmcp_integration_op_enabled', $off, 10, 3);
+        try {
+            $result = $this->withWritesEnabled(fn () => $this->integration->handle_read([ 'operation' => 'get-mods' ]))['result'];
+        } finally {
+            remove_filter('wpmcp_integration_op_enabled', $off, 10);
+        }
+        $this->assertFalse($result['write_enabled']);
+        $this->assertSame([], $result['writable']);
+    }
+
+    /**
+     * 'remove-header' and 'random-default-image' mean something only to the
+     * header; _custom_background_cb() would emit url("remove-header").
+     */
+    public function test_header_sentinels_are_accepted_for_header_image_only(): void
+    {
+        foreach ([ 'remove-header', 'random-default-image' ] as $sentinel) {
+            $bg = $this->withWritesEnabled(fn () => $this->integration->handle_write([
+                'operation' => 'set-mods',
+                'args'      => [ 'values' => [ 'background_image' => $sentinel ] ],
+            ]));
+            $this->assertSame([], $bg['result']['updated'], $sentinel);
+            $this->assertSame('invalid_value', $bg['result']['refused'][0]['reason'], $sentinel);
+
+            $header = $this->withWritesEnabled(fn () => $this->integration->handle_write([
+                'operation' => 'set-mods',
+                'args'      => [ 'values' => [ 'header_image' => $sentinel ] ],
+            ]));
+            $this->assertSame([ 'header_image' ], $header['result']['updated'], $sentinel);
+        }
+    }
+
+    /** The Customizer's logo control only offers images; so must set-mods. */
+    public function test_custom_logo_refuses_a_non_image_attachment(): void
+    {
+        $pdf = self::factory()->post->create([ 'post_type' => 'attachment', 'post_mime_type' => 'application/pdf' ]);
+
+        $out = $this->withWritesEnabled(fn () => $this->integration->handle_write([
+            'operation' => 'set-mods',
+            'args'      => [ 'values' => [ 'custom_logo' => $pdf ] ],
+        ]));
+
+        $this->assertSame([], $out['result']['updated']);
+        $this->assertSame('invalid_value', $out['result']['refused'][0]['reason']);
+    }
+
+    /** Only the real core theme slugs count as the core family. */
+    public function test_framework_detection_matches_core_slugs_exactly(): void
+    {
+        $fake = static fn () => 'twentytwenty-pro';
+        add_filter('template', $fake);
+        try {
+            $pro = $this->integration->handle_read([ 'operation' => 'get-theme-context' ])['result'];
+        } finally {
+            remove_filter('template', $fake);
+        }
+        $this->assertNull($pro['framework']);
+
+        $core = static fn () => 'twentytwentyfour';
+        add_filter('template', $core);
+        try {
+            $real = $this->integration->handle_read([ 'operation' => 'get-theme-context' ])['result'];
+        } finally {
+            remove_filter('template', $core);
+        }
+        $this->assertSame('core', $real['framework']);
     }
 
     /**
