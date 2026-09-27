@@ -300,6 +300,25 @@ class Client_Store
     }
 
     /**
+     * Whether a client is marked protected (issue #142). Only
+     * Gateway_Credential calls protect(), and nothing on the DCR path can set
+     * the flag, so "protected" is exactly "the locally provisioned gateway
+     * client". Token_Grant and Token_Store key the gateway grant policy on
+     * this rather than on the stored gateway option, so a pointer that goes
+     * stale can never promote an ordinary client.
+     */
+    public static function is_protected(string $client_id): bool
+    {
+        if ('' === $client_id) {
+            return false;
+        }
+
+        $record = self::get($client_id);
+
+        return null !== $record && ! empty($record['protected']);
+    }
+
+    /**
      * Mint a fresh client_secret for an existing client and return the
      * plaintext exactly once (issue #142).
      *

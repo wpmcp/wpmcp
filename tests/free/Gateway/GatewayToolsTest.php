@@ -6,6 +6,7 @@ use WPMCP\Auth\Client_Store;
 use WPMCP\Auth\Refresh_Token_Store;
 use WPMCP\Auth\Token_Store;
 use WPMCP\Gateway\Gateway_Credential;
+use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Gateway\Gateway_Provision;
 use WPMCP\Tools\Gateway\Gateway_Revoke;
 use WPMCP\Tools\Gateway\Gateway_Status;
@@ -215,5 +216,83 @@ class GatewayToolsTest extends \WP_UnitTestCase
         $this->assertTrue($result['revoked']);
         $this->assertFalse($result['provisioned'], 'revoke must not claim a state it did not reach');
         $this->assertSame(0, Client_Store::count());
+    }
+
+    public function test_provision_runs_through_safe_mutation_without_snapshotting_secrets(): void
+    {
+        // Hard rule: no mutating ability skips Safe_Mutation. The snapshot
+        // is the gateway bookkeeping pointer only, so the undo point that
+        // exists for the call can never carry or resurrect credential
+        // material.
+        $this->as_admin();
+        $out = (new Gateway_Provision())->handle(['confirm' => true]);
+
+        $this->assertIsString($out['operation_id'] ?? null);
+        $row = Snapshot_Store::get_by_operation($out['operation_id']);
+        $this->assertNotNull($row, 'the snapshot is persisted before the write');
+
+        $serialized = (string) wp_json_encode($row);
+        $this->assertStringNotContainsString($out['client_secret'], $serialized);
+        $this->assertStringNotContainsString($out['refresh_token'], $serialized);
+        $this->assertStringNotContainsString('client_secret_hash', $serialized);
+    }
+
+    public function test_revoke_runs_through_safe_mutation(): void
+    {
+        $this->as_admin();
+        (new Gateway_Provision())->handle(['confirm' => true]);
+
+        $out = (new Gateway_Revoke())->handle(['confirm' => true]);
+
+        $this->assertIsString($out['operation_id'] ?? null);
+        $this->assertNotNull(Snapshot_Store::get_by_operation($out['operation_id']));
+    }
+
+    public function test_rolling_back_a_revoke_does_not_resurrect_the_credential(): void
+    {
+        $this->as_admin();
+        $credential = (new Gateway_Provision())->handle(['confirm' => true]);
+        $out        = (new Gateway_Revoke())->handle(['confirm' => true]);
+
+        $row = Snapshot_Store::get_by_operation($out['operation_id']);
+        \WPMCP\Safety\Safe_Mutation::restore($row['snapshot']);
+
+        $this->assertFalse(Gateway_Credential::is_provisioned(), 'restoring the pointer must not bring the client back');
+        $this->assertFalse(Client_Store::verify_secret($credential['client_id'], $credential['client_secret']));
+        $this->assertFalse(Refresh_Token_Store::has_tokens_for_client($credential['client_id']));
+    }
+
+    public function test_revoke_still_kills_the_credential_when_the_undo_point_cannot_be_saved(): void
+    {
+        // The kill switch must not depend on the snapshot table. Its undo
+        // point is inert by design (pointer only), so refusing to revoke a
+        // leaked credential because that row could not be written would
+        // trade a real security outcome for a no-op restore.
+        global $wpdb;
+        $this->as_admin();
+        $credential = (new Gateway_Provision())->handle(['confirm' => true]);
+
+        $table  = Snapshot_Store::table_name();
+        $filter = static function ($query) use ($table) {
+            if (str_starts_with(strtoupper(ltrim((string) $query)), 'INSERT') && str_contains((string) $query, $table)) {
+                return str_replace($table, $table . '_does_not_exist', (string) $query);
+            }
+            return $query;
+        };
+        add_filter('query', $filter);
+        $suppress = $wpdb->suppress_errors(true);
+
+        try {
+            $out = (new Gateway_Revoke())->handle(['confirm' => true]);
+        } finally {
+            remove_filter('query', $filter);
+            $wpdb->suppress_errors($suppress);
+        }
+
+        $this->assertTrue($out['revoked']);
+        $this->assertNull($out['operation_id']);
+        $this->assertFalse($out['undo_point']);
+        $this->assertFalse(Gateway_Credential::is_provisioned());
+        $this->assertFalse(Client_Store::verify_secret($credential['client_id'], $credential['client_secret']));
     }
 }

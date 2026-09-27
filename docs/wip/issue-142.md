@@ -141,12 +141,29 @@ and none is recoverable afterwards.
   vertical's `FLAVOR_GROUPS`. Registering the gateway tools there would
   mean builds where a credential can be minted but not revoked, which
   contradicts the issue's "kill it with no network" requirement.
-- **The refresh grant is NOT restricted to the gateway client id.**
-  `Token_Grant` already implements the refresh grant (from #133) for every
-  DCR client, and ordinary MCP clients depend on it to survive past the 1h
-  access token. Restricting the grant itself would break them. What the
-  gateway needs is a policy layered on top, not a narrowing of the shared
-  grant.
+- **The refresh grant stays open to every client; the gateway restriction
+  is a policy layered on top.** `Token_Grant` already implements the
+  refresh grant (from #133) for every DCR client, and ordinary MCP clients
+  depend on it to survive past the 1h access token. What is restricted is
+  the gateway side, in both directions: the `gateway` scope is reserved
+  (an authorization code carrying it is refused for every client, since
+  `/authorize` takes the scope string verbatim from the client), a
+  gateway-scoped refresh chain is redeemable only by the gateway client,
+  the gateway client redeems nothing but its gateway chain and never an
+  authorization code, and `Token_Store::validate()` refuses a
+  gateway-scoped access token whose client is not the protected gateway
+  row. Every refusal is the flat `invalid_grant`. The gateway client is
+  identified by `Client_Store::is_protected()`, a flag only
+  `Gateway_Credential` sets and nothing on the DCR path can.
+- **No grace window for the gateway chain by default.** The #133 grace
+  window forgives a replay of a rotated token for two minutes, for
+  interactive clients on flaky connections. The issue's contract for the
+  gateway is that a rotated-away token is rejected on replay, so gateway
+  tokens use `wpmcp_gateway_refresh_grace` (default 0) and the general
+  `wpmcp_oauth_refresh_grace` does not reach them. A replay revokes the
+  whole chain and records `oauth/refresh-reuse`. A zero window now also
+  rejects a same-second replay, which the old `now > rotated_at + 0`
+  comparison let through.
 - **`gateway-provision` is NOT seeded off via `Default_Seeder`.** It was
   the obvious answer to "a credential-minting tool ships enabled to every
   upgrading install", and it was tried and backed out. Two reasons. First,
@@ -163,22 +180,18 @@ and none is recoverable afterwards.
   says it is preserving. If a governance default is still wanted, it
   belongs with `Governance\Opt_In_Gates` (where the exec/db/fs write tools
   live) rather than with the seeder.
-- **`Safe_Mutation` does not wrap the gateway tools.** A snapshot of
-  `wpmcp_oauth_clients` holds only a secret hash, so restoring it cannot
-  restore a usable credential; and undoing a revoke would resurrect token
-  rows a site owner just killed. Re-provisioning is the recovery path.
-  Documented at the tool class docblocks. The cost is real and worth
-  naming: these writes carry no `operation_id`, so they do not appear as
-  an undo point in the history UI. The tool CALL is still recorded by
-  `Request_Log` like every other dispatch, so the forensic trail exists;
-  what is absent is a restore point, and a restore point for this data
-  would be actively harmful.
+- **`Safe_Mutation` wraps both mutating tools, with an inert snapshot.**
+  The snapshot is the `wpmcp_gateway_client_id` pointer only, so each call
+  gets an `operation_id` and a history row, but restoring it can neither
+  resurrect a revoked credential nor copy secret hashes into the snapshot
+  table (snapshotting the clients or token options would do both, and
+  would clobber unrelated OAuth clients on restore). `gateway-revoke` still
+  kills the credential when the undo point cannot be written, and says so
+  (`undo_point: false`): the kill switch must not depend on the snapshot
+  table.
 
 ## Remaining work
 
-- A gateway-specific policy on top of the existing refresh grant (see
-  above): what the gateway client may do that an ordinary client may not,
-  and vice versa.
 - Scope enforcement. The `gateway` scope is recorded on the token and
   carried onto the access tokens minted from it, but nothing in the
   request path consults it: `Bearer_Auth` performs no ability or domain

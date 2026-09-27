@@ -5,6 +5,7 @@ namespace WPMCP\Tools\Gateway;
 use WPMCP\Auth\Client_Cap_Reached;
 use WPMCP\Auth\OAuth_Config;
 use WPMCP\Gateway\Gateway_Credential;
+use WPMCP\Safety\Safe_Mutation;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -30,15 +31,17 @@ if (! defined('ABSPATH')) {
  * unused but structurally unredeemable, and gateway-status would then
  * report provisioned: true about it.
  *
- * NOT WRAPPED IN Safe_Mutation, deliberately. The repo's snapshot-before-
- * every-write rule exists so a site owner can undo a destructive content
- * change; it does not fit credential material. A snapshot of
- * wpmcp_oauth_clients holds only a secret HASH, so restoring it cannot
- * restore a usable credential -- the plaintext half lives client-side and
- * was shown once. Worse, an undo of a revoke would resurrect the token
- * rows a site owner just killed, which is the opposite of what revoking a
- * leaked credential is for. Re-provisioning is the recovery path here, and
- * it costs one tool call.
+ * SAFE_MUTATION, AND WHAT ITS UNDO POINT DOES NOT DO. Like every mutating
+ * ability this runs through Safe_Mutation, so the call gets an
+ * operation_id and a history row. The snapshot is deliberately the
+ * gateway bookkeeping pointer (Gateway_Credential::OPTION) and nothing
+ * else. Snapshotting wpmcp_oauth_clients or the token stores would copy
+ * secret hashes into the snapshot table, and restoring them would either
+ * clobber every unrelated OAuth client registered since or resurrect token
+ * rows a site owner deliberately killed. Restoring the pointer is inert:
+ * Gateway_Credential resolves the client by fingerprint and treats a stale
+ * pointer as absent. The recovery path for a credential is re-provisioning
+ * (or gateway-revoke to kill one), never an undo.
  */
 class Gateway_Provision
 {
@@ -63,7 +66,17 @@ class Gateway_Provision
         }
 
         try {
-            $credential = Gateway_Credential::issue_for_user($user_id);
+            $out        = Safe_Mutation::run(
+                [
+                    'object_type' => 'option',
+                    'object_id'   => Gateway_Credential::OPTION,
+                    'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                    'tool_name'   => 'gateway-provision',
+                    'args'        => ['confirm' => true],
+                ],
+                static fn (): array => Gateway_Credential::issue_for_user($user_id)
+            );
+            $credential = $out['result'];
         } catch (Client_Cap_Reached $e) {
             // An ordinary operational condition, not a crash; mirror
             // Client_Registration::register()'s handling rather than
@@ -80,6 +93,7 @@ class Gateway_Provision
         }
 
         return [
+            'operation_id'  => $out['operation_id'],
             'provisioned'   => true,
             'client_id'     => $credential['client_id'],
             'client_secret' => $credential['client_secret'],

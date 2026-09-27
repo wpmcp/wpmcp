@@ -107,7 +107,7 @@ class Refresh_Token_Store
     {
         $ttl = max(60, (int) apply_filters('wpmcp_oauth_refresh_ttl', self::TTL_SECONDS));
 
-        if (self::GATEWAY_SCOPE === $scope) {
+        if (self::is_gateway_scope($scope)) {
             $ttl = max(60, (int) apply_filters('wpmcp_gateway_refresh_ttl', $ttl));
         }
 
@@ -119,9 +119,33 @@ class Refresh_Token_Store
      * at 0, which restores strict single-use rotation (any reuse is a
      * breach) for deployments that want it.
      */
-    public static function grace(): int
+    public static function grace(string $scope = ''): int
     {
+        // The gateway credential (issue #142) gets NO grace window by
+        // default, and the general filter does not reach it. The window
+        // exists for interactive clients on flaky connections; the gateway
+        // is a server-side proxy, and the issue's contract is that a
+        // rotated-away gateway token is rejected on replay. An operator who
+        // wants the retry allowance back for the proxy can opt in through
+        // wpmcp_gateway_refresh_grace.
+        if (self::is_gateway_scope($scope)) {
+            return max(0, (int) apply_filters('wpmcp_gateway_refresh_grace', 0));
+        }
+
         return max(0, (int) apply_filters('wpmcp_oauth_refresh_grace', self::GRACE_SECONDS));
+    }
+
+    /**
+     * Whether a space-delimited scope string (RFC 6749 3.3) carries the
+     * reserved gateway scope token (issue #142). Scope strings reach the
+     * stores from the client-supplied /authorize request, so this is a
+     * token match, not a prefix or substring match.
+     */
+    public static function is_gateway_scope(string $scope): bool
+    {
+        $tokens = preg_split('/\s+/', trim($scope));
+
+        return is_array($tokens) && in_array(self::GATEWAY_SCOPE, $tokens, true);
     }
 
     private static function load(): array
@@ -221,7 +245,11 @@ class Refresh_Token_Store
         // oauth/refresh-reuse audit row out of the governance log in
         // exactly that scenario. Both outcomes revoke the chain, so
         // reporting the more serious one costs nothing.
-        if (0 !== $rotated_at && $now > $rotated_at + self::grace()) {
+        // A zero window means "no retry allowance at all", including a
+        // replay inside the same second as the rotation, which the plain
+        // "now > rotated_at + 0" comparison would let through as a grace hit.
+        $grace = self::grace((string) ($record['scope'] ?? ''));
+        if (0 !== $rotated_at && (0 === $grace || $now > $rotated_at + $grace)) {
             self::revoke_chain((string) ($record['chain_id'] ?? ''));
             return ['status' => 'reuse_detected'];
         }

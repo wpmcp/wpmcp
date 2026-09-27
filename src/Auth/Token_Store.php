@@ -126,6 +126,20 @@ class Token_Store
             return null;
         }
 
+        // Gateway tokens (issue #142) live and die with the gateway client
+        // row. The token store and the clients store are separate options
+        // written without a lock, so a refresh that loaded this store before
+        // Gateway_Credential::deprovision() swept it can write its freshly
+        // minted access token back afterwards. The client row is the one
+        // thing that revoke removes and nothing on the grant path recreates,
+        // so checking it here keeps the kill switch total. It also means an
+        // ordinary client holding a 'gateway'-scoped token (possible before
+        // Token_Grant reserved the scope) cannot authenticate with it.
+        $is_gateway_token = Refresh_Token_Store::is_gateway_scope((string) ($record['scope'] ?? ''));
+        if ($is_gateway_token && ! Client_Store::is_protected((string) ($record['client_id'] ?? ''))) {
+            return null;
+        }
+
         return [
             'client_id' => $record['client_id'],
             'user_id'   => $record['user_id'],

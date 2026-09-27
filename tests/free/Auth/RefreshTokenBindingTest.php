@@ -45,7 +45,7 @@ class RefreshTokenBindingTest extends \WP_UnitTestCase
     public function test_a_password_change_kills_the_refresh_token(): void
     {
         $user_id = self::factory()->user->create(['role' => 'administrator']);
-        $token   = Refresh_Token_Store::issue('client_a', $user_id, 'gateway');
+        $token   = Refresh_Token_Store::issue('client_a', $user_id, 'read');
 
         wp_set_password('a-brand-new-password', $user_id);
 
@@ -60,7 +60,7 @@ class RefreshTokenBindingTest extends \WP_UnitTestCase
     public function test_deleting_the_user_kills_the_refresh_token(): void
     {
         $user_id = self::factory()->user->create(['role' => 'administrator']);
-        $token   = Refresh_Token_Store::issue('client_a', $user_id, 'gateway');
+        $token   = Refresh_Token_Store::issue('client_a', $user_id, 'read');
 
         wp_delete_user($user_id);
 
@@ -73,7 +73,7 @@ class RefreshTokenBindingTest extends \WP_UnitTestCase
         // minted before #142 keeps minting access tokens straight through a
         // password change for the rest of its 30 days.
         $user_id = self::factory()->user->create(['role' => 'administrator']);
-        $token   = Refresh_Token_Store::issue('client_a', $user_id, 'gateway');
+        $token   = Refresh_Token_Store::issue('client_a', $user_id, 'read');
 
         $stored = get_option(Refresh_Token_Store::OPTION);
         $key    = array_key_first($stored);
@@ -100,7 +100,7 @@ class RefreshTokenBindingTest extends \WP_UnitTestCase
         // a site owner needs to see, and Token_Grant only records the
         // oauth/refresh-reuse audit row for that status.
         $user_id = self::factory()->user->create(['role' => 'administrator']);
-        $token   = Refresh_Token_Store::issue('client_a', $user_id, 'gateway');
+        $token   = Refresh_Token_Store::issue('client_a', $user_id, 'read');
 
         $this->assertSame('ok', Refresh_Token_Store::redeem($token)['status']);
         $this->clock += Refresh_Token_Store::GRACE_SECONDS + 1;

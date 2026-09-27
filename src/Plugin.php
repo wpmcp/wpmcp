@@ -2520,41 +2520,66 @@ final class Plugin
      */
     private function register_gateway_abilities(Registrar $registrar): void
     {
-        $tools = [
-            ['gateway-provision', 'create', new \WPMCP\Tools\Gateway\Gateway_Provision(), 'Provision (or rotate) the site-local gateway credential. Returns client_id, client_secret and refresh_token plaintext exactly once; any previous gateway credential stops working immediately. The credential is NOT scope-limited: it carries the capabilities of the user who provisions it. Requires confirm: true', ['confirm' => ['type' => 'boolean']], ['confirm'], true, false],
-            ['gateway-status', 'read', new \WPMCP\Tools\Gateway\Gateway_Status(), 'Report whether the site-local gateway credential is provisioned, its client_id, and whether OAuth is enabled at all. Never returns token material. Read-only', [], [], null, null],
-            ['gateway-revoke', 'delete', new \WPMCP\Tools\Gateway\Gateway_Revoke(), 'Revoke the site-local gateway credential: removes the gateway client and every token bound to it. Local-only and idempotent. Requires confirm: true', ['confirm' => ['type' => 'boolean']], ['confirm'], true, true],
+        $confirm_schema = [
+            'type'       => 'object',
+            'properties' => ['confirm' => ['type' => 'boolean']],
+            'required'   => ['confirm'],
         ];
 
-        // The last two slots are the destructive and idempotent hint
-        // overrides, and both defaults are wrong here. 'create' would
-        // derive destructive: false for gateway-provision, but the call
+        // The destructive and idempotent hints are overridden, not derived,
+        // and both derived values would be wrong. 'create' would derive
+        // destructive: false for gateway-provision, but the call
         // irreversibly kills the previous client secret, every refresh
         // token bound to it and every access token already minted from it;
-        // MCP clients use destructiveHint for auto-approval, so the
-        // derived value invites an agent to retry it over a live proxy
-        // credential. 'delete' would derive idempotent: false for
-        // gateway-revoke, which is documented and tested as safe to call
-        // repeatedly.
-        foreach ($tools as [$name, $op, $handler, $desc, $props, $required, $destructive, $idempotent]) {
-            $schema = [ 'type' => 'object', 'properties' => $props ];
-            if ([] !== $required) {
-                $schema['required'] = $required;
-            }
-            $registrar->register(new Ability(
-                'wpmcp/' . $name,
-                'free',
-                $desc,
-                $schema,
-                [$handler, 'handle'],
-                'manage_options',
-                'gateway',
-                $op,
-                null,
-                $destructive,
-                $idempotent
-            ));
-        }
+        // MCP clients use destructiveHint for auto-approval, so the derived
+        // value invites an agent to retry it over a live proxy credential.
+        // 'delete' would derive idempotent: false for gateway-revoke, which
+        // is documented and tested as safe to call repeatedly.
+        //
+        // Each registration is a literal `new Ability('wpmcp/...')` so the
+        // wp.org free-tier assertion (scripts/flavors/wporg/assert-free-tier.php)
+        // can see these free abilities in the built zip.
+        $registrar->register(new Ability(
+            'wpmcp/gateway-provision',
+            'free',
+            'Provision (or rotate) the site-local gateway credential. Returns client_id, client_secret and refresh_token plaintext exactly once; any previous gateway credential stops working immediately. The credential is NOT scope-limited: it carries the capabilities of the user who provisions it. Requires confirm: true',
+            $confirm_schema,
+            [new \WPMCP\Tools\Gateway\Gateway_Provision(), 'handle'],
+            'manage_options',
+            'gateway',
+            'create',
+            null,
+            true,
+            false
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/gateway-status',
+            'free',
+            'Report whether the site-local gateway credential is provisioned, its client_id, and whether OAuth is enabled at all. Never returns token material. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [new \WPMCP\Tools\Gateway\Gateway_Status(), 'handle'],
+            'manage_options',
+            'gateway',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/gateway-revoke',
+            'free',
+            'Revoke the site-local gateway credential: removes the gateway client and every token bound to it. Local-only and idempotent. Requires confirm: true',
+            $confirm_schema,
+            [new \WPMCP\Tools\Gateway\Gateway_Revoke(), 'handle'],
+            'manage_options',
+            'gateway',
+            'delete',
+            null,
+            true,
+            true
+        ));
     }
 
     private function register_cloud_abilities(Registrar $registrar): void
