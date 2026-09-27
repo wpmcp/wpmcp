@@ -108,7 +108,9 @@ class Css_Sanitizer
         // spells out markup or @import - and closes the whole class.
         foreach ($forms as $subject) {
             foreach (self::FORBIDDEN_PATTERNS as $pattern) {
-                if (preg_match($pattern, $subject)) {
+                // 0 is the only answer that clears a subject: false (a PCRE
+                // error) fails closed rather than reading as "no match".
+                if (0 !== preg_match($pattern, $subject)) {
                     throw new \InvalidArgumentException(
                         'The CSS was rejected by the sanitizer: it contains a construct that is never allowed in managed custom CSS (markup, expression()/behavior/-moz-binding, script-capable URL schemes, @import/@charset, or a data: URL), including inside a comment or a string, and including when spelled with CSS escape sequences or split by a comment.'
                     );

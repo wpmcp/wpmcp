@@ -57,6 +57,7 @@ class Custom_Js_Guard
      */
     public static function has_breakout(string $js): bool
     {
-        return 1 === preg_match('#</\s*script|<\s*script|<!--#i', $js);
+        // Fail closed: a PCRE error (false) counts as a breakout, not a pass.
+        return 0 !== preg_match('#</\s*script|<\s*script|<!--#i', $js);
     }
 }
