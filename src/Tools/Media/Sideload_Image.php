@@ -33,7 +33,7 @@ class Sideload_Image
 
         $media_id = media_sideload_image($url, $post_id, $description, 'id');
         if (is_wp_error($media_id)) {
-            throw new \InvalidArgumentException($media_id->get_error_message());
+            throw new \InvalidArgumentException(esc_html($media_id->get_error_message()));
         }
         $media_id = (int) $media_id;
 

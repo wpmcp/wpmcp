@@ -69,7 +69,7 @@ class Add_Scoped_Css
             throw new \InvalidArgumentException('A post_id is required (this tool stores page-scoped CSS; use add-custom-css for site-wide CSS).');
         }
         if (! get_post($post_id)) {
-            throw new \InvalidArgumentException("Post {$post_id} does not exist.");
+            throw new \InvalidArgumentException(sprintf('Post %d does not exist.', (int) $post_id));
         }
 
         if (! current_user_can('edit_css')) {

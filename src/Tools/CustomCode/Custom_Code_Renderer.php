@@ -78,11 +78,12 @@ class Custom_Code_Renderer
         try {
             $safe = Css_Sanitizer::sanitize($block);
         } catch (\InvalidArgumentException $e) {
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- operator signal for stored CSS that no longer passes the sanitizer; the block itself is dropped, not printed.
             error_log(sprintf(
                 '[wpmcp] Stored custom CSS for post %d was dropped at render: %s',
                 $post_id,
                 $e->getMessage()
-            )); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+            ));
             return;
         }
 

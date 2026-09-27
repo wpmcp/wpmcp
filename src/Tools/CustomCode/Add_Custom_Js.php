@@ -115,6 +115,7 @@ class Add_Custom_Js
     {
         $this->audit(false, $reason);
 
+        // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- every caller passes a plugin literal with no interpolated operand, and escaping it would mangle the <script> sequences the breakout message has to name.
         throw new \RuntimeException($message);
     }
 

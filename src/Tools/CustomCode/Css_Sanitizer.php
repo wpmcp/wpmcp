@@ -189,7 +189,7 @@ class Css_Sanitizer
         }
 
         if (! preg_match('#\A[a-zA-Z0-9_\-\.\#\*\s>+~:\[\]="\'(),^$|]+\z#', $selector) || false !== strpos($selector, '<')) {
-            throw new \InvalidArgumentException("The selector \"{$selector}\" contains characters outside the allowed selector alphabet.");
+            throw new \InvalidArgumentException(sprintf('The selector "%s" contains characters outside the allowed selector alphabet.', esc_html($selector)));
         }
 
         if (substr_count($selector, '(') !== substr_count($selector, ')')) {

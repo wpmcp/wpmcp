@@ -94,7 +94,7 @@ class Svg_Sanitizer
             $name = strtolower((string) $element->localName);
 
             if (in_array($name, self::REJECT_ELEMENTS, true)) {
-                throw new \InvalidArgumentException(sprintf('SVG element <%s> is not allowed.', $element->localName));
+                throw new \InvalidArgumentException(sprintf('SVG element <%s> is not allowed.', esc_html($element->localName)));
             }
 
             // Attributes are vetted on EVERY element — including ones about
@@ -122,7 +122,7 @@ class Svg_Sanitizer
         $value = (string) $attr->value;
 
         if (str_starts_with($name, 'on')) {
-            throw new \InvalidArgumentException(sprintf('SVG event-handler attribute "%s" is not allowed.', $attr->name));
+            throw new \InvalidArgumentException(sprintf('SVG event-handler attribute "%s" is not allowed.', esc_html($attr->name)));
         }
 
         if ('href' === $name) {

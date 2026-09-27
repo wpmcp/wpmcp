@@ -229,7 +229,7 @@ class Site_Archive_Builder
             // up to the truncation point and silently missing every row after
             // it, which is the worst possible failure mode for a backup.
             if (false === file_put_contents($path, $chunk, FILE_APPEND)) {
-                throw new \RuntimeException('Writing the database dump failed (out of disk space?): ' . $path);
+                throw new \RuntimeException('Writing the database dump failed (out of disk space?): ' . esc_html($path));
             }
         };
 

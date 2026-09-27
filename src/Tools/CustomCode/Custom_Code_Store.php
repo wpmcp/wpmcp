@@ -94,8 +94,8 @@ class Custom_Code_Store
         if (strlen($next) > self::MAX_CSS_BYTES) {
             throw new \InvalidArgumentException(sprintf(
                 'The CSS block for this page would grow to %d bytes, past the %d byte limit. Pass replace=true to overwrite the stored block instead of appending to it.',
-                strlen($next),
-                self::MAX_CSS_BYTES
+                (int) strlen($next),
+                (int) self::MAX_CSS_BYTES
             ));
         }
 

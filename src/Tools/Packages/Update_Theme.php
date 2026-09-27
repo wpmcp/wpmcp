@@ -41,7 +41,7 @@ class Update_Theme
 
         $theme = wp_get_theme($stylesheet);
         if (! $theme->exists()) {
-            throw new \RuntimeException("Theme \"{$stylesheet}\" was not found.");
+            throw new \RuntimeException(sprintf('Theme "%s" was not found.', esc_html($stylesheet)));
         }
 
         $update_themes = get_site_transient('update_themes');
@@ -63,7 +63,7 @@ class Update_Theme
         $result   = $upgrader->upgrade($stylesheet);
         if (is_wp_error($result) || ! $result) {
             $message = is_wp_error($result) ? $result->get_error_message() : 'unknown error';
-            throw new \RuntimeException('Theme update failed: ' . $message);
+            throw new \RuntimeException('Theme update failed: ' . esc_html($message));
         }
 
         $entry       = $updates[ $stylesheet ];
