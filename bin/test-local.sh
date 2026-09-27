@@ -115,7 +115,39 @@ if [ "${stop_db:-false}" = true ]; then
 	exit 0
 fi
 
+# Runs "$@" holding an exclusive lock named $1, so parallel runs from several
+# worktrees never start the server or install the same WordPress twice. A lock
+# whose holder has died is taken over.
+with_lock() {
+	local name=$1 lock
+	shift
+	mkdir -p "$CACHE/locks"
+	lock="$CACHE/locks/$name"
+	for _ in $(seq 1 1800); do
+		if mkdir "$lock" 2>/dev/null; then
+			echo $$ >"$lock/pid"
+			local status=0
+			"$@" || status=$?
+			rm -rf "$lock"
+			return $status
+		fi
+		local holder
+		holder=$(cat "$lock/pid" 2>/dev/null || true)
+		if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+			rm -rf "$lock"
+			continue
+		fi
+		sleep 1
+	done
+	die "timed out waiting for the $name lock ($lock)"
+}
+
 start_db() {
+	db_ping && return 0
+	with_lock db start_db_locked
+}
+
+start_db_locked() {
 	db_ping && return 0
 
 	# Unix socket paths are capped at 104 bytes on macOS.
@@ -151,24 +183,34 @@ start_db() {
 
 # Installs WordPress <version> once and prints the install directory.
 install_wp() {
-	local version=$1 flavor="" dir stamp
+	local version=$1 flavor="" dir hash
 	[ "${ELEMENTOR_VERSION:-}" = latest ] && flavor="-elementor-latest"
-	dir="$CACHE/wp-$version$flavor"
-	stamp="$dir/.ready-$(cat "$ROOT/bin/install-wp-tests.sh" "$ROOT/bin/install-test-plugins.sh" | shasum | cut -c1-12)"
+	# The installers' hash is part of the directory, not a stamp inside it:
+	# branches carrying different installers (a moved plugin pin, say) get
+	# separate installs, so one run never deletes an install another run is
+	# testing against.
+	hash=$(cat "$ROOT/bin/install-wp-tests.sh" "$ROOT/bin/install-test-plugins.sh" | shasum | cut -c1-12)
+	dir="$CACHE/wp-$version$flavor-$hash"
 
-	if [ ! -f "$stamp" ]; then
-		command -v svn >/dev/null 2>&1 || die "svn is required by bin/install-wp-tests.sh: brew install subversion"
-		say "Installing WordPress $version$flavor into $dir" >&2
-		rm -rf "$dir"
-		mkdir -p "$dir/tmp"
-		(
-			export TMPDIR="$dir/tmp" WP_CORE_DIR="$dir/wordpress/" WP_TESTS_DIR="$dir/wordpress-tests-lib"
-			bash "$ROOT/bin/install-wp-tests.sh" wpmcp_unused "$DB_USER" "$DB_PASS" "127.0.0.1:$PORT" "$version" true
-			bash "$ROOT/bin/install-test-plugins.sh"
-		) >"$dir/install.log" 2>&1 || die "WordPress $version install failed, see $dir/install.log"
-		touch "$stamp"
+	if [ ! -f "$dir/.ready" ]; then
+		with_lock "install-$version$flavor-$hash" install_wp_locked "$version" "$flavor" "$dir"
 	fi
 	echo "$dir"
+}
+
+install_wp_locked() {
+	local version=$1 flavor=$2 dir=$3
+	[ -f "$dir/.ready" ] && return 0
+	command -v svn >/dev/null 2>&1 || die "svn is required by bin/install-wp-tests.sh: brew install subversion"
+	say "Installing WordPress $version$flavor into $dir" >&2
+	rm -rf "$dir"
+	mkdir -p "$dir/tmp"
+	(
+		export TMPDIR="$dir/tmp" WP_CORE_DIR="$dir/wordpress/" WP_TESTS_DIR="$dir/wordpress-tests-lib"
+		bash "$ROOT/bin/install-wp-tests.sh" wpmcp_unused "$DB_USER" "$DB_PASS" "127.0.0.1:$PORT" "$version" true
+		bash "$ROOT/bin/install-test-plugins.sh"
+	) >"$dir/install.log" 2>&1 || die "WordPress $version install failed, see $dir/install.log"
+	touch "$dir/.ready"
 }
 
 # Creates this checkout's database for <install dir> and prints a tests config
@@ -219,7 +261,8 @@ if [ -d .githooks ] && git rev-parse --git-dir >/dev/null 2>&1 \
 	say "Enabled the pre-push test gate (git config core.hooksPath .githooks)."
 fi
 
-[ -x vendor/bin/phpunit ] || composer install --no-interaction
+composer_install() { [ -x vendor/bin/phpunit ] || composer install --no-interaction; }
+[ -x vendor/bin/phpunit ] || with_lock "composer-$(printf '%s' "$ROOT" | shasum | cut -c1-12)" composer_install
 
 start_db
 
