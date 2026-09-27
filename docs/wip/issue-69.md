@@ -1,85 +1,67 @@
 # WIP plan: theme integration tools (issue #69)
 
-Status: implemented as `WPMCP\Integrations\Theme_Integration`
-(src/Integrations/Theme_Integration.php), registered in
-`Plugin::register_integration_abilities()` as the `wpmcp/theme-read` /
-`wpmcp/theme-write` dispatcher pair on the issue #65 integration dispatcher
-framework. Covered by tests/free/Integrations/ThemeIntegrationTest.php.
+Built on top of PR #234 (issue #144, phase 1), which delivers the
+`wpmcp/theme-read` / `wpmcp/theme-write` pair with `get-theme-context`,
+`get-mods` and `set-mods`. This branch adds the rest of #69 as further ops on
+that same pair; it adds no new abilities.
 
-## Operations
+## What #144 already delivers (not re-implemented here)
 
-- `get-context` (read): active theme name/version, stylesheet/template,
-  parent/child relationship, block-theme flag, framework family detection
-  from the parent slug (case-insensitive, map filterable via
-  `wpmcp_theme_framework_map`), registered nav menus, declared theme supports.
-- `list-theme-mods` (read, `edit_theme_options`): current mods with per-key
-  writability class (allowlisted / structural / other) plus the effective
-  allowlist. Gated at `edit_theme_options` because raw mod values include
-  `nav_menu_locations` and `sidebars_widgets`.
-- `set-theme-mods` (write, `edit_theme_options`, default off): presentation
-  allowlist with a per-key VALUE sanitizer (hex colors, attachment ids, URLs,
-  enums), because `set_theme_mod()` bypasses the Customizer sanitizers
-  entirely. Structural keys (`nav_menu_locations`, `sidebars_widgets`,
-  `custom_css_post_id`) refused and stripped even from a widening filter.
-  Snapshot-first on `theme_mods_{stylesheet}`, reversible with
-  rollback-operation.
-- `create-child-theme` (destructive, `edit_themes`, default off): scaffolds
-  style.css + functions.php, slug `sanitize_key`-reduced to one segment and
-  re-confined to `get_theme_root()` through `Filesystem_Guard::resolve_path()`,
-  gated additionally on `Filesystem_Guard::writes_allowed()` (edit_files +
-  DISALLOW_FILE_EDIT), audited through `Filesystem_Guard::log()`, refuses to
-  build a child of a child, accepts an optional explicit `parent`, calls
-  `wp_clean_themes_cache()` so the result is actually activatable, and does
-  not activate the theme. Snapshot-first through `Safe_Mutation` with the
-  `theme_scaffold` object type: the prior state of the scaffold directory
-  (existed or not, prior bytes of style.css/functions.php) is captured before
-  any write, and `rollback-operation` removes the created files (and the
-  directory when the scaffold made it and nothing else was added), restores
-  overwritten files, and refuses to delete a child theme that is currently
-  active. A re-run against a complete scaffold writes nothing and burns no
-  rollback slot.
-- `get-astra-settings` / `set-astra-settings` (framework pack): registered
-  only while the Astra family is the active theme, allowlisted and sanitized
-  per key, snapshot-first on the `astra-settings` option, and followed by an
-  Astra CSS-cache refresh plus the `wpmcp_theme_framework_cache_refresh`
+- Theme context: framework, parent/child, block-theme flag, probed theme
+  supports, registered menu locations (`get-theme-context`).
+- Allowlisted, snapshot-first, reversible theme-mod writes with structural keys
+  refused (`get-mods` / `set-mods`, `wpmcp_theme_mod_allowlist`,
+  `wpmcp_theme_mod_value_rules`).
+
+## What this branch adds
+
+- `create-child-theme` (destructive, `edit_themes`, default off behind
+  `wpmcp_enable_theme_write`, `confirm`-gated), in
+  `src/Integrations/Child_Theme_Scaffolder.php`: slug reduced by
+  `sanitize_key` and re-confined to `get_theme_root()` through
+  `Filesystem_Guard::resolve_path()`, gated on `Filesystem_Guard::writes_allowed()`
+  (edit_files + DISALLOW_FILE_EDIT), audited through `Filesystem_Guard::log()`.
+  Idempotent, refuses grandchildren (active child or explicit child parent),
+  accepts an optional explicit mixed-case-safe `parent`, writes through
+  `WP_Filesystem` (functions.php first, marker-bearing style.css last, partial
+  scaffold removed on failure), calls `wp_clean_themes_cache()` so the child is
+  activatable, does not activate it.
+- Snapshot-first scaffold: new `theme_scaffold` snapshot type
+  (`Safety\Snapshot::capture_theme_scaffold()`,
+  `Safety\Rollback_Service::apply_theme_scaffold_snapshot()`). The directory's
+  prior state (existed or not, prior bytes of style.css/functions.php) is
+  captured through `Safe_Mutation` before any write. Rollback removes the
+  created files (and the directory when the scaffold made it and nothing else
+  was added), restores overwritten files, refuses to delete an active theme,
+  and a session rollback undoes scaffolds last so a same-session switch-theme
+  is reverted first. A re-run against a complete scaffold burns no rollback
+  slot.
+- Framework pack (Astra), in `src/Integrations/Theme_Framework_Pack.php`:
+  `get-astra-settings` / `set-astra-settings`, in the catalog only while the
+  detected framework is `astra` (an Astra child reports template `astra`, so
+  the family is covered). Allowlisted and sanitized per key (hex, rgb/rgba,
+  Astra palette `var(--ast-global-color-N)`, content width 300 to 3000 px),
+  snapshotted on the `astra-settings` option, followed by
+  `astra_clear_all_assets_cache()` and the `wpmcp_theme_framework_cache_refresh`
   action.
-
-## Safety posture
-
-Both write ops are default off behind `wpmcp_enable_theme_write`, matching the
-ACF and Meta Box write ops. Every refusal decidable from the args lives in the
-op's `validate` callable, which the dispatcher runs after schema validation and
-BEFORE `run_write()` captures a snapshot, so a rejected call writes no snapshot
-row, burns no rollback-history slot and returns the ordinary top-level error
-envelope (no `operation_id`, no `recoverable: true`). Failures only discoverable
-mid-write throw `Operation_Refused` for the same envelope. The scaffolder writes
-functions.php first and the marker-bearing style.css last and removes a partial
-scaffold on failure, so a half-written theme can never be reported as done.
-Caller-supplied names are stripped of newlines and of `*/` before being
-interpolated into the style.css comment block.
+- `Integration_Dispatcher`: optional per-op `validate` callable (after schema
+  validation, before `run_write()` snapshots) and `Operation_Refused` for
+  mid-write failures, so refusals return the top-level error envelope with no
+  snapshot row.
 
 ## Acceptance criteria
 
-- [x] Theme context reports framework, parent/child, block-theme support,
-      registered menus/supports.
-- [x] Theme-mod writes hit only allowlisted keys; structural keys refused;
-      snapshotted and reversible.
-- [x] Child-theme creation is idempotent, refuses creating a grandchild,
-      requires confirm, and produces an activatable theme.
-- [x] Framework pack registers only when that theme (or its family) is active.
+- [x] Theme context (delivered by #144's `get-theme-context`).
+- [x] Theme-mod writes allowlisted, structural refused, snapshotted, reversible
+      (delivered by #144's `set-mods`).
+- [x] Child-theme creation idempotent, grandchild-refusing, confirm-gated,
+      activatable, snapshot-first and undoable.
+- [x] Framework pack registers only when that family is active, with CSS-cache
+      refresh.
 
 ## Remaining work
 
-- [ ] Widen the Astra pack beyond colors and content width, and add a second
-      family (Kadence or GeneratePress) once install-base data picks one.
-- [ ] Live verification of the Astra pack against a real Astra install; the
-      unit tests cover registration and refusal, not Astra's own behavior.
-
-## Notes
-
-The issue's "file writes tracked via `File_Backup`" bullet is delivered by the
-`theme_scaffold` snapshot rather than by `File_Backup` itself: the scaffold
-only ever writes two small files, so their prior bytes (if any) are captured
-inline in the snapshot row, which keeps the undo point atomic with the ledger
-entry and pruned with it. A failed mid-write additionally removes the partial
-scaffold before returning.
+- Widen the Astra pack, and add a second family (Kadence or GeneratePress).
+- Live verification of the Astra pack against a real Astra install.
+- Astra CSS cache is refreshed after a pack write but not after a rollback of
+  one.

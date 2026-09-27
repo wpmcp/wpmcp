@@ -37,8 +37,6 @@ class IntegrationAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/sureforms-write',
         'wpmcp/metform-read',
         'wpmcp/metform-write',
-        'wpmcp/metabox-read',
-        'wpmcp/metabox-write',
         'wpmcp/theme-read',
         'wpmcp/theme-write',
     ];

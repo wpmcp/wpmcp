@@ -2,842 +2,817 @@
 
 namespace WPMCP\Integrations;
 
-use WPMCP\Tools\Filesystem\Filesystem_Guard;
+use WPMCP\MCP\Request_Log;
 
 if (! defined('ABSPATH')) {
     exit;
 }
 
 /**
- * Theme integration (wpmcp/theme-read + theme-write), issue #69.
+ * Phase 1 of the theme workflow (#144, parent #69): theme context reads plus
+ * reversible, allowlist-gated theme-mod writes behind a single
+ * wpmcp/theme-read + wpmcp/theme-write dispatcher pair.
  *
- * Four core operations plus per-family framework packs:
- *  - get-context / list-theme-mods (read)
- *  - set-theme-mods (write): allowlisted KEYS with a per-key VALUE sanitizer,
- *    snapshotted on theme_mods_{stylesheet} and reversible via
- *    rollback-operation
- *  - create-child-theme (destructive): confirm-gated, path-confined,
- *    idempotent scaffolder that refuses to create a grandchild, snapshotted
- *    (object_type theme_scaffold) before any file is written so
- *    rollback-operation removes the scaffold again
- *  - framework_pack_operations(): family-conditional settings pack, registered
- *    only while that theme family is active
+ * This class does no file I/O itself. Issue #69 adds create-child-theme
+ * (Child_Theme_Scaffolder, snapshot-first file writes) and the framework
+ * settings packs (Theme_Framework_Pack) as further ops on this same pair; see
+ * extension_operations().
  *
- * Safety posture, after adversarial review:
- *  - both write ops are DEFAULT-OFF behind the wpmcp_enable_theme_write filter,
- *    matching the Meta Box / ACF write ops
- *  - theme-mod ops require edit_theme_options, WordPress's own gate for theme
- *    options (and the capability Assign_Menu_To_Location already uses to touch
- *    this very option); the scaffolder requires edit_themes on top of that and
- *    additionally honors DISALLOW_FILE_EDIT via Filesystem_Guard
- *  - every refusal that can be decided from the args is expressed in the op's
- *    'validate' callable, so it returns the dispatcher's top-level error
- *    envelope and burns no snapshot row; mid-write failures throw
- *    Operation_Refused for the same envelope
- *  - the scaffold directory is confined to get_theme_root() through
- *    Filesystem_Guard::resolve_path() and audited through Filesystem_Guard::log()
+ * The active theme is always present, so is_available() is always true and
+ * the pair never reports integration_unavailable. Both halves demand
+ * edit_theme_options, matching what the Customizer itself requires.
  *
- * Always available: WordPress always has an active theme, so is_available()
- * is unconditionally true (unlike host-plugin integrations).
+ * Write posture mirrors the ACF reference integration: set-mods is
+ * default-off behind the wpmcp_enable_theme_write filter, and every accepted
+ * write is snapshotted on the theme_mods_{stylesheet} option so
+ * rollback-operation restores the exact prior state. A batch in which no key
+ * survives the guards writes nothing and takes no snapshot, so repeated
+ * fully-refused calls cannot evict real undo points through the global
+ * keep-newest-N prune.
+ *
+ * Filter contracts (the durable part of this class, relied on by later phases):
+ *  - wpmcp_enable_theme_write (bool): opt the whole set-mods operation in.
+ *    Default false.
+ *  - wpmcp_theme_mod_allowlist (string[]): the effective set of writable mod
+ *    keys, seeded with CORE_ALLOWLIST. It both widens and narrows: returning
+ *    [] closes set-mods entirely. STRUCTURAL_KEYS are stripped from whatever
+ *    it returns, so it can never open them.
+ *  - wpmcp_theme_mod_value_rules (array<string, mixed>): key => validator for
+ *    filter-added keys, seeded with VALUE_RULES. A rule is either one of the
+ *    built-in rule names (see evaluate()), a LIST of literal allowed
+ *    values, or a callable(mixed $value): mixed returning null to refuse. The
+ *    core VALUE_RULES entries are forced back on top of whatever the filter
+ *    returns, so a pack that replaces the map instead of merging into it can
+ *    add rules for its own keys but can never strip the sanitizer off a core
+ *    key. Array-callables (['My_Class', 'check']) are NOT a supported rule
+ *    shape: every array is an enum, in both the check and the explanation.
+ *    Pass a Closure or a function-name string instead.
+ *  - wpmcp_theme_is_block_theme (bool): overrides wp_is_block_theme() when
+ *    deciding which written mods to report in `ineffective`. Present so a
+ *    site (or a test) can correct the block-theme verdict for a theme core
+ *    misclassifies; it changes reported output, not what is written.
+ *
+ * Three guard layers on a set-mods key, in order:
+ *  - STRUCTURAL_KEYS is a hard refusal evaluated BEFORE the allowlist filter,
+ *    so a filter can never open nav_menu_locations, sidebars_widgets, or
+ *    custom_css_post_id: those rewire site structure rather than
+ *    presentation, and a bad write there is not "wrong colors" but broken
+ *    navigation or orphaned CSS posts. The refusal names the supported tool
+ *    for each one instead of dead-ending the agent.
+ *  - The presentation allowlist (core logo/header/background mods), which is
+ *    exactly what get-mods advertises as `allowlist`/`writable`. There is no
+ *    hidden prefix rule: every writable key is enumerated.
+ *  - A per-key validator, which FAILS CLOSED. A key with no registered rule
+ *    is refused (reason no_validator), and a string rule that is neither a
+ *    built-in name nor a callable is refused (reason unknown_rule). There is
+ *    no permissive "looks inert" fallback: guard layer 2 can be widened by a
+ *    filter, and a widened key with no validator would otherwise be the one
+ *    hole in the whole chain. Core registers these settings in the Customizer
+ *    with sanitizers for a reason: header_textcolor is echoed bare by the
+ *    header_textcolor() template tag inside a <style> block and
+ *    background_color reaches _custom_background_cb() through
+ *    maybe_hash_hex_color(), which returns invalid input unchanged. A value
+ *    that fails its validator is REFUSED (reason invalid_value), never
+ *    coerced, so the agent learns it wrote nothing.
+ *
+ * Passing null as a value is an explicit CLEAR: the key is routed through
+ * remove_theme_mod() and reported in `cleared` rather than `updated`. It is a
+ * distinct sentinel from the empty string, which image_url treats as a
+ * meaningful stored value.
  */
 class Theme_Integration extends Integration_Dispatcher
 {
-    /** Comment written into a scaffolded style.css so re-runs recognize their own work. */
-    private const SCAFFOLD_MARKER = 'Generated by WPMCP create-child-theme';
-
     /**
-     * Parent-theme slugs (and slug prefixes) mapped to a framework family
-     * label for get-context. Matched case-insensitively, because Divi and
-     * Avada ship directories with a capital letter. Extend via the
-     * wpmcp_theme_framework_map filter.
-     *
-     * @var array<string,string>
+     * Mods that rewire structure rather than presentation. Hard-refused in
+     * set-mods even when a filter adds them to the allowlist. Each entry lists
+     * the abilities that own that structure plus a wp-admin fallback: the
+     * refusal names only the abilities actually registered on this site, so
+     * it never points an agent at a tool this build does not expose.
      */
-    private const FRAMEWORK_MAP = [
-        'genesis'          => 'genesis',
-        'astra'            => 'astra',
-        'generatepress'    => 'generatepress',
-        'oceanwp'          => 'oceanwp',
-        'kadence'          => 'kadence',
-        'blocksy'          => 'blocksy',
-        'divi'             => 'divi',
-        'avada'            => 'avada',
-        'hello-elementor'  => 'hello-elementor',
-        'neve'             => 'neve',
-        'twentytwentysix'  => 'core-default',
-        'twentytwentyfive' => 'core-default',
-        'twentytwentyfour' => 'core-default',
+    private const STRUCTURAL_KEYS = [
+        'nav_menu_locations' => [
+            'abilities' => [ 'wpmcp/assign-menu-to-location' ],
+            'fallback'  => 'Assign menu locations under Appearance > Menus.',
+        ],
+        'sidebars_widgets'   => [
+            'abilities' => [ 'wpmcp/list-sidebar-widgets', 'wpmcp/add-widget', 'wpmcp/update-widget' ],
+            'fallback'  => 'Place and update widgets on the Widgets screen.',
+        ],
+        'custom_css_post_id' => [
+            'abilities' => [ 'wpmcp/get-custom-css', 'wpmcp/add-custom-css' ],
+            'fallback'  => 'Edit Additional CSS in the Customizer.',
+        ],
     ];
 
     /**
-     * Theme-mod keys the write op may touch, each with the sanitizer its
-     * value must survive. Presentation-level knobs only; anything structural
-     * (menu assignments, widget areas, custom CSS post linkage) is refused
-     * even if a caller asks nicely.
-     *
-     * set_theme_mod() bypasses the Customizer's sanitize_callback entirely,
-     * so these sanitizers are the ONLY thing standing between a caller and,
-     * for example, background_color being echoed unescaped inside core's
-     * _custom_background_cb() <style> block.
-     *
-     * Keys deliberately absent: site_icon (an option, not a theme mod) and
-     * header_text (encoded as header_textcolor === 'blank'); writing either
-     * as a mod is a silent no-op.
-     *
-     * @var array<string,string>
+     * Core presentation mods writable out of the box. Enumerated in full:
+     * every key set-mods accepts is listed here or added by the
+     * wpmcp_theme_mod_allowlist filter, so what get-mods advertises is the
+     * real write policy.
      */
-    private const MOD_SANITIZERS = [
+    private const CORE_ALLOWLIST = [
+        'custom_logo',
+        'header_textcolor',
+        'header_image',
+        'background_image',
+        'background_color',
+        'background_preset',
+        'background_position_x',
+        'background_position_y',
+        'background_size',
+        'background_repeat',
+        'background_attachment',
+    ];
+
+    /**
+     * Per-key validators, mirroring how core registers these same settings on
+     * the Customizer (class-wp-customize-manager.php).
+     */
+    private const VALUE_RULES = [
         'custom_logo'           => 'attachment_id',
-        'header_image'          => 'header_image',
-        'header_textcolor'      => 'hex_or_blank',
-        'background_color'      => 'hex',
-        'background_image'      => 'url',
-        'background_preset'     => 'preset',
-        'background_position_x' => 'position_x',
-        'background_position_y' => 'position_y',
-        'background_size'       => 'size',
-        'background_repeat'     => 'repeat',
-        'background_attachment' => 'attachment',
-    ];
-
-    /** @var array<string,array<int,string>> enum vocabularies for the background mods. */
-    private const MOD_ENUMS = [
-        'preset'     => [ 'default', 'fill', 'fit', 'repeat', 'custom' ],
-        'position_x' => [ 'left', 'center', 'right' ],
-        'position_y' => [ 'top', 'center', 'bottom' ],
-        'size'       => [ 'auto', 'contain', 'cover' ],
-        'repeat'     => [ 'repeat-x', 'repeat-y', 'repeat', 'no-repeat' ],
-        'attachment' => [ 'fixed', 'scroll' ],
+        'header_textcolor'      => 'header_textcolor',
+        'header_image'          => 'image_url',
+        'background_image'      => 'image_url',
+        'background_color'      => 'hex_no_hash',
+        'background_preset'     => [ 'default', 'fill', 'fit', 'repeat', 'custom' ],
+        'background_position_x' => [ 'left', 'center', 'right' ],
+        'background_position_y' => [ 'top', 'center', 'bottom' ],
+        'background_size'       => [ 'auto', 'contain', 'cover' ],
+        'background_repeat'     => [ 'repeat', 'no-repeat' ],
+        'background_attachment' => [ 'fixed', 'scroll' ],
     ];
 
     /**
-     * Structural keys refused outright with a dedicated error so callers see
-     * "refused", not "not on the allowlist" (they must never be filterable
-     * onto the allowlist either).
-     *
-     * @var array<int,string>
+     * Mods a block theme renders from global styles instead, so writing them
+     * stores a value the front end never uses. Reported in `ineffective`
+     * rather than refused: the value is still legal, it just will not show.
      */
-    private const MOD_STRUCTURAL = [
-        'nav_menu_locations',
-        'sidebars_widgets',
-        'custom_css_post_id',
+    private const BLOCK_THEME_INERT = [
+        'header_textcolor',
+        'header_image',
+        'background_image',
+        'background_color',
+        'background_preset',
+        'background_position_x',
+        'background_position_y',
+        'background_size',
+        'background_repeat',
+        'background_attachment',
+    ];
+
+    /** Upper bound on one set-mods batch, so a call cannot bloat the autoloaded option. */
+    private const MAX_VALUES = 50;
+
+    /** Theme slug => framework name, for get-theme-context framework detection. */
+    private const FRAMEWORKS = [
+        'astra'           => 'astra',
+        'kadence'         => 'kadence',
+        'generatepress'   => 'generatepress',
+        'oceanwp'         => 'oceanwp',
+        'blocksy'         => 'blocksy',
+        'neve'            => 'neve',
+        'hello-elementor' => 'hello-elementor',
+    ];
+
+    /** Core theme_supports features probed by get-theme-context. */
+    private const PROBED_SUPPORTS = [
+        'custom-logo',
+        'custom-header',
+        'custom-background',
+        'post-thumbnails',
+        'editor-styles',
+        'wp-block-styles',
+        'align-wide',
+        'menus',
+        'widgets',
+        'title-tag',
+        'html5',
     ];
 
     /**
-     * Astra option keys the framework pack may write, with their sanitizer.
-     * Narrow on purpose: colors and content width, the knobs an agent is
-     * actually asked for. Widen with wpmcp_theme_framework_pack_allowlist.
+     * Per-call verdicts shared between snapshot_target() and set_mods(), as
+     * ['values' => the args they were computed for, 'verdicts' => plan_for()].
+     * Reset by set_mods() as soon as it is consumed.
      *
-     * @var array<string,string>
+     * @var array{values: array, verdicts: array<string, array<string, mixed>>}|null
      */
-    private const ASTRA_SETTINGS = [
-        'theme-color'        => 'color',
-        'link-color'         => 'color',
-        'link-h-color'       => 'color',
-        'text-color'         => 'color',
-        'heading-base-color' => 'color',
-        'site-content-width' => 'width',
-    ];
+    private ?array $plan = null;
 
     public function integration(): string
     {
         return 'theme';
     }
 
+    /** The active theme always exists; availability is never in question. */
     public function is_available(): bool
     {
         return true;
     }
 
+    public function capability(): string
+    {
+        return 'edit_theme_options';
+    }
+
     protected function summary(): string
     {
-        return 'Active theme (context detection, allowlisted theme mods, child-theme scaffolding)';
+        return 'the active theme (context, theme supports, and theme-mod presentation settings)';
     }
 
     protected function operations(): array
     {
+        return array_merge($this->core_operations(), $this->extension_operations());
+    }
+
+    /**
+     * Issue #69 ops layered on the phase 1 pair: create-child-theme
+     * (Child_Theme_Scaffolder) and the framework settings pack for the
+     * detected theme family (Theme_Framework_Pack), which is present in the
+     * catalog only while that family is active.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    private function extension_operations(): array
+    {
         return array_merge(
-            [
-                'get-context'        => $this->op_get_context(),
-                'list-theme-mods'    => $this->op_list_theme_mods(),
-                'set-theme-mods'     => $this->op_set_theme_mods(),
-                'create-child-theme' => $this->op_create_child_theme(),
-            ],
-            $this->framework_pack_operations()
+            [ 'create-child-theme' => Child_Theme_Scaffolder::operation() ],
+            Theme_Framework_Pack::operations($this->detect_framework())
         );
     }
 
-    /**
-     * Curated framework settings packs (issue #69, third bullet). A pack's
-     * ops are only in the catalog while its theme family is the active one,
-     * so an Astra-only op is never advertised on a Genesis site, and its
-     * writes refresh that framework's CSS cache.
-     *
-     * @return array<string,array<string,mixed>>
-     */
-    protected function framework_pack_operations(): array
-    {
-        if ('astra' !== self::detect_framework()) {
-            return [];
-        }
-        return $this->astra_pack();
-    }
-
-    /** Whether the theme write ops are opted in on this site (default off). */
-    private static function writes_enabled(): bool
-    {
-        /** Filter: opt the theme write ops in. Default off, like the ACF/Meta Box write ops. */
-        return (bool) apply_filters('wpmcp_enable_theme_write', false);
-    }
-
-    /** @return array<string,mixed> */
-    private function op_get_context(): array
+    /** @return array<string,array<string,mixed>> the phase 1 (#144) context and theme-mod ops. */
+    private function core_operations(): array
     {
         return [
-            'mode'         => 'read',
-            'description'  => 'Report the active theme context: name, version, framework family, parent/child relationship, block-theme flag, registered nav menus, and declared theme supports',
-            'input_schema' => [ 'type' => 'object', 'properties' => [] ],
-            'handler'      => function (): array {
-                $theme  = wp_get_theme();
-                $parent = $theme->parent();
-
-                $supports = [];
-                foreach ([ 'custom-logo', 'custom-header', 'custom-background', 'post-thumbnails', 'editor-styles', 'wp-block-styles', 'align-wide', 'title-tag', 'html5', 'automatic-feed-links' ] as $feature) {
-                    if (current_theme_supports($feature)) {
-                        $supports[] = $feature;
-                    }
-                }
-
-                return [
-                    'stylesheet'     => get_stylesheet(),
-                    'template'       => get_template(),
-                    'name'           => $theme->get('Name'),
-                    'version'        => $theme->get('Version'),
-                    'is_child_theme' => is_child_theme(),
-                    'parent'         => $parent ? [
-                        'stylesheet' => $parent->get_stylesheet(),
-                        'name'       => $parent->get('Name'),
-                        'version'    => $parent->get('Version'),
-                    ] : null,
-                    'is_block_theme' => wp_is_block_theme(),
-                    'framework'      => self::detect_framework(),
-                    'nav_menus'      => (array) get_registered_nav_menus(),
-                    'supports'       => $supports,
-                ];
-            },
-        ];
-    }
-
-    /** @return array<string,mixed> */
-    private function op_list_theme_mods(): array
-    {
-        return [
-            'mode'         => 'read',
-            // Raw mod values include nav_menu_locations and sidebars_widgets,
-            // i.e. the site's menu and widget wiring, so this read sits at the
-            // same capability as the write half rather than at edit_posts.
-            'capability'   => 'edit_theme_options',
-            'description'  => 'List the active theme\'s theme mods with per-key writability: allowlisted (writable via set-theme-mods), structural (always refused), or other (not writable through this tool)',
-            'input_schema' => [ 'type' => 'object', 'properties' => [] ],
-            'handler'      => function (): array {
-                $allowlist = self::allowlist();
-                $mods      = [];
-                foreach ((array) get_theme_mods() as $key => $value) {
-                    $key    = (string) $key;
-                    $mods[] = [
-                        'key'      => $key,
-                        'value'    => $value,
-                        'writable' => in_array($key, $allowlist, true) ? 'allowlisted'
-                            : (in_array($key, self::MOD_STRUCTURAL, true) ? 'structural' : 'other'),
-                    ];
-                }
-                return [ 'stylesheet' => get_stylesheet(), 'mods' => $mods, 'allowlist' => $allowlist ];
-            },
-        ];
-    }
-
-    /** @return array<string,mixed> */
-    private function op_set_theme_mods(): array
-    {
-        return [
-            'mode'               => 'write',
-            'capability'         => 'edit_theme_options',
-            'enabled_by_default' => self::writes_enabled(),
-            'description'        => 'Set one or more allowlisted theme mods on the active theme. Values are sanitized per key (hex colors, attachment ids, URLs, enums) because set_theme_mod() bypasses the Customizer sanitizers. Structural keys (nav_menu_locations, sidebars_widgets, custom_css_post_id) are refused; any non-allowlisted key or unsanitizable value rejects the whole call before any write. Snapshotted on the theme_mods option; restorable with rollback-operation',
-            'input_schema'       => [
-                'type'       => 'object',
-                'properties' => [
-                    'mods' => [
-                        'type'                 => 'object',
-                        'minProperties'        => 1,
-                        // Scalars only: an array reaching set_theme_mod() for a
-                        // presentation key breaks front-end rendering.
-                        'additionalProperties' => [ 'type' => [ 'string', 'integer', 'number', 'boolean' ] ],
-                    ],
-                ],
-                'required'   => [ 'mods' ],
-            ],
-            // Whole-batch validation BEFORE the dispatcher snapshots anything:
-            // one bad key or value rejects the call with no side effects and
-            // no burned rollback slot.
-            'validate'           => static function (array $args): ?array {
-                $allowlist = self::allowlist();
-                foreach ((array) ($args['mods'] ?? []) as $key => $value) {
-                    $key = (string) $key;
-                    if (in_array($key, self::MOD_STRUCTURAL, true)) {
-                        return [
-                            'code'    => 'structural_key_refused',
-                            'message' => sprintf('Theme mod "%s" is structural and can never be written through this tool.', $key),
-                            'data'    => [ 'key' => $key ],
-                        ];
-                    }
-                    if (! in_array($key, $allowlist, true)) {
-                        return [
-                            'code'    => 'key_not_allowlisted',
-                            'message' => sprintf('Theme mod "%s" is not on the write allowlist.', $key),
-                            'data'    => [ 'key' => $key, 'allowlist' => $allowlist ],
-                        ];
-                    }
-                    if (null === self::sanitize_mod($key, $value)) {
-                        return [
-                            'code'    => 'invalid_mod_value',
-                            'message' => sprintf('Value for theme mod "%s" is not valid for that key.', $key),
-                            'data'    => [ 'key' => $key ],
-                        ];
-                    }
-                }
-                return null;
-            },
-            'handler'            => static function (array $args): array {
-                $out = [];
-                foreach ((array) $args['mods'] as $key => $value) {
-                    $key   = (string) $key;
-                    $clean = self::sanitize_mod($key, $value);
-                    if (null === $clean) {
-                        // Unreachable via dispatch (validate ran first); kept
-                        // so a direct handler call cannot write a raw value.
-                        // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-                        throw new Operation_Refused('invalid_mod_value', sprintf('Value for theme mod "%s" is not valid.', $key), [ 'key' => $key ]);
-                    }
-                    set_theme_mod($key, $clean);
-                    $out[ $key ] = get_theme_mod($key);
-                }
-                return [ 'stylesheet' => get_stylesheet(), 'mods' => $out ];
-            },
-            'snapshot'           => static fn (array $args) => [
-                'object_type' => 'option',
-                // The exact option set_theme_mod() writes: it keys on the raw
-                // stylesheet option, not the filterable get_stylesheet().
-                'object_id'   => 'theme_mods_' . get_option('stylesheet'),
-            ],
-        ];
-    }
-
-    /** @return array<string,mixed> */
-    private function op_create_child_theme(): array
-    {
-        return [
-            'mode'               => 'destructive',
-            // edit_themes is WordPress's own gate for putting PHP into the
-            // themes directory; Filesystem_Guard adds edit_files and
-            // DISALLOW_FILE_EDIT on top, in validate().
-            'capability'         => 'edit_themes',
-            'enabled_by_default' => self::writes_enabled(),
-            'description'        => 'Scaffold a child theme (style.css + functions.php enqueueing the parent stylesheet) of the active theme, or of an explicit installed parent. Idempotent: re-running against an existing wpmcp-scaffolded child completes or reports it instead of failing. Refuses to build a child of a child (no grandchildren). Requires confirm:true, the edit_themes capability, file editing to be allowed on the site, and the wpmcp_enable_theme_write opt-in. Snapshotted before any file is written; rollback-operation removes the scaffold again (unless it has since been activated). Does not activate the child theme',
-            'input_schema'       => [
-                'type'       => 'object',
-                'properties' => [
-                    'slug'   => [ 'type' => 'string', 'description' => 'Directory slug for the child theme; defaults to {parent}-child. Sanitized to a safe key, confined to the themes directory' ],
-                    'name'   => [ 'type' => 'string', 'description' => 'Human-readable theme Name header; defaults to "{Parent Name} Child"' ],
-                    'parent' => [ 'type' => 'string', 'description' => 'Stylesheet directory of an installed parent theme; defaults to the active theme\'s template. Must not itself be a child theme' ],
-                ],
-            ],
-            'validate'           => static fn (array $args): ?array => self::plan_scaffold($args)['error'] ?? null,
-            // Snapshot-first like every other write: the scaffold directory's
-            // prior state is captured before a byte is written, so the
-            // creation is undoable through rollback-operation. A re-run
-            // against a complete scaffold writes nothing and therefore burns
-            // no rollback slot.
-            'snapshot'           => static function (array $args): ?array {
-                $plan = self::plan_scaffold($args);
-                if (isset($plan['error']) || true === $plan['existing']) {
-                    return null;
-                }
-                return [ 'object_type' => 'theme_scaffold', 'object_id' => (string) $plan['slug'] ];
-            },
-            'handler'            => static function (array $args): array {
-                $plan = self::plan_scaffold($args);
-                if (isset($plan['error'])) {
-                    $error = $plan['error'];
-                    // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-                    throw new Operation_Refused((string) $error['code'], (string) $error['message'], (array) ($error['data'] ?? []));
-                }
-                return self::write_scaffold($plan);
-            },
-        ];
-    }
-
-    // -------------------------------------------------------------- scaffolder
-
-    /**
-     * Resolve and vet everything the scaffolder needs from the args, with no
-     * side effects, so both validate() and the handler agree on the outcome.
-     *
-     * @param  array<string,mixed> $args
-     * @return array<string,mixed> ['error' => [...]] or the resolved plan.
-     */
-    private static function plan_scaffold(array $args): array
-    {
-        $refuse = static fn (string $code, string $message, array $data = []): array
-            => [ 'error' => [ 'code' => $code, 'message' => $message, 'data' => $data ] ];
-
-        $gate = self::file_writes_allowed();
-        if (is_wp_error($gate)) {
-            return $refuse((string) $gate->get_error_code(), (string) $gate->get_error_message());
-        }
-
-        // Parent: the active template by default, or an explicitly named
-        // installed theme. Refuse only when the chosen parent is ITSELF a
-        // child, which is the actual grandchild condition; hard-refusing
-        // whenever any child is active would brick the tool the moment the
-        // user activates the child they just made.
-        // A theme directory name, not a key: sanitize_key() would lowercase
-        // "Divi" and then miss it on a case-sensitive filesystem. Anything
-        // outside [A-Za-z0-9_-] (a slash, a dot) cannot name an installed
-        // theme and is refused as unknown before it reaches wp_get_theme().
-        $requested = (string) ($args['parent'] ?? '');
-        if ('' !== $requested) {
-            $candidate = 1 === preg_match('/^[A-Za-z0-9_-]{1,100}$/', $requested) ? wp_get_theme($requested) : null;
-            if (null === $candidate || ! $candidate->exists()) {
-                return $refuse('unknown_parent', sprintf('No installed theme with stylesheet "%s".', $requested), [ 'parent' => $requested ]);
-            }
-            if ($candidate->parent()) {
-                return $refuse('grandchild_refused', sprintf('Theme "%s" is itself a child theme; creating a grandchild theme is not supported.', $requested), [ 'parent' => $requested ]);
-            }
-            $parent_slug = $requested;
-        } else {
-            if (is_child_theme()) {
-                return $refuse(
-                    'grandchild_refused',
-                    'The active theme is already a child theme; creating a grandchild theme is not supported. Pass an explicit parent to scaffold a child of a different installed parent theme.',
-                    [ 'stylesheet' => get_stylesheet(), 'template' => get_template() ]
-                );
-            }
-            $parent_slug = get_template();
-        }
-
-        $slug = sanitize_key((string) ($args['slug'] ?? ($parent_slug . '-child')));
-        // Compared case-insensitively: on a case-insensitive filesystem
-        // "divi-x" and "Divi-X" are the same directory.
-        if ('' === $slug || strtolower($slug) === strtolower($parent_slug)) {
-            return $refuse('invalid_slug', 'Child theme slug is empty or collides with the parent theme slug after sanitization.', [ 'slug' => $slug ]);
-        }
-
-        // Path confinement: sanitize_key() already leaves a single token with
-        // no slashes or dots, and resolve_path() re-proves the result cannot
-        // leave the theme root (symlinked leaf included).
-        $root = get_theme_root();
-        $dir  = Filesystem_Guard::resolve_path($slug, $root);
-        if (is_wp_error($dir)) {
-            return $refuse('invalid_slug', (string) $dir->get_error_message(), [ 'slug' => $slug ]);
-        }
-
-        $existing = false;
-        if (is_dir($dir)) {
-            $style = is_file($dir . '/style.css') && ! is_link($dir . '/style.css') ? file_get_contents($dir . '/style.css') : false;
-            if (! is_string($style) || false === strpos($style, self::SCAFFOLD_MARKER)) {
-                return $refuse('directory_exists', sprintf('Theme directory "%s" already exists and was not scaffolded by wpmcp; refusing to touch it.', $slug), [ 'slug' => $slug ]);
-            }
-            $theme = wp_get_theme($slug);
-            if ($theme->exists() && $theme->get('Template') !== $parent_slug) {
-                return $refuse(
-                    'parent_mismatch',
-                    sprintf('Existing scaffold "%s" is a child of "%s", not of "%s".', $slug, (string) $theme->get('Template'), $parent_slug),
-                    [ 'slug' => $slug, 'template' => (string) $theme->get('Template'), 'expected' => $parent_slug ]
-                );
-            }
-            // A marker-bearing directory is only "already done" when BOTH
-            // files are there; a half-written scaffold is completed instead
-            // of being reported as an activatable theme.
-            $existing = is_file($dir . '/functions.php') && is_file($dir . '/style.css');
-        }
-
-        $parent = wp_get_theme($parent_slug);
-        $name   = trim((string) ($args['name'] ?? '')) !== ''
-            ? (string) $args['name']
-            : $parent->get('Name') . ' Child';
-
-        return [
-            'slug'        => $slug,
-            'dir'         => $dir,
-            'parent'      => $parent_slug,
-            'parent_name' => (string) $parent->get('Name'),
-            'name'        => $name,
-            'existing'    => $existing,
-        ];
-    }
-
-    /**
-     * Perform the vetted scaffold. functions.php is written FIRST and the
-     * marker-bearing style.css LAST, and a failure removes whatever was
-     * created, so a partial write can never leave a marker that makes later
-     * runs report a half-theme as done.
-     *
-     * @param  array<string,mixed> $plan
-     * @return array<string,mixed>
-     */
-    private static function write_scaffold(array $plan): array
-    {
-        $dir = (string) $plan['dir'];
-
-        if (true === $plan['existing']) {
-            return [
-                'created'    => false,
-                'existing'   => true,
-                'stylesheet' => $plan['slug'],
-                'template'   => $plan['parent'],
-                'path'       => $dir,
-            ];
-        }
-
-        $fresh = ! is_dir($dir);
-        if ($fresh && ! wp_mkdir_p($dir)) {
-            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-            throw new Operation_Refused('mkdir_failed', 'Could not create the child theme directory.', [ 'path' => $dir ]);
-        }
-
-        $functions = "<?php\n"
-            . '// ' . self::SCAFFOLD_MARKER . ".\n"
-            . "add_action('wp_enqueue_scripts', function () {\n"
-            . "    wp_enqueue_style('wpmcp-child-parent-style', get_template_directory_uri() . '/style.css', [], wp_get_theme(get_template())->get('Version'));\n"
-            . "});\n";
-
-        $style = "/*\n"
-            . 'Theme Name: ' . self::css_comment_safe((string) $plan['name']) . "\n"
-            . 'Template: ' . $plan['parent'] . "\n"
-            . 'Version: 1.0.0' . "\n"
-            . 'Description: Child theme of ' . self::css_comment_safe((string) $plan['parent_name']) . '. ' . self::SCAFFOLD_MARKER . ".\n"
-            . "*/\n";
-
-        // functions.php first, style.css (the idempotency marker) last.
-        $fs = self::filesystem();
-        if (
-            ! $fs->put_contents($dir . '/functions.php', $functions, 0644)
-            || ! $fs->put_contents($dir . '/style.css', $style, 0644)
-        ) {
-            self::clean_partial_scaffold($dir, $fresh);
-            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-            throw new Operation_Refused('write_failed', 'Could not write the child theme files; the partial scaffold was removed.', [ 'path' => $dir ]);
-        }
-
-        // Without this the new directory is absent from the cached
-        // theme_roots transient and wp_get_themes(), so the child does not
-        // show up under Appearance -> Themes and is not activatable.
-        wp_clean_themes_cache();
-
-        Filesystem_Guard::log('create-child-theme', Filesystem_Guard::to_relative($dir));
-
-        return [
-            'created'    => true,
-            'existing'   => false,
-            'stylesheet' => $plan['slug'],
-            'name'       => $plan['name'],
-            'template'   => $plan['parent'],
-            'path'       => $dir,
-            'activated'  => false,
-        ];
-    }
-
-    /**
-     * Remove a failed scaffold's files, and the directory itself when we
-     * made it. Plugin Check promotes WordPress.WP.AlternativeFunctions to an
-     * error, so deletion goes through WP_Filesystem
-     * rather than unlink() and rmdir(), the same way File_Backup does.
-     */
-    private static function clean_partial_scaffold(string $dir, bool $created_dir): void
-    {
-        foreach ([ 'style.css', 'functions.php' ] as $file) {
-            if (is_file($dir . '/' . $file)) {
-                self::filesystem()->delete($dir . '/' . $file);
-            }
-        }
-        if ($created_dir && is_dir($dir)) {
-            self::filesystem()->rmdir($dir);
-        }
-    }
-
-    /**
-     * A direct-method WP_Filesystem. Plugin Check promotes
-     * WordPress.WP.AlternativeFunctions to an error, so the scaffold's writes
-     * and cleanup go through WP_Filesystem rather than file_put_contents()
-     * and rmdir(). The direct transport is instantiated explicitly: a tool
-     * call cannot prompt for FTP credentials, and WP_Filesystem() silently
-     * leaves the global unset when it picks a transport that needs them.
-     */
-    private static function filesystem(): \WP_Filesystem_Direct
-    {
-        require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-base.php';
-        require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-direct.php';
-        return new \WP_Filesystem_Direct(null);
-    }
-
-    /**
-     * Gate file creation the way every other write path in the repo does:
-     * edit_files plus DISALLOW_FILE_EDIT. The extra filter exists so tests
-     * (and a site that wants a harder no) can force the refusal without
-     * redefining a constant.
-     *
-     * @return true|\WP_Error
-     */
-    private static function file_writes_allowed()
-    {
-        /** Filter: force theme file writes off without defining DISALLOW_FILE_EDIT. */
-        if ((bool) apply_filters('wpmcp_theme_file_edit_disallowed', false)) {
-            return new \WP_Error('file_edit_disabled', 'File editing is disabled on this site.');
-        }
-        return Filesystem_Guard::writes_allowed();
-    }
-
-    /**
-     * Make a caller-supplied string safe inside a /* ... *&#47; block: no
-     * newlines (which would forge extra theme headers) and no comment
-     * terminator (which would end the block and append attacker CSS to a
-     * stylesheet served to every visitor).
-     */
-    private static function css_comment_safe(string $value): string
-    {
-        $value = str_replace([ "\r", "\n", '*/', '/*' ], ' ', $value);
-        $value = trim(preg_replace('/\s+/', ' ', $value) ?? '');
-        return '' === $value ? 'Child Theme' : mb_substr($value, 0, 120);
-    }
-
-    // ---------------------------------------------------------- framework pack
-
-    /**
-     * Astra settings pack. Registered only while Astra (or an Astra child) is
-     * the active family; writes are snapshotted on the astra-settings option
-     * and refresh Astra's compiled CSS cache.
-     *
-     * @return array<string,array<string,mixed>>
-     */
-    private function astra_pack(): array
-    {
-        $allowlist = static function (): array {
-            /** Filter: framework pack setting keys, keyed by family. */
-            $keys = (array) apply_filters('wpmcp_theme_framework_pack_allowlist', self::ASTRA_SETTINGS, 'astra');
-            return $keys;
-        };
-
-        return [
-            'get-astra-settings' => [
+            'get-theme-context' => [
                 'mode'         => 'read',
-                'capability'   => 'edit_theme_options',
-                'description'  => 'Read the writable Astra theme settings (colors and content width) from the astra-settings option, with the effective per-key allowlist',
-                'input_schema' => [ 'type' => 'object', 'properties' => [] ],
-                'handler'      => static function () use ($allowlist): array {
-                    $stored   = (array) get_option('astra-settings', []);
-                    $keys     = $allowlist();
-                    $settings = [];
-                    foreach (array_keys($keys) as $key) {
-                        $settings[ (string) $key ] = $stored[ (string) $key ] ?? null;
-                    }
-                    return [ 'framework' => 'astra', 'settings' => $settings, 'allowlist' => array_keys($keys) ];
-                },
+                'description'  => 'Report the active theme context: stylesheet/template, parent theme, child-theme status, detected framework, block-theme support, probed theme_supports, and registered menu locations',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [],
+                ],
+                'handler'      => fn (array $args) => $this->theme_context(),
             ],
-            'set-astra-settings' => [
+            'get-mods'          => [
+                'mode'         => 'read',
+                'description'  => 'Read every theme_mod value for the active theme (secret-looking values masked), plus the effective allowlist of keys set-mods would accept',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [],
+                ],
+                'handler'      => fn (array $args) => $this->mods(),
+            ],
+            'set-mods'          => [
                 'mode'               => 'write',
-                'capability'         => 'edit_theme_options',
-                'enabled_by_default' => self::writes_enabled(),
-                'description'        => 'Set allowlisted Astra theme settings (colors as hex, rgb/rgba, or an Astra palette reference like var(--ast-global-color-0); site-content-width as pixels). Values are sanitized per key, the whole batch is rejected before any write if one is invalid, the astra-settings option is snapshotted for rollback-operation, and Astra\'s compiled CSS cache is refreshed afterwards',
+                'description'        => 'Set allowlisted presentation theme_mod values (core logo/header/background mods; extend via the wpmcp_theme_mod_allowlist filter). Pass null as a value to clear that mod. Structural keys are always refused; a key with no registered validator is refused; a value that fails its validator is refused rather than coerced. Snapshotted on the theme_mods option; restorable with rollback-operation. Disabled by default (site opts in via the wpmcp_enable_theme_write filter)',
+                'enabled_by_default' => (bool) apply_filters('wpmcp_enable_theme_write', false),
                 'input_schema'       => [
                     'type'       => 'object',
                     'properties' => [
-                        'settings' => [
-                            'type'                 => 'object',
-                            'minProperties'        => 1,
-                            'additionalProperties' => [ 'type' => [ 'string', 'integer', 'number' ] ],
+                        'values' => [
+                            'type'          => 'object',
+                            'minProperties' => 1,
+                            'maxProperties' => self::MAX_VALUES,
                         ],
                     ],
-                    'required'   => [ 'settings' ],
+                    'required'   => [ 'values' ],
                 ],
-                'validate'           => static function (array $args) use ($allowlist): ?array {
-                    $keys = $allowlist();
-                    foreach ((array) ($args['settings'] ?? []) as $key => $value) {
-                        $key = (string) $key;
-                        if (! isset($keys[ $key ])) {
-                            return [
-                                'code'    => 'key_not_allowlisted',
-                                'message' => sprintf('Astra setting "%s" is not on the write allowlist.', $key),
-                                'data'    => [ 'key' => $key, 'allowlist' => array_keys($keys) ],
-                            ];
-                        }
-                        if (null === self::sanitize_pack_value((string) $keys[ $key ], $value)) {
-                            return [
-                                'code'    => 'invalid_setting_value',
-                                'message' => sprintf('Value for Astra setting "%s" is not valid for that key.', $key),
-                                'data'    => [ 'key' => $key ],
-                            ];
-                        }
-                    }
-                    return null;
-                },
-                'handler'            => static function (array $args) use ($allowlist): array {
-                    $keys    = $allowlist();
-                    $stored  = (array) get_option('astra-settings', []);
-                    $written = [];
-                    foreach ((array) $args['settings'] as $key => $value) {
-                        $key   = (string) $key;
-                        $clean = self::sanitize_pack_value((string) ($keys[ $key ] ?? ''), $value);
-                        if (null === $clean) {
-                            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-                            throw new Operation_Refused('invalid_setting_value', sprintf('Value for Astra setting "%s" is not valid.', $key), [ 'key' => $key ]);
-                        }
-                        $stored[ $key ] = $clean;
-                        $written[ $key ] = $clean;
-                    }
-                    update_option('astra-settings', $stored);
-                    self::refresh_framework_cache('astra');
-                    return [ 'framework' => 'astra', 'settings' => $written ];
-                },
-                'snapshot'           => static fn (array $args) => [
-                    'object_type' => 'option',
-                    'object_id'   => 'astra-settings',
-                ],
+                'handler'            => fn (array $args) => $this->set_mods((array) $args['values']),
+                'snapshot'           => fn (array $args) => $this->snapshot_target((array) ($args['values'] ?? [])),
             ],
         ];
     }
 
     /**
-     * Drop a framework's compiled CSS cache after a settings write, so the
-     * change is visible on the next request instead of after the cache
-     * expires. Astra's own invalidation entry point is used when present.
+     * Name the snapshot target only when at least one key would really be
+     * written. A batch where everything is refused changes nothing, so it
+     * must not persist a snapshot row: Safe_Mutation prunes to the tier's
+     * global keep-newest-N after every write, and no-op rows would silently
+     * evict genuine undo points. Returning null makes the dispatcher run the
+     * handler directly and report recoverable:false, which is the honest
+     * answer for a call that wrote nothing.
      */
-    private static function refresh_framework_cache(string $family): void
+    private function snapshot_target(array $values): ?array
     {
-        if ('astra' === $family) {
-            // Astra's own entry point (3.6.1+) clears the theme and Astra Pro
-            // caches. Older releases only have Astra_Cache_Base, whose
-            // refresh_assets() is an INSTANCE method, so it is never called
-            // statically.
-            if (function_exists('astra_clear_all_assets_cache')) {
-                astra_clear_all_assets_cache();
-            } elseif (class_exists('\Astra_Cache_Base') && method_exists('\Astra_Cache_Base', 'refresh_assets')) {
-                ( new \Astra_Cache_Base('astra') )->refresh_assets('astra');
+        $this->plan = [ 'values' => $values, 'verdicts' => $this->plan_for($values) ];
+        foreach ($this->plan['verdicts'] as $verdict) {
+            if ($verdict['ok']) {
+                return [
+                    'object_type' => 'option',
+                    'object_id'   => $this->mods_option(),
+                ];
             }
-        }
-        /** Action: a site or add-on refreshes its own caches after a framework pack write. */
-        do_action('wpmcp_theme_framework_cache_refresh', $family);
-    }
-
-    // ------------------------------------------------------------- sanitizers
-
-    /**
-     * Sanitize one theme-mod value for its key. Returns null when the value
-     * cannot be made safe, which is a refusal, never a coerced write.
-     *
-     * @param  mixed $value
-     * @return mixed|null
-     */
-    private static function sanitize_mod(string $key, $value)
-    {
-        $rule = self::MOD_SANITIZERS[ $key ] ?? null;
-        if (null === $rule) {
-            /** Filter: sanitizer rule for a theme-mod key added via wpmcp_theme_mod_allowlist. */
-            $rule = (string) apply_filters('wpmcp_theme_mod_sanitizer', '', $key);
-            if ('' === $rule) {
-                return null;
-            }
-        }
-        if (is_array($value) || is_object($value)) {
-            return null;
-        }
-
-        switch ($rule) {
-            case 'attachment_id':
-                $id = absint($value);
-                return $id > 0 ? $id : null;
-            case 'hex':
-            case 'hex_or_blank':
-                if ('hex_or_blank' === $rule && 'blank' === $value) {
-                    // The header-text toggle core encodes as a color value.
-                    return 'blank';
-                }
-                $hex = sanitize_hex_color_no_hash(is_string($value) ? $value : (string) $value);
-                // Lowercased so a read-back is byte-stable regardless of how
-                // the caller cased the input.
-                return ('' === $hex || null === $hex) ? null : strtolower($hex);
-            case 'url':
-                $url = esc_url_raw((string) $value);
-                return '' === $url ? null : $url;
-            case 'header_image':
-                if ('remove-header' === $value) {
-                    return 'remove-header';
-                }
-                $url = esc_url_raw((string) $value);
-                return '' === $url ? null : $url;
-            default:
-                $enum = self::MOD_ENUMS[ $rule ] ?? null;
-                if (null === $enum) {
-                    return null;
-                }
-                return in_array((string) $value, $enum, true) ? (string) $value : null;
-        }
-    }
-
-    /**
-     * Sanitize a framework-pack setting value.
-     *
-     * @param  mixed $value
-     * @return mixed|null
-     */
-    private static function sanitize_pack_value(string $rule, $value)
-    {
-        if (is_array($value) || is_object($value)) {
-            return null;
-        }
-        if ('color' === $rule) {
-            $raw = trim((string) $value);
-            $hex = sanitize_hex_color($raw);
-            if (is_string($hex) && '' !== $hex) {
-                return $hex;
-            }
-            // Astra's own defaults are palette references such as
-            // var(--ast-global-color-0), so an agent must be able to write
-            // one back; nothing else inside var() is accepted.
-            if (1 === preg_match('/^var\(--ast-global-color-\d{1,2}\)$/', $raw)) {
-                return $raw;
-            }
-            return 1 === preg_match('/^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*(0|1|0?\.\d+)\s*)?\)$/', $raw)
-                ? $raw
-                : null;
-        }
-        if ('width' === $rule) {
-            $px = absint($value);
-            return ($px >= 300 && $px <= 3000) ? $px : null;
         }
         return null;
     }
 
-    /** @return array<int,string> the effective allowlist, never containing structural keys. */
-    private static function allowlist(): array
+    /**
+     * One verdict per key, computed exactly once per call. snapshot_target()
+     * builds it and set_mods() consumes it, so the snapshot decision and the
+     * write can never disagree: a custom validator that is non-deterministic
+     * (or counts its calls) cannot refuse while the snapshot is being decided
+     * and then accept when the write runs, which would be a write with no
+     * undo point.
+     *
+     * A verdict is the evaluate() shape, plus 'clear' => true for the null
+     * clear sentinel and a pre-rendered 'detail' for guard layers 1 and 2.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function plan_for(array $values): array
     {
-        /** Filter: the writable theme-mod key allowlist. Structural keys are stripped regardless. */
-        $keys = (array) apply_filters('wpmcp_theme_mod_allowlist', array_keys(self::MOD_SANITIZERS));
-        return array_values(array_diff(array_map('strval', $keys), self::MOD_STRUCTURAL));
+        $plan      = [];
+        $allowlist = $this->allowlist();
+
+        foreach ($values as $key => $value) {
+            $key = (string) $key;
+
+            if (isset(self::STRUCTURAL_KEYS[ $key ])) {
+                $plan[ $key ] = [
+                    'ok'     => false,
+                    'reason' => 'structural',
+                    'detail' => 'Structural theme mods are never writable through set-mods. '
+                        . $this->structural_route($key),
+                ];
+                continue;
+            }
+
+            if (! in_array($key, $allowlist, true)) {
+                $plan[ $key ] = [
+                    'ok'     => false,
+                    'reason' => 'not_allowlisted',
+                    'detail' => 'Key is not in the theme-mod allowlist reported by get-mods. Extend it with the wpmcp_theme_mod_allowlist filter.',
+                ];
+                continue;
+            }
+
+            // null is the explicit clear sentinel. It skips the validators
+            // (there is nothing to validate) and routes through
+            // remove_theme_mod(), so an agent that can set custom_logo can
+            // also remove it, the way the Customizer allows.
+            $plan[ $key ] = null === $value
+                ? [ 'ok' => true, 'clear' => true ]
+                : $this->evaluate($key, $value, true);
+        }
+
+        return $plan;
     }
 
-    /** @return string framework family label ('none' when unrecognized). */
-    private static function detect_framework(): string
+    /**
+     * The option set_theme_mod()/get_theme_mods() actually read and write.
+     * Core keys them off the UNFILTERED get_option('stylesheet')
+     * (wp-includes/theme.php), while get_stylesheet() passes that value
+     * through the `stylesheet` filter. On any site that filters `stylesheet`
+     * the two diverge, and a snapshot taken against the filtered name would
+     * restore a different option than the one the write mutated: rollback
+     * would report success having reverted nothing.
+     */
+    private function mods_option(): string
     {
-        /** Filter: theme slug (or slug prefix) to framework family map. */
-        $map      = (array) apply_filters('wpmcp_theme_framework_map', self::FRAMEWORK_MAP);
-        $template = strtolower(get_template());
-        foreach ($map as $slug => $family) {
-            $slug = strtolower((string) $slug);
-            if ($template === $slug || 0 === strpos($template, $slug . '-')) {
-                return (string) $family;
+        return 'theme_mods_' . get_option('stylesheet');
+    }
+
+    /** Whether $key survives guard layers 1 and 2 (structural, then allowlist). */
+    private function is_writable_key(string $key): bool
+    {
+        return ! isset(self::STRUCTURAL_KEYS[ $key ]) && in_array($key, $this->allowlist(), true);
+    }
+
+    private function theme_context(): array
+    {
+        $theme  = wp_get_theme();
+        $parent = $theme->parent();
+
+        // A child theme is one whose stylesheet differs from its template,
+        // exactly as child_theme_exists() tests it. WP_Theme::parent()
+        // returns false when the parent is not installed, so it says whether
+        // the parent RESOLVES, not whether this is a child.
+        $is_child        = get_stylesheet() !== get_template();
+        $parent_resolved = $parent instanceof \WP_Theme;
+
+        $supports = [];
+        foreach (self::PROBED_SUPPORTS as $feature) {
+            $supports[ $feature ] = current_theme_supports($feature);
+        }
+
+        return [
+            'stylesheet'         => get_stylesheet(),
+            'template'           => get_template(),
+            'name'               => $theme->get('Name'),
+            'version'            => $theme->get('Version'),
+            'is_child'           => $is_child,
+            'parent'             => $parent_resolved ? [
+                'stylesheet' => $parent->get_stylesheet(),
+                'name'       => $parent->get('Name'),
+                'version'    => $parent->get('Version'),
+            ] : null,
+            'parent_missing'     => $is_child && ! $parent_resolved,
+            'framework'          => $this->detect_framework(),
+            'is_block_theme'     => $this->is_block_theme(),
+            'theme_supports'     => $supports,
+            'menu_locations'     => get_registered_nav_menus(),
+            'child_theme_exists' => $this->child_theme_exists(),
+        ];
+    }
+
+    /** Match the template (parent) slug against the known-framework map. */
+    private function detect_framework(): ?string
+    {
+        $template = get_template();
+        if (isset(self::FRAMEWORKS[ $template ])) {
+            return self::FRAMEWORKS[ $template ];
+        }
+        if (0 === strpos($template, 'twenty')) {
+            return 'core';
+        }
+        return null;
+    }
+
+    /** wp_is_block_theme() with a test/override seam. */
+    private function is_block_theme(): bool
+    {
+        return (bool) apply_filters('wpmcp_theme_is_block_theme', wp_is_block_theme());
+    }
+
+    /**
+     * Whether a child of the active parent theme is already installed
+     * (informs phase 2's create-child-theme without doing any file I/O here).
+     */
+    private function child_theme_exists(): bool
+    {
+        if (get_stylesheet() !== get_template()) {
+            return true; // The active theme IS a child theme.
+        }
+        $template = get_template();
+        foreach (wp_get_themes() as $theme) {
+            if ($theme->get_template() === $template && $theme->get_stylesheet() !== $template) {
+                return true;
             }
         }
-        return 'none';
+        return false;
+    }
+
+    /**
+     * Theme mods for the active theme. Values go through the SHARED
+     * Request_Log::redact() primitive rather than a local copy of it:
+     * commercial themes park API keys, tokens and license keys in theme mods,
+     * and handing those to a model verbatim is a credential leak, not a read.
+     * Using the shared helper also means values are truncated and stored
+     * objects collapse to '[object]', both of which a hand-rolled masker in
+     * this class had drifted away from.
+     *
+     * `writable` is the effective allowlist (what set-mods accepts), NOT just
+     * the stored keys, so an allowlisted key that has never been set still
+     * reports as writable. `writable_present` is the intersection with what
+     * is actually stored.
+     */
+    private function mods(): array
+    {
+        $mods = get_theme_mods();
+        $mods = is_array($mods) ? $mods : [];
+
+        $allowlist = $this->allowlist();
+        $present   = [];
+        foreach (array_keys($mods) as $key) {
+            if (in_array((string) $key, $allowlist, true)) {
+                $present[] = (string) $key;
+            }
+        }
+
+        $masked   = Request_Log::redact($mods);
+        $redacted = [];
+        foreach (array_keys($mods) as $key) {
+            if (Request_Log::is_secret_key((string) $key)) {
+                $redacted[] = (string) $key;
+            }
+        }
+
+        return [
+            'stylesheet'       => get_option('stylesheet'),
+            'mods'             => $masked,
+            'writable'         => $allowlist,
+            'writable_present' => $present,
+            'redacted'         => $redacted,
+        ];
+    }
+
+    /**
+     * Apply each allowlisted key whose value passes its validator, refuse
+     * everything else with a structured per-key report. Runs inside
+     * Safe_Mutation whenever at least one key is really written (the
+     * snapshot of theme_mods_{stylesheet} is taken first), so even a
+     * partially applied batch is restorable as one unit via
+     * rollback-operation.
+     */
+    private function set_mods(array $values): array
+    {
+        // Consume the plan snapshot_target() built for this very call. A plan
+        // left over from a different call (its write aborted before reaching
+        // the handler) never matches $values and is discarded.
+        $plan       = null !== $this->plan && $this->plan['values'] === $values
+            ? $this->plan['verdicts']
+            : $this->plan_for($values);
+        $this->plan = null;
+
+        $updated     = [];
+        $cleared     = [];
+        $refused     = [];
+        $ineffective = [];
+        $block_theme = $this->is_block_theme();
+
+        foreach ($plan as $key => $verdict) {
+            $key = (string) $key;
+
+            if (! $verdict['ok']) {
+                $refused[] = [
+                    'key'    => $key,
+                    'reason' => $verdict['reason'],
+                    'detail' => $verdict['detail'],
+                ];
+                continue;
+            }
+
+            if (! empty($verdict['clear'])) {
+                remove_theme_mod($key);
+                if ('header_image' === $key) {
+                    remove_theme_mod('header_image_data');
+                }
+                $cleared[] = $key;
+                continue;
+            }
+
+            set_theme_mod($key, $verdict['value']);
+            if ('header_image' === $key) {
+                $this->sync_header_image_data($verdict['value']);
+            }
+            $updated[] = $key;
+
+            if ($block_theme && in_array($key, self::BLOCK_THEME_INERT, true)) {
+                $ineffective[] = $key;
+            }
+        }
+
+        return [
+            'stylesheet'  => get_option('stylesheet'),
+            'updated'     => $updated,
+            'cleared'     => $cleared,
+            'refused'     => $refused,
+            'ineffective' => $ineffective,
+            'notes'       => $ineffective
+                ? 'This is a block theme: the listed mods were stored but the front end renders those settings from global styles, so they will have no visible effect.'
+                : '',
+        ];
+    }
+
+    /**
+     * The supported route for a structural key: the owning abilities that are
+     * registered here, then the wp-admin screen that always works.
+     */
+    private function structural_route(string $key): string
+    {
+        $route     = self::STRUCTURAL_KEYS[ $key ];
+        $available = [];
+        if (function_exists('wp_has_ability')) {
+            foreach ($route['abilities'] as $name) {
+                if (wp_has_ability($name)) {
+                    $available[] = $name;
+                }
+            }
+        }
+
+        if ([] === $available) {
+            return $route['fallback'];
+        }
+
+        return 'Use ' . implode(', ', $available) . ' instead, or: ' . $route['fallback'];
+    }
+
+    /**
+     * The effective allowlist: core presentation mods, extended or narrowed
+     * by the wpmcp_theme_mod_allowlist filter, minus the structural keys the
+     * filter is never allowed to open. This is the single source of truth for
+     * what set-mods accepts and it is exactly what get-mods advertises.
+     *
+     * @return array<int, string>
+     */
+    private function allowlist(): array
+    {
+        $allowlist = (array) apply_filters('wpmcp_theme_mod_allowlist', self::CORE_ALLOWLIST);
+        $allowlist = array_map('strval', $allowlist);
+        $allowlist = array_filter($allowlist, static fn (string $key): bool => ! isset(self::STRUCTURAL_KEYS[ $key ]));
+        return array_values(array_unique($allowlist));
+    }
+
+    /**
+     * key => rule, filterable so framework packs can describe their own keys.
+     *
+     * The core VALUE_RULES entries are merged back on TOP of whatever the
+     * filter returns, mirroring what allowlist() does with STRUCTURAL_KEYS: a
+     * pack that returns its own map instead of array_merge-ing into the one
+     * it was handed would otherwise silently strip the sanitizers off
+     * header_textcolor and background_color, the two keys core echoes
+     * unescaped inside a <style> block.
+     *
+     * @return array<string, mixed>
+     */
+    private function value_rules(): array
+    {
+        $filtered = (array) apply_filters('wpmcp_theme_mod_value_rules', self::VALUE_RULES);
+        return array_merge($filtered, self::VALUE_RULES);
+    }
+
+    /**
+     * Decide what would really be stored for $key, as a structured verdict.
+     *
+     * A verdict is ['ok' => true, 'value' => mixed] or
+     * ['ok' => false, 'reason' => string, 'detail' => string]. The wrapper
+     * exists so a legitimately falsy stored value (0, '', false) is never
+     * confused with a refusal, and so the refusal REASON travels with the
+     * decision instead of being re-derived by a second, drift-prone pass over
+     * the rule.
+     *
+     * Dispatch order, with the refusal EXPLANATION produced by the same
+     * branch that made the decision, so the two can never disagree (the
+     * earlier split between accepted_value() and rule_detail() had already
+     * drifted into a fatal on Closure rules and an "Array to string
+     * conversion" warning on array rules):
+     *   1. array  -> enum of literal allowed values;
+     *   2. non-string callable (Closure, invokable object) -> custom validator;
+     *   3. built-in rule name;
+     *   4. string that is callable -> custom validator by function name;
+     *   5. any other string -> unknown_rule;
+     *   6. no rule at all -> no_validator.
+     *
+     * Steps 3 and 4 are in that order deliberately: several built-in names
+     * (header_textcolor) collide with real WordPress functions and would
+     * otherwise be invoked as callables.
+     *
+     * @return array{ok: bool, value?: mixed, reason?: string, detail?: string}
+     */
+    private function evaluate(string $key, $value, bool $allowlist_checked = false): array
+    {
+        if (! $allowlist_checked && ! $this->is_writable_key($key)) {
+            return $this->refuse($key, 'not_allowlisted', 'Key is not in the theme-mod allowlist reported by get-mods.');
+        }
+
+        $rules = $this->value_rules();
+        $rule  = $rules[ $key ] ?? null;
+
+        if (is_array($rule)) {
+            return in_array($value, $rule, true)
+                ? [ 'ok' => true, 'value' => $value ]
+                : $this->refuse($key, 'invalid_value', sprintf(
+                    'accepts only one of %s.',
+                    implode(', ', array_map('strval', $rule))
+                ));
+        }
+
+        if (null !== $rule && ! is_string($rule) && is_callable($rule)) {
+            return $this->apply_callable_rule($key, $rule, $value);
+        }
+
+        if (is_string($rule)) {
+            $built_in = $this->apply_builtin_rule($key, $rule, $value);
+            if (null !== $built_in) {
+                return $built_in;
+            }
+            if (is_callable($rule)) {
+                return $this->apply_callable_rule($key, $rule, $value);
+            }
+            return $this->refuse($key, 'unknown_rule', sprintf(
+                'is registered with the rule "%s", which is neither a built-in rule name nor a callable. Fix the wpmcp_theme_mod_value_rules entry.',
+                $rule
+            ));
+        }
+
+        // Guard layer 3 fails CLOSED. wpmcp_theme_mod_allowlist can widen
+        // guard layer 2, so a widened key with no validator is precisely the
+        // case that must not be waved through: these values are echoed by
+        // themes without escaping, and no generic "looks inert" sniff is a
+        // substitute for knowing what the key means.
+        return $this->refuse($key, 'no_validator', 'has no registered validator, so nothing can vouch for the value. Register one with the wpmcp_theme_mod_value_rules filter.');
+    }
+
+    /** @return array{ok: false, reason: string, detail: string} */
+    private function refuse(string $key, string $reason, string $explanation): array
+    {
+        return [
+            'ok'     => false,
+            'reason' => $reason,
+            'detail' => sprintf('Value refused: "%s" %s', $key, $explanation),
+        ];
+    }
+
+    /**
+     * Run a custom validator. It refuses by returning null; anything else is
+     * the value to store.
+     *
+     * @param callable $rule
+     * @return array{ok: bool, value?: mixed, reason?: string, detail?: string}
+     */
+    private function apply_callable_rule(string $key, $rule, $value): array
+    {
+        $out = $rule($value);
+        return null === $out
+            ? $this->refuse($key, 'invalid_value', 'was refused by the custom validator registered for it through wpmcp_theme_mod_value_rules.')
+            : [ 'ok' => true, 'value' => $out ];
+    }
+
+    /**
+     * The built-in rules, mirroring how core registers these same settings on
+     * the Customizer. Returns null when $rule is not a built-in NAME at all,
+     * which is what lets evaluate() fall through to the callable and
+     * unknown_rule branches instead of silently accepting.
+     *
+     * @return array{ok: bool, value?: mixed, reason?: string, detail?: string}|null
+     */
+    private function apply_builtin_rule(string $key, string $rule, $value): ?array
+    {
+        switch ($rule) {
+            case 'hex_no_hash':
+                $hex = is_string($value) ? sanitize_hex_color_no_hash($value) : null;
+                return null === $hex || '' === $hex
+                    ? $this->refuse($key, 'invalid_value', 'must be a hex color such as aabbcc (core stores it without the leading #, and emits it unescaped inside a <style> block).')
+                    : [ 'ok' => true, 'value' => $hex ];
+
+            case 'header_textcolor':
+                if ('blank' === $value) {
+                    return [ 'ok' => true, 'value' => 'blank' ];
+                }
+                $hex = is_string($value) ? sanitize_hex_color_no_hash($value) : null;
+                return null === $hex || '' === $hex
+                    ? $this->refuse($key, 'invalid_value', 'must be a hex color such as aabbcc, or the literal "blank".')
+                    : [ 'ok' => true, 'value' => $hex ];
+
+            case 'attachment_id':
+                $bad = $this->refuse($key, 'invalid_value', 'must be the ID of an attachment that exists on this site (pass null to clear it).');
+                if (! is_int($value) && ! (is_string($value) && ctype_digit($value))) {
+                    return $bad;
+                }
+                $id = (int) $value;
+                if ($id <= 0) {
+                    return $bad;
+                }
+                $post = get_post($id);
+                if (! $post || 'attachment' !== $post->post_type) {
+                    return $bad;
+                }
+                return [ 'ok' => true, 'value' => $id ];
+
+            case 'image_url':
+                $bad = $this->refuse($key, 'invalid_value', 'must be an absolute http(s) URL, an empty string, "remove-header", or "random-default-image" (pass null to clear it).');
+                if (! is_string($value)) {
+                    return $bad;
+                }
+                if ('' === $value || 'remove-header' === $value || 'random-default-image' === $value) {
+                    return [ 'ok' => true, 'value' => $value ];
+                }
+                $url = esc_url_raw($value, [ 'http', 'https' ]);
+                if ('' === $url) {
+                    return $bad;
+                }
+                // esc_url_raw() only vets the PROTOCOL, so it happily returns
+                // protocol-relative (//evil.tld/x.png), root-relative (/x.png)
+                // and fragment (#x) values. The refusal text promises an
+                // http(s) URL; enforce exactly that.
+                $scheme = wp_parse_url($url, PHP_URL_SCHEME);
+                return in_array($scheme, [ 'http', 'https' ], true)
+                    ? [ 'ok' => true, 'value' => $url ]
+                    : $bad;
+        }
+
+        return null;
+    }
+
+    /**
+     * Keep header_image_data in step with header_image.
+     *
+     * Core's Custom_Image_Header always writes the two together, and
+     * get_custom_header() / the_header_image_tag() read the companion for
+     * attachment_id, width and height. Writing header_image alone leaves them
+     * describing the PREVIOUS image against the new URL, so either refresh
+     * the companion from the attachment the URL resolves to, or drop it.
+     */
+    private function sync_header_image_data(string $url): void
+    {
+        if ('' === $url || 'remove-header' === $url || 'random-default-image' === $url) {
+            remove_theme_mod('header_image_data');
+            return;
+        }
+
+        $id = attachment_url_to_postid($url);
+        if ($id <= 0) {
+            remove_theme_mod('header_image_data');
+            return;
+        }
+
+        $meta = wp_get_attachment_metadata($id);
+        set_theme_mod('header_image_data', (object) [
+            'attachment_id' => $id,
+            'url'           => $url,
+            'thumbnail_url' => $url,
+            'width'         => (int) ($meta['width'] ?? 0),
+            'height'        => (int) ($meta['height'] ?? 0),
+        ]);
     }
 }
