@@ -86,7 +86,11 @@ directory build has since delivered many of them (B-01 to B-07, B-16 and B-17
 among others) through `scripts/flavors/wporg/strip.php`; what is actually in a
 given zip is decided by `scripts/build-wporg-release.sh`, whose gates re-derive
 each answer from the staged tree rather than from this document. Issue #161
-delivered B-05 in the source itself, not only in the directory build.
+delivered B-05 in the source itself, not only in the directory build. Since
+issue #257 the WooCommerce vertical runs the same strip (with its own flavor
+manifest, `scripts/flavors/woocommerce/manifest.php`, for the groups it never
+registers), and `scripts/build-woo-release.sh` gates its zip with the whole
+wporg-free engine, every pack, exactly as the directory build does.
 
 | ID | Rule | Evidence | Fix |
 |---|---|---|---|

@@ -1,6 +1,6 @@
 === WP MCP for WooCommerce ===
 Contributors: fahdi
-Tags: woocommerce, mcp, ai, ai agent, automation
+Tags: ecommerce, mcp, ai, ai agent, automation
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
@@ -84,6 +84,10 @@ Used by the `search-stock-images` ability when the Unsplash provider is chosen, 
 = Loopback requests to this site itself =
 
 The connection self-test calls this site's own REST route, and `scan-security` fetches this site's front page to read its security headers. Both are requests to your own server, not calls to any third party.
+
+= WP MCP Cloud (inert in this build) =
+
+The code contains an HTTP client for the author's optional cloud service, but this build ships no tool that can configure or connect it: the client only ever fires if a cloud URL and key have been saved by a separate WP MCP build, and then it reaches only the URL you saved. With this plugin alone, nothing is ever sent. Terms and privacy policy: https://wpmcp-pro.com/
 
 == Installation ==
 

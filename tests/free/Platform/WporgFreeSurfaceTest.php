@@ -173,7 +173,7 @@ class WporgFreeSurfaceTest extends \WP_UnitTestCase
         $this->assertSame(
             [],
             $offenders,
-            "These abilities register in the woocommerce flavor but depend on files scripts/build-woo-release.sh prunes, so the vertical zip fatals on the first call:\n  "
+            "These abilities register in the woocommerce flavor but depend on files scripts/flavors/woocommerce/manifest.php prunes, so the vertical zip fatals on the first call:\n  "
                 . implode("\n  ", $offenders)
         );
     }
@@ -257,11 +257,16 @@ class WporgFreeSurfaceTest extends \WP_UnitTestCase
         return is_array($policy['removed_paths'] ?? null) ? array_values($policy['removed_paths']) : [];
     }
 
-    /** @return string[] every src/ path scripts/build-woo-release.sh removes. */
+    /**
+     * Every src/ path the WooCommerce build removes beyond the shared strip:
+     * its flavor manifest, which scripts/build-woo-release.sh hands to
+     * scripts/flavors/wporg/strip.php (issue #257).
+     *
+     * @return string[]
+     */
     private function woo_pruned_paths(): array
     {
-        $source = (string) file_get_contents(dirname(__DIR__, 3) . '/scripts/build-woo-release.sh');
-        preg_match_all('/"\$STAGE\/(src\/[^"]+)"/', $source, $m);
-        return array_values(array_unique($m[1]));
+        $manifest = require dirname(__DIR__, 3) . '/scripts/flavors/woocommerce/manifest.php';
+        return is_array($manifest['removed_paths'] ?? null) ? array_values($manifest['removed_paths']) : [];
     }
 }

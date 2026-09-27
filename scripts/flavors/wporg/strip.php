@@ -22,17 +22,45 @@
  * string it expects is missing, so a refactor upstream breaks the build
  * loudly instead of silently shipping a gated zip. Usage:
  *
- *   php scripts/flavors/wporg/strip.php <staged-plugin-dir>
+ *   php scripts/flavors/wporg/strip.php <staged-plugin-dir> [flavor-manifest]
+ *
+ * The strip itself is the policy every WordPress.org submission shares: the
+ * directory cut and the WooCommerce vertical (issue #257) both run it, so
+ * guideline 5 is answered once for both zips. What differs per flavor lives
+ * in a small manifest beside that flavor's templates (see
+ * scripts/flavors/wporg/manifest.php and scripts/flavors/woocommerce/
+ * manifest.php): extra exact-string edits, extra methods and extra paths.
+ * The manifest defaults to the directory cut's, so a bare invocation behaves
+ * exactly as it always has.
  */
 
 declare(strict_types=1);
 
 $stage = $argv[1] ?? '';
 if ('' === $stage || ! is_dir($stage)) {
-    fwrite(STDERR, "usage: strip.php <staged-plugin-dir>\n");
+    fwrite(STDERR, "usage: strip.php <staged-plugin-dir> [flavor-manifest]\n");
     exit(2);
 }
 $stage = rtrim($stage, '/');
+
+$manifest_path = $argv[2] ?? __DIR__ . '/manifest.php';
+if (! is_file($manifest_path)) {
+    fwrite(STDERR, "flavor manifest not found: $manifest_path\n");
+    exit(2);
+}
+/**
+ * Per-flavor additions to the shared strip. Every key is required, so a
+ * manifest that misspells one fails here instead of silently adding nothing.
+ *
+ * @var array{label:string,removed_methods:string[],edits:array<string,array<int,array{0:string,1:string,2:int}>>,removed_paths:string[]}
+ */
+$manifest = require $manifest_path;
+foreach (['label' => 'is_string', 'removed_methods' => 'is_array', 'edits' => 'is_array', 'removed_paths' => 'is_array'] as $key => $type) {
+    if (! is_array($manifest) || ! array_key_exists($key, $manifest) || ! $type($manifest[$key])) {
+        fwrite(STDERR, sprintf("%s: flavor manifest must declare '%s'\n", $manifest_path, $key));
+        exit(2);
+    }
+}
 
 /**
  * What must not survive into the directory cut, shared with the build
@@ -70,10 +98,6 @@ const REMOVED_METHODS = [
     // private and reached only from register_elementor_abilities(), whose
     // call site is edited out below.
     'register_atomic_elementor_abilities',
-    // Not pro, but not for this build either: the directory delivers language
-    // packs just in time, and I18n_Rule flags load_plugin_textdomain() as
-    // unnecessary there. The off-directory builds keep it (issue #184).
-    'load_textdomain',
 ];
 
 /**
@@ -763,16 +787,6 @@ $plugin_edits[] = [
     "with each entry\'s tier, operation",
     1,
 ];
-// The self-hosted translation loader goes with its method (REMOVED_METHODS):
-// the directory serves language packs, so the languages/ directory the header
-// points at is only ever read by the off-directory builds.
-$plugin_edits[] = [
-    "            // Self-hosted translations from languages/ (issue #184).\n"
-        . "            add_action('init', [\$this, 'load_textdomain']);\n",
-    '',
-    1,
-];
-
 // Documentation the reviewer reads too: a build with no licence gate must not
 // describe one.
 $plugin_edits[] = [
@@ -1080,6 +1094,16 @@ $edits['src/Memory/Memory_Config.php'][] = [
 ];
 
 
+/**
+ * The flavor's own exact-string edits run after the shared ones, in the same
+ * loop and under the same count validation.
+ */
+foreach ($manifest['edits'] as $relative => $file_edits) {
+    foreach ($file_edits as $edit) {
+        $edits[$relative][] = $edit;
+    }
+}
+
 $failures = [];
 $applied = 0;
 
@@ -1148,7 +1172,7 @@ if (is_file($snapshot_store)) {
 
 /** Delete the pro-only method declarations from Plugin.php, docblock included. */
 $plugin_php = $stage . '/src/Plugin.php';
-foreach (REMOVED_METHODS as $method) {
+foreach (array_merge(REMOVED_METHODS, $manifest['removed_methods']) as $method) {
     $result = remove_method($plugin_php, $method);
     if (true !== $result) {
         $failures[] = sprintf('src/Plugin.php: %s', $result);
@@ -1167,6 +1191,30 @@ foreach ($removed_paths as $relative) {
     // remove_path() reports the first thing it could not delete, so a
     // partial removal aborts here with the offending path instead of
     // leaving a later grep in a different script to notice.
+    $undeleted = remove_path($path);
+    if ([] !== $undeleted) {
+        $failures[] = sprintf('%s: could not be removed (%s)', $relative, implode(', ', $undeleted));
+        continue;
+    }
+    $applied++;
+}
+
+/**
+ * The flavor's own paths, removed after the shared ones and before the
+ * import prune and the sweep, so both of those see the tree the flavor
+ * actually ships. A path the shared policy already removes does not belong
+ * in a manifest, and one that no longer exists is a stale entry: both fail.
+ */
+foreach ($manifest['removed_paths'] as $relative) {
+    if (in_array($relative, $removed_paths, true)) {
+        $failures[] = sprintf('%s: already removed by the shared policy; drop it from %s', $relative, basename(dirname($manifest_path)) . '/' . basename($manifest_path));
+        continue;
+    }
+    $path = $stage . '/' . $relative;
+    if (! file_exists($path)) {
+        $failures[] = sprintf('%s: nothing to remove at this path', $relative);
+        continue;
+    }
     $undeleted = remove_path($path);
     if ([] !== $undeleted) {
         $failures[] = sprintf('%s: could not be removed (%s)', $relative, implode(', ', $undeleted));
@@ -1205,12 +1253,13 @@ $swept = sweep_unreferenced($stage, SWEPT_DIRECTORIES);
 $applied += count($swept);
 
 if ([] !== $failures) {
-    fwrite(STDERR, "wp.org strip failed:\n  " . implode("\n  ", $failures) . "\n");
+    fwrite(STDERR, $manifest['label'] . " strip failed:\n  " . implode("\n  ", $failures) . "\n");
     exit(1);
 }
 
 printf(
-    "wp.org strip: %d edits applied, %d inline pro abilities removed, %d unreferenced files swept\n",
+    "%s strip: %d edits applied, %d inline pro abilities removed, %d unreferenced files swept\n",
+    $manifest['label'],
     $applied,
     $removed_inline,
     count($swept)

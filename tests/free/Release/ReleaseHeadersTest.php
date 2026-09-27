@@ -99,13 +99,6 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
     /** The document that pins the listing's tag list. */
     private const SUBMISSION_DOC = 'WPORG-SUBMISSION.md';
 
-    /**
-     * Tags allowed as a whole even though they carry a restricted term:
-     * Trademark_Rule::FOR_USE_EXCEPTIONS, which is why the WooCommerce readme
-     * may tag "woocommerce" while "woo" alone stays barred.
-     */
-    private const TAG_EXCEPTIONS = ['woocommerce'];
-
     private function repository(): string
     {
         return dirname(__DIR__, 3);
@@ -451,10 +444,10 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
 
             $this->assertNotEmpty($tags, $readme . ' has an empty Tags header');
             $this->assertLessThanOrEqual(5, count($tags), $readme . ' exceeds the five tag maximum');
+            // No for-use exception applies to tags: Trademark_Rule's
+            // "-for-woocommerce" exception is about the slug, and the engine
+            // blocks a bare "woocommerce" tag (issue #257).
             foreach ($tags as $tag) {
-                if (in_array($tag, self::TAG_EXCEPTIONS, true)) {
-                    continue;
-                }
                 $slug = trim((string) preg_replace('/[^a-z0-9]+/', '-', $tag), '-');
                 foreach ($this->restricted_terms() as $term) {
                     $this->assertStringNotContainsString(
