@@ -207,6 +207,8 @@ use WPMCP\Tools\Backup\Run_Backup_Job;
 use WPMCP\Tools\Backup\Get_Backup_Manifest;
 use WPMCP\Tools\Backup\Delete_Backup_Archive;
 use WPMCP\Tools\Backup\Restore_Site_Backup;
+use WPMCP\Tools\Migration\Push_Site_Archive;
+use WPMCP\Tools\Migration\Receive_Site_Archive;
 use WPMCP\Tools\Migration\Rewrite_Site_Urls;
 use WPMCP\Tools\Sync\Build_Change_Set;
 use WPMCP\Tools\Sync\Get_Change_Set;
@@ -3962,25 +3964,34 @@ final class Plugin
      * (and listed alongside it in every flavor allowlist: a vertical build
      * that can restore an archive needs the rewrite that follows a restore).
      * 'update' verb with explicit annotations: applying rewrites six core
-     * tables in place with no snapshot behind it, so destructive_hint is
-     * true and idempotent_hint false (a to_url containing from_url is not
+     * tables in place (behind a database safety archive, not a per-object
+     * snapshot), so destructive_hint is true and idempotent_hint false (a to_url containing from_url is not
      * safe to re-run) despite the 'update' default. The dry-run default
      * means the unconfirmed invocation is effectively read-only, but the
      * ability is classified by what it can do, not its default.
      *
-     * TODO(#191) phase 2/3: push/pull of an archive over the connect layer
-     * (chunked, resumable transfer; restore on the target via the #190
-     * engine; then this rewrite pass with the URL pair from the archive
-     * manifest and the target's own site_url).
+     * Phase 2 is the push pair: push-site-archive on the source uploads an
+     * archive in resumable chunks to receive-site-archive on the target,
+     * over the target's own Abilities REST endpoint and authenticated as a
+     * target user; the target verifies it, restores it through the #190
+     * engine (pre-restore safety archive first) and runs this rewrite with
+     * the manifest's URLs and its own. Both sit behind default-off opt-in
+     * gates (Migration_Guard, listed in Opt_In_Gates). Both are 'update'
+     * with destructive annotations: receive replaces the target database,
+     * and a push with apply:true is what makes it do so.
+     *
+     * TODO(#191) phase 3: pull, initiated from the target.
      */
     private function register_migration_abilities(Registrar $registrar): void
     {
-        $rewrite_site_urls = new Rewrite_Site_Urls();
+        $rewrite_site_urls    = new Rewrite_Site_Urls();
+        $push_site_archive    = new Push_Site_Archive();
+        $receive_site_archive = new Receive_Site_Archive();
 
         $registrar->register(new Ability(
             'wpmcp/rewrite-site-urls',
             'free',
-            'Rewrite every embedded URL in the database from one site URL to another, serialization-aware: walks wp_options, wp_postmeta, wp_posts, wp_termmeta, wp_usermeta and wp_comments in batches through the plugin\'s serialization-aware Url_Rewriter, replacing plain, JSON-escaped, percent-encoded and scheme-relative forms in one pass without corrupting PHP-serialized values, and refusing (and reporting) any value whose decoded structure contains an object rather than risk mangling it. This is the pass that fixes broken images, widgets and theme mods after a site is restored under a different URL. dry_run defaults to true and only reports per-table counts; applying requires dry_run:false and confirm:true. Not snapshotted: an applied pass reports recoverable:false and is not rollback-able via rollback-operation, so take a database backup (trigger-backup type=database) first. Tables protected by wpmcp_db_protected_tables (usermeta by default) are reported as skipped, not written. Post GUIDs are never rewritten',
+            'Rewrite every embedded URL in the database from one site URL to another, serialization-aware: walks wp_options, wp_postmeta, wp_posts, wp_termmeta, wp_usermeta and wp_comments in batches through the plugin\'s serialization-aware Url_Rewriter, replacing plain, JSON-escaped, percent-encoded and scheme-relative forms in one pass without corrupting PHP-serialized values, and refusing (and reporting) any value whose decoded structure contains an object rather than risk mangling it. This is the pass that fixes broken images, widgets and theme mods after a site is restored under a different URL. dry_run defaults to true and only reports per-table counts; applying requires dry_run:false and confirm:true. Snapshot first: an applied pass takes a database safety archive before writing (and refuses to run without one), then reports its job_id; restore-site-backup with that job_id undoes the pass. Tables protected by wpmcp_db_protected_tables (usermeta by default) are reported as skipped, not written. Post GUIDs are never rewritten',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3999,6 +4010,71 @@ final class Plugin
                 'required'   => [ 'from_url', 'to_url' ],
             ],
             [$rewrite_site_urls, 'handle'],
+            'manage_options',
+            'migration',
+            'update',
+            false,
+            true,
+            false
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/push-site-archive',
+            'free',
+            'Push a site-backup archive (job_id or path, scope all or database) to another wpmcp site at target_url, authenticated as an administrator there (target_user + target_app_password, or target_token). dry_run (default true) only asks the target whether it can take the archive. dry_run:false + confirm:true uploads in resumable chunks for up to max_seconds; call again with the same arguments to continue. apply:true then has the target restore it (safety archive first) and rewrite its URLs, returning the per-step report and the safety archive job_id. Needs the outgoing-migration opt-in here and the incoming one on the target',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'job_id'              => [ 'type' => 'integer' ],
+                    'path'                => [ 'type' => 'string' ],
+                    'target_url'          => [ 'type' => 'string' ],
+                    'target_user'         => [ 'type' => 'string' ],
+                    'target_app_password' => [ 'type' => 'string' ],
+                    'target_token'        => [ 'type' => 'string' ],
+                    'dry_run'             => [ 'type' => 'boolean' ],
+                    'confirm'             => [ 'type' => 'boolean' ],
+                    'apply'               => [ 'type' => 'boolean' ],
+                    'include_files'       => [ 'type' => 'boolean' ],
+                    'restart'             => [ 'type' => 'boolean' ],
+                    'chunk_bytes'         => [ 'type' => 'integer' ],
+                    'max_seconds'         => [ 'type' => 'integer' ],
+                    'apply_timeout'       => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'target_url' ],
+            ],
+            [$push_site_archive, 'handle'],
+            'manage_options',
+            'migration',
+            'update',
+            false,
+            true,
+            false
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/receive-site-archive',
+            'free',
+            'Target side of push-site-archive; normally called by another site, not by an agent. action start (declare sha256, bytes, manifest; checked against this site before any upload; resumes a partial upload), chunk (upload_id, offset, base64 data), status, apply (verify sha256 and manifest, restore with a pre-restore safety archive, then rewrite URLs from the manifest\'s to this site\'s; dry_run defaults to true, applying needs confirm:true). Needs the incoming-migration opt-in on this site',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'action'        => [
+                        'type' => 'string',
+                        'enum' => ['start', 'chunk', 'status', 'apply'],
+                    ],
+                    'upload_id'     => [ 'type' => 'string' ],
+                    'sha256'        => [ 'type' => 'string' ],
+                    'bytes'         => [ 'type' => 'integer' ],
+                    'manifest'      => [ 'type' => 'object' ],
+                    'source_url'    => [ 'type' => 'string' ],
+                    'offset'        => [ 'type' => 'integer' ],
+                    'data'          => [ 'type' => 'string' ],
+                    'dry_run'       => [ 'type' => 'boolean' ],
+                    'confirm'       => [ 'type' => 'boolean' ],
+                    'include_files' => [ 'type' => 'boolean' ],
+                    'restart'       => [ 'type' => 'boolean' ],
+                ],
+                'required'   => [ 'action' ],
+            ],
+            [$receive_site_archive, 'handle'],
             'manage_options',
             'migration',
             'update',

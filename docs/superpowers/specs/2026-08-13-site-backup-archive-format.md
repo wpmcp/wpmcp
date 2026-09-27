@@ -201,3 +201,43 @@ it and the manifest says so (`database.percent: "literal"`). For an archive
 without that key, the importer converts the token back to `%`, but only if
 no value in the dump contains a literal `%` (a dump that does was written
 after the fix, so a `{64 hex}` string in it is real data).
+
+## Migration (issue #191)
+
+**Rewrite.** `rewrite-site-urls` walks `wp_options`, `wp_postmeta`,
+`wp_posts` (content and excerpt, never the GUID), `wp_termmeta`,
+`wp_usermeta` (skipped while protected) and `wp_comments` through
+`Url_Rewriter` in primary-key batches, and reports rows changed, rows
+failed and rows skipped because of an object or an undecodable serialized
+value, per table. An applied pass is snapshot first: it takes a
+`database`-scope safety archive (`Safety_Archive`) and refuses to run
+without one; restoring that archive undoes the pass.
+
+**Push.** `push-site-archive` on the source and `receive-site-archive` on
+the target. The source calls the target's core Abilities REST run endpoint
+(`?rest_route=/wp-abilities/v1/abilities/wpmcp/receive-site-archive/run`)
+over https, authenticated as a target administrator (application password
+or MCP bearer token), so every target-side gate applies. Both sides sit
+behind default-off opt-ins (`WPMCP_ALLOW_OUTGOING_MIGRATIONS`,
+`WPMCP_ACCEPT_INCOMING_MIGRATIONS`).
+
+1. `start` sends the sha256, size and manifest. The target checks format,
+   scope, table prefix and multisite against itself before any byte moves,
+   and resumes an earlier upload of the same sha256 and size.
+2. `chunk` appends base64 chunks in order under a named lock. The received
+   count is the size of the `.part` file under
+   `wpmcp-site-backups/incoming/`, never a database value, because the
+   database is what the upload is about to replace. Each source call spends
+   at most `max_seconds`; calling again continues.
+3. `apply` hashes the whole file, moves it into the backup directory,
+   requires the manifest inside it to match the declared one, runs the
+   restore above (safety archive first), then rewrites from the manifest's
+   `home_url` / `site_url` to the target's own URLs, recorded before the
+   restore replaced them. The pre-restore safety archive is the recovery
+   point for the rewrite too. The result (per-step report, safety archive
+   job id) is written next to the upload, so a source whose connection
+   dropped mid-restore can read it with `status` or by pushing again.
+
+Known limits: the table prefix and multisite flag must match (the restore
+cannot change them), a very large rewrite runs within one request, and pull
+(phase 3) is not built.
