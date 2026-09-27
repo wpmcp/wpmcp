@@ -2715,6 +2715,7 @@ final class Plugin
             new \WPMCP\Integrations\Forminator_Integration(),
             new \WPMCP\Integrations\SureForms_Integration(),
             new \WPMCP\Integrations\MetForm_Integration(),
+            new \WPMCP\Integrations\Theme_Integration(),
         ]);
         $this->register_forms_pack_abilities($registrar);
     }
