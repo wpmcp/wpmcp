@@ -7,3 +7,4 @@ CLAUDE.md
 /dist/
 .env.freemius
 /build/
+.DS_Store

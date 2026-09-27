@@ -98,14 +98,22 @@ class FlavorBuildBlockersTest extends Compliance_Test_Case
         );
         $this->assertStringContainsString('function register_woocommerce_abilities(', $plugin);
 
-        // Issue #184: this flavor ships its own languages/ for the rewritten
-        // text domain, so the self-hosted loader stays, unlike the directory
-        // cut, where language packs replace it.
-        $this->assertStringContainsString('function load_textdomain(', $plugin);
-        $this->assertStringContainsString("add_action('init', [\$this, 'load_textdomain']);", $plugin);
+        // Both are directory submissions served by language packs, so the
+        // self-hosted loader leaves both, through the shared strip.
+        foreach (['woocommerce', 'wporg'] as $flavor) {
+            $this->assertStringNotContainsString(
+                'load_textdomain',
+                (string) file_get_contents(self::stripped_stage($flavor) . '/src/Plugin.php'),
+                "the $flavor build still ships the self-hosted translation loader"
+            );
+        }
+
+        // build-page's builder dialect goes with the shared strip, so the
+        // three Elementor imports WporgFreeSurfaceTest::WOO_STRIP_REWRITTEN
+        // exempts are really gone from the vertical.
         $this->assertStringNotContainsString(
-            'function load_textdomain(',
-            (string) file_get_contents(self::stripped_stage('wporg') . '/src/Plugin.php')
+            'Tools\\Elementor',
+            (string) file_get_contents($stage . '/src/Tools/Compose/Build_Page.php')
         );
     }
 
@@ -260,7 +268,11 @@ class FlavorBuildBlockersTest extends Compliance_Test_Case
             self::fail("could not create $to");
         }
         foreach (scandir($from) ?: [] as $entry) {
-            if ('.' === $entry || '..' === $entry) {
+            // Dotfiles (.DS_Store and friends) never reach either zip: the
+            // wporg build deletes them and both zip steps exclude .DS_Store,
+            // so staging them would fail File_Hygiene_Rule on a developer
+            // machine for a file no build ships.
+            if ('.' === $entry[0]) {
                 continue;
             }
             $source = $from . '/' . $entry;

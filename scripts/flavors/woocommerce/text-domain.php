@@ -62,12 +62,23 @@ foreach ($files as $file) {
     }
     $path     = $file->getPathname();
     $original = (string) file_get_contents($path);
-    $contents = (string) preg_replace(array_keys($rewrites), array_values($rewrites), $original);
+    $contents = preg_replace(array_keys($rewrites), array_values($rewrites), $original);
+    if (null === $contents || PREG_NO_ERROR !== preg_last_error()) {
+        // A regex engine failure (backtrack or JIT limit) returns null; cast
+        // to a string it would truncate the file and pass the leftover check.
+        fwrite(STDERR, sprintf("text-domain rewrite failed on %s: %s\n", $path, preg_last_error_msg()));
+        exit(1);
+    }
     if ($contents !== $original && false === file_put_contents($path, $contents)) {
         fwrite(STDERR, "could not write $path\n");
         exit(1);
     }
-    if (preg_match_all($leftover, $contents, $matches, PREG_OFFSET_CAPTURE)) {
+    $found = preg_match_all($leftover, $contents, $matches, PREG_OFFSET_CAPTURE);
+    if (false === $found) {
+        fwrite(STDERR, sprintf("text-domain leftover check failed on %s: %s\n", $path, preg_last_error_msg()));
+        exit(1);
+    }
+    if ($found > 0) {
         foreach ($matches[0] as [$text, $offset]) {
             $survivors[] = sprintf('%s:%d: %s', $path, substr_count($contents, "\n", 0, $offset) + 1, trim($text));
         }

@@ -114,13 +114,16 @@ class WporgFreeSurfaceTest extends \WP_UnitTestCase
     private const STRIP_REWRITTEN = ['src/Pro', 'src/Freemius'];
 
     /**
-     * Known, pre-dating this gate: wpmcp/build-page is in the woocommerce
-     * flavor's 'compose' group but reads Elementor page data, whose directory
-     * that build prunes. It is a latent fatal on the Elementor dialect of one
-     * kept tool rather than on every call, so it is recorded here instead of
-     * being hidden, and this gate fails on anything NEW.
+     * Imports this source-level gate sees but the WooCommerce zip does not
+     * ship: wpmcp/build-page is in that flavor's 'compose' group and imports
+     * three Elementor classes for its builder dialect, whose directory the
+     * flavor manifest prunes. Since issue #257 the vertical runs the shared
+     * strip, whose exact-string edits delete that dialect and these three
+     * imports from Build_Page (FlavorBuildBlockersTest asserts the stripped
+     * file names no Elementor class). The same relationship as
+     * STRIP_REWRITTEN; any NEW dependency still fails this gate.
      */
-    private const WOO_KNOWN_DEBT = [
+    private const WOO_STRIP_REWRITTEN = [
         'wpmcp/build-page -> src/Tools/Elementor/Atomic_Prop_Schema.php',
         'wpmcp/build-page -> src/Tools/Elementor/Elementor_Page_Data.php',
         'wpmcp/build-page -> src/Tools/Elementor/Widget_Catalog.php',
@@ -155,14 +158,16 @@ class WporgFreeSurfaceTest extends \WP_UnitTestCase
         $pruned    = $this->woo_pruned_paths();
         $this->assertNotEmpty($pruned, 'the woo prune list must be readable or this gate passes vacuously');
 
+        // Free only: every pro-tier registration leaves the vertical with the
+        // shared strip, so a pro ability's dependencies never ship.
         $offenders = [];
-        foreach ($this->ability_dependencies('woocommerce', null) as $ability => $files) {
+        foreach ($this->ability_dependencies('woocommerce', 'free') as $ability => $files) {
             foreach ($files as $file) {
                 foreach ($pruned as $prefix) {
                     if ($file !== $prefix && 0 !== strpos($file, rtrim($prefix, '/') . '/')) {
                         continue;
                     }
-                    if (in_array($ability . ' -> ' . $file, self::WOO_KNOWN_DEBT, true)) {
+                    if (in_array($ability . ' -> ' . $file, self::WOO_STRIP_REWRITTEN, true)) {
                         continue;
                     }
                     $offenders[] = $ability . ' -> ' . $file . ' (pruned by ' . $prefix . ')';
@@ -258,15 +263,24 @@ class WporgFreeSurfaceTest extends \WP_UnitTestCase
     }
 
     /**
-     * Every src/ path the WooCommerce build removes beyond the shared strip:
-     * its flavor manifest, which scripts/build-woo-release.sh hands to
-     * scripts/flavors/wporg/strip.php (issue #257).
+     * Every src/ path the WooCommerce build removes: the shared policy's
+     * removed_paths (minus the STRIP_REWRITTEN pair, whose call sites the
+     * strip edits out) plus the flavor manifest's own, which
+     * scripts/build-woo-release.sh hands to scripts/flavors/wporg/strip.php
+     * together (issue #257).
      *
      * @return string[]
      */
     private function woo_pruned_paths(): array
     {
         $manifest = require dirname(__DIR__, 3) . '/scripts/flavors/woocommerce/manifest.php';
-        return is_array($manifest['removed_paths'] ?? null) ? array_values($manifest['removed_paths']) : [];
+        $own      = is_array($manifest['removed_paths'] ?? null) ? array_values($manifest['removed_paths']) : [];
+        if ([] === $own) {
+            return [];
+        }
+        return array_values(array_unique(array_merge(
+            array_diff($this->removed_paths(), self::STRIP_REWRITTEN),
+            $own
+        )));
     }
 }

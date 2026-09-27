@@ -61,6 +61,38 @@ foreach (['label' => 'is_string', 'removed_methods' => 'is_array', 'edits' => 'i
         exit(2);
     }
 }
+/**
+ * Shape-check the manifest's own lists here, so a malformed entry is a
+ * labelled strip failure rather than a TypeError halfway through the edits.
+ */
+$manifest_errors = [];
+foreach (['removed_methods', 'removed_paths'] as $key) {
+    foreach ($manifest[$key] as $index => $entry) {
+        if (! is_string($entry) || '' === trim($entry)) {
+            $manifest_errors[] = sprintf("'%s'[%s] must be a non-empty string", $key, $index);
+        }
+    }
+}
+foreach ($manifest['edits'] as $relative => $file_edits) {
+    if (! is_string($relative) || ! is_array($file_edits)) {
+        $manifest_errors[] = sprintf("'edits'[%s] must map a relative path to a list of edits", $relative);
+        continue;
+    }
+    foreach ($file_edits as $index => $edit) {
+        if (
+            ! is_array($edit) || 3 !== count($edit) || ! array_is_list($edit)
+            || ! is_string($edit[0]) || '' === $edit[0] || ! is_string($edit[1])
+            || ! is_int($edit[2]) || $edit[2] < 1
+        ) {
+            $manifest_errors[] = sprintf("'edits'[%s][%s] must be [old string, new string, expected count >= 1]", $relative, $index);
+        }
+    }
+}
+if ([] !== $manifest_errors) {
+    fwrite(STDERR, $manifest['label'] . " strip failed: malformed flavor manifest " . $manifest_path . ":\n  " . implode("\n  ", $manifest_errors) . "\n");
+    exit(2);
+}
+define('STRIP_LABEL', $manifest['label']);
 
 /**
  * What must not survive into the directory cut, shared with the build
@@ -98,6 +130,10 @@ const REMOVED_METHODS = [
     // private and reached only from register_elementor_abilities(), whose
     // call site is edited out below.
     'register_atomic_elementor_abilities',
+    // Not pro, but not for this build either: the directory delivers language
+    // packs just in time, and I18n_Rule flags load_plugin_textdomain() as
+    // unnecessary there. The off-directory builds keep it (issue #184).
+    'load_textdomain',
 ];
 
 /**
@@ -787,6 +823,16 @@ $plugin_edits[] = [
     "with each entry\'s tier, operation",
     1,
 ];
+// The self-hosted translation loader goes with its method (REMOVED_METHODS):
+// the directory serves language packs, so the languages/ directory the header
+// points at is only ever read by the off-directory builds.
+$plugin_edits[] = [
+    "            // Self-hosted translations from languages/ (issue #184).\n"
+        . "            add_action('init', [\$this, 'load_textdomain']);\n",
+    '',
+    1,
+];
+
 // Documentation the reviewer reads too: a build with no licence gate must not
 // describe one.
 $plugin_edits[] = [
@@ -1416,7 +1462,7 @@ function remove_pro_abilities(string $path): int
 
         $end = statement_end($contents, $target);
         if (null === $end) {
-            fwrite(STDERR, "wp.org strip: unbalanced pro Ability registration\n");
+            fwrite(STDERR, STRIP_LABEL . " strip: unbalanced pro Ability registration\n");
             exit(1);
         }
         $line_start = (int) strrpos(substr($contents, 0, $target), "\n") + 1;
@@ -1428,7 +1474,7 @@ function remove_pro_abilities(string $path): int
     file_put_contents($path, $contents);
 
     if (preg_match("/new Ability\(\s*\n\s*'[^']+',\s*\n\s*'pro',/", $contents)) {
-        fwrite(STDERR, "wp.org strip: a pro-tier Ability survived the prune\n");
+        fwrite(STDERR, STRIP_LABEL . " strip: a pro-tier Ability survived the prune\n");
         exit(1);
     }
 

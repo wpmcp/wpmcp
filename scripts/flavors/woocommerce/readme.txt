@@ -8,7 +8,7 @@ Stable tag: {{VERSION}}
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-AI agents run your WooCommerce store over MCP: products, orders, content. A snapshot before every write, one-click rollback after.
+AI agents run your WooCommerce store over MCP, from products and orders to content. A snapshot before every write, one-click rollback after.
 
 == Description ==
 

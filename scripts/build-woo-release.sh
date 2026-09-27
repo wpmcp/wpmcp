@@ -95,10 +95,16 @@ if ($errors) { fwrite(STDERR, implode("\n", $errors) . "\n"); exit(1); }
 # unconditionally, constructs a Cloud_Client.
 php "$ROOT/scripts/flavors/wporg/strip.php" "$STAGE" "$ROOT/scripts/flavors/woocommerce/manifest.php"
 
-# A textual transform that produces an unparsable file must never reach a zip.
-while IFS= read -r file; do
-  php -l "$file" > /dev/null || { echo "ERROR: syntax error in $file after the strip" >&2; exit 1; }
-done < <(find "$STAGE/src" -name '*.php')
+# A textual transform that produces an unparsable file must never reach a zip,
+# so the stage is linted after every transform (the strip here, the
+# text-domain rewrite below), the way build-wporg-release.sh does.
+lint_stage() {
+  local file
+  while IFS= read -r file; do
+    php -l "$file" > /dev/null || { echo "ERROR: syntax error in $file $1" >&2; exit 1; }
+  done < <(find "$STAGE/src" "$STAGE/$SLUG.php" -name '*.php')
+}
+lint_stage "after the strip"
 
 # The free-tier invariants the directory cut is held to, re-derived from this
 # stage by the same script build-wporg-release.sh runs (registrar names no
@@ -132,6 +138,10 @@ fi
 # FlavorBuildBlockersTest runs too so the pinned tree is the built one.
 php "$ROOT/scripts/flavors/woocommerce/text-domain.php" "$STAGE" "$SLUG" \
   || { echo "ERROR: the text-domain rewrite failed in the $SLUG build" >&2; exit 1; }
+
+# Lint again: the rewrite is the second textual transform over src/, and an
+# unparsable file must not reach the zip whichever transform produced it.
+lint_stage "after the text-domain rewrite"
 
 # Coexistence with the full plugin is handled at bootstrap, not by rewriting
 # identifiers. src/flavor-guard.php ranks the active WP MCP builds by the
