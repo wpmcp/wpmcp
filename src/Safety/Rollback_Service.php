@@ -1023,10 +1023,15 @@ class Rollback_Service
         }
 
         $record = $data['record'] ?? null;
-        if (! is_array($record) || ! isset($record['id'])) {
+        if (! is_array($record)) {
             throw new Mutation_Failed('Rollback refused: the captured PHP snippet record is missing or malformed.');
         }
 
+        // Restore under the key the record was captured under, which is what
+        // every snippet tool resolves it by. A record whose own id field had
+        // drifted would otherwise be written to a second, ghost key while the
+        // real one stayed as the undone write left it.
+        $record['id']     = $id;
         $record['status'] = \WPMCP\Tools\Code\Php_Snippet_Store::STATUS_INACTIVE;
 
         \WPMCP\Tools\Code\Php_Snippet_Store::save($record);

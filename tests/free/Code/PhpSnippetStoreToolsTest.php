@@ -83,12 +83,40 @@ class PhpSnippetStoreToolsTest extends \WP_UnitTestCase
 
     public function test_create_refuses_code_the_static_check_flags(): void
     {
-        $this->expectException(\RuntimeException::class);
+        $snapshots_before = $this->snapshot_count();
 
-        (new Create_Php_Snippet())->handle([
-            'name' => 'nasty',
-            'code' => '<?php eval($_GET["x"]);',
-        ]);
+        try {
+            (new Create_Php_Snippet())->handle([
+                'name' => 'nasty',
+                'code' => '<?php eval($_GET["x"]);',
+            ]);
+            $this->fail('A critical static finding must refuse creation.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('static validation flagged', $e->getMessage());
+        }
+
+        $this->assertSame([], Php_Snippet_Store::all(), 'A refused create must store nothing.');
+        $this->assertSame($snapshots_before, $this->snapshot_count(), 'A refused create must be refused before anything is snapshotted.');
+    }
+
+    public function test_create_allows_code_with_only_non_critical_findings_and_keeps_the_report(): void
+    {
+        $out = $this->create('fetcher', '<?php return wp_remote_get("https://example.com");');
+        $id  = $out['snippet']['id'];
+
+        $report = (new Get_Php_Snippet())->handle(['id' => $id])['snippet']['validation'];
+
+        $this->assertTrue($report['safe']);
+        $this->assertNotEmpty($report['warnings'], 'The warning must be kept in the stored report, not only allowed through.');
+        $this->assertSame('warning', $report['warnings'][0]['severity']);
+    }
+
+    /** Rows in the snapshot ledger. */
+    private function snapshot_count(): int
+    {
+        global $wpdb;
+
+        return (int) $wpdb->get_var('SELECT COUNT(*) FROM ' . \WPMCP\Safety\Snapshot_Store::table_name());
     }
 
     public function test_create_sanitizes_the_name(): void
@@ -199,11 +227,92 @@ class PhpSnippetStoreToolsTest extends \WP_UnitTestCase
 
     public function test_update_refuses_code_the_static_check_flags(): void
     {
-        $id = $this->create()['snippet']['id'];
+        $id = $this->create('keep', '<?php return 1;')['snippet']['id'];
+        Php_Snippet_Store::set_status($id, Php_Snippet_Store::STATUS_ACTIVE);
+        $snapshots_before = $this->snapshot_count();
 
-        $this->expectException(\RuntimeException::class);
+        try {
+            (new Update_Php_Snippet())->handle(['id' => $id, 'code' => '<?php eval($_POST["x"]);']);
+            $this->fail('A critical static finding must refuse the update.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('static validation flagged', $e->getMessage());
+        }
 
-        (new Update_Php_Snippet())->handle(['id' => $id, 'code' => '<?php eval($_POST["x"]);']);
+        $stored = Php_Snippet_Store::get($id);
+        $this->assertSame('<?php return 1;', $stored['code'], 'A refused update must leave the old code in place.');
+        $this->assertSame(Php_Snippet_Store::STATUS_ACTIVE, $stored['status'], 'A refused update must not touch the status.');
+        $this->assertSame($snapshots_before, $this->snapshot_count());
+    }
+
+    public function test_update_of_code_refreshes_the_stored_validation_report(): void
+    {
+        $id = $this->create('plain', '<?php return 1;')['snippet']['id'];
+        $this->assertSame([], Php_Snippet_Store::get($id)['validation']['warnings']);
+
+        (new Update_Php_Snippet())->handle(['id' => $id, 'code' => '<?php return wp_remote_get("https://example.com");']);
+
+        $report = (new Get_Php_Snippet())->handle(['id' => $id])['snippet']['validation'];
+        $this->assertNotEmpty($report['warnings'], 'get must return the report for the NEW code.');
+    }
+
+    public function test_update_refuses_a_name_that_sanitizes_to_blank(): void
+    {
+        $id = $this->create('keep-me')['snippet']['id'];
+
+        try {
+            (new Update_Php_Snippet())->handle(['id' => $id, 'name' => '<b></b>']);
+            $this->fail('A name that sanitizes to nothing must be refused, as create refuses it.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('name cannot be blank', $e->getMessage());
+        }
+
+        $this->assertSame('keep-me', Php_Snippet_Store::get($id)['name']);
+    }
+
+    public function test_an_update_with_identical_code_does_not_deactivate(): void
+    {
+        $id = $this->create('same', '<?php return 1;')['snippet']['id'];
+        Php_Snippet_Store::set_status($id, Php_Snippet_Store::STATUS_ACTIVE);
+
+        $out = (new Update_Php_Snippet())->handle(['id' => $id, 'name' => 'renamed', 'code' => '<?php return 1;']);
+
+        $this->assertSame('renamed', $out['snippet']['name']);
+        $this->assertSame(
+            Php_Snippet_Store::STATUS_ACTIVE,
+            $out['snippet']['status'],
+            'Unchanged code has not left the activation it was approved under, so it is not silently revoked.'
+        );
+    }
+
+    public function test_update_and_delete_are_recorded_in_the_snapshot_ledger(): void
+    {
+        $id     = $this->create()['snippet']['id'];
+        $before = $this->snapshot_count();
+
+        $update = (new Update_Php_Snippet())->handle(['id' => $id, 'name' => 'renamed']);
+        $delete = (new Delete_Php_Snippet())->handle(['id' => $id]);
+
+        $this->assertNotEmpty($update['operation_id']);
+        $this->assertNotEmpty($delete['operation_id']);
+        $this->assertSame($before + 2, $this->snapshot_count());
+    }
+
+    public function test_rolling_back_an_update_of_a_drifted_record_restores_it_under_its_key(): void
+    {
+        $id = $this->create('drift', '<?php return 1;')['snippet']['id'];
+
+        // A hand edit or partial restore can leave the record's own id field
+        // disagreeing with the key every tool resolves it by.
+        $raw               = get_option(Php_Snippet_Store::OPTION_NAME);
+        $raw[$id]['id']    = 'something-else';
+        update_option(Php_Snippet_Store::OPTION_NAME, $raw, false);
+
+        $out = (new Update_Php_Snippet())->handle(['id' => $id, 'code' => '<?php return 2;']);
+        Rollback_Service::restore_operation($out['operation_id']);
+
+        $stored = get_option(Php_Snippet_Store::OPTION_NAME);
+        $this->assertCount(1, $stored, 'The undo must not leave a second, ghost record behind.');
+        $this->assertSame('<?php return 1;', $stored[$id]['code'], 'The undo must restore the record at the key it was captured under.');
     }
 
     // -----------------------------------------------------------------
@@ -529,11 +638,17 @@ class PhpSnippetStoreToolsTest extends \WP_UnitTestCase
         $restorable = Rollback_Service::restorable_object_types();
         sort($dispatched);
         $missing = array_values(array_diff($dispatched, $restorable));
+        $phantom = array_values(array_diff($restorable, $dispatched));
 
         $this->assertSame(
             [],
             $missing,
             'apply_snapshot() dispatches an object_type that restorable_object_types() does not list, so list-operations reports it as un-undoable: ' . implode(', ', $missing)
+        );
+        $this->assertSame(
+            [],
+            $phantom,
+            'restorable_object_types() lists an object_type apply_snapshot() has no branch for, so list-operations offers a Restore that cannot work: ' . implode(', ', $phantom)
         );
     }
 

@@ -21,7 +21,8 @@ if (! defined('ABSPATH')) {
  *
  * A code change also forces the snippet back to INACTIVE: edited code has not
  * been re-approved for activation, so it must re-enter the governed
- * activation flow. Status cannot be set here at all; that is
+ * activation flow. Code identical to what is stored is not a change and
+ * leaves the status alone. Status cannot be set here at all; that is
  * Activate_Php_Snippet's and Deactivate_Php_Snippet's job.
  *
  * The mutation re-reads the record inside the Safe_Mutation closure and
@@ -52,7 +53,12 @@ class Update_Php_Snippet
         $has_name = array_key_exists('name', $args);
         $has_code = array_key_exists('code', $args);
 
-        if ($has_name && '' === trim((string) $args['name'])) {
+        // Sanitize BEFORE the blank check, as Create_Php_Snippet does, so a
+        // name that sanitizes to nothing ('<b></b>') is refused rather than
+        // stored as an empty label.
+        $name = $has_name ? sanitize_text_field(trim((string) $args['name'])) : '';
+
+        if ($has_name && '' === $name) {
             throw new \InvalidArgumentException('A snippet name cannot be blank. Omit "name" to leave it unchanged.');
         }
         if ($has_code && '' === trim((string) $args['code'])) {
@@ -65,7 +71,16 @@ class Update_Php_Snippet
         $fields = [];
 
         if ($has_name) {
-            $fields['name'] = sanitize_text_field(trim((string) $args['name']));
+            $fields['name'] = $name;
+        }
+
+        $current = Php_Snippet_Store::get($id);
+
+        // Identical code is not a code change: it has not left the approval
+        // it was activated under, so it is neither re-validated nor silently
+        // deactivated. Only a real change re-enters the governed flow.
+        if ($has_code && (string) $args['code'] === (string) ($current['code'] ?? '')) {
+            $has_code = false;
         }
 
         if ($has_code) {
@@ -91,7 +106,7 @@ class Update_Php_Snippet
         // landed.
         Php_Snippet_Store::assert_total_within_limit(
             $id,
-            array_merge((array) Php_Snippet_Store::get($id), $fields)
+            array_merge((array) $current, $fields)
         );
 
         $snippet = null;

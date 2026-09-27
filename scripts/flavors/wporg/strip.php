@@ -842,6 +842,11 @@ $plugin_edits[] = [
     1,
 ];
 $plugin_edits[] = [
+    "Activation is separate and gated. Snapshot-first, reversible per snippet',",
+    "This build never executes or activates a stored snippet. Snapshot-first, reversible per snippet',",
+    1,
+];
+$plugin_edits[] = [
     "            'Deactivate a stored PHP snippet by id (reverse of activate-php-snippet). Not gated on the PHP execution opt-in, so an active snippet can always be revoked. Snapshot-first; never executes anything',",
     "            'Deactivate a stored PHP snippet by id: marks it inactive. This build cannot execute or activate a stored snippet, so this only clears a flag left by another install. Snapshot-first; never executes anything',",
     1,

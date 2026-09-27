@@ -99,29 +99,94 @@ class ActivatePhpSnippetTest extends \WP_UnitTestCase
         $this->assertNotEmpty($out['operation_id']);
     }
 
-    public function test_activation_does_not_resurrect_the_pre_update_code(): void
+    public function test_activation_does_not_revert_a_field_changed_after_its_first_read(): void
     {
         // The stale-record bug this guards: reading the whole record before
         // the snapshot and writing it back afterwards silently reverts any
-        // field another operation changed in between.
+        // field another operation changed in between. The rename is injected
+        // on every read after the first, i.e. between activation's own read
+        // and the write inside the closure.
         $this->enable_exec();
         $id = $this->stored_id('<?php return 1;');
 
-        (new Update_Php_Snippet())->handle(['id' => $id, 'code' => '<?php return 2;']);
-        (new Activate_Php_Snippet())->handle(['id' => $id]);
+        $reads  = 0;
+        $rename = function ($snippets) use (&$reads, $id) {
+            $reads++;
+            if ($reads > 1 && is_array($snippets) && isset($snippets[$id])) {
+                $snippets[$id]['name'] = 'renamed-meanwhile';
+            }
+            return $snippets;
+        };
+        add_filter('option_' . Php_Snippet_Store::OPTION_NAME, $rename);
 
-        $this->assertSame('<?php return 2;', Php_Snippet_Store::get($id)['code']);
+        try {
+            (new Activate_Php_Snippet())->handle(['id' => $id]);
+        } finally {
+            remove_filter('option_' . Php_Snippet_Store::OPTION_NAME, $rename);
+        }
+
+        $stored = Php_Snippet_Store::get($id);
+        $this->assertSame('renamed-meanwhile', $stored['name'], 'Activation must write only the fields it owns onto the record as re-read.');
+        $this->assertSame(Php_Snippet_Store::STATUS_ACTIVE, $stored['status']);
     }
 
-    public function test_activation_of_a_snippet_deleted_since_the_read_does_not_recreate_it(): void
+    public function test_activation_of_a_snippet_deleted_inside_the_window_does_not_recreate_it(): void
     {
         $this->enable_exec();
         $id = $this->stored_id();
-        Php_Snippet_Store::delete($id);
 
-        $this->expectException(\RuntimeException::class);
+        $reads  = 0;
+        $vanish = function ($snippets) use (&$reads, $id) {
+            $reads++;
+            if ($reads > 1 && is_array($snippets)) {
+                unset($snippets[$id]);
+            }
+            return $snippets;
+        };
+        add_filter('option_' . Php_Snippet_Store::OPTION_NAME, $vanish);
 
-        (new Activate_Php_Snippet())->handle(['id' => $id]);
+        try {
+            (new Activate_Php_Snippet())->handle(['id' => $id]);
+            $this->fail('Activating a snippet deleted after the first read must be refused.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('removed since this operation started', $e->getMessage());
+        } finally {
+            remove_filter('option_' . Php_Snippet_Store::OPTION_NAME, $vanish);
+        }
+
+        $this->assertSame(Php_Snippet_Store::STATUS_INACTIVE, Php_Snippet_Store::get($id)['status'], 'Nothing may have been written.');
+    }
+
+    public function test_activation_refuses_stored_code_that_no_longer_passes_the_static_check(): void
+    {
+        $this->enable_exec();
+        $id = $this->stored_id();
+
+        // Stored behind the tools' back (a direct option write), so the
+        // create-time check never saw it.
+        $raw              = get_option(Php_Snippet_Store::OPTION_NAME);
+        $raw[$id]['code'] = '<?php eval($_GET["x"]);';
+        update_option(Php_Snippet_Store::OPTION_NAME, $raw, false);
+
+        try {
+            (new Activate_Php_Snippet())->handle(['id' => $id]);
+            $this->fail('Activation must re-check the stored code.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('no longer passes static validation', $e->getMessage());
+        }
+
+        $this->assertSame(Php_Snippet_Store::STATUS_INACTIVE, Php_Snippet_Store::get($id)['status']);
+    }
+
+    public function test_rolling_back_an_activation_leaves_the_snippet_inactive(): void
+    {
+        $this->enable_exec();
+        $id  = $this->stored_id();
+        $out = (new Activate_Php_Snippet())->handle(['id' => $id]);
+
+        \WPMCP\Safety\Rollback_Service::restore_operation($out['operation_id']);
+
+        $this->assertSame(Php_Snippet_Store::STATUS_INACTIVE, Php_Snippet_Store::get($id)['status']);
     }
 
     /**
