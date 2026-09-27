@@ -58,15 +58,18 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  new tool fit; the two descriptions were trimmed from 1051 to 420
      *  characters first, which puts the payload at 170104 bytes over 314
      *  tools. Raised 175000 -> 180000 when the merge train landed #60, #61
-     *  and #62 together (176529 bytes over 319 tools). Raised 180000 -> 190000
-     *  in review for the WooCommerce depth cluster (#195: variation create and
-     *  delete, bulk-update-products, six coupon tools, four tax-rate tools),
-     *  measured locally at roughly 9.3KB over 13 tools; the headroom above
-     *  that is sized for the #68 catalog trio landing in the same train. The
-     *  coupon write schemas are most of it: they list every writable field
-     *  so an agent can set limits and restrictions without a schema round
-     *  trip. Compact tool mode keeps clients with tool caps at ~2.8KB
-     *  regardless. */
+     *  and #62 together (176529 bytes over 319 tools). The PHP snippet
+     *  lifecycle store (#85) adds seven tools whose descriptions were trimmed
+     *  to the store-vs-Elementor-custom-code disambiguation, the
+     *  created-inactive rule and the execution-gate refusal, with no raise.
+     *  Raised 180000 -> 190000 in review for the WooCommerce depth cluster
+     *  (#195: variation create and delete, bulk-update-products, six coupon
+     *  tools, four tax-rate tools), measured locally at roughly 9.3KB over
+     *  13 tools; the headroom above that is sized for the #68 catalog trio
+     *  landing in the same train. The coupon write schemas are most of it:
+     *  they list every writable field so an agent can set limits and
+     *  restrictions without a schema round trip. Compact tool mode keeps
+     *  clients with tool caps at ~2.8KB regardless. */
     private const TOOLS_LIST_BYTE_BUDGET = 190000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
