@@ -92,8 +92,12 @@ class Add_Scoped_Css
             // "this selector, inside that element", which is how an agent
             // asks for "the h2 in this section" without knowing the h2's own
             // Elementor id.
-            $selector = '.elementor-element-' . $element_id
-                . ('' !== trim($selector) ? ' ' . $selector : '');
+            // Every selector in a list is prefixed, so "h2, body" cannot
+            // carry the rule out to body.
+            $scope    = '.elementor-element-' . $element_id;
+            $selector = '' !== trim($selector)
+                ? Css_Sanitizer::scope_selector_list($scope, $selector)
+                : $scope;
         }
 
         if ('' !== $selector) {
@@ -114,6 +118,13 @@ class Add_Scoped_Css
         $css     = Css_Sanitizer::sanitize($css);
         $replace = ! empty($args['replace']);
         $stored  = '';
+
+        // The renderer sanitizes the JOINED block and drops it whole if it
+        // fails, so a piece that passes alone but poisons the join (a
+        // trailing backslash plus the join newline is a line continuation)
+        // would leave the page's CSS silently unrendered. Decide on the
+        // block that will actually be stored, before the snapshot is taken.
+        Css_Sanitizer::sanitize(Custom_Code_Store::compose_css($css, $post_id, $replace));
 
         $out = Safe_Mutation::run(
             [

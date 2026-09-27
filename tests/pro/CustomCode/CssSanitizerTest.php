@@ -92,6 +92,22 @@ class CssSanitizerTest extends \WP_UnitTestCase
             'escaped expression between strings' => [".a{content:'/*'} .c{width:expres\\sion(alert(1))} .b{content:'*/'}"],
             'split import between strings'       => ['.a{content:"/*"} @imp/**/ort url("//evil.example/x.css"); .b{content:"*/"}'],
             'escaped import inside a comment'    => ['/* @im\\port */ .a{color:red}'],
+
+            // data: URLs reach the page through more than url(): image-set()
+            // and @font-face src take bare strings.
+            'data url in image-set'              => ['.a{background:image-set("data:image/svg+xml,x" 1x)}'],
+            'escaped data url in image-set'      => ['.a{background:image-set("\\64 ata:image/svg+xml,x" 1x)}'],
+
+            // Control bytes. ESC is a zero-width mode switch in ISO-2022-JP,
+            // so on a site with a legacy blog_charset "</ESC(Bstyle>" decodes
+            // to "</style>" in the browser while no pattern here sees it.
+            'iso-2022-jp breakout'               => [".a{color:red}<\x1b(B/sty\x1b(Ble><\x1b(Bimg src=x onerror=alert(1)>"],
+            'raw control byte'                   => [".a{color:red\x01}"],
+
+            // An unterminated string eats the rest of its line, including
+            // the closing brace the element/selector wrap relies on.
+            'unterminated string at end'         => ['.a{content:"}'],
+            'string broken by a newline'         => [".a{content:\"x\n}"],
         ];
     }
 

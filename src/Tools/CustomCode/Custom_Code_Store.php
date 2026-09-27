@@ -88,6 +88,20 @@ class Custom_Code_Store
      */
     public static function set_css(string $css, int $post_id, bool $replace = false): string
     {
+        $next = self::compose_css($css, $post_id, $replace);
+
+        update_option(self::post_option($post_id), $next, false);
+
+        return $next;
+    }
+
+    /**
+     * The block set_css() would store for these arguments, without storing
+     * it, so a caller can validate the joined result before snapshotting.
+     * Enforces the size cap.
+     */
+    public static function compose_css(string $css, int $post_id, bool $replace = false): string
+    {
         $current = self::read_css($post_id);
         $next    = ($replace || '' === trim($current)) ? $css : trim($current . "\n" . $css);
 
@@ -98,8 +112,6 @@ class Custom_Code_Store
                 (int) self::MAX_CSS_BYTES
             ));
         }
-
-        update_option(self::post_option($post_id), $next, false);
 
         return $next;
     }

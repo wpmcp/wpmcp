@@ -65,7 +65,9 @@ class Css_Sanitizer
         '#vbscript\s*:#i',
         '#@import\b#i',                   // remote stylesheet pull-in
         '#@charset\b#i',
-        '#url\s*\(\s*[\'"]?\s*data:#i',   // data: URLs inside url()
+        // data: URLs, inside url() or as a bare string (image-set(),
+        // @font-face src). Costs a string that merely starts with "data:".
+        '#(?:url\s*\(|[\'"])\s*data:#i',
     ];
 
     /**
@@ -82,6 +84,15 @@ class Css_Sanitizer
         // non-empty input that empties out is an error, not a result.
         if ('' === $clean && '' !== $css) {
             throw new \InvalidArgumentException('The CSS was rejected: it is not valid UTF-8.');
+        }
+
+        // C0 control bytes other than tab, LF, FF and CR. None belongs in a
+        // stylesheet, and ESC is a zero-width mode switch in ISO-2022-JP: on
+        // a site whose blog_charset is legacy (wp_check_invalid_utf8() passes
+        // such input through untouched) "<ESC(B/style>" is "</style>" to the
+        // browser while no pattern below can see it.
+        if (1 === preg_match('/[\x00-\x08\x0b\x0e-\x1f]/', $clean)) {
+            throw new \InvalidArgumentException('The CSS was rejected: it contains a control character.');
         }
 
         $canonical = self::canonicalize($clean);
@@ -211,7 +222,14 @@ class Css_Sanitizer
             }
 
             if ('' !== $quote) {
-                if ($c === $quote || "\n" === $c || "\r" === $c || "\f" === $c) {
+                if ("\n" === $c || "\r" === $c || "\f" === $c) {
+                    // A bad-string: CSS ends it at the newline and throws
+                    // away the rest of the declaration, which in the
+                    // selector/declarations wrap is the closing brace, so
+                    // every block appended after it nests or drops.
+                    throw new \InvalidArgumentException('The CSS was rejected: it contains a string broken by a newline.');
+                }
+                if ($c === $quote) {
                     $quote = '';
                 }
                 $out .= $c;
@@ -238,6 +256,10 @@ class Css_Sanitizer
             }
 
             $out .= $c;
+        }
+
+        if ('' !== $quote) {
+            throw new \InvalidArgumentException('The CSS was rejected: it contains an unterminated string.');
         }
 
         return $out;
@@ -283,6 +305,59 @@ class Css_Sanitizer
         }
 
         return $decoded;
+    }
+
+    /**
+     * Prefix every selector in a comma-separated list with $scope, so an
+     * element-scoped rule stays inside that element: "h2, body" under scope
+     * .x becomes ".x h2, .x body", not ".x h2, body". Commas inside
+     * parentheses, brackets or strings (":is(a, b)", "[title='a,b']") are
+     * not list separators. A part that starts with a sibling combinator is
+     * refused: "~ p" under .x is ".x ~ p", which is outside the element.
+     */
+    public static function scope_selector_list(string $scope, string $selector): string
+    {
+        $parts = [];
+        $buf   = '';
+        $depth = 0;
+        $quote = '';
+        $len   = strlen($selector);
+
+        for ($i = 0; $i < $len; $i++) {
+            $c = $selector[$i];
+            if ('' !== $quote) {
+                if ($c === $quote) {
+                    $quote = '';
+                }
+            } elseif ('"' === $c || "'" === $c) {
+                $quote = $c;
+            } elseif ('(' === $c || '[' === $c) {
+                $depth++;
+            } elseif (')' === $c || ']' === $c) {
+                $depth--;
+            } elseif (',' === $c && 0 === $depth) {
+                $parts[] = $buf;
+                $buf     = '';
+                continue;
+            }
+            $buf .= $c;
+        }
+        $parts[] = $buf;
+
+        $scoped = [];
+        foreach ($parts as $part) {
+            $part = trim($part);
+            if ('' === $part) {
+                $scoped[] = $scope;
+                continue;
+            }
+            if ('~' === $part[0] || '+' === $part[0]) {
+                throw new \InvalidArgumentException('Under an element_id, a selector may not start with a sibling combinator (~ or +): it would match outside the element.');
+            }
+            $scoped[] = $scope . ' ' . $part;
+        }
+
+        return implode(', ', $scoped);
     }
 
     /**

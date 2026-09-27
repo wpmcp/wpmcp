@@ -51,6 +51,11 @@ class Custom_Js_Guard
      * a privilege boundary - but a snippet that silently breaks every page
      * it renders on is not something this tool should be able to store.
      *
+     * C0 control bytes other than tab, LF, FF and CR are refused for the
+     * same reason on a different route: ESC is a zero-width mode switch in
+     * ISO-2022-JP, so on a site with a legacy blog_charset "<ESC(B/script>"
+     * is "</script>" to the browser while the pattern sees no such sequence.
+     *
      * Lives on the guard, not on Add_Custom_Js, because the renderer applies
      * the same rule and the guard is the one class in this namespace that
      * every build ships (Opt_In_Gates references it).
@@ -58,6 +63,6 @@ class Custom_Js_Guard
     public static function has_breakout(string $js): bool
     {
         // Fail closed: a PCRE error (false) counts as a breakout, not a pass.
-        return 0 !== preg_match('#</\s*script|<\s*script|<!--#i', $js);
+        return 0 !== preg_match('#</\s*script|<\s*script|<!--|[\x00-\x08\x0b\x0e-\x1f]#i', $js);
     }
 }

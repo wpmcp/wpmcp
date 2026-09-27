@@ -226,6 +226,102 @@ class AddScopedCssTest extends \WP_UnitTestCase
     }
 
     /**
+     * Each piece is sanitized on its own, but what renders is the JOINED
+     * block, and the renderer drops a block that fails as a whole. Two
+     * pieces that pass alone can fail together (a trailing backslash plus
+     * the join newline is a line continuation), which used to leave the
+     * page's CSS silently unrendered while both writes reported success.
+     */
+    public function test_an_append_that_would_poison_the_joined_block_is_refused(): void
+    {
+        $post = self::factory()->post->create();
+        $this->store($post, '.a { color: red; }');
+
+        try {
+            $this->store($post, '.b { color: blue; } @im\\');
+        } catch (\InvalidArgumentException $e) {
+            // Refused on its own is fine too.
+        }
+        try {
+            $this->store($post, 'port url(//evil.example/x.css);');
+        } catch (\InvalidArgumentException $e) {
+            // Expected once the first half is stored.
+        }
+
+        $block = Custom_Code_Store::read_css($post);
+        $this->assertSame($block, \WPMCP\Tools\CustomCode\Css_Sanitizer::sanitize($block), 'The stored block must pass the sanitizer as a whole.');
+
+        $this->go_to(get_permalink($post));
+        ob_start();
+        Custom_Code_Renderer::print_css();
+        $this->assertStringContainsString('.a { color: red; }', (string) ob_get_clean());
+    }
+
+    /**
+     * Element scope is a promise about WHICH element: a selector list or a
+     * sibling combinator must not carry the rule outside it.
+     */
+    public function test_element_scope_prefixes_every_selector_in_a_list(): void
+    {
+        $post = self::factory()->post->create();
+
+        $this->store($post, 'color: red;', ['element_id' => 'a1b2c3d', 'selector' => 'h2, body']);
+
+        $this->assertSame(
+            '.elementor-element-a1b2c3d h2, .elementor-element-a1b2c3d body { color: red; }',
+            Custom_Code_Store::read_css($post)
+        );
+    }
+
+    public function test_element_scope_refuses_a_sibling_combinator_that_leaves_the_element(): void
+    {
+        $post = self::factory()->post->create();
+
+        foreach (['~ *', '+ p', 'h2, ~ p'] as $selector) {
+            try {
+                $this->store($post, 'color: red;', ['element_id' => 'a1b2c3d', 'selector' => $selector]);
+                $this->fail("Selector \"{$selector}\" should not be accepted under an element scope.");
+            } catch (\InvalidArgumentException $e) {
+                $this->assertSame('', Custom_Code_Store::read_css($post));
+            }
+        }
+    }
+
+    /**
+     * An unterminated string runs to the end of its line, which eats the
+     * wrapper's closing brace and nests or drops every block appended after.
+     */
+    public function test_refuses_an_unterminated_string(): void
+    {
+        $post = self::factory()->post->create();
+
+        foreach ([['css' => 'color: red; content: "'], ['css' => 'color: red;', 'selector' => 'a[title="x']] as $extra) {
+            try {
+                $this->store($post, $extra['css'], array_diff_key($extra, ['css' => true]));
+                $this->fail('An unterminated string should have been refused.');
+            } catch (\InvalidArgumentException $e) {
+                $this->assertSame('', Custom_Code_Store::read_css($post));
+            }
+        }
+    }
+
+    /**
+     * The render-time pass is a second chance at a value that reached the
+     * option by another route (a direct DB edit, another plugin): a stored
+     * breakout must never be printed.
+     */
+    public function test_renderer_drops_a_stored_breakout(): void
+    {
+        $post = self::factory()->post->create();
+        update_option(Custom_Code_Store::post_option($post), '.a{color:red}</style><script>alert(1)</script>', false);
+
+        $this->go_to(get_permalink($post));
+        ob_start();
+        Custom_Code_Renderer::print_css();
+        $this->assertSame('', (string) ob_get_clean());
+    }
+
+    /**
      * Element-scoped CSS has to RENDER, not just persist; and it renders on
      * the page it was scoped to, through the same wp_head path page-scoped
      * CSS uses.

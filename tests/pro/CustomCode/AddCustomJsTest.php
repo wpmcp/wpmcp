@@ -226,6 +226,25 @@ class AddCustomJsTest extends \WP_UnitTestCase
      * The render-time twin of the check above, for a snippet that reached the
      * option some other way (direct DB edit, an older build of this plugin).
      */
+    /**
+     * ESC is a zero-width mode switch in ISO-2022-JP: on a legacy charset
+     * "<ESC(B/script>" is "</script>" to the browser while the breakout
+     * pattern sees no such sequence.
+     */
+    public function test_refuses_control_bytes_that_hide_a_breakout(): void
+    {
+        $this->open_gate();
+
+        try {
+            $this->tool->handle(['js' => "x=1;<\x1b(B/script><img src=x onerror=alert(1)>"]);
+            $this->fail('A control byte should have been refused.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame(Add_Custom_Js::REASON_SCRIPT_BREAKOUT, $this->audit_rows()[0]['reason']);
+        }
+
+        $this->assertSame([], Custom_Code_Store::read());
+    }
+
     public function test_renderer_drops_a_stored_double_escape(): void
     {
         $this->open_gate();

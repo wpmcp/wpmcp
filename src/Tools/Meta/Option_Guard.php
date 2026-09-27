@@ -56,8 +56,27 @@ class Option_Guard
         'credential',
     ];
 
+    /**
+     * Option-name prefixes refused unconditionally, before (and regardless
+     * of) the filterable lists. The custom code store (issue #63) holds page
+     * CSS printed raw into <style> and the site JS snippet; its own tools
+     * require edit_css / unfiltered_html and a default-off gate, so the
+     * generic option tools must not be a manage_options-only side door
+     * around them, and a site trimming the denylist must not reopen one.
+     */
+    private const LOCKED_PREFIXES = [
+        'wpmcp_custom_code',
+    ];
+
     public static function is_denylisted(string $name): bool
     {
+        $lower = strtolower($name);
+        foreach (self::LOCKED_PREFIXES as $prefix) {
+            if (0 === strpos($lower, $prefix)) {
+                return true;
+            }
+        }
+
         $denylisted_names    = (array) apply_filters('wpmcp_option_denylist', self::DENYLISTED_NAMES);
         $denylisted_patterns = (array) apply_filters('wpmcp_option_denylist_patterns', self::DENYLISTED_PATTERNS);
 
@@ -65,7 +84,6 @@ class Option_Guard
             return true;
         }
 
-        $lower = strtolower($name);
         foreach ($denylisted_patterns as $pattern) {
             if ('' !== $pattern && false !== strpos($lower, strtolower((string) $pattern))) {
                 return true;
