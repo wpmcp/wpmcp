@@ -74,4 +74,16 @@ class CloudStatusTest extends \WP_UnitTestCase
         $this->assertFalse($out['connected']);
         $this->assertSame('unreadable', $out['token_status']);
     }
+
+    public function test_a_working_legacy_pair_next_to_an_unreadable_vault_reports_ok(): void
+    {
+        update_option(Cloud_Credentials::OPTION, base64_encode(random_bytes(80)), false);
+        update_option('wpmcp_cloud_url', 'https://cloud.example', false);
+        update_option('wpmcp_cloud_key', 'sk-legacy', false);
+
+        $out = (new Cloud_Status())->handle([]);
+
+        $this->assertTrue($out['connected']);
+        $this->assertSame('ok', $out['token_status'], 'connected: true with token_status: unreadable is a contradiction');
+    }
 }

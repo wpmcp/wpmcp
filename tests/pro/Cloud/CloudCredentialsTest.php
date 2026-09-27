@@ -319,4 +319,81 @@ class CloudCredentialsTest extends \WP_UnitTestCase
             $this->assertTrue(\WPMCP\Tools\Meta\Option_Guard::is_denylisted($name), $name);
         }
     }
+
+    // ---- coordinator review ---------------------------------------------------
+
+    public function test_out_of_band_legacy_options_never_replace_a_readable_vault(): void
+    {
+        Cloud_Credentials::replace([
+            'base_url'      => 'https://cloud.example',
+            'api_key'       => 'sk-sealed',
+            'refresh_token' => 'rt-1',
+            'client_id'     => 'client-1',
+        ]);
+        // WP-CLI, another plugin or a database import writes the phase A
+        // pair next to a live token bundle.
+        update_option('wpmcp_cloud_url', 'https://elsewhere.example', true);
+        update_option('wpmcp_cloud_key', 'sk-out-of-band', true);
+
+        Cloud_Credentials::maybe_migrate_on_boot();
+
+        $all = Cloud_Credentials::all(true);
+        $this->assertSame('rt-1', $all['refresh_token'] ?? null, 'the refresh token must survive');
+        $this->assertSame('https://cloud.example', $all['base_url']);
+        $this->assertSame('sk-sealed', $all['api_key']);
+        $this->assertFalse(get_option('wpmcp_cloud_key'), 'a plaintext cloud key must not stay in wp_options');
+    }
+
+    public function test_a_legacy_import_resets_a_stale_refresh_health_marker(): void
+    {
+        update_option(Token_Refresher::HEALTH_OPTION, ['rejected_at' => time()], false);
+        update_option('wpmcp_cloud_url', 'https://cloud.example', true);
+        update_option('wpmcp_cloud_key', 'legacy-key', true);
+
+        Cloud_Credentials::maybe_migrate_on_boot();
+
+        $this->assertSame('legacy-key', Cloud_Credentials::all(true)['api_key'] ?? null);
+        $this->assertFalse(get_option(Token_Refresher::HEALTH_OPTION));
+    }
+
+    public function test_snapshot_is_a_plain_read(): void
+    {
+        update_option('wpmcp_cloud_url', 'https://cloud.example', false);
+        update_option('wpmcp_cloud_key', 'legacy-key', false);
+
+        $snapshot = Cloud_Credentials::snapshot();
+
+        $this->assertSame('legacy-key', $snapshot['legacy_key']);
+        $this->assertSame('legacy-key', get_option('wpmcp_cloud_key'), 'taking a snapshot must not run the migration');
+        $this->assertFalse(get_option(Cloud_Credentials::OPTION));
+    }
+
+    public function test_changing_or_clearing_the_credentials_drops_the_cached_announcements(): void
+    {
+        \WPMCP\Admin\Announcements::register();
+
+        set_transient(\WPMCP\Admin\Announcements::TRANSIENT, [['id' => 'a']], 3600);
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'k']);
+        $this->assertFalse(get_transient(\WPMCP\Admin\Announcements::TRANSIENT), 'a new connection must not serve the previous one\'s feed');
+
+        set_transient(\WPMCP\Admin\Announcements::TRANSIENT, [['id' => 'a']], 3600);
+        Cloud_Credentials::clear();
+        $this->assertFalse(get_transient(\WPMCP\Admin\Announcements::TRANSIENT), 'a disconnected site must not keep serving the feed');
+    }
+
+    public function test_a_cached_feed_is_served_without_opening_the_vault(): void
+    {
+        Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'k']);
+        set_transient(\WPMCP\Admin\Announcements::TRANSIENT, [['id' => 'cached']], 3600);
+
+        // Make the vault unreadable: if get() still consulted it, the site
+        // would read as unconfigured and the cached list would be dropped.
+        $rotated = static fn () => 'a-freshly-generated-auth-salt';
+        add_filter('salt', $rotated);
+        try {
+            $this->assertSame([['id' => 'cached']], (new \WPMCP\Admin\Announcements())->get());
+        } finally {
+            remove_filter('salt', $rotated);
+        }
+    }
 }

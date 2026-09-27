@@ -85,6 +85,21 @@ class Token_Refresher
     /** @var callable(string,array):(array|\WP_Error) POST the refresh grant; returns decoded body or WP_Error */
     private $transport;
 
+    /**
+     * Why the last ensure_fresh_access_token() call returned null, so the
+     * client can tell the operator the truth instead of "re-run
+     * cloud-connect" for every failure (which would discard a working OAuth
+     * bundle that is merely waiting out a backoff).
+     *
+     * @var array{reason:string,retry_after:int}
+     */
+    private array $failure = ['reason' => '', 'retry_after' => 0];
+
+    public const FAILURE_NONE          = 'none';
+    public const FAILURE_REJECTED      = 'rejected';
+    public const FAILURE_UNAVAILABLE   = 'temporarily_unavailable';
+    public const FAILURE_INSECURE_URL  = 'insecure_url';
+
     public function __construct(?callable $lock = null, ?callable $unlock = null, ?callable $transport = null)
     {
         $this->lock      = $lock ?? [self::class, 'mysql_lock'];
@@ -148,19 +163,23 @@ class Token_Refresher
      */
     public function ensure_fresh_access_token(): ?string
     {
-        $bundle = Cloud_Credentials::all();
-        if ('' === (string) ($bundle['refresh_token'] ?? '')) {
-            return null;
+        $this->failure = ['reason' => '', 'retry_after' => 0];
+        $bundle        = Cloud_Credentials::all();
+        if (! self::is_refreshable($bundle)) {
+            return $this->fail(self::FAILURE_NONE);
         }
         if (self::is_fresh($bundle)) {
             return (string) $bundle['access_token'];
         }
-        if (self::is_unhealthy() || self::is_backed_off($bundle)) {
-            // Either the cloud already rejected this refresh token, or the
-            // last attempt failed transiently seconds ago. Do not take the
-            // lock and do not spend another 20s HTTP timeout on every request
-            // until the backoff expires or the site reconnects.
-            return null;
+        // Either the cloud already rejected this refresh token, or the last
+        // attempt failed transiently seconds ago. Do not take the lock and do
+        // not spend another 20s HTTP timeout on every request until the
+        // backoff expires or the site reconnects.
+        if (self::is_unhealthy()) {
+            return $this->fail(self::FAILURE_REJECTED);
+        }
+        if (self::is_backed_off($bundle)) {
+            return $this->fail(self::FAILURE_UNAVAILABLE, self::retry_remaining());
         }
 
         $acquired = ($this->lock)(self::lock_name(), self::LOCK_TIMEOUT);
@@ -170,7 +189,9 @@ class Token_Refresher
             // refresh token here, and only hand back a token that is actually
             // usable; otherwise let the caller fall back to the API key.
             $fresh = Cloud_Credentials::all(true);
-            return self::is_fresh($fresh) ? (string) $fresh['access_token'] : null;
+            return self::is_fresh($fresh)
+                ? (string) $fresh['access_token']
+                : $this->fail(self::FAILURE_UNAVAILABLE, self::LOCK_TIMEOUT);
         }
 
         try {
@@ -179,6 +200,14 @@ class Token_Refresher
             $bundle = Cloud_Credentials::all(true);
             if (self::is_fresh($bundle)) {
                 return (string) $bundle['access_token'];
+            }
+            // The same guard as before the lock: while we waited, a
+            // concurrent cloud-connect may have replaced the set with one
+            // that has no refresh token or no cloud URL. Presenting an empty
+            // token would fail, and would record a backoff on the empty
+            // token's fingerprint.
+            if (! self::is_refreshable($bundle)) {
+                return $this->fail(self::FAILURE_NONE);
             }
             return $this->refresh($bundle);
         } finally {
@@ -211,24 +240,30 @@ class Token_Refresher
 
         $response = ($this->transport)((string) ($bundle['base_url'] ?? ''), $grant);
 
+        if (is_wp_error($response) && 'cloud_token_endpoint_insecure' === $response->get_error_code()) {
+            // Nothing was sent. A configuration problem, not a revocation and
+            // not worth a retry until the URL changes.
+            return $this->fail(self::FAILURE_INSECURE_URL);
+        }
         if (is_wp_error($response) || ! is_array($response)) {
             // Transient (network error, 5xx, rate limit, an OAuth error that
             // is about the request rather than the token). Bundle untouched,
             // connection not marked unhealthy, but backed off briefly so the
             // next cloud call does not pay the timeout again.
-            self::back_off($bundle);
-            return null;
+            return $this->back_off($bundle);
         }
 
         if (! empty($response['auth_rejected'])) {
             $stored = Cloud_Credentials::all(true);
             if ((string) ($stored['refresh_token'] ?? '') !== $presented || self::is_fresh($stored)) {
                 // Race loser: the winner rotated the bundle. Their result is valid.
-                return self::is_fresh($stored) ? (string) $stored['access_token'] : null;
+                return self::is_fresh($stored)
+                    ? (string) $stored['access_token']
+                    : $this->fail(self::FAILURE_UNAVAILABLE, self::LOCK_TIMEOUT);
             }
             // Un-raced rejection: the refresh token is genuinely revoked.
             update_option(self::HEALTH_OPTION, ['rejected_at' => time()], false);
-            return null;
+            return $this->fail(self::FAILURE_REJECTED);
         }
 
         $access     = (string) ($response['access_token'] ?? '');
@@ -236,8 +271,7 @@ class Token_Refresher
         if ('' === $access || $expires_in <= 0) {
             // A 2xx that is not actually a grant. Treat as transient rather
             // than merging an empty token over working credentials.
-            self::back_off($bundle);
-            return null;
+            return $this->back_off($bundle);
         }
 
         // Coalesce the rotated refresh token on emptiness, not just on null:
@@ -259,18 +293,52 @@ class Token_Refresher
             // could not store its replacement. Reporting success would hand
             // out an access token nobody stored and re-present the dead token
             // on the next request; back off and report failure instead.
-            self::back_off($bundle);
-            return null;
+            return $this->back_off($bundle);
         }
 
         self::clear_health();
         return $access;
     }
 
-    /** Mark a short backoff for this bundle after a transient failure. */
-    private static function back_off(array $bundle): void
+    /** Mark a short backoff for this bundle after a transient failure; always null. */
+    private function back_off(array $bundle): ?string
     {
         set_transient(self::RETRY_TRANSIENT, self::fingerprint($bundle), self::RETRY_BACKOFF);
+        return $this->fail(self::FAILURE_UNAVAILABLE, self::RETRY_BACKOFF);
+    }
+
+    /**
+     * @return array{reason:string,retry_after:int} why the last
+     *         ensure_fresh_access_token() returned null: one of the FAILURE_*
+     *         constants, and for FAILURE_UNAVAILABLE the seconds after which a
+     *         retry is worth it. reason is '' after a success.
+     */
+    public function last_failure(): array
+    {
+        return $this->failure;
+    }
+
+    /** Record why no token is available; always null, for a one-line return. */
+    private function fail(string $reason, int $retry_after = 0): ?string
+    {
+        $this->failure = ['reason' => $reason, 'retry_after' => max(0, $retry_after)];
+        return null;
+    }
+
+    /** A bundle that can be presented at all: a refresh token and a cloud to present it to. */
+    private static function is_refreshable(array $bundle): bool
+    {
+        return '' !== (string) ($bundle['refresh_token'] ?? '') && '' !== (string) ($bundle['base_url'] ?? '');
+    }
+
+    /**
+     * Seconds left on the transient backoff. The timeout row only exists
+     * without a persistent object cache; with one, report the full window.
+     */
+    private static function retry_remaining(): int
+    {
+        $expires = (int) get_option('_transient_timeout_' . self::RETRY_TRANSIENT, 0);
+        return $expires > time() ? $expires - time() : self::RETRY_BACKOFF;
     }
 
     /**

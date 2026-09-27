@@ -524,4 +524,45 @@ class TokenRefresherTest extends \WP_UnitTestCase
         $this->assertSame('other-process-access', $this->refresher(new \WP_Error('boom', 'never called'), $lock)->ensure_fresh_access_token());
         $this->assertSame([], $this->sent, 'the refresh token must not be presented once another process has rotated it');
     }
+
+    public function test_a_set_replaced_while_waiting_for_the_lock_is_not_refreshed(): void
+    {
+        $this->seed_stale();
+
+        // A concurrent cloud-connect stores an API-key-only set while this
+        // request waits on the lock.
+        $lock = static function () {
+            Cloud_Credentials::replace(['base_url' => 'https://cloud.example', 'api_key' => 'sk-new']);
+            return true;
+        };
+        $refresher = $this->refresher(new \WP_Error('boom', 'never called'), $lock);
+
+        $this->assertNull($refresher->ensure_fresh_access_token());
+        $this->assertSame([], $this->sent, 'an empty refresh token must never be presented');
+        $this->assertFalse(get_transient(Token_Refresher::RETRY_TRANSIENT), 'no backoff on the empty token\'s fingerprint');
+        $this->assertSame(Token_Refresher::FAILURE_NONE, $refresher->last_failure()['reason']);
+    }
+
+    public function test_last_failure_names_each_reason(): void
+    {
+        $this->seed_stale();
+        $refresher = $this->refresher(new \WP_Error('cloud_unavailable', 'HTTP 503'));
+        $this->assertNull($refresher->ensure_fresh_access_token());
+        $this->assertSame(Token_Refresher::FAILURE_UNAVAILABLE, $refresher->last_failure()['reason']);
+        $this->assertGreaterThan(0, $refresher->last_failure()['retry_after']);
+
+        // Inside the backoff: still unavailable, with the remaining time.
+        $this->assertNull($refresher->ensure_fresh_access_token());
+        $this->assertSame(Token_Refresher::FAILURE_UNAVAILABLE, $refresher->last_failure()['reason']);
+        $this->assertLessThanOrEqual(Token_Refresher::RETRY_BACKOFF, $refresher->last_failure()['retry_after']);
+
+        Token_Refresher::clear_health();
+        $timeout = $this->refresher(new \WP_Error('boom', 'never called'), static fn () => false);
+        $this->assertNull($timeout->ensure_fresh_access_token());
+        $this->assertSame(Token_Refresher::FAILURE_UNAVAILABLE, $timeout->last_failure()['reason']);
+
+        $rejected = $this->refresher(['auth_rejected' => true]);
+        $this->assertNull($rejected->ensure_fresh_access_token());
+        $this->assertSame(Token_Refresher::FAILURE_REJECTED, $rejected->last_failure()['reason']);
+    }
 }
