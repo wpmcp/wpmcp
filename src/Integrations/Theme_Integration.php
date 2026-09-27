@@ -84,13 +84,24 @@ class Theme_Integration extends Integration_Dispatcher
 {
     /**
      * Mods that rewire structure rather than presentation. Hard-refused in
-     * set-mods even when a filter adds them to the allowlist, with the
-     * supported route named per key.
+     * set-mods even when a filter adds them to the allowlist. Each entry lists
+     * the abilities that own that structure plus a wp-admin fallback: the
+     * refusal names only the abilities actually registered on this site, so
+     * it never points an agent at a tool this build does not expose.
      */
     private const STRUCTURAL_KEYS = [
-        'nav_menu_locations' => 'Assign menu locations with wpmcp/assign-menu-to-location instead.',
-        'sidebars_widgets'   => 'Inspect sidebars with wpmcp/list-sidebar-widgets; placing and updating widgets (wpmcp/add-widget, wpmcp/update-widget) requires the pro tier.',
-        'custom_css_post_id' => 'Managing the Additional CSS post (wpmcp/add-custom-css, wpmcp/get-custom-css) requires the pro tier; on the free tier edit Additional CSS in the Customizer.',
+        'nav_menu_locations' => [
+            'abilities' => [ 'wpmcp/assign-menu-to-location' ],
+            'fallback'  => 'Assign menu locations under Appearance > Menus.',
+        ],
+        'sidebars_widgets'   => [
+            'abilities' => [ 'wpmcp/list-sidebar-widgets', 'wpmcp/add-widget', 'wpmcp/update-widget' ],
+            'fallback'  => 'Place and update widgets on the Widgets screen.',
+        ],
+        'custom_css_post_id' => [
+            'abilities' => [ 'wpmcp/get-custom-css', 'wpmcp/add-custom-css' ],
+            'fallback'  => 'Edit Additional CSS in the Customizer.',
+        ],
     ];
 
     /**
@@ -427,7 +438,7 @@ class Theme_Integration extends Integration_Dispatcher
                     'key'    => $key,
                     'reason' => 'structural',
                     'detail' => 'Structural theme mods are never writable through set-mods. '
-                        . self::STRUCTURAL_KEYS[ $key ],
+                        . $this->structural_route($key),
                 ];
                 continue;
             }
@@ -485,6 +496,29 @@ class Theme_Integration extends Integration_Dispatcher
                 ? 'This is a block theme: the listed mods were stored but the front end renders those settings from global styles, so they will have no visible effect.'
                 : '',
         ];
+    }
+
+    /**
+     * The supported route for a structural key: the owning abilities that are
+     * registered here, then the wp-admin screen that always works.
+     */
+    private function structural_route(string $key): string
+    {
+        $route     = self::STRUCTURAL_KEYS[ $key ];
+        $available = [];
+        if (function_exists('wp_has_ability')) {
+            foreach ($route['abilities'] as $name) {
+                if (wp_has_ability($name)) {
+                    $available[] = $name;
+                }
+            }
+        }
+
+        if ([] === $available) {
+            return $route['fallback'];
+        }
+
+        return 'Use ' . implode(', ', $available) . ' instead, or: ' . $route['fallback'];
     }
 
     /**

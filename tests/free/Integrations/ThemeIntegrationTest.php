@@ -727,11 +727,13 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
     }
 
     /**
-     * The widget and Additional-CSS routes are pro-tier abilities, so naming
-     * them unconditionally dead-ends a free-tier agent on exactly the refusal
-     * that promised not to.
+     * The widget and Additional-CSS abilities are not registered in every
+     * build, so a refusal that names them unconditionally dead-ends the agent
+     * on a tool it cannot call. The wp.org build also forbids agent-facing
+     * copy that advertises a paid tier. The refusal therefore names only the
+     * owning abilities that are actually registered, then a wp-admin route.
      */
-    public function test_structural_refusals_name_free_tier_routes_and_flag_the_pro_ones(): void
+    public function test_structural_refusals_name_only_registered_routes(): void
     {
         $out = $this->withWritesEnabled(fn () => $this->integration->handle_write([
             'operation' => 'set-mods',
@@ -747,10 +749,26 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
             $detail[ $refusal['key'] ] = $refusal['detail'];
         }
 
+        $routes = [
+            'nav_menu_locations' => [ 'wpmcp/assign-menu-to-location' ],
+            'sidebars_widgets'   => [ 'wpmcp/list-sidebar-widgets', 'wpmcp/add-widget', 'wpmcp/update-widget' ],
+            'custom_css_post_id' => [ 'wpmcp/get-custom-css', 'wpmcp/add-custom-css' ],
+        ];
+        foreach ($routes as $key => $abilities) {
+            foreach ($abilities as $ability) {
+                if (wp_has_ability($ability)) {
+                    $this->assertStringContainsString($ability, $detail[ $key ], $key);
+                } else {
+                    $this->assertStringNotContainsString($ability, $detail[ $key ], $key);
+                }
+            }
+            $this->assertDoesNotMatchRegularExpression('/pro[ -]tier|premium|licen[cs]e/i', $detail[ $key ], $key);
+        }
+
+        $this->assertTrue(wp_has_ability('wpmcp/assign-menu-to-location'));
         $this->assertStringContainsString('wpmcp/assign-menu-to-location', $detail['nav_menu_locations']);
-        $this->assertStringContainsString('wpmcp/list-sidebar-widgets', $detail['sidebars_widgets']);
-        $this->assertStringContainsString('pro tier', $detail['sidebars_widgets']);
-        $this->assertStringContainsString('pro tier', $detail['custom_css_post_id']);
+        $this->assertStringContainsString('Widgets screen', $detail['sidebars_widgets']);
+        $this->assertStringContainsString('Customizer', $detail['custom_css_post_id']);
     }
 
     /**
