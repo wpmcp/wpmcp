@@ -70,11 +70,19 @@ class Option_Guard
         $denylisted_names    = (array) apply_filters('wpmcp_option_denylist', self::DENYLISTED_NAMES);
         $denylisted_patterns = (array) apply_filters('wpmcp_option_denylist_patterns', self::DENYLISTED_PATTERNS);
 
-        if (in_array($name, $denylisted_names, true)) {
-            return true;
+        // Fold the name the way the database will match it. WordPress trims
+        // option names, and option_name is compared under a case- and
+        // accent-insensitive collation by default, so 'SITEURL' or a padded
+        // or accented variant reaches the very same row a strict in_array()
+        // would wave through.
+        $folded = self::fold($name);
+        foreach ($denylisted_names as $denylisted) {
+            if ($folded === self::fold((string) $denylisted)) {
+                return true;
+            }
         }
 
-        $lower = strtolower($name);
+        $lower = $folded;
         foreach ($denylisted_patterns as $pattern) {
             if ('' !== $pattern && false !== strpos($lower, strtolower((string) $pattern))) {
                 return true;
@@ -82,5 +90,16 @@ class Option_Guard
         }
 
         return false;
+    }
+
+    /** Trimmed, accent-stripped, lower-cased form of an option name. */
+    private static function fold(string $name): string
+    {
+        $name = trim($name);
+        if (function_exists('remove_accents')) {
+            $name = remove_accents($name);
+        }
+
+        return strtolower($name);
     }
 }

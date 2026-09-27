@@ -990,20 +990,20 @@ class Rollback_Service
      *    departure from verbatim, below.
      *  - the id did not exist: the write created it, so remove it.
      *
-     * THE STATUS FLAG IS CLAMPED, NOT RESTORED BLINDLY. rollback-operation
-     * and rollback-session are free abilities, are not in Opt_In_Gates, and
-     * do not consult the PHP execution gate. Restoring a captured
-     * status='active' verbatim would therefore let any manage_options caller
-     * undo a deactivate-php-snippet (or an update that forced a snippet back
-     * to inactive) and re-arm the snippet with wpmcp_allow_php_exec closed,
-     * on production, sidestepping the entire reason activate-php-snippet is a
-     * distinct governed operation. So an ACTIVE capture is only restored as
-     * active when Php_Snippet_Guard::assert_execution_allowed() passes right
-     * now; otherwise it comes back INACTIVE. An undo that cannot re-arm an
-     * exec-adjacent flag is still a correct undo: every other field is
-     * restored exactly, and re-activation goes back through the governed
-     * path. This does not depend on "nothing executes from the status flag
-     * yet", which stops being true the moment the documented executor lands.
+     * THE STATUS FLAG IS NEVER RESTORED AS ACTIVE. rollback-operation and
+     * rollback-session are not in Opt_In_Gates and do not consult the PHP
+     * execution gate, the license check, the governance toggle or the
+     * identity scope of activate-php-snippet, and write no activation entry
+     * to the governance trail. Restoring a captured status='active'
+     * would make an undo a second, ungoverned door to activation (undo a
+     * deactivate-php-snippet, or an update that forced the snippet back to
+     * inactive, and the snippet is armed again). An open exec gate is not
+     * enough either, since it is only one part of that contract, so the
+     * restore is unconditionally INACTIVE. Every other field is restored
+     * exactly, and re-activation goes
+     * back through activate-php-snippet. This does not depend on "nothing
+     * executes from the status flag yet", which stops being true the moment
+     * the documented executor lands.
      */
     private static function apply_php_snippet_snapshot(array $snapshot): void
     {
@@ -1027,33 +1027,9 @@ class Rollback_Service
             throw new Mutation_Failed('Rollback refused: the captured PHP snippet record is missing or malformed.');
         }
 
-        $record['status'] = self::restorable_snippet_status($record);
+        $record['status'] = \WPMCP\Tools\Code\Php_Snippet_Store::STATUS_INACTIVE;
 
         \WPMCP\Tools\Code\Php_Snippet_Store::save($record);
-    }
-
-    /**
-     * The status a restored snippet record may come back with. See
-     * apply_php_snippet_snapshot(): anything other than a captured 'active'
-     * is restored as-is, and a captured 'active' survives only while the
-     * shared execution gate would allow an activation to be performed
-     * through activate-php-snippet right now.
-     */
-    private static function restorable_snippet_status(array $record): string
-    {
-        $captured = (string) ($record['status'] ?? \WPMCP\Tools\Code\Php_Snippet_Store::STATUS_INACTIVE);
-
-        if (\WPMCP\Tools\Code\Php_Snippet_Store::STATUS_ACTIVE !== $captured) {
-            return $captured;
-        }
-
-        try {
-            \WPMCP\Tools\Code\Php_Snippet_Guard::assert_execution_allowed();
-        } catch (\Throwable $e) {
-            return \WPMCP\Tools\Code\Php_Snippet_Store::STATUS_INACTIVE;
-        }
-
-        return \WPMCP\Tools\Code\Php_Snippet_Store::STATUS_ACTIVE;
     }
 
     private static function apply_redirect_snapshot(array $snapshot): void

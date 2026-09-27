@@ -127,6 +127,12 @@ rm -f \
 # row: wp_wpmcp_snapshots survives a site swapping the full plugin for this
 # flavor. Gate 4 below now catches that class of mistake instead of trusting
 # this list.
+#
+# Deactivate_Php_Snippet goes with the rest of the snippet tools, unlike the
+# wp.org build which keeps it. This flavor drops the whole 'code' ability
+# group at runtime (Plugin::FLAVOR_GROUPS), so the class would ship with no
+# registration path into it. A leftover 'active' flag here is inert: no
+# executor ships, and rollback always restores a snippet inactive.
 rm -f \
   "$STAGE/src/Tools/Cli/Run_Wp_Cli.php" \
   "$STAGE/src/Tools/Cli/Wp_Cli_Executor.php" \

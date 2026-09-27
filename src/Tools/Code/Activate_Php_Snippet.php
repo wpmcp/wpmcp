@@ -109,23 +109,20 @@ class Activate_Php_Snippet
                 'args'        => $args,
             ],
             function () use ($id, $validation, $code_hash, &$activated): void {
-                $current = Php_Snippet_Store::get($id);
-                if (null === $current) {
-                    throw new \RuntimeException(sprintf('No stored snippet with id "%s"; it was removed since this operation started.', esc_html($id)));
-                }
-
-                // The code moved between validation and the write. Activating
-                // now would mark code ACTIVE that nothing ever checked, and
-                // stamp it with a validation report describing the previous
-                // body. Refuse; the caller can re-read and try again.
-                if (! hash_equals($code_hash, hash('sha256', (string) ($current['code'] ?? '')))) {
-                    throw new \RuntimeException('Refusing to activate snippet: its code changed after it was validated and before it could be activated. Re-read the snippet and activate again.');
-                }
-
-                $activated = Php_Snippet_Store::update_fields($id, [
-                    'status'     => Php_Snippet_Store::STATUS_ACTIVE,
-                    'validation' => $validation,
-                ]);
+                // The hash is checked against the record update_fields()
+                // itself re-reads, so there is no gap between the check and
+                // the write in which an update could land. A mismatch means
+                // the code moved after it was validated: activating would
+                // mark code ACTIVE that nothing checked, stamped with the
+                // previous body's report. Refuse; the caller can retry.
+                $activated = Php_Snippet_Store::update_fields(
+                    $id,
+                    [
+                        'status'     => Php_Snippet_Store::STATUS_ACTIVE,
+                        'validation' => $validation,
+                    ],
+                    $code_hash
+                );
             }
         );
 

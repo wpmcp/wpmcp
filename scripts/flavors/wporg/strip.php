@@ -842,8 +842,8 @@ $plugin_edits[] = [
     1,
 ];
 $plugin_edits[] = [
-    "            'Deactivate a stored PHP snippet by id (reverse of activate-php-snippet): marks it inactive so nothing can run it. Deliberately NOT gated on the PHP execution opt-in, so an activated snippet can always be revoked after the gate is closed. Snapshot-first and reversible; never executes anything',",
-    "            'Deactivate a stored PHP snippet by id: marks it inactive. This build cannot execute a stored snippet at all and has no way to activate one, so this only ever clears a flag left behind by another install. Snapshot-first and reversible; never executes anything',",
+    "            'Deactivate a stored PHP snippet by id (reverse of activate-php-snippet). Not gated on the PHP execution opt-in, so an active snippet can always be revoked. Snapshot-first; never executes anything',",
+    "            'Deactivate a stored PHP snippet by id: marks it inactive. This build cannot execute or activate a stored snippet, so this only clears a flag left by another install. Snapshot-first; never executes anything',",
     1,
 ];
 
@@ -919,10 +919,9 @@ $edits['src/MCP/Server.php'] = [
 ];
 
 // ------------------------------------------------------- Php_Snippet_Guard
-// The guard ships (Governance\Opt_In_Gates and Safety\Rollback_Service both
-// reference it) but the two surfaces its docblock names as callers do not.
-// Rollback_Service is the one real caller left here: it consults the gate
-// before it will restore a snippet record as ACTIVE.
+// The guard ships (Governance\Opt_In_Gates references it) but the two
+// surfaces its docblock names as callers do not, so its prose is rewritten to
+// say this build has nothing that runs PHP.
 $edits['src/Tools/Code/Php_Snippet_Guard.php'] = [
     [
         " * Security core for the guarded PHP snippet executor (issue #45). This is\n"
@@ -941,16 +940,13 @@ $edits['src/Tools/Code/Php_Snippet_Guard.php'] = [
             . " * default-off, dev-only, and must be deliberately enabled.\n",
         " * The PHP snippet execution gate (issue #45). THIS BUILD SHIPS NO PHP\n"
             . " * EXECUTOR AND NO ABILITY THAT RUNS PHP, so nothing here can evaluate\n"
-            . " * anything; the checks are kept because Safety\\Rollback_Service asks\n"
-            . " * them before it will restore a stored PHP snippet record as ACTIVE,\n"
-            . " * and because Governance\\Opt_In_Gates names the same enablement flag.\n"
+            . " * anything; the class is kept because Governance\\Opt_In_Gates names\n"
+            . " * the same enablement flag when it reports which gates are open.\n"
             . " *\n"
             . " * Both checks fail closed: execution is off unless deliberately\n"
             . " * enabled, and refused outright on production or on any environment\n"
             . " * that cannot be positively identified as local, development or\n"
-            . " * staging. Keeping that answer available with nothing to run is what\n"
-            . " * stops an undo from quietly re-arming a snippet an operator turned\n"
-            . " * off.\n",
+            . " * staging.\n",
         1,
     ],
     [
@@ -965,9 +961,8 @@ $edits['src/Tools/Code/Php_Snippet_Guard.php'] = [
         "     * The execution gate chain, in order, as ONE shared refusal. Every\n"
             . "     * surface that can put a snippet on the path to running asks this\n"
             . "     * one question rather than re-typing the checks, so a third gate\n"
-            . "     * added here applies to all of them at once. In this build the only\n"
-            . "     * such surface is Safety\\Rollback_Service, which refuses to restore\n"
-            . "     * a snippet record as ACTIVE while this chain would refuse.\n",
+            . "     * added here applies to all of them at once. This build ships no\n"
+            . "     * such surface, so nothing here calls it.\n",
         1,
     ],
 ];

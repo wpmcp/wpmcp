@@ -154,13 +154,23 @@ class Php_Snippet_Store
      * by a stale copy. Throws when the record has gone since the caller
      * looked, rather than silently resurrecting a deleted snippet.
      *
+     * When $expected_code_hash is given, the sha256 of the code in the
+     * record re-read HERE must equal it or nothing is written. That is the
+     * check activation needs: comparing against a separate, earlier read
+     * would leave a window between that read and this one in which an update
+     * could land and be stamped active with the previous code's report.
+     *
      * @param array<string, mixed> $fields
      */
-    public static function update_fields(string $id, array $fields): array
+    public static function update_fields(string $id, array $fields, ?string $expected_code_hash = null): array
     {
         $snippet = self::get($id);
         if (null === $snippet) {
             throw new \RuntimeException(sprintf('No stored snippet with id "%s"; it was removed since this operation started.', esc_html($id)));
+        }
+
+        if (null !== $expected_code_hash && ! hash_equals($expected_code_hash, hash('sha256', (string) ($snippet['code'] ?? '')))) {
+            throw new \RuntimeException('Refusing to write snippet: its code changed after it was checked. Re-read the snippet and try again.');
         }
 
         $snippet               = array_merge($snippet, $fields);

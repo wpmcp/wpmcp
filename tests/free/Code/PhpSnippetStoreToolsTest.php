@@ -400,6 +400,31 @@ class PhpSnippetStoreToolsTest extends \WP_UnitTestCase
         $this->assertSame('drifted', (new Get_Php_Snippet())->handle(['id' => $listed])['snippet']['name']);
     }
 
+    public function test_update_fields_refuses_when_the_code_is_not_the_code_the_caller_checked(): void
+    {
+        $id = $this->create('guarded', '<?php return 1;')['snippet']['id'];
+
+        try {
+            Php_Snippet_Store::update_fields(
+                $id,
+                ['status' => Php_Snippet_Store::STATUS_ACTIVE],
+                hash('sha256', '<?php return 2;')
+            );
+            $this->fail('A code-hash mismatch on the re-read record must abort the write.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('code changed', $e->getMessage());
+        }
+
+        $this->assertSame(Php_Snippet_Store::STATUS_INACTIVE, Php_Snippet_Store::get($id)['status']);
+
+        $out = Php_Snippet_Store::update_fields(
+            $id,
+            ['status' => Php_Snippet_Store::STATUS_ACTIVE],
+            hash('sha256', '<?php return 1;')
+        );
+        $this->assertSame(Php_Snippet_Store::STATUS_ACTIVE, $out['status']);
+    }
+
     // -----------------------------------------------------------------
     // the undo path cannot re-arm a snippet the exec gate would refuse
     // -----------------------------------------------------------------
@@ -424,7 +449,7 @@ class PhpSnippetStoreToolsTest extends \WP_UnitTestCase
         );
     }
 
-    public function test_rolling_back_a_deactivation_restores_active_when_the_exec_gate_is_open(): void
+    public function test_rolling_back_a_deactivation_never_re_activates_even_with_the_exec_gate_open(): void
     {
         $id = $this->create()['snippet']['id'];
         Php_Snippet_Store::set_status($id, Php_Snippet_Store::STATUS_ACTIVE);
@@ -435,11 +460,16 @@ class PhpSnippetStoreToolsTest extends \WP_UnitTestCase
         Php_Snippet_Guard::set_environment_override('development');
 
         try {
+            // An open exec gate is not the whole of the activation contract:
+            // activate-php-snippet is also pro, governance-toggled,
+            // identity-scoped and audited, and rollback-operation is none of
+            // those. So an undo never re-arms; re-activation goes back through
+            // the governed path.
             Rollback_Service::restore_operation($out['operation_id']);
             $this->assertSame(
-                Php_Snippet_Store::STATUS_ACTIVE,
+                Php_Snippet_Store::STATUS_INACTIVE,
                 Php_Snippet_Store::get($id)['status'],
-                'With the gate open the undo is exact: the clamp is a refusal, not a policy of always deactivating.'
+                'rollback-operation must never be a second door to activation.'
             );
         } finally {
             Php_Snippet_Guard::set_environment_override(null);
@@ -539,6 +569,20 @@ class PhpSnippetStoreToolsTest extends \WP_UnitTestCase
     public function test_the_snippet_option_is_denylisted_for_the_generic_option_tools(): void
     {
         $this->assertTrue(Option_Guard::is_denylisted(Php_Snippet_Store::OPTION_NAME));
+    }
+
+    /**
+     * option_name is matched by MySQL under a case-insensitive collation and
+     * WordPress trims it, so a case or whitespace variant reaches the very
+     * same row. The denylist must fold the name the way the database does.
+     */
+    public function test_a_case_or_whitespace_variant_of_the_snippet_option_is_denylisted_too(): void
+    {
+        $this->assertTrue(Option_Guard::is_denylisted('WPMCP_PHP_SNIPPETS'));
+        $this->assertTrue(Option_Guard::is_denylisted('  Wpmcp_Php_Snippets '));
+        $this->assertTrue(Option_Guard::is_denylisted("wpmcp_php_snipp\u{00E9}ts"), 'An accent variant matches the same row under the default collation.');
+        $this->assertTrue(Option_Guard::is_denylisted('SITEURL'), 'The fold applies to every exact-name entry, not only the snippet store.');
+        $this->assertFalse(Option_Guard::is_denylisted('blogname'));
     }
 
     public function test_activation_is_listed_as_an_rce_class_gated_ability(): void

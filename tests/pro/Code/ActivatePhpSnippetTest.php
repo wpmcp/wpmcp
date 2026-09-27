@@ -156,7 +156,7 @@ class ActivatePhpSnippetTest extends \WP_UnitTestCase
             (new Activate_Php_Snippet())->handle(['id' => $id]);
             $this->fail('Activating code that changed after validation must be refused.');
         } catch (\RuntimeException $e) {
-            $this->assertStringContainsString('changed after it was validated', $e->getMessage());
+            $this->assertStringContainsString('code changed after it was', $e->getMessage());
         } finally {
             remove_filter('option_' . Php_Snippet_Store::OPTION_NAME, $swap);
         }
