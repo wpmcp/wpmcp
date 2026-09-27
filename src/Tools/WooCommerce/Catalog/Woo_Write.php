@@ -137,7 +137,8 @@ class Woo_Write
 
         // Pass 2: apply, one snapshot per item, one session for the batch.
         if ('' === $session_id) {
-            $session_id = 'woo-batch-' . wp_generate_uuid4();
+            // A bare UUID: the snapshot table's session_id column is CHAR(36).
+            $session_id = wp_generate_uuid4();
         }
 
         $results = [];

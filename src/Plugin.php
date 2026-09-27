@@ -6151,7 +6151,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-ops',
             'pro',
-            'List the deep WooCommerce operations catalog: named store ops (domain-namespaced, e.g. products.list, orders.get, products.update) mapped to internal wc/v3 REST routes, grouped by domain (products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks, settings), each with mode (read, write or destructive), method, route template, required path params, the capability it requires, whether it needs confirm:true, whether it is enabled on this site, its snapshot type and whether rollback fully undoes it, and a one-line summary. Reports available:false when WooCommerce is inactive. Drive woo-read (read ops) and woo-write (write and destructive ops) with these op names. Read-only',
+            'List the deep WooCommerce operations catalog: named ops (e.g. products.list, products.update) over internal wc/v3 routes, grouped by domain (products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks, settings), each with mode (read, write, destructive), route, path params, capability, confirm requirement, enabled state, snapshot type and whether rollback fully undoes it. Reports available:false when WooCommerce is inactive. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6166,7 +6166,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-read',
             'pro',
-            'Execute one read op from the deep WooCommerce operations catalog (see woo-ops) as an internal wc/v3 REST request dispatched in-process as the current user, so the store endpoint\'s own permission checks apply on top of the op\'s own capability (orders, notes and refunds need edit_shop_orders; customers need list_users). Each op can be switched off on its own by governance, as wpmcp/woo-{op} with dots as dashes (e.g. wpmcp/woo-orders-list). Path params fill the route template; all other params pass through as the endpoint\'s query params. Webhook signing secrets are redacted. Returns the endpoint\'s status and the RAW wc/v3 body, which for order and customer ops includes personal data; list ops are capped at 50 records per call and default to 20. Read-only: only read ops dispatch here',
+            'Run one read op from the WooCommerce catalog (see woo-ops) as an in-process wc/v3 request as the current user: the endpoint\'s own permission checks apply on top of the op\'s capability and per-op governance (wpmcp/woo-{op}, dots as dashes). Path params fill the route; other params are query params. Returns the RAW wc/v3 body (order and customer ops include personal data; webhook secrets redacted); list ops default to 20 records, max 50. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6183,7 +6183,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-write',
             'pro',
-            'Execute one write or destructive op from the deep WooCommerce operations catalog (see woo-ops), or a batch of up to 25, as internal wc/v3 REST requests dispatched in-process as the current user, so the store endpoint\'s own permission checks apply on top of the op\'s own capability and per-op governance. Path params fill the route template; all other params are the endpoint\'s body (or, for deletes, query) params. Every change to existing state (product, variation, coupon, customer and setting updates, deletes, refunds) is snapshotted first and returns an operation_id for rollback-operation; creates return recoverable:false and the op that removes what they made; refunds.create is snapshotted but reported recoverable:false because a refund cannot be un-issued, and it never calls the payment gateway unless api_refund:true is passed. Destructive ops (deletes, refunds) are disabled until the site enables them with the wpmcp_woo_op_enabled filter and always need confirm:true. For a batch pass batch:[{op, params}...] instead of op: every item is checked first and the whole batch is refused if any item fails a check; items then run one by one under one session_id, so rollback-session undoes the whole batch',
+            'Run one write or destructive op from the WooCommerce catalog (see woo-ops), or a batch of up to 25, as in-process wc/v3 requests as the current user, with per-op capability and governance. Path params fill the route; other params are the body (query for deletes). Changes to existing state are snapshotted first and return an operation_id for rollback-operation; creates return recoverable:false and an undo_op. refunds.create is recoverable:false and only calls the gateway with api_refund:true. Destructive ops (deletes, refunds) are off until enabled with the wpmcp_woo_op_enabled filter and need confirm:true. batch:[{op, params}] checks every item first and refuses the whole batch on any failure, then runs items under one session_id for rollback-session',
             [
                 'type'       => 'object',
                 'properties' => [
