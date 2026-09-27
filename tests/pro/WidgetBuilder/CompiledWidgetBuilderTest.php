@@ -6,6 +6,7 @@ use WPMCP\Pro\Gate;
 use WPMCP\Tools\WidgetBuilder\Create_Custom_Widget;
 use WPMCP\Tools\WidgetBuilder\Delete_Custom_Widget;
 use WPMCP\Tools\WidgetBuilder\Set_Widget_Status;
+use WPMCP\Tools\WidgetBuilder\Validate_Widget_Spec;
 use WPMCP\Tools\WidgetBuilder\Widget_Spec;
 use WPMCP\Tools\WidgetBuilder\Compiler\Compile_Custom_Widget;
 use WPMCP\Tools\WidgetBuilder\Compiler\Compiled_Widget_Manifest;
@@ -156,7 +157,9 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
         $source = "<?php\nclass X\n{\n    protected function render()\n    {\n"
             . "        \$settings = \$this->get_settings_for_display();\n"
             . "        echo '<p>';\n"
-            . "        echo esc_html((string) (\$settings['a'] ?? ''));\n"
+            . "        \$value = \$settings['a'] ?? '';\n"
+            . "        \$value = is_array(\$value) ? (\$value['url'] ?? '') : \$value;\n"
+            . "        echo esc_html(is_scalar(\$value) ? (string) \$value : '');\n"
             . "        echo '</p>';\n    }\n}\n";
         $this->assertTrue(Generated_Code_Lint::check($source));
     }
@@ -171,6 +174,102 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
         $source = "<?php\nclass X\n{\n    const SYSTEM = 1;\n"
             . "    public function rename()\n    {\n        return \$this->copy;\n    }\n}\n";
         $this->assertTrue(Generated_Code_Lint::check($source));
+    }
+
+    // ---- validate-spec: malformed / hostile corpus, no side effects --------
+
+    /**
+     * Every spec here must be refused by validate-widget-spec with a clean
+     * WP_Error-shaped answer (never a PHP warning, never "Array"), and the
+     * refusal must have no side effects: no post, no option, no sandbox
+     * directory, no snapshot. create-custom-widget must refuse it too, so a
+     * hostile spec can never reach the store the compiler reads from.
+     *
+     * @dataProvider malformed_specs
+     * @param mixed $spec
+     */
+    public function test_validate_spec_rejects_malformed_and_hostile_specs_without_side_effects(string $label, $spec): void
+    {
+        global $wpdb;
+        $count = static function (string $table) use ($wpdb): int {
+            return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}"); // phpcs:ignore WordPress.DB
+        };
+        $posts   = $count($wpdb->posts);
+        $options = $count($wpdb->options);
+
+        $out = (new Validate_Widget_Spec())->handle(['spec' => $spec]);
+        $this->assertFalse($out['valid'], "{$label}: validate-widget-spec accepted it");
+        $this->assertNotSame('', (string) ($out['code'] ?? ''), "{$label}: refusal needs an error code");
+        $this->assertStringNotContainsString('Array', (string) ($out['error'] ?? ''), "{$label}: an array leaked into the message");
+
+        $created = (new Create_Custom_Widget())->handle(['spec' => $spec]);
+        $this->assertInstanceOf(\WP_Error::class, $created, "{$label}: create-custom-widget stored it");
+
+        $this->assertSame($posts, $count($wpdb->posts), "{$label}: a post was written");
+        $this->assertSame($options, $count($wpdb->options), "{$label}: an option was written");
+        $this->assertFalse(get_option(Compiled_Widget_Manifest::OPTION, false), "{$label}: the manifest was touched");
+        $this->assertDirectoryDoesNotExist($this->sandbox, "{$label}: the sandbox was created");
+    }
+
+    public function malformed_specs(): array
+    {
+        $base = function (array $override = [], ?array $control = null): array {
+            $spec = [
+                'name'     => 'ok',
+                'title'    => 'OK',
+                'controls' => [$control ?? ['name' => 'a', 'type' => 'text', 'label' => 'A', 'default' => '']],
+                'template' => '<p>{{a}}</p>',
+            ];
+            return array_merge($spec, $override);
+        };
+        $ctl = static function (array $override): array {
+            return array_merge(['name' => 'a', 'type' => 'text', 'label' => 'A', 'default' => ''], $override);
+        };
+        $many = [];
+        for ($i = 0; $i <= Widget_Spec::MAX_CONTROLS; $i++) {
+            $many[] = ['name' => 'c' . $i, 'type' => 'text', 'label' => 'C'];
+        }
+
+        return [
+            'spec is a string'                 => ['spec string', '<?php system("id");'],
+            'empty spec'                       => ['empty', []],
+            'title is an array'                => ['title array', $base(['title' => ['OK']])],
+            'title is only whitespace'         => ['title blank', $base(['title' => "  \n "])],
+            'title is too long'                => ['title long', $base(['title' => str_repeat('t', Widget_Spec::MAX_TEXT + 1)])],
+            'name is an array'                 => ['name array', $base(['name' => ['ok']])],
+            'icon is an array'                 => ['icon array', $base(['icon' => ['eicon-code']])],
+            'icon breaks out of the attribute' => ['icon attr', $base(['icon' => 'eicon-code" onload="alert(1)'])],
+            'keywords is a string'             => ['keywords string', $base(['keywords' => 'promo'])],
+            'keyword is nested'                => ['keyword nested', $base(['keywords' => [['promo']]])],
+            'too many keywords'                => ['keywords many', $base(['keywords' => array_fill(0, Widget_Spec::MAX_KEYWORDS + 1, 'k')])],
+            'controls is a string'             => ['controls string', $base(['controls' => 'text'])],
+            'controls is empty'                => ['controls empty', $base(['controls' => []])],
+            'too many controls'                => ['controls many', $base(['controls' => $many])],
+            'control is a string'              => ['control string', $base(['controls' => ['text']])],
+            'control name is code'             => ['name code', $base([], $ctl(['name' => "a'];system('id');//"]))],
+            'control name is an array'         => ['name arr', $base([], $ctl(['name' => ['a']]))],
+            'control name is too long'         => ['name long', $base([], $ctl(['name' => str_repeat('a', Widget_Spec::MAX_NAME + 1)]))],
+            'control names differ only by case' => ['name case', $base(['controls' => [$ctl(['name' => 'A']), $ctl(['name' => 'a'])]])],
+            'control type is an array'         => ['type arr', $base([], $ctl(['type' => ['text']]))],
+            'control type is raw html'         => ['type html', $base([], $ctl(['type' => 'html']))],
+            'control type is eval'             => ['type eval', $base([], $ctl(['type' => 'eval']))],
+            'control label is an array'        => ['label arr', $base([], $ctl(['label' => ['A']]))],
+            'control label is too long'        => ['label long', $base([], $ctl(['label' => str_repeat('l', Widget_Spec::MAX_TEXT + 1)]))],
+            'control default is an array'      => ['default arr', $base([], $ctl(['default' => ['url' => 'x']]))],
+            'control default is too long'      => ['default long', $base([], $ctl(['default' => str_repeat('d', Widget_Spec::MAX_DEFAULT + 1)]))],
+            'template is an array'             => ['template arr', $base(['template' => ['<p>{{a}}</p>']])],
+            'template is only whitespace'      => ['template blank', $base(['template' => " \t\n"])],
+            'template is too large'            => ['template big', $base(['template' => str_repeat('x', Widget_Spec::MAX_TEMPLATE + 1)])],
+        ];
+    }
+
+    public function test_limits_leave_room_for_a_realistic_spec(): void
+    {
+        $spec = $this->valid_spec();
+        $spec['keywords'] = array_fill(0, Widget_Spec::MAX_KEYWORDS, 'k');
+        $spec['template'] = str_repeat('x', Widget_Spec::MAX_TEMPLATE - 20) . '{{heading}}';
+        $this->assertTrue(Widget_Spec::validate($spec));
+        $this->assertTrue((new Validate_Widget_Spec())->handle(['spec' => $spec])['valid']);
     }
 
     // ---- Widget_Compiler: emission is safe by construction ------------------
@@ -198,9 +297,23 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
 
         // The fallback is the control's declared default, exactly as
         // Widget_Renderer does it, so the two render paths cannot diverge.
-        $this->assertStringContainsString("echo esc_html((string) (\$settings['heading'] ?? 'Hi'));", $source);
-        $this->assertStringContainsString("echo wp_kses_post((string) (\$settings['body'] ?? ''));", $source);
-        $this->assertStringContainsString("echo esc_url((string) (\$settings['link'] ?? ''));", $source);
+        $this->assertStringContainsString("\$value = \$settings['heading'] ?? 'Hi';", $source);
+        $this->assertStringContainsString("\$value = \$settings['body'] ?? '';", $source);
+        $this->assertStringContainsString("\$value = \$settings['link'] ?? '';", $source);
+        $this->assertStringContainsString("echo esc_html(is_scalar(\$value) ? (string) \$value : '');", $source);
+        $this->assertStringContainsString("echo wp_kses_post(is_scalar(\$value) ? (string) \$value : '');", $source);
+        $this->assertStringContainsString("echo esc_url(is_scalar(\$value) ? (string) \$value : '');", $source);
+
+        // Every echo is either a single string literal or a declared escaper
+        // around the scalarized value; there is no third shape.
+        $escapers = implode('|', array_unique(array_column(Widget_Spec::CONTROL_TYPES, 'escaper')));
+        preg_match_all('/^\s*echo\s+(.*);$/m', $source, $echoes);
+        $this->assertNotEmpty($echoes[1]);
+        foreach ($echoes[1] as $expr) {
+            $literal = 1 === preg_match("/^'(?:[^'\\\\]|\\\\.)*'$/s", $expr);
+            $escaped = 1 === preg_match('/^(?:' . $escapers . ")\\(is_scalar\\(\\\$value\\) \\? \\(string\\) \\\$value : ''\\)$/", $expr);
+            $this->assertTrue($literal || $escaped, "unexpected echo shape: {$expr}");
+        }
         // No echo of a setting anywhere without an escaper around it.
         $this->assertSame(
             0,
@@ -632,17 +745,84 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
     }
 
     /**
+     * Elementor returns URL, MEDIA and ICONS control values as arrays, and
+     * Widget_Renderer reduces them to the documented member (link URL, image
+     * URL, icon class or svg file URL) while blanking arrays under every
+     * other type. The compiled class must do exactly the same, or a compiled
+     * widget prints the literal "Array" (and raises a notice) wherever the
+     * dynamic widget prints the URL.
+     *
+     * @dataProvider elementor_array_settings
+     */
+    public function test_compiled_render_unwraps_elementor_array_values_like_the_renderer(array $settings): void
+    {
+        $spec = [
+            'name'     => 'array-box',
+            'title'    => 'Array Box',
+            'controls' => [
+                ['name' => 'heading', 'type' => 'text', 'label' => 'Heading', 'default' => 'Hi'],
+                ['name' => 'link', 'type' => 'url', 'label' => 'Link', 'default' => ''],
+                ['name' => 'photo', 'type' => 'image', 'label' => 'Photo', 'default' => ''],
+                ['name' => 'glyph', 'type' => 'icon', 'label' => 'Glyph', 'default' => ''],
+            ],
+            'template' => '<h3>{{heading}}</h3><a href="{{link}}"><img src="{{photo}}"><i class="{{glyph}}"></i></a>',
+        ];
+        $id     = $this->create($spec);
+        $source = Widget_Compiler::compile(Widget_Spec::normalize($spec), $id);
+        $this->assertIsString($source);
+        $this->assertTrue(Generated_Code_Lint::check($source));
+
+        $dynamic  = \WPMCP\Tools\WidgetBuilder\Widget_Renderer::render(Widget_Spec::normalize($spec), $settings);
+        $compiled = $this->render_compiled($source, $id, $settings);
+
+        $this->assertStringNotContainsString('Array', $compiled);
+        $this->assertSame($dynamic, $compiled);
+    }
+
+    public function elementor_array_settings(): array
+    {
+        return [
+            'url, media and font icon arrays' => [[
+                'link'  => ['url' => 'https://example.com/go', 'is_external' => true, 'nofollow' => ''],
+                'photo' => ['url' => 'https://example.com/cat.png', 'id' => 12],
+                'glyph' => ['value' => 'fas fa-star', 'library' => 'fa-solid'],
+            ]],
+            'svg icon is one level deeper' => [[
+                'glyph' => ['value' => ['url' => 'https://example.com/star.svg', 'id' => 7], 'library' => 'svg'],
+            ]],
+            'array under a text control is blanked, not promoted' => [[
+                'heading' => ['url' => 'https://example.com/leak'],
+            ]],
+            'nested junk renders empty' => [[
+                'heading' => ['unexpected' => ['deep']],
+                'link'    => ['url' => ['nested']],
+                'glyph'   => ['value' => ['url' => ['deeper']]],
+            ]],
+            'hostile scalar values are still escaped' => [[
+                'heading' => '<script>alert(1)</script>',
+                'link'    => 'javascript:alert(1)',
+                'glyph'   => '" onmouseover="alert(1)',
+            ]],
+            'scalars of other types' => [[
+                'heading' => 42,
+                'link'    => null,
+                'glyph'   => true,
+            ]],
+        ];
+    }
+
+    /**
      * Evaluate the emitted render body in isolation (no Elementor), which is
      * the only way to compare the two render paths byte for byte.
      */
-    private function render_compiled(string $source, int $id): string
+    private function render_compiled(string $source, int $id, array $settings = []): string
     {
         $start = strpos($source, 'protected function render()');
         $this->assertNotFalse($start);
         $body = substr($source, (int) strpos($source, '{', $start) + 1);
         $body = substr($body, 0, (int) strrpos($body, '}'));
         $body = substr($body, 0, (int) strrpos($body, '}'));
-        $body = str_replace('$this->get_settings_for_display()', '[]', $body);
+        $body = str_replace('$this->get_settings_for_display()', var_export($settings, true), $body);
 
         ob_start();
         eval($body);
