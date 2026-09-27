@@ -46,6 +46,10 @@ class Site_Archive_Builder
         'upgrade',
         'upgrade-temp-backup',
         'wp-personal-data-exports',
+        // Restore staging and the wp-content trees a files restore replaced
+        // (Restore_Files::DIR_NAME): archiving them would nest every
+        // previous site inside the next backup.
+        'wpmcp-restore',
     ];
 
     /**

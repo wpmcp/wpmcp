@@ -1,8 +1,8 @@
 # Site backup archive format (v1)
 
-Status: phase 1 shipped (backup engine). Restore, migration and local-live
-sync build on this format and are specified in the phased issues that
-reference this document.
+Status: phase 1 shipped (backup engine), and in-place restore (issue #190,
+see "Restore" below). Migration and local-live sync build on this format
+and are specified in the phased issues that reference this document.
 
 ## Why a format at all
 
@@ -155,3 +155,45 @@ It walks the decoded structure instead, and:
 - replaces the plain, JSON-escaped (`https:\/\/host`, as block editor content
   stores it), percent-encoded and scheme-relative forms, longest first, so a
   shorter form cannot consume a longer one and leave a half-rewritten URL.
+
+## Restore (issue #190)
+
+`restore-site-backup` consumes this format in place, on the same site. The
+order is the design:
+
+1. **Gate on manifest.json.** Unknown `format`, a newer `format_version`, a
+   scope without `db.sql`, a `table_prefix` or `multisite` mismatch, or a
+   manifest missing any of those fields is a refusal. A WordPress downgrade
+   and non-empty `blob_tables` are warnings.
+2. **Validate the whole dump before writing.** `db.sql` is extracted to a
+   scratch file (libzip streams it and checks its CRC; `getFromName()` on a
+   large dump is the memory blowup the dumper exists to avoid), its size is
+   compared with `database.bytes`, and every statement is parsed
+   (`Sql_Statement_Reader`, bounded, quote-aware) and held to
+   `Sql_Import_Policy`: only the `SET`, `DROP TABLE IF EXISTS`,
+   `CREATE TABLE` and literal-only `INSERT` statements this dumper writes,
+   only on this site's prefix, only on tables the manifest lists. A dump
+   that ends mid-statement, or a statement over `max_allowed_packet`, is
+   refused here. A dry run stops after this step.
+3. **Safety archive.** A `database`-scope archive of the current site, taken
+   through the normal backup job machinery. If it fails, nothing starts.
+4. **Maintenance mode** through `Maintenance_Guard`'s option, re-asserted as
+   soon as the dump has replaced the options table (the imported row is
+   what the site keeps afterwards).
+5. **Import statement by statement**, stopping at the first failure with
+   its ordinal, byte offset, kind, table and database error, then importing
+   the safety archive to put the site back. A progress file next to the
+   archives records where a restore is, so a request that dies part-way is
+   reported by the next call.
+6. **Afterwards:** the acting user's credentials (password hash, session
+   tokens, application passwords, their own MCP tokens) are written back so
+   they stay signed in, or the result says a re-login is needed; the backup
+   job history is kept (it describes files on disk); with `include_files`,
+   the wp-content tree staged under `wp-content/wpmcp-restore/` is swapped
+   in entry by entry with a journalled rollback, the replaced entries are
+   kept under `wp-content/wpmcp-restore/previous-*`, and the running plugin
+   plus the backup, export and file-backup directories are carried across.
+
+Dumps written before this change stored every `%` in the data as
+`$wpdb->prepare()`'s per-request placeholder token; `Db_Dumper` now removes
+it, and the importer converts the token back when it finds one.
