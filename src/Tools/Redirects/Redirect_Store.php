@@ -42,6 +42,14 @@ class Redirect_Store
     /** Object-cache group for the front-end lookup; see find_by_source_cached(). */
     public const CACHE_GROUP = 'wpmcp_redirects';
 
+    /**
+     * Most enabled redirects the front-end lookup will hold as one cached
+     * map. Above this the map would outgrow a typical object-cache item
+     * limit (memcached defaults to 1MB), so the lookup falls back to the
+     * live indexed query instead of caching a value that cannot be stored.
+     */
+    public const MAX_CACHED_REDIRECTS = 2000;
+
     public static function table_name(): string
     {
         global $wpdb;
@@ -60,9 +68,6 @@ class Redirect_Store
         global $wpdb;
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         update_option(self::DB_VERSION_OPTION, self::DB_VERSION, false);
-        // A (re)installed table may not hold what a persistent object cache
-        // remembers from before; start the front-end lookup cache over.
-        self::invalidate_cache();
         $table   = self::table_name();
         $charset = $wpdb->get_charset_collate();
         dbDelta("CREATE TABLE {$table} (
@@ -81,6 +86,11 @@ class Redirect_Store
             UNIQUE KEY source_path (source_path),
             KEY enabled (enabled)
         ) {$charset};");
+        // A (re)installed table may not hold what a persistent object cache
+        // remembers from before; start the front-end lookup cache over. Only
+        // after dbDelta(): bumped earlier, a concurrent request could cache
+        // an empty map under the new stamp while the table is still missing.
+        self::invalidate_cache();
     }
 
     /**
@@ -202,46 +212,136 @@ class Redirect_Store
     /** @return array<string,mixed>|null */
     public static function find_by_source(string $source_path): ?array
     {
+        return self::find_by_normalized_source(self::normalize_path($source_path));
+    }
+
+    /**
+     * The live indexed lookup behind find_by_source() and the over-cap
+     * fallback of find_by_source_cached(); $source must already be
+     * normalized.
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function find_by_normalized_source(string $source): ?array
+    {
         global $wpdb;
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table with no WP API. Deliberately live: this is the write-path lookup (clash checks, chain flattening, snapshots, rollback), which must see the row as it is now; the front-end matcher reads through find_by_source_cached() instead.
         $row = $wpdb->get_row(
-            $wpdb->prepare(
-                'SELECT * FROM %i WHERE source_path = %s',
-                self::table_name(),
-                self::normalize_path($source_path)
-            ),
+            $wpdb->prepare('SELECT * FROM %i WHERE source_path = %s', self::table_name(), $source),
             ARRAY_A
         );
         return $row ? self::cast($row) : null;
     }
 
     /**
-     * The front-end lookup, object-cached. Redirect_Handler runs on every
-     * front-end request, so this is the one repeated read against the table.
+     * The front-end lookup: the ENABLED redirect for a source path, or null.
+     * Redirect_Handler runs on every front-end request, so this is the one
+     * repeated read against the table.
      *
-     * The key carries the group's last_changed stamp, which every write in
-     * this class bumps (invalidate_cache()), as does
+     * The table is small and admin-curated, so the cache holds ONE entry per
+     * last_changed stamp: the map of every enabled normalized source_path to
+     * its row, looked up here in PHP. Caching per request path instead would
+     * write one key per distinct URL a crawler tries. Every write in this
+     * class bumps the stamp (invalidate_cache()), as does
      * Database_Guard::invalidate_caches() for the generic row tools, so a
-     * change is visible on the next request without tracking which source
-     * paths it touched (an update can rename the source). Misses are cached
-     * too: most requests match no redirect. record_hit() does not bump the
-     * stamp, so the cached row's hits/last_hit_at may lag; nothing on the
-     * redirect path reads them.
+     * change is visible on the next request, including a renamed source.
      *
+     * The cached rows carry only what the redirect decision reads: no
+     * hits/last_hit_at (record_hit() deliberately does not bump the stamp,
+     * so those would be stale), no notes or timestamps. Callers that need
+     * the full live row use find_by_source().
+     *
+     * A failed map query is never cached, so a transient database error or a
+     * table that does not exist yet cannot pin "no redirects" in a
+     * persistent cache. Above MAX_CACHED_REDIRECTS the map is not cached
+     * either (a marker is) and each lookup uses the live indexed query.
+     *
+     * @param bool $normalized Pass true when $source_path is already the
+     *                         output of normalize_path(), to skip redoing it.
      * @return array<string,mixed>|null
      */
-    public static function find_by_source_cached(string $source_path): ?array
+    public static function find_by_source_cached(string $source_path, bool $normalized = false): ?array
     {
-        $key   = 'source:' . md5(self::normalize_path($source_path)) . ':' . wp_cache_get_last_changed(self::CACHE_GROUP);
-        $found = false;
-        $hit   = wp_cache_get($key, self::CACHE_GROUP, false, $found);
-        if ($found && is_array($hit) && array_key_exists('row', $hit)) {
-            return $hit['row'];
+        $source = $normalized ? $source_path : self::normalize_path($source_path);
+        $map    = self::enabled_source_map();
+
+        if (null === $map) {
+            $row = self::find_by_normalized_source($source);
+            return ($row && $row['enabled']) ? self::lookup_view($row) : null;
         }
 
-        $row = self::find_by_source($source_path);
-        wp_cache_set($key, ['row' => $row], self::CACHE_GROUP, DAY_IN_SECONDS);
-        return $row;
+        return $map[ $source ] ?? null;
+    }
+
+    /**
+     * The cached map of enabled source_path => lookup row, or null when the
+     * lookup must go to the live query (map over the cap, or the map query
+     * failed).
+     *
+     * @return array<string, array<string,mixed>>|null
+     */
+    private static function enabled_source_map(): ?array
+    {
+        global $wpdb;
+
+        $key   = 'enabled_map:' . wp_cache_get_last_changed(self::CACHE_GROUP);
+        $found = false;
+        $hit   = wp_cache_get($key, self::CACHE_GROUP, false, $found);
+        if ($found && is_array($hit)) {
+            if (! empty($hit['overflow'])) {
+                return null;
+            }
+            if (isset($hit['map']) && is_array($hit['map'])) {
+                return $hit['map'];
+            }
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table with no WP API. This is the cache fill: the result is stored with wp_cache_set() below under the last_changed stamp.
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                'SELECT id, source_path, target_url, target_post_id, status_code, enabled FROM %i WHERE enabled = 1 ORDER BY id ASC LIMIT %d',
+                self::table_name(),
+                self::MAX_CACHED_REDIRECTS + 1
+            ),
+            ARRAY_A
+        );
+
+        if ('' !== (string) $wpdb->last_error || ! is_array($rows)) {
+            return null; // Not cached: a failed read is not an empty table.
+        }
+
+        if (count($rows) > self::MAX_CACHED_REDIRECTS) {
+            wp_cache_set($key, ['overflow' => true], self::CACHE_GROUP, DAY_IN_SECONDS);
+            return null;
+        }
+
+        // Keyed by the normalized form, which is what writes through this
+        // class store anyway; a row written raw by the generic database
+        // tools still matches. On a collision the lowest id wins.
+        $map = [];
+        foreach ($rows as $row) {
+            $map[ self::normalize_path((string) $row['source_path']) ] ??= self::lookup_view($row);
+        }
+        wp_cache_set($key, ['map' => $map], self::CACHE_GROUP, DAY_IN_SECONDS);
+        return $map;
+    }
+
+    /**
+     * The subset of a row the redirect decision reads.
+     *
+     * @param array<string,mixed> $row
+     * @return array<string,mixed>
+     */
+    private static function lookup_view(array $row): array
+    {
+        return [
+            'id'             => (int) $row['id'],
+            'source_path'    => (string) $row['source_path'],
+            'target_url'     => (string) $row['target_url'],
+            'target_post_id' => (int) $row['target_post_id'],
+            'status_code'    => (int) $row['status_code'],
+            'enabled'        => (bool) (int) $row['enabled'],
+        ];
     }
 
     /**

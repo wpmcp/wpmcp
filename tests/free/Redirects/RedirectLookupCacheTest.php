@@ -10,12 +10,13 @@ use WPMCP\Tools\Redirects\Redirect_Store;
  * The front-end redirect lookup is object-cached (issue #182).
  *
  * Redirect_Handler runs on every front-end request, so its source-path lookup
- * is the one repeated read against wpmcp_redirects. It is cached under a
- * last_changed key that every Redirect_Store write bumps, so any change made
- * through the store (tools, rollback) or through the generic database tools
- * (Database_Guard::invalidate_caches) is visible on the next request. The
- * write-path lookup (find_by_source) stays a live read because it feeds
- * clash checks, snapshots and rollback.
+ * is the one repeated read against wpmcp_redirects. The cache holds one map of
+ * the enabled redirects per last_changed stamp, which every Redirect_Store
+ * write bumps, so any change made through the store (tools, rollback),
+ * through the generic database tools (Database_Guard::invalidate_caches) or
+ * by a reinstall is visible on the next request. The write-path lookup
+ * (find_by_source) stays a live read because it feeds clash checks,
+ * snapshots and rollback.
  */
 class RedirectLookupCacheTest extends \WP_UnitTestCase
 {
@@ -164,5 +165,104 @@ class RedirectLookupCacheTest extends \WP_UnitTestCase
         $before = $wpdb->num_queries;
         Redirect_Store::find_by_source_cached('/old');
         $this->assertSame($before, $wpdb->num_queries);
+    }
+
+    public function test_distinct_paths_share_one_cached_map(): void
+    {
+        global $wpdb;
+        Redirect_Store::insert(['source_path' => '/a', 'target_url' => '/x']);
+        Redirect_Store::insert(['source_path' => '/b', 'target_url' => '/y']);
+
+        Redirect_Store::find_by_source_cached('/a');
+        $before = $wpdb->num_queries;
+
+        $this->assertSame('/y', Redirect_Store::find_by_source_cached('/b')['target_url']);
+        $this->assertNull(Redirect_Store::find_by_source_cached('/never-seen-before'));
+        $this->assertNull(Redirect_Store::find_by_source_cached('/another-crawler-probe'));
+        $this->assertSame($before, $wpdb->num_queries);
+    }
+
+    public function test_an_already_normalized_path_is_looked_up_as_given(): void
+    {
+        Redirect_Store::insert(['source_path' => '/old', 'target_url' => '/new']);
+
+        $this->assertSame('/new', Redirect_Store::find_by_source_cached('/old', true)['target_url']);
+    }
+
+    public function test_a_disabled_redirect_is_not_in_the_cached_lookup(): void
+    {
+        Redirect_Store::insert(['source_path' => '/off', 'target_url' => '/new', 'enabled' => 0]);
+
+        $this->assertNull(Redirect_Store::find_by_source_cached('/off'));
+        $this->assertNotNull(Redirect_Store::find_by_source('/off'));
+    }
+
+    public function test_the_cached_row_carries_no_hit_telemetry(): void
+    {
+        Redirect_Store::insert(['source_path' => '/old', 'target_url' => '/new', 'status_code' => 302]);
+
+        $row = Redirect_Store::find_by_source_cached('/old');
+
+        $this->assertArrayNotHasKey('hits', $row);
+        $this->assertArrayNotHasKey('last_hit_at', $row);
+        $this->assertSame(302, $row['status_code']);
+        $this->assertTrue($row['enabled']);
+    }
+
+    public function test_a_failed_lookup_query_is_not_cached_as_a_miss(): void
+    {
+        global $wpdb;
+        $table = Redirect_Store::table_name();
+
+        // Point the lookup's SELECT at a table that does not exist, the way a
+        // transient database error or a not-yet-installed table would fail.
+        $break = static function (string $query) use ($table): string {
+            if (0 === stripos(ltrim($query), 'SELECT') && false !== strpos($query, $table)) {
+                return str_replace($table, $table . '_missing', $query);
+            }
+            return $query;
+        };
+        add_filter('query', $break);
+        $suppress = $wpdb->suppress_errors(true);
+        try {
+            $this->assertNull(Redirect_Store::find_by_source_cached('/old'));
+        } finally {
+            $wpdb->suppress_errors($suppress);
+            remove_filter('query', $break);
+        }
+
+        // Written behind the store's back, so nothing bumps the stamp: only a
+        // lookup that re-queries can see it.
+        $wpdb->insert($table, [
+            'source_path' => '/old',
+            'target_url'  => '/new',
+            'created_at'  => current_time('mysql', true),
+            'updated_at'  => current_time('mysql', true),
+        ]);
+
+        $this->assertSame('/new', Redirect_Store::find_by_source_cached('/old')['target_url']);
+    }
+
+    public function test_install_retires_the_cached_lookup(): void
+    {
+        global $wpdb;
+        $this->assertNull(Redirect_Store::find_by_source_cached('/old'));
+
+        $wpdb->insert(Redirect_Store::table_name(), [
+            'source_path' => '/old',
+            'target_url'  => '/new',
+            'created_at'  => current_time('mysql', true),
+            'updated_at'  => current_time('mysql', true),
+        ]);
+        // The schema already matches; keep dbDelta from issuing any DDL,
+        // which would implicitly commit this test's isolation transaction.
+        add_filter('dbdelta_queries', '__return_empty_array');
+        try {
+            Redirect_Store::install();
+        } finally {
+            remove_filter('dbdelta_queries', '__return_empty_array');
+        }
+
+        $this->assertSame('/new', Redirect_Store::find_by_source_cached('/old')['target_url']);
     }
 }
