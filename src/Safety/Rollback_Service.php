@@ -331,6 +331,35 @@ class Rollback_Service
     }
 
     /**
+     * Every object_type apply_snapshot() below actually knows how to restore.
+     * List_Operations reads this rather than keeping its own copy: the copy
+     * had gone stale for six object types at once, so every one of those
+     * operations was reported to agents (and to the audit-log screen's
+     * Restore button) as un-rollbackable while the tools that wrote them
+     * reported recoverable: true. Add a branch below, get the listing for
+     * free.
+     *
+     * @return string[]
+     */
+    public static function restorable_object_types(): array
+    {
+        return [
+            'post',
+            'option',
+            'user',
+            'comment',
+            'wc_order',
+            'db_rows',
+            'redirect',
+            'term',
+            'php_snippet',
+            'page_build',
+            'media_import',
+            'elementor_global_classes',
+        ];
+    }
+
+    /**
      * Restore an object to the exact state captured in $snapshot.
      *
      * For 'post' objects this must be a FULL restore, not an additive merge:
@@ -376,35 +405,6 @@ class Rollback_Service
      * again. Every other object type, and posts without a 'files' key,
      * never reach that branch, so this is purely additive.
      */
-    /**
-     * Every object_type apply_snapshot() below actually knows how to restore.
-     * List_Operations reads this rather than keeping its own copy: the copy
-     * had gone stale for six object types at once, so every one of those
-     * operations was reported to agents (and to the audit-log screen's
-     * Restore button) as un-rollbackable while the tools that wrote them
-     * reported recoverable: true. Add a branch below, get the listing for
-     * free.
-     *
-     * @return string[]
-     */
-    public static function restorable_object_types(): array
-    {
-        return [
-            'post',
-            'option',
-            'user',
-            'comment',
-            'wc_order',
-            'db_rows',
-            'redirect',
-            'term',
-            'php_snippet',
-            'page_build',
-            'media_import',
-            'elementor_global_classes',
-        ];
-    }
-
     public static function apply_snapshot(array $snapshot): void
     {
         if ('option' === $snapshot['object_type']) {

@@ -9,6 +9,7 @@ use WPMCP\Tools\Code\Activate_Php_Snippet;
 use WPMCP\Tools\Code\Create_Php_Snippet;
 use WPMCP\Tools\Code\Php_Snippet_Guard;
 use WPMCP\Tools\Code\Php_Snippet_Store;
+use WPMCP\Tools\Code\Run_Php_Snippet;
 use WPMCP\Tools\Code\Update_Php_Snippet;
 
 /**
@@ -256,6 +257,90 @@ class ActivatePhpSnippetTest extends \WP_UnitTestCase
 
         $names = array_map(fn ($e) => $e['ability'] ?? '', $entries);
         $this->assertContains('wpmcp/activate-php-snippet', $names);
+    }
+
+    // -----------------------------------------------------------------
+    // execution gates unchanged and shared with run-php-snippet
+    // -----------------------------------------------------------------
+
+    /** The refusal message a surface throws, or null when it did not refuse at the gate. */
+    private function refusal_of(callable $call): ?string
+    {
+        try {
+            $call();
+        } catch (\RuntimeException $e) {
+            return $e->getMessage();
+        }
+
+        return null;
+    }
+
+    private function runner_that_must_not_evaluate(): Run_Php_Snippet
+    {
+        return new Run_Php_Snippet(function (): void {
+            $this->fail('A closed execution gate must refuse before anything is evaluated.');
+        });
+    }
+
+    /**
+     * @return array<string, array{0: bool, 1: string}>
+     */
+    public static function closed_gate_provider(): array
+    {
+        return [
+            'execution disabled'              => [false, 'development'],
+            'enabled but on production'       => [true, 'production'],
+            'enabled but environment unknown' => [true, ''],
+        ];
+    }
+
+    /**
+     * @dataProvider closed_gate_provider
+     */
+    public function test_activation_and_run_php_snippet_refuse_identically(bool $enabled, string $environment): void
+    {
+        $id = $this->stored_id();
+        if ($enabled) {
+            $this->enable_exec();
+        }
+        Php_Snippet_Guard::set_environment_override($environment);
+
+        $run      = $this->refusal_of(fn () => $this->runner_that_must_not_evaluate()->handle(['code' => '<?php return 1;']));
+        $activate = $this->refusal_of(fn () => (new Activate_Php_Snippet())->handle(['id' => $id]));
+
+        $this->assertNotNull($run, 'run-php-snippet must still refuse when the gate is closed.');
+        $this->assertSame($run, $activate, 'Activation must clear exactly the chain run-php-snippet clears, with the same refusal.');
+        $this->assertSame(Php_Snippet_Store::STATUS_INACTIVE, Php_Snippet_Store::get($id)['status']);
+    }
+
+    public function test_run_php_snippet_gate_messages_are_unchanged(): void
+    {
+        $this->assertStringStartsWith(
+            'PHP execution is disabled.',
+            (string) $this->refusal_of(fn () => $this->runner_that_must_not_evaluate()->handle(['code' => '<?php return 1;']))
+        );
+
+        $this->enable_exec();
+        Php_Snippet_Guard::set_environment_override('production');
+
+        $this->assertStringStartsWith(
+            'PHP execution is refused on this environment.',
+            (string) $this->refusal_of(fn () => $this->runner_that_must_not_evaluate()->handle(['code' => '<?php return 1;']))
+        );
+    }
+
+    public function test_an_active_stored_snippet_does_not_open_the_run_gate(): void
+    {
+        $this->enable_exec();
+        $id = $this->stored_id();
+        (new Activate_Php_Snippet())->handle(['id' => $id]);
+        remove_all_filters('wpmcp_allow_php_exec');
+
+        $this->assertSame(Php_Snippet_Store::STATUS_ACTIVE, Php_Snippet_Store::get($id)['status']);
+        $this->assertStringStartsWith(
+            'PHP execution is disabled.',
+            (string) $this->refusal_of(fn () => $this->runner_that_must_not_evaluate()->handle(['code' => Php_Snippet_Store::get($id)['code']]))
+        );
     }
 
     // -----------------------------------------------------------------
