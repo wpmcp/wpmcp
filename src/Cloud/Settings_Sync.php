@@ -4,6 +4,7 @@ namespace WPMCP\Cloud;
 
 use WPMCP\Connect\Exposure;
 use WPMCP\Governance\Governance;
+use WPMCP\Identity\Identity_Store;
 use WPMCP\MCP\Tool_Exposure;
 use WPMCP\Pro\Gate;
 use WPMCP\Safety\Safe_Mutation;
@@ -18,8 +19,8 @@ if (! defined('ABSPATH')) {
  * Settings sync over a curated allowlist (issue #135, phase B step 2).
  *
  * The payload is the site's PERSISTED governance posture: the ability/domain/
- * operation toggle maps, the MCP exposure switch, the tool-exposure mode, and
- * the skills switch. Every entry is the ::OPTION constant of the class that
+ * operation toggle maps, the MCP exposure switch, the tool-exposure mode, the
+ * skills switch, and the scoped identities minus secrets. Every entry is the ::OPTION constant of the class that
  * owns the state, so export() reads something real and apply() writes
  * something a subsequent request actually consults.
  *
@@ -29,9 +30,16 @@ if (! defined('ABSPATH')) {
  *    apply_filters() hooks with no stored option behind them: they live in a
  *    mu-plugin or wp-config on each site by design, and a cloud payload has no
  *    way to set them. Replicating them is a deployment concern, not a sync one.
- *  - Anything secret-bearing: identities, connection passwords, OAuth tokens,
- *    stock/API keys. They are absent from the allowlist by construction, and
+ *  - Anything secret-bearing: connection passwords, OAuth tokens, stock/API
+ *    keys. They are absent from the allowlist by construction, and
  *    Option_Guard::is_denylisted() is re-checked on write as a second fence.
+ *    Identities DO sync, but only as their scope records: every record is
+ *    projected onto exactly the fields Identity_Store::create() writes (name,
+ *    domains, operations, abilities, mode, exposure) on both export and apply,
+ *    so a field someone stuffed into the option (a password, a token) never
+ *    leaves the source site and never lands on the target. Which credential
+ *    maps to which identity is the wpmcp_current_identity filter's business,
+ *    per site, and is not part of the posture.
  *
  * apply() MERGES rather than replaces, and it narrows rather than widens: the
  * governance toggle map is merged per dimension (see coerce_governance()) and a
@@ -60,7 +68,11 @@ class Settings_Sync
         Tool_Exposure::OPTION => 'exposure_mode',
         Exposure::OPTION      => 'onoff_flag',
         Skills_Module::OPTION => 'checkbox_flag',
+        Identity_Store::OPTION => 'identities',
     ];
+
+    /** The only identity fields that may cross sites; see the class docblock. */
+    private const IDENTITY_FIELDS = ['name', 'domains', 'operations', 'abilities', 'mode', 'exposure'];
 
     /**
      * Export the current governance posture as an allowlisted key => value map.
@@ -75,9 +87,13 @@ class Settings_Sync
         $sentinel = new \stdClass();
         foreach (array_keys(self::ALLOWLIST) as $option) {
             $value = get_option($option, $sentinel);
-            if ($value !== $sentinel) {
-                $payload[$option] = $value;
+            if ($value === $sentinel) {
+                continue;
             }
+            if (Identity_Store::OPTION === $option) {
+                $value = self::project_identities($value);
+            }
+            $payload[$option] = $value;
         }
         return $payload;
     }
@@ -95,17 +111,9 @@ class Settings_Sync
      */
     public static function apply(array $payload, string $session_id = 'default')
     {
-        if (! Gate::is_pro()) {
-            return new \WP_Error(
-                'cloud_settings_sync_pro_only',
-                'Applying a synced settings posture is a paid WP MCP Cloud feature.'
-            );
-        }
-        if (! current_user_can('manage_options')) {
-            return new \WP_Error(
-                'cloud_settings_sync_forbidden',
-                'Applying a synced settings posture requires the manage_options capability.'
-            );
+        $denied = self::entitlement_error();
+        if (null !== $denied) {
+            return $denied;
         }
 
         $applied       = [];
@@ -170,6 +178,29 @@ class Settings_Sync
         ];
     }
 
+    /**
+     * The paid-cloud entitlement plus the capability, checked before any sync
+     * work (push, pull or apply) so a site without it never even talks to the
+     * cloud about settings.
+     */
+    public static function entitlement_error(): ?\WP_Error
+    {
+        if (! Gate::is_pro()) {
+            return new \WP_Error(
+                'cloud_settings_sync_pro_only',
+                'Settings sync is a paid WP MCP Cloud feature.'
+            );
+        }
+        if (! current_user_can('manage_options')) {
+            return new \WP_Error(
+                'cloud_settings_sync_forbidden',
+                'Settings sync requires the manage_options capability.'
+            );
+        }
+
+        return null;
+    }
+
     /** @return string[] */
     public static function allowlist(): array
     {
@@ -214,6 +245,9 @@ class Settings_Sync
 
             case 'governance_toggles':
                 return self::coerce_governance($value);
+
+            case 'identities':
+                return self::coerce_identities($value);
         }
 
         return ['ok' => false, 'reason' => 'no validator'];
@@ -271,6 +305,84 @@ class Settings_Sync
         }
 
         return ['ok' => true, 'value' => $out];
+    }
+
+    /**
+     * Identities merge by name: a synced name replaces that one record, and
+     * every identity the target defines locally survives. Each incoming record
+     * is projected through the same normalization Identity_Store::create()
+     * applies, so the stored shape is exactly what Governance and
+     * Tool_Exposure read, and nothing outside IDENTITY_FIELDS is kept. A
+     * malformed entry refuses the whole option rather than applying half a
+     * map, matching coerce_governance().
+     *
+     * @param mixed $value
+     * @return array{ok:bool,reason?:string,value?:mixed}
+     */
+    private static function coerce_identities($value): array
+    {
+        if (! is_array($value)) {
+            return ['ok' => false, 'reason' => 'identities must be a map of name => record'];
+        }
+
+        $incoming = [];
+        foreach ($value as $name => $record) {
+            if (! is_string($name) || '' === $name || ! is_array($record)) {
+                return ['ok' => false, 'reason' => 'invalid identity record'];
+            }
+            foreach (['domains', 'operations', 'abilities'] as $list) {
+                if (isset($record[ $list ]) && ! is_array($record[ $list ])) {
+                    return ['ok' => false, 'reason' => "identity {$list} must be a list"];
+                }
+            }
+            $incoming[ $name ] = self::project_identity($name, $record);
+        }
+
+        $stored = get_option(Identity_Store::OPTION, []);
+        $stored = self::project_identities(is_array($stored) ? $stored : []);
+
+        return ['ok' => true, 'value' => array_merge($stored, $incoming)];
+    }
+
+    /**
+     * @param mixed $value
+     * @return array<string,array>
+     */
+    private static function project_identities($value): array
+    {
+        $out = [];
+        if (! is_array($value)) {
+            return $out;
+        }
+        foreach ($value as $name => $record) {
+            if (is_string($name) && '' !== $name && is_array($record)) {
+                $out[ $name ] = self::project_identity($name, $record);
+            }
+        }
+        return $out;
+    }
+
+    /** Mirrors Identity_Store::create()'s normalization, field for field. */
+    private static function project_identity(string $name, array $record): array
+    {
+        $list = static function ($items): array {
+            if (! is_array($items)) {
+                return [];
+            }
+            return array_values(array_map('strval', array_filter($items, 'is_scalar')));
+        };
+        $exposure = $record['exposure'] ?? '';
+
+        $projected = [
+            'name'       => $name,
+            'domains'    => $list($record['domains'] ?? []),
+            'operations' => $list($record['operations'] ?? []),
+            'abilities'  => $list($record['abilities'] ?? []),
+            'mode'       => 'deny' === ($record['mode'] ?? 'allow') ? 'deny' : 'allow',
+            'exposure'   => in_array($exposure, ['full', 'compact'], true) ? $exposure : '',
+        ];
+
+        return array_intersect_key($projected, array_flip(self::IDENTITY_FIELDS));
     }
 
     /** @param scalar $value */

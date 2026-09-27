@@ -40,16 +40,11 @@ class Option_Guard
         'nonce_salt',
         'secure_auth_key',
         'secure_auth_salt',
-        // This plugin's own cloud credential material (issue #135). The bundle
-        // and the pending OAuth record are the site's identity against WP MCP
-        // Cloud: the pending record carries the live PKCE code_verifier and
-        // state, and a writable `url` inside it would redirect the token POST
-        // that follows. The refresh lock is here too, so a write cannot pin
-        // the mutex and stall every rotation.
+        // This plugin's own WP MCP Cloud API key (issue #135). Phase A stores
+        // it as a plain option, and no name or pattern above matched it, so
+        // the registered get-option ability read the live credential straight
+        // out of the database.
         'wpmcp_cloud_key',
-        'wpmcp_cloud_oauth_state',
-        'wpmcp_cloud_token_bundle',
-        'wpmcp_cloud_token_refresh_lock',
     ];
 
     /** Substrings (case-insensitive) that mark an option name as sensitive. */
@@ -64,8 +59,6 @@ class Option_Guard
         'private_key',
         'access_token',
         'refresh_token',
-        'token_bundle',
-        'oauth_state',
         'credential',
     ];
 

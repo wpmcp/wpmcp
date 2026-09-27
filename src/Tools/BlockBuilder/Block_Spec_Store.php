@@ -27,15 +27,19 @@ class Block_Spec_Store
         }
     }
 
-    /** @return int|\WP_Error */
-    public static function create(array $spec)
+    /**
+     * @param string $status 'publish' (active) or 'draft' (inactive, e.g. a
+     *                       marketplace install awaiting review).
+     * @return int|\WP_Error
+     */
+    public static function create(array $spec, string $status = 'publish')
     {
         self::ensure_post_type();
         $spec = Block_Spec::normalize($spec);
 
         $id = wp_insert_post([
             'post_type'   => self::POST_TYPE,
-            'post_status' => 'publish',
+            'post_status' => 'draft' === $status ? 'draft' : 'publish',
             'post_title'  => sanitize_text_field((string) $spec['title']),
         ], true);
 

@@ -43,10 +43,12 @@ class Widget_Spec_Store
     }
 
     /**
+     * @param string $status 'publish' (active) or 'draft' (inactive, e.g. a
+     *                       marketplace install awaiting review).
      * @return int|\WP_Error the new widget post id, or a WP_Error when the
      *                       template does not survive the markup gate.
      */
-    public static function create(array $spec)
+    public static function create(array $spec, string $status = 'publish')
     {
         self::ensure_post_type();
         $spec = self::gate_template(Widget_Spec::normalize($spec));
@@ -56,7 +58,7 @@ class Widget_Spec_Store
 
         $id = wp_insert_post([
             'post_type'   => self::POST_TYPE,
-            'post_status' => 'publish',
+            'post_status' => 'draft' === $status ? 'draft' : 'publish',
             'post_title'  => sanitize_text_field((string) $spec['title']),
             'post_name'   => $spec['name'],
         ], true);
