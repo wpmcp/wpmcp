@@ -92,7 +92,10 @@ class FlavorBuildBlockersTest extends Compliance_Test_Case
         // The abilities this flavor exists for.
         $this->assertDirectoryExists($stage . '/src/Tools/WooCommerce');
         $plugin = (string) file_get_contents($stage . '/src/Plugin.php');
-        $this->assertStringContainsString("'woocommerce'    => fn () => \$this->register_woocommerce_abilities(\$registrar),", $plugin);
+        $this->assertMatchesRegularExpression(
+            "/'woocommerce'\\s*=>\\s*fn \\(\\) => \\\$this->register_woocommerce_abilities\\(/",
+            $plugin
+        );
         $this->assertStringContainsString('function register_woocommerce_abilities(', $plugin);
 
         // Issue #184: this flavor ships its own languages/ for the rewritten
