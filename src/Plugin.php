@@ -391,7 +391,7 @@ final class Plugin
             'compose', 'woocommerce', 'menu', 'seo', 'linking', 'redirects',
             'meta', 'diagnostics', 'cron', 'maintenance', 'context', 'block',
             'structure', 'taxonomy', 'export', 'backup', 'migration', 'analysis',
-            'connect', 'governance', 'skills',
+            'connect', 'governance', 'skills', 'gateway',
         ],
     ];
 
@@ -2217,6 +2217,7 @@ final class Plugin
             'widget_builder' => fn () => $this->register_widget_builder_abilities($registrar),
             'block_builder'  => fn () => $this->register_block_builder_abilities($registrar),
             'cloud'          => fn () => $this->register_cloud_abilities($registrar),
+            'gateway'        => fn () => $this->register_gateway_abilities($registrar),
             'search'         => fn () => $this->register_search_abilities($registrar),
             'skills'         => fn () => $this->register_skills_abilities($registrar),
             'memory'         => fn () => $this->register_memory_abilities($registrar),
@@ -2505,6 +2506,87 @@ final class Plugin
             'edit_posts',
             'skills',
             'read'
+        ));
+    }
+
+    /**
+     * Site-local gateway credential lifecycle (issue #142, phase 1 of #130).
+     *
+     * Its own group, NOT part of 'cloud', and free tier. That looks odd for
+     * a credential whose consumer is the multi-site proxy, and it is
+     * deliberate: 'cloud' is pruned from the wp.org build
+     * (scripts/flavors/wporg/strip.php drops src/Tools/Cloud and this
+     * method's cloud sibling entirely) and excluded from the WooCommerce
+     * vertical's FLAVOR_GROUPS. A credential that can be minted on a build
+     * but not revoked on it is a security hole, and the issue's requirement
+     * is explicit that revocation works locally with no network. So the
+     * whole lifecycle lives where every flavor can reach it.
+     *
+     * All manage_options, domain 'gateway'. None of these touch the
+     * network, so provisioning and revocation work with the cloud
+     * unreachable.
+     */
+    private function register_gateway_abilities(Registrar $registrar): void
+    {
+        $confirm_schema = [
+            'type'       => 'object',
+            'properties' => ['confirm' => ['type' => 'boolean']],
+            'required'   => ['confirm'],
+        ];
+
+        // The destructive and idempotent hints are overridden, not derived,
+        // and both derived values would be wrong. 'create' would derive
+        // destructive: false for gateway-provision, but the call
+        // irreversibly kills the previous client secret, every refresh
+        // token bound to it and every access token already minted from it;
+        // MCP clients use destructiveHint for auto-approval, so the derived
+        // value invites an agent to retry it over a live proxy credential.
+        // 'delete' would derive idempotent: false for gateway-revoke, which
+        // is documented and tested as safe to call repeatedly.
+        //
+        // Each registration is a literal `new Ability('wpmcp/...')` so the
+        // wp.org free-tier assertion (scripts/flavors/wporg/assert-free-tier.php)
+        // can see these free abilities in the built zip.
+        $registrar->register(new Ability(
+            'wpmcp/gateway-provision',
+            'free',
+            'Provision (or rotate) the site-local gateway credential. Returns client_id, client_secret and refresh_token plaintext exactly once; any previous gateway credential stops working immediately. The credential is NOT scope-limited: it carries the capabilities of the user who provisions it. Requires confirm: true',
+            $confirm_schema,
+            [new \WPMCP\Tools\Gateway\Gateway_Provision(), 'handle'],
+            'manage_options',
+            'gateway',
+            'create',
+            null,
+            true,
+            false
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/gateway-status',
+            'free',
+            'Report whether the site-local gateway credential is provisioned, its client_id, and whether OAuth is enabled at all. Never returns token material. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [new \WPMCP\Tools\Gateway\Gateway_Status(), 'handle'],
+            'manage_options',
+            'gateway',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/gateway-revoke',
+            'free',
+            'Revoke the site-local gateway credential: removes the gateway client and every token bound to it. Local-only and idempotent. Requires confirm: true',
+            $confirm_schema,
+            [new \WPMCP\Tools\Gateway\Gateway_Revoke(), 'handle'],
+            'manage_options',
+            'gateway',
+            'delete',
+            null,
+            true,
+            true
         ));
     }
 

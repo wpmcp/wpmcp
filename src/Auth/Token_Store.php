@@ -126,6 +126,20 @@ class Token_Store
             return null;
         }
 
+        // Gateway tokens (issue #142) live and die with the gateway client
+        // row. The token store and the clients store are separate options
+        // written without a lock, so a refresh that loaded this store before
+        // Gateway_Credential::deprovision() swept it can write its freshly
+        // minted access token back afterwards. The client row is the one
+        // thing that revoke removes and nothing on the grant path recreates,
+        // so checking it here keeps the kill switch total. It also means an
+        // ordinary client holding a 'gateway'-scoped token (possible before
+        // Token_Grant reserved the scope) cannot authenticate with it.
+        $is_gateway_token = Refresh_Token_Store::is_gateway_scope((string) ($record['scope'] ?? ''));
+        if ($is_gateway_token && ! Client_Store::is_protected((string) ($record['client_id'] ?? ''))) {
+            return null;
+        }
+
         return [
             'client_id' => $record['client_id'],
             'user_id'   => $record['user_id'],
@@ -153,6 +167,26 @@ class Token_Store
 
         foreach ($stored as $key => $record) {
             if ((string) ($record['chain_id'] ?? '') === $chain_id) {
+                unset($stored[ $key ]);
+                $removed++;
+            }
+        }
+
+        if ($removed > 0) {
+            self::save($stored);
+        }
+
+        return $removed;
+    }
+
+    /** Revoke every access token bound to a client. Returns the number removed. */
+    public static function revoke_for_client(string $client_id): int
+    {
+        $stored  = self::load();
+        $removed = 0;
+
+        foreach ($stored as $key => $record) {
+            if ((string) ($record['client_id'] ?? '') === $client_id) {
                 unset($stored[ $key ]);
                 $removed++;
             }
@@ -207,12 +241,15 @@ class Token_Store
 
     /**
      * A SHA-256 fingerprint of the user's current password hash, or null if
-     * the user no longer exists. Never the raw user_pass itself; used only
+     * the user no longer exists. Public since issue #142 so
+     * Refresh_Token_Store can bind long-lived gateway refresh tokens to the
+     * same credential state, using one definition of "fingerprint" rather
+     * than two that could drift apart. Never the raw user_pass itself; used only
      * to detect "this user still exists and their credentials have not
      * changed since token issuance" (issue #43 C1/C2). Never returned from
      * validate(), never logged.
      */
-    private static function pass_fingerprint(int $user_id): ?string
+    public static function pass_fingerprint(int $user_id): ?string
     {
         $user = get_userdata($user_id);
         if (false === $user) {

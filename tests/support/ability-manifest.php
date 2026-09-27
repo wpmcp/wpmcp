@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 322,
-    'free'      => 225,
-    'pro'       => 97,
+    'total'     => 324,
+    'free'      => 228,
+    'pro'       => 96,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -49,7 +49,6 @@ return [
         'wpmcp/clear-cache' => 'free',
         'wpmcp/cloud-connect' => 'pro',
         'wpmcp/cloud-gateway-provision' => 'pro',
-        'wpmcp/cloud-gateway-revoke' => 'pro',
         'wpmcp/cloud-gateway-status' => 'pro',
         'wpmcp/cloud-list-assets' => 'pro',
         'wpmcp/cloud-pull-assets' => 'pro',
@@ -120,6 +119,9 @@ return [
         'wpmcp/formidable-write' => 'free',
         'wpmcp/forminator-read' => 'free',
         'wpmcp/forminator-write' => 'free',
+        'wpmcp/gateway-provision' => 'free',
+        'wpmcp/gateway-revoke' => 'free',
+        'wpmcp/gateway-status' => 'free',
         'wpmcp/generate-widget' => 'pro',
         'wpmcp/get-analytics-connection-status' => 'free',
         'wpmcp/get-analytics-summary' => 'free',

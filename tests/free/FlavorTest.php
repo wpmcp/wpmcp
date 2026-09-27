@@ -170,4 +170,95 @@ class FlavorTest extends \WP_UnitTestCase
 
         return array_map(fn ($a) => $a->name, array_values($registrar->declared()));
     }
+
+    public function test_woocommerce_flavor_keeps_the_whole_gateway_lifecycle(): void
+    {
+        // Issue #142. The gateway group ships on every flavor on purpose:
+        // a build that can mint a credential but not revoke one is a
+        // security hole, and revocation is required to work locally with
+        // the cloud unreachable.
+        $names = $this->registered_names('woocommerce');
+
+        $this->assertContains('wpmcp/gateway-provision', $names);
+        $this->assertContains('wpmcp/gateway-status', $names);
+        $this->assertContains('wpmcp/gateway-revoke', $names);
+    }
+
+    public function test_woo_build_does_not_prune_a_directory_the_woo_flavor_still_needs(): void
+    {
+        // The regression this pins: Gateway_Credential once lived in
+        // src/Cloud, which build-woo-release.sh deletes wholesale, so every
+        // gateway tool in that zip was a class-not-found fatal while the
+        // flavor whitelist happily registered all three. Ability gating is
+        // exercised against the full tree, so nothing else here can catch
+        // a prune/whitelist divergence.
+        $root   = dirname(__DIR__, 2);
+        $script = file_get_contents($root . '/scripts/build-woo-release.sh');
+        $this->assertIsString($script);
+
+        preg_match_all('#"\$STAGE/(src/[A-Za-z0-9_/.]+)"#', $script, $matches);
+        $pruned = array_values(array_unique($matches[1]));
+        $this->assertNotEmpty($pruned, 'the prune list should be readable from the build script');
+
+        $needed = [];
+        foreach ($this->registered_names('woocommerce') as $name) {
+            $ability = $this->ability_by_name('woocommerce', $name);
+            $handler = $ability->handler;
+            $object  = is_array($handler) ? $handler[0] : null;
+            if (! is_object($object)) {
+                continue;
+            }
+            $needed[] = (new \ReflectionClass($object))->getFileName();
+        }
+        $this->assertNotEmpty($needed);
+
+        // Every class file a woocommerce-registered tool reaches for,
+        // including the ones it pulls in transitively, must survive the
+        // prune. Checking the handlers plus their direct use-statements is
+        // enough to catch a whole-directory deletion.
+        foreach ($needed as $file) {
+            foreach ($this->referenced_files($file) as $referenced) {
+                $relative = ltrim(str_replace($root, '', $referenced), '/');
+                foreach ($pruned as $prune) {
+                    $this->assertFalse(
+                        $relative === $prune || str_starts_with($relative, $prune . '/'),
+                        $relative . ' is needed by the woocommerce flavor but build-woo-release.sh prunes ' . $prune
+                    );
+                }
+            }
+        }
+    }
+
+    /** A handler file plus every src/ class it imports, as absolute paths. */
+    private function referenced_files(string $file): array
+    {
+        $files = [$file];
+        $source = (string) file_get_contents($file);
+        preg_match_all('/^use\s+(WPMCP\\[A-Za-z0-9_\\]+);/m', $source, $matches);
+        foreach ($matches[1] as $class) {
+            if (class_exists($class)) {
+                $imported = (new \ReflectionClass($class))->getFileName();
+                if (is_string($imported)) {
+                    $files[] = $imported;
+                }
+            }
+        }
+
+        return $files;
+    }
+
+    private function ability_by_name(?string $flavor, string $name): \WPMCP\MCP\Ability
+    {
+        Plugin::set_flavor_for_tests($flavor);
+        $registrar = new Registrar();
+        Plugin::instance()->register_abilities_into($registrar);
+
+        foreach (array_values($registrar->declared()) as $ability) {
+            if ($ability->name === $name) {
+                return $ability;
+            }
+        }
+
+        $this->fail('ability not registered: ' . $name);
+    }
 }
