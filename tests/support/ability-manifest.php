@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 319,
-    'free'      => 225,
+    'total'     => 320,
+    'free'      => 226,
     'pro'       => 94,
     'abilities' => [
         'wpmcp/acf-read' => 'free',

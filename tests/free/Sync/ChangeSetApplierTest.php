@@ -272,6 +272,9 @@ class ChangeSetApplierTest extends \WP_UnitTestCase
         wp_delete_attachment($image, true);
         $occupant = wp_insert_post(['import_id' => $image, 'post_title' => 'Live post', 'post_content' => 'live', 'post_status' => 'publish']);
         $this->assertSame($image, $occupant);
+        // Deleting the attachment dropped the page's _thumbnail_id; the live
+        // page at its base still points at the origin id.
+        update_post_meta($page, '_thumbnail_id', (string) $image);
         $occupant_row = get_post($occupant, ARRAY_A);
 
         $report = $this->apply($set);

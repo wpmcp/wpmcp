@@ -202,21 +202,41 @@ class ChangeSetToolsTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_a_hand_edited_artifact_is_reported_not_fatal(): void
+    public function test_a_hand_edited_artifact_is_refused_not_fatal(): void
     {
         $out = $this->build_artifact('edited');
 
-        // Anything with write access to the directory could truncate this
-        // file; decoding it must not be a TypeError in array_map().
+        // Anything with write access to the directory could truncate or
+        // edit this file; reading it must be a clean refusal (the checksum
+        // no longer matches), never a TypeError in array_map().
         file_put_contents($out['file'], wp_json_encode([
             'format_version' => Change_Set_Builder::FORMAT_VERSION,
-            'objects'        => ['not-an-object', ['object_type' => 'post', 'object_id' => 1]],
+            'origin'         => [],
+            'dependencies'   => [],
+            'objects'        => [['key' => 'post:1', 'object_type' => 'post', 'object_id' => 1]],
+            'checksum'       => str_repeat('0', 64),
         ]));
 
-        $summary = (new Get_Change_Set())->handle(['path' => $out['file']]);
+        try {
+            (new Get_Change_Set())->handle(['path' => $out['file']]);
+            $this->fail('An artifact that no longer matches its checksum must be refused');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('checksum', $e->getMessage());
+        }
+    }
 
-        $this->assertCount(1, $summary['objects']);
-        $this->assertSame(1, $summary['objects'][0]['object_id']);
+    public function test_a_malformed_object_entry_is_refused_not_fatal(): void
+    {
+        $out = $this->build_artifact('malformed');
+        file_put_contents($out['file'], wp_json_encode([
+            'format_version' => Change_Set_Builder::FORMAT_VERSION,
+            'origin'         => [],
+            'dependencies'   => [],
+            'objects'        => ['not-an-object'],
+        ]));
+
+        $this->expectException(\RuntimeException::class);
+        (new Get_Change_Set())->handle(['path' => $out['file']]);
     }
 
     public function test_an_artifact_from_a_future_format_version_is_refused(): void
