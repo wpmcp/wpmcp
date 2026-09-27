@@ -926,8 +926,8 @@ $plugin_edits[] = [
     1,
 ];
 $plugin_edits[] = [
-    "'Trash a site part, freeing its per-part-type slot. Snapshot-first: the returned operation_id rolls it back',\n",
-    "'Trash a site part. Snapshot-first: the returned operation_id rolls it back',\n",
+    "'Trash a site part, freeing its per-part-type slot. Snapshot-first: operation_id rolls it back',\n",
+    "'Trash a site part. Snapshot-first: operation_id rolls it back',\n",
     1,
 ];
 // The PHP snippet store (issue #85) ships here; ACTIVATING a stored snippet

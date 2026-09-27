@@ -2652,14 +2652,15 @@ final class Plugin
             ],
             'required'   => ['type'],
         ];
+        // The include/exclude semantics are stated once, in the create
+        // description, rather than repeated on both schemas (tools/list budget).
         $conditions_schema = [
-            'type'        => 'object',
-            'description' => 'Shows when an include rule matches and no exclude rule does.',
-            'properties'  => [
+            'type'       => 'object',
+            'properties' => [
                 'include' => ['type' => 'array', 'items' => $rule_schema],
                 'exclude' => ['type' => 'array', 'items' => $rule_schema],
             ],
-            'required'    => ['include'],
+            'required'   => ['include'],
         ];
         $context_schema    = [
             'type'       => 'object',
@@ -2686,7 +2687,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-site-part',
             'free',
-            'Create a built-in site part (header, footer, or 404 template) with include/exclude display conditions. No page builder needed; not the Elementor theme-template tools. Capped per part type; wpmcp/delete-site-part frees a slot',
+            'Create a header, footer or 404 site part, shown where an include rule matches and no exclude rule does; not the Elementor theme-template tools. Capped per part type; wpmcp/delete-site-part frees a slot',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2708,7 +2709,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-site-parts',
             'free',
-            'List the built-in site parts (id, part type, title, conditions, priority, status), optionally filtered by part type. Read-only',
+            'List site parts with their conditions and status, optionally by part_type. Read-only',
             [
                 'type'       => 'object',
                 'properties' => ['part_type' => $part_type],
@@ -2721,7 +2722,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/resolve-site-part',
             'free',
-            'Report which site part wins for a context (specificity > priority > id), with every considered template and why. post_id alone fills post_type and term_ids. Read-only',
+            'Which site part wins for a context (most specific, then priority), with every candidate and why. post_id alone fills post_type and term_ids. Read-only',
             [
                 'type'       => 'object',
                 'properties' => ['part_type' => $part_type, 'context' => $context_schema],
@@ -2735,7 +2736,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-site-part',
             'free',
-            'Edit a site part\'s title, content, conditions, or priority; omitted fields are kept. The part type is fixed. Snapshot-first: the returned operation_id rolls it back',
+            'Edit a site part; omitted fields are kept, part_type is fixed. Snapshot-first: operation_id rolls it back',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2755,7 +2756,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-site-part-status',
             'free',
-            'Activate (publish) or deactivate (draft) a site part. Only active ones are resolved. Snapshot-first',
+            'Activate (publish) or deactivate (draft) a site part; only active parts resolve. Snapshot-first',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2772,7 +2773,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-site-part',
             'free',
-            'Trash a site part, freeing its per-part-type slot. Snapshot-first: the returned operation_id rolls it back',
+            'Trash a site part, freeing its per-part-type slot. Snapshot-first: operation_id rolls it back',
             [
                 'type'       => 'object',
                 'properties' => ['template_id' => $template_id],
@@ -2897,6 +2898,7 @@ final class Plugin
             new \WPMCP\Integrations\Forminator_Integration(),
             new \WPMCP\Integrations\SureForms_Integration(),
             new \WPMCP\Integrations\MetForm_Integration(),
+            new \WPMCP\Integrations\Theme_Integration(),
         ];
 
         foreach ($integrations as $integration) {
