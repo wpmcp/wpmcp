@@ -23,7 +23,7 @@ class Create_Post
             $post_type = 'post';
         }
         if (! Content_Guard::is_writable_post_type($post_type)) {
-            throw new \InvalidArgumentException("\"{$post_type}\" is not a writable post type.");
+            throw new \InvalidArgumentException(sprintf('"%s" is not a writable post type.', esc_html($post_type)));
         }
 
         $status = sanitize_key((string) ($args['status'] ?? 'draft'));
@@ -34,6 +34,7 @@ class Create_Post
         if (isset($args['meta']) && is_array($args['meta'])) {
             $guard = Content_Guard::check_meta($args['meta']);
             if (true !== $guard) {
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Content_Guard escapes the key it interpolates; the rest of the message is plugin literal.
                 throw new \InvalidArgumentException($guard);
             }
         }
@@ -54,7 +55,7 @@ class Create_Post
 
         $post_id = wp_insert_post($postarr, true);
         if (is_wp_error($post_id)) {
-            throw new \InvalidArgumentException($post_id->get_error_message());
+            throw new \InvalidArgumentException(esc_html($post_id->get_error_message()));
         }
         $post_id = (int) $post_id;
 

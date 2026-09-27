@@ -16,6 +16,7 @@ class List_Tables
     {
         global $wpdb;
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- information_schema listing for a live diagnostics tool; there is no core API for table sizes and a cached listing would misreport them.
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 'SELECT table_name AS n, table_rows AS r, (data_length + index_length) AS sz '
