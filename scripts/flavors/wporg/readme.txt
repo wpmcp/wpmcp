@@ -64,8 +64,7 @@ against the official checksums for its version, so modified core files can
 be reported. It is contacted only when an administrator or an agent runs
 that ability. What is sent: the WordPress version and the site locale, under
 a `WPMCP-Security-Scanner/1.0` user agent. No content and no personal data.
-Terms of use: https://wordpress.org/about/privacy/ Privacy policy:
-https://wordpress.org/about/privacy/
+Privacy policy: https://wordpress.org/about/privacy/
 
 = WordPress.org plugin directory API, abandoned-plugin check (api.wordpress.org) =
 
@@ -74,9 +73,8 @@ of your active plugins has been closed, so an abandoned plugin can be
 reported. What is sent: the directory slug of each active plugin it looks up
 (a capped number per run, then cached), through WordPress core's own
 `plugins_api()`. Core sends its standard user agent with those requests,
-which contains the WordPress version and this site's address. Terms of use:
-https://wordpress.org/about/privacy/ Privacy policy:
-https://wordpress.org/about/privacy/
+which contains the WordPress version and this site's address. Privacy
+policy: https://wordpress.org/about/privacy/
 
 = WordPress.org plugin and theme directory (api.wordpress.org, downloads.wordpress.org) =
 
@@ -88,13 +86,14 @@ through core's `plugins_api()` and `themes_api()`, with core's standard user
 agent (WordPress version and this site's address). Installs and updates then
 download the package archive from downloads.wordpress.org. Only directory
 slugs are accepted; these abilities cannot be pointed at an arbitrary zip
-URL. Terms of use: https://wordpress.org/about/privacy/ Privacy policy:
-https://wordpress.org/about/privacy/
+URL. Privacy policy: https://wordpress.org/about/privacy/
 
 = Openverse (api.openverse.org) =
 
-Used by the `search-stock-images` ability when the Openverse provider is
-chosen. It is contacted only when you or an agent run that search. What is
+Used by the `search-stock-images` ability. Openverse is the default
+provider, used whenever no other provider is named, and needs no key or
+setup, so it is not opt-in: it is contacted only when you or an agent run
+that search, and running it is what sends the request. What is
 sent: your search terms, the page number and the results-per-page count,
 under a `WPMCP-Stock-Search/1.0` user agent. No key and no account are
 required. Terms of use: https://openverse.org/terms Privacy policy:
@@ -169,7 +168,8 @@ The code contains an HTTP client for the author's optional cloud service, but
 this build ships no tool that can configure or connect it: the client only
 ever fires if a cloud URL and key have been saved by the separate add-on
 plugin, and then it reaches only the URL you saved. With this plugin alone,
-nothing is ever sent. Terms and privacy policy: https://wpmcp-pro.com/
+nothing is ever sent. Terms: https://wpmcp-pro.com/terms.html Privacy
+policy: https://wpmcp-pro.com/privacy.html
 
 == Installation ==
 
