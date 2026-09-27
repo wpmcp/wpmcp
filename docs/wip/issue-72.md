@@ -142,6 +142,24 @@ the trash is reversible, so `restore-post` alone is a complete undo.
   does not keep executing the previous class while the manifest vouches for
   the new bytes.
 
+### Self-review hardening
+
+- The lint matched allowed calls by their last name segment and never looked
+  at a callee that is not an identifier. `use function system as esc_html;`,
+  `namespace Evil;`, `\Evil\esc_html()`, `"system"('id')`,
+  `('sys' . 'tem')('id')`, `$a[0]('id')` and `f()('id')` all passed. It now
+  accepts only global names, rejects `use` / `namespace`, and rejects a call
+  of any expression result; each case is in the seeded-hostile corpus.
+- `Compiled_Widget_Manifest::restore()` (the undo path) writes bytes back only
+  when they pass the same lint as a compile; otherwise the entry returns but
+  nothing on disk hashes to it, so the widget is inert.
+- `loadable()` holds every pre-require gate without requiring anything.
+  `load_enabled()` requires from it, and `get-custom-widget` /
+  `list-custom-widgets` report `loading` from it, so a read tool never
+  executes generated PHP (and list no longer re-hashes every file per row).
+- Registration uses `Widget_Spec::is_renderable()`, a structural check, so
+  specs stored before the stricter write-time `validate()` keep rendering.
+
 ## Acceptance criteria
 
 - [x] validate-spec rejects malformed/hostile specs without side effects
@@ -194,7 +212,7 @@ default-off AT THE EXECUTION SITE as well as at the write (see the execution
 gate above, and `Compiled_Widget_Manifest::execution_allowed()`; the earlier
 draft of this doc claimed containment that only the write path actually had),
 and it never reaches the directory zip, because
-`scripts/flavors/wporg/strip.php:60` removes `src/Tools/WidgetBuilder` whole and
+`scripts/flavors/wporg/policy.php` removes `src/Tools/WidgetBuilder` whole and
 the compiler lives inside it. That is a property of the strip list's paths, so
 moving the compiler out of `WidgetBuilder/` would silently start shipping it.
 
