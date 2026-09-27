@@ -251,6 +251,15 @@ class Woo_Write
             }
         }
 
+        if ($def['guard_variations'] && null !== $target && $this->variations_at_risk($def, $params, (int) $target['object_id'])) {
+            return Op_Guard::error(
+                'has_variations',
+                "Op \"{$op}\" is refused: this product has variations, which WooCommerce would remove along with "
+                . 'it and which its snapshot does not cover. Delete or change the variations first with the '
+                . 'variations.* ops, each of which is snapshotted.'
+            );
+        }
+
         return [
             'op'     => $op,
             'def'    => $def,
@@ -305,6 +314,34 @@ class Woo_Write
             'applied' => $out['status'] >= 200 && $out['status'] < 300,
             'body'    => $out['body'],
         ];
+    }
+
+    /**
+     * Whether a guarded product op would take variations with it: every
+     * delete (trash included, since WooCommerce trashes the variations too),
+     * and an update that changes the type away from variable.
+     *
+     * @param array{mode: string}  $def
+     * @param array<string, mixed> $params
+     */
+    private function variations_at_risk(array $def, array $params, int $product_id): bool
+    {
+        if ('destructive' !== $def['mode']) {
+            if (! array_key_exists('type', $params) || 'variable' === $params['type']) {
+                return false;
+            }
+        }
+
+        $children = get_posts([
+            'post_type'      => 'product_variation',
+            'post_parent'    => $product_id,
+            'post_status'    => 'any',
+            'fields'         => 'ids',
+            'posts_per_page' => 1,
+            'no_found_rows'  => true,
+        ]);
+
+        return [] !== $children;
     }
 
     /**

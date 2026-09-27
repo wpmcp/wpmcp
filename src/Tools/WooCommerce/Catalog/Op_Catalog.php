@@ -88,7 +88,9 @@ class Op_Catalog
      * mode defaults to 'read' and snapshot to null. extra carries per-op
      * posture: 'recoverable' (false when the snapshot cannot undo the whole
      * effect), 'forbidden_params' (refused before dispatch), 'forbidden_meta'
-     * (a regex; a meta_data entry whose key matches is refused), 'defaults'
+     * (a regex; a meta_data entry whose key matches is refused),
+     * 'guard_variations' (refuse a delete, or a type change, of a product
+     * that still has variations, which its snapshot would not cover), 'defaults'
      * (injected unless the caller sets them), 'undo_op' (for creates) and
      * 'redact' (top-level keys of each returned record that are masked).
      * Keep op names domain.kebab-case and route templates rooted at /wc/v3.
@@ -101,8 +103,13 @@ class Op_Catalog
         'products.attributes' => [ 'GET', '/wc/v3/products/attributes', 'products', self::CAP_STORE, 'Global product attributes (pa_* taxonomies)' ],
         'products.reviews'    => [ 'GET', '/wc/v3/products/reviews', 'products', self::CAP_STORE, 'Product reviews, filterable by product and status' ],
         'products.create'     => [ 'POST', '/wc/v3/products', 'products', self::CAP_STORE, 'Create a product of any type with the full wc/v3 field set', 'write', null, [ 'undo_op' => 'products.delete' ] ],
-        'products.update'     => [ 'PUT', '/wc/v3/products/{id}', 'products', self::CAP_STORE, 'Update any wc/v3 product field (prices, stock, categories, attributes, images, meta...)', 'write', [ 'type' => 'post', 'param' => 'id' ] ],
-        'products.delete'     => [ 'DELETE', '/wc/v3/products/{id}', 'products', self::CAP_STORE, 'Trash a product, or delete it permanently with force:true', 'destructive', [ 'type' => 'post', 'param' => 'id' ] ],
+        // A product snapshot covers the product post only, while WooCommerce
+        // trashes or deletes a variable product's variations along with it
+        // and deletes them when its type changes away from variable. Both
+        // are refused while variations exist ('guard_variations'): remove or
+        // snapshot the variations first with the variations.* ops.
+        'products.update'     => [ 'PUT', '/wc/v3/products/{id}', 'products', self::CAP_STORE, 'Update any wc/v3 product field (prices, stock, categories, attributes, images, meta...). Changing the type of a product that has variations is refused', 'write', [ 'type' => 'post', 'param' => 'id' ], [ 'guard_variations' => true ] ],
+        'products.delete'     => [ 'DELETE', '/wc/v3/products/{id}', 'products', self::CAP_STORE, 'Trash a product, or delete it permanently with force:true. Refused while the product has variations (delete those first with variations.delete)', 'destructive', [ 'type' => 'post', 'param' => 'id' ], [ 'guard_variations' => true ] ],
 
         // Variations of a variable product. The free list-variations and
         // update-variation tools return curated rows; these are the raw
@@ -170,7 +177,7 @@ class Op_Catalog
     ];
 
     /**
-     * @return array<string, array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string}>
+     * @return array<string, array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool}>
      */
     public static function ops(): array
     {
@@ -199,13 +206,14 @@ class Op_Catalog
                 'undo_op'          => $extra['undo_op'] ?? null,
                 'redact'           => $extra['redact'] ?? [],
                 'forbidden_meta'   => $extra['forbidden_meta'] ?? null,
+                'guard_variations' => (bool) ($extra['guard_variations'] ?? false),
             ];
         }
         return $out;
     }
 
     /**
-     * @return array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string}
+     * @return array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool}
      */
     public static function get(string $op): array
     {

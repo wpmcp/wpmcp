@@ -6133,7 +6133,7 @@ final class Plugin
             'read'
         ));
 
-        // Deep WooCommerce operations catalog (issue #68). The 11 tools above
+        // Deep WooCommerce operations catalog (issue #68). The tools above
         // stay the simple surface; the catalog dispatchers template internal
         // wc/v3 REST routes through their own in-process dispatch
         // (Wc_Rest_Dispatch for reads, Wc_Rest_Write_Dispatch for writes,
@@ -6166,7 +6166,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-read',
             'pro',
-            'Execute one read op from the deep WooCommerce operations catalog (see woo-ops) as an internal wc/v3 REST request dispatched in-process as the current user, so the store endpoint\'s own permission checks apply on top of the op\'s own capability (orders, notes and refunds need edit_shop_orders; customers need list_users). Path params fill the route template; all other params pass through as the endpoint\'s query params. Returns the endpoint\'s status and the RAW wc/v3 body, which for order and customer ops includes personal data; list ops are capped at 50 records per call and default to 20. Read-only: only GET ops dispatch here',
+            'Execute one read op from the deep WooCommerce operations catalog (see woo-ops) as an internal wc/v3 REST request dispatched in-process as the current user, so the store endpoint\'s own permission checks apply on top of the op\'s own capability (orders, notes and refunds need edit_shop_orders; customers need list_users). Each op can be switched off on its own by governance, as wpmcp/woo-{op} with dots as dashes (e.g. wpmcp/woo-orders-list). Path params fill the route template; all other params pass through as the endpoint\'s query params. Webhook signing secrets are redacted. Returns the endpoint\'s status and the RAW wc/v3 body, which for order and customer ops includes personal data; list ops are capped at 50 records per call and default to 20. Read-only: only read ops dispatch here',
             [
                 'type'       => 'object',
                 'properties' => [

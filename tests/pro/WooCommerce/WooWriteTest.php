@@ -432,6 +432,24 @@ class WooWriteTest extends \WP_UnitTestCase
         $this->assertSame('12.00', wc_get_product($id)->get_regular_price());
     }
 
+    /** The product snapshot does not cover variations, which WooCommerce removes with the parent. */
+    public function test_deleting_or_retyping_a_product_with_variations_is_refused(): void
+    {
+        $this->enable_op('products.delete');
+        $ids = $this->variable_product();
+
+        $delete = (new Woo_Write())->handle(['op' => 'products.delete', 'params' => ['id' => $ids['parent']], 'confirm' => true]);
+        $retype = (new Woo_Write())->handle(['op' => 'products.update', 'params' => ['id' => $ids['parent'], 'type' => 'simple']]);
+        $rename = (new Woo_Write())->handle(['op' => 'products.update', 'params' => ['id' => $ids['parent'], 'name' => 'Linen Shirt II']]);
+
+        $this->assertSame('has_variations', $delete['error']['code']);
+        $this->assertSame('has_variations', $retype['error']['code']);
+        $this->assertSame(200, $rename['status']);
+        $this->assertSame('publish', get_post_status($ids['parent']));
+        $this->assertSame('publish', get_post_status($ids['small']));
+        $this->assertTrue(wc_get_product($ids['parent'])->is_type('variable'));
+    }
+
     public function test_refunds_create_needs_confirm_never_triggers_a_gateway_refund_by_default_and_is_flagged_unrecoverable(): void
     {
         $this->enable_op('refunds.create');
