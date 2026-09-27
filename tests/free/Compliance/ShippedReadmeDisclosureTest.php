@@ -150,6 +150,51 @@ class ShippedReadmeDisclosureTest extends \WP_UnitTestCase
     }
 
     /**
+     * Issue #187: Openverse needs no key, so nothing resembling consent
+     * happens before the request. search-stock-images falls back to it when
+     * no provider is named, and the readme has to say so rather than imply
+     * the user picked it. Its entry also needs both policy links.
+     */
+    public function test_openverse_is_documented_as_the_unconditional_default_with_both_policy_links(): void
+    {
+        foreach (self::SHIPPED_READMES as $relative) {
+            $section = $this->external_services($this->readme($relative));
+            // The Openverse entry runs from its host up to the Pexels entry that follows it.
+            $this->assertSame(1, preg_match('/api\.openverse\.org(.*?)api\.pexels\.com/is', $section, $entry), $relative . ' has no Openverse entry ahead of Pexels');
+            $this->assertMatchesRegularExpression(
+                '/\bdefault\b/i',
+                $entry[1],
+                $relative . ' does not say that Openverse is the default stock provider'
+            );
+            $this->assertStringContainsString('https://openverse.org/terms', $section, $relative . ' lacks the Openverse terms link');
+            $this->assertStringContainsString('https://openverse.org/privacy', $section, $relative . ' lacks the Openverse privacy link');
+        }
+    }
+
+    /** Issue #187: a link labelled as terms of use must not be a privacy policy. */
+    public function test_no_terms_link_points_at_a_privacy_page(): void
+    {
+        foreach (self::SHIPPED_READMES as $relative) {
+            $section = preg_replace('/\s+/', ' ', $this->external_services($this->readme($relative)));
+            $this->assertSame(
+                0,
+                preg_match('/Terms(?: of use)?: https?:\/\/\S*privacy/i', $section),
+                $relative . ' labels a privacy policy URL as its terms of use'
+            );
+        }
+    }
+
+    /** Issue #187: the Cloud entry must link real terms and privacy pages, not the home page. */
+    public function test_the_cloud_entry_links_its_terms_and_privacy_pages(): void
+    {
+        foreach (['readme.txt', 'scripts/flavors/wporg/readme.txt'] as $relative) {
+            $section = $this->external_services($this->readme($relative));
+            $this->assertStringContainsString('https://wpmcp-pro.com/terms.html', $section, $relative . ' Cloud entry lacks a terms link');
+            $this->assertStringContainsString('https://wpmcp-pro.com/privacy.html', $section, $relative . ' Cloud entry lacks a privacy link');
+        }
+    }
+
+    /**
      * Guard the guard: the host list above is only worth anything while the
      * files that reach those hosts are still in the shipped tree.
      */
