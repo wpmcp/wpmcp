@@ -176,4 +176,62 @@ class CloudConnectTest extends \WP_UnitTestCase
         $this->assertSame('sk-legacy', \WPMCP\Cloud\Cloud_Config::api_key());
         $this->assertFalse(get_option('wpmcp_cloud_key'), 'the key survives sealed, not in plaintext');
     }
+
+    /** A cloud that moved: http and bare host redirect to https://www. */
+    public function moved_cloud($pre, $args, $url)
+    {
+        $auth = (string) ($args['headers']['Authorization'] ?? '');
+        $json = static fn (int $code, array $body, array $headers = []) => [
+            'headers'  => $headers,
+            'body'     => (string) wp_json_encode($body),
+            'response' => ['code' => $code, 'message' => ''],
+            'cookies'  => [],
+            'filename' => null,
+        ];
+        if (0 !== strpos($url, 'https://www.cloud.example/')) {
+            return $json(301, [], ['location' => 'https://www.cloud.example/wpmcp-cloud/v1/me']);
+        }
+        return '' === $auth
+            ? $json(401, ['message' => 'Authentication required'])
+            : $json(200, ['account' => ['id' => 1, 'email' => 'user@example.com', 'plan' => 'pro']]);
+    }
+
+    public function test_connect_stores_the_canonical_url_a_redirecting_cloud_points_to(): void
+    {
+        remove_filter('pre_http_request', [$this, 'fake_http'], 10);
+        add_filter('pre_http_request', [$this, 'moved_cloud'], 10, 3);
+
+        try {
+            $out = (new Cloud_Connect())->handle(['url' => 'http://cloud.example/', 'key' => 'sk-good']);
+        } finally {
+            remove_filter('pre_http_request', [$this, 'moved_cloud'], 10);
+        }
+
+        $this->assertIsArray($out);
+        $this->assertTrue($out['connected']);
+        $this->assertSame('https://www.cloud.example', \WPMCP\Cloud\Cloud_Config::base_url());
+    }
+
+    public function test_a_redirect_to_an_unrelated_page_is_not_adopted_as_the_cloud_url(): void
+    {
+        $this->assertSame(
+            'https://cloud.example',
+            \WPMCP\Cloud\Cloud_Client::canonical_base_url('https://cloud.example')
+        ); // 200 from fake_http: kept as typed.
+
+        remove_filter('pre_http_request', [$this, 'fake_http'], 10);
+        $elsewhere = static fn () => [
+            'headers'  => ['location' => 'http://login.example/signin'],
+            'body'     => '',
+            'response' => ['code' => 302, 'message' => ''],
+            'cookies'  => [],
+            'filename' => null,
+        ];
+        add_filter('pre_http_request', $elsewhere, 10, 3);
+        try {
+            $this->assertSame('https://cloud.example', \WPMCP\Cloud\Cloud_Client::canonical_base_url('https://cloud.example/'));
+        } finally {
+            remove_filter('pre_http_request', $elsewhere, 10);
+        }
+    }
 }

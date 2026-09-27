@@ -38,6 +38,10 @@ class Cloud_Connect
             return new \WP_Error('missing_credentials', 'Both a cloud url and an api key are required.');
         }
 
+        // Seal any unmigrated phase A pair first, explicitly, so the
+        // snapshot below is a plain read of what is stored.
+        Cloud_Credentials::migrate_plaintext();
+
         // The exact prior state: the raw blob (so a salt-rotated vault stays
         // recoverable) and the refresh health markers (so a rejected bundle
         // stays in its backoff).
@@ -51,6 +55,18 @@ class Cloud_Connect
         }
 
         $me = (new Cloud_Client())->get('/me');
+        if (is_wp_error($me) && 'cloud_redirect_not_followed' === $me->get_error_code()) {
+            // Cloud requests never follow redirects (they would replay the
+            // Authorization header). When the typed URL answers 30x (an
+            // http->https, bare->www or trailing-slash move), find where the
+            // cloud really lives with an unauthenticated probe, store that
+            // address instead, and verify once more. Only on this path, so
+            // an ordinary connect still makes exactly one request.
+            $canonical = Cloud_Client::canonical_base_url(Cloud_Config::base_url());
+            if ($canonical !== Cloud_Config::base_url() && Cloud_Config::set($canonical, $key)) {
+                $me = (new Cloud_Client())->get('/me');
+            }
+        }
         if (is_wp_error($me)) {
             Cloud_Credentials::restore($previous);
             return $me;
