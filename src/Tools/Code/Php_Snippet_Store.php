@@ -160,7 +160,7 @@ class Php_Snippet_Store
     {
         $snippet = self::get($id);
         if (null === $snippet) {
-            throw new \RuntimeException("No stored snippet with id \"{$id}\"; it was removed since this operation started.");
+            throw new \RuntimeException(sprintf('No stored snippet with id "%s"; it was removed since this operation started.', esc_html($id)));
         }
 
         $snippet               = array_merge($snippet, $fields);
@@ -228,7 +228,7 @@ class Php_Snippet_Store
 
         if ($size > $limit) {
             throw new \RuntimeException(
-                sprintf('Refusing to store snippet: the snippet store would be %d bytes, over the %d byte total limit (filter wpmcp_php_snippet_max_total_bytes). Delete a snippet first.', $size, $limit)
+                sprintf('Refusing to store snippet: the snippet store would be %d bytes, over the %d byte total limit (filter wpmcp_php_snippet_max_total_bytes). Delete a snippet first.', (int) $size, (int) $limit)
             );
         }
     }
@@ -242,7 +242,7 @@ class Php_Snippet_Store
         $limit = self::max_code_bytes();
         if (strlen($code) > $limit) {
             throw new \RuntimeException(
-                sprintf('Refusing to store snippet: code is %d bytes, over the %d byte limit (filter wpmcp_php_snippet_max_code_bytes).', strlen($code), $limit)
+                sprintf('Refusing to store snippet: code is %d bytes, over the %d byte limit (filter wpmcp_php_snippet_max_code_bytes).', (int) strlen($code), (int) $limit)
             );
         }
     }
@@ -254,7 +254,7 @@ class Php_Snippet_Store
         $count = count(self::all());
         if ($count >= $limit) {
             throw new \RuntimeException(
-                sprintf('Refusing to store snippet: %d snippets already stored, at the %d snippet limit (filter wpmcp_php_snippet_max_count). Delete one first.', $count, $limit)
+                sprintf('Refusing to store snippet: %d snippets already stored, at the %d snippet limit (filter wpmcp_php_snippet_max_count). Delete one first.', (int) $count, (int) $limit)
             );
         }
     }

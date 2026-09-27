@@ -23,7 +23,7 @@ class Get_Php_Snippet
 
         $snippet = Php_Snippet_Store::get($id);
         if (null === $snippet) {
-            throw new \RuntimeException("No stored snippet with id \"{$id}\".");
+            throw new \RuntimeException(sprintf('No stored snippet with id "%s".', esc_html($id)));
         }
 
         return ['snippet' => $snippet];

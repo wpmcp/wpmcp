@@ -53,7 +53,7 @@ class Deactivate_Php_Snippet
         }
 
         if (! Php_Snippet_Store::exists($id)) {
-            throw new \RuntimeException("No stored snippet with id \"{$id}\".");
+            throw new \RuntimeException(sprintf('No stored snippet with id "%s".', esc_html($id)));
         }
 
         $snippet = null;

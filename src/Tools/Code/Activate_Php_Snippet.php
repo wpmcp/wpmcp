@@ -88,7 +88,7 @@ class Activate_Php_Snippet
 
         $snippet = Php_Snippet_Store::get($id);
         if (null === $snippet) {
-            throw new \RuntimeException("No stored snippet with id \"{$id}\".");
+            throw new \RuntimeException(sprintf('No stored snippet with id "%s".', esc_html($id)));
         }
 
         $code       = (string) ($snippet['code'] ?? '');
@@ -111,7 +111,7 @@ class Activate_Php_Snippet
             function () use ($id, $validation, $code_hash, &$activated): void {
                 $current = Php_Snippet_Store::get($id);
                 if (null === $current) {
-                    throw new \RuntimeException("No stored snippet with id \"{$id}\"; it was removed since this operation started.");
+                    throw new \RuntimeException(sprintf('No stored snippet with id "%s"; it was removed since this operation started.', esc_html($id)));
                 }
 
                 // The code moved between validation and the write. Activating
