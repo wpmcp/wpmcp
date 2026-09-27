@@ -178,7 +178,7 @@ abstract class Integration_Dispatcher
             "wpmcp/{$slug}-write",
             $this->tier(),
             sprintf(
-                'Dispatch a write operation against %s. Pass operation plus args matching that operation\'s schema (discoverable via list-operations on the read half). Every operation with a snapshotable target is snapshotted first via Safe_Mutation and restorable with rollback-operation; destructive operations additionally require confirm:true',
+                'Dispatch a write operation against %s. Pass operation plus args matching that operation\'s schema (discoverable via list-operations on the read half). Operations with a snapshotable target are snapshotted first and undoable with rollback-operation; destructive ones also require confirm:true',
                 $this->summary()
             ),
             $this->dispatcher_schema(true),

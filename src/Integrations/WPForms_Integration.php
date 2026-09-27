@@ -54,7 +54,7 @@ class WPForms_Integration extends Forms_Integration
 
     protected function summary(): string
     {
-        return 'WPForms (forms, fields, notifications, and, with WPForms entry storage, entries and entry status)';
+        return 'WPForms (forms, fields, notifications; entries with entry storage)';
     }
 
     /** The decoded form data (fields, settings) of a WPForms form post. */

@@ -49,7 +49,7 @@ class Fluent_Forms_Integration extends Forms_Integration
 
     protected function summary(): string
     {
-        return 'Fluent Forms (forms, fields, notifications, entries, and entry status)';
+        return 'Fluent Forms (forms, fields, notifications, entries)';
     }
 
     /** Read a column off a builder row, which is an object live and may be an array in a double. */

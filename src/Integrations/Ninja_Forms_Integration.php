@@ -54,7 +54,7 @@ class Ninja_Forms_Integration extends Forms_Integration
 
     protected function summary(): string
     {
-        return 'Ninja Forms (forms, fields, notifications, submissions, and submission status)';
+        return 'Ninja Forms (forms, fields, notifications, submissions)';
     }
 
     /** The form model, or null when Ninja Forms has no such form. */

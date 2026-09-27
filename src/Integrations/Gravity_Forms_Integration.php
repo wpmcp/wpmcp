@@ -45,7 +45,7 @@ class Gravity_Forms_Integration extends Forms_Integration
 
     protected function summary(): string
     {
-        return 'Gravity Forms (forms, fields, notifications, entries, entry notes, and entry status)';
+        return 'Gravity Forms (forms, fields, notifications, entries, entry notes)';
     }
 
     /** Read one key off a GF field, which is a GF_Field (ArrayAccess) live and an array in a double. */

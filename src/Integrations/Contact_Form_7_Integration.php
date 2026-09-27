@@ -73,7 +73,7 @@ class Contact_Form_7_Integration extends Forms_Integration
 
     protected function summary(): string
     {
-        return 'Contact Form 7 (forms, markup, mail templates, and Flamingo-stored entries)';
+        return 'Contact Form 7 (forms, markup, mail templates, Flamingo entries)';
     }
 
     private static function shape(\WPCF7_ContactForm $form): array
