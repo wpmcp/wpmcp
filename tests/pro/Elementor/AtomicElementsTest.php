@@ -6,6 +6,7 @@ use WPMCP\Tools\Elementor\Detect_Elementor_Version;
 use WPMCP\Tools\Elementor\Add_Flexbox;
 use WPMCP\Tools\Elementor\Add_Div_Block;
 use WPMCP\Tools\Elementor\Add_Atomic_Widget;
+use WPMCP\Tools\Elementor\Atomic_Prop_Schema;
 use WPMCP\Tools\Elementor\Update_Atomic_Widget;
 
 /**
@@ -31,6 +32,26 @@ class AtomicElementsTest extends Structural_Harness
         ]]));
         update_post_meta($post_id, '_elementor_edit_mode', 'builder');
         return $post_id;
+    }
+
+    /**
+     * The `$$type` the INSTALLED Elementor declares for a rich-text prop.
+     * These tests run against the live plugin, and Elementor 4.3 moved
+     * heading/paragraph/button text from html-v3 to escaped-html, so what we
+     * pin is our contract (write the declared shape), not one release's key.
+     */
+    private function live_rich_kind(string $type, string $prop): string
+    {
+        $kind = Atomic_Prop_Schema::kind($type, $prop);
+        $this->assertContains($kind, ['html-v3', 'escaped-html'], "Unexpected rich-text \$\$type for {$type}.{$prop}.");
+        return (string) $kind;
+    }
+
+    /** Text of a rich-text prop in either shape: html-v3 nests it, escaped-html is flat. */
+    private function rich_text_of(array $prop): string
+    {
+        $value = $prop['value'] ?? null;
+        return is_array($value) ? (string) ($value['content']['value'] ?? '') : (string) $value;
     }
 
     // ---- detect-elementor-version -------------------------------------------
@@ -95,8 +116,8 @@ class AtomicElementsTest extends Structural_Harness
         $widget = $this->tree($post_id)[0]['elements'][0];
         $this->assertSame('widget', $widget['elType']);
         $this->assertSame('e-heading', $widget['widgetType']);
-        $this->assertSame('html-v3', $widget['settings']['title']['$$type']);
-        $this->assertSame('Hello world', $widget['settings']['title']['value']['content']['value']);
+        $this->assertSame($this->live_rich_kind('e-heading', 'title'), $widget['settings']['title']['$$type']);
+        $this->assertSame('Hello world', $this->rich_text_of($widget['settings']['title']));
         $this->assertSame('h1', $widget['settings']['tag']['value']);
     }
 
@@ -116,7 +137,41 @@ class AtomicElementsTest extends Structural_Harness
         // e-paragraph's content prop is named `paragraph`, never `text`.
         $this->assertArrayHasKey('paragraph', $settings);
         $this->assertArrayNotHasKey('text', $settings);
-        $this->assertSame('Body copy', $settings['paragraph']['value']['content']['value']);
+        $this->assertSame($this->live_rich_kind('e-paragraph', 'paragraph'), $settings['paragraph']['$$type']);
+        $this->assertSame('Body copy', $this->rich_text_of($settings['paragraph']));
+    }
+
+    public function test_rich_text_params_keep_allowed_inline_html_and_drop_the_rest(): void
+    {
+        $post_id = $this->atomic_page();
+
+        (new Add_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'parent_id'     => 'flex001',
+            'widget_type'   => 'e-heading',
+            'params'        => ['title' => ' <strong>Bold</strong> <script>alert(1)</script><em onclick="x()">it</em><img src=x onerror=y> '],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+        (new Add_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'parent_id'     => 'flex001',
+            'widget_type'   => 'e-paragraph',
+            'params'        => ['content' => 'See <a href="https://example.com" onclick="x()">docs</a><br><iframe src="https://evil.test"></iframe>'],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+        (new Add_Atomic_Widget())->handle([
+            'post_id'       => $post_id,
+            'parent_id'     => 'flex001',
+            'widget_type'   => 'e-button',
+            'params'        => ['text' => 'Go <a href="https://example.com">now</a>'],
+            'expected_hash' => $this->data_hash($post_id),
+        ]);
+
+        [$heading, $paragraph, $button] = $this->tree($post_id)[0]['elements'];
+        $this->assertSame('<strong>Bold</strong> alert(1)<em>it</em>', $this->rich_text_of($heading['settings']['title']));
+        $this->assertSame('See <a href="https://example.com">docs</a><br>', $this->rich_text_of($paragraph['settings']['paragraph']));
+        // Buttons are links themselves: Elementor allows no nested <a>.
+        $this->assertSame('Go now', $this->rich_text_of($button['settings']['text']));
     }
 
     public function test_add_atomic_widget_accepts_raw_settings(): void
@@ -290,7 +345,10 @@ class AtomicElementsTest extends Structural_Harness
         ]);
 
         $settings = $this->tree($post_id)[0]['settings'];
-        $this->assertSame('New title', $settings['title']['value']['content']['value']);
+        // The stored title predates Elementor 4.3 (html-v3); the update
+        // rewrites it in the shape the installed build declares.
+        $this->assertSame($this->live_rich_kind('e-heading', 'title'), $settings['title']['$$type']);
+        $this->assertSame('New title', $this->rich_text_of($settings['title']));
         // Untouched prop survives.
         $this->assertSame('h2', $settings['tag']['value']);
     }
