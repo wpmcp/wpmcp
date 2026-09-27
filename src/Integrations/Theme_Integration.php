@@ -2,8 +2,6 @@
 
 namespace WPMCP\Integrations;
 
-use WPMCP\MCP\Request_Log;
-
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -131,7 +129,7 @@ class Theme_Integration extends Integration_Dispatcher
     private const VALUE_RULES = [
         'custom_logo'           => 'attachment_id',
         'header_textcolor'      => 'header_textcolor',
-        'header_image'          => 'image_url',
+        'header_image'          => 'header_image_url',
         'background_image'      => 'image_url',
         'background_color'      => 'hex_no_hash',
         'background_preset'     => [ 'default', 'fill', 'fit', 'repeat', 'custom' ],
@@ -163,15 +161,47 @@ class Theme_Integration extends Integration_Dispatcher
     /** Upper bound on one set-mods batch, so a call cannot bloat the autoloaded option. */
     private const MAX_VALUES = 50;
 
-    /** Theme slug => framework name, for get-theme-context framework detection. */
+    /** Framework theme slugs; the detected framework is the slug itself. */
     private const FRAMEWORKS = [
-        'astra'           => 'astra',
-        'kadence'         => 'kadence',
-        'generatepress'   => 'generatepress',
-        'oceanwp'         => 'oceanwp',
-        'blocksy'         => 'blocksy',
-        'neve'            => 'neve',
-        'hello-elementor' => 'hello-elementor',
+        'astra',
+        'kadence',
+        'generatepress',
+        'oceanwp',
+        'blocksy',
+        'neve',
+        'hello-elementor',
+    ];
+
+    /** Bundled core theme slugs, reported as the 'core' framework. */
+    private const CORE_THEMES = [
+        'twentyten',
+        'twentyeleven',
+        'twentytwelve',
+        'twentythirteen',
+        'twentyfourteen',
+        'twentyfifteen',
+        'twentysixteen',
+        'twentyseventeen',
+        'twentynineteen',
+        'twentytwenty',
+        'twentytwentyone',
+        'twentytwentytwo',
+        'twentytwentythree',
+        'twentytwentyfour',
+        'twentytwentyfive',
+        'twentytwentysix',
+    ];
+
+    /** Mask written in place of a secret-shaped theme-mod value. */
+    private const REDACTED = '[redacted]';
+
+    /** Key tokens that mark a value as a secret on their own. */
+    private const SECRET_TOKENS = [ 'secret', 'secrets', 'token', 'password', 'passwd', 'apikey', 'credential', 'credentials' ];
+
+    /** Token pairs (first, second) that mark a secret, e.g. api_key, license_key. */
+    private const SECRET_PAIRS = [
+        'key'  => [ 'api', 'license', 'licence', 'private', 'secret', 'access', 'client', 'auth', 'purchase' ],
+        'code' => [ 'license', 'licence', 'purchase' ],
     ];
 
     /** Core theme_supports features probed by get-theme-context. */
@@ -197,6 +227,9 @@ class Theme_Integration extends Integration_Dispatcher
      * @var array{values: array, verdicts: array<string, array<string, mixed>>}|null
      */
     private ?array $plan = null;
+
+    /** @var array<string, bool> template => whether a child of it is installed, per request. */
+    private array $child_exists = [];
 
     public function integration(): string
     {
@@ -301,6 +334,7 @@ class Theme_Integration extends Integration_Dispatcher
     {
         $plan      = [];
         $allowlist = $this->allowlist();
+        $rules     = $this->value_rules();
 
         foreach ($values as $key => $value) {
             $key = (string) $key;
@@ -330,7 +364,7 @@ class Theme_Integration extends Integration_Dispatcher
             // also remove it, the way the Customizer allows.
             $plan[ $key ] = null === $value
                 ? [ 'ok' => true, 'clear' => true ]
-                : $this->evaluate($key, $value, true);
+                : $this->evaluate($key, $value, $rules);
         }
 
         return $plan;
@@ -348,12 +382,6 @@ class Theme_Integration extends Integration_Dispatcher
     private function mods_option(): string
     {
         return 'theme_mods_' . get_option('stylesheet');
-    }
-
-    /** Whether $key survives guard layers 1 and 2 (structural, then allowlist). */
-    private function is_writable_key(string $key): bool
-    {
-        return ! isset(self::STRUCTURAL_KEYS[ $key ]) && in_array($key, $this->allowlist(), true);
     }
 
     private function theme_context(): array
@@ -393,14 +421,14 @@ class Theme_Integration extends Integration_Dispatcher
         ];
     }
 
-    /** Match the template (parent) slug against the known-framework map. */
+    /** Match the template (parent) slug against the known framework and core slugs. */
     private function detect_framework(): ?string
     {
         $template = get_template();
-        if (isset(self::FRAMEWORKS[ $template ])) {
-            return self::FRAMEWORKS[ $template ];
+        if (in_array($template, self::FRAMEWORKS, true)) {
+            return $template;
         }
-        if (0 === strpos($template, 'twenty')) {
+        if (in_array($template, self::CORE_THEMES, true)) {
             return 'core';
         }
         return null;
@@ -422,56 +450,129 @@ class Theme_Integration extends Integration_Dispatcher
             return true; // The active theme IS a child theme.
         }
         $template = get_template();
+        if (isset($this->child_exists[ $template ])) {
+            return $this->child_exists[ $template ];
+        }
+
+        // wp_get_themes() scans the themes directory; do it at most once per
+        // template per request.
+        $found = false;
         foreach (wp_get_themes() as $theme) {
             if ($theme->get_template() === $template && $theme->get_stylesheet() !== $template) {
-                return true;
+                $found = true;
+                break;
             }
         }
-        return false;
+        return $this->child_exists[ $template ] = $found;
     }
 
     /**
-     * Theme mods for the active theme. Values go through the SHARED
-     * Request_Log::redact() primitive rather than a local copy of it:
-     * commercial themes park API keys, tokens and license keys in theme mods,
-     * and handing those to a model verbatim is a credential leak, not a read.
-     * Using the shared helper also means values are truncated and stored
-     * objects collapse to '[object]', both of which a hand-rolled masker in
-     * this class had drifted away from.
+     * Theme mods for the active theme, verbatim except for secret-shaped keys.
+     *
+     * Commercial themes park API keys, tokens and license keys in theme mods,
+     * and handing those to a model is a credential leak, not a read. Anything
+     * else is returned exactly as stored: no truncation, no depth collapse,
+     * and stored objects come back as their fields. Masking is by key TOKEN
+     * (see is_secret_key()), not substring, so presentation mods such as
+     * post_author_box or meta_keywords are never masked. Every masked path,
+     * nested ones included (dot-separated), is listed in `redacted`.
      *
      * `writable` is the effective allowlist (what set-mods accepts), NOT just
      * the stored keys, so an allowlisted key that has never been set still
-     * reports as writable. `writable_present` is the intersection with what
-     * is actually stored.
+     * reports as writable. It is empty while set-mods is switched off, which
+     * `write_enabled` states explicitly. `writable_present` is the
+     * intersection with what is actually stored.
      */
     private function mods(): array
     {
         $mods = get_theme_mods();
         $mods = is_array($mods) ? $mods : [];
 
-        $allowlist = $this->allowlist();
-        $present   = [];
+        $write_enabled = $this->write_enabled();
+        $allowlist     = $write_enabled ? $this->allowlist() : [];
+        $present       = [];
         foreach (array_keys($mods) as $key) {
             if (in_array((string) $key, $allowlist, true)) {
                 $present[] = (string) $key;
             }
         }
 
-        $masked   = Request_Log::redact($mods);
         $redacted = [];
-        foreach (array_keys($mods) as $key) {
-            if (Request_Log::is_secret_key((string) $key)) {
-                $redacted[] = (string) $key;
-            }
-        }
+        $masked   = $this->mask($mods, '', $redacted);
 
         return [
             'stylesheet'       => get_option('stylesheet'),
             'mods'             => $masked,
+            'write_enabled'    => $write_enabled,
             'writable'         => $allowlist,
             'writable_present' => $present,
             'redacted'         => $redacted,
         ];
+    }
+
+    /**
+     * Whether set-mods is switched on, by the same two filters the dispatcher
+     * applies (wpmcp_enable_theme_write, then wpmcp_integration_op_enabled).
+     * Governance can still deny an individual call on top of this.
+     */
+    private function write_enabled(): bool
+    {
+        $default = (bool) apply_filters('wpmcp_enable_theme_write', false);
+        return (bool) apply_filters('wpmcp_integration_op_enabled', $default, $this->integration(), 'set-mods');
+    }
+
+    /**
+     * Copy $value, replacing the value under any secret-shaped key with
+     * REDACTED and recording its path. Objects become arrays of their public
+     * fields so nothing is collapsed.
+     *
+     * @param mixed              $value
+     * @param array<int, string> $redacted
+     * @return mixed
+     */
+    private function mask($value, string $path, array &$redacted)
+    {
+        if (is_object($value)) {
+            $value = get_object_vars($value);
+        }
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        $out = [];
+        foreach ($value as $key => $item) {
+            $child = '' === $path ? (string) $key : $path . '.' . $key;
+            if (is_string($key) && $this->is_secret_key($key)) {
+                $out[ $key ] = self::REDACTED;
+                $redacted[]  = $child;
+                continue;
+            }
+            $out[ $key ] = $this->mask($item, $child, $redacted);
+        }
+        return $out;
+    }
+
+    /**
+     * Whether a key names a secret. The key is split into word tokens
+     * (snake_case, kebab-case, dotted and camelCase all split), so
+     * "meta_keywords" or "post_author_box" never match, while api_key,
+     * apiKey, license_key, client_secret, access_token and password do.
+     */
+    private function is_secret_key(string $key): bool
+    {
+        $spaced = (string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', $key);
+        $tokens = preg_split('/[^a-z0-9]+/', strtolower($spaced), -1, PREG_SPLIT_NO_EMPTY);
+        $tokens = is_array($tokens) ? $tokens : [];
+
+        foreach ($tokens as $i => $token) {
+            if (in_array($token, self::SECRET_TOKENS, true)) {
+                return true;
+            }
+            if ($i > 0 && isset(self::SECRET_PAIRS[ $token ]) && in_array($tokens[ $i - 1 ], self::SECRET_PAIRS[ $token ], true)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -625,16 +726,15 @@ class Theme_Integration extends Integration_Dispatcher
      * (header_textcolor) collide with real WordPress functions and would
      * otherwise be invoked as callables.
      *
+     * The caller (plan_for()) has already applied guard layers 1 and 2 and
+     * passes the value_rules() map it resolved once for the whole batch.
+     *
+     * @param array<string, mixed> $rules
      * @return array{ok: bool, value?: mixed, reason?: string, detail?: string}
      */
-    private function evaluate(string $key, $value, bool $allowlist_checked = false): array
+    private function evaluate(string $key, $value, array $rules): array
     {
-        if (! $allowlist_checked && ! $this->is_writable_key($key)) {
-            return $this->refuse($key, 'not_allowlisted', 'Key is not in the theme-mod allowlist reported by get-mods.');
-        }
-
-        $rules = $this->value_rules();
-        $rule  = $rules[ $key ] ?? null;
+        $rule = $rules[ $key ] ?? null;
 
         if (is_array($rule)) {
             return in_array($value, $rule, true)
@@ -704,7 +804,7 @@ class Theme_Integration extends Integration_Dispatcher
      *
      * @return array{ok: bool, value?: mixed, reason?: string, detail?: string}|null
      */
-    private function apply_builtin_rule(string $key, string $rule, $value): ?array
+    private function apply_builtin_rule(string $key, string $rule, $value, string $extra = ''): ?array
     {
         switch ($rule) {
             case 'hex_no_hash':
@@ -723,7 +823,7 @@ class Theme_Integration extends Integration_Dispatcher
                     : [ 'ok' => true, 'value' => $hex ];
 
             case 'attachment_id':
-                $bad = $this->refuse($key, 'invalid_value', 'must be the ID of an attachment that exists on this site (pass null to clear it).');
+                $bad = $this->refuse($key, 'invalid_value', 'must be the ID of an image attachment that exists on this site (pass null to clear it).');
                 if (! is_int($value) && ! (is_string($value) && ctype_digit($value))) {
                     return $bad;
                 }
@@ -732,17 +832,24 @@ class Theme_Integration extends Integration_Dispatcher
                     return $bad;
                 }
                 $post = get_post($id);
-                if (! $post || 'attachment' !== $post->post_type) {
+                if (! $post || 'attachment' !== $post->post_type || 0 !== strpos((string) get_post_mime_type($post), 'image/')) {
                     return $bad;
                 }
                 return [ 'ok' => true, 'value' => $id ];
 
+            case 'header_image_url':
+                // Core's header-only sentinels, then the plain image_url rule.
+                if ('remove-header' === $value || 'random-default-image' === $value) {
+                    return [ 'ok' => true, 'value' => $value ];
+                }
+                return $this->apply_builtin_rule($key, 'image_url', $value, '"remove-header", "random-default-image", ');
+
             case 'image_url':
-                $bad = $this->refuse($key, 'invalid_value', 'must be an absolute http(s) URL, an empty string, "remove-header", or "random-default-image" (pass null to clear it).');
+                $bad = $this->refuse($key, 'invalid_value', sprintf('must be an absolute http(s) URL, %san empty string (pass null to clear it).', $extra));
                 if (! is_string($value)) {
                     return $bad;
                 }
-                if ('' === $value || 'remove-header' === $value || 'random-default-image' === $value) {
+                if ('' === $value) {
                     return [ 'ok' => true, 'value' => $value ];
                 }
                 $url = esc_url_raw($value, [ 'http', 'https' ]);
