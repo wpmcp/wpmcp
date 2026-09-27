@@ -104,6 +104,7 @@ class MetForm_Integration extends Integration_Dispatcher
             'offset'         => $offset,
             'orderby'        => 'ID',
             'order'          => 'DESC',
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- single-key equality lookup on the entry CPT, bounded by posts_per_page paging.
             'meta_query'     => [
                 [ 'key' => self::META_FORM_ID, 'value' => $form_id ],
             ],
