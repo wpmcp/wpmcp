@@ -2606,28 +2606,32 @@ final class Plugin
     }
 
     /**
-     * Theme-builder site parts (issue #70, scoped v1): templates for header,
-     * footer, and 404 assignable to contexts by include/exclude conditions,
-     * with deterministic winner resolution (specificity > priority > id).
+     * Theme-builder site parts (issue #70): templates for header, footer, and
+     * 404 assignable to contexts by include/exclude conditions, with
+     * deterministic winner resolution (specificity > priority > id), rendered
+     * into classic and block themes by the Render adapters.
      *
      * Named `site-part` rather than `template` on purpose: the Elementor
-     * group already owns create-theme-template / list-theme-templates /
-     * apply-template, and an agent holding both surfaces has to be able to
-     * tell them apart from the tool name alone.
+     * group already owns create-theme-template / resolve-theme-template /
+     * apply-template for Elementor library documents, and an agent holding
+     * both surfaces has to be able to tell them apart from the tool name
+     * alone. These parts need no page builder.
      *
      * Engine is free with a cap of one template per part type, read from
-     * Template_Store::cap_per_type(); unlimited templates lift the cap on a
-     * licensed site. manage_options across the group: these templates render
-     * site-wide markup, and the CPT is on Content_Guard's internal list so
-     * the edit_posts content tools cannot reach it either.
+     * Template_Store::cap_per_type(); unlimited templates and the granular
+     * term / user_role rules lift on a licensed site. manage_options across
+     * the group: these templates render site-wide markup, and the CPT is on
+     * Content_Guard's internal list so the edit_posts content tools cannot
+     * reach it either. Every write to an existing template is snapshot-first
+     * through Safe_Mutation.
      */
     private function register_theme_builder_abilities(Registrar $registrar): void
     {
-        $part_type      = [
+        $part_type         = [
             'type' => 'string',
             'enum' => \WPMCP\Tools\ThemeBuilder\Template_Store::PART_TYPES,
         ];
-        $rule_schema    = [
+        $rule_schema       = [
             'type'       => 'object',
             'properties' => [
                 'type'  => [
@@ -2635,7 +2639,8 @@ final class Plugin
                     'enum' => array_keys(\WPMCP\Tools\ThemeBuilder\Condition_Schema::RULE_TYPES),
                 ],
                 // Post type slug for post_type, post id for singular (omit
-                // for any singular). The other rule types take no value.
+                // for any singular), term id for term, role slug for
+                // user_role. The other rule types take no value.
                 'value' => ['type' => ['string', 'integer']],
             ],
             'required'   => ['type'],
@@ -2659,17 +2664,25 @@ final class Plugin
                 'is_singular'   => ['type' => 'boolean'],
                 'post_type'     => ['type' => 'string'],
                 'post_id'       => ['type' => 'integer'],
+                'term_ids'      => ['type' => 'array', 'items' => ['type' => 'integer']],
+                'user_roles'    => ['type' => 'array', 'items' => ['type' => 'string']],
             ],
         ];
         $template_id       = ['type' => 'integer'];
+        $create            = new \WPMCP\Tools\ThemeBuilder\Create_Site_Part();
+        $list              = new \WPMCP\Tools\ThemeBuilder\List_Site_Parts();
+        $resolve           = new \WPMCP\Tools\ThemeBuilder\Resolve_Site_Part();
+        $update            = new \WPMCP\Tools\ThemeBuilder\Update_Site_Part();
+        $set_status        = new \WPMCP\Tools\ThemeBuilder\Set_Site_Part_Status();
+        $delete            = new \WPMCP\Tools\ThemeBuilder\Delete_Site_Part();
 
-        $tools = [
+        $registrar->register(new Ability(
+            'wpmcp/create-site-part',
+            'free',
+            'Create a built-in site part (header, footer, or 404 template) with include/exclude display conditions. No page builder needed; not the Elementor theme-template tools. Capped per part type; wpmcp/delete-site-part frees a slot',
             [
-                'create-site-part',
-                'create',
-                new \WPMCP\Tools\ThemeBuilder\Create_Site_Part(),
-                'Create a built-in site part (header, footer, or 404 template) with include/exclude display conditions. Not the Elementor theme-template tools. One per part type; wpmcp/delete-site-part frees the slot',
-                [
+                'type'       => 'object',
+                'properties' => [
                     'part_type'  => $part_type,
                     'title'      => ['type' => 'string'],
                     // Block markup; filtered with wp_kses_post on save.
@@ -2678,61 +2691,91 @@ final class Plugin
                     // Tie-break between equally specific matches; higher wins.
                     'priority'   => ['type' => 'integer'],
                 ],
-                ['part_type', 'title', 'conditions'],
+                'required'   => ['part_type', 'title', 'conditions'],
             ],
+            [$create, 'handle'],
+            'manage_options',
+            'theme',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/list-site-parts',
+            'free',
+            'List the built-in site parts (id, part type, title, conditions, priority, status), optionally filtered by part type. Read-only',
             [
-                'list-site-parts',
-                'read',
-                new \WPMCP\Tools\ThemeBuilder\List_Site_Parts(),
-                'List the built-in site parts (id, part type, title, conditions, priority, status), optionally filtered by part type. Read-only',
-                ['part_type' => $part_type],
-                [],
+                'type'       => 'object',
+                'properties' => ['part_type' => $part_type],
             ],
+            [$list, 'handle'],
+            'manage_options',
+            'theme',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/resolve-site-part',
+            'free',
+            'Report which site part wins for a context (specificity > priority > id), with every considered template and why. post_id alone fills post_type and term_ids. Read-only',
             [
-                'resolve-site-part',
-                'read',
-                new \WPMCP\Tools\ThemeBuilder\Resolve_Site_Part(),
-                'Report which site part wins for a context (specificity > priority > id), with every considered template and why. Read-only',
-                ['part_type' => $part_type, 'context' => $context_schema],
-                ['part_type'],
+                'type'       => 'object',
+                'properties' => ['part_type' => $part_type, 'context' => $context_schema],
+                'required'   => ['part_type'],
             ],
+            [$resolve, 'handle'],
+            'manage_options',
+            'theme',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-site-part',
+            'free',
+            'Edit a site part\'s title, content, conditions, or priority; omitted fields are kept. The part type is fixed. Snapshot-first: the returned operation_id rolls it back',
             [
-                'set-site-part-status',
-                'update',
-                new \WPMCP\Tools\ThemeBuilder\Set_Site_Part_Status(),
-                'Activate (publish) or deactivate (draft) a site part. Only active ones are resolved. Snapshot-first',
-                [
+                'type'       => 'object',
+                'properties' => [
+                    'template_id' => $template_id,
+                    'title'       => ['type' => 'string'],
+                    'content'     => ['type' => 'string'],
+                    'conditions'  => $conditions_schema,
+                    'priority'    => ['type' => 'integer'],
+                ],
+                'required'   => ['template_id'],
+            ],
+            [$update, 'handle'],
+            'manage_options',
+            'theme',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/set-site-part-status',
+            'free',
+            'Activate (publish) or deactivate (draft) a site part. Only active ones are resolved. Snapshot-first',
+            [
+                'type'       => 'object',
+                'properties' => [
                     'template_id' => $template_id,
                     'status'      => ['type' => 'string', 'enum' => ['publish', 'draft']],
                 ],
-                ['template_id', 'status'],
+                'required'   => ['template_id', 'status'],
             ],
+            [$set_status, 'handle'],
+            'manage_options',
+            'theme',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/delete-site-part',
+            'free',
+            'Trash a site part, freeing its per-part-type slot. Snapshot-first: the returned operation_id rolls it back',
             [
-                'delete-site-part',
-                'delete',
-                new \WPMCP\Tools\ThemeBuilder\Delete_Site_Part(),
-                'Trash a site part, freeing its per-part-type slot. Snapshot-first: the returned operation_id rolls it back',
-                ['template_id' => $template_id],
-                ['template_id'],
+                'type'       => 'object',
+                'properties' => ['template_id' => $template_id],
+                'required'   => ['template_id'],
             ],
-        ];
-
-        foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
-            $schema = [ 'type' => 'object', 'properties' => $props ];
-            if ([] !== $required) {
-                $schema['required'] = $required;
-            }
-            $registrar->register(new Ability(
-                'wpmcp/' . $name,
-                'free',
-                $desc,
-                $schema,
-                [$handler, 'handle'],
-                'manage_options',
-                'theme',
-                $op
-            ));
-        }
+            [$delete, 'handle'],
+            'manage_options',
+            'theme',
+            'delete'
+        ));
     }
 
     /**

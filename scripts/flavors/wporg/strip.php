@@ -755,6 +755,46 @@ $edits['src/Tools/ThemeBuilder/Template_Store.php'] = [
     ],
 ];
 
+// The granular rule types (term, user_role) are the other half of the
+// theme-builder tier split. Same answer as the cap: this build does not lock
+// them, so the one method that read the licence answers yes unconditionally
+// and the class docblock stops describing a split that is not here.
+$edits['src/Tools/ThemeBuilder/Condition_Schema.php'] = [
+    ["use WPMCP\\Pro\\Gate;\n\n", '', 1],
+    [
+        " * rule is {type, value?}. The location rule types ship with the engine; the\n"
+            . " * granular ones (term, user_role) are the licensed part of the tier split and\n"
+            . " * are checked in granular_rules_allowed(), the one place that reads the\n"
+            . " * licence.\n",
+        " * rule is {type, value?}. Every rule type, the granular term and user_role\n"
+            . " * ones included, is available to every install of this build.\n",
+        1,
+    ],
+    [
+        "    /**\n"
+            . "     * Whether this install may store the granular rule types. Checked on\n"
+            . "     * write only: a template already stored keeps rendering if the licence\n"
+            . "     * later lapses, the same way the per-part-type cap never unpublishes a\n"
+            . "     * template that was created under it.\n"
+            . "     */\n"
+            . "    public static function granular_rules_allowed(): bool\n"
+            . "    {\n"
+            . "        return Gate::can_use('site-part-granular-conditions');\n"
+            . "    }\n",
+        "    /** Every rule type is available to every install of this build. */\n"
+            . "    public static function granular_rules_allowed(): bool\n"
+            . "    {\n"
+            . "        return true;\n"
+            . "    }\n",
+        1,
+    ],
+    [
+        "                sprintf('The \"%s\" rule needs a licensed install; the location rule types are always available.', \$type)\n",
+        "                sprintf('The \"%s\" rule is not available on this site.', \$type)\n",
+        1,
+    ],
+];
+
 // ------------------------------------------------------------- Plugin.php
 $plugin_edits = [
     // Ability-group wiring for the groups that are not in this build.
@@ -864,15 +904,30 @@ $plugin_edits[] = [
 ];
 $plugin_edits[] = [
     "     * Engine is free with a cap of one template per part type, read from\n"
-        . "     * Template_Store::cap_per_type(); unlimited templates lift the cap on a\n"
-        . "     * licensed site. manage_options across the group: these templates render\n"
+        . "     * Template_Store::cap_per_type(); unlimited templates and the granular\n"
+        . "     * term / user_role rules lift on a licensed site. manage_options across\n"
+        . "     * the group: these templates render site-wide markup, and the CPT is on\n"
+        . "     * Content_Guard's internal list so the edit_posts content tools cannot\n"
+        . "     * reach it either. Every write to an existing template is snapshot-first\n"
+        . "     * through Safe_Mutation.\n",
+    "     * The whole engine is available to every install of this plugin, every\n"
+        . "     * rule type included, with no limit on how many templates a part type\n"
+        . "     * may have. manage_options across the group: these templates render\n"
         . "     * site-wide markup, and the CPT is on Content_Guard's internal list so\n"
-        . "     * the edit_posts content tools cannot reach it either.\n",
-    "     * The whole engine is available to every install of this plugin, with\n"
-        . "     * no limit on how many templates a part type may have.\n"
-        . "     * manage_options across the group: these templates render site-wide\n"
-        . "     * markup, and the CPT is on Content_Guard's internal list so the\n"
-        . "     * edit_posts content tools cannot reach it either.\n",
+        . "     * the edit_posts content tools cannot reach it either. Every write to an\n"
+        . "     * existing template is snapshot-first through Safe_Mutation.\n",
+    1,
+];
+// The create and delete descriptions name the per-part-type cap, which this
+// build does not have.
+$plugin_edits[] = [
+    "not the Elementor theme-template tools. Capped per part type; wpmcp/delete-site-part frees a slot',\n",
+    "not the Elementor theme-template tools',\n",
+    1,
+];
+$plugin_edits[] = [
+    "'Trash a site part, freeing its per-part-type slot. Snapshot-first: the returned operation_id rolls it back',\n",
+    "'Trash a site part. Snapshot-first: the returned operation_id rolls it back',\n",
     1,
 ];
 

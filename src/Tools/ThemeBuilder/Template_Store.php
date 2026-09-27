@@ -115,10 +115,57 @@ class Template_Store
         }
         $id = (int) $id;
         update_post_meta($id, '_wpmcp_template_type', $part_type);
-        update_post_meta($id, '_wpmcp_template_conditions', $conditions);
+        update_post_meta($id, '_wpmcp_template_conditions', wp_slash($conditions));
         update_post_meta($id, '_wpmcp_template_priority', $priority);
 
         return $id;
+    }
+
+    /**
+     * Apply an already-validated set of field changes to an existing
+     * template. The caller (Update_Site_Part) runs this inside
+     * Safe_Mutation, so the snapshot covering post_content and every
+     * _wpmcp_template_* meta row exists before anything here writes.
+     * Conditions are validated again here so no path can store a set the
+     * resolver would silently skip.
+     *
+     * @param array{title?: string, content?: string, conditions?: array, priority?: int} $changes
+     *
+     * @return true|\WP_Error
+     */
+    public static function update(int $id, array $changes)
+    {
+        if (! self::is_template($id)) {
+            return new \WP_Error('wpmcp_template_not_found', "No site-part template found with id {$id}.");
+        }
+        if (array_key_exists('conditions', $changes)) {
+            $valid = Condition_Schema::validate($changes['conditions']);
+            if (is_wp_error($valid)) {
+                return $valid;
+            }
+        }
+
+        $post = ['ID' => $id];
+        if (array_key_exists('title', $changes)) {
+            $post['post_title'] = sanitize_text_field((string) $changes['title']);
+        }
+        if (array_key_exists('content', $changes)) {
+            $post['post_content'] = self::sanitize_content((string) $changes['content']);
+        }
+        if (count($post) > 1) {
+            $updated = wp_update_post(wp_slash($post), true);
+            if (is_wp_error($updated)) {
+                return $updated;
+            }
+        }
+        if (array_key_exists('conditions', $changes)) {
+            update_post_meta($id, '_wpmcp_template_conditions', wp_slash($changes['conditions']));
+        }
+        if (array_key_exists('priority', $changes)) {
+            update_post_meta($id, '_wpmcp_template_priority', (int) $changes['priority']);
+        }
+
+        return true;
     }
 
     /**
@@ -170,13 +217,12 @@ class Template_Store
     {
         self::ensure_post_type();
         $query = [
-            'post_type'        => self::POST_TYPE,
-            'post_status'      => $active_only ? ['publish'] : ['publish', 'draft'],
+            'post_type'      => self::POST_TYPE,
+            'post_status'    => $active_only ? ['publish'] : ['publish', 'draft'],
             // phpcs:ignore WordPress.WP.PostsPerPage.posts_per_page_posts_per_page -- Bounded by the per-part-type cap; the resolver must see every candidate or the deterministic winner is a lie.
-            'posts_per_page'   => $limit,
-            'orderby'          => 'ID',
-            'order'            => 'ASC',
-            'suppress_filters' => true,
+            'posts_per_page' => $limit,
+            'orderby'        => 'ID',
+            'order'          => 'ASC',
         ];
         if (null !== $part_type && '' !== $part_type) {
             // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- The plugin's own wpmcp_template CPT: a handful of rows, capped per part type.

@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\ThemeBuilder;
 
+use WPMCP\Pro\Gate;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -9,8 +11,10 @@ if (! defined('ABSPATH')) {
 /**
  * Display-condition schema and matcher for theme-builder templates
  * (issue #70). A condition set is {include: rule[], exclude: rule[]} where a
- * rule is {type, value?}. v1 ships the coarse rule types; granular conditions
- * (per-taxonomy-term, per-post, user role) are a later slice.
+ * rule is {type, value?}. The location rule types ship with the engine; the
+ * granular ones (term, user_role) are the licensed part of the tier split and
+ * are checked in granular_rules_allowed(), the one place that reads the
+ * licence.
  *
  * validate() is strict on purpose. A rule that is accepted but can never
  * match produces a template that is silently invisible forever, which is a
@@ -19,16 +23,27 @@ if (! defined('ABSPATH')) {
  */
 class Condition_Schema
 {
-    /** Rule type => specificity weight (higher wins; entire_site is the floor). */
+    /**
+     * Rule type => specificity weight (higher wins; entire_site is the floor).
+     * user_role narrows the audience rather than the location, so it only
+     * outranks entire_site: a role-targeted site-wide header beats the
+     * generic one, and loses to any location rule. term sits between a post
+     * type and a single post, because a term selects a subset of posts.
+     */
     public const RULE_TYPES = [
         'entire_site' => 0,
+        'user_role'   => 5,
         'archive'     => 10,
         'search'      => 10,
         'error_404'   => 10,
         'front_page'  => 20,
         'post_type'   => 20,
+        'term'        => 25,
         'singular'    => 30,
     ];
+
+    /** The granular rule types (issue #70 tier split). */
+    public const GRANULAR_RULE_TYPES = ['term', 'user_role'];
 
     /** Rule types that carry no value at all. A value on one of these is a typo. */
     public const VALUELESS_TYPES = ['entire_site', 'archive', 'search', 'error_404', 'front_page'];
@@ -95,6 +110,32 @@ class Condition_Schema
             }
         }
 
+        if ('term' === $type) {
+            $value = $rule['value'] ?? null;
+            if (! (is_int($value) || (is_string($value) && ctype_digit($value))) || (int) $value < 1) {
+                return new \WP_Error(
+                    'wpmcp_invalid_conditions',
+                    'The "term" rule needs a positive integer term id as "value".'
+                );
+            }
+        }
+
+        if ('user_role' === $type) {
+            if (! $has_value || ! is_string($rule['value']) || '' === trim($rule['value'])) {
+                return new \WP_Error(
+                    'wpmcp_invalid_conditions',
+                    'The "user_role" rule needs a non-empty string "value" (the role slug).'
+                );
+            }
+        }
+
+        if (in_array($type, self::GRANULAR_RULE_TYPES, true) && ! self::granular_rules_allowed()) {
+            return new \WP_Error(
+                'wpmcp_granular_condition',
+                sprintf('The "%s" rule needs a licensed install; the location rule types are always available.', $type)
+            );
+        }
+
         if ('singular' === $type && $has_value) {
             $value = $rule['value'];
             if (! is_int($value) && ! (is_string($value) && ctype_digit($value))) {
@@ -109,6 +150,17 @@ class Condition_Schema
         }
 
         return true;
+    }
+
+    /**
+     * Whether this install may store the granular rule types. Checked on
+     * write only: a template already stored keeps rendering if the licence
+     * later lapses, the same way the per-part-type cap never unpublishes a
+     * template that was created under it.
+     */
+    public static function granular_rules_allowed(): bool
+    {
+        return Gate::can_use('site-part-granular-conditions');
     }
 
     /**
@@ -161,7 +213,8 @@ class Condition_Schema
 
     /**
      * $context is a normalized request description: {is_front_page, is_404,
-     * is_search, is_archive, is_singular, post_type, post_id}. Resolve_Site_Part
+     * is_search, is_archive, is_singular, post_type, post_id, term_ids,
+     * user_roles}. Resolve_Site_Part
      * builds it from tool args; Render\Template_Renderer builds it from the
      * live main query.
      */
@@ -182,6 +235,12 @@ class Condition_Schema
             case 'post_type':
                 $wanted = (string) ($rule['value'] ?? '');
                 return '' !== $wanted && isset($context['post_type']) && $wanted === (string) $context['post_type'];
+            case 'term':
+                $term_ids = is_array($context['term_ids'] ?? null) ? array_map('intval', $context['term_ids']) : [];
+                return in_array((int) ($rule['value'] ?? 0), $term_ids, true);
+            case 'user_role':
+                $roles = is_array($context['user_roles'] ?? null) ? array_map('strval', $context['user_roles']) : [];
+                return in_array((string) ($rule['value'] ?? ''), $roles, true);
             case 'singular':
                 if (empty($context['is_singular'])) {
                     return false;

@@ -1,15 +1,10 @@
 <?php
 
 /**
- * The document a theme-builder render adapter hands to `template_include`.
- *
- * It is a whole-page template rather than a fragment because that is the only
- * short-circuit WordPress offers: get_header() and get_footer() call
- * locate_template() with no filter in between, so a classic theme's own
- * header.php cannot be swapped from a hook. The 404 part is therefore the
- * scoped v1 of the render slice (issue #70); replacing header and footer on
- * an arbitrary page needs the full document composition tracked as the next
- * slice.
+ * The document Classic_Adapter hands to `template_include` when a 404 site
+ * part wins (issue #70). The theme's header and footer frame it, or the
+ * winning header and footer site parts when there are any, because
+ * get_header() / get_footer() route back through Classic_Adapter's hooks.
  *
  * @package WPMCP
  */

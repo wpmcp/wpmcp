@@ -311,7 +311,9 @@ class SitePartEngineTest extends \WP_UnitTestCase
         $GLOBALS['wp_query']->set_404();
         $this->assertTrue(is_404());
 
-        $adapter = Adapters::active();
+        // The classic document swap; the block-theme 404 composition is
+        // covered in SitePartRenderTest.
+        $adapter = new Classic_Adapter();
         $adapter->register('404');
 
         $swapped = apply_filters('template_include', '/theme/404.php');
@@ -323,7 +325,7 @@ class SitePartEngineTest extends \WP_UnitTestCase
     {
         $this->go_to(home_url('/definitely-not-a-real-url-70/'));
         $GLOBALS['wp_query']->set_404();
-        $adapter = Adapters::active();
+        $adapter = new Classic_Adapter();
         $adapter->register('404');
 
         $this->assertSame('/theme/404.php', apply_filters('template_include', '/theme/404.php'));
@@ -332,8 +334,8 @@ class SitePartEngineTest extends \WP_UnitTestCase
     public function test_header_and_footer_parts_register_no_document_swap(): void
     {
         // The document swap replaces the whole page, which is only correct for
-        // an error page; header/footer wait for the composition slice.
-        $adapter = Adapters::active();
+        // an error page; header and footer go through get_header/get_footer.
+        $adapter = new Classic_Adapter();
         $adapter->register('header');
         $adapter->register('footer');
 
