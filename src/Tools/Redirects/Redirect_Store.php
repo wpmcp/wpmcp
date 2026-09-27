@@ -60,6 +60,9 @@ class Redirect_Store
         global $wpdb;
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         update_option(self::DB_VERSION_OPTION, self::DB_VERSION, false);
+        // A (re)installed table may not hold what a persistent object cache
+        // remembers from before; start the front-end lookup cache over.
+        self::invalidate_cache();
         $table   = self::table_name();
         $charset = $wpdb->get_charset_collate();
         dbDelta("CREATE TABLE {$table} (
