@@ -52,6 +52,7 @@ class Sql_Importer
         $tables      = [];
         $largest     = 0;
         $placeholder = null;
+        $literal     = false;
 
         foreach ($this->reader()->statements() as $statement) {
             $count++;
@@ -80,9 +81,21 @@ class Sql_Importer
                 $tables[ $class['table'] ] = true;
             }
 
-            if (null === $placeholder && Sql_Import_Policy::KIND_INSERT === $class['kind'] && preg_match(self::PLACEHOLDER_PATTERN, $statement['sql'], $m)) {
-                $placeholder = $m[0];
+            if (Sql_Import_Policy::KIND_INSERT === $class['kind']) {
+                if (null === $placeholder && preg_match(self::PLACEHOLDER_PATTERN, $statement['sql'], $m)) {
+                    $placeholder = $m[0];
+                }
+                if (! $literal && str_contains($statement['sql'], '%')) {
+                    $literal = true;
+                }
             }
+        }
+
+        // A legacy dump has no literal "%" in any value: every one became
+        // the token. A dump that does contain "%" was written after the fix,
+        // so a {64 hex} string in it is real data and must not be touched.
+        if ($literal) {
+            $placeholder = null;
         }
 
         if (0 === $count) {

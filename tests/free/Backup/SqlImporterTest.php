@@ -54,6 +54,18 @@ class SqlImporterTest extends \WP_UnitTestCase
         $this->assertNull($out['placeholder']);
     }
 
+    public function test_scan_learns_a_legacy_placeholder_only_when_no_value_holds_a_literal_percent(): void
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'never_created';
+        $token = '{' . str_repeat('0f', 32) . '}';
+        $legacy = "INSERT INTO `{$table}` (`v`) VALUES ('100{$token}');\n";
+        $modern = $legacy . "INSERT INTO `{$table}` (`v`) VALUES ('50%');\n";
+
+        $this->assertSame($token, (new Sql_Importer($this->dump($legacy), $this->policy()))->scan()['placeholder']);
+        $this->assertNull((new Sql_Importer($this->dump($modern), $this->policy()))->scan()['placeholder']);
+    }
+
     public function test_scan_refuses_a_statement_larger_than_max_allowed_packet(): void
     {
         $this->expectException(\RuntimeException::class);

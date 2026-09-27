@@ -62,7 +62,8 @@ these. The `content` type predates archives and still produces a WXR export.
     "tables": { "wp_posts": 412 },
     "row_count": 8123,
     "blob_tables": ["wp_some_plugin_cache"],
-    "bytes": 18234123
+    "bytes": 18234123,
+    "percent": "literal"
   },
   "files": { "count": 4211 }
 }
@@ -195,5 +196,8 @@ order is the design:
    plus the backup, export and file-backup directories are carried across.
 
 Dumps written before this change stored every `%` in the data as
-`$wpdb->prepare()`'s per-request placeholder token; `Db_Dumper` now removes
-it, and the importer converts the token back when it finds one.
+`$wpdb->prepare()`'s per-request placeholder token. `Db_Dumper` now removes
+it and the manifest says so (`database.percent: "literal"`). For an archive
+without that key, the importer converts the token back to `%`, but only if
+no value in the dump contains a literal `%` (a dump that does was written
+after the fix, so a `{64 hex}` string in it is real data).

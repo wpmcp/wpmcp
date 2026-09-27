@@ -351,6 +351,9 @@ class Site_Archive_Builder
                 'row_count'   => array_sum($dump_result['tables']),
                 'blob_tables' => $dump_result['blob_tables'],
                 'bytes'       => $dump_result['bytes'],
+                // "%" in values is written as itself (see Db_Dumper); older
+                // archives lack this key and may hold wpdb's placeholder.
+                'percent'     => 'literal',
             ],
             'files'         => [
                 'count' => $file_count,

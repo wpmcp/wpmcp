@@ -207,7 +207,17 @@ class Restore_Site_Backup
 
                 $maintenance->enter();
 
-                $import   = $this->import_dump($sql_path, $scan, $maintenance, $state);
+                try {
+                    $import = $this->import_dump($sql_path, $scan, $maintenance, $state);
+                } catch (\Throwable $e) {
+                    // Anything thrown mid-import (a hook, a fatal-ish type
+                    // error) is still a half-imported database: treat it
+                    // exactly like a failed statement so the rollback runs.
+                    $import = [
+                        'executed' => 0,
+                        'failure'  => ['statement' => null, 'offset' => null, 'kind' => null, 'table' => null, 'error' => $e->getMessage()],
+                    ];
+                }
                 $rollback = null;
 
                 if (null !== $import['failure']) {
@@ -470,6 +480,13 @@ class Restore_Site_Backup
                 : null;
 
             $scan = (new Sql_Importer($path, $this->policy_for($tables)))->scan(self::max_packet());
+
+            // Archives from this version on declare that "%" is written
+            // literally; only an archive without the marker is a candidate
+            // for the legacy placeholder repair.
+            if ('literal' === ($manifest['database']['percent'] ?? null)) {
+                $scan['placeholder'] = null;
+            }
         } catch (\Throwable $e) {
             self::remove_scratch($path);
             throw $e;
