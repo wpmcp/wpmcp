@@ -189,6 +189,15 @@ class Theme_Integration extends Integration_Dispatcher
         'html5',
     ];
 
+    /**
+     * Per-call verdicts shared between snapshot_target() and set_mods(), as
+     * ['values' => the args they were computed for, 'verdicts' => plan_for()].
+     * Reset by set_mods() as soon as it is consumed.
+     *
+     * @var array{values: array, verdicts: array<string, array<string, mixed>>}|null
+     */
+    private ?array $plan = null;
+
     public function integration(): string
     {
         return 'theme';
@@ -263,9 +272,9 @@ class Theme_Integration extends Integration_Dispatcher
      */
     private function snapshot_target(array $values): ?array
     {
-        foreach ($values as $key => $value) {
-            $key = (string) $key;
-            if (null === $value ? $this->is_writable_key($key) : $this->evaluate($key, $value)['ok']) {
+        $this->plan = [ 'values' => $values, 'verdicts' => $this->plan_for($values) ];
+        foreach ($this->plan['verdicts'] as $verdict) {
+            if ($verdict['ok']) {
                 return [
                     'object_type' => 'option',
                     'object_id'   => $this->mods_option(),
@@ -273,6 +282,58 @@ class Theme_Integration extends Integration_Dispatcher
             }
         }
         return null;
+    }
+
+    /**
+     * One verdict per key, computed exactly once per call. snapshot_target()
+     * builds it and set_mods() consumes it, so the snapshot decision and the
+     * write can never disagree: a custom validator that is non-deterministic
+     * (or counts its calls) cannot refuse while the snapshot is being decided
+     * and then accept when the write runs, which would be a write with no
+     * undo point.
+     *
+     * A verdict is the evaluate() shape, plus 'clear' => true for the null
+     * clear sentinel and a pre-rendered 'detail' for guard layers 1 and 2.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function plan_for(array $values): array
+    {
+        $plan      = [];
+        $allowlist = $this->allowlist();
+
+        foreach ($values as $key => $value) {
+            $key = (string) $key;
+
+            if (isset(self::STRUCTURAL_KEYS[ $key ])) {
+                $plan[ $key ] = [
+                    'ok'     => false,
+                    'reason' => 'structural',
+                    'detail' => 'Structural theme mods are never writable through set-mods. '
+                        . $this->structural_route($key),
+                ];
+                continue;
+            }
+
+            if (! in_array($key, $allowlist, true)) {
+                $plan[ $key ] = [
+                    'ok'     => false,
+                    'reason' => 'not_allowlisted',
+                    'detail' => 'Key is not in the theme-mod allowlist reported by get-mods. Extend it with the wpmcp_theme_mod_allowlist filter.',
+                ];
+                continue;
+            }
+
+            // null is the explicit clear sentinel. It skips the validators
+            // (there is nothing to validate) and routes through
+            // remove_theme_mod(), so an agent that can set custom_logo can
+            // also remove it, the way the Customizer allows.
+            $plan[ $key ] = null === $value
+                ? [ 'ok' => true, 'clear' => true ]
+                : $this->evaluate($key, $value, true);
+        }
+
+        return $plan;
     }
 
     /**
@@ -423,55 +484,38 @@ class Theme_Integration extends Integration_Dispatcher
      */
     private function set_mods(array $values): array
     {
+        // Consume the plan snapshot_target() built for this very call. A plan
+        // left over from a different call (its write aborted before reaching
+        // the handler) never matches $values and is discarded.
+        $plan       = null !== $this->plan && $this->plan['values'] === $values
+            ? $this->plan['verdicts']
+            : $this->plan_for($values);
+        $this->plan = null;
+
         $updated     = [];
         $cleared     = [];
         $refused     = [];
         $ineffective = [];
-        $allowlist   = $this->allowlist();
         $block_theme = $this->is_block_theme();
 
-        foreach ($values as $key => $value) {
+        foreach ($plan as $key => $verdict) {
             $key = (string) $key;
 
-            if (isset(self::STRUCTURAL_KEYS[ $key ])) {
-                $refused[] = [
-                    'key'    => $key,
-                    'reason' => 'structural',
-                    'detail' => 'Structural theme mods are never writable through set-mods. '
-                        . $this->structural_route($key),
-                ];
-                continue;
-            }
-
-            if (! in_array($key, $allowlist, true)) {
-                $refused[] = [
-                    'key'    => $key,
-                    'reason' => 'not_allowlisted',
-                    'detail' => 'Key is not in the theme-mod allowlist reported by get-mods. Extend it with the wpmcp_theme_mod_allowlist filter.',
-                ];
-                continue;
-            }
-
-            // null is the explicit clear sentinel. It skips the validators
-            // (there is nothing to validate) and routes through
-            // remove_theme_mod(), so an agent that can set custom_logo can
-            // also remove it, the way the Customizer allows.
-            if (null === $value) {
-                remove_theme_mod($key);
-                if ('header_image' === $key) {
-                    remove_theme_mod('header_image_data');
-                }
-                $cleared[] = $key;
-                continue;
-            }
-
-            $verdict = $this->evaluate($key, $value, true);
             if (! $verdict['ok']) {
                 $refused[] = [
                     'key'    => $key,
                     'reason' => $verdict['reason'],
                     'detail' => $verdict['detail'],
                 ];
+                continue;
+            }
+
+            if (! empty($verdict['clear'])) {
+                remove_theme_mod($key);
+                if ('header_image' === $key) {
+                    remove_theme_mod('header_image_data');
+                }
+                $cleared[] = $key;
                 continue;
             }
 

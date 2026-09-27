@@ -551,6 +551,46 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
     }
 
     /**
+     * The snapshot decision and the write must come from ONE evaluation. A
+     * custom validator that refuses on its first call and accepts on its
+     * second would otherwise let snapshot_target() decide "nothing will be
+     * written, take no snapshot" and then let set_mods() write anyway: a
+     * theme-mod write with no undo point.
+     */
+    public function test_validators_run_once_so_a_write_never_escapes_the_snapshot_decision(): void
+    {
+        $calls = 0;
+        $rules = static function (array $rules) use (&$calls): array {
+            $rules['flaky_pack_mod'] = static function ($value) use (&$calls) {
+                ++$calls;
+                return $calls > 1 ? 'accepted-late' : null;
+            };
+            return $rules;
+        };
+        $allow = static fn (array $keys): array => array_merge($keys, [ 'flaky_pack_mod' ]);
+        add_filter('wpmcp_theme_mod_value_rules', $rules);
+        add_filter('wpmcp_theme_mod_allowlist', $allow);
+        $before = count(Snapshot_Store::recent(100));
+
+        try {
+            $out = $this->withWritesEnabled(fn () => $this->integration->handle_write([
+                'operation' => 'set-mods',
+                'args'      => [ 'values' => [ 'flaky_pack_mod' => 'x' ] ],
+            ]));
+        } finally {
+            remove_filter('wpmcp_theme_mod_value_rules', $rules);
+            remove_filter('wpmcp_theme_mod_allowlist', $allow);
+        }
+
+        $this->assertSame(1, $calls);
+        $this->assertSame([], $out['result']['updated']);
+        $this->assertSame('invalid_value', $out['result']['refused'][0]['reason']);
+        $this->assertFalse($out['recoverable']);
+        $this->assertFalse(get_theme_mod('flaky_pack_mod'));
+        $this->assertCount($before, Snapshot_Store::recent(100));
+    }
+
+    /**
      * Guard layer 3 must not fail open for exactly the keys guard layer 2 was
      * widened to admit. A filter-added key with no registered rule is refused,
      * not waved through on a markup sniff.
