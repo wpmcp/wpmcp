@@ -215,4 +215,35 @@ class MemoryGuardTest extends \WP_UnitTestCase
         $this->assertSame(['page'], Memory_Guard::candidate_post_types(['type' => 'page']));
         $this->assertSame([], Memory_Guard::candidate_post_types(['type' => '']));
     }
+
+    /**
+     * The deny list must not be reachable by a third-party query filter.
+     *
+     * Memory_Guard::blocking_rule() fails open: no rules means no block. So
+     * any plugin able to empty the result set of the block_rules() read would
+     * silently switch the write guard off site-wide. The read therefore keeps
+     * suppress_filters explicitly true, and this test is what stops a future
+     * "drop the redundant argument" cleanup from removing it.
+     */
+    public function test_a_third_party_the_posts_filter_cannot_empty_the_block_rules(): void
+    {
+        $this->publish_rule(['tool:delete-post']);
+        Memory_Store::flush_rules_cache();
+
+        $steal    = static fn (): array => [];
+        $nowhere  = static fn (): string => ' AND 1=0 ';
+        add_filter('the_posts', $steal, 10, 1);
+        add_filter('posts_results', $steal, 10, 1);
+        add_filter('posts_where', $nowhere, 10, 1);
+
+        try {
+            $rule = Memory_Guard::blocking_rule($this->ability('wpmcp/delete-post', 'delete'));
+        } finally {
+            remove_filter('the_posts', $steal, 10);
+            remove_filter('posts_results', $steal, 10);
+            remove_filter('posts_where', $nowhere, 10);
+        }
+
+        $this->assertNotNull($rule, 'a posts_* filter must not be able to remove a published block rule');
+    }
 }

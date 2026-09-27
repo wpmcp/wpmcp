@@ -8,7 +8,9 @@ if (! defined('ABSPATH')) {
 
 /**
  * Replace a custom widget's spec by id. The new spec is validated before it is
- * stored on the wpmcp_widget post.
+ * stored on the wpmcp_widget post. Reports `template_filtered` the same way
+ * Create_Custom_Widget does; a template the kses gate empties is refused and
+ * the previous spec stays in place.
  */
 class Update_Custom_Widget
 {
@@ -25,13 +27,11 @@ class Update_Custom_Widget
             return $valid;
         }
 
-        Widget_Spec_Store::update($id, $spec);
-        $stored = Widget_Spec_Store::get($id);
+        $updated = Widget_Spec_Store::update($id, $spec);
+        if (is_wp_error($updated)) {
+            return $updated;
+        }
 
-        return [
-            'widget_id' => $id,
-            'name'      => (string) ($stored['name'] ?? ''),
-            'title'     => (string) ($stored['title'] ?? ''),
-        ];
+        return Create_Custom_Widget::response($id, $spec);
     }
 }
