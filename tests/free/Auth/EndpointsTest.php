@@ -87,8 +87,13 @@ class EndpointsTest extends \WP_Test_REST_TestCase
 
         $_SERVER['REQUEST_URI'] = '/.well-known/oauth-authorization-server';
 
+        // Pass the WP instance exactly as WP::parse_request() does: other
+        // plugins' listeners type-hint it (Elementor 4.3's MCP preview
+        // handler declares `\WP $wp` and throws a TypeError without it).
+        $wp = new \WP();
+
         ob_start();
-        do_action('parse_request');
+        do_action_ref_array('parse_request', [&$wp]);
         $output = ob_get_clean();
 
         $this->assertSame('', $output);
