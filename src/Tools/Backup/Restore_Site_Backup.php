@@ -102,7 +102,7 @@ class Restore_Site_Backup
         $interrupted = self::interrupted_restore();
         if (null !== $interrupted) {
             $report['warnings'][] = sprintf(
-                'An earlier restore stopped without finishing (started %s, from %s, last at statement %d on table %s). Its pre-restore safety archive is backup job %d; restoring that job puts the site back as it was before that attempt.',
+                'An earlier restore stopped without finishing (started %s, from %s, last at statement %d on table %s). Its pre-restore safety archive is backup job %d; restoring that job puts the site back as it was before that attempt. Maintenance mode may still be on (disable-maintenance turns it off).',
                 esc_html((string) ($interrupted['started_at'] ?? 'unknown')),
                 esc_html((string) ($interrupted['archive'] ?? 'unknown')),
                 (int) ($interrupted['statement'] ?? 0),
@@ -169,8 +169,6 @@ class Restore_Site_Backup
      */
     private function execute(string $archive, string $sql_path, array $scan, bool $include_files, bool $preserve_session, array $warnings): array
     {
-        global $wpdb;
-
         if (! self::acquire_lock()) {
             throw new \RuntimeException('Restore refused: another restore is already running on this site.');
         }

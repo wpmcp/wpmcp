@@ -56,6 +56,11 @@ class RestoreFilesTest extends \WP_UnitTestCase
         }
     }
 
+    public function test_a_colon_inside_a_filename_is_allowed(): void
+    {
+        $this->assertSame(['wp-content/uploads/a:b.jpg'], $this->entries(['wp-content/uploads/a:b.jpg' => 'x']));
+    }
+
     public function test_only_wp_content_entries_are_extracted(): void
     {
         $names = $this->entries([

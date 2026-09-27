@@ -69,7 +69,9 @@ class Restore_Files
             }
 
             $relative = substr($name, strlen(self::ARCHIVE_PREFIX));
-            if (str_contains($name, "\0") || str_contains($name, '\\') || str_contains($name, ':')) {
+            // A colon is a legal filename character on Linux, so only a
+            // drive-letter segment ("C:") is treated as unsafe.
+            if (str_contains($name, "\0") || str_contains($name, '\\') || preg_match('#(^|/)[A-Za-z]:(/|$)#', $relative)) {
                 throw new \RuntimeException(sprintf('The archive entry %s has an unsafe name; refusing to extract it.', esc_html($name)));
             }
 

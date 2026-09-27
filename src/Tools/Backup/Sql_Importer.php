@@ -128,11 +128,11 @@ class Sql_Importer
                     $sql = str_replace($placeholder, '%', $sql);
                 }
 
-                // The dump is our own $wpdb-escaped output, already checked
-                // by the policy; wpdb's per-query charset scan would reject
-                // BLOB rows outright and costs a full pass over every 512KB
-                // INSERT for nothing.
-                $wpdb->check_current_query = false;
+                // wpdb still runs its own charset check on each statement
+                // (check_current_query is not settable from outside). A row
+                // holding bytes that are invalid in its table's charset is
+                // therefore rejected here rather than silently mangled; the
+                // import stops, reports it, and the caller rolls back.
                 // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Replaying a WP MCP dump: every value in it was escaped by $wpdb->prepare() when it was written, and Sql_Import_Policy (src/Tools/Backup/Sql_Import_Policy.php) has admitted this statement as a SET, DROP/CREATE TABLE or literal-only INSERT on this site's own prefix.
                 $result = $wpdb->query($sql);
 
