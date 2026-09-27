@@ -87,8 +87,9 @@ class Rollback_Service
         // restoring the OLDEST snapshot per object (its pre-session state).
         // Runs after the db_rows pass so that when both kinds touched the
         // same underlying rows, the exact whole-object restore wins.
-        $legacy = array_reverse($legacy); // oldest first, so we can unwind to the earliest
-        $seen   = [];
+        $legacy   = array_reverse($legacy); // oldest first, so we can unwind to the earliest
+        $seen     = [];
+        $deferred = [];
         foreach ($legacy as $snapshot) {
             $key = self::object_identity($snapshot);
             if (isset($seen[ $key ])) {
@@ -96,6 +97,18 @@ class Rollback_Service
                 continue;
             }
             $seen[ $key ] = true;
+            // A child-theme scaffold is undone LAST: its restore refuses to
+            // delete the active theme, so the stylesheet/template options a
+            // later switch-theme in the same session changed must be put back
+            // first, or the session rollback would leave the scaffold behind.
+            if ('theme_scaffold' === $snapshot['object_type']) {
+                $deferred[] = $snapshot;
+                continue;
+            }
+            self::apply_snapshot($snapshot);
+            $count++;
+        }
+        foreach ($deferred as $snapshot) {
             self::apply_snapshot($snapshot);
             $count++;
         }

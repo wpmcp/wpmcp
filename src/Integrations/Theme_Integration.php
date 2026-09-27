@@ -326,7 +326,9 @@ class Theme_Integration extends Integration_Dispatcher
             },
             'snapshot'           => static fn (array $args) => [
                 'object_type' => 'option',
-                'object_id'   => 'theme_mods_' . get_stylesheet(),
+                // The exact option set_theme_mod() writes: it keys on the raw
+                // stylesheet option, not the filterable get_stylesheet().
+                'object_id'   => 'theme_mods_' . get_option('stylesheet'),
             ],
         ];
     }

@@ -433,6 +433,28 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
         $this->assertSame('invalid_slug', $out['error']['code']);
     }
 
+    public function test_session_rollback_undoes_an_activated_scaffold_completely(): void
+    {
+        $original = get_option('stylesheet');
+        $out      = $this->theme->handle_write([
+            'operation'  => 'create-child-theme',
+            'confirm'    => true,
+            'args'       => [ 'slug' => self::SLUG ],
+            'session_id' => 's-69-session',
+        ]);
+        $this->assertTrue($out['result']['created']);
+
+        \WPMCP\Tools\Packages\Switch_Theme::snapshot_and_switch(self::SLUG, 'switch-theme', [ 'session_id' => 's-69-session' ]);
+        $this->assertSame(self::SLUG, get_option('stylesheet'));
+
+        Rollback_Service::restore_session('s-69-session');
+
+        // The theme switch is undone first, so the scaffold is no longer
+        // active by the time its own undo runs, and is actually removed.
+        $this->assertSame($original, get_option('stylesheet'));
+        $this->assertDirectoryDoesNotExist($this->scaffold_dir());
+    }
+
     public function test_scaffolder_neutralizes_comment_terminator_in_name(): void
     {
         $this->theme->handle_write([
