@@ -40,11 +40,11 @@ gate rather than substitute for one:
 
       Bump only after an actual smoke pass against that WordPress version, and
       record the pass below. Then raise `TESTED_UP_TO_FLOOR` in
-      `tests/free/Release/ReleaseHeadersTest.php` to the same value, and the
-      `wp:` axis of the test matrix in `.github/workflows/ci.yml` with it.
+      `tests/free/Release/ReleaseHeadersTest.php` to the same value, and put
+      it first in the `WP_VERSIONS` line of `bin/test-local.sh` with it.
       The three move together or the suite goes red: every header must equal
       the pin (a header ahead of it is a claim the suite has not backed, one
-      behind it is the Plugin Check error), and the matrix must install both
+      behind it is the Plugin Check error), and the test gate must install both
       the pin and the release the headers declare. The "tested" half of the
       header stays machine-backed like the string.
 - [ ] Update the prose that hardcodes a version: the "Version headers"
@@ -56,7 +56,7 @@ gate rather than substitute for one:
 
 ## Verification
 
-- [ ] Full test suite green (`composer test`).
+- [ ] Full test suite green on every WordPress version (`bin/test-local.sh --all`).
 - [ ] All three artifacts built, each from the readme it ships:
       - `scripts/build-wporg-release.sh` (wp.org free, `scripts/flavors/wporg/readme.txt`)
       - `scripts/build-woo-release.sh` (WooCommerce, `scripts/flavors/woocommerce/readme.txt`)
@@ -65,10 +65,10 @@ gate rather than substitute for one:
       against the wp.org zip on every push; the other two are manual).
 - [ ] Smoke pass on the target WordPress version for each artifact: activate,
       run a representative MCP session, snapshot and rollback, deactivate.
-- [ ] Forms adapter pack live check (issue #66). CI covers Contact Form 7 +
-      Flamingo against the real plugins (`forms-live` job) but the pack only
-      against documented-API doubles, because the paid plugins cannot be
-      installed there. On a site with each of Gravity Forms, WPForms (with
+- [ ] Forms adapter pack live check (issue #66). The local test gate covers
+      Contact Form 7 + Flamingo against the real plugins (the live forms leg
+      of `bin/test-local.sh`) but the pack only against documented-API
+      doubles, because the paid plugins cannot be installed there. On a site with each of Gravity Forms, WPForms (with
       entry storage), Formidable, Ninja Forms and Fluent Forms active, run
       list-forms, get-form, list-fields, list-notifications, list-entries and
       get-entry, plus update-entry-status followed by rollback-operation where

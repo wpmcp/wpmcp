@@ -10,16 +10,17 @@ use WPMCP\Tools\Rollback_Operation;
  * Issue #66: "list-forms/get-form/list-entries/get-entry work against a real
  * install of the free-tier target in CI." This is that test.
  *
- * It runs only in CI's forms-live job (WPMCP_LIVE_FORMS=1), which installs
- * the real Contact Form 7 and Flamingo from wordpress.org and loads them in
- * tests/bootstrap.php. Nothing here touches a harness double: the form is
- * created with Contact Form 7's own template and saved through its model, the
- * entries are real submissions pushed through WPCF7_ContactForm::submit(), so
+ * It runs only in the local gate's live forms leg (bin/test-local.sh, or
+ * bin/test-local.sh --live-forms alone), which sets WPMCP_LIVE_FORMS=1,
+ * installs the real Contact Form 7 and Flamingo from wordpress.org on a
+ * separate WordPress install and loads them in tests/bootstrap.php. Nothing
+ * here touches a harness double: the form is created with Contact Form 7's
+ * own template and saved through its model, the entries are real submissions pushed through WPCF7_ContactForm::submit(), so
  * Flamingo stores them and Contact Form 7 writes the form's channel binding
  * itself, exactly as on a live site. The adapter then has to find them.
  *
- * Everywhere else (the main matrix) the plugins are absent and the test is
- * skipped; the job runs with --fail-on-skipped so it cannot pass vacuously.
+ * Everywhere else (the main suite) the plugins are absent and the test is
+ * skipped; the live leg runs with --fail-on-skipped so it cannot pass vacuously.
  *
  * @group forms-live
  */
@@ -34,7 +35,7 @@ class ContactForm7LiveTest extends \WP_UnitTestCase
     {
         parent::setUp();
         if (! defined('WPCF7_VERSION') || ! defined('FLAMINGO_VERSION')) {
-            $this->markTestSkipped('Needs the real Contact Form 7 and Flamingo (CI forms-live job, WPMCP_LIVE_FORMS=1).');
+            $this->markTestSkipped('Needs the real Contact Form 7 and Flamingo (bin/test-local.sh --live-forms, WPMCP_LIVE_FORMS=1).');
         }
         Snapshot_Store::install();
         $this->integration = new Contact_Form_7_Integration();

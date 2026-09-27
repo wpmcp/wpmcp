@@ -179,7 +179,7 @@ Compact mode is exposure-only and off by default. It never changes which abiliti
 
 Choose the mode site-wide with the `wpmcp_tool_exposure_mode` option (`full` or `compact`), per scoped identity via the identity's `exposure` field (`create-identity` accepts it; it overrides the site setting for that agent), or in code via the `wpmcp_tool_exposure_mode` filter. The `wpmcp_compact_exposed_abilities` filter can add tools to the compact core (the three meta-tools are always included).
 
-Measured `tools/list` payload (test environment, all optional plugins active): **full** 72,897 bytes across 154 tools; **compact** 2,790 bytes across 5 tools — a **96.2% reduction**. The numbers are pinned by a checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) and re-measured on every CI run.
+Measured `tools/list` payload (test environment, all optional plugins active): **full** 72,897 bytes across 154 tools; **compact** 2,790 bytes across 5 tools — a **96.2% reduction**. The numbers are pinned by a checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) and re-measured on every test run.
 
 ## Agent project memory (enforced, not advisory)
 
@@ -246,11 +246,24 @@ Snapshot history keeps the last 20 operations on every install, which can bound 
 
 ```bash
 composer install       # install dev dependencies
-composer test          # run the PHPUnit + WordPress integration suite
+composer test:local    # the test gate: lint, drift check, PHPUnit + WordPress suite, coverage floor
 composer lint          # PSR-12 with WordPress-idiomatic naming
 ```
 
-The test suite needs a MySQL or MariaDB database for the WordPress integration harness. See `.github/workflows/ci.yml` for the exact setup CI uses.
+The PHPUnit suite does not run on GitHub Actions. It runs locally through `bin/test-local.sh`, and the pre-push hook in `.githooks/` runs it before every push. The first run of the script turns the hook on for the clone. GitHub keeps only the static gates: lint, the drift check, compliance and Plugin Check.
+
+The script needs MariaDB and Subversion, and nothing else to configure:
+
+```bash
+brew install mariadb@10.11 subversion   # keg-only, does not conflict with a mysql install
+bin/test-local.sh                       # default WordPress leg with the coverage floor
+bin/test-local.sh --all                 # also the `Requires at least` WordPress
+bin/test-local.sh -- --filter SnapshotTest   # a targeted PHPUnit run
+ELEMENTOR_VERSION=latest bin/test-local.sh   # check for drift against the newest Elementor
+bin/test-local.sh --live-forms          # only the Contact Form 7 + Flamingo live group
+```
+
+It starts a private MariaDB server under `~/.cache/wpmcp-tests`, installs each WordPress version there once per version of the install scripts, and gives every worktree its own database, so worktrees can run side by side. The default run ends with the live forms group: the Contact Form 7 adapter against the real Contact Form 7 and Flamingo, on a separate install. MySQL does not work: the harness makes every table TEMPORARY and MySQL cannot reopen one inside a query, which WooCommerce does. Skip the gate for one push with `WPMCP_SKIP_LOCAL_TESTS=1 git push`.
 
 ## Contributing
 
