@@ -72,7 +72,7 @@ class Woo_Read
             'op'     => $op,
             'route'  => $route,
             'status' => $out['status'],
-            'body'   => $out['body'],
+            'body'   => self::redact($out['body'], $def['redact'] ?? []),
         ];
     }
 
@@ -128,5 +128,34 @@ class Woo_Read
     private function is_single_resource(array $def): bool
     {
         return in_array('id', $def['path_params'] ?? [], true);
+    }
+
+    /**
+     * Mask the row's redacted keys in a single record or in each record of
+     * a list body.
+     *
+     * @param mixed    $body
+     * @param string[] $keys
+     * @return mixed
+     */
+    private static function redact($body, array $keys)
+    {
+        if ([] === $keys || ! is_array($body)) {
+            return $body;
+        }
+
+        $mask = static function (array $record) use ($keys): array {
+            foreach ($keys as $key) {
+                if (array_key_exists($key, $record) && '' !== $record[ $key ] && null !== $record[ $key ]) {
+                    $record[ $key ] = '[redacted]';
+                }
+            }
+            return $record;
+        };
+
+        if (array_is_list($body)) {
+            return array_map(static fn ($record) => is_array($record) ? $mask($record) : $record, $body);
+        }
+        return $mask($body);
     }
 }

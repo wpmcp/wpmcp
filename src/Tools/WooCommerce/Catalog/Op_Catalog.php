@@ -82,7 +82,8 @@ class Op_Catalog
      * mode defaults to 'read' and snapshot to null. extra carries per-op
      * posture: 'recoverable' (false when the snapshot cannot undo the whole
      * effect), 'forbidden_params' (refused before dispatch), 'defaults'
-     * (injected unless the caller sets them) and 'undo_op' (for creates).
+     * (injected unless the caller sets them), 'undo_op' (for creates) and
+     * 'redact' (top-level keys of each returned record that are masked).
      * Keep op names domain.kebab-case and route templates rooted at /wc/v3.
      */
     private const OPS = [
@@ -144,9 +145,11 @@ class Op_Catalog
         'taxes.rates'         => [ 'GET', '/wc/v3/taxes', 'taxes', self::CAP_STORE, 'Tax rates, filterable by class' ],
         'taxes.classes'       => [ 'GET', '/wc/v3/taxes/classes', 'taxes', self::CAP_STORE, 'Defined tax classes' ],
 
-        // Webhooks.
-        'webhooks.list'       => [ 'GET', '/wc/v3/webhooks', 'webhooks', self::CAP_STORE, 'Registered store webhooks and their delivery status' ],
-        'webhooks.get'        => [ 'GET', '/wc/v3/webhooks/{id}', 'webhooks', self::CAP_STORE, 'One webhook (topic, delivery URL, status)' ],
+        // Webhooks. The signing secret is redacted from the body: it
+        // authenticates deliveries to a third party and has no use in a
+        // model context.
+        'webhooks.list'       => [ 'GET', '/wc/v3/webhooks', 'webhooks', self::CAP_STORE, 'Registered store webhooks and their delivery status (signing secret redacted)', 'read', null, [ 'redact' => [ 'secret' ] ] ],
+        'webhooks.get'        => [ 'GET', '/wc/v3/webhooks/{id}', 'webhooks', self::CAP_STORE, 'One webhook: topic, delivery URL, status (signing secret redacted)', 'read', null, [ 'redact' => [ 'secret' ] ] ],
 
         // Settings.
         'settings.groups'     => [ 'GET', '/wc/v3/settings', 'settings', self::CAP_STORE, 'Store settings groups (general, products, tax, shipping, ...)' ],
@@ -155,7 +158,7 @@ class Op_Catalog
     ];
 
     /**
-     * @return array<string, array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string}>
+     * @return array<string, array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[]}>
      */
     public static function ops(): array
     {
@@ -182,13 +185,14 @@ class Op_Catalog
                 'forbidden_params' => $extra['forbidden_params'] ?? [],
                 'defaults'         => $extra['defaults'] ?? [],
                 'undo_op'          => $extra['undo_op'] ?? null,
+                'redact'           => $extra['redact'] ?? [],
             ];
         }
         return $out;
     }
 
     /**
-     * @return array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string}
+     * @return array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[]}
      */
     public static function get(string $op): array
     {

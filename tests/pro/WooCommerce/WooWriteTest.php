@@ -486,6 +486,26 @@ class WooWriteTest extends \WP_UnitTestCase
         $this->assertSame('governance', $out['error']['data']['reason']);
     }
 
+    /** A webhook's signing secret never reaches the model context. */
+    public function test_webhook_reads_redact_the_signing_secret(): void
+    {
+        $webhook = new \WC_Webhook();
+        $webhook->set_name('Order hook');
+        $webhook->set_topic('order.created');
+        $webhook->set_delivery_url('https://example.com/hook');
+        $webhook->set_secret('s3cr3t-signing-key');
+        $webhook->set_status('paused');
+        $webhook->set_user_id(get_current_user_id());
+        $id = $webhook->save();
+
+        $one  = (new Woo_Read())->handle(['op' => 'webhooks.get', 'params' => ['id' => $id]]);
+        $list = (new Woo_Read())->handle(['op' => 'webhooks.list']);
+
+        $this->assertSame(200, $one['status']);
+        $this->assertStringNotContainsString('s3cr3t-signing-key', (string) wp_json_encode($one));
+        $this->assertStringNotContainsString('s3cr3t-signing-key', (string) wp_json_encode($list));
+    }
+
     // ---------------------------------------------------------------- batch
 
     public function test_a_batch_applies_each_item_with_its_own_snapshot_in_one_session(): void
