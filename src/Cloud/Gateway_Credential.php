@@ -48,9 +48,9 @@ if (! defined('ABSPATH')) {
  * not a kill switch. Nothing here touches the network, so the switch works
  * with the cloud unreachable; cloud-side deletion is best-effort cleanup,
  * not the mechanism of revocation. The switch is also reachable without the
- * pro ability surface: register() adds a `wp wpmcp gateway-revoke` WP-CLI
- * command, so a lapsed licence (which drops the pro-tier ability) cannot
- * strand a live ten-year credential with no way to kill it.
+ * MCP ability surface: register() adds a `wp wpmcp gateway-revoke` WP-CLI
+ * command, so a site where the cloud abilities are no longer registered
+ * cannot strand a live ten-year credential with no way to kill it.
  *
  * Killing the chain first is also what keeps provisioning idempotent:
  * Client_Store::find_reusable() refuses to recycle a client row that still
@@ -126,6 +126,8 @@ class Gateway_Credential
     {
         add_filter('wpmcp_current_identity', [self::class, 'filter_current_identity']);
         add_filter('wpmcp_bearer_token_accepted', [self::class, 'filter_bearer_token_accepted'], 10, 2);
+        // Priority 1: before rest_api_loaded (parse_request, 10) dispatches.
+        add_action('parse_request', [self::class, 'enforce_dispatched_route'], 1);
 
         if (defined('WP_CLI') && WP_CLI && class_exists('\WP_CLI')) {
             \WP_CLI::add_command('wpmcp gateway-revoke', [self::class, 'cli_revoke']);
@@ -302,6 +304,17 @@ class Gateway_Credential
             return new \WP_Error('gateway_already_uploaded', 'This gateway credential has already been uploaded; re-provision to issue a new one.');
         }
 
+        // The cloud half of the gateway needs the site owner's consent from
+        // the cloud-connect checkbox, which defaults to off. The per-call
+        // consent on provision() covers minting; handing the credential to
+        // a third party is a separate decision and gets its own gate.
+        if (! Gateway_Consent::granted()) {
+            return new \WP_Error(
+                'gateway_cloud_consent_required',
+                'The site owner has not consented to the WP MCP Gateway. Re-run cloud-connect with gateway_consent=true to allow uploading this credential; until then it stays local to this site.'
+            );
+        }
+
         // Distinct from the scheme refusal below: with no cloud connected at
         // all, base_url() is '' and a bare scheme check would report a
         // non-https cloud url, which sends the operator looking for the
@@ -386,11 +399,12 @@ class Gateway_Credential
     /**
      * The WP-CLI kill switch: `wp wpmcp gateway-revoke`.
      *
-     * Exists because cloud-gateway-revoke is a pro-tier ability, and
-     * Registrar::register() drops pro abilities the moment a licence lapses.
-     * A ten-year credential whose only off switch expires with the
-     * subscription is not an acceptable failure mode, so the switch also
-     * lives here, outside the pro gate and outside the MCP surface.
+     * Exists because cloud-gateway-revoke is an MCP ability, and an ability
+     * can stop being registered (a build without the cloud group, the group
+     * switched off) while the credential it minted is still live. A
+     * ten-year credential whose only off switch can disappear is not an
+     * acceptable failure mode, so the switch also lives here, outside the
+     * ability registry and outside the MCP surface.
      */
     public static function cli_revoke(array $args = [], array $assoc = []): void
     {
@@ -449,6 +463,18 @@ class Gateway_Credential
         delete_option(self::OPTION);
     }
 
+    /**
+     * Whether bookkeeping exists for a credential the cloud has a copy of,
+     * whatever the state of its client row. Withdrawing cloud consent kills
+     * exactly these.
+     */
+    public static function was_uploaded(): bool
+    {
+        $record = self::raw_record();
+
+        return null !== $record && (int) ($record['uploaded_at'] ?? 0) > 0;
+    }
+
     public static function is_provisioned(): bool
     {
         return null !== self::record();
@@ -479,6 +505,45 @@ class Gateway_Credential
         }
 
         return self::request_is_gateway_surface();
+    }
+
+    /**
+     * Second, authoritative half of the surface restriction, on
+     * parse_request (before rest_api_loaded dispatches).
+     *
+     * The early judgement in filter_bearer_token_accepted() runs whenever
+     * something first asks who the user is, which can be before WordPress
+     * has parsed the request, so it can only read the path and the query
+     * string. WordPress then dispatches whatever WP::parse_request()
+     * resolves, and a form-encoded POST rest_route outranks both: a POST to
+     * /wp-json/mcp/... carrying rest_route=/wp/v2/users in its body passes
+     * the early check and runs core REST. Here the resolved route is known,
+     * so a gateway-authenticated request that is not headed for the MCP or
+     * OAuth routes (or not for REST at all) is logged out on the spot.
+     *
+     * @param \WP|mixed $wp The WP instance parse_request passes.
+     */
+    public static function enforce_dispatched_route($wp): void
+    {
+        $token = Bearer_Auth::current_token();
+        if (! is_array($token) || ! self::is_gateway_token($token)) {
+            return;
+        }
+
+        $vars  = is_object($wp) && isset($wp->query_vars) && is_array($wp->query_vars) ? $wp->query_vars : [];
+        $route = isset($vars['rest_route']) && is_string($vars['rest_route']) && '' !== $vars['rest_route']
+            ? '/' . ltrim($vars['rest_route'], '/')
+            : null;
+
+        $on = null !== $route && Transport_Guard::is_guarded_route($route);
+        /** This filter is documented in request_is_gateway_surface(). */
+        if ((bool) apply_filters('wpmcp_gateway_surface', $on, $route)) {
+            return;
+        }
+
+        Bearer_Auth::forget_current();
+        wp_set_current_user(0);
+        self::audit('surface', '', false, 'dispatched_route:' . (string) $route);
     }
 
     /**
@@ -611,12 +676,24 @@ class Gateway_Credential
      */
     private static function current_rest_route(): ?string
     {
+        // Deliberately NOT run through sanitize_text_field(): it strips
+        // percent-encoded octets, and a mutated path could be matched as the
+        // MCP route while WordPress dispatches the original to a different
+        // one. These values are only compared against fixed route prefixes,
+        // never echoed, stored or used in a query, so the exact bytes are
+        // what must be judged.
+        //
+        // This is the EARLY judgement only, made before WordPress has parsed
+        // the request. WordPress can still dispatch a different route (a
+        // form-encoded POST rest_route beats both of these), so
+        // enforce_dispatched_route() re-judges on parse_request against the
+        // route WordPress actually resolved.
         if (isset($_GET['rest_route'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-            $route = (string) wp_unslash($_GET['rest_route']); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+            $route = (string) wp_unslash($_GET['rest_route']); // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
             return '/' . ltrim($route, '/');
         }
 
-        $uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '';
+        $uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
         if ('' === $uri) {
             return null;
         }

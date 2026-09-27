@@ -29,8 +29,16 @@
  *                        {"prod":{"url":"https://a.example","user":"admin","app_password":"xxxx"}}
  *   WPMCP_SITE_<NAME>_URL / _USER / _APP_PASSWORD
  *                        per-site variables, alternative to WPMCP_SITES.
- *   WPMCP_SITE           which named site to proxy (defaults to the only
- *                        configured site; required when several exist).
+ *   WPMCP_SITE           the default site (defaults to the only configured
+ *                        site; required when several exist). Every message
+ *                        goes here unless a tools/call names another site.
+ *   WPMCP_BROADCAST_WRITES "1" lets a tools/call with site "all" run a tool
+ *                        that writes on every site (it still needs
+ *                        confirm: true on the call). Off by default.
+ *
+ * Per-call routing (issue #130): with several sites configured, any
+ * tools/call may carry "site": "<name>" to run on that site, or "all" to run
+ * on every site and get one status per site back. See Router.
  *   WPMCP_ALLOW_INSECURE "1" permits a plain http:// site URL. Off by
  *                        default: the Authorization header carries an
  *                        application password, and WordPress refuses
@@ -131,6 +139,20 @@ function select_site(array $sites, array $env): array
     }
 
     return validate_site($wanted, $sites[$wanted], $env);
+}
+
+/**
+ * The alias select_site() picked: WPMCP_SITE, or the sole configured site.
+ * Call after select_site(), which has already refused every other shape.
+ *
+ * @param array<string,array{url:string,user:string,app_password:string}> $sites Resolved site map.
+ * @param array<string,string>                                            $env   Environment snapshot.
+ */
+function default_site_name(array $sites, array $env): string
+{
+    $wanted = strtolower((string) ($env['WPMCP_SITE'] ?? ''));
+
+    return '' !== $wanted ? $wanted : (string) array_key_first($sites);
 }
 
 /**
@@ -425,13 +447,456 @@ function error_line($request, string $message): ?string
 }
 
 /**
- * The message pump: reads newline-delimited JSON-RPC from $in, forwards each
- * message to $site, writes each response to $out.
+ * Routes each client message to the right site (issue #130, on top of #77).
  *
- * Extracted from main() so the loop itself is testable over a pair of
- * in-memory streams. Everything that decides what reaches the client lives
- * here (notification suppression, one-line reframing, error envelopes), and
- * a seam that tests cannot drive is a seam that is not covered.
+ * One stdio connection, several WordPress sites. Every message goes to the
+ * default site (WPMCP_SITE, or the only configured one) EXCEPT a tools/call
+ * that names another site in its arguments:
+ *
+ *   "site": "<alias>"  runs the call on that site only.
+ *   "site": "all"      broadcasts it to every configured site and answers
+ *                      with one status per site (ok, error,
+ *                      site_unavailable, tool_unavailable), so one dead or
+ *                      locked-down site never breaks the whole call.
+ *
+ * The routing argument is stripped before forwarding; no site ever sees it.
+ *
+ * Why routing cannot confuse identities: each site is reached with ITS OWN
+ * application password (or whatever credential its config names) and ITS
+ * OWN Mcp-Session-Id, held per site and never replayed across sites. The
+ * proxy adds no authority of its own, so the target site authenticates the
+ * call as its own configured user and applies its own governance, identity
+ * scope and audit log exactly as for a direct connection. An unknown alias
+ * is refused outright and never falls back to the default site, because a
+ * typo that silently writes to production is the worst routing failure
+ * there is.
+ *
+ * Broadcast writes are double-gated, matching the hosted gateway: the
+ * workspace must opt in (WPMCP_BROADCAST_WRITES=1, off by default) AND the
+ * call must carry confirm: true. A tool counts as a read only when every
+ * site that exposes it says readOnlyHint: true in its own tools/list; a
+ * missing hint is a write, so the gate fails closed. A refused broadcast
+ * reaches no site at all.
+ */
+// A second class in this file on purpose: the proxy is one zero-dependency
+// script run straight from a clone, with no autoloader to find a sibling file.
+final class Router // phpcs:ignore PSR1.Classes.ClassDeclaration.MultipleClasses
+{
+    /** Proxy-local tool: lists the configured aliases, never credentials. */
+    public const LIST_SITES_TOOL = 'wpmcp_proxy_list_sites';
+
+    /** The alias that broadcasts a call to every configured site. */
+    public const ALL = 'all';
+
+    /** @var array<string,array{url:string,user:string,app_password:string}> */
+    private array $sites;
+
+    private string $default;
+
+    /** @var array<string,string> */
+    private array $env;
+
+    /** @var callable */
+    private $transport;
+
+    /** @var array<string,Session> */
+    private array $sessions = [];
+
+    /** @var array<string,array<string,array{read_only:bool,confirm:bool}>> */
+    private array $catalogs = [];
+
+    /** @var array<string,mixed>|null The client's own initialize params, replayed to each new site. */
+    private ?array $init_params = null;
+
+    private int $seq = 0;
+
+    /**
+     * @param array<string,array{url:string,user:string,app_password:string}> $sites     Configured sites, keyed by alias.
+     * @param string                                                          $default   Alias of the default site.
+     * @param array<string,string>                                            $env       Environment snapshot.
+     * @param callable|null                                                   $transport forward()-shaped callable (test seam).
+     * @param Session|null                                                    $session   Session for the default site.
+     */
+    public function __construct(array $sites, string $default, array $env, ?callable $transport = null, ?Session $session = null)
+    {
+        if (! isset($sites[ $default ])) {
+            throw new \InvalidArgumentException(sprintf('Default site "%s" is not configured.', $default));
+        }
+        if (isset($sites[ self::ALL ])) {
+            throw new \RuntimeException('"all" is reserved for broadcasts and cannot be a site name.');
+        }
+
+        $this->sites     = $sites;
+        $this->default   = $default;
+        $this->env       = $env;
+        $this->transport = $transport ?? __NAMESPACE__ . '\\forward';
+
+        $this->sessions[ $default ] = $session ?? new Session();
+    }
+
+    private function multi_site(): bool
+    {
+        return count($this->sites) > 1;
+    }
+
+    /**
+     * Handle one client message and return the raw response body to frame
+     * (which may be empty or "null" for a notification).
+     *
+     * @param mixed $request Decoded request, or null when the line did not parse.
+     * @throws \RuntimeException On a transport, auth or routing failure.
+     */
+    public function dispatch(string $line, $request): string
+    {
+        $method = is_array($request) && isset($request['method']) ? (string) $request['method'] : '';
+
+        if ('initialize' === $method) {
+            $this->init_params = is_array($request['params'] ?? null) ? $request['params'] : [];
+            $result            = $this->send($this->default, $line, []);
+            $this->sessions[ $this->default ]->learn($result['headers'], json_decode($result['body'], true));
+            debug_log($this->env, 'session(' . $this->default . '): ' . (string) $this->sessions[ $this->default ]->id);
+            return $result['body'];
+        }
+
+        if ('tools/list' === $method && $this->multi_site()) {
+            return $this->tools_list($line);
+        }
+
+        if ('tools/call' === $method && is_array($request)) {
+            $name = (string) ($request['params']['name'] ?? '');
+            $args = $request['params']['arguments'] ?? [];
+
+            if (self::LIST_SITES_TOOL === $name && $this->multi_site()) {
+                return $this->list_sites($request);
+            }
+
+            if (is_array($args) && array_key_exists('site', $args)) {
+                return $this->routed_call($request, $name, $args);
+            }
+        }
+
+        return $this->send($this->default, $line, $this->sessions[ $this->default ]->headers())['body'];
+    }
+
+    /**
+     * @param array<string,mixed> $request
+     * @param array<string,mixed> $args
+     */
+    private function routed_call(array $request, string $name, array $args): string
+    {
+        $alias = $args['site'];
+        unset($args['site']);
+
+        if (! is_string($alias) || '' === trim($alias)) {
+            throw new \RuntimeException('The "site" argument must be a configured site name or "all".');
+        }
+        $alias = strtolower(trim($alias));
+
+        if (self::ALL === $alias) {
+            return $this->broadcast($request, $name, $args);
+        }
+
+        if (! isset($this->sites[ $alias ])) {
+            throw new \RuntimeException(sprintf(
+                'Unknown site "%s". Configured sites: %s. The call was not sent anywhere.',
+                $alias,
+                implode(', ', array_keys($this->sites))
+            ));
+        }
+
+        $this->ensure_session($alias);
+        $request['params']['arguments'] = (object) $args;
+
+        return $this->send($alias, (string) json_encode($request, JSON_UNESCAPED_SLASHES), $this->sessions[ $alias ]->headers())['body'];
+    }
+
+    /**
+     * Run one tool on every configured site and collect a status per site.
+     *
+     * @param array<string,mixed> $request
+     * @param array<string,mixed> $args
+     */
+    private function broadcast(array $request, string $name, array $args): string
+    {
+        $statuses = [];
+        $targets  = [];
+        $is_write = false;
+
+        // Learn every site's catalog BEFORE sending anything, so the write
+        // gate is decided once, for the whole broadcast. A gate evaluated
+        // per leg would let a refused write land on the sites that happened
+        // to come first.
+        foreach (array_keys($this->sites) as $alias) {
+            try {
+                $catalog = $this->catalog($alias);
+            } catch (\RuntimeException $e) {
+                $statuses[ $alias ] = [ 'site' => $alias, 'status' => 'site_unavailable', 'message' => $e->getMessage() ];
+                continue;
+            }
+
+            if (! isset($catalog[ $name ])) {
+                $statuses[ $alias ] = [
+                    'site'    => $alias,
+                    'status'  => 'tool_unavailable',
+                    'message' => sprintf('Site "%s" does not expose %s to this connection.', $alias, $name),
+                ];
+                continue;
+            }
+
+            $targets[ $alias ] = $catalog[ $name ];
+            if (! $catalog[ $name ]['read_only']) {
+                $is_write = true;
+            }
+        }
+
+        if ($is_write) {
+            if ('1' !== ($this->env['WPMCP_BROADCAST_WRITES'] ?? '')) {
+                throw new \RuntimeException(sprintf(
+                    'Refusing to broadcast %s: it writes, and broadcast writes are off for this workspace. '
+                    . 'Set WPMCP_BROADCAST_WRITES=1 to allow them (and pass confirm: true on the call). No site was called.',
+                    $name
+                ));
+            }
+            if (true !== ($args['confirm'] ?? null)) {
+                throw new \RuntimeException(sprintf(
+                    'Refusing to broadcast %s without confirm: true: it writes to every configured site. No site was called.',
+                    $name
+                ));
+            }
+        }
+
+        foreach ($targets as $alias => $spec) {
+            $leg_args = $args;
+            // confirm is the proxy's own gate. Forward it only to a tool that
+            // declares it, where it means the same thing.
+            if (! $spec['confirm']) {
+                unset($leg_args['confirm']);
+            }
+
+            $leg = [
+                'jsonrpc' => '2.0',
+                'id'      => $this->next_id(),
+                'method'  => 'tools/call',
+                'params'  => array_merge(
+                    is_array($request['params'] ?? null) ? $request['params'] : [],
+                    [ 'name' => $name, 'arguments' => (object) $leg_args ]
+                ),
+            ];
+
+            try {
+                $this->ensure_session($alias);
+                $body    = $this->send($alias, (string) json_encode($leg, JSON_UNESCAPED_SLASHES), $this->sessions[ $alias ]->headers())['body'];
+                $decoded = json_decode(trim($body), true);
+                if (is_array($decoded) && array_key_exists('result', $decoded)) {
+                    $statuses[ $alias ] = [ 'site' => $alias, 'status' => 'ok', 'result' => $decoded['result'] ];
+                } elseif (is_array($decoded) && array_key_exists('error', $decoded)) {
+                    $statuses[ $alias ] = [ 'site' => $alias, 'status' => 'error', 'error' => $decoded['error'] ];
+                } else {
+                    $statuses[ $alias ] = [ 'site' => $alias, 'status' => 'site_unavailable', 'message' => 'The site returned a body that is not JSON-RPC.' ];
+                }
+            } catch (\RuntimeException $e) {
+                $statuses[ $alias ] = [ 'site' => $alias, 'status' => 'site_unavailable', 'message' => $e->getMessage() ];
+            }
+        }
+
+        // One entry per configured site, in configuration order.
+        $results = [];
+        foreach (array_keys($this->sites) as $alias) {
+            $results[] = $statuses[ $alias ];
+        }
+
+        $ok      = count(array_filter($results, static fn($r) => 'ok' === $r['status']));
+        $summary = [ 'site' => self::ALL, 'tool' => $name, 'results' => $results ];
+
+        return (string) json_encode([
+            'jsonrpc' => '2.0',
+            'id'      => $request['id'] ?? null,
+            'result'  => [
+                'content'           => [ [ 'type' => 'text', 'text' => (string) json_encode($summary, JSON_UNESCAPED_SLASHES) ] ],
+                'structuredContent' => $summary,
+                'isError'           => 0 === $ok,
+            ],
+        ], JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
+     * The default site's tools/list, with the routing argument advertised on
+     * every tool and the proxy's own list-sites tool appended.
+     */
+    private function tools_list(string $line): string
+    {
+        $body    = $this->send($this->default, $line, $this->sessions[ $this->default ]->headers())['body'];
+        $decoded = json_decode(trim($body), true);
+        if (! is_array($decoded) || ! isset($decoded['result']['tools']) || ! is_array($decoded['result']['tools'])) {
+            return $body;
+        }
+
+        $aliases = implode(', ', array_keys($this->sites));
+        foreach ($decoded['result']['tools'] as $i => $tool) {
+            if (! is_array($tool)) {
+                continue;
+            }
+            $schema = is_array($tool['inputSchema'] ?? null) ? $tool['inputSchema'] : [ 'type' => 'object' ];
+            $props  = is_array($schema['properties'] ?? null) ? $schema['properties'] : [];
+
+            $props['site']         = [
+                'type'        => 'string',
+                'description' => 'Proxy routing: run on this configured site (' . $aliases . ') instead of the default "'
+                    . $this->default . '", or "all" to run on every site. Broadcast writes need the workspace opt-in and confirm: true.',
+            ];
+            $schema['properties']  = $props;
+            $decoded['result']['tools'][ $i ]['inputSchema'] = $schema;
+        }
+
+        if (! isset($decoded['result']['nextCursor'])) {
+            $decoded['result']['tools'][] = [
+                'name'        => self::LIST_SITES_TOOL,
+                'description' => 'List the WordPress sites this proxy can route to (names and URLs only). Pass one as "site" on any tool call, or "all".',
+                'inputSchema' => [ 'type' => 'object', 'properties' => new \stdClass() ],
+                'annotations' => [ 'readOnlyHint' => true ],
+            ];
+        }
+
+        return (string) json_encode($decoded, JSON_UNESCAPED_SLASHES);
+    }
+
+    /** @param array<string,mixed> $request */
+    private function list_sites(array $request): string
+    {
+        $sites = [];
+        foreach ($this->sites as $alias => $site) {
+            // Name and URL only: the credential stays inside the proxy.
+            $sites[] = [ 'name' => $alias, 'url' => $site['url'], 'default' => $alias === $this->default ];
+        }
+        $listed = [ 'default' => $this->default, 'sites' => $sites ];
+
+        return (string) json_encode([
+            'jsonrpc' => '2.0',
+            'id'      => $request['id'] ?? null,
+            'result'  => [
+                'content'           => [ [ 'type' => 'text', 'text' => (string) json_encode($listed, JSON_UNESCAPED_SLASHES) ] ],
+                'structuredContent' => $listed,
+            ],
+        ], JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
+     * The tools one site exposes to this connection, from that site's own
+     * tools/list (so that site's governance decides), cached per site.
+     *
+     * @return array<string,array{read_only:bool,confirm:bool}>
+     */
+    private function catalog(string $alias): array
+    {
+        if (isset($this->catalogs[ $alias ])) {
+            return $this->catalogs[ $alias ];
+        }
+
+        $this->ensure_session($alias);
+
+        $catalog = [];
+        $cursor  = null;
+        for ($page = 0; $page < 50; $page++) {
+            $message = [ 'jsonrpc' => '2.0', 'id' => $this->next_id(), 'method' => 'tools/list' ];
+            if (null !== $cursor) {
+                $message['params'] = [ 'cursor' => $cursor ];
+            }
+
+            $body    = $this->send($alias, (string) json_encode($message, JSON_UNESCAPED_SLASHES), $this->sessions[ $alias ]->headers())['body'];
+            $decoded = json_decode(trim($body), true);
+            if (! is_array($decoded) || ! isset($decoded['result']['tools']) || ! is_array($decoded['result']['tools'])) {
+                $error = is_array($decoded) && isset($decoded['error']['message']) ? (string) $decoded['error']['message'] : 'no tool list';
+                throw new \RuntimeException(sprintf('Site "%s" did not return its tools: %s.', $alias, $error));
+            }
+
+            foreach ($decoded['result']['tools'] as $tool) {
+                if (! is_array($tool) || ! isset($tool['name'])) {
+                    continue;
+                }
+                $catalog[ (string) $tool['name'] ] = [
+                    'read_only' => true === ($tool['annotations']['readOnlyHint'] ?? null),
+                    'confirm'   => is_array($tool['inputSchema']['properties'] ?? null)
+                        && array_key_exists('confirm', $tool['inputSchema']['properties']),
+                ];
+            }
+
+            $cursor = $decoded['result']['nextCursor'] ?? null;
+            if (! is_string($cursor) || '' === $cursor) {
+                break;
+            }
+        }
+
+        return $this->catalogs[ $alias ] = $catalog;
+    }
+
+    /**
+     * Give a site its own MCP session before the first call to it: the
+     * client's initialize params replayed, then notifications/initialized.
+     * The session learned here is that site's alone.
+     */
+    private function ensure_session(string $alias): void
+    {
+        $session = $this->sessions[ $alias ] ?? null;
+        if (null !== $session && (null !== $session->id || $alias === $this->default)) {
+            return;
+        }
+
+        $session = new Session();
+        $init    = [
+            'jsonrpc' => '2.0',
+            'id'      => $this->next_id(),
+            'method'  => 'initialize',
+            'params'  => $this->init_params ?? [
+                'protocolVersion' => '2025-06-18',
+                'capabilities'    => new \stdClass(),
+                'clientInfo'      => [ 'name' => 'wpmcp-proxy', 'version' => '1' ],
+            ],
+        ];
+
+        $result  = $this->send($alias, (string) json_encode($init, JSON_UNESCAPED_SLASHES), []);
+        $decoded = json_decode(trim($result['body']), true);
+        if (! is_array($decoded) || ! array_key_exists('result', $decoded)) {
+            $error = is_array($decoded) && isset($decoded['error']['message']) ? (string) $decoded['error']['message'] : 'no initialize result';
+            throw new \RuntimeException(sprintf('Site "%s" refused the MCP handshake: %s.', $alias, $error));
+        }
+        $session->learn($result['headers'], $decoded);
+        $this->sessions[ $alias ] = $session;
+
+        $this->send($alias, '{"jsonrpc":"2.0","method":"notifications/initialized"}', $session->headers());
+    }
+
+    /**
+     * Send one message to one site with THAT site's own config.
+     *
+     * A routed site is validated here, on first use, so one misconfigured
+     * alias fails only the calls aimed at it. The default site was already
+     * validated by select_site() before the router was built (main()), or
+     * handed over pre-selected (pump()).
+     *
+     * @param array<int,string> $extra
+     * @return array{body:string,headers:array<int,string>}
+     */
+    private function send(string $alias, string $body, array $extra): array
+    {
+        $site = $alias === $this->default
+            ? $this->sites[ $alias ]
+            : validate_site($alias, $this->sites[ $alias ], $this->env);
+        debug_log($this->env, '-> ' . $alias . ' ' . substr($body, 0, 200));
+        $result = ($this->transport)($site, $body, $extra);
+        debug_log($this->env, '<- ' . $alias . ' ' . substr((string) $result['body'], 0, 200));
+
+        return $result;
+    }
+
+    private function next_id(): string
+    {
+        return 'wpmcp-proxy-' . (++$this->seq);
+    }
+}
+
+/**
+ * The message pump for one site (the #77 entry point), kept for callers
+ * and tests that proxy a single site. Delegates to pump_router().
  *
  * @param resource                                          $in      Input stream.
  * @param resource                                          $out     Output stream.
@@ -441,8 +906,25 @@ function error_line($request, string $message): ?string
  */
 function pump($in, $out, array $site, array $env, ?Session $session = null): void
 {
-    $session = $session ?? new Session();
+    pump_router($in, $out, new Router([ 'default' => $site ], 'default', $env, null, $session), $env);
+}
 
+/**
+ * The message pump: reads newline-delimited JSON-RPC from $in, hands each
+ * message to the router, writes each response to $out.
+ *
+ * Extracted from main() so the loop itself is testable over a pair of
+ * in-memory streams. Everything that decides what reaches the client lives
+ * here (notification suppression, one-line reframing, error envelopes), and
+ * a seam that tests cannot drive is a seam that is not covered.
+ *
+ * @param resource             $in     Input stream.
+ * @param resource             $out    Output stream.
+ * @param Router               $router Routes each message to its site.
+ * @param array<string,string> $env    Environment snapshot.
+ */
+function pump_router($in, $out, Router $router, array $env): void
+{
     while (false !== ($line = fgets($in))) {
         $line = trim($line);
         if ('' === $line) {
@@ -450,7 +932,6 @@ function pump($in, $out, array $site, array $env, ?Session $session = null): voi
         }
 
         $request = json_decode($line, true);
-        $method  = is_array($request) && isset($request['method']) ? (string) $request['method'] : '';
 
         // JSON-RPC 2.0: a notification is a message with no id at all, and
         // anything written back for one is a protocol violation. This is not
@@ -461,22 +942,15 @@ function pump($in, $out, array $site, array $env, ?Session $session = null): voi
         $is_notification = ! is_array($request) || ! array_key_exists('id', $request);
 
         try {
-            debug_log($env, '-> ' . substr($line, 0, 200));
-            $result = forward($site, $line, 'initialize' === $method ? [] : $session->headers());
-            debug_log($env, '<- ' . substr($result['body'], 0, 200));
+            $body = $router->dispatch($line, $request);
 
-            if ('initialize' === $method) {
-                $session->learn($result['headers'], json_decode($result['body'], true));
-                debug_log($env, 'session: ' . (string) $session->id);
-            }
-
-            if ($is_notification || '' === trim($result['body']) || 'null' === trim($result['body'])) {
+            if ($is_notification || '' === trim($body) || 'null' === trim($body)) {
                 continue;
             }
 
-            $out_line = one_line_response($result['body']);
+            $out_line = one_line_response($body);
             if (null === $out_line) {
-                fwrite(STDERR, '[wpmcp-proxy] non-JSON response body: ' . substr($result['body'], 0, 500) . "\n");
+                fwrite(STDERR, '[wpmcp-proxy] non-JSON response body: ' . substr($body, 0, 500) . "\n");
                 $error = error_line($request, 'The site returned a body that is not JSON-RPC.');
                 if (null !== $error) {
                     fwrite($out, $error . "\n");
@@ -504,13 +978,15 @@ function main(): int
     }
 
     try {
-        $site = select_site(resolve_sites($env), $env);
+        $sites  = resolve_sites($env);
+        $site   = select_site($sites, $env);
+        $router = new Router($sites, default_site_name($sites, $env), $env);
     } catch (\RuntimeException $e) {
         fwrite(STDERR, '[wpmcp-proxy] ' . $e->getMessage() . "\n");
         return 1;
     }
 
-    debug_log($env, 'proxying to ' . $site['url'] . ENDPOINT_PATH);
+    debug_log($env, 'proxying to ' . $site['url'] . ENDPOINT_PATH . ' (sites: ' . implode(', ', array_keys($sites)) . ')');
 
     $stdin = fopen('php://stdin', 'r');
     if (false === $stdin) {
@@ -518,7 +994,7 @@ function main(): int
         return 1;
     }
 
-    pump($stdin, STDOUT, $site, $env);
+    pump_router($stdin, STDOUT, $router, $env);
     fclose($stdin);
 
     return 0;

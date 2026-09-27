@@ -1,8 +1,7 @@
 # WIP plan: multi-site gateway with per-call routing and gateway credential provisioning (#130)
 
-Status: plugin-side provisioning landed and enforced. Proxy-side routing and
-the admin surface are still open. The hosted gateway service is cloud backend
-scope and out of this repo.
+Status: every plugin-side and proxy-side DoD item is in. The hosted gateway
+service is cloud backend scope and out of this repo.
 
 ## What exists after this slice
 
@@ -113,43 +112,83 @@ scope and out of this repo.
   `tests/free/Auth/BearerAuthTest.php` for the cleared request record and the
   new refusal filter.
 
-## Remaining work
+## Per-call routing in the self-hosted proxy
 
-1. Consent UX
-   - The consent gate exists and defaults to off, but it is an argument on
-     the provision tool. The disclosed checkbox on the cloud connect admin
-     screen is not built yet: there is no Cloud settings screen in
-     `src/Admin` at all, so that item is an admin-page slice of its own.
-2. Cloud contract
-   - Finalize `/wpmcp-cloud/v1` gateway endpoints with the backend:
-     `POST /gateway/credential` (upload once, https required) and
-     `DELETE /gateway/credential` (best-effort cleanup after the local
-     revoke). Add a `delete()` helper to `Cloud_Client` when the contract
-     lands. Until then the upload target does not exist server-side.
-3. Proxy-side routing (MCPB Node proxy)
-   - Accept a per-call `site` alias argument; `all` broadcasts return a
-     per-site status array.
-   - Broadcast writes double-gated: workspace opt-in plus per-call confirm.
-   - Coordinate with issue #77 (self-hosted stdio-to-HTTP proxy with named
-     site env config); #77 does not cover credential provisioning.
-4. Admin surface
-   - Provision/revoke UI on the Cloud settings screen with the once-only
-     plaintext display and copy affordance.
+`bin/wpmcp-proxy.php` (the #77 stdio proxy) gained a `Router`. There is one
+proxy, not a second one: #77's single-site pump now delegates to it.
+
+- Every message goes to the default site (`WPMCP_SITE`, or the only one)
+  unless a `tools/call` carries `site`. `"site": "<alias>"` runs the call on
+  that site only; `"site": "all"` broadcasts and answers with one status per
+  configured site, in config order: `ok`, `error`, `site_unavailable`,
+  `tool_unavailable`. A dead or locked-down site never breaks the call.
+- `site` is stripped before forwarding. An unknown alias is refused and sent
+  nowhere: a typo never falls back to the default site.
+- Identity and governance are the target site's own: each site is reached
+  with its own configured credential and its own `Mcp-Session-Id` (a new
+  site gets its own handshake, replaying the client's initialize params),
+  never another site's. The proxy adds no authority of its own.
+- Broadcast writes are double-gated: `WPMCP_BROADCAST_WRITES=1` (workspace
+  opt-in, default off) AND `confirm: true` on the call. A tool is a read only
+  when every site exposing it says `readOnlyHint: true` in that site's own
+  `tools/list`; a missing hint is a write. The gate is decided once for the
+  whole broadcast before any site is called, so a refused write reaches no
+  site. `confirm` is forwarded only to a tool that declares it.
+- With several sites, `tools/list` advertises the `site` argument on every
+  tool and adds `wpmcp_proxy_list_sites` (names and URLs, never credentials).
+- Tests: `tests/free/Proxy/ProxyGatewayRoutingTest.php` (plain PHPUnit, a
+  fake transport that records which site got which credential and session).
+
+## Consent on cloud connect
+
+- `cloud-connect` takes `gateway_consent` (boolean, default false), stored by
+  `Gateway_Consent`. It is recorded on every successful connect, so leaving
+  it unticked withdraws consent, and withdrawing it kills a credential the
+  cloud already holds (locally, offline). A credential that was never
+  uploaded is the self-hosted proxy's and is left alone.
+- It gates the cloud half: `Gateway_Credential::upload()` refuses with
+  `gateway_cloud_consent_required` without it, and `cloud-gateway-provision`
+  reports `upload_status: consent_required` while still handing over the
+  once-only plaintext for local use. Minting keeps its own per-call
+  `consent` argument.
+- There is no Cloud admin screen in `src/Admin` yet, so the checkbox is the
+  tool input. When a Cloud settings screen lands (#135 adds the OAuth
+  callback page), it should render this same `Gateway_Consent` state as an
+  unticked-by-default checkbox.
+
+## Surface restriction, second half
+
+`filter_bearer_token_accepted()` judges the path and query string whenever
+the user is first resolved, which can be before WordPress parses the
+request. WordPress then dispatches what `WP::parse_request()` resolves, and a
+form-encoded POST `rest_route` outranks both, so a POST to `/wp-json/mcp/...`
+carrying `rest_route=/wp/v2/users` passed the early check and ran core REST.
+`enforce_dispatched_route()` now re-judges on `parse_request` (priority 1,
+before `rest_api_loaded`) against the resolved route and logs a gateway
+request out when it is not headed for the MCP or OAuth routes.
+
+## Remaining work (outside this PR)
+
+- Finalize `/wpmcp-cloud/v1` gateway endpoints with the backend (`POST` and
+  `DELETE /gateway/credential`) and add `Cloud_Client::delete()` for
+  best-effort cloud cleanup after the local revoke.
+- Let the proxy authenticate with a gateway credential (refresh grant, with
+  somewhere writable to persist the rotated refresh token) instead of an
+  application password.
+- Admin provision/revoke UI with once-only plaintext display, and the
+  consent checkbox on a Cloud settings screen.
 
 ## Definition of done (from the issue)
 
 - [x] Idempotent gateway client registration plus self-issued scoped refresh
       token bound to the connecting admin, uploaded once through Cloud_Client
-      (the plugin side is done and tested; the cloud endpoint it uploads to
-      is not built yet)
+      (plugin side done and tested; the cloud endpoint is backend scope)
 - [x] Locally-first revoke that works with cloud unreachable
 - [x] Gateway credential bound to an Identity with per-identity ability
       allowlist; all gateway calls pass Registrar::is_permitted and are
       recorded in Governance_Audit_Log with the identity
-- [ ] Proxy accepts a per-call site alias and an `all` broadcast returning
+- [x] Proxy accepts a per-call site alias and an `all` broadcast returning
       per-site status; broadcast writes gated by workspace opt-in plus
       per-call confirm
-- [ ] Consent checkbox on cloud connect, default off (the gate landed and
-      defaults off, and is enforced twice: the tool argument and
-      `Gateway_Credential::provision()` re-checking it. The admin checkbox
-      itself is not built, because there is no Cloud settings screen yet)
+- [x] Consent checkbox on cloud connect, default off (`gateway_consent` on
+      cloud-connect; no Cloud admin screen exists yet)

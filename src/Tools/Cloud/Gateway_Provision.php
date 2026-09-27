@@ -51,8 +51,10 @@ class Gateway_Provision
             if (is_wp_error($result)) {
                 // The credential is already live locally; a failed upload is
                 // reported, not fatal, so the operator still gets the
-                // once-only plaintext and can hand it over another way.
-                $status  = 'failed';
+                // once-only plaintext and can hand it over another way. A
+                // missing cloud consent is not a failure but a decision, so
+                // it gets its own status.
+                $status  = 'gateway_cloud_consent_required' === $result->get_error_code() ? 'consent_required' : 'failed';
                 $warning = $result->get_error_message();
             } else {
                 $status = 'ok';

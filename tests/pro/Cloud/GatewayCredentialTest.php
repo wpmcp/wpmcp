@@ -8,11 +8,15 @@ use WPMCP\Auth\Refresh_Token_Store;
 use WPMCP\Auth\Token_Grant;
 use WPMCP\Auth\Token_Store;
 use WPMCP\Cloud\Cloud_Client;
+use WPMCP\Cloud\Gateway_Consent;
 use WPMCP\Cloud\Gateway_Credential;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
 use WPMCP\Identity\Identity_Store;
+use WPMCP\MCP\Ability;
+use WPMCP\MCP\Registrar;
 use WPMCP\Pro\Gate;
+use WPMCP\Tools\Cloud\Cloud_Connect;
 use WPMCP\Tools\Cloud\Gateway_Provision;
 use WPMCP\Tools\Cloud\Gateway_Revoke;
 use WPMCP\Tools\Cloud\Gateway_Status;
@@ -59,6 +63,10 @@ class GatewayCredentialTest extends \WP_UnitTestCase
         update_option('wpmcp_cloud_url', 'https://cloud.example');
         update_option('wpmcp_cloud_key', 'secret-key');
 
+        // Most tests exercise the upload path, which needs the cloud-connect
+        // consent. The consent tests below start from the real default.
+        update_option(Gateway_Consent::OPTION, [ 'granted' => true, 'user_id' => $this->admin_id, 'at' => time() ]);
+
         $this->requests = [];
         add_filter('pre_http_request', [$this, 'fake_http'], 10, 3);
         add_filter('wpmcp_oauth_enabled', '__return_true');
@@ -72,6 +80,7 @@ class GatewayCredentialTest extends \WP_UnitTestCase
         Identity_Context::set_current_for_tests(null);
         Bearer_Auth::reset_for_tests();
         unset($_SERVER['HTTP_AUTHORIZATION'], $_GET['rest_route']);
+        delete_option(Gateway_Consent::OPTION);
         $_SERVER['REQUEST_URI'] = '/';
         delete_option('wpmcp_cloud_url');
         delete_option('wpmcp_cloud_key');
@@ -787,5 +796,211 @@ class GatewayCredentialTest extends \WP_UnitTestCase
 
         $this->assertSame($this->admin_id, Bearer_Auth::resolve(0));
         $this->assertSame('Agency Editor', Identity_Context::current());
+    }
+    // ------------------------------------------------ cloud-connect consent
+
+    public function test_cloud_consent_defaults_off_and_blocks_the_upload(): void
+    {
+        delete_option(Gateway_Consent::OPTION);
+        $this->assertFalse(Gateway_Consent::granted(), 'Consent is off until the site owner ticks it.');
+
+        $credential     = $this->provision();
+        $this->requests = [];
+
+        $result = Gateway_Credential::upload(new Cloud_Client(), $credential);
+
+        $this->assertWPError($result);
+        $this->assertSame('gateway_cloud_consent_required', $result->get_error_code());
+        $this->assertSame([], $this->requests, 'Nothing reaches the cloud without consent.');
+        $this->assertTrue(Gateway_Credential::is_provisioned(), 'The local credential is untouched.');
+    }
+
+    public function test_cloud_connect_records_consent_only_when_explicitly_ticked(): void
+    {
+        delete_option(Gateway_Consent::OPTION);
+
+        $plain = (new Cloud_Connect())->handle([ 'url' => 'https://cloud.example', 'key' => 'k' ]);
+        $this->assertNotWPError($plain);
+        $this->assertFalse($plain['gateway_consent']);
+        $this->assertFalse(Gateway_Consent::granted());
+
+        $truthy = (new Cloud_Connect())->handle([ 'url' => 'https://cloud.example', 'key' => 'k', 'gateway_consent' => 'yes' ]);
+        $this->assertFalse($truthy['gateway_consent'], 'Only a real boolean true is consent.');
+
+        $ticked = (new Cloud_Connect())->handle([ 'url' => 'https://cloud.example', 'key' => 'k', 'gateway_consent' => true ]);
+        $this->assertTrue($ticked['gateway_consent']);
+        $this->assertTrue(Gateway_Consent::granted());
+        $this->assertSame($this->admin_id, Gateway_Consent::state()['user_id']);
+    }
+
+    public function test_withdrawing_consent_on_cloud_connect_kills_an_uploaded_credential(): void
+    {
+        $credential = $this->provision();
+        $this->assertTrue(Gateway_Credential::upload(new Cloud_Client(), $credential));
+        $access = $this->gateway_access_token($credential);
+
+        $result = (new Cloud_Connect())->handle([ 'url' => 'https://cloud.example', 'key' => 'k' ]);
+
+        $this->assertFalse($result['gateway_consent']);
+        $this->assertGreaterThan(0, $result['gateway_revoked']);
+        $this->assertFalse(Gateway_Credential::is_provisioned());
+        $this->assertNull(Token_Store::validate($access), 'The cloud copy must stop working the moment consent is withdrawn.');
+        $this->assertSame('unknown', Refresh_Token_Store::redeem($credential['refresh_token'])['status']);
+    }
+
+    public function test_withdrawing_consent_leaves_a_local_only_credential_alone(): void
+    {
+        $credential = $this->provision();
+
+        $result = (new Cloud_Connect())->handle([ 'url' => 'https://cloud.example', 'key' => 'k', 'gateway_consent' => false ]);
+
+        $this->assertSame(0, $result['gateway_revoked']);
+        $this->assertTrue(Gateway_Credential::is_provisioned(), 'A credential the cloud never received is the self-hosted proxy\'s, not the cloud\'s.');
+        $this->assertSame('ok', Refresh_Token_Store::redeem($credential['refresh_token'], $credential['client_id'])['status']);
+    }
+
+    public function test_provision_tool_reports_missing_cloud_consent_as_its_own_status(): void
+    {
+        delete_option(Gateway_Consent::OPTION);
+
+        $result = (new Gateway_Provision())->handle([ 'identity' => 'Agency Editor', 'consent' => true ]);
+
+        $this->assertNotWPError($result);
+        $this->assertSame('consent_required', $result['upload_status']);
+        $this->assertFalse($result['uploaded']);
+        $this->assertNotEmpty($result['refresh_token'], 'The once-only plaintext is still handed over for local use.');
+        $this->assertSame([], $this->requests);
+
+        $this->assertFalse((new Gateway_Status())->handle([])['cloud_consent']);
+    }
+
+    // ------------------------------------- governance and audit, end to end
+
+    /**
+     * The DoD item in one test: a call made with the gateway credential goes
+     * through Registrar::is_permitted(), is narrowed to the bound identity's
+     * allowlist even though the token's user is a full administrator, and
+     * both outcomes land in Governance_Audit_Log under that identity.
+     */
+    public function test_a_gateway_call_is_narrowed_by_the_identity_and_audited_under_it(): void
+    {
+        $credential = $this->provision();
+        $access     = $this->gateway_access_token($credential);
+
+        Gateway_Credential::register();
+        $this->on_mcp_route();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
+        wp_set_current_user(Bearer_Auth::resolve(0));
+        delete_option(Governance_Audit_Log::OPTION);
+
+        $read  = new Ability('wpmcp/test-gateway-read', 'free', 't', [ 'type' => 'object' ], static fn () => null, 'edit_posts', 'content', 'read');
+        $write = new Ability('wpmcp/test-gateway-write', 'free', 't', [ 'type' => 'object' ], static fn () => null, 'edit_posts', 'content', 'update');
+        $other = new Ability('wpmcp/test-gateway-plugins', 'free', 't', [ 'type' => 'object' ], static fn () => null, 'activate_plugins', 'plugins', 'read');
+
+        $registrar = new Registrar();
+        $this->assertTrue($registrar->is_permitted($read), 'Inside the identity allowlist.');
+        $this->assertFalse($registrar->is_permitted($write), 'The identity allows reads only, although the user is an administrator.');
+        $this->assertFalse($registrar->is_permitted($other), 'The identity allows the content domain only.');
+
+        $rows = array_column(Governance_Audit_Log::list(), null, 'ability');
+        foreach ([ 'wpmcp/test-gateway-read' => true, 'wpmcp/test-gateway-write' => false, 'wpmcp/test-gateway-plugins' => false ] as $name => $allowed) {
+            $this->assertArrayHasKey($name, $rows);
+            $this->assertSame('Agency Editor', $rows[ $name ]['identity']);
+            $this->assertSame($allowed, (bool) $rows[ $name ]['allowed']);
+        }
+    }
+
+    /**
+     * WordPress gives a form-encoded POST rest_route precedence over the
+     * permalink path, so a POST to /wp-json/mcp/... carrying
+     * rest_route=/wp/v2/users in its body is dispatched to core REST. The
+     * surface check must judge the route WordPress will actually run.
+     */
+    public function test_a_post_body_rest_route_cannot_smuggle_the_gateway_onto_core_rest(): void
+    {
+        $credential = $this->provision();
+        $access     = $this->gateway_access_token($credential);
+
+        Gateway_Credential::register();
+        $this->on_mcp_route();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
+
+        // The early check only sees the MCP path and lets the token in ...
+        wp_set_current_user(Bearer_Auth::resolve(0));
+        $this->assertSame($this->admin_id, get_current_user_id());
+
+        // ... and then WordPress resolves the POST body's rest_route.
+        $wp             = new \WP();
+        $wp->query_vars = [ 'rest_route' => '/wp/v2/users' ];
+        Gateway_Credential::enforce_dispatched_route($wp);
+
+        $this->assertSame(0, get_current_user_id(), 'The gateway must be logged out before core REST dispatches.');
+        $this->assertSame('', Bearer_Auth::current_client_id());
+        $this->assertNull(Identity_Context::current());
+    }
+
+    public function test_the_dispatched_mcp_route_keeps_the_gateway_logged_in(): void
+    {
+        $credential = $this->provision();
+        $access     = $this->gateway_access_token($credential);
+
+        Gateway_Credential::register();
+        $this->on_mcp_route();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
+        wp_set_current_user(Bearer_Auth::resolve(0));
+
+        $wp             = new \WP();
+        $wp->query_vars = [ 'rest_route' => '/mcp/wpmcp-server' ];
+        Gateway_Credential::enforce_dispatched_route($wp);
+
+        $this->assertSame($this->admin_id, get_current_user_id());
+        $this->assertSame('Agency Editor', Identity_Context::current());
+    }
+
+    public function test_a_gateway_request_that_is_not_rest_at_all_is_logged_out_on_parse(): void
+    {
+        $credential = $this->provision();
+        $access     = $this->gateway_access_token($credential);
+
+        Gateway_Credential::register();
+        $this->on_mcp_route();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
+        wp_set_current_user(Bearer_Auth::resolve(0));
+
+        $wp             = new \WP();
+        $wp->query_vars = [ 'p' => '1' ];
+        Gateway_Credential::enforce_dispatched_route($wp);
+
+        $this->assertSame(0, get_current_user_id());
+    }
+
+    public function test_the_dispatch_check_leaves_ordinary_oauth_tokens_alone(): void
+    {
+        $client = Client_Store::create(['Some MCP Client'], ['https://example.test/cb'], 'dcr');
+        $access = Token_Store::issue($client['client_id'], $this->admin_id, 'openid');
+
+        Gateway_Credential::register();
+        $this->on_core_rest_route();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
+        wp_set_current_user(Bearer_Auth::resolve(0));
+
+        $wp             = new \WP();
+        $wp->query_vars = [ 'rest_route' => '/wp/v2/users' ];
+        Gateway_Credential::enforce_dispatched_route($wp);
+
+        $this->assertSame($this->admin_id, get_current_user_id());
+    }
+
+    public function test_a_query_rest_route_cannot_smuggle_the_gateway_onto_core_rest(): void
+    {
+        $credential = $this->provision();
+        $access     = $this->gateway_access_token($credential);
+
+        Gateway_Credential::register();
+        $this->on_mcp_route();
+        $_GET['rest_route']            = '/wp/v2/plugins';
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $access;
+
+        $this->assertSame(0, Bearer_Auth::resolve(0));
     }
 }

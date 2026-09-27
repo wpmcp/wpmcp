@@ -65,10 +65,19 @@ class Bearer_Auth
         return (string) (self::$current['client_id'] ?? '');
     }
 
+    /**
+     * Forget the request-scoped token record, for a layer that logs the
+     * request out after the fact (issue #130's gateway surface check).
+     */
+    public static function forget_current(): void
+    {
+        self::$current = null;
+    }
+
     /** Test seam: forget the request-scoped token record. */
     public static function reset_for_tests(): void
     {
-        self::$current = null;
+        self::forget_current();
     }
 
     public function register(): void

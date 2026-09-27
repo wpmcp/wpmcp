@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Cloud;
 
+use WPMCP\Cloud\Gateway_Consent;
 use WPMCP\Cloud\Gateway_Credential;
 
 if (! defined('ABSPATH')) {
@@ -32,6 +33,7 @@ class Gateway_Status
             'user_id'        => (int) ($record['user_id'] ?? 0),
             'provisioned_at' => (int) ($record['provisioned_at'] ?? 0),
             'uploaded_at'    => (int) ($record['uploaded_at'] ?? 0),
+            'cloud_consent'  => Gateway_Consent::granted(),
         ];
     }
 }
