@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\SEO;
 
+use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot;
 
 if (! defined('ABSPATH')) {
@@ -321,19 +322,9 @@ class Term_SEO
      * Yoast noindex is tri-state. `false` writes 'default' rather than
      * 'index', matching the post path, where false writes '0' (follow the
      * taxonomy default) rather than '2' (force index).
-     *
-     * With Yoast loaded the row goes through its own
-     * WPSEO_Taxonomy_Meta::set_values(), the path its term edit screen uses:
-     * it validates the row and saves it pre-validated, rather than having the
-     * whole option re-validated through sanitize_option. set_values() treats
-     * a key absent from the row as cleared, so the full stored row is passed
-     * with the changes merged in, never the changes alone.
      */
     private static function update_yoast(\WP_Term $term, array $fields): void
     {
-        $taxonomy = (string) $term->taxonomy;
-        $term_id  = (int) $term->term_id;
-
         $row = self::yoast_row($term);
 
         foreach (self::YOAST_KEYS as $field => $key) {
@@ -345,25 +336,8 @@ class Term_SEO
                 : (string) $fields[$field];
         }
 
-        if (class_exists('WPSEO_Taxonomy_Meta') && is_callable(['WPSEO_Taxonomy_Meta', 'set_values'])) {
-            \WPSEO_Taxonomy_Meta::set_values($term_id, $taxonomy, $row);
-
-            // Yoast renders from its indexables table and rebuilds a term's
-            // indexable only on edited_term, so without this the write lands
-            // in the option and the page keeps the old values.
-            clean_term_cache($term_id, $taxonomy);
-            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core hook, fired so Yoast rebuilds the term indexable.
-            do_action('edited_term', $term_id, (int) $term->term_taxonomy_id, $taxonomy, []);
-            return;
-        }
-
-        $option = get_option(self::YOAST_OPTION, []);
-        $option = is_array($option) ? $option : [];
-        if (! isset($option[$taxonomy]) || ! is_array($option[$taxonomy])) {
-            $option[$taxonomy] = [];
-        }
-        $option[$taxonomy][$term_id] = $row;
-
-        update_option(self::YOAST_OPTION, $option);
+        // Through the safety layer's writer, so the write and its rollback
+        // share one path (see Rollback_Service::write_yoast_term_seo_row()).
+        Rollback_Service::write_yoast_term_seo_row((string) $term->taxonomy, (int) $term->term_id, $row);
     }
 }

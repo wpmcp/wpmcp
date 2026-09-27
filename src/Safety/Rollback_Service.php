@@ -158,15 +158,9 @@ class Rollback_Service
     /**
      * Put back ONE term's row inside Yoast's `wpseo_taxonomy_meta` option
      * (see Snapshot::capture_yoast_term_seo()), leaving every other term's
-     * row as it is now.
-     *
-     * With Yoast loaded the option is saved pre-validated, as Yoast's own
-     * WPSEO_Taxonomy_Meta::save_clean_values() does: the row being restored
-     * was stored through Yoast before, and re-validating the whole option
-     * would re-derive rows this restore does not own. Yoast renders from its
-     * indexables table and rebuilds a term's indexable on `edited_term` only,
-     * so that action is fired for the restored term, or the page would keep
-     * showing the rolled-back values.
+     * row as it is now. Goes through write_yoast_term_seo_row(), the same
+     * path the write took, which handles Yoast's re-validation of the option
+     * and refreshes the term's indexable.
      */
     private static function apply_yoast_term_seo_snapshot(array $snapshot): void
     {
@@ -177,31 +171,58 @@ class Rollback_Service
             return;
         }
 
-        $name   = \WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION;
-        $option = get_option($name, []);
-        $option = is_array($option) ? $option : [];
-        unset($option['wpseo_already_validated']);
+        $row = ! empty($data['existed']) && is_array($data['row'] ?? null) ? (array) $data['row'] : null;
 
-        if (! empty($data['existed']) && is_array($data['row'] ?? null)) {
-            if (! isset($option[$taxonomy]) || ! is_array($option[$taxonomy])) {
-                $option[$taxonomy] = [];
-            }
-            $option[$taxonomy][$term_id] = $data['row'];
-        } else {
+        self::write_yoast_term_seo_row($taxonomy, $term_id, $row);
+    }
+
+    /**
+     * Replace one term's row inside Yoast's `wpseo_taxonomy_meta` option,
+     * or remove it when $row is null. Used by the term SEO write (issue #67)
+     * and by the rollback of a 'yoast_term_seo' snapshot, so the write and
+     * its undo take one path. Lives here, in the safety layer, so the
+     * restore has no dependency on the paid SEO classes.
+     *
+     * With Yoast loaded every save of the option is re-validated through its
+     * sanitize_option filter, and that validation keeps the previously
+     * stored value for any key missing from the new row. Yoast also drops a
+     * key whose value is its default ('default' for noindex), so a cleared
+     * flag would be missing and the old 'noindex' would silently survive.
+     * The row is therefore removed in one save (leaving no old value to
+     * keep) and written in a second. Both run inside the caller's single
+     * Safe_Mutation, after its snapshot.
+     *
+     * Yoast renders from its indexables table and rebuilds a term's
+     * indexable only on `edited_term`, so that core action is fired after
+     * the save, or the page would keep showing the old values.
+     */
+    public static function write_yoast_term_seo_row(string $taxonomy, int $term_id, ?array $row): void
+    {
+        $yoast_loaded = class_exists('WPSEO_Taxonomy_Meta');
+
+        $option = get_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, []);
+        $option = is_array($option) ? $option : [];
+
+        if ($yoast_loaded || null === $row) {
             unset($option[$taxonomy][$term_id]);
             if (isset($option[$taxonomy]) && [] === $option[$taxonomy]) {
                 unset($option[$taxonomy]);
             }
+            update_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, $option);
         }
 
-        if (class_exists('WPSEO_Taxonomy_Meta')) {
-            $option['wpseo_already_validated'] = true;
+        if (null !== $row) {
+            $option = get_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, []);
+            $option = is_array($option) ? $option : [];
+            if (! isset($option[$taxonomy]) || ! is_array($option[$taxonomy])) {
+                $option[$taxonomy] = [];
+            }
+            $option[$taxonomy][$term_id] = $row;
+            update_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, $option);
         }
-
-        update_option($name, $option);
 
         $term = get_term($term_id, $taxonomy);
-        if ($term instanceof \WP_Term) {
+        if ($yoast_loaded && $term instanceof \WP_Term) {
             clean_term_cache($term_id, $taxonomy);
             // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core hook, fired so Yoast rebuilds the term indexable.
             do_action('edited_term', $term_id, (int) $term->term_taxonomy_id, $taxonomy, []);

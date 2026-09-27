@@ -96,14 +96,7 @@ class TermSeoTest extends \WP_UnitTestCase
             Term_SEO::update($term, ['noindex' => false]);
             $out = Term_SEO::get($term)['fields'];
 
-            $this->assertFalse(
-                $out['noindex'],
-                $plugin . ' stored: ' . wp_json_encode([
-                    'yoast_row'   => get_option('wpseo_taxonomy_meta')['category'][$term->term_id] ?? null,
-                    'yoast_class' => class_exists('WPSEO_Taxonomy_Meta'),
-                    'version'     => defined('WPSEO_VERSION') ? WPSEO_VERSION : '',
-                ])
-            );
+            $this->assertFalse($out['noindex'], $plugin);
             $this->assertSame('Term SEO title', $out['title'], $plugin);
             $this->assertSame('Term SEO description', $out['description'], $plugin);
         }
