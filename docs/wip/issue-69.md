@@ -30,7 +30,14 @@ framework. Covered by tests/free/Integrations/ThemeIntegrationTest.php.
   DISALLOW_FILE_EDIT), audited through `Filesystem_Guard::log()`, refuses to
   build a child of a child, accepts an optional explicit `parent`, calls
   `wp_clean_themes_cache()` so the result is actually activatable, and does
-  not activate the theme.
+  not activate the theme. Snapshot-first through `Safe_Mutation` with the
+  `theme_scaffold` object type: the prior state of the scaffold directory
+  (existed or not, prior bytes of style.css/functions.php) is captured before
+  any write, and `rollback-operation` removes the created files (and the
+  directory when the scaffold made it and nothing else was added), restores
+  overwritten files, and refuses to delete a child theme that is currently
+  active. A re-run against a complete scaffold writes nothing and burns no
+  rollback slot.
 - `get-astra-settings` / `set-astra-settings` (framework pack): registered
   only while the Astra family is the active theme, allowlisted and sanitized
   per key, snapshot-first on the `astra-settings` option, and followed by an
@@ -70,8 +77,9 @@ interpolated into the style.css comment block.
 
 ## Notes
 
-`File_Backup` (issue #69's original "file writes tracked via File_Backup"
-bullet) backs up files that ALREADY exist before an overwrite or delete. The
-scaffolder only ever creates new files inside a directory that did not exist,
-so there is nothing to back up; the equivalent guarantee is delivered by
-removing the partial scaffold on failure, which is what the tests assert.
+The issue's "file writes tracked via `File_Backup`" bullet is delivered by the
+`theme_scaffold` snapshot rather than by `File_Backup` itself: the scaffold
+only ever writes two small files, so their prior bytes (if any) are captured
+inline in the snapshot row, which keeps the undo point atomic with the ledger
+entry and pruned with it. A failed mid-write additionally removes the partial
+scaffold before returning.

@@ -17,7 +17,9 @@ if (! defined('ABSPATH')) {
  *    snapshotted on theme_mods_{stylesheet} and reversible via
  *    rollback-operation
  *  - create-child-theme (destructive): confirm-gated, path-confined,
- *    idempotent scaffolder that refuses to create a grandchild
+ *    idempotent scaffolder that refuses to create a grandchild, snapshotted
+ *    (object_type theme_scaffold) before any file is written so
+ *    rollback-operation removes the scaffold again
  *  - framework_pack_operations(): family-conditional settings pack, registered
  *    only while that theme family is active
  *
@@ -314,6 +316,7 @@ class Theme_Integration extends Integration_Dispatcher
                     if (null === $clean) {
                         // Unreachable via dispatch (validate ran first); kept
                         // so a direct handler call cannot write a raw value.
+                        // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
                         throw new Operation_Refused('invalid_mod_value', sprintf('Value for theme mod "%s" is not valid.', $key), [ 'key' => $key ]);
                     }
                     set_theme_mod($key, $clean);
@@ -338,7 +341,7 @@ class Theme_Integration extends Integration_Dispatcher
             // DISALLOW_FILE_EDIT on top, in validate().
             'capability'         => 'edit_themes',
             'enabled_by_default' => self::writes_enabled(),
-            'description'        => 'Scaffold a child theme (style.css + functions.php enqueueing the parent stylesheet) of the active theme, or of an explicit installed parent. Idempotent: re-running against an existing wpmcp-scaffolded child completes or reports it instead of failing. Refuses to build a child of a child (no grandchildren). Requires confirm:true, the edit_themes capability, file editing to be allowed on the site, and the wpmcp_enable_theme_write opt-in. Does not activate the child theme',
+            'description'        => 'Scaffold a child theme (style.css + functions.php enqueueing the parent stylesheet) of the active theme, or of an explicit installed parent. Idempotent: re-running against an existing wpmcp-scaffolded child completes or reports it instead of failing. Refuses to build a child of a child (no grandchildren). Requires confirm:true, the edit_themes capability, file editing to be allowed on the site, and the wpmcp_enable_theme_write opt-in. Snapshotted before any file is written; rollback-operation removes the scaffold again (unless it has since been activated). Does not activate the child theme',
             'input_schema'       => [
                 'type'       => 'object',
                 'properties' => [
@@ -348,14 +351,24 @@ class Theme_Integration extends Integration_Dispatcher
                 ],
             ],
             'validate'           => static fn (array $args): ?array => self::plan_scaffold($args)['error'] ?? null,
+            // Snapshot-first like every other write: the scaffold directory's
+            // prior state is captured before a byte is written, so the
+            // creation is undoable through rollback-operation. A re-run
+            // against a complete scaffold writes nothing and therefore burns
+            // no rollback slot.
+            'snapshot'           => static function (array $args): ?array {
+                $plan = self::plan_scaffold($args);
+                if (isset($plan['error']) || true === $plan['existing']) {
+                    return null;
+                }
+                return [ 'object_type' => 'theme_scaffold', 'object_id' => (string) $plan['slug'] ];
+            },
             'handler'            => static function (array $args): array {
                 $plan = self::plan_scaffold($args);
                 if (isset($plan['error'])) {
-                    throw new Operation_Refused(
-                        (string) $plan['error']['code'],
-                        (string) $plan['error']['message'],
-                        (array) ($plan['error']['data'] ?? [])
-                    );
+                    $error = $plan['error'];
+                    // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
+                    throw new Operation_Refused((string) $error['code'], (string) $error['message'], (array) ($error['data'] ?? []));
                 }
                 return self::write_scaffold($plan);
             },
@@ -423,7 +436,7 @@ class Theme_Integration extends Integration_Dispatcher
 
         $existing = false;
         if (is_dir($dir)) {
-            $style = @file_get_contents($dir . '/style.css');
+            $style = is_file($dir . '/style.css') && ! is_link($dir . '/style.css') ? file_get_contents($dir . '/style.css') : false;
             if (! is_string($style) || false === strpos($style, self::SCAFFOLD_MARKER)) {
                 return $refuse('directory_exists', sprintf('Theme directory "%s" already exists and was not scaffolded by wpmcp; refusing to touch it.', $slug), [ 'slug' => $slug ]);
             }
@@ -481,6 +494,7 @@ class Theme_Integration extends Integration_Dispatcher
 
         $fresh = ! is_dir($dir);
         if ($fresh && ! wp_mkdir_p($dir)) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
             throw new Operation_Refused('mkdir_failed', 'Could not create the child theme directory.', [ 'path' => $dir ]);
         }
 
@@ -498,11 +512,13 @@ class Theme_Integration extends Integration_Dispatcher
             . "*/\n";
 
         // functions.php first, style.css (the idempotency marker) last.
+        $fs = self::filesystem();
         if (
-            false === @file_put_contents($dir . '/functions.php', $functions)
-            || false === @file_put_contents($dir . '/style.css', $style)
+            ! $fs->put_contents($dir . '/functions.php', $functions, 0644)
+            || ! $fs->put_contents($dir . '/style.css', $style, 0644)
         ) {
             self::clean_partial_scaffold($dir, $fresh);
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
             throw new Operation_Refused('write_failed', 'Could not write the child theme files; the partial scaffold was removed.', [ 'path' => $dir ]);
         }
 
@@ -527,14 +543,14 @@ class Theme_Integration extends Integration_Dispatcher
     /**
      * Remove a failed scaffold's files, and the directory itself when we
      * made it. Plugin Check promotes WordPress.WP.AlternativeFunctions to an
-     * error, so deletion goes through wp_delete_file() and WP_Filesystem
+     * error, so deletion goes through WP_Filesystem
      * rather than unlink() and rmdir(), the same way File_Backup does.
      */
     private static function clean_partial_scaffold(string $dir, bool $created_dir): void
     {
         foreach ([ 'style.css', 'functions.php' ] as $file) {
             if (is_file($dir . '/' . $file)) {
-                wp_delete_file($dir . '/' . $file);
+                self::filesystem()->delete($dir . '/' . $file);
             }
         }
         if ($created_dir && is_dir($dir)) {
@@ -543,19 +559,18 @@ class Theme_Integration extends Integration_Dispatcher
     }
 
     /**
-     * The WP_Filesystem instance, initialised on first use. Booted with the
-     * direct method: this only ever removes a directory this class created
-     * moments earlier under the themes root, and prompting for FTP
-     * credentials from a tool call is not an option.
+     * A direct-method WP_Filesystem. Plugin Check promotes
+     * WordPress.WP.AlternativeFunctions to an error, so the scaffold's writes
+     * and cleanup go through WP_Filesystem rather than file_put_contents()
+     * and rmdir(). The direct transport is instantiated explicitly: a tool
+     * call cannot prompt for FTP credentials, and WP_Filesystem() silently
+     * leaves the global unset when it picks a transport that needs them.
      */
-    private static function filesystem(): \WP_Filesystem_Base
+    private static function filesystem(): \WP_Filesystem_Direct
     {
-        global $wp_filesystem;
-        if (! $wp_filesystem instanceof \WP_Filesystem_Base) {
-            require_once ABSPATH . 'wp-admin/includes/file.php';
-            WP_Filesystem();
-        }
-        return $wp_filesystem;
+        require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-base.php';
+        require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-direct.php';
+        return new \WP_Filesystem_Direct(null);
     }
 
     /**
@@ -625,7 +640,7 @@ class Theme_Integration extends Integration_Dispatcher
                 'mode'               => 'write',
                 'capability'         => 'edit_theme_options',
                 'enabled_by_default' => self::writes_enabled(),
-                'description'        => 'Set allowlisted Astra theme settings (colors as hex/rgba, site-content-width as pixels). Values are sanitized per key, the whole batch is rejected before any write if one is invalid, the astra-settings option is snapshotted for rollback-operation, and Astra\'s compiled CSS cache is refreshed afterwards',
+                'description'        => 'Set allowlisted Astra theme settings (colors as hex, rgb/rgba, or an Astra palette reference like var(--ast-global-color-0); site-content-width as pixels). Values are sanitized per key, the whole batch is rejected before any write if one is invalid, the astra-settings option is snapshotted for rollback-operation, and Astra\'s compiled CSS cache is refreshed afterwards',
                 'input_schema'       => [
                     'type'       => 'object',
                     'properties' => [
@@ -666,6 +681,7 @@ class Theme_Integration extends Integration_Dispatcher
                         $key   = (string) $key;
                         $clean = self::sanitize_pack_value((string) ($keys[ $key ] ?? ''), $value);
                         if (null === $clean) {
+                            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
                             throw new Operation_Refused('invalid_setting_value', sprintf('Value for Astra setting "%s" is not valid.', $key), [ 'key' => $key ]);
                         }
                         $stored[ $key ] = $clean;
@@ -690,8 +706,16 @@ class Theme_Integration extends Integration_Dispatcher
      */
     private static function refresh_framework_cache(string $family): void
     {
-        if ('astra' === $family && method_exists('\Astra_Cache_Base', 'refresh_assets')) {
-            \Astra_Cache_Base::refresh_assets('astra');
+        if ('astra' === $family) {
+            // Astra's own entry point (3.6.1+) clears the theme and Astra Pro
+            // caches. Older releases only have Astra_Cache_Base, whose
+            // refresh_assets() is an INSTANCE method, so it is never called
+            // statically.
+            if (function_exists('astra_clear_all_assets_cache')) {
+                astra_clear_all_assets_cache();
+            } elseif (class_exists('\Astra_Cache_Base') && method_exists('\Astra_Cache_Base', 'refresh_assets')) {
+                ( new \Astra_Cache_Base('astra') )->refresh_assets('astra');
+            }
         }
         /** Action: a site or add-on refreshes its own caches after a framework pack write. */
         do_action('wpmcp_theme_framework_cache_refresh', $family);
@@ -768,6 +792,12 @@ class Theme_Integration extends Integration_Dispatcher
             $hex = sanitize_hex_color($raw);
             if (is_string($hex) && '' !== $hex) {
                 return $hex;
+            }
+            // Astra's own defaults are palette references such as
+            // var(--ast-global-color-0), so an agent must be able to write
+            // one back; nothing else inside var() is accepted.
+            if (1 === preg_match('/^var\(--ast-global-color-\d{1,2}\)$/', $raw)) {
+                return $raw;
             }
             return 1 === preg_match('/^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*(0|1|0?\.\d+)\s*)?\)$/', $raw)
                 ? $raw

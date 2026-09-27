@@ -603,4 +603,26 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
         $this->assertSame('invalid_setting_value', $bad['error']['code']);
         $this->assertSame($before, $this->snapshot_count());
     }
+
+    public function test_framework_pack_refreshes_astra_cache_through_an_instance(): void
+    {
+        // Astra's Astra_Cache_Base::refresh_assets() is an INSTANCE method; a
+        // static call is a fatal Error on PHP 8. The stub mirrors Astra's
+        // real signature so the call shape is what gets tested.
+        require_once __DIR__ . '/../../support/astra-stubs.php';
+        \Astra_Cache_Base::$calls = [];
+        $astra = static fn () => 'astra';
+        add_filter('template', $astra);
+
+        $out = (new Theme_Integration())->handle_write([
+            'operation' => 'set-astra-settings',
+            'args'      => [ 'settings' => [ 'link-color' => 'var(--ast-global-color-1)' ] ],
+        ]);
+
+        remove_filter('template', $astra);
+        delete_option('astra-settings');
+        $this->assertArrayNotHasKey('error', $out);
+        $this->assertSame('var(--ast-global-color-1)', $out['result']['settings']['link-color'], 'Astra palette references must round-trip');
+        $this->assertContains('astra', \Astra_Cache_Base::$calls);
+    }
 }
