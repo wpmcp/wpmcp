@@ -75,7 +75,7 @@ class BulkUpdateProductsTest extends \WP_UnitTestCase
 
         $this->assertSame(2, $out['updated'], (string) wp_json_encode($out['results']));
         $this->assertSame(2, $out['failed']);
-        $this->assertStringStartsWith('bulk-update-products-', $out['session_id']);
+        $this->assertTrue(wp_is_uuid($out['session_id']));
 
         [$first, $second, $third, $fourth] = $out['results'];
         $this->assertTrue($first['ok']);
@@ -151,6 +151,7 @@ class BulkUpdateProductsTest extends \WP_UnitTestCase
             ['items' => [['regular_price' => '1.00']]],
             ['items' => [['id' => $mug, 'stock_quantity' => 1], ['id' => $mug, 'stock_quantity' => 2]]],
             ['items' => array_fill(0, 51, ['id' => $mug])],
+            ['items' => [['id' => $mug, 'stock_quantity' => 1]], 'session_id' => str_repeat('s', 37)],
             ] as $bad
         ) {
             try {

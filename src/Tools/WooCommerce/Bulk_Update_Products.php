@@ -57,9 +57,15 @@ class Bulk_Update_Products
             $seen[ $id ] = true;
         }
 
+        // Snapshot_Store keys sessions in a CHAR(36) column, so a longer id
+        // would make every item's snapshot insert fail; refuse it up front
+        // rather than report 50 identical per-item failures.
         $session_id = isset($args['session_id']) && '' !== (string) $args['session_id']
             ? (string) $args['session_id']
-            : 'bulk-update-products-' . wp_generate_uuid4();
+            : wp_generate_uuid4();
+        if (strlen($session_id) > 36) {
+            throw new \InvalidArgumentException('session_id must be at most 36 characters.');
+        }
 
         $results = [];
         $updated = 0;
