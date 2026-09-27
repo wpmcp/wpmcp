@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 329,
-    'free'      => 231,
+    'total'     => 331,
+    'free'      => 233,
     'pro'       => 98,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -305,6 +305,8 @@ return [
         'wpmcp/switch-theme' => 'free',
         'wpmcp/tec-read' => 'free',
         'wpmcp/tec-write' => 'free',
+        'wpmcp/theme-read' => 'free',
+        'wpmcp/theme-write' => 'free',
         'wpmcp/trigger-backup' => 'free',
         'wpmcp/unschedule-event' => 'free',
         'wpmcp/update-atomic-widget' => 'pro',
