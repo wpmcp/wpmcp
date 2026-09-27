@@ -146,4 +146,17 @@ class NinjaFormsIntegrationTest extends \WP_UnitTestCase
         $this->assertSame('operation_denied', $i->handle_write(['operation' => 'update-entry-status', 'args' => ['entry_id' => $this->old, 'status' => 'trash']])['error']['code']);
         $this->assertSame('publish', get_post_status($this->old));
     }
+
+    public function test_an_editor_cannot_roll_back_a_submission_snapshot(): void
+    {
+        $out = (new Ninja_Forms_Integration())->handle_write(['operation' => 'update-entry-status', 'args' => ['entry_id' => $this->old, 'status' => 'trash']]);
+
+        // The snapshot is a verbatim copy of the submission, so restoring it is
+        // held to the same bar as the op that took it (rollback-operation is
+        // otherwise an edit_posts ability).
+        wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
+        (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+
+        $this->assertSame('trash', get_post_status($this->old));
+    }
 }

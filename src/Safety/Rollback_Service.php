@@ -82,6 +82,9 @@ class Rollback_Service
             // every inbound-message capability to.
             'flamingo_inbound' => 'edit_users',
             'metform-entry'    => 'manage_options',
+            // Ninja Forms submissions (issue #66): the adapter's status change
+            // snapshots the whole nf_sub post, submitted values included.
+            'nf_sub'           => 'manage_options',
         ]);
     }
 
