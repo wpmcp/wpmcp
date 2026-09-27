@@ -220,12 +220,15 @@ class WPForms_Integration extends Forms_Integration
                 'mode'         => 'read',
                 'capability'   => self::ENTRY_CAPABILITY,
                 'requires'     => static fn () => self::requires_entries(),
-                'description'  => 'List a form\'s entries, newest first, with paging (page_size default 20, max 100, plus offset) and an optional status filter (active, spam, trash). Needs WPForms entry storage and manage_options because entries are user data',
+                'description'  => 'List a form\'s entries, newest first, with paging (page_size default 20, max 100, plus offset) and an optional status filter (spam or trash; without one every entry is listed, each with its status). Needs WPForms entry storage and manage_options because entries are user data',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
                         'form_id' => [ 'type' => 'integer', 'minimum' => 1 ],
-                        'status'  => [ 'type' => 'string', 'enum' => array_keys(self::STATUSES) ],
+                        // Only the non-empty statuses filter: WPForms reads an
+                        // empty status as "no filter", so "active" would
+                        // silently list everything.
+                        'status'  => [ 'type' => 'string', 'enum' => [ 'spam', 'trash' ] ],
                     ] + self::paging_properties(),
                     'required'   => [ 'form_id' ],
                 ],
