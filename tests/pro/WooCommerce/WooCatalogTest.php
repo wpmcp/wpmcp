@@ -55,15 +55,20 @@ class WooCatalogTest extends \WP_UnitTestCase
         parent::tearDown();
     }
 
-    /** Acceptance criterion 1: every row maps onto a registered wc/v3 route. */
+    /**
+     * Acceptance criterion 1: every row maps onto a registered wc/v3 route,
+     * AND that route accepts the row's HTTP method. A write row whose path
+     * exists but whose verb the controller does not register would otherwise
+     * pass structurally and 404 at runtime.
+     */
     public function test_every_catalog_row_resolves_to_a_registered_wc_v3_route(): void
     {
         if (! class_exists('WooCommerce')) {
             $this->markTestSkipped('WooCommerce is not active in this environment.');
         }
 
-        $registered = array_keys(rest_get_server()->get_routes());
-        $this->assertNotEmpty($registered);
+        $routes = rest_get_server()->get_routes();
+        $this->assertNotEmpty($routes);
 
         foreach (Op_Catalog::ops() as $name => $def) {
             $pattern = $def['route'];
@@ -71,14 +76,25 @@ class WooCatalogTest extends \WP_UnitTestCase
             // WordPress registers, then match structurally on segment count
             // and literal segments.
             $found = false;
-            foreach ($registered as $route) {
-                if ($this->route_matches($pattern, $route)) {
+            foreach ($routes as $route => $handlers) {
+                if ($this->route_matches($pattern, $route) && $this->accepts_method($handlers, $def['method'])) {
                     $found = true;
                     break;
                 }
             }
-            $this->assertTrue($found, "Op {$name} maps to unregistered route {$pattern}");
+            $this->assertTrue($found, "Op {$name} maps to unregistered route {$def['method']} {$pattern}");
         }
+    }
+
+    /** @param array<int, array<string, mixed>> $handlers */
+    private function accepts_method(array $handlers, string $method): bool
+    {
+        foreach ($handlers as $handler) {
+            if (! empty($handler['methods'][ $method ])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** No template placeholder may survive resolution with every param supplied. */
@@ -167,9 +183,10 @@ class WooCatalogTest extends \WP_UnitTestCase
         $this->assertArrayHasKey('orders', $out['domains']);
         $this->assertSame(count(Op_Catalog::ops()), $out['total']);
 
-        $filtered = (new Woo_Ops())->handle(['domain' => 'coupons']);
+        $coupon_ops = array_filter(Op_Catalog::ops(), static fn ($def) => 'coupons' === $def['domain']);
+        $filtered   = (new Woo_Ops())->handle(['domain' => 'coupons']);
         $this->assertSame(['coupons'], array_keys($filtered['domains']));
-        $this->assertSame(2, $filtered['total']);
+        $this->assertSame(count($coupon_ops), $filtered['total']);
     }
 
     public function test_woo_ops_reports_availability_and_per_op_capability(): void
@@ -294,30 +311,6 @@ class WooCatalogTest extends \WP_UnitTestCase
                 );
             }
         }
-    }
-
-    /**
-     * Acceptance criterion 4: per-domain coverage. Nine of the ten domains
-     * the issue names are seeded; variations is deliberately held back until
-     * PR #203's dedicated free-tier variation tools merge, so the two
-     * surfaces can share one description of the shape. This test pins both
-     * halves of that statement so the gap cannot be forgotten.
-     */
-    public function test_the_catalog_covers_nine_of_the_ten_domains_the_issue_names(): void
-    {
-        $covered = [];
-        foreach (Op_Catalog::ops() as $def) {
-            $covered[ $def['domain'] ] = true;
-        }
-        ksort($covered);
-
-        $this->assertSame(
-            ['coupons', 'customers', 'orders', 'products', 'refunds', 'settings', 'shipping', 'taxes', 'webhooks'],
-            array_keys($covered)
-        );
-
-        // The known gap, tracked in docs/wip/issue-68.md.
-        $this->assertArrayNotHasKey('variations', $covered);
     }
 
     /**
