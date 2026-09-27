@@ -1108,7 +1108,11 @@ class Rollback_Service
             }
         }
 
-        // The theme_roots transient still lists the directory otherwise.
+        // WP_Theme caches parsed headers per directory, and
+        // wp_clean_themes_cache() only flushes themes it still finds on disk,
+        // so the removed child's own entry is dropped explicitly first;
+        // otherwise wp_get_theme() keeps reporting it as installed.
+        wp_get_theme($slug)->cache_delete();
         wp_clean_themes_cache();
     }
 
