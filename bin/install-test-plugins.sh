@@ -5,7 +5,9 @@
 #
 # Installs Elementor, WooCommerce, Advanced Custom Fields, Yoast SEO, and
 # Polylang from the wordpress.org plugin repository or, with WPMCP_LIVE_FORMS=1,
-# Contact Form 7 and Flamingo only (bin/test-local.sh --live-forms). The script
+# Contact Form 7 and Flamingo only (bin/test-local.sh --live-forms), or, with
+# WPMCP_LIVE_BLOCKS=1, Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks
+# only (bin/test-local.sh --live-blocks). The script
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
 #
@@ -55,6 +57,20 @@ if [ "${WPMCP_LIVE_FORMS:-}" = "1" ]; then
 	PLUGINS=(
 		"contact-form-7:wp-contact-form-7.php"
 		"flamingo:flamingo.php"
+	)
+fi
+
+# The live blocks job (issue #287) renders blocks inserted through the
+# block-suites tools with the real block suites loaded. Exclusive for the same
+# reason as the forms set: the stub-backed suite registers stand-in block types
+# under the suites' names and fakes their presence, which the real plugins
+# would contradict.
+if [ "${WPMCP_LIVE_BLOCKS:-}" = "1" ]; then
+	PLUGINS=(
+		"kadence-blocks:kadence-blocks.php"
+		"generateblocks:plugin.php"
+		"ultimate-addons-for-gutenberg:ultimate-addons-for-gutenberg.php"
+		"otter-blocks:otter-blocks.php"
 	)
 fi
 

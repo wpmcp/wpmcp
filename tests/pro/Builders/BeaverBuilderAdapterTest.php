@@ -21,6 +21,16 @@ namespace {
             {
                 self::$calls[] = ['delete_node_template_asset_cache', (int) $post_id];
             }
+
+            /**
+             * The builder UI is never open in a test. Other plugins probe
+             * this whenever the class exists (Spectra does on every page view
+             * in the live blocks leg), so the stand-in answers like the real one.
+             */
+            public static function is_builder_active(): bool
+            {
+                return false;
+            }
         }
     }
 }
