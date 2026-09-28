@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 397,
+    'total'     => 398,
     'free'      => 266,
-    'pro'       => 131,
+    'pro'       => 132,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -350,6 +350,7 @@ return [
         'wpmcp/set-post-language' => 'free',
         'wpmcp/set-post-meta' => 'free',
         'wpmcp/set-post-terms' => 'free',
+        'wpmcp/set-seo-data-key' => 'pro',
         'wpmcp/set-site-part-status' => 'free',
         'wpmcp/set-social-image' => 'pro',
         'wpmcp/set-stock-key' => 'free',
