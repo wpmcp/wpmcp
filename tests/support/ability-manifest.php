@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 330,
-    'free'      => 233,
+    'total'     => 331,
+    'free'      => 234,
     'pro'       => 97,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -342,6 +342,7 @@ return [
         'wpmcp/update-user' => 'free',
         'wpmcp/update-variation' => 'free',
         'wpmcp/update-widget' => 'pro',
+        'wpmcp/upload-media' => 'free',
         'wpmcp/upload-svg' => 'free',
         'wpmcp/validate-block-spec' => 'pro',
         'wpmcp/validate-php-snippet' => 'free',

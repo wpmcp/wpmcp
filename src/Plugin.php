@@ -154,6 +154,7 @@ use WPMCP\Tools\Media\Get_Media;
 use WPMCP\Tools\Media\Update_Media;
 use WPMCP\Tools\Media\Delete_Media;
 use WPMCP\Tools\Media\Sideload_Image;
+use WPMCP\Tools\Media\Upload_Media;
 use WPMCP\Tools\Media\List_Media;
 use WPMCP\Tools\Media\Resize_Media;
 use WPMCP\Tools\Media\Upload_Svg;
@@ -1271,6 +1272,7 @@ final class Plugin
         $update_media   = new Update_Media();
         $delete_media   = new Delete_Media();
         $sideload_image = new Sideload_Image();
+        $upload_media   = new Upload_Media();
 
         $registrar->register(new Ability(
             'wpmcp/get-media',
@@ -1344,6 +1346,29 @@ final class Plugin
             ],
             [$sideload_image, 'handle'],
             'edit_posts',
+            'media',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/upload-media',
+            'free',
+            'Add a file to the Media Library from base64 bytes. The type is sniffed from the bytes (mime_type is only a hint) and must be an allowed upload type; executables and SVG are refused. Capped at the site upload limit. Rollback deletes the upload',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'filename'   => [ 'type' => 'string' ],
+                    'data'       => [ 'type' => 'string' ],
+                    'mime_type'  => [ 'type' => 'string' ],
+                    'title'      => [ 'type' => 'string' ],
+                    'alt'        => [ 'type' => 'string' ],
+                    'caption'    => [ 'type' => 'string' ],
+                    'post_id'    => [ 'type' => 'integer' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'filename', 'data' ],
+            ],
+            [$upload_media, 'handle'],
+            'upload_files',
             'media',
             'create'
         ));
