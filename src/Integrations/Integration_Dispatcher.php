@@ -70,7 +70,10 @@ if (! defined('ABSPATH')) {
  *                           target is also handed to the handler as
  *                           $context['target'], so a create whose key is
  *                           chosen in the snapshot callable writes under
- *                           exactly the key that was captured
+ *                           exactly the key that was captured, along with
+ *                           $context['operation_id'], so a handler whose
+ *                           write is refused after the snapshot can void
+ *                           that undo point (Snapshot_Store::delete_operation())
  *      'self_snapshotting'  write ops only: true when the op touches several
  *                           objects and runs its own Safe_Mutation per
  *                           object. The handler is called as
@@ -418,12 +421,17 @@ abstract class Integration_Dispatcher
             return $this->ok($op, ($def['handler'])($op_args, [ 'session_id' => $session_id, 'target' => null ])) + [ 'recoverable' => false ];
         }
 
-        $context = [
-            'object_type' => (string) $target['object_type'],
-            'object_id'   => $target['object_id'],
-            'session_id'  => $session_id,
-            'tool_name'   => sprintf('%s-write', $this->integration()),
-            'args'        => [ 'operation' => $op, 'args' => $op_args ],
+        // Generated here rather than inside Safe_Mutation so the handler can
+        // void its own undo point (Snapshot_Store::delete_operation()) when
+        // its write is refused after the snapshot was persisted.
+        $operation_id = wp_generate_uuid4();
+        $context      = [
+            'operation_id' => $operation_id,
+            'object_type'  => (string) $target['object_type'],
+            'object_id'    => $target['object_id'],
+            'session_id'   => $session_id,
+            'tool_name'    => sprintf('%s-write', $this->integration()),
+            'args'         => [ 'operation' => $op, 'args' => $op_args ],
         ];
         // A target whose object type needs caller-captured recovery data (a
         // db_rows before-image for a row in a host plugin's own table) hands
@@ -432,7 +440,7 @@ abstract class Integration_Dispatcher
             $context['extra_snapshot_data'] = $target['extra_snapshot_data'];
         }
 
-        $out = Safe_Mutation::run($context, fn () => ($def['handler'])($op_args, [ 'session_id' => $session_id, 'target' => $target ]));
+        $out = Safe_Mutation::run($context, fn () => ($def['handler'])($op_args, [ 'session_id' => $session_id, 'target' => $target, 'operation_id' => $operation_id ]));
 
         return $this->ok($op, $out['result']) + [
             'operation_id' => $out['operation_id'],

@@ -81,6 +81,23 @@ final class Redirection_Item_Snapshot
         return is_array($row) ? $row : null;
     }
 
+    /**
+     * The columns that say which redirect a row is: its source, its target
+     * and its match type. A create records them in its snapshot so the undo
+     * can tell its own row from a different redirect that later took the id.
+     *
+     * @return array{url: ?string, action_data: ?string, match_type: ?string}
+     */
+    public static function identity(array $row): array
+    {
+        $out = [];
+        foreach ([ 'url', 'action_data', 'match_type' ] as $column) {
+            $value          = $row[ $column ] ?? null;
+            $out[ $column ] = null === $value ? null : (string) $value;
+        }
+        return $out;
+    }
+
     public static function capture(int $id): array
     {
         $exists = self::table_exists(self::items_table());
@@ -98,9 +115,16 @@ final class Redirection_Item_Snapshot
 
     /**
      * Put the captured row back, or remove the row when there was none. Any
-     * failure is a Mutation_Failed.
+     * failure is a Mutation_Failed. Returns a warning when a creation's row
+     * was left in place, or null.
+     *
+     * Undoing a create removes the row only while it is still the redirect
+     * the create wrote (same source, target and match type, recorded as
+     * 'created' in the snapshot). A row that no longer matches is someone
+     * else's redirect, or ours changed outside this undo, so it is left
+     * alone and reported (issue #334).
      */
-    public static function restore(array $snapshot): void
+    public static function restore(array $snapshot): ?string
     {
         if (! current_user_can('manage_options')) {
             throw new Mutation_Failed('Rollback refused: restoring a Redirection redirect requires the manage_options capability.');
@@ -109,12 +133,24 @@ final class Redirection_Item_Snapshot
         $data = (array) ($snapshot['data'] ?? []);
         $id   = (int) ($data['id'] ?? 0);
         if ($id <= 0 || empty($data['table_exists']) || ! self::table_exists(self::items_table())) {
-            return;
+            return null;
         }
 
         global $wpdb;
         $current = self::row($id);
         $row     = is_array($data['row'] ?? null) ? (array) $data['row'] : null;
+
+        if (null === $row && is_array($data['created'] ?? null)) {
+            if (null === $current) {
+                return null; // Already gone: nothing to undo.
+            }
+            if (self::identity((array) $data['created']) !== self::identity($current)) {
+                return sprintf(
+                    'Redirection redirect %d is not the redirect this operation created (its source, target or match type differs); it was left untouched.',
+                    $id
+                );
+            }
+        }
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- third-party table with no WP API; Redirection's own caches are flushed below.
         if (false === $wpdb->delete(self::items_table(), [ 'id' => $id ], [ '%d' ])) {
@@ -129,6 +165,7 @@ final class Redirection_Item_Snapshot
         }
 
         self::flush((int) ($row['group_id'] ?? 0), (int) ($current['group_id'] ?? 0));
+        return null;
     }
 
     /**

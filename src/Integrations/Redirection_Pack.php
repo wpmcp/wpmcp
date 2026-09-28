@@ -3,6 +3,7 @@
 namespace WPMCP\Integrations;
 
 use WPMCP\Safety\Redirection_Item_Snapshot;
+use WPMCP\Safety\Snapshot_Store;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -127,8 +128,8 @@ final class Redirection_Pack
                 ],
                 'requires'     => $requires,
                 'validate'     => static fn (array $args): ?array => self::refusal(static fn () => self::plan_create($args)),
-                'snapshot'     => static fn (array $args): array => [ 'object_type' => Redirection_Item_Snapshot::TYPE, 'object_id' => self::next_id() ],
-                'handler'      => static fn (array $args, array $context): array => self::create($args, $item($args, $context)),
+                'snapshot'     => static fn (array $args): array => self::create_target($args),
+                'handler'      => static fn (array $args, array $context): array => self::create($args, $item($args, $context), (string) ($context['operation_id'] ?? '')),
             ],
             'update-redirection-redirect'  => [
                 'mode'         => 'write',
@@ -325,19 +326,44 @@ final class Redirection_Pack
     // Writes
     // -----------------------------------------------------------------
 
-    private static function create(array $args, int $id): array
+    /**
+     * The create's snapshot target: the reserved id, plus the identifying
+     * columns the create is about to write, so the undo removes the row only
+     * while it is still this redirect (issue #334).
+     */
+    private static function create_target(array $args): array
+    {
+        return [
+            'object_type'         => Redirection_Item_Snapshot::TYPE,
+            'object_id'           => self::next_id(),
+            'extra_snapshot_data' => [ 'created' => Redirection_Item_Snapshot::identity(self::plan_create($args)) ],
+        ];
+    }
+
+    private static function create(array $args, int $id, string $operation_id): array
     {
         global $wpdb;
 
-        $fields = self::plan_create($args);
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Redirection's own table; placing new rows last in their group, as Red_Item::create() does.
-        $position = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE group_id = %d', Redirection_Item_Snapshot::items_table(), $fields['group_id']));
+        try {
+            $fields = self::plan_create($args);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Redirection's own table; placing new rows last in their group, as Red_Item::create() does.
+            $position = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE group_id = %d', Redirection_Item_Snapshot::items_table(), $fields['group_id']));
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Redirection's own table; the id was reserved before the snapshot so the undo removes exactly this row.
-        $ok = $wpdb->insert(Redirection_Item_Snapshot::items_table(), [ 'id' => $id, 'position' => $position ] + $fields);
-        if (false === $ok) {
-            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-            throw new Operation_Refused('write_failed', 'Could not create the redirect: ' . $wpdb->last_error);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Redirection's own table; the id was reserved before the snapshot so the undo removes exactly this row.
+            $ok = $wpdb->insert(Redirection_Item_Snapshot::items_table(), [ 'id' => $id, 'position' => $position ] + $fields);
+            if (false === $ok) {
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
+                throw new Operation_Refused('write_failed', 'Could not create the redirect: ' . $wpdb->last_error);
+            }
+        } catch (\Throwable $e) {
+            // Nothing was written (another create may have taken the reserved
+            // id first), but the snapshot is already persisted. Left in place,
+            // rolling it back would remove whatever row now holds that id, so
+            // the undo point of a create that did not happen is voided.
+            if ('' !== $operation_id) {
+                Snapshot_Store::delete_operation($operation_id);
+            }
+            throw $e;
         }
         Redirection_Item_Snapshot::flush((int) $fields['group_id']);
 
