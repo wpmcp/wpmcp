@@ -26,6 +26,7 @@ class List_Control_Types
                 'elementor'   => $meta['elementor'],
                 'description' => $meta['desc'],
                 'escaper'     => $meta['escaper'],
+                'data'        => ! empty($meta['data']),
                 // Derived, not asserted: a type is compilable exactly when it
                 // declares the escaper Widget_Compiler emits its value through.
                 // Hardcoding true would keep reading as a computed capability

@@ -39,7 +39,8 @@ if (! defined('ABSPATH')) {
  *  4. Calls that are not free-function calls are allowlisted too, by RECEIVER
  *     as well as by name: `->` and `?->` are accepted only on a literal $this
  *     receiver, `::` only on self / static / parent, and the method named must
- *     be in ALLOWED_METHODS. `new` is rejected outright, because the emitter
+ *     be in ALLOWED_METHODS. The single exception is ALLOWED_STATIC_CALLS,
+ *     the data-control renderer, matched as an exact receiver and method. `new` is rejected outright, because the emitter
  *     never instantiates anything. Checking only the shape of the operator and
  *     not the receiver would let `Evil::system('id')`, `$o->system('id')` and
  *     `new Evil('id')` through, which is the same string-callable-dispatch
@@ -70,6 +71,16 @@ class Generated_Code_Lint
     public const ALLOWED_METHODS = [
         'start_controls_section', 'add_control', 'end_controls_section',
         'get_settings_for_display',
+    ];
+
+    /**
+     * The one fully-qualified static call generated code may make: the data
+     * control renderer (issue #296). Matched exactly, receiver as one
+     * fully-qualified name token and method as a plain name followed by `(`,
+     * so no other method, class, dynamic name or property read gets through.
+     */
+    public const ALLOWED_STATIC_CALLS = [
+        '\\WPMCP\\Tools\\WidgetBuilder\\Data\\Widget_Data' => ['render'],
     ];
 
     /** Receivers a `::` may appear on. The emitter emits none; this is a floor. */
@@ -115,7 +126,8 @@ class Generated_Code_Lint
             $significant[] = $token;
         }
 
-        $count = count($significant);
+        $count    = count($significant);
+        $approved = [];
         for ($i = 0; $i < $count; $i++) {
             $token = $significant[$i];
             $prev  = $i > 0 ? $significant[$i - 1] : null;
@@ -188,6 +200,18 @@ class Generated_Code_Lint
                 if (! is_array($next) && '{' === $next) {
                     return self::rejected('dynamic method / class reference');
                 }
+                $static_receiver = T_DOUBLE_COLON === $id && is_array($prev) && T_NAME_FULLY_QUALIFIED === $prev[0]
+                    && isset(self::ALLOWED_STATIC_CALLS[ $prev[1] ]);
+                if ($static_receiver) {
+                    $after      = $significant[ $i + 2 ] ?? null;
+                    $is_allowed = is_array($next) && T_STRING === $next[0] && '(' === $after
+                        && in_array($next[1], self::ALLOWED_STATIC_CALLS[ $prev[1] ], true);
+                    if (! $is_allowed) {
+                        return self::rejected('static access other than an allowlisted static call');
+                    }
+                    $approved[ $i + 1 ] = true;
+                    continue;
+                }
                 if (T_DOUBLE_COLON === $id) {
                     $receiver = is_array($prev) ? strtolower((string) $prev[1]) : '';
                     if (! in_array($receiver, self::STATIC_RECEIVERS, true)) {
@@ -218,6 +242,9 @@ class Generated_Code_Lint
                 true
             );
             if ($is_member) {
+                if (isset($approved[ $i ])) {
+                    continue;
+                }
                 if (! is_array($next) && '(' === $next && ! in_array(strtolower($text), self::ALLOWED_METHODS, true)) {
                     return self::rejected($text . '() is not in the generated-code method allowlist');
                 }

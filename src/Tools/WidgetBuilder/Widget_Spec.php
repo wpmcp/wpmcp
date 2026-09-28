@@ -10,7 +10,7 @@ if (! defined('ABSPATH')) {
  * Validation and the control-type vocabulary for custom-widget specs.
  *
  * A spec is data, never code: { title, name?, icon?, keywords?, controls[], template }.
- * Each control is { name, type, label, default? }. The template is HTML with
+ * Each control is { name, type, label, default?, query? } (query only on a data control). The template is HTML with
  * {{name}} placeholders. Because a spec is interpreted (not compiled to PHP),
  * there is no eval anywhere in this feature.
  */
@@ -38,7 +38,23 @@ class Widget_Spec
         'color'    => ['elementor' => 'color', 'escaper' => 'esc_attr', 'desc' => 'Color value. Authors without unfiltered_html cannot use it inside a style attribute: wp_kses_post drops any style rule containing a {{placeholder}}'],
         'select'   => ['elementor' => 'select', 'escaper' => 'esc_html', 'desc' => 'Choice from options'],
         'switcher' => ['elementor' => 'switcher', 'escaper' => 'esc_attr', 'desc' => 'On/off toggle (yes/empty)'],
+        // Data controls (issue #296): {{name}} renders markup built by
+        // Data\Widget_Data::render() from the control's `query` object, which
+        // escapes every value itself. The escaper named here is what it applies.
+        'query_posts'    => ['elementor' => 'number', 'escaper' => 'esc_html', 'data' => true, 'desc' => 'Post list. query: post_type, taxonomy, terms, count, orderby, order. Value = count'],
+        'query_products' => ['elementor' => 'number', 'escaper' => 'esc_html', 'data' => true, 'desc' => 'WooCommerce product list. query: category, count, orderby, order. Value = count'],
+        'query_terms'    => ['elementor' => 'number', 'escaper' => 'esc_html', 'data' => true, 'desc' => 'Term list. query: taxonomy, count, orderby, order, hide_empty. Value = count'],
+        'menu'           => ['elementor' => 'text', 'escaper' => 'wp_kses_post', 'data' => true, 'desc' => 'Nav menu. Value = menu slug, id or theme location'],
+        'breadcrumbs'    => ['elementor' => 'hidden', 'escaper' => 'esc_html', 'data' => true, 'desc' => 'Breadcrumb trail to the current page. query: home'],
+        'cart'           => ['elementor' => 'hidden', 'escaper' => 'esc_html', 'data' => true, 'desc' => 'WooCommerce cart count and total'],
+        'remote_json'    => ['elementor' => 'hidden', 'escaper' => 'esc_html', 'data' => true, 'desc' => 'Value or list from query.url (https, hosts in wpmcp_remote_json_allowed_hosts). query: url, path, field, count, cache'],
     ];
+
+    /** Whether a control type reads a data source (issue #296). */
+    public static function is_data(string $type): bool
+    {
+        return ! empty(self::CONTROL_TYPES[$type]['data']);
+    }
 
     /** The escaper declared for a control type; esc_html for anything unknown. */
     public static function escaper_for(string $type): string
@@ -135,6 +151,14 @@ class Widget_Spec
             }
             if (is_string($default) && strlen($default) > self::MAX_DEFAULT) {
                 return self::invalid('invalid_control', sprintf('controls[%d].default', $index), sprintf('The default of control "%s" is longer than %d bytes.', $name, self::MAX_DEFAULT));
+            }
+            if (self::is_data($type)) {
+                $problem = Data\Widget_Data::validate_query($type, $control['query'] ?? null);
+                if (null !== $problem) {
+                    return self::invalid('invalid_control', sprintf('controls[%d].query', $index) . $problem[0], sprintf('Control "%s": %s', $name, $problem[1]));
+                }
+            } elseif (array_key_exists('query', $control)) {
+                return self::invalid('invalid_control', sprintf('controls[%d].query', $index), sprintf('Control "%s" is not a data control and takes no query.', $name));
             }
         }
 

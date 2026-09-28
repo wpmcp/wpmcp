@@ -297,7 +297,7 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
         $template = '';
         foreach (array_keys(Widget_Spec::CONTROL_TYPES) as $i => $type) {
             $name       = 'c' . $i;
-            $controls[] = ['name' => $name, 'type' => $type, 'label' => ucfirst($type)];
+            $controls[] = self::with_required_query($type, ['name' => $name, 'type' => $type, 'label' => ucfirst($type)]);
             $template  .= '<span>{{' . $name . '}}</span>';
         }
         $spec = ['name' => 'every-type', 'title' => 'Every Type', 'controls' => $controls, 'template' => $template];
@@ -1331,12 +1331,24 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
         );
     }
 
+    /**
+     * The one data control (issue #296) that cannot validate without
+     * configuration: remote JSON needs the https URL it reads from.
+     */
+    private static function with_required_query(string $type, array $control): array
+    {
+        if ('remote_json' === $type) {
+            $control['query'] = ['url' => 'https://feeds.example.test/a.json'];
+        }
+        return $control;
+    }
+
     private function all_control_types_spec(): array
     {
         $controls = [];
         $template = '';
         foreach (array_keys(Widget_Spec::CONTROL_TYPES) as $type) {
-            $controls[] = ['name' => $type . '_field', 'type' => $type, 'label' => ucfirst($type), 'default' => 'd'];
+            $controls[] = self::with_required_query($type, ['name' => $type . '_field', 'type' => $type, 'label' => ucfirst($type), 'default' => 'd']);
             $template  .= '<span>{{' . $type . '_field}}</span>';
         }
         return ['name' => 'every-type', 'title' => 'Every Type', 'controls' => $controls, 'template' => $template];
