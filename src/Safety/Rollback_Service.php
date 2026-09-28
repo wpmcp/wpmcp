@@ -87,8 +87,9 @@ class Rollback_Service
         // restoring the OLDEST snapshot per object (its pre-session state).
         // Runs after the db_rows pass so that when both kinds touched the
         // same underlying rows, the exact whole-object restore wins.
-        $legacy = array_reverse($legacy); // oldest first, so we can unwind to the earliest
-        $seen   = [];
+        $legacy   = array_reverse($legacy); // oldest first, so we can unwind to the earliest
+        $seen     = [];
+        $deferred = [];
         foreach ($legacy as $snapshot) {
             $key = self::object_identity($snapshot);
             if (isset($seen[ $key ])) {
@@ -96,6 +97,18 @@ class Rollback_Service
                 continue;
             }
             $seen[ $key ] = true;
+            // A child-theme scaffold is undone LAST: its restore refuses to
+            // delete the active theme, so the stylesheet/template options a
+            // later switch-theme in the same session changed must be put back
+            // first, or the session rollback would leave the scaffold behind.
+            if ('theme_scaffold' === $snapshot['object_type']) {
+                $deferred[] = $snapshot;
+                continue;
+            }
+            self::apply_snapshot($snapshot);
+            $count++;
+        }
+        foreach ($deferred as $snapshot) {
             self::apply_snapshot($snapshot);
             $count++;
         }
@@ -352,10 +365,12 @@ class Rollback_Service
             'db_rows',
             'redirect',
             'term',
+            'wc_tax_rate',
             'php_snippet',
             'page_build',
             'media_import',
             'elementor_global_classes',
+            'theme_scaffold',
         ];
     }
 
@@ -442,6 +457,11 @@ class Rollback_Service
             return;
         }
 
+        if ('wc_tax_rate' === $snapshot['object_type']) {
+            self::apply_wc_tax_rate_snapshot($snapshot);
+            return;
+        }
+
         if ('php_snippet' === $snapshot['object_type']) {
             self::apply_php_snippet_snapshot($snapshot);
             return;
@@ -459,6 +479,11 @@ class Rollback_Service
 
         if ('elementor_global_classes' === $snapshot['object_type']) {
             self::apply_elementor_global_classes_snapshot($snapshot);
+            return;
+        }
+
+        if ('theme_scaffold' === $snapshot['object_type']) {
+            self::apply_theme_scaffold_snapshot($snapshot);
             return;
         }
 
@@ -504,6 +529,82 @@ class Rollback_Service
         self::restore_files($snapshot['data']['files'] ?? null);
 
         self::refresh_woocommerce_product($object_id);
+        self::refresh_woocommerce_coupon($object_id);
+    }
+
+    /**
+     * Drop WooCommerce's coupon lookups after a raw restore of a shop_coupon
+     * post (issue #195). WooCommerce resolves a code to a coupon id through
+     * an object-cache entry keyed by the code, and its own save path only
+     * clears the entry for the code it is saving. A rollback of a code change
+     * writes wp_posts directly, so without this the NEW code would keep
+     * resolving to the coupon after it has been put back to the old one.
+     * Invalidating the whole 'coupons' group is what WooCommerce itself does
+     * when coupon data changes in bulk; it costs one cache prefix bump.
+     *
+     * No-op when WooCommerce is absent or the post is not a coupon.
+     */
+    private static function refresh_woocommerce_coupon(int $object_id): void
+    {
+        if (! class_exists('WC_Cache_Helper') || 'shop_coupon' !== get_post_type($object_id)) {
+            return;
+        }
+        \WC_Cache_Helper::invalidate_cache_group('coupons');
+    }
+
+    /**
+     * Restore a WooCommerce tax rate captured by Snapshot::capture_wc_tax_rate()
+     * (issue #195): update it in place when it still exists, or re-insert it
+     * at its original id when it was deleted, then put its postcode and city
+     * rows back exactly.
+     *
+     * Every write goes through WC_Tax's own internal CRUD helpers, so the
+     * 'taxes' cache group is invalidated and the woocommerce_tax_rate_added /
+     * _updated actions fire exactly as they do for an edit in wp-admin. The
+     * resurrection passes tax_rate_id through _insert_tax_rate(), which
+     * forwards unknown keys to $wpdb->insert() unchanged; the returned id is
+     * then checked, and a mismatch (the id was somehow taken) is a loud
+     * Mutation_Failed rather than a "restored" rate at the wrong id.
+     *
+     * Restoring store tax configuration is itself a store-settings write, so,
+     * like the redirect restore, it re-checks the capability the write tools
+     * require instead of trusting whoever reached the rollback.
+     */
+    private static function apply_wc_tax_rate_snapshot(array $snapshot): void
+    {
+        $data = (array) ($snapshot['data'] ?? []);
+        $row  = $data['rate'] ?? null;
+        if (! is_array($row) || ! class_exists('WC_Tax')) {
+            return;
+        }
+
+        if (! current_user_can('manage_woocommerce')) {
+            throw new Mutation_Failed('Rollback refused: restoring a tax rate requires the manage_woocommerce capability.');
+        }
+
+        $tax_rate_id = (int) $snapshot['object_id'];
+        if ($tax_rate_id <= 0) {
+            return;
+        }
+
+        $fields = array_diff_key($row, ['tax_rate_id' => true]);
+        $live   = \WC_Tax::_get_tax_rate($tax_rate_id, ARRAY_A);
+
+        if (is_array($live) && ! empty($live)) {
+            \WC_Tax::_update_tax_rate($tax_rate_id, $fields);
+        } else {
+            $inserted = (int) \WC_Tax::_insert_tax_rate(array_merge(['tax_rate_id' => $tax_rate_id], $fields));
+            if ($inserted !== $tax_rate_id) {
+                throw new Mutation_Failed(sprintf(
+                    'Rollback failed to restore tax rate %d at its original id (got %d).',
+                    (int) $tax_rate_id,
+                    (int) $inserted
+                ));
+            }
+        }
+
+        \WC_Tax::_update_tax_rate_postcodes($tax_rate_id, array_map('strval', (array) ($data['postcodes'] ?? [])));
+        \WC_Tax::_update_tax_rate_cities($tax_rate_id, array_map('strval', (array) ($data['cities'] ?? [])));
     }
 
     /**
@@ -1121,6 +1222,103 @@ class Rollback_Service
         } catch (\Throwable $e) {
             self::warn('Elementor refused the global classes restore: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Undo a create-child-theme scaffold (see Snapshot::capture_theme_scaffold()).
+     *
+     * Only the scaffold's own files are touched: each is put back to its
+     * captured bytes, or deleted when it did not exist before. The directory
+     * is removed only when the scaffold created it AND nothing else has been
+     * added to it since; anything a person added afterwards is left in place
+     * with a warning, never deleted as collateral.
+     *
+     * A scaffold that is currently the active theme (or the parent of it) is
+     * left alone with a warning: deleting the active theme's files would take
+     * the front end down, which is the opposite of what an undo is for.
+     * Switch themes first (itself an undoable operation), then roll back.
+     */
+    private static function apply_theme_scaffold_snapshot(array $snapshot): void
+    {
+        $data = (array) ($snapshot['data'] ?? []);
+        $slug = (string) ($data['slug'] ?? '');
+
+        if ('' === $slug || sanitize_key($slug) !== $slug) {
+            self::warn('Child theme scaffold cannot be restored: the snapshot carries no valid theme slug.');
+            return;
+        }
+
+        $dir = trailingslashit(get_theme_root()) . $slug;
+        if (is_link($dir)) {
+            self::warn(sprintf('Child theme "%s" was not rolled back: its directory is now a symlink.', $slug));
+            return;
+        }
+        if (! is_dir($dir)) {
+            if (! empty($data['dir_existed'])) {
+                self::warn(sprintf('Child theme "%s" was not rolled back: its directory no longer exists.', $slug));
+            }
+            return;
+        }
+        if (get_stylesheet() === $slug || get_template() === $slug) {
+            self::warn(sprintf('Child theme "%s" is the active theme, so its files were left in place. Switch to another theme, then roll back again.', $slug));
+            return;
+        }
+
+        $fs        = self::direct_filesystem();
+        $too_large = (array) ($data['too_large'] ?? []);
+        foreach (Snapshot::THEME_SCAFFOLD_FILES as $file) {
+            $path = $dir . '/' . $file;
+            if (in_array($file, $too_large, true)) {
+                self::warn(sprintf('Child theme "%s": %s was too large to capture and was left as it is.', $slug, $file));
+                continue;
+            }
+            if (is_link($path)) {
+                self::warn(sprintf('Child theme "%s": %s is now a symlink and was left as it is.', $slug, $file));
+                continue;
+            }
+            $before = $data['files'][ $file ] ?? null;
+            if (null === $before) {
+                if (is_file($path)) {
+                    $fs->delete($path);
+                }
+                continue;
+            }
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- decodes the file bytes Snapshot::capture_theme_scaffold() encoded, not obfuscation.
+            $bytes = base64_decode((string) $before, true);
+            if (false === $bytes || ! $fs->put_contents($path, $bytes, 0644)) {
+                self::warn(sprintf('Child theme "%s": %s could not be restored.', $slug, $file));
+            }
+        }
+
+        if (empty($data['dir_existed'])) {
+            $left = array_diff((array) scandir($dir), ['.', '..']);
+            if ([] === $left) {
+                $fs->rmdir($dir);
+            } else {
+                self::warn(sprintf('Child theme "%s": the scaffold files were removed, but the directory was kept because it holds files the scaffold did not create.', $slug));
+            }
+        }
+
+        // WP_Theme caches parsed headers per directory, and
+        // wp_clean_themes_cache() only flushes themes it still finds on disk,
+        // so the removed child's own entry is dropped explicitly first;
+        // otherwise wp_get_theme() keeps reporting it as installed.
+        wp_get_theme($slug)->cache_delete();
+        wp_clean_themes_cache();
+    }
+
+    /**
+     * A direct-method WP_Filesystem for the theme scaffold restore. Plugin
+     * Check promotes WordPress.WP.AlternativeFunctions to an error, so file
+     * writes and deletes go through WP_Filesystem; the direct transport is
+     * used explicitly because a rollback cannot stop to prompt for FTP
+     * credentials, and the scaffold being undone was written the same way.
+     */
+    private static function direct_filesystem(): \WP_Filesystem_Direct
+    {
+        require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-base.php';
+        require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-direct.php';
+        return new \WP_Filesystem_Direct(null);
     }
 
     /** Human-readable "pk=value" description of a row's primary-key values, for warnings and errors. */

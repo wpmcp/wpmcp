@@ -2,6 +2,10 @@
 
 namespace WPMCP\Tools\BlockBuilder;
 
+use WPMCP\Safety\Mutation_Failed;
+use WPMCP\Safety\Rollback_Service;
+use WPMCP\Safety\Safe_Mutation;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -60,10 +64,55 @@ class Block_Spec_Store
         if (! self::is_block($id)) {
             return false;
         }
-        $spec = Block_Spec::normalize($spec);
-        wp_update_post(['ID' => $id, 'post_title' => sanitize_text_field((string) $spec['title'])]);
-        update_post_meta($id, '_wpmcp_block_spec', $spec);
-        return true;
+        $spec   = Block_Spec::normalize($spec);
+        $result = wp_update_post(['ID' => $id, 'post_title' => sanitize_text_field((string) $spec['title'])], true);
+        if (is_wp_error($result) || 0 === $result) {
+            return false;
+        }
+        // update_post_meta() unslashes its value (a template backslash would
+        // be lost), and returns false both on failure and when the value is
+        // unchanged, so slash on the way in and read the spec back instead of
+        // trusting its result.
+        update_post_meta($id, '_wpmcp_block_spec', wp_slash($spec));
+        return self::get($id) === $spec;
+    }
+
+    /**
+     * Run one write against an existing block as a snapshotted operation.
+     * The single place the Safe_Mutation context for the block tools is built.
+     *
+     * $write must return true only when the write actually landed. Anything
+     * else fails Safe_Mutation's verify hook, which restores the snapshot, so
+     * a write that did not happen is never reported as a success with an
+     * operation_id attached.
+     *
+     * @param callable():bool $write
+     * @return string|\WP_Error the operation_id, or a WP_Error after a rollback.
+     */
+    public static function mutate(int $id, string $tool, array $args, callable $write)
+    {
+        $operation_id = wp_generate_uuid4();
+        try {
+            Safe_Mutation::run(
+                [
+                    'object_type'  => 'post',
+                    'object_id'    => $id,
+                    'operation_id' => $operation_id,
+                    'session_id'   => (string) ($args['session_id'] ?? 'default'),
+                    'tool_name'    => $tool,
+                    'args'         => $args,
+                ],
+                $write,
+                static fn ($landed): bool => true === $landed
+            );
+        } catch (Mutation_Failed $e) {
+            return new \WP_Error('mutation_failed', "The {$tool} write did not land; nothing was changed.");
+        } catch (\Throwable $e) {
+            Rollback_Service::restore_operation($operation_id);
+            return new \WP_Error('mutation_failed', "The {$tool} write failed and was rolled back: " . $e->getMessage());
+        }
+
+        return $operation_id;
     }
 
     public static function get(int $id): ?array
