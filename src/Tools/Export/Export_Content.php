@@ -80,6 +80,12 @@ class Export_Content
 
     public function handle(array $args): array
     {
+        // The builder page mirror (issue #298) never touches export_wp(), so
+        // it is not bound by the once-per-process limit below.
+        if (! empty($args['mirror'])) {
+            return (new Content_Mirror())->export($args);
+        }
+
         if ($this->uses_core_exporter) {
             if (self::$has_run) {
                 throw new \RuntimeException('export-content can only run once per PHP process: WordPress\'s own export_wp() cannot be safely called twice in the same process. Run this tool again in a fresh request.');

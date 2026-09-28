@@ -4842,7 +4842,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-content',
             'free',
-            'WXR export via core export_wp(), narrowed by content, author, start_date, end_date, status. Writes to a protected uploads directory; returns path, size, count. Once per PHP process (core limit). Read-only',
+            'WXR export via core export_wp(), narrowed by content, author, start_date, end_date, status. Writes to a protected uploads directory; returns path, size, count. Once per PHP process (core limit). mirror:true instead writes builder pages as stable JSON files for git (post_id, or all 50 per page). Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4851,6 +4851,9 @@ final class Plugin
                     'start_date' => [ 'type' => 'string' ],
                     'end_date'   => [ 'type' => 'string' ],
                     'status'     => [ 'type' => 'string' ],
+                    'mirror'     => [ 'type' => 'boolean' ],
+                    'post_id'    => [ 'type' => 'integer' ],
+                    'page'       => [ 'type' => 'integer' ],
                 ],
             ],
             [$export_content, 'handle'],
@@ -4874,14 +4877,15 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/import-content',
             'free',
-            'Import a WXR file, creating posts via wp_insert_post() (title, content, status, post_type, postmeta). Off by default (the wpmcp_enable_import filter opts in) and always requires confirm:true. Bulk creation has no single object to snapshot, so it reports recoverable:false and returns every created id in created_post_ids for follow-up delete-post calls. Uses a built-in WXR parser, not the WordPress Importer plugin',
+            'Import a WXR file as new posts (title, content, status, post_type, postmeta). Off by default (wpmcp_enable_import filter), needs confirm:true, not snapshotted (recoverable:false); returns created_post_ids for delete-post. mirror:true with post_id instead restores that page from its export-content mirror file, undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
                     'file'    => [ 'type' => 'string' ],
                     'confirm' => [ 'type' => 'boolean' ],
+                    'mirror'  => [ 'type' => 'boolean' ],
+                    'post_id' => [ 'type' => 'integer' ],
                 ],
-                'required'   => [ 'file' ],
             ],
             [$import_content, 'handle'],
             'manage_options',
@@ -7858,7 +7862,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-ops',
             'pro',
-            'List the WooCommerce ops catalog (e.g. products.update) by domain: products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks, settings. Each op gives mode, route, path params, capability, confirm, enabled, snapshot type and full-rollback flag. Read-only',
+            'List the WooCommerce ops catalog (e.g. products.update) by domain: products, variations, orders, refunds, coupons, customers, reviews, reports, shipping, taxes, webhooks, settings. Each op gives mode, route, path params, capability, confirm, enabled, snapshot type and full-rollback flag. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [

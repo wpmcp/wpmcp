@@ -65,6 +65,10 @@ if (! defined('ABSPATH')) {
  *    ['type' => 'wc_webhook_create', 'create' => true]: the zone or webhook
  *    does not exist yet, so its handler records a creation row once it does,
  *    and rollback deletes it (store configuration, not content);
+ *  - ['type' => 'comment', 'param' => P]: a product review's full comment
+ *    row and all its meta (rating, verified); ['type' => 'comment_create',
+ *    'create' => true]: a reply does not exist yet, so Review_Ops records a
+ *    creation row once it does, and rollback trashes the reply;
  *  - ['type' => 'wc_webhook', 'param' => P]: the raw webhook row, secret
  *    included but never shown (Safety\Wc_Webhook_Snapshot);
  *  - ['type' => 'term', 'param' => P] or ['type' => 'term', 'create' => true]:
@@ -93,6 +97,7 @@ class Op_Catalog
     private const CAP_CUSTOMERS      = 'list_users';
     private const CAP_EDIT_CUSTOMERS = 'edit_users';
     private const CAP_ADD_CUSTOMERS  = 'create_users';
+    private const CAP_REVIEWS        = 'moderate_comments';
 
     private const MODES = ['read', 'write', 'destructive'];
 
@@ -117,9 +122,9 @@ class Op_Catalog
      * 'redact' (top-level keys of each returned record that are masked),
      * 'taxonomy' (the op is unavailable unless it is registered, and a term
      * snapshot targets it) and 'handler' (the op runs in-process, through
-     * Brand_Ops or, for an order_*, shipping_* or webhook_* handler,
-     * Order_Ops, Shipping_Ops or Webhook_Ops, instead of dispatching its
-     * route).
+     * Brand_Ops or, for an order_*, shipping_*, webhook_*, review_* or
+     * report_* handler, Order_Ops, Shipping_Ops, Webhook_Ops, Review_Ops or
+     * Report_Ops, instead of dispatching its route).
      * Keep op names domain.kebab-case and route templates rooted at /wc/v3.
      */
     private const OPS = [
@@ -128,7 +133,7 @@ class Op_Catalog
         'products.list'       => [ 'GET', '/wc/v3/products', 'products', self::CAP_STORE, 'Query the product catalog with the full wc/v3 filter surface (sku, tag, attribute, min/max_price, on_sale, featured, stock_status, orderby...)' ],
         'products.get'        => [ 'GET', '/wc/v3/products/{id}', 'products', self::CAP_STORE, 'Full wc/v3 representation of one product' ],
         'products.attributes' => [ 'GET', '/wc/v3/products/attributes', 'products', self::CAP_STORE, 'Global product attributes (pa_* taxonomies)' ],
-        'products.reviews'    => [ 'GET', '/wc/v3/products/reviews', 'products', self::CAP_STORE, 'Product reviews, filterable by product and status' ],
+        'products.reviews'    => [ 'GET', '/wc/v3/products/reviews', 'products', self::CAP_STORE, 'Raw wc/v3 product reviews, filterable by product and status (reviews.list adds rating filters)' ],
         'products.create'     => [ 'POST', '/wc/v3/products', 'products', self::CAP_STORE, 'Create a product of any type with the full wc/v3 field set', 'write', null, [ 'undo_op' => 'products.delete' ] ],
         // A product snapshot covers the product post only, while WooCommerce
         // trashes or deletes a variable product's variations along with it
@@ -218,6 +223,32 @@ class Op_Catalog
         'shipping.add-method'    => [ 'POST', '/wc/v3/shipping/zones/{zone_id}/methods', 'shipping', self::CAP_STORE, 'Add a flat_rate, free_shipping or local_pickup method to a zone (0 = locations not covered): method_id, enabled, order, settings. Rollback removes it', 'write', [ 'type' => 'wc_shipping_zone', 'param' => 'zone_id' ], [ 'handler' => 'shipping_method_add' ] ],
         'shipping.update-method' => [ 'PUT', '/wc/v3/shipping/zones/{zone_id}/methods/{instance_id}', 'shipping', self::CAP_STORE, 'Change a core method\'s enabled flag, order or settings (validated against its own fields)', 'write', [ 'type' => 'wc_shipping_zone', 'param' => 'zone_id' ], [ 'handler' => 'shipping_method_update' ] ],
         'shipping.remove-method' => [ 'DELETE', '/wc/v3/shipping/zones/{zone_id}/methods/{instance_id}', 'shipping', self::CAP_STORE, 'Remove a core method from a zone, with its settings', 'destructive', [ 'type' => 'wc_shipping_zone', 'param' => 'zone_id' ], [ 'handler' => 'shipping_method_remove' ] ],
+
+        // Reviews (issue #292): product comments, run in-process through
+        // the comments API (Review_Ops). Every op needs moderate_comments
+        // plus edit_product for the review's product. Moderation and edits
+        // snapshot the comment row and all its meta (rating, verified); a
+        // reply is posted as the current user and records a comment_create
+        // row whose rollback trashes it. Listing never shows reviewer emails
+        // or IPs.
+        'reviews.list'        => [ 'GET', '/wc/v3/products/reviews', 'reviews', self::CAP_REVIEWS, 'Product reviews and replies, filterable by product_id, rating (1-5), status (approved, hold, spam, trash, all) and type (review, reply, all); no reviewer emails', 'read', null, [ 'handler' => 'review_list' ] ],
+        'reviews.approve'     => [ 'PUT', '/wc/v3/products/reviews/{id}', 'reviews', self::CAP_REVIEWS, 'Approve a review', 'write', [ 'type' => 'comment', 'param' => 'id' ], [ 'handler' => 'review_approve' ] ],
+        'reviews.unapprove'   => [ 'PUT', '/wc/v3/products/reviews/{id}', 'reviews', self::CAP_REVIEWS, 'Hold a review for moderation', 'write', [ 'type' => 'comment', 'param' => 'id' ], [ 'handler' => 'review_unapprove' ] ],
+        'reviews.spam'        => [ 'PUT', '/wc/v3/products/reviews/{id}', 'reviews', self::CAP_REVIEWS, 'Mark a review as spam', 'write', [ 'type' => 'comment', 'param' => 'id' ], [ 'handler' => 'review_spam' ] ],
+        'reviews.trash'       => [ 'DELETE', '/wc/v3/products/reviews/{id}', 'reviews', self::CAP_REVIEWS, 'Move a review to the trash', 'destructive', [ 'type' => 'comment', 'param' => 'id' ], [ 'handler' => 'review_trash' ] ],
+        'reviews.update'      => [ 'PUT', '/wc/v3/products/reviews/{id}', 'reviews', self::CAP_REVIEWS, 'Edit a review\'s text (content); rating and verified are kept', 'write', [ 'type' => 'comment', 'param' => 'id' ], [ 'handler' => 'review_update' ] ],
+        'reviews.reply'       => [ 'POST', '/wc/v3/products/reviews', 'reviews', self::CAP_REVIEWS, 'Reply to a review (id, content) as the store, approved. Rollback trashes the reply', 'write', [ 'type' => 'comment_create', 'create' => true ], [ 'handler' => 'review_reply' ] ],
+
+        // Reports (issue #292): read-only totals, computed in-process
+        // (Report_Ops) from WooCommerce's analytics tables when they are in
+        // step with the order store, else from HPOS-safe order queries.
+        // Aggregates only, never customer details. Params: period (day,
+        // week, month, last_month, year, custom with date_from and date_to).
+        'reports.sales'       => [ 'GET', '/wc/v3/reports/sales', 'reports', self::CAP_STORE, 'Sales totals for a period (orders, items, gross, net, shipping, taxes, refunds, average order); interval day|week|month adds a breakdown', 'read', null, [ 'handler' => 'report_sales' ] ],
+        'reports.top-sellers' => [ 'GET', '/wc/v3/reports/top_sellers', 'reports', self::CAP_STORE, 'Best-selling products for a period by quantity, with net revenue (limit, default 10)', 'read', null, [ 'handler' => 'report_top_sellers' ] ],
+        'reports.orders'      => [ 'GET', '/wc/v3/reports/orders/totals', 'reports', self::CAP_STORE, 'Order counts by status for a period', 'read', null, [ 'handler' => 'report_orders' ] ],
+        'reports.customers'   => [ 'GET', '/wc/v3/reports/customers/totals', 'reports', self::CAP_STORE, 'Customer counts for a period: buying, registered, guest, repeat, new accounts', 'read', null, [ 'handler' => 'report_customers' ] ],
+        'reports.coupons'     => [ 'GET', '/wc/v3/reports/coupons/totals', 'reports', self::CAP_STORE, 'Coupon use for a period: codes used, orders with coupons, discount per code', 'read', null, [ 'handler' => 'report_coupons' ] ],
 
         // Taxes.
         'taxes.rates'         => [ 'GET', '/wc/v3/taxes', 'taxes', self::CAP_STORE, 'Tax rates, filterable by class' ],
