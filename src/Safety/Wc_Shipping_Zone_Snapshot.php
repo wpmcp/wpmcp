@@ -35,11 +35,25 @@ if (! defined('ABSPATH')) {
  * Shipping zones are store configuration, not content, so undoing a create
  * deletes the zone (with its methods and their settings) through
  * WooCommerce's own zone data store; there is no trash to move it to.
+ *
+ * A created zone carries a creation marker (issue #338): a random token kept
+ * in the MARKER_OPTION map under the zone id, and recorded in the creation
+ * row. WooCommerce zones have no meta table, so the marker lives in one
+ * option; it is forgotten whenever WooCommerce deletes the zone
+ * (woocommerce_delete_shipping_zone), so a different zone that later lands on
+ * the same id carries no marker. Undoing the create deletes the zone only
+ * while its marker still matches the row's; otherwise the zone is left in
+ * place and the skipped restore is reported. Whole-zone snapshots record the
+ * marker too, so a session that created, edited and deleted a zone puts it
+ * back before the create is undone.
  */
 final class Wc_Shipping_Zone_Snapshot
 {
     public const TYPE        = 'wc_shipping_zone';
     public const CREATE_TYPE = 'wc_shipping_zone_create';
+
+    /** Creation markers of zones a tool created: zone id => token. */
+    public const MARKER_OPTION = 'wpmcp_shipping_zones_created';
 
     /** The instance settings option WooCommerce keeps for one method instance. */
     public static function option_name(string $method_id, int $instance_id): string
@@ -80,6 +94,7 @@ final class Wc_Shipping_Zone_Snapshot
                 'locations' => self::location_rows($zone_id),
                 'methods'   => $methods,
                 'options'   => $options,
+                'marker'    => $zone_id > 0 ? self::marker($zone_id) : null,
             ],
         ];
     }
@@ -128,6 +143,12 @@ final class Wc_Shipping_Zone_Snapshot
                     ],
                     [ '%d', '%d', '%s', '%s' ]
                 );
+            }
+
+            // The creation marker goes back with the zone (snapshots written
+            // before issue #338 carry none and leave it alone).
+            if (array_key_exists('marker', $data)) {
+                self::put_marker($zone_id, is_string($data['marker']) ? $data['marker'] : null);
             }
         }
 
@@ -178,14 +199,16 @@ final class Wc_Shipping_Zone_Snapshot
     public static function record_creation(int $zone_id, string $tool_name, array $args, string $session_id): string
     {
         $operation_id = wp_generate_uuid4();
+        $marker       = wp_generate_uuid4();
         try {
+            self::put_marker($zone_id, $marker);
             Snapshot_Store::save(
                 $operation_id,
                 '' === $session_id ? 'default' : $session_id,
                 [
                     'object_type' => self::CREATE_TYPE,
                     'object_id'   => $zone_id,
-                    'data'        => [],
+                    'data'        => [ 'marker' => $marker ],
                 ],
                 $tool_name,
                 hash('sha256', (string) wp_json_encode($args))
@@ -202,18 +225,75 @@ final class Wc_Shipping_Zone_Snapshot
 
     /**
      * Undo a 'wc_shipping_zone_create' row: delete the zone, its methods and
-     * their settings. Returns a warning, or null.
+     * their settings, but only while its creation marker proves it is still
+     * the zone this operation created. Returns a warning, or null.
      */
     public static function undo_creation(array $snapshot): ?string
     {
         $zone_id = (int) ($snapshot['object_id'] ?? 0);
-        if ($zone_id <= 0 || null === self::zone_row($zone_id)) {
+        $data    = (array) ($snapshot['data'] ?? []);
+        if ($zone_id <= 0) {
+            return null;
+        }
+        if (null === self::zone_row($zone_id)) {
+            self::forget_creation($zone_id);
             return null; // Already gone: nothing to undo.
+        }
+        // Creation rows written before issue #338 carry no marker and keep
+        // the old behavior.
+        if (array_key_exists('marker', $data)) {
+            $expected = (string) $data['marker'];
+            if ('' === $expected || self::marker($zone_id) !== $expected) {
+                return "Shipping zone {$zone_id} is no longer the zone this operation created; it was left in place.";
+            }
         }
         if (! self::delete_zone($zone_id)) {
             return "Shipping zone {$zone_id} created by this operation could not be deleted; it was left in place.";
         }
         return null;
+    }
+
+    /**
+     * Forget a zone's creation marker. Hooked on
+     * woocommerce_delete_shipping_zone, so a zone deleted by any path that
+     * goes through WooCommerce drops its marker with it.
+     *
+     * @param mixed $zone_id
+     */
+    public static function forget_creation($zone_id): void
+    {
+        self::put_marker((int) $zone_id, null);
+    }
+
+    /** The creation marker recorded for a zone, or null. */
+    private static function marker(int $zone_id): ?string
+    {
+        $markers = get_option(self::MARKER_OPTION, []);
+        $marker  = is_array($markers) ? ($markers[ $zone_id ] ?? null) : null;
+        return is_string($marker) ? $marker : null;
+    }
+
+    /** Record (or, with null, forget) a zone's creation marker. */
+    private static function put_marker(int $zone_id, ?string $marker): void
+    {
+        if ($zone_id <= 0) {
+            return;
+        }
+        $markers = get_option(self::MARKER_OPTION, []);
+        $markers = is_array($markers) ? $markers : [];
+        if (null === $marker) {
+            if (! array_key_exists($zone_id, $markers)) {
+                return;
+            }
+            unset($markers[ $zone_id ]);
+        } else {
+            $markers[ $zone_id ] = $marker;
+        }
+        if ([] === $markers) {
+            delete_option(self::MARKER_OPTION);
+            return;
+        }
+        update_option(self::MARKER_OPTION, $markers, false);
     }
 
     /** Delete a zone through WooCommerce's zone data store (methods and their settings go with it). */
