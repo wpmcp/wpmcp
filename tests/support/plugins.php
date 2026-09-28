@@ -95,21 +95,22 @@ if ( ! function_exists( 'wpmcp_seo_plugin' ) ) {
 	/**
 	 * Which SEO plugin (if any) is active in the current test run.
 	 *
-	 * Returns 'yoast', 'rankmath', or '' (none), mirroring the detection the
-	 * SEO adapter itself uses so tests can gate on the same signal the tool
-	 * code gates on. Yoast is checked first: on a site running both plugins
-	 * (not expected in the test harness, but possible), Yoast wins.
+	 * Returns 'yoast', 'rankmath', 'seopress', 'seoframework', 'surerank', or
+	 * '' (none). It delegates straight to
+	 * SEO_Adapter::detect_active_plugin() rather than restating the checks,
+	 * because the two drifting apart is a silent failure rather than a loud
+	 * one: a test that gates on this helper skips itself on a leg where the
+	 * code path it covers is actually live, and reports green. That entry
+	 * point deliberately ignores the adapter's test seam, so a test that has
+	 * forced an active plugin for itself still sees the real environment
+	 * here.
 	 */
 	function wpmcp_seo_plugin(): string {
-		if ( defined( 'WPSEO_VERSION' ) || class_exists( 'WPSEO_Options' ) ) {
-			return 'yoast';
+		if ( ! class_exists( \WPMCP\Tools\SEO\SEO_Adapter::class ) ) {
+			return '';
 		}
 
-		if ( class_exists( 'RankMath' ) ) {
-			return 'rankmath';
-		}
-
-		return '';
+		return \WPMCP\Tools\SEO\SEO_Adapter::detect_active_plugin();
 	}
 }
 

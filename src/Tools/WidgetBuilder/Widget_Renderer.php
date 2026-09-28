@@ -9,9 +9,9 @@ if (! defined('ABSPATH')) {
 /**
  * Renders a custom-widget spec by interpolating control values into its
  * template. Pure and eval-free: every {{name}} placeholder is replaced with the
- * matching setting, escaped according to that control's type (text/textarea →
- * esc_html, wysiwyg → wp_kses_post, url/image → esc_url, everything else →
- * esc_html). Unknown placeholders render empty. This is the single output path
+ * matching setting, escaped with the escaper that control type declares in
+ * Widget_Spec::CONTROL_TYPES (the one table both this renderer and the
+ * compiler read). Unknown placeholders render empty. This is the single output path
  * the runtime Dynamic_Widget uses, so a stored spec can never execute code.
  */
 class Widget_Renderer
@@ -23,8 +23,10 @@ class Widget_Renderer
      * justification for the phpcs:ignore on the echo in Dynamic_Widget:
      *
      * - Every interpolated VALUE is escaped by its control type before it
-     *   reaches the template (wysiwyg -> wp_kses_post, url/image -> esc_url,
-     *   everything else -> esc_html), so no control value can inject markup
+     *   reaches the template with the escaper its type declares in
+     *   Widget_Spec::CONTROL_TYPES (wysiwyg -> wp_kses_post, url/image ->
+     *   esc_url, icon/color/switcher -> esc_attr, everything else ->
+     *   esc_html), so no control value can inject markup
      *   and escaping a value a second time would only double-encode it.
      * - The TEMPLATE ITSELF is passed through unmodified. It is author-supplied
      *   HTML, trusted on the same terms as a theme template or a Custom HTML
@@ -65,17 +67,25 @@ class Widget_Renderer
         );
     }
 
-    /** @param mixed $value */
+    /**
+     * Escape a value with the escaper its control type declares in
+     * Widget_Spec::CONTROL_TYPES. That table is the single source of truth,
+     * shared with Compiler\\Widget_Compiler, so a spec escapes identically
+     * whether it is interpolated here or compiled into a widget class.
+     *
+     * @param mixed $value
+     */
     private static function escape(string $type, $value): string
     {
         $value = self::scalarize($type, $value);
 
-        switch ($type) {
-            case 'wysiwyg':
+        switch (Widget_Spec::escaper_for($type)) {
+            case 'wp_kses_post':
                 return wp_kses_post($value);
-            case 'url':
-            case 'image':
+            case 'esc_url':
                 return esc_url($value);
+            case 'esc_attr':
+                return esc_attr($value);
             default:
                 return esc_html($value);
         }

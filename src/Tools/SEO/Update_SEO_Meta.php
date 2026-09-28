@@ -27,9 +27,10 @@ class Update_SEO_Meta
     public function handle(array $args): array
     {
         $post_id = (int) ($args['post_id'] ?? 0);
-        if ($post_id <= 0) {
-            throw new \InvalidArgumentException('A post id is required.');
-        }
+
+        // edit_posts on the ability says the caller edits posts somewhere,
+        // not that they may rewrite this one: re-check the specific post.
+        Post_Access::assert_editable($post_id);
 
         $fields = array_intersect_key($args, array_flip(self::FIELDS));
         if ([] === $fields) {

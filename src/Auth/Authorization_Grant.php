@@ -33,7 +33,11 @@ class Authorization_Grant
 {
     /**
      * @param array $params response_type, client_id, redirect_uri,
-     *                       code_challenge, code_challenge_method, scope.
+     *                       code_challenge, code_challenge_method, scope,
+     *                       and optionally resource (RFC 8707). A resource
+     *                       must name the MCP endpoint (Mcp_Resource); when
+     *                       absent it defaults to it, so clients that
+     *                       predate resource indicators keep working.
      * @return array{code: string}|\WP_Error
      */
     public static function authorize(array $params): array|\WP_Error
@@ -65,6 +69,11 @@ class Authorization_Grant
             return self::deny('invalid_request', 'A code_challenge with code_challenge_method=S256 is required.', $client_id);
         }
 
+        $resource = Mcp_Resource::resolve_requested($params['resource'] ?? null);
+        if (null === $resource) {
+            return self::deny('invalid_target', 'The requested resource is not served by this authorization server.', $client_id);
+        }
+
         $code = Code_Store::issue([
             'client_id'             => $client_id,
             'user_id'               => $user_id,
@@ -72,6 +81,7 @@ class Authorization_Grant
             'code_challenge'        => $code_challenge,
             'code_challenge_method' => $code_challenge_method,
             'scope'                 => (string) ($params['scope'] ?? ''),
+            'resource'              => $resource,
         ]);
 
         self::audit(true, $client_id);
