@@ -29,7 +29,8 @@ if (! defined('ABSPATH')) {
  *    synthetic names, for the reason Integration_Dispatcher gives: an
  *    identity scoped to wpmcp/woo-write must keep working;
  *  - the per-op capability each catalog row carries;
- *  - WooCommerce availability.
+ *  - WooCommerce availability, and the taxonomy a row names (brand ops need
+ *    product_brand, which older WooCommerce releases do not register).
  */
 final class Op_Guard
 {
@@ -39,6 +40,17 @@ final class Op_Guard
     public static function is_available(): bool
     {
         return class_exists('WooCommerce');
+    }
+
+    /**
+     * Whether the taxonomy a row depends on (if any) is registered.
+     *
+     * @param array{taxonomy?: ?string} $def
+     */
+    public static function taxonomy_available(array $def): bool
+    {
+        $taxonomy = $def['taxonomy'] ?? null;
+        return null === $taxonomy || taxonomy_exists($taxonomy);
     }
 
     /** The synthetic per-op ability name governance evaluates. */
@@ -78,8 +90,8 @@ final class Op_Guard
     }
 
     /**
-     * Run the gates every op shares, in order: availability, governance,
-     * capability. Returns null when all pass, else a structured error.
+     * Run the gates every op shares, in order: availability (WooCommerce, then
+     * the row's taxonomy), governance, capability. Returns null when all pass, else a structured error.
      *
      * @param array{method: string, mode: string, capability: string, summary: string} $def
      * @return array<string, mixed>|null
@@ -90,6 +102,14 @@ final class Op_Guard
             return self::error(
                 'integration_unavailable',
                 'WooCommerce is not active on this site, so no store op can be dispatched.'
+            );
+        }
+
+        if (! self::taxonomy_available($def)) {
+            return self::error(
+                'integration_unavailable',
+                "Op \"{$op}\" needs the \"{$def['taxonomy']}\" taxonomy, which this WooCommerce does not register.",
+                [ 'reason' => 'taxonomy' ]
             );
         }
 
