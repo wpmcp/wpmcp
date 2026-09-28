@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 380,
+    'total'     => 382,
     'free'      => 254,
-    'pro'       => 126,
+    'pro'       => 128,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -55,6 +55,8 @@ return [
         'wpmcp/clear-cache' => 'free',
         'wpmcp/cloud-apply-settings' => 'pro',
         'wpmcp/cloud-connect' => 'pro',
+        'wpmcp/cloud-gateway-provision' => 'pro',
+        'wpmcp/cloud-gateway-status' => 'pro',
         'wpmcp/cloud-list-assets' => 'pro',
         'wpmcp/cloud-marketplace-browse' => 'pro',
         'wpmcp/cloud-marketplace-install' => 'pro',
