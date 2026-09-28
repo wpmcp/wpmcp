@@ -59,6 +59,10 @@ class BlockSuitesMoreSuitesTest extends \WP_UnitTestCase
                         'headingTag'        => 'h2',
                     ],
                 ],
+                'uagb/buttons'          => [
+                    'title'      => 'Buttons',
+                    'attributes' => [ 'classMigrate' => false, 'childMigrate' => false, 'align' => 'center' ],
+                ],
                 'uagb/container'        => [
                     'title'      => 'Container',
                     'attributes' => [ 'directionDesktop' => 'column', 'contentWidth' => 'alignfull' ],
@@ -281,6 +285,49 @@ class BlockSuitesMoreSuitesTest extends \WP_UnitTestCase
         $node = $this->blocks($id)[0];
         $this->assertSame('1a2b3c4d', $node['attrs']['block_id']);
         $this->assertSame('right', $node['attrs']['headingAlign']);
+        $this->assertArrayNotHasKey('classMigrate', $node['attrs'], 'a block that keeps its id keeps its selector mode');
+    }
+
+    /**
+     * Spectra's editor sets classMigrate (and childMigrate on parent blocks)
+     * whenever it gives a block a new block_id. Without classMigrate Spectra
+     * builds the block's CSS for its legacy #uagb-{block}-{id} selector,
+     * which current markup does not carry, so the styles never apply.
+     */
+    public function test_spectra_new_block_ids_come_with_the_editors_selector_flags(): void
+    {
+        [ $id, $hash ] = $this->post('');
+        $out           = $this->write('insert-block', [
+            'suite' => 'spectra', 'id' => $id, 'expected_hash' => $hash, 'path' => [ 0 ],
+            'markup' => $this->spectra_heading(),
+        ]);
+        $this->assertArrayNotHasKey('error', $out, wp_json_encode($out));
+        $heading = $this->blocks($id)[0]['attrs'];
+        $this->assertTrue($heading['classMigrate'] ?? null, 'the heading targets .uagb-block-{id}');
+        $this->assertArrayNotHasKey('childMigrate', $heading, 'the heading has no child blocks to migrate');
+
+        $out = $this->write('insert-block', [
+            'suite' => 'spectra', 'id' => $id, 'expected_hash' => $out['result']['content_hash'], 'path' => [ 1 ],
+            'markup' => '<!-- wp:uagb/buttons --><div class="wp-block-uagb-buttons uagb-block-__UNIQUE_ID__"></div><!-- /wp:uagb/buttons -->',
+        ]);
+        $this->assertArrayNotHasKey('error', $out, wp_json_encode($out));
+        $buttons = $this->blocks($id)[1]['attrs'];
+        $this->assertTrue($buttons['classMigrate'] ?? null);
+        $this->assertTrue($buttons['childMigrate'] ?? null);
+
+        $out = $this->write('insert-block', [
+            'suite' => 'spectra', 'id' => $id, 'expected_hash' => $out['result']['content_hash'], 'path' => [ 2 ],
+            'markup' => $this->spectra_heading('{"classMigrate":false}'),
+        ]);
+        $this->assertArrayNotHasKey('error', $out, wp_json_encode($out));
+        $this->assertFalse($this->blocks($id)[2]['attrs']['classMigrate'], 'an explicit legacy flag is kept');
+
+        $out = $this->write('insert-block', [
+            'suite' => 'spectra', 'id' => $id, 'expected_hash' => $out['result']['content_hash'], 'path' => [ 3 ],
+            'markup' => '<!-- wp:uagb/container --><div class="wp-block-uagb-container uagb-block-__UNIQUE_ID__"></div><!-- /wp:uagb/container -->',
+        ]);
+        $this->assertArrayNotHasKey('error', $out, wp_json_encode($out));
+        $this->assertArrayNotHasKey('classMigrate', $this->blocks($id)[3]['attrs'], 'a block the editor does not flag is left alone');
     }
 
     private function seed_spectra_assets(int $id): void
