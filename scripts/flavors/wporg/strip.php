@@ -119,6 +119,10 @@ const REMOVED_METHODS = [
     'register_elementor_structural_abilities',
     'register_brand_kit_abilities',
     'register_memory_abilities',
+    // The forms adapter pack (issue #66). Its five adapter files leave by
+    // path (policy.php removed_paths) and its one call site is edited out of
+    // register_integration_abilities() below.
+    'register_forms_pack_abilities',
     'register_custom_code_abilities',
     // Not an ability registration: the front-end output wiring for the same
     // group. Its own method in Plugin.php precisely so this build can take it
@@ -881,6 +885,8 @@ $plugin_edits = [
     ["\n        \$this->register_elementor_pro_abilities(\$registrar);\n", "\n", 1],
     ["\n        \$this->register_atomic_elementor_abilities(\$registrar);\n", "\n", 1],
     ["\n        \$this->register_elementor_structural_abilities(\$registrar);\n", "\n", 1],
+    // The forms adapter pack chained off the free integration group.
+    ["\n        \$this->register_forms_pack_abilities(\$registrar);\n", "\n", 1],
     // The paid SEO registrations chained off the free SEO group (issue #67).
     ["\n        \$this->register_seo_pro_abilities(\$registrar);\n", "\n", 1],
 ];

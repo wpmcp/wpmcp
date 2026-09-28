@@ -3118,34 +3118,64 @@ final class Plugin
      * Register the integration-dispatcher pairs (issue #65): one
      * {integration}-read plus one {integration}-write ability per third-party
      * integration, dispatching to a per-operation catalog instead of N flat
-     * tools. Registered unconditionally — availability is a call-time concern
-     * for dispatchers (a missing host plugin yields a structured
-     * integration_unavailable error, never a fatal), unlike the flat ACF/SEO/
-     * i18n groups which skip registration when their plugin is absent.
+     * tools. Most pairs register unconditionally: availability is a call-time
+     * concern for them (a missing host plugin yields a structured
+     * integration_unavailable error, never a fatal). The forms adapters
+     * (issue #66) opt out of that through
+     * Integration_Dispatcher::registers_only_when_available() and register
+     * only while their host plugin is loaded. This runs on
+     * wp_abilities_api_init, after every plugin has loaded, so that check sees
+     * the real answer.
      */
     private function register_integration_abilities(Registrar $registrar): void
     {
-        $integrations = [
+        $this->register_integrations($registrar, [
             new \WPMCP\Integrations\ACF_Integration(),
-            new \WPMCP\Integrations\Gravity_Forms_Integration(),
-            new \WPMCP\Integrations\Formidable_Integration(),
             new \WPMCP\Integrations\Contact_Form_7_Integration(),
-            new \WPMCP\Integrations\WPForms_Integration(),
             new \WPMCP\Integrations\Gravity_Tables_Integration(),
             new \WPMCP\Integrations\Modern_Events_Calendar_Integration(),
             new \WPMCP\Integrations\The_Events_Calendar_Integration(),
             new \WPMCP\Integrations\Give_Integration(),
             new \WPMCP\Integrations\Paid_Memberships_Pro_Integration(),
             new \WPMCP\Integrations\Meta_Box_Integration(),
-            new \WPMCP\Integrations\Ninja_Forms_Integration(),
-            new \WPMCP\Integrations\Fluent_Forms_Integration(),
             new \WPMCP\Integrations\Forminator_Integration(),
             new \WPMCP\Integrations\SureForms_Integration(),
             new \WPMCP\Integrations\MetForm_Integration(),
             new \WPMCP\Integrations\Theme_Integration(),
-        ];
+        ]);
+        $this->register_forms_pack_abilities($registrar);
+    }
 
+    /**
+     * The forms adapter pack (issue #66): WPForms, Gravity Forms, Formidable,
+     * Ninja Forms and Fluent Forms, each a pro-tier dispatcher pair (the
+     * adapters override tier()). Kept in its own method so the WordPress.org
+     * directory build can drop the whole pack at build time, method and
+     * adapter files together, rather than gating it at runtime.
+     */
+    private function register_forms_pack_abilities(Registrar $registrar): void
+    {
+        $this->register_integrations($registrar, [
+            new \WPMCP\Integrations\Gravity_Forms_Integration(),
+            new \WPMCP\Integrations\Formidable_Integration(),
+            new \WPMCP\Integrations\WPForms_Integration(),
+            new \WPMCP\Integrations\Ninja_Forms_Integration(),
+            new \WPMCP\Integrations\Fluent_Forms_Integration(),
+        ]);
+    }
+
+    /**
+     * Register each integration's read/write pair, skipping one that asks to
+     * register only while its host plugin is loaded when that plugin is not.
+     *
+     * @param \WPMCP\Integrations\Integration_Dispatcher[] $integrations
+     */
+    private function register_integrations(Registrar $registrar, array $integrations): void
+    {
         foreach ($integrations as $integration) {
+            if (! $integration->should_register()) {
+                continue;
+            }
             foreach ($integration->abilities() as $ability) {
                 $registrar->register($ability);
             }

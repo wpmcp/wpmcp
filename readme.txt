@@ -34,7 +34,8 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * Elementor: widgets, templates, theme builder, popups, global styles, custom widget building
 * Bricks and Divi structural editing
 * WooCommerce, ACF, Meta Box, Yoast, Rank Math, SEOPress, The SEO Framework, SureRank
-* Forms (Gravity Forms, WPForms, Contact Form 7, Formidable, Ninja Forms, Fluent Forms, Forminator, SureForms, MetForm), events, donations, memberships (read)
+* Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm; with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
+* Events, donations, memberships (read)
 * Media library plus stock image imports
 * REST passthrough for anything else, still snapshotted
 
@@ -42,7 +43,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 
 The free plugin is fully functional: the MCP server, the safety core, snapshots and rollback, Gutenberg building, and the integration read tools. Snapshot history keeps the last 20 operations on every install, free and Pro alike, and the `wpmcp_snapshot_history_limit` filter raises or lowers that number on any site at no cost.
 
-WP MCP Pro adds deep Elementor editing and building, custom widget/block builders, cloud sync for your widget and block specs, and priority support. See https://wpmcp-pro.com/pricing.html
+WP MCP Pro adds deep Elementor editing and building, custom widget/block builders, the forms adapter pack (Gravity Forms, WPForms, Formidable, Ninja Forms, Fluent Forms: forms, fields, notifications, entries and entry status), cloud sync for your widget and block specs, and priority support. See https://wpmcp-pro.com/pricing.html
 
 = Privacy =
 

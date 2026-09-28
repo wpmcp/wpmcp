@@ -122,6 +122,16 @@ return [
         // that stopped applying in this build would be worse than not
         // shipping it.
         'src/Tools/Memory',
+        // The forms adapter pack (issue #66). The five adapters sit beside
+        // the free ones (Contact Form 7, Forminator, MetForm, SureForms) and
+        // the shared dispatcher in src/Integrations, so they leave file by
+        // file; strip.php removes register_forms_pack_abilities(), the only
+        // place that constructs them.
+        'src/Integrations/WPForms_Integration.php',
+        'src/Integrations/Gravity_Forms_Integration.php',
+        'src/Integrations/Formidable_Integration.php',
+        'src/Integrations/Ninja_Forms_Integration.php',
+        'src/Integrations/Fluent_Forms_Integration.php',
         'src/Tools/WooCommerce/Catalog',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the
         // two handlers, the sanitizer, the store and the front-end renderer

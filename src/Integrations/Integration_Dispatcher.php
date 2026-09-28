@@ -37,6 +37,16 @@ if (! defined('ABSPATH')) {
  *      'enabled_by_default' bool (default true); a default-off op is refused
  *                           until the site opts in via the
  *                           wpmcp_integration_op_enabled filter
+ *      'requires'           callable(): true|array, a per-op dependency check
+ *                           for an op that needs a companion plugin the
+ *                           integration as a whole does not (CF7 entries need
+ *                           Flamingo). Returns true when satisfied, or
+ *                           ['code' => ..., 'message' => ...] naming what is
+ *                           missing, which the dispatcher emits as its own
+ *                           top-level error. The op stays in the catalog
+ *                           (flagged dependency_met:false) so list-operations still
+ *                           documents it, but the handler is never reached and
+ *                           no snapshot is written
  *      'validate'           callable(array $args) returning null to proceed or
  *                           ['code', 'message', 'data'] to refuse. Runs after
  *                           schema validation and BEFORE the handler and
@@ -47,7 +57,10 @@ if (! defined('ABSPATH')) {
  *                           as the ordinary top-level error envelope
  *      'snapshot'           write/destructive ops only: callable(array $args)
  *                           returning ['object_type' => ..., 'object_id' => ...]
- *                           (or null) naming the snapshotable target. When it
+ *                           (plus optional 'extra_snapshot_data', merged into
+ *                           the persisted snapshot, e.g. a db_rows
+ *                           before-image) or null, naming the snapshotable
+ *                           target. When it
  *                           yields a target the write routes through
  *                           Safe_Mutation (snapshot first, operation_id out,
  *                           restorable via rollback-operation); when absent
@@ -59,8 +72,8 @@ if (! defined('ABSPATH')) {
  * only ever reached after ALL of them pass — a rejected call has no side
  * effects and writes no snapshot):
  *   availability -> op exists in this channel -> enabled flag/filter ->
- *   op-level governance -> per-op capability -> destructive confirm:true ->
- *   schema validation -> per-op validate() -> handler.
+ *   op-level governance -> per-op capability -> per-op 'requires' dependency ->
+ *   destructive confirm:true -> schema validation -> per-op validate() -> handler.
  *
  * Layering with the platform gates: the pair's own capability, Governance,
  * identity scope, and pro-tier gates all apply unchanged through
@@ -89,6 +102,31 @@ abstract class Integration_Dispatcher
 
     /** @return array<string, array> op name => definition (see class docblock). */
     abstract protected function operations(): array;
+
+    /**
+     * Whether the pair registers only while its host plugin is loaded. The
+     * default keeps the #65 contract (register unconditionally so
+     * list-operations can report available:false); an integration family can
+     * opt into "absent plugin, absent tools" instead, which keeps a site's
+     * tool list free of pairs that could only ever answer
+     * integration_unavailable (issue #66 does this for every forms adapter).
+     */
+    public function registers_only_when_available(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Whether Plugin should register this pair on the current site right now.
+     * Filterable through wpmcp_integration_should_register (bool, slug,
+     * integration) so a site can keep an integration's tools off its surface
+     * entirely, or list a forms pair even while its plugin is absent.
+     */
+    public function should_register(): bool
+    {
+        $default = ! $this->registers_only_when_available() || $this->is_available();
+        return (bool) apply_filters('wpmcp_integration_should_register', $default, $this->integration(), $this);
+    }
 
     /** Tier of the dispatcher pair; Registrar drops 'pro' pairs without a license. */
     public function tier(): string
@@ -148,7 +186,7 @@ abstract class Integration_Dispatcher
             "wpmcp/{$slug}-write",
             $this->tier(),
             sprintf(
-                'Dispatch a write operation against %s. Pass operation plus args matching that operation\'s schema (discoverable via list-operations on the read half). Every operation with a snapshotable target is snapshotted first via Safe_Mutation and restorable with rollback-operation; destructive operations additionally require confirm:true',
+                'Dispatch a write operation against %s. Pass operation plus args matching that operation\'s schema (discoverable via list-operations on the read half). Operations with a snapshotable target are snapshotted first and undoable with rollback-operation; destructive ones also require confirm:true',
                 $this->summary()
             ),
             $this->dispatcher_schema(true),
@@ -177,8 +215,10 @@ abstract class Integration_Dispatcher
 
     /**
      * The operation catalog: every op with mode, description, capability,
-     * enabled state, confirm requirement, and input schema, plus whether the
-     * host plugin is currently available.
+     * enabled state, confirm requirement, input schema, and whether its own
+     * 'requires' dependency is satisfied (per-op 'dependency_met'), plus the
+     * top-level 'available' saying whether the HOST plugin is loaded. The two
+     * answer different questions and are deliberately named differently.
      */
     public function catalog(): array
     {
@@ -191,6 +231,7 @@ abstract class Integration_Dispatcher
                 'capability'       => $def['capability'] ?? $this->capability(),
                 'enabled'          => $this->is_op_enabled($name, $def),
                 'requires_confirm' => 'destructive' === ($def['mode'] ?? ''),
+                'dependency_met'   => true === self::op_requirement($def),
                 'input_schema'     => $def['input_schema'] ?? [ 'type' => 'object' ],
             ];
         }
@@ -256,6 +297,15 @@ abstract class Integration_Dispatcher
             ), [ 'reason' => 'capability' ]);
         }
 
+        $requirement = self::op_requirement($def);
+        if (true !== $requirement) {
+            return $this->error(
+                (string) ($requirement['code'] ?? 'dependency_unavailable'),
+                (string) ($requirement['message'] ?? sprintf('Operation "%s" is missing a dependency.', $op)),
+                [ 'operation' => $op ]
+            );
+        }
+
         if ('destructive' === $def['mode'] && true !== ($args['confirm'] ?? false)) {
             return $this->error('confirmation_required', sprintf(
                 'Operation "%s" is destructive and requires confirm:true.',
@@ -298,6 +348,16 @@ abstract class Integration_Dispatcher
             }
 
             return $this->run_write($op, $def, $op_args, (string) ($args['session_id'] ?? 'default'));
+        } catch (Operation_Error $e) {
+            // A handler-raised refusal belongs on the SAME top-level error
+            // channel as the dispatcher's own guards. Returning it inside the
+            // success envelope would leave an agent unable to tell a refusal
+            // from an empty result.
+            return $this->error(
+                $e->error_code(),
+                $e->getMessage(),
+                $e->error_data() + [ 'operation' => $op ]
+            );
         } catch (Operation_Refused $e) {
             // Mid-write failures (mkdir, file write) surface as the same
             // top-level envelope as every other refusal, never as a
@@ -319,21 +379,61 @@ abstract class Integration_Dispatcher
             return $this->ok($op, ($def['handler'])($op_args)) + [ 'recoverable' => false ];
         }
 
-        $out = Safe_Mutation::run(
-            [
-                'object_type' => (string) $target['object_type'],
-                'object_id'   => $target['object_id'],
-                'session_id'  => $session_id,
-                'tool_name'   => sprintf('%s-write', $this->integration()),
-                'args'        => [ 'operation' => $op, 'args' => $op_args ],
-            ],
-            fn () => ($def['handler'])($op_args)
-        );
+        $context = [
+            'object_type' => (string) $target['object_type'],
+            'object_id'   => $target['object_id'],
+            'session_id'  => $session_id,
+            'tool_name'   => sprintf('%s-write', $this->integration()),
+            'args'        => [ 'operation' => $op, 'args' => $op_args ],
+        ];
+        // A target whose object type needs caller-captured recovery data (a
+        // db_rows before-image for a row in a host plugin's own table) hands
+        // it over here; Safe_Mutation merges it into the persisted snapshot.
+        if (! empty($target['extra_snapshot_data']) && is_array($target['extra_snapshot_data'])) {
+            $context['extra_snapshot_data'] = $target['extra_snapshot_data'];
+        }
+
+        $out = Safe_Mutation::run($context, fn () => ($def['handler'])($op_args));
 
         return $this->ok($op, $out['result']) + [
             'operation_id' => $out['operation_id'],
             'recoverable'  => true,
         ];
+    }
+
+    /**
+     * Evaluate an op's optional 'requires' dependency check. Returns true when
+     * the op has no check or the check passes, otherwise the
+     * ['code', 'message'] payload the dispatcher turns into a top-level error.
+     *
+     * @return true|array<string, string>
+     */
+    private static function op_requirement(array $def)
+    {
+        if (! isset($def['requires'])) {
+            return true;
+        }
+        if (! is_callable($def['requires'])) {
+            // Fail CLOSED. A present-but-malformed gate (the easy misreading is
+            // 'requires' => self::check(), which stores the RESULT rather than
+            // the callable) must not silently delete the gate and let the
+            // handler fatal on a class the dependency was meant to guarantee.
+            return [
+                'code'    => 'dependency_check_invalid',
+                'message' => 'This operation declares a dependency check that is not callable, so the dependency cannot be verified and the operation is refused.',
+            ];
+        }
+        try {
+            $out = ($def['requires'])();
+        } catch (\Throwable $e) {
+            // list-operations must answer for every integration, host plugin or
+            // not, so a throwing check degrades to "unavailable", never a fatal.
+            return [
+                'code'    => 'dependency_unavailable',
+                'message' => sprintf('This operation\'s dependency check could not complete: %s', $e->getMessage()),
+            ];
+        }
+        return true === $out ? true : (array) $out;
     }
 
     /** Ops visible to one dispatcher half; write sees write + destructive. */

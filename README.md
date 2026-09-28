@@ -262,9 +262,10 @@ bin/test-local.sh                       # default WordPress leg with the coverag
 bin/test-local.sh --all                 # also the `Requires at least` WordPress
 bin/test-local.sh -- --filter SnapshotTest   # a targeted PHPUnit run
 ELEMENTOR_VERSION=latest bin/test-local.sh   # check for drift against the newest Elementor
+bin/test-local.sh --live-forms          # only the Contact Form 7 + Flamingo live group
 ```
 
-It starts a private MariaDB server under `~/.cache/wpmcp-tests`, installs each WordPress version there once, and gives every worktree its own database, so worktrees can run side by side. MySQL does not work: the harness makes every table TEMPORARY and MySQL cannot reopen one inside a query, which WooCommerce does. Skip the gate for one push with `WPMCP_SKIP_LOCAL_TESTS=1 git push`.
+It starts a private MariaDB server under `~/.cache/wpmcp-tests`, installs each WordPress version there once per version of the install scripts, and gives every worktree its own database, so worktrees can run side by side. The default run ends with the live forms group: the Contact Form 7 adapter against the real Contact Form 7 and Flamingo, on a separate install. MySQL does not work: the harness makes every table TEMPORARY and MySQL cannot reopen one inside a query, which WooCommerce does. Skip the gate for one push with `WPMCP_SKIP_LOCAL_TESTS=1 git push`.
 
 ## Contributing
 
