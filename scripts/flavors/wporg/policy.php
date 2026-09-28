@@ -174,6 +174,7 @@ return [
         'src/Integrations/Block_Suites_Integration.php',
         'src/Integrations/Block_Suite.php',
         'src/Integrations/Block_Suite_Styles.php',
+        'src/Integrations/Block_Suite_Patterns.php',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the
         // two handlers, the sanitizer, the store and the front-end renderer
         // all go. Named file by file rather than by directory because

@@ -3360,8 +3360,9 @@ final class Plugin
     }
 
     /**
-     * Block suite packs (issue #287): Kadence Blocks and GenerateBlocks
-     * behind one pro dispatcher pair that registers only while a supported
+     * Block suite packs (issue #287): Kadence Blocks, GenerateBlocks,
+     * Spectra, Otter Blocks and the Blocksy companion blocks, plus pattern
+     * import, behind one pro dispatcher pair that registers only while a supported
      * suite is loaded. Its own method so the WordPress.org directory build
      * drops it by name, with the pack's files.
      */
