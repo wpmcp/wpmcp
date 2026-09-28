@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.6
+Stable tag: 0.8.7
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.7 =
+* Code quality: the remaining discouraged-function calls (serialization, base64 storage encoding and the opt-in PHP snippet runner) are now justified in place, and the coding-standards baseline is lower.
+
 = 0.8.6 =
 * Bridged third-party abilities are now governed one by one: each is checked against the same governance toggles, identity scope and block rules as built-in abilities before it runs, and refused abilities are hidden from discovery and logged.
 * Sites can narrow the ability bridge to specific abilities or namespaces with the WPMCP_ABILITY_BRIDGE_ALLOWLIST constant or the wpmcp_ability_bridge_allowlist filter. The target ability's own permission check always still runs.
@@ -140,6 +143,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.7 =
+Code quality: the remaining discouraged-function calls (serialization, base64 storage encoding and the opt-in PHP snippet runner) are now justified in place, and the coding-standards baseline is lower.
 
 = 0.8.6 =
 Bridged third-party abilities are now governed one by one: each is checked against the same governance toggles, identity scope and block rules as built-in abilities before it runs, and refused abilities are hidden from discovery and logged.
