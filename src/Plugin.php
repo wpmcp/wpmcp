@@ -1447,7 +1447,7 @@ final class Plugin
                 'type'       => 'object',
                 'properties' => [
                     'query'    => [ 'type' => 'string' ],
-                    'provider' => [ 'type' => 'string', 'enum' => [ 'openverse', 'pexels', 'unsplash' ] ],
+                    'provider' => [ 'type' => 'string', 'enum' => [ 'openverse', 'pexels', 'unsplash' ], 'default' => 'openverse' ],
                     'page'     => [ 'type' => 'integer' ],
                     'per_page' => [ 'type' => 'integer' ],
                 ],
@@ -4348,10 +4348,11 @@ final class Plugin
      * through Safe_Mutation either: a whole-database replace is outside the
      * per-object model Snapshot_Store captures, so a snapshot could not
      * undo it. Its rollback mechanism is the pre-restore database safety
-     * archive the execution path takes before writing (issue #190). It is
-     * registered with destructive=true and dry_run defaulting to true; in
-     * this build only the dry_run compatibility report is implemented and
-     * a real restore is refused.
+     * archive it takes, unconditionally, before writing anything (issue
+     * #190); a failed import is rolled back from that archive
+     * automatically. It is registered with destructive=true and dry_run
+     * defaulting to true, so an unconfirmed call only ever returns the
+     * compatibility report.
      */
     private function register_backup_abilities(Registrar $registrar): void
     {
@@ -4464,14 +4465,15 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Compatibility check for restoring a site-backup archive (job_id or path) onto this site. dry_run defaults to TRUE and returns a report without touching anything: manifest format and format_version, archive scope (only all or database archives carry a dump), table prefix, multisite, WordPress version, BLOB-table warnings. This release implements only the dry_run report: dry_run=false runs the same gate and is then refused as not implemented (the execution path with pre-restore safety archive, maintenance mode and statement-by-statement import has not shipped). include_files (default false) is refused unless the archive scope is all. Paths outside the site-backup directory are refused',
+            'Restore this site in place from a site-backup archive (job_id or path). dry_run defaults to TRUE: a report only, checking format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full parse of db.sql (truncated dumps are refused). dry_run=false takes a database safety archive first (job id in the result; no restore if it fails), holds maintenance mode, imports statement by statement, and on failure reports the statement and rolls back. preserve_session (default true) keeps the caller signed in. include_files (default false, scope all) stages wp-content and swaps it in. Paths outside the site-backup directory are refused',
             [
                 'type'       => 'object',
                 'properties' => [
                     'job_id'        => [ 'type' => 'integer' ],
                     'path'          => [ 'type' => 'string' ],
-                    'include_files' => [ 'type' => 'boolean' ],
-                    'dry_run'       => [ 'type' => 'boolean' ],
+                    'include_files'    => [ 'type' => 'boolean' ],
+                    'dry_run'          => [ 'type' => 'boolean' ],
+                    'preserve_session' => [ 'type' => 'boolean' ],
                 ],
             ],
             [$restore_site_backup, 'handle'],
