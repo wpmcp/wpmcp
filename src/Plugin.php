@@ -3168,6 +3168,7 @@ final class Plugin
      */
     private function register_block_builder_abilities(Registrar $registrar): void
     {
+        \WPMCP\Tools\Portable\Bundle_Kinds::register(new \WPMCP\Tools\BlockBuilder\Block_Bundle_Kind());
         $spec_schema = [ 'type' => 'object' ];
 
         $tools = [
@@ -3215,6 +3216,7 @@ final class Plugin
      */
     private function register_widget_builder_abilities(Registrar $registrar): void
     {
+        \WPMCP\Tools\Portable\Bundle_Kinds::register(new \WPMCP\Tools\WidgetBuilder\Widget_Bundle_Kind());
         $spec_schema = [ 'type' => 'object' ];
 
         $tools = [
@@ -3335,7 +3337,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/validate-php-snippet',
             'free',
-            'Statically validate a PHP code snippet without executing it: report syntax validity (with error message and line if invalid) and safety findings (severity-tagged warnings for dangerous constructs such as eval, exec, shell_exec, backticks, obfuscation decoders, request-driven execution, and outbound HTTP calls). Read-only, never runs the snippet',
+            'Statically check a PHP snippet without running it: syntax validity (error message and line) and severity-tagged findings (eval, exec, shell_exec, backticks, obfuscation decoders, request-driven input, outbound HTTP). Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3487,6 +3489,65 @@ final class Plugin
             'manage_options',
             'code',
             'update'
+        ));
+
+        $this->register_bundle_abilities($registrar);
+    }
+
+    /**
+     * Portable export and import bundles (issue #297): one versioned,
+     * checksummed JSON bundle carries this site's stored PHP snippets, and
+     * its custom block and widget specs where those builders are registered,
+     * to another site with no cloud account in between. Each store adds its
+     * own Bundle_Kind when its group registers, so a store this build or site
+     * does not have contributes nothing and its items import as skipped.
+     *
+     * Import re-validates every item with its store's own validator and lands
+     * it INACTIVE (snippets as text only; nothing is activated or executed on
+     * any build), refuses or renames name collisions per on_conflict, and
+     * records every creation under one session_id for rollback-session.
+     * Two abilities rather than one op-switched tool, because export is
+     * read-only and import is a write, and governance and the MCP annotations
+     * key on the ability, not on an argument.
+     */
+    private function register_bundle_abilities(Registrar $registrar): void
+    {
+        \WPMCP\Tools\Portable\Bundle_Kinds::register(new \WPMCP\Tools\Code\Php_Snippet_Bundle_Kind());
+
+        $registrar->register(new Ability(
+            'wpmcp/export-bundle',
+            'free',
+            'Export PHP snippets, plus custom block/widget specs where present, as a checksummed JSON bundle for import-bundle; types and ids filter. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'types' => [ 'type' => 'array' ],
+                    'ids'   => [ 'type' => 'array' ],
+                ],
+            ],
+            [new \WPMCP\Tools\Portable\Export_Bundle(), 'handle'],
+            'manage_options',
+            'code',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/import-bundle',
+            'free',
+            'Import an export-bundle: items are re-validated and created inactive; name clashes skip unless on_conflict=rename. Undo with rollback-session',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'bundle'      => [ 'type' => 'object' ],
+                    'on_conflict' => [ 'type' => 'string', 'enum' => \WPMCP\Tools\Portable\Import_Bundle::ON_CONFLICT ],
+                    'session_id'  => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'bundle' ],
+            ],
+            [new \WPMCP\Tools\Portable\Import_Bundle(), 'handle'],
+            'manage_options',
+            'code',
+            'create'
         ));
     }
 

@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 391,
-    'free'      => 262,
+    'total'     => 393,
+    'free'      => 264,
     'pro'       => 129,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -132,6 +132,7 @@ return [
         'wpmcp/edit-file' => 'free',
         'wpmcp/enable-maintenance' => 'free',
         'wpmcp/execute-site-ability' => 'free',
+        'wpmcp/export-bundle' => 'free',
         'wpmcp/export-content' => 'free',
         'wpmcp/export-page' => 'pro',
         'wpmcp/export-template' => 'pro',
@@ -216,6 +217,7 @@ return [
         'wpmcp/gravityforms-write' => 'pro',
         'wpmcp/gravitytables-read' => 'free',
         'wpmcp/gravitytables-write' => 'free',
+        'wpmcp/import-bundle' => 'free',
         'wpmcp/import-content' => 'free',
         'wpmcp/import-stock-image' => 'free',
         'wpmcp/import-template' => 'pro',

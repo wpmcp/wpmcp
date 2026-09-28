@@ -1473,8 +1473,10 @@ class Rollback_Service
      *
      * Deliberately non-destructive, unlike 'page_build' and 'media_import':
      * every created post is moved to the trash, where restore-post can bring
-     * it back, and a custom widget or block spec is deactivated instead.
-     * Nothing is permanently deleted.
+     * it back, and a custom widget or block spec is deactivated instead,
+     * unless the row is marked remove_on_rollback (import-bundle, issue #297),
+     * in which case the spec is trashed like any other post. Nothing is
+     * permanently deleted.
      *
      * Each post gets the same identity check as the other creation restores:
      * post_type and post_date_gmt are fixed at creation, so a mismatch means
@@ -1499,7 +1501,9 @@ class Rollback_Service
                 continue;
             }
 
-            if (in_array($current->post_type, self::DEACTIVATE_ON_CREATION_ROLLBACK, true)) {
+            // An import-bundle row (issue #297) asks for removal instead: its
+            // specs were created inactive, so deactivating would undo nothing.
+            if (empty($snapshot['data']['remove_on_rollback']) && in_array($current->post_type, self::DEACTIVATE_ON_CREATION_ROLLBACK, true)) {
                 if ('draft' !== $current->post_status && 'trash' !== $current->post_status) {
                     $updated = wp_update_post(['ID' => $post_id, 'post_status' => 'draft'], true);
                     if (is_wp_error($updated) || 0 === $updated) {
