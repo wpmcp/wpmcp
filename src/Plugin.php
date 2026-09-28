@@ -2705,16 +2705,22 @@ final class Plugin
 
         $tools = [
             ['create-custom-block', 'create', new \WPMCP\Tools\BlockBuilder\Create_Custom_Block(), 'Create a custom Gutenberg block from a data spec (title, attributes, template with {{name}} placeholders). Validated, stored as a wpmcp_block post, and registered via register_block_type at runtime with a render_callback that interprets the template (no code generation, no eval). Remove with delete-custom-block', ['spec' => $spec_schema], ['spec']],
-            ['update-custom-block', 'update', new \WPMCP\Tools\BlockBuilder\Update_Custom_Block(), 'Replace a custom block\'s spec by id (re-validated before it is stored)', ['block_id' => ['type' => 'integer'], 'spec' => $spec_schema], ['block_id', 'spec']],
+            ['update-custom-block', 'update', new \WPMCP\Tools\BlockBuilder\Update_Custom_Block(), 'Replace a custom block\'s spec by id (re-validated before it is stored). Snapshotted: returns an operation_id for rollback-operation', ['block_id' => ['type' => 'integer'], 'spec' => $spec_schema], ['block_id', 'spec']],
             ['get-custom-block', 'read', new \WPMCP\Tools\BlockBuilder\Get_Custom_Block(), 'Read one custom block\'s stored spec by id. Read-only', ['block_id' => ['type' => 'integer']], ['block_id']],
             ['list-custom-blocks', 'read', new \WPMCP\Tools\BlockBuilder\List_Custom_Blocks(), 'List the custom blocks on this site (id, name, title, active/inactive). Read-only', [], []],
-            ['delete-custom-block', 'delete', new \WPMCP\Tools\BlockBuilder\Delete_Custom_Block(), 'Delete a custom block by moving it to the trash (reversible via restore-post)', ['block_id' => ['type' => 'integer']], ['block_id']],
-            ['set-block-status', 'update', new \WPMCP\Tools\BlockBuilder\Set_Block_Status(), 'Enable (publish) or disable (draft) a custom block by id', ['block_id' => ['type' => 'integer'], 'status' => ['type' => 'string']], ['block_id', 'status']],
+            ['delete-custom-block', 'delete', new \WPMCP\Tools\BlockBuilder\Delete_Custom_Block(), 'Delete a custom block by moving it to the trash. Snapshotted: returns an operation_id for rollback-operation (restore-post also works)', ['block_id' => ['type' => 'integer']], ['block_id']],
+            ['set-block-status', 'update', new \WPMCP\Tools\BlockBuilder\Set_Block_Status(), 'Enable (publish) or disable (draft) a custom block by id. Snapshotted: returns an operation_id for rollback-operation; a no-op status change writes nothing', ['block_id' => ['type' => 'integer'], 'status' => ['type' => 'string', 'enum' => \WPMCP\Tools\BlockBuilder\Set_Block_Status::STATUSES]], ['block_id', 'status']],
             ['validate-block-spec', 'read', new \WPMCP\Tools\BlockBuilder\Validate_Block_Spec(), 'Statically validate a custom-block spec (title, attributes, template) without storing it. Read-only', ['spec' => $spec_schema], ['spec']],
             ['list-block-control-types', 'read', new \WPMCP\Tools\BlockBuilder\List_Block_Control_Types(), 'List the attribute types a custom-block spec may use and the block.json type each maps to. Read-only', [], []],
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
+            // Snapshotted writes (update/delete) group under a caller's
+            // session_id so rollback-session can undo them together. Creates
+            // take no snapshot, so they do not advertise one.
+            if (in_array($op, ['update', 'delete'], true)) {
+                $props['session_id'] = [ 'type' => 'string' ];
+            }
             $schema = [ 'type' => 'object', 'properties' => $props ];
             if ([] !== $required) {
                 $schema['required'] = $required;
@@ -2756,6 +2762,12 @@ final class Plugin
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
+            // Snapshotted writes (update/delete) group under a caller's
+            // session_id so rollback-session can undo them together. Creates
+            // take no snapshot, so they do not advertise one.
+            if (in_array($op, ['update', 'delete'], true)) {
+                $props['session_id'] = [ 'type' => 'string' ];
+            }
             $schema = [ 'type' => 'object', 'properties' => $props ];
             if ([] !== $required) {
                 $schema['required'] = $required;
