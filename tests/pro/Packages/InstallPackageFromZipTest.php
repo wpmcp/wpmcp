@@ -411,6 +411,41 @@ class InstallPackageFromZipTest extends \WP_UnitTestCase
         $this->assertStringContainsString('Version: 1.0.0', (string) file_get_contents(get_theme_root() . '/' . $this->slug . '/style.css'));
     }
 
+    /**
+     * Issue #323: installing from a local ZIP and rolling it back must not
+     * wait on wordpress.org. Core hooks its update checks (wp_version_check,
+     * wp_update_plugins, wp_update_themes) onto upgrader_process_complete, so
+     * without care every install made up to three outbound requests, and a
+     * failed TLS handshake surfaced as a warning from the tool call.
+     */
+    public function test_install_and_rollback_make_no_http_requests(): void
+    {
+        $requests = [];
+        $record   = static function ($pre, $args, $url) use (&$requests) {
+            $requests[] = strtok((string) $url, '?');
+            return new \WP_Error('http_blocked', 'blocked by test');
+        };
+        add_filter('pre_http_request', $record, 10, 3);
+
+        $this->open_gate();
+        foreach (['plugin' => 'plugin_entries', 'theme' => 'theme_entries'] as $type => $entries) {
+            [$id1, $hash1] = $this->upload_zip($this->{$entries}('1.0.0'));
+            (new Install_Package_From_Zip())->handle($this->args($id1, $hash1, $type));
+            [$id2, $hash2] = $this->upload_zip($this->{$entries}('2.0.0'));
+            $out = (new Install_Package_From_Zip())->handle($this->args($id2, $hash2, $type));
+            $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        }
+        remove_filter('pre_http_request', $record, 10);
+
+        $this->assertSame([], $requests, 'Install and rollback must not contact wordpress.org.');
+
+        // The checks are only held off for wpmcp's own install; core's hooks
+        // are back in place for every other upgrade on the site.
+        foreach (['wp_version_check', 'wp_update_plugins', 'wp_update_themes'] as $check) {
+            $this->assertNotFalse(has_action('upgrader_process_complete', $check), $check . ' must be re-hooked after the install.');
+        }
+    }
+
     public function test_rollback_leaves_an_active_fresh_plugin_in_place_with_a_warning(): void
     {
         $this->open_gate();
