@@ -8,6 +8,8 @@ class MigrationAbilitiesRegistrationTest extends \WP_UnitTestCase
 {
     private const NAMES = [
         'wpmcp/rewrite-site-urls',
+        'wpmcp/push-site-archive',
+        'wpmcp/receive-site-archive',
         'wpmcp/find-replace-content',
     ];
 
@@ -49,8 +51,8 @@ class MigrationAbilitiesRegistrationTest extends \WP_UnitTestCase
     }
 
     /**
-     * An applied rewrite is an unsnapshotted in-place write to six core
-     * tables. The MCP annotations must say so rather than inherit the
+     * An applied rewrite is an in-place write to six core tables, backed by
+     * a database safety archive rather than a per-object snapshot. The MCP annotations must say so rather than inherit the
      * 'update' defaults (destructive false, idempotent true).
      */
     public function test_rewrite_site_urls_is_annotated_as_destructive_and_not_idempotent(): void
@@ -61,7 +63,25 @@ class MigrationAbilitiesRegistrationTest extends \WP_UnitTestCase
         $this->assertFalse($ability->read_only_hint);
         $this->assertTrue($ability->destructive_hint);
         $this->assertFalse($ability->idempotent_hint);
-        $this->assertStringContainsString('recoverable:false', $ability->description);
+        $this->assertStringContainsString('safety archive', $ability->description);
+    }
+
+    /**
+     * Both push-pair abilities are closed by default-off opt-in gates that
+     * only code can open, so the ability grid must treat them as gated.
+     */
+    public function test_push_pair_is_behind_default_off_opt_in_gates(): void
+    {
+        $this->assertTrue(\WPMCP\Governance\Opt_In_Gates::is_gated('wpmcp/push-site-archive'));
+        $this->assertTrue(\WPMCP\Governance\Opt_In_Gates::is_gated('wpmcp/receive-site-archive'));
+        $this->assertFalse(\WPMCP\Governance\Opt_In_Gates::is_open('wpmcp/push-site-archive'));
+        $this->assertFalse(\WPMCP\Governance\Opt_In_Gates::is_open('wpmcp/receive-site-archive'));
+
+        foreach (['wpmcp/push-site-archive', 'wpmcp/receive-site-archive'] as $name) {
+            $ability = Plugin::instance()->registrar()->get($name);
+            $this->assertTrue($ability->destructive_hint, "{$name} can end in a database replace");
+            $this->assertFalse($ability->idempotent_hint);
+        }
     }
 
     /**

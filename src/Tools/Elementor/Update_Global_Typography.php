@@ -101,8 +101,11 @@ class Update_Global_Typography
             }
         }
 
+        // Responsive sizes (typography_font_size_tablet, _mobile, ...) count
+        // too: without the flag Elementor ignores the whole token, so a
+        // breakpoint-only update would never render.
         $sets_font = isset($fields['typography_font_family']) || isset($fields['typography_font_weight'])
-            || isset($fields['typography_font_size']);
+            || [] !== preg_grep('/^typography_font_size(_[a-z_]+)?$/', array_keys($fields));
         if ($sets_font && ! isset($fields['typography_typography'])) {
             $fields['typography_typography'] = 'custom';
         }

@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.30
+Stable tag: 0.8.33
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -60,6 +60,7 @@ The plugin collects nothing about you and sends nothing to us. Its only schedule
 * api.freemius.com - licensing through the Freemius SDK. This is the one entry not tied to a tool. On activation the SDK shows its stock opt-in screen, which defaults to off and carries a Skip link; skip or decline it and the SDK sends nothing. Once you have opted in, there or later from the WP MCP > Account page, the SDK talks to Freemius during admin page loads and its own periodic sync. One path is independent of that choice: the optional deactivation feedback form on the Plugins screen. If you submit it, the reason you enter is stored locally and sent here when the plugin is deleted (uninstalled), whether or not you opted in; if you also untick "anonymous feedback" on that form, the SDK's opt-in call sends your display name and email along with the site details the opt-in screen lists. Terms: https://freemius.com/terms/ Privacy policy: https://freemius.com/privacy/
 * api.anthropic.com - the in-admin AI chat (Pro), opt-in and bring-your-own-key. Nothing is sent until an administrator saves their own Anthropic API key on the WP MCP > Chat screen and sends a message; there is no shared or built-in key. Each chat step sends, from this server, that administrator's key, a system prompt carrying the site name, site URL, their username and the names of the tools the chat may use, the tool schemas it has loaded, and the conversation so far: their messages, the assistant's replies, and the results of the tools it ran, which can include site content those tools read. The key is stored encrypted per user and is never sent to the browser. Terms: https://www.anthropic.com/legal/commercial-terms Privacy policy: https://www.anthropic.com/legal/privacy
 * WP MCP Cloud (the cloud URL you configure) - nothing is sent until you run cloud-connect with a cloud URL and API key you supply, and every request after that goes only to that URL with your API key in the Authorization header. cloud-connect verifies the key by fetching your account, cloud-push-assets sends the widget and block specs you push, and cloud-list-assets and cloud-pull-assets fetch the specs saved in your account. cloud-push-settings sends this site's governance, exposure and skills settings and identity scopes (never passwords, keys or tokens), cloud-apply-settings fetches the settings saved in your account, cloud-marketplace-browse fetches marketplace listings, and cloud-marketplace-install fetches the one listing you install. The announcements feed also fetches notices (GET /announcements, no site content) when an administrator opens a WP MCP admin screen, at most once a day, or once an hour after a failed fetch. Once connected, it also renews its sign-in token with that same URL over https. Terms: https://wpmcp-pro.com/terms.html Privacy policy: https://wpmcp-pro.com/privacy.html
+* Your own migration target - push-site-archive sends a site-backup archive (the full database, including password hashes, and wp-content if the archive has it) to the target_url you or your agent supply, signed in with credentials for that site, and only after you have allowed outgoing migrations with WPMCP_ALLOW_OUTGOING_MIGRATIONS. It contacts no other host. The receiving site must allow incoming migrations itself, and its owner's terms and privacy policy apply to what it stores.
 * Allowlisted media hosts - import-stock-image and upload-svg download the file you picked from a default allowlist of images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org (Wikimedia Commons, terms: https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use privacy policy: https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) and staticflickr.com (Flickr, terms: https://www.flickr.com/help/terms privacy policy: https://www.flickr.com/help/privacy), matched on the host or a subdomain of it. The site owner can change that list with the wpmcp_remote_media_allowed_hosts filter. The download carries WordPress's standard user agent.
 * Any host you name yourself - sideload-image passes the URL you or your agent supply to core's media_sideload_image(), so it can fetch an image from anywhere. It is not covered by the allowlist above; disable the ability if you do not want that reach.
 * Any URL you measure - analyze-performance fetches the URL you give it under a WPMCP-Performance-Analyzer/1.0 user agent, refusing private, loopback and reserved addresses and following no redirects.
@@ -94,6 +95,18 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.33 =
+* New: import WooCommerce products in two steps. plan-product-import previews every row (create, update with a field-level diff, skip or error) without writing anything, and apply-product-import writes the approved plan, including variable products, variations and images, refusing if the store changed since.
+* A whole product import is one undo session: rollback-session restores the updated products and removes the products, variations and images it created.
+
+= 0.8.32 =
+* New: push a site backup archive to another WordPress install over a secure connection, with a dry run by default, resumable chunked uploads and a restore plus URL rewrite on the target. Both sides must opt in before any migration can run.
+* Improved: rewriting site URLs now takes a database safety archive first and reports how to undo the pass.
+
+= 0.8.31 =
+* New: Elementor v4 global variables (color, font and size design tokens) can now be listed, created, updated and deleted, with strict type and value checks, a usage report before any delete, and one-step rollback.
+* Fix: a breakpoint-only font size in Elementor global typography now enables custom typography, so tablet and mobile sizes actually render.
 
 = 0.8.30 =
 * New find-replace-content ability: site-wide find and replace across post content, titles, excerpts and selected post meta, preview-only by default, with every applied pass undoable in one step via rollback-session.
@@ -246,6 +259,15 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.33 =
+New: import WooCommerce products in two steps. plan-product-import previews every row (create, update with a field-level diff, skip or error) without writing anything, and apply-product-import writes the approved plan, including variable products, variations and images, refusing if the store changed since.
+
+= 0.8.32 =
+New: push a site backup archive to another WordPress install over a secure connection, with a dry run by default, resumable chunked uploads and a restore plus URL rewrite on the target. Both sides must opt in before any migration can run.
+
+= 0.8.31 =
+New: Elementor v4 global variables (color, font and size design tokens) can now be listed, created, updated and deleted, with strict type and value checks, a usage report before any delete, and one-step rollback.
 
 = 0.8.30 =
 New find-replace-content ability: site-wide find and replace across post content, titles, excerpts and selected post meta, preview-only by default, with every applied pass undoable in one step via rollback-session.

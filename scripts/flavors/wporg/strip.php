@@ -136,6 +136,8 @@ const REMOVED_METHODS = [
     'register_cli_job_abilities',
     // Same shape: its only caller is register_elementor_pro_abilities().
     'register_global_class_write_abilities',
+    // Same shape: its only caller is register_elementor_pro_abilities().
+    'register_global_variable_abilities',
     // Atomic (v4) Elementor writes (issue #62) are pro-tier; the method is
     // private and reached only from register_elementor_abilities(), whose
     // call site is edited out below.
@@ -943,8 +945,8 @@ $plugin_edits[] = ["        \$insert_stock_image  = new Insert_Stock_Image();\n"
 // outright, so offering the agent a free/pro split to filter on describes a
 // product that is not in the zip.
 $plugin_edits[] = [
-    "with each entry\'s tier (free/pro), operation",
-    "with each entry\'s tier, operation",
+    "with tier (free/pro), operation",
+    "with tier, operation",
     1,
 ];
 // The self-hosted translation loader goes with its method (REMOVED_METHODS):

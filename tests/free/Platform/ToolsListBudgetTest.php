@@ -117,8 +117,20 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  the op model, the gates and the rollback contract; what remains is
      *  the destructive-op opt-in, confirm, refund and batch rollback rules an
      *  agent must see before it writes to a store. Compact tool mode keeps
-     *  clients with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 201000;
+     *  clients with tool caps at ~2.8KB regardless. Raised 201000 -> 203000
+     *  for the Elementor v4 global variable suite
+     *  (list/create/update/delete-global-variable) when it met that main:
+     *  202840 bytes over 376 tools. The four descriptions were trimmed
+     *  first; the create description keeps the per-type value rules because
+     *  an agent that reads them does not burn a call on a refusal. Raised
+     *  203000 -> 205000 for the two-step product import
+     *  (plan-product-import, apply-product-import) when it met that main:
+     *  main measured 202972 bytes over 378 tools, 28 bytes under the
+     *  budget, and the pair adds 1149 bytes (204121 over 380 tools). Both
+     *  row schemas are already a plain object array and both descriptions
+     *  were trimmed twice to the row fields, the plan_hash handshake, the
+     *  confirm rule and the rollback-session undo. */
+    private const TOOLS_LIST_BYTE_BUDGET = 205000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
@@ -181,9 +193,11 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
         // regenerate-elementor-css, a per-feature cache tool, and 65 -> 66
         // for compile-custom-widget (issue #72: one ability compiles ANY
         // stored spec, so the count stays independent of how many widgets
-        // exist, cataloged or custom).
+        // exist, cataloged or custom). Raised 66 -> 70 for the v4 global
+        // variable suite (list/create/update/delete-global-variable), one
+        // per-feature CRUD set like the global class suite.
         $this->assertLessThanOrEqual(
-            66,
+            70,
             count($elementor),
             'The Elementor tool surface must stay a fixed set of generic, per-feature tools; '
             . 'widgets belong in the catalog data, not in new per-widget abilities.'

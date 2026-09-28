@@ -35,35 +35,7 @@ class Import_Stock_Image
             throw new \InvalidArgumentException('An "image_url" (from a search-stock-images result) is required.');
         }
 
-        // Layer 1: shape + allowlist, BEFORE any request leaves the site.
-        Remote_Image_Guard::validate_url($url);
-
-        // Layers 2-3: guarded transport (no redirects, size caps).
-        $tmp = Remote_Image_Guard::download($url);
-
-        try {
-            // Layers 4-5: the bytes must BE an allowed image; name sanitized.
-            $filename = Remote_Image_Guard::safe_filename($url, 'stock-image');
-            $filename = Remote_Image_Guard::assert_image($tmp, $filename);
-
-            if (! function_exists('media_handle_sideload')) {
-                require_once ABSPATH . 'wp-admin/includes/media.php';
-                require_once ABSPATH . 'wp-admin/includes/file.php';
-                require_once ABSPATH . 'wp-admin/includes/image.php';
-            }
-
-            $post_id  = (int) ($args['post_id'] ?? 0);
-            $media_id = media_handle_sideload(['name' => $filename, 'tmp_name' => $tmp], $post_id);
-            if (is_wp_error($media_id)) {
-                throw new \RuntimeException('The image could not be added to the Media Library: ' . esc_html($media_id->get_error_message()));
-            }
-            $media_id = (int) $media_id;
-        } catch (\Throwable $e) {
-            if (is_file($tmp)) {
-                wp_delete_file($tmp);
-            }
-            throw $e;
-        }
+        $media_id = Remote_Image_Guard::sideload($url, (int) ($args['post_id'] ?? 0), 'stock-image');
 
         if (! empty($args['title'])) {
             wp_update_post(['ID' => $media_id, 'post_title' => sanitize_text_field((string) $args['title'])]);

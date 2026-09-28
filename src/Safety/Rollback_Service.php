@@ -238,6 +238,11 @@ class Rollback_Service
         if ('media_import' === $snapshot['object_type']) {
             return 'post:' . $snapshot['object_id'];
         }
+        // And for a product or variation an import created: its oldest
+        // state is "did not exist yet", whatever later edits followed.
+        if ('wc_product_create' === $snapshot['object_type']) {
+            return 'post:' . $snapshot['object_id'];
+        }
         // Users, like posts, are identified by an int object_id, so the raw
         // object_type:object_id key is already stable and distinct.
         return $snapshot['object_type'] . ':' . $snapshot['object_id'];
@@ -574,7 +579,9 @@ class Rollback_Service
             'php_snippet',
             'page_build',
             'media_import',
+            'wc_product_create',
             'elementor_global_classes',
+            'elementor_global_variables',
             'theme_scaffold',
         ];
     }
@@ -699,8 +706,18 @@ class Rollback_Service
             return;
         }
 
+        if ('wc_product_create' === $snapshot['object_type']) {
+            self::apply_wc_product_create_snapshot($snapshot);
+            return;
+        }
+
         if ('elementor_global_classes' === $snapshot['object_type']) {
             self::apply_elementor_global_classes_snapshot($snapshot);
+            return;
+        }
+
+        if ('elementor_global_variables' === $snapshot['object_type']) {
+            self::apply_elementor_global_variables_snapshot($snapshot);
             return;
         }
 
@@ -1147,6 +1164,69 @@ class Rollback_Service
     }
 
     /**
+     * Undo the creation of a WooCommerce product or variation
+     * (apply-product-import). Same creation-snapshot semantics as
+     * 'media_import': the snapshot names what the operation CREATED, so the
+     * restore deletes it permanently through WooCommerce's CRUD layer, which
+     * also clears its lookup row and caches. A created variable product takes
+     * every variation under it along; a variation created under a product
+     * that already existed is removed and the parent's price range and stock
+     * status are re-synced from the variations that remain.
+     *
+     * The same post_date_gmt and post type identity check as the other
+     * creation restores protects an unrelated post that has since reclaimed
+     * the id: it is left untouched with a warning.
+     */
+    private static function apply_wc_product_create_snapshot(array $snapshot): void
+    {
+        $data       = (array) ($snapshot['data'] ?? []);
+        $product_id = (int) $snapshot['object_id'];
+        $current    = get_post($product_id);
+        if (! $current) {
+            return; // Already gone; nothing left to undo.
+        }
+
+        if (($data['post_type'] ?? null) !== $current->post_type || ($data['post_date_gmt'] ?? null) !== $current->post_date_gmt) {
+            self::warn("Post {$product_id} is not the product this import created (the id was reclaimed); it was left untouched.");
+            return;
+        }
+        if (! function_exists('wc_get_product')) {
+            self::warn("WooCommerce is not active, so product {$product_id} created by an import was left in place.");
+            return;
+        }
+
+        $children = get_posts([
+            'post_type'      => 'product_variation',
+            'post_parent'    => $product_id,
+            'post_status'    => 'any',
+            'fields'         => 'ids',
+            'posts_per_page' => -1,
+        ]);
+        foreach ($children as $child_id) {
+            $child = wc_get_product((int) $child_id);
+            if ($child) {
+                $child->delete(true);
+            }
+        }
+
+        $product = wc_get_product($product_id);
+        if ($product) {
+            $product->delete(true);
+        } else {
+            wp_delete_post($product_id, true);
+        }
+
+        $parent_id = (int) ($data['parent_id'] ?? 0);
+        if ($parent_id > 0 && class_exists('WC_Product_Variable')) {
+            $parent = wc_get_product($parent_id);
+            if ($parent && $parent->is_type('variable')) {
+                wc_delete_product_transients($parent_id);
+                \WC_Product_Variable::sync($parent_id);
+            }
+        }
+    }
+
+    /**
      * Undo a managed-redirect write (issue #128; snapshot shape documented at
      * Snapshot::capture_redirect()).
      *
@@ -1491,6 +1571,41 @@ class Rollback_Service
 
         // Class styles are compiled into generated CSS across the site.
         Elementor_Cache::clear_all();
+    }
+
+    /**
+     * Undo an Elementor 4 global variables write (create / update / delete a
+     * design token).
+     *
+     * Elementor keeps every variable in one JSON record on the kit and bumps a
+     * watermark on each save, so replaying the change through its service
+     * could never reproduce the prior record. The snapshot holds the record's
+     * raw bytes instead (or that there was none), and the undo puts exactly
+     * those back, which also revives a soft-deleted variable. The generated
+     * CSS is cleared so the restored tokens render on the next view.
+     */
+    private static function apply_elementor_global_variables_snapshot(array $snapshot): void
+    {
+        $data   = (array) ($snapshot['data'] ?? []);
+        $kit_id = (int) ($data['kit_id'] ?? $snapshot['object_id'] ?? 0);
+
+        if ($kit_id <= 0 || ! get_post($kit_id)) {
+            self::warn('Elementor global variables cannot be restored: the kit they belonged to no longer exists.');
+            return;
+        }
+
+        // Written here, not through the Elementor tool layer, so the safety
+        // layer can restore without depending on the tool that wrote.
+        if (! empty($data['exists'])) {
+            update_post_meta($kit_id, '_elementor_global_variables', wp_slash((string) ($data['raw'] ?? '')));
+        } else {
+            delete_post_meta($kit_id, '_elementor_global_variables');
+        }
+        clean_post_cache($kit_id);
+
+        if (class_exists('\\Elementor\\Plugin') && isset(\Elementor\Plugin::instance()->files_manager)) {
+            \Elementor\Plugin::instance()->files_manager->clear_cache();
+        }
     }
 
     /**
