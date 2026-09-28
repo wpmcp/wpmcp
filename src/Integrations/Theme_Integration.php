@@ -11,10 +11,10 @@ if (! defined('ABSPATH')) {
  * reversible, allowlist-gated theme-mod writes behind a single
  * wpmcp/theme-read + wpmcp/theme-write dispatcher pair.
  *
- * No file I/O happens in this phase. create-child-theme (phase 2) and the
- * framework packs (phases 3-4) hook the wpmcp_theme_mod_allowlist and
- * wpmcp_theme_mod_value_rules seams later to extend what set-mods may touch;
- * nothing here needs to change for that.
+ * This class does no file I/O itself. Issue #69 adds create-child-theme
+ * (Child_Theme_Scaffolder, snapshot-first file writes) and the framework
+ * settings packs (Theme_Framework_Pack) as further ops on this same pair; see
+ * extension_operations().
  *
  * The active theme is always present, so is_available() is always true and
  * the pair never reports integration_unavailable. Both halves demand
@@ -253,6 +253,28 @@ class Theme_Integration extends Integration_Dispatcher
     }
 
     protected function operations(): array
+    {
+        return array_merge($this->core_operations(), $this->extension_operations());
+    }
+
+    /**
+     * Issue #69 ops layered on the phase 1 pair: create-child-theme
+     * (Child_Theme_Scaffolder) and the framework settings pack for the
+     * detected theme family (Theme_Framework_Pack), which is present in the
+     * catalog only while that family is active.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    private function extension_operations(): array
+    {
+        return array_merge(
+            [ 'create-child-theme' => Child_Theme_Scaffolder::operation() ],
+            Theme_Framework_Pack::operations($this->detect_framework())
+        );
+    }
+
+    /** @return array<string,array<string,mixed>> the phase 1 (#144) context and theme-mod ops. */
+    private function core_operations(): array
     {
         return [
             'get-theme-context' => [
