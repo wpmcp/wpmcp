@@ -14,6 +14,7 @@ class MediaAbilitiesRegistrationTest extends \WP_UnitTestCase
             'wpmcp/delete-media',
             'wpmcp/sideload-image',
             'wpmcp/list-media',
+            'wpmcp/find-unused-media',
             'wpmcp/resize-media',
             'wpmcp/upload-svg',
             'wpmcp/upload-media',
@@ -54,5 +55,16 @@ class MediaAbilitiesRegistrationTest extends \WP_UnitTestCase
             $this->assertNotEmpty($ability->get_description(), "Expected {$name} to have a description");
             $this->assertSame('wpmcp', $ability->get_category());
         }
+    }
+
+    public function test_find_unused_media_is_a_read_only_media_ability(): void
+    {
+        $ability = \WPMCP\Plugin::instance()->registrar()->get('wpmcp/find-unused-media');
+
+        $this->assertNotNull($ability);
+        $this->assertSame('free', $ability->tier);
+        $this->assertSame('edit_posts', $ability->capability);
+        $this->assertTrue($ability->read_only_hint);
+        $this->assertFalse($ability->destructive_hint);
     }
 }
