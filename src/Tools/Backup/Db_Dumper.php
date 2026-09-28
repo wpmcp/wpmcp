@@ -292,7 +292,13 @@ class Db_Dumper
                 $values[] = 'NULL';
                 continue;
             }
-            $values[] = $wpdb->prepare('%s', (string) $value);
+            // prepare() swaps every "%" for a random per-request token and
+            // only turns it back when the string passes through
+            // $wpdb->query() in the SAME request. The dump is replayed in a
+            // different request, so the token must come out here, or every
+            // "%" in the data (permalink_structure's /%postname%/ among
+            // them) is restored as 66 characters of noise.
+            $values[] = $wpdb->remove_placeholder_escape($wpdb->prepare('%s', (string) $value));
         }
 
         return '(' . implode(', ', $values) . ')';
