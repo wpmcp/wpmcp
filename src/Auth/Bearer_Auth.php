@@ -24,6 +24,20 @@ if (! defined('ABSPATH')) {
  * install's unauthenticated-in-dev behavior -- and every other auth path --
  * is completely unaffected.
  *
+ * Audience binding (RFC 8707): a token is honoured ONLY on requests that
+ * target the MCP endpoint it was issued for (Mcp_Resource). On any other
+ * request (the core REST API, admin-ajax, the front end) the header is not
+ * even looked up and the incoming user id passes through unchanged, so a
+ * leaked MCP token is not a credential for the rest of the site. In-process
+ * dispatch during an MCP request (the adapter's own tool calls, any
+ * rest_do_request passthrough) runs after this filter has already resolved
+ * the user for that request, so it is unaffected.
+ *
+ * Unauthenticated (401) responses from the MCP route carry a
+ * `WWW-Authenticate: Bearer resource_metadata="..."` challenge (RFC 9728
+ * section 5.1) so a client can discover the authorization server from the
+ * failure itself.
+ *
  * Scope note: this wires user IDENTITY resolution only. Token_Store::validate()
  * also returns the client's granted scope, but no ability/domain-level scope
  * enforcement consults it yet (see the issue #43 report for why that is
@@ -36,6 +50,7 @@ class Bearer_Auth
     public function register(): void
     {
         add_filter('determine_current_user', [self::class, 'resolve'], 20);
+        add_filter('rest_post_dispatch', [self::class, 'add_challenge_header'], 10, 3);
     }
 
     /**
@@ -53,13 +68,17 @@ class Bearer_Auth
             return $incoming_user_id;
         }
 
+        if (! Mcp_Resource::request_targets_resource()) {
+            return $incoming_user_id;
+        }
+
         $token = self::bearer_token_from_request();
         if (null === $token) {
             return $incoming_user_id;
         }
 
         $record = Token_Store::validate($token);
-        if (null === $record) {
+        if (null === $record || ! Mcp_Resource::matches((string) $record['resource'])) {
             self::audit(false);
             return $incoming_user_id;
         }
@@ -67,6 +86,33 @@ class Bearer_Auth
         self::audit(true);
 
         return $record['user_id'];
+    }
+
+    /**
+     * rest_post_dispatch: attach the RFC 9728 resource-metadata challenge to
+     * a 401 from the MCP route, so a client that connected without (or with
+     * an expired) token learns where to authorize.
+     *
+     * @param mixed            $response
+     * @param mixed            $server
+     * @param \WP_REST_Request $request
+     * @return mixed
+     */
+    public static function add_challenge_header($response, $server, $request)
+    {
+        if (! $response instanceof \WP_HTTP_Response || 401 !== $response->get_status()) {
+            return $response;
+        }
+        if (! is_object($request) || ! method_exists($request, 'get_route') || ! Mcp_Resource::is_route((string) $request->get_route())) {
+            return $response;
+        }
+        if (! OAuth_Config::is_enabled()) {
+            return $response;
+        }
+
+        $response->header('WWW-Authenticate', 'Bearer resource_metadata="' . Mcp_Resource::metadata_url() . '"');
+
+        return $response;
     }
 
     private static function bearer_token_from_request(): ?string

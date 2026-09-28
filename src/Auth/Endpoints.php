@@ -22,7 +22,9 @@ if (! defined('ABSPATH')) {
  * /wp-json/{namespace}/:
  *
  *  - GET  /.well-known/oauth-authorization-server   (RFC 8414) via parse_request
- *  - GET  /.well-known/oauth-protected-resource      (RFC 9728) via parse_request
+ *  - GET  /.well-known/oauth-protected-resource      (RFC 9728) via parse_request,
+ *    also at its path-suffixed form for the MCP endpoint
+ *    (/.well-known/oauth-protected-resource/wp-json/mcp/wpmcp-server)
  *  - POST /wp-json/wpmcp/v1/oauth/register            (RFC 7591 DCR) via register_rest_route
  *  - POST /wp-json/wpmcp/v1/oauth/authorize             (authorization_code, PKCE)
  *  - POST /wp-json/wpmcp/v1/oauth/token                  (authorization_code exchange)
@@ -97,8 +99,8 @@ class Endpoints
         if ('/.well-known/oauth-authorization-server' === $path) {
             return self::respond(Authorization_Server_Metadata::build(self::issuer()));
         }
-        if ('/.well-known/oauth-protected-resource' === $path) {
-            return self::respond(Protected_Resource_Metadata::build(self::issuer()));
+        if (Mcp_Resource::WELL_KNOWN_PATH === $path || Mcp_Resource::WELL_KNOWN_PATH . Mcp_Resource::relative_path() === untrailingslashit($path)) {
+            return self::respond(Protected_Resource_Metadata::build(Mcp_Resource::canonical(), self::issuer()));
         }
 
         return null;
@@ -182,7 +184,7 @@ class Endpoints
         ], $status);
     }
 
-    /** The site's own origin, used as the OAuth issuer/resource identifier. */
+    /** The site's own origin, used as the OAuth issuer. The protected resource is Mcp_Resource::canonical(). */
     private static function issuer(): string
     {
         return untrailingslashit(home_url());
