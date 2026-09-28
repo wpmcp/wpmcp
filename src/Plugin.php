@@ -1321,7 +1321,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-media',
             'free',
-            'Delete a Media Library attachment. Disabled by default (site must opt in via the wpmcp_enable_delete_media filter) and requires confirm:true. force:true permanently deletes, routed through the safety snapshot so it can be rolled back',
+            'Delete a Media Library attachment. Off until the wpmcp_enable_delete_media filter opts in; needs confirm:true. force:true deletes permanently, snapshotted so it can be rolled back',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1359,7 +1359,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/upload-media',
             'free',
-            'Add a file to the Media Library from base64 bytes. The type is sniffed from the bytes (mime_type is only a hint) and must be an allowed upload type; executables and SVG are refused. Capped at the site upload limit. Rollback deletes the upload',
+            'Add a file to the Media Library from base64 data. Type is sniffed from the bytes (mime_type is a hint) and must be an allowed upload; executables and SVG refused. Capped at the upload limit. Rollback deletes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1391,7 +1391,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-media',
             'free',
-            'List Media Library attachments with type ("image" or an exact mime like "image/png"), date-range (after/before), and search filters, paged newest first with a total/pages envelope',
+            'List Media Library attachments, filtered by type ("image" or a mime like "image/png"), after/before dates and search, paged newest first with total/pages',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1411,7 +1411,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/resize-media',
             'free',
-            'Regenerate the specified registered image sizes for an attachment from its original file and report each resulting file (name, dimensions, URL). Snapshot-first with a physical-file backup, so the operation is rollbackable',
+            'Regenerate the given registered image sizes of an attachment from its original and report each file (name, dimensions, URL). Snapshot-first with a file backup, so it can be rolled back',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1429,7 +1429,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/upload-svg',
             'free',
-            'Add an SVG to the Media Library from raw markup or an allowlisted URL. Every SVG passes a bundled fail-closed sanitizer (script/foreignObject/event handlers/external references are rejected outright); only the sanitized markup is stored. Rollback deletes the upload',
+            'Add an SVG to the Media Library from markup or an allowlisted URL. A fail-closed sanitizer rejects script, foreignObject, event handlers and external references; only sanitized markup is stored. Rollback deletes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1449,7 +1449,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-stock-key',
             'free',
-            'Store (or clear, by passing an empty api_key) a bring-your-own stock-provider API key for pexels or unsplash. Keys are encrypted at rest with a site-salt-derived key and are never echoed back',
+            'Store (or clear with an empty api_key) your own pexels or unsplash API key. Keys are encrypted at rest with a site-salt-derived key and never echoed back',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1466,7 +1466,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/search-stock-images',
             'free',
-            'Search openly-licensed stock images. Providers: openverse (keyless, Creative Commons results), pexels and unsplash (bring-your-own key via set-stock-key). Results are provider-attributed with license, license_url, attribution, and source_url, ready to pass to import-stock-image',
+            'Search openly-licensed stock images: openverse (keyless, Creative Commons), pexels and unsplash (own key via set-stock-key). Results carry license, license_url, attribution and source_url for import-stock-image',
             [
                 'type'       => 'object',
                 'properties' => [
