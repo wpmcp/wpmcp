@@ -4503,7 +4503,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
             'free',
-            'Queue an asynchronous backup job run by WP-Cron and return its job id at once, so a large backup need not finish in one request. type=full builds a portable site archive (zip with a full SQL dump, wp-content and an origin manifest) that can be restored or migrated; database, files and uploads build the same format narrowed to that scope; content produces a WXR export via export-content',
+            'Queue a backup job run by WP-Cron and return its job id at once. type=full builds a portable site archive (zip with a full SQL dump, wp-content and an origin manifest) that can be restored or migrated; database, files and uploads build the same format narrowed to that scope; content produces a WXR export via export-content',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4569,7 +4569,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-backup-manifest',
             'free',
-            'Read a completed site-backup archive\'s manifest by job id or path: origin site_url/home_url, table prefix, multisite, WordPress/PHP/plugin versions, scope, per-table row counts, BLOB tables and file count, to confirm the archive before restoring or migrating it. Read-only, nothing is extracted; paths outside the site-backup directory are refused',
+            'Read a completed site-backup archive\'s manifest by job id or path: origin site_url/home_url, table prefix, multisite, WordPress/PHP/plugin versions, scope, per-table row counts, BLOB tables and file count. Read-only, nothing is extracted; paths outside the site-backup directory are refused',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4657,7 +4657,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/rewrite-site-urls',
             'free',
-            'Rewrite every embedded URL in the database from one site URL to another, serialization-aware: walks options, postmeta, posts, termmeta, usermeta and comments in batches, replacing plain, JSON-escaped, percent-encoded and scheme-relative forms without corrupting serialized values; values holding an object are refused and reported. Fixes images, widgets and theme mods after a restore under a new URL. dry_run (default true) reports per-table counts; applying needs dry_run:false and confirm:true. Snapshot first: an applied pass takes a database safety archive (or refuses) and reports its job_id, which restore-site-backup uses to undo it. Tables in wpmcp_db_protected_tables (usermeta by default) are skipped; GUIDs are never rewritten',
+            'Rewrite every embedded URL in the database from one site URL to another (options, postmeta, posts, termmeta, usermeta, comments), serialization-aware: plain, JSON-escaped, percent-encoded and scheme-relative forms; values holding an object are refused and reported. Fixes images, widgets and theme mods after a move. dry_run (default true) reports per-table counts; applying needs dry_run:false and confirm:true, takes a database safety archive first (or refuses) and returns its job_id for restore-site-backup to undo. Tables in wpmcp_db_protected_tables (usermeta by default) are skipped; GUIDs are never rewritten',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4686,7 +4686,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/push-site-archive',
             'free',
-            'Push a site-backup archive (job_id or path, scope all or database) to another wpmcp site at target_url as an administrator there (target_user + target_app_password, or target_token). dry_run (default true) only asks whether the target can take it. dry_run:false + confirm:true uploads resumable chunks for up to max_seconds; repeat the call to continue. apply:true has the target restore it (safety archive first) and rewrite URLs, returning the report and safety archive job_id. Needs the outgoing-migration opt-in here and the incoming one there',
+            'Push a site-backup archive (job_id or path; scope all or database) to another wpmcp site at target_url as an administrator there (target_user + target_app_password, or target_token). dry_run (default true) only checks the target can take it; dry_run:false + confirm:true uploads resumable chunks for up to max_seconds, call again to continue; apply:true also has the target restore it (safety archive first) and rewrite URLs. Needs the outgoing-migration opt-in here and the incoming one there',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4718,7 +4718,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/receive-site-archive',
             'free',
-            'Target side of push-site-archive, normally called by another site. action start (sha256, bytes, manifest; checked before any upload; resumes a partial one), chunk (upload_id, offset, base64 data), status, apply (verify, restore with a safety archive, rewrite URLs to this site; dry_run defaults to true, applying needs confirm:true). Needs the incoming-migration opt-in',
+            'Target side of push-site-archive, called by another site. action start (sha256, bytes, manifest; checked before upload, resumes a partial one), chunk (upload_id, offset, base64 data), status, apply (verify, restore with a safety archive, rewrite URLs; dry_run defaults to true, confirm:true applies). Needs the incoming-migration opt-in',
             [
                 'type'       => 'object',
                 'properties' => [
