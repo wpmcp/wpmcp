@@ -62,6 +62,13 @@ class Announcements
         $instance = new self();
         add_action('admin_notices', [$instance, 'render_notices']);
         add_action('admin_post_' . self::DISMISS_ACTION, [$instance, 'handle_dismiss']);
+        add_action('wpmcp_cloud_credentials_changed', [self::class, 'flush']);
+    }
+
+    /** Drop the cached feed; it belonged to the previous connection. */
+    public static function flush(): void
+    {
+        delete_transient(self::TRANSIENT);
     }
 
     /**
@@ -73,15 +80,20 @@ class Announcements
      */
     public function get(): array
     {
-        // No cloud connection means no feed. Checked before the transient so
-        // an unconfigured site never caches (or later serves) a stale list.
-        if (! Cloud_Config::is_configured()) {
-            return [];
-        }
-
+        // The transient first: this runs on every admin page render, and
+        // is_configured() means reading and decrypting the credential vault.
+        // A cached list can only exist for a connected site, and it is
+        // dropped whenever the credential set changes or is cleared
+        // (wpmcp_cloud_credentials_changed), so a disconnected site does not
+        // keep serving it.
         $cached = get_transient(self::TRANSIENT);
         if (is_array($cached)) {
             return $cached;
+        }
+
+        // No cloud connection means no feed, and nothing is cached for it.
+        if (! Cloud_Config::is_configured()) {
+            return [];
         }
 
         $items = $this->fetch();
