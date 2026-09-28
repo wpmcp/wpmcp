@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.62
+Stable tag: 0.8.63
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -95,6 +95,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.63 =
+* New: single, archive and search templates with dynamic data bindings. Bind post title, content, excerpt, featured image, author, date, permalink, terms, site name, tagline and logo, plus ACF fields when ACF is active, with display conditions and escaping per field type.
+* New: list-dynamic-sources shows every bindable field for a template context, and template updates are snapshotted so one rollback restores them exactly.
 
 = 0.8.62 =
 * New: agents and directories can discover this site's MCP server before connecting, through a public server card, an AI catalog at /.well-known/ai-catalog.json and an agent skills index at /.well-known/agent-skills/index.json.
@@ -374,6 +378,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.63 =
+New: single, archive and search templates with dynamic data bindings. Bind post title, content, excerpt, featured image, author, date, permalink, terms, site name, tagline and logo, plus ACF fields when ACF is active, with display conditions and escaping per field type.
 
 = 0.8.62 =
 New: agents and directories can discover this site's MCP server before connecting, through a public server card, an AI catalog at /.well-known/ai-catalog.json and an agent skills index at /.well-known/agent-skills/index.json.
