@@ -388,4 +388,44 @@ class WooReviewsTest extends \WP_UnitTestCase
         $out = $this->write('reviews.unapprove', ['id' => $review]);
         $this->assertSame(200, $out['status'], wp_json_encode($out));
     }
+
+    /**
+     * Issue #348: a review snapshot holds the reviewer's email and IP, and
+     * rollback-operation runs at edit_posts, so undoing a review write takes
+     * what the review ops take: moderate_comments plus edit_product for the
+     * review's product. The refusal never echoes the stored email or IP.
+     */
+    public function test_review_rollback_needs_moderate_comments_and_edit_product(): void
+    {
+        $review = $this->review($this->product, 4);
+        $before = $this->state($review);
+
+        $out = $this->write('reviews.unapprove', ['id' => $review], ['session_id' => 'review-348']);
+        $this->assertSame(200, $out['status'], wp_json_encode($out));
+        $after = $this->state($review);
+
+        // An author has edit_posts but neither moderate_comments nor edit_product.
+        wp_set_current_user(self::factory()->user->create(['role' => 'author']));
+        $rolled = (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        $this->assertFalse($rolled['restored'], wp_json_encode($rolled));
+        $this->assertStringContainsString('moderate_comments', wp_json_encode($rolled['warnings']));
+        $this->assertStringNotContainsString('rita@example.com', (string) wp_json_encode($rolled));
+        $this->assertStringNotContainsString('203.0.113.9', (string) wp_json_encode($rolled));
+        $this->assertSame($after, $this->state($review));
+
+        // An editor moderates comments but cannot edit products.
+        wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
+        $rolled = (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        $this->assertFalse($rolled['restored'], wp_json_encode($rolled));
+        $this->assertStringContainsString('edit_product', wp_json_encode($rolled['warnings']));
+        $session = (new Rollback_Session())->handle(['session_id' => 'review-348']);
+        $this->assertSame(0, $session['restored_count'], wp_json_encode($session));
+        $this->assertSame($after, $this->state($review));
+
+        // A shop manager has both, and the undo still restores exactly.
+        wp_set_current_user(self::factory()->user->create(['role' => 'shop_manager']));
+        $rolled = (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        $this->assertTrue($rolled['restored'], wp_json_encode($rolled));
+        $this->assertSame($before, $this->state($review));
+    }
 }
