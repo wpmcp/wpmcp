@@ -316,6 +316,7 @@ class Memory_Store
             'order'            => 'ASC',
             // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- guardrail read; a third-party posts_* filter must not be able to remove block rules.
             'suppress_filters' => true,
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- one equality clause on this plugin's own post type, capped at MAX_RULES and memoized per request in self::$rules_cache, so it runs at most once per request over a small table.
             'meta_query'       => [
                 [
                     'key'   => self::META_SEVERITY,
