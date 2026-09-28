@@ -32,6 +32,14 @@ class AbilityGridPageTest extends \WP_UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // The grid reads Plugin::declared_abilities(), which fills the SHARED
+        // Registrar on first use, with whatever licence the Gate reports at
+        // that moment. Several tests below license themselves before reading
+        // the grid, so if this class is the first to touch the Registrar (a
+        // filtered run), the pro tier would land in the shared Registrar and
+        // leak into every later test. Fill it here, unlicensed, the way a
+        // production request does, where the licence never changes mid-request.
+        Plugin::instance()->declared_abilities();
         $this->admin_id = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($this->admin_id);
         Governance::reset_for_tests();
