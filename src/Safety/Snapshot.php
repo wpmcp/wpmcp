@@ -754,7 +754,7 @@ class Snapshot
     {
         if ('comment' === ($snapshot['object_type'] ?? '') && is_array($snapshot['data'] ?? null)) {
             if (is_array($snapshot['data']['comment'] ?? null)) {
-                $snapshot['data']['comment'] = self::redact_comment_row($snapshot['data']['comment']);
+                $snapshot['data']['comment'] = self::redact_comment($snapshot['data']['comment']);
             }
             if (is_array($snapshot['data']['meta'] ?? null)) {
                 $snapshot['data']['meta'] = array_diff_key($snapshot['data']['meta'], array_flip(self::COMMENT_PERSONAL_META));
@@ -763,18 +763,25 @@ class Snapshot
         if (is_array($snapshot['data']['comments'] ?? null)) {
             foreach ($snapshot['data']['comments'] as $i => $comment) {
                 if (is_array($comment)) {
-                    $snapshot['data']['comments'][ $i ] = self::redact_comment_row($comment);
+                    $snapshot['data']['comments'][ $i ] = self::redact_comment($comment);
                 }
             }
         }
         return $snapshot;
     }
 
-    private static function redact_comment_row(array $row): array
+    /**
+     * A comment row (with its 'meta' map, when it carries one) with the
+     * commenter's email, IP and user agent replaced and the meta that copies
+     * them dropped. Reports pass nothing and read REDACTED; a restore for a
+     * caller without moderate_comments passes '' so the fields land blank
+     * (issue #362).
+     */
+    public static function redact_comment(array $row, string $replacement = self::REDACTED): array
     {
         foreach (self::COMMENT_PERSONAL_FIELDS as $field) {
             if (isset($row[ $field ]) && '' !== $row[ $field ]) {
-                $row[ $field ] = self::REDACTED;
+                $row[ $field ] = $replacement;
             }
         }
         if (is_array($row['meta'] ?? null)) {
