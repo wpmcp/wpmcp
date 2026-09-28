@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.88
+Stable tag: 0.8.89
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -100,6 +100,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.89 =
+* Fix: rolling back a BuddyPress write now restores only the rows it saved, by id, so membership requests, notifications and replies that other members add after the write are kept.
+* Fix: rolling back an activity change keeps the thread's reply numbering consistent when someone replied after the write.
 
 = 0.8.88 =
 * Fixed: rolling back a BuddyPress write no longer removes activity, notifications or other rows that someone else added while the write was running. Only the rows the write itself created are removed.
@@ -484,6 +488,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.89 =
+Fix: rolling back a BuddyPress write now restores only the rows it saved, by id, so membership requests, notifications and replies that other members add after the write are kept.
 
 = 0.8.88 =
 Fixed: rolling back a BuddyPress write no longer removes activity, notifications or other rows that someone else added while the write was running. Only the rows the write itself created are removed.
