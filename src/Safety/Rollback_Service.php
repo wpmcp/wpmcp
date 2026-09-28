@@ -639,23 +639,47 @@ class Rollback_Service
     }
 
     /**
-     * Put the captured guid back byte for byte. Both core write paths run a
-     * guid through its db-context sanitizing filters, which entity-encode the
-     * "&" in a custom post type's "?post_type=x&p=N" guid ("&#038;" on an
-     * update, "&amp;" on an insert), so a post a write merely re-saved came
-     * back from rollback with a different guid than it had. Nothing reads the
-     * encoded form differently, but a restore that promises the captured row
-     * should return the captured row.
+     * Columns core rewrites on every save, so they are put back directly
+     * after the wp_update_post()/wp_insert_post() restore.
+     *
+     * - guid: both core write paths run it through its db-context sanitizing
+     *   filters, which entity-encode the "&" in a custom post type's
+     *   "?post_type=x&p=N" guid ("&#038;" on an update, "&amp;" on an
+     *   insert), so a post a write merely re-saved came back with a
+     *   different guid than it had.
+     * - post_modified, post_modified_gmt: wp_update_post() always stamps the
+     *   current time and wp_insert_post() copies post_date, so every
+     *   rollback reset them (issue #320).
+     *
+     * A restore that promises the captured row should return the captured
+     * row.
      */
-    private static function restore_guid(int $object_id, string $guid): void
+    private const VERBATIM_POST_COLUMNS = ['guid', 'post_modified', 'post_modified_gmt'];
+
+    /**
+     * Write the captured values of VERBATIM_POST_COLUMNS back byte for byte.
+     * A column the snapshot lacks (older blobs) or holds empty is left as
+     * core wrote it, so this is a no-op for snapshots that never had them.
+     */
+    private static function restore_verbatim_columns(int $object_id, array $captured): void
     {
-        $current = get_post($object_id);
-        if ('' === $guid || ! $current || $current->guid === $guid) {
+        $current = get_post($object_id, ARRAY_A);
+        if (! $current) {
+            return;
+        }
+        $changes = [];
+        foreach (self::VERBATIM_POST_COLUMNS as $column) {
+            $value = $captured[ $column ] ?? null;
+            if (is_string($value) && '' !== $value && ($current[ $column ] ?? null) !== $value) {
+                $changes[ $column ] = $value;
+            }
+        }
+        if ([] === $changes) {
             return;
         }
         global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- core offers no unsanitized guid write; the post cache is cleaned below.
-        $wpdb->update($wpdb->posts, [ 'guid' => $guid ], [ 'ID' => $object_id ]);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- core offers no unsanitized write of these columns; the post cache is cleaned below.
+        $wpdb->update($wpdb->posts, $changes, [ 'ID' => $object_id ], array_fill(0, count($changes), '%s'), [ '%d' ]);
         clean_post_cache($object_id);
     }
 
@@ -930,7 +954,7 @@ class Rollback_Service
             } else {
                 self::resurrect($object_id, $snapshot['data']['post'], $snapshot['data']['comments'] ?? []);
             }
-            self::restore_guid($object_id, (string) ($snapshot['data']['post']['guid'] ?? ''));
+            self::restore_verbatim_columns($object_id, (array) $snapshot['data']['post']);
         }
 
         $snapshotted_meta = (array) $snapshot['data']['meta'];
