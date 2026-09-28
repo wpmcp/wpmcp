@@ -8857,7 +8857,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-builder',
             'pro',
-            'Detect a post\'s page builder: elementor, bricks, divi, wpbakery, gutenberg or classic. Read-only',
+            'Detect a post\'s builder: elementor, bricks, divi, wpbakery, beaver-builder, gutenberg or classic. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8876,7 +8876,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-builder-content',
             'pro',
-            'Return a post\'s builder structure: the Bricks element array, or the Divi or WPBakery shortcode string (WPBakery adds an element tree with dotted paths). Read-only',
+            'Return a post\'s builder data: Bricks elements, Divi/WPBakery shortcodes (WPBakery adds a path tree), Beaver Builder node tree. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8895,7 +8895,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-builder-content',
             'pro',
-            'Write a post\'s builder structure. Bricks: JSON array string. Divi or WPBakery: shortcode string, or for WPBakery an operation update (path, attrs, text), add (to, index, element), remove (path) or move (path, to, index); to "" is top level. Undoable via rollback-operation',
+            'Write a post\'s builder data. Bricks: JSON array. Divi/WPBakery: shortcodes. Beaver Builder: JSON node tree. WPBakery, Beaver Builder: or operation update (path, attrs, text), add (to, index, element), remove (path), move (path, to, index); to "" = top. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [

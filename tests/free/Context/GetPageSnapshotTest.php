@@ -221,6 +221,18 @@ class GetPageSnapshotTest extends \WP_UnitTestCase
         $this->assertNotSame('', $snap['content_coverage']['note']);
     }
 
+    public function test_beaver_builder_body_is_reported_as_off_content(): void
+    {
+        $id = $this->post(['post_content' => '<div class="fl-builder-content"><p>Rendered copy</p></div>']);
+        update_post_meta($id, '_fl_builder_enabled', true);
+
+        $snap = $this->tool->handle(['post_id' => $id]);
+
+        $this->assertSame('beaver-builder', $snap['builder']);
+        $this->assertFalse($snap['content_coverage']['complete']);
+        $this->assertTrue($snap['content_coverage']['stale_post_content']);
+    }
+
     // -------------------------------------------------------- read gate
 
     public function test_a_contributor_cannot_digest_another_authors_draft(): void
