@@ -5,9 +5,10 @@
  * core.
  *
  * Copied from BuddyPress 14.5.2, bp-core/admin/bp-core-admin-schema.php
- * (bp_core_install_groups(), bp_core_install_activity_streams() and
- * bp_core_install_extended_profiles()), under bp_core_get_table_prefix(),
- * which is the network base prefix.
+ * (bp_core_install_groups(), bp_core_install_activity_streams(),
+ * bp_core_install_extended_profiles(), bp_core_install_notifications() and
+ * bp_core_install_invitations()), under bp_core_get_table_prefix(), which is
+ * the network base prefix.
  *
  * DDL commits implicitly, so callers create the tables in
  * wpSetUpBeforeClass() and drop them in wpTearDownAfterClass(), outside the
@@ -27,6 +28,9 @@ if ( ! function_exists( 'wpmcp_test_bp_tables' ) ) {
 			'bp_xprofile_groups',
 			'bp_xprofile_fields',
 			'bp_xprofile_meta',
+			'bp_notifications',
+			'bp_notifications_meta',
+			'bp_invitations',
 		];
 	}
 }
@@ -132,6 +136,40 @@ if ( ! function_exists( 'wpmcp_test_create_buddypress_tables' ) ) {
 			meta_key varchar(255) DEFAULT NULL,
 			meta_value longtext DEFAULT NULL,
 			KEY object_id (object_id)
+		) {$charset}" );
+		$wpdb->query( "CREATE TABLE {$p}bp_notifications (
+			id bigint(20) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			user_id bigint(20) NOT NULL,
+			item_id bigint(20) NOT NULL,
+			secondary_item_id bigint(20),
+			component_name varchar(75) NOT NULL,
+			component_action varchar(75) NOT NULL,
+			date_notified datetime NOT NULL,
+			is_new tinyint(1) NOT NULL DEFAULT 0,
+			KEY item_id (item_id),
+			KEY user_id (user_id)
+		) {$charset}" );
+		$wpdb->query( "CREATE TABLE {$p}bp_notifications_meta (
+			id bigint(20) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			notification_id bigint(20) NOT NULL,
+			meta_key varchar(255) DEFAULT NULL,
+			meta_value longtext DEFAULT NULL,
+			KEY notification_id (notification_id)
+		) {$charset}" );
+		$wpdb->query( "CREATE TABLE {$p}bp_invitations (
+			id bigint(20) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			user_id bigint(20) NOT NULL,
+			inviter_id bigint(20) NOT NULL,
+			invitee_email varchar(100) DEFAULT NULL,
+			class varchar(120) NOT NULL,
+			item_id bigint(20) NOT NULL,
+			secondary_item_id bigint(20) DEFAULT NULL,
+			type varchar(12) NOT NULL DEFAULT 'invite',
+			content longtext DEFAULT '',
+			date_modified datetime NOT NULL,
+			invite_sent tinyint(1) NOT NULL DEFAULT '0',
+			accepted tinyint(1) NOT NULL DEFAULT '0',
+			KEY item_id (item_id)
 		) {$charset}" );
 		// phpcs:enable
 	}

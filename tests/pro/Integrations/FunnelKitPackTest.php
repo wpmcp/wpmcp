@@ -25,6 +25,12 @@ require_once __DIR__ . '/../../support/funnelkit-tables.php';
  * The stats fixtures carry the customer data FunnelKit really stores beside
  * its counts (optin emails and form data, contact ids), and the tests assert
  * none of it comes back.
+ *
+ * Issue #365: the free plugin records no step views (its
+ * WFCO_Model_Report_views shim forwards to the paid WFFN_Report_Views and
+ * drops the write otherwise), and upsell offers exist only with the upsell
+ * add-on (WFOCU_Core). Both are driven through filters here, on by default,
+ * and a value that cannot be read carries a *_unavailable reason.
  */
 class FunnelKitPackTest extends \WP_UnitTestCase
 {
@@ -56,11 +62,16 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         get_userdata($admin)->add_cap('manage_woocommerce');
         wp_set_current_user($admin);
         add_filter('wpmcp_funnelkit_active', '__return_true');
+        add_filter('wpmcp_funnelkit_views_recorded', '__return_true');
+        add_filter('wpmcp_funnelkit_upsells_active', '__return_true');
     }
 
     protected function tearDown(): void
     {
         remove_all_filters('wpmcp_funnelkit_active');
+        remove_all_filters('wpmcp_funnelkit_views_recorded');
+        remove_all_filters('wpmcp_funnelkit_upsells_active');
+        remove_all_filters('query');
         delete_option('_bwf_global_funnel');
         Gate::set_pro_for_tests(null);
         parent::tearDown();
@@ -190,6 +201,14 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         }
 
         return $ids;
+    }
+
+    /** Make FunnelKit's {prefix}$name look absent to the reader's table probe. */
+    private function hide_table(string $name): void
+    {
+        global $wpdb;
+        $probe = 'SHOW COLUMNS FROM `' . $wpdb->prefix . $name . '`';
+        add_filter('query', static fn ($sql) => $sql === $probe ? 'SHOW COLUMNS FROM `wpmcp_no_such_table`' : $sql);
     }
 
     /** @return array<string, array<string, mixed>> steps keyed by type */
@@ -345,7 +364,80 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         $thankyou = $steps['wc_thankyou'];
         $this->assertSame('wffn_ty', $thankyou['post_type']);
         $this->assertSame('inactive', $thankyou['status']);
-        $this->assertSame([ 'views' => 9, 'conversions' => null ], $thankyou['counts']);
+        $this->assertSame([ 'views' => 9, 'conversions' => null, 'conversions_unavailable' => 'FunnelKit does not track this for the step type' ], $thankyou['counts']);
+        $this->assertSame(
+            [ 'views' => null, 'conversions' => null, 'views_unavailable' => 'FunnelKit counts upsells per offer, not per step', 'conversions_unavailable' => 'FunnelKit counts upsells per offer, not per step' ],
+            $steps['wc_upsells']['counts']
+        );
+    }
+
+    public function test_views_carry_a_reason_when_no_add_on_records_them(): void
+    {
+        $ids = $this->seed_sales_funnel();
+        remove_all_filters('wpmcp_funnelkit_views_recorded');
+        add_filter('wpmcp_funnelkit_views_recorded', '__return_false');
+
+        $steps  = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result']);
+        $reason = 'recorded only by the Funnel Builder Pro add-on, which is not active';
+
+        $this->assertSame([ 'views' => null, 'conversions' => null, 'views_unavailable' => $reason, 'conversions_unavailable' => $reason ], $steps['landing']['counts'], 'landing conversions are view rows too');
+        $this->assertSame([ 'views' => null, 'conversions' => 2, 'views_unavailable' => $reason ], $steps['optin']['counts'], 'optin entries are the free plugin\'s own');
+        $this->assertSame([ 'views' => null, 'conversions' => null, 'views_unavailable' => $reason, 'conversions_unavailable' => $reason ], $steps['optin_ty']['counts']);
+        $this->assertSame([ 'views' => null, 'conversions' => 3, 'views_unavailable' => $reason ], $steps['wc_checkout']['counts'], 'checkout orders are the free plugin\'s own');
+        $this->assertSame(null, $steps['wc_thankyou']['counts']['views']);
+        $this->assertSame($reason, $steps['wc_thankyou']['counts']['views_unavailable']);
+    }
+
+    public function test_presence_of_the_paid_add_ons_defaults_to_their_own_classes(): void
+    {
+        $ids = $this->seed_sales_funnel();
+        remove_all_filters('wpmcp_funnelkit_views_recorded');
+        remove_all_filters('wpmcp_funnelkit_upsells_active');
+
+        $steps = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result']);
+
+        $this->assertSame(class_exists('WFFN_Report_Views'), ! isset($steps['landing']['counts']['views_unavailable']));
+        $this->assertSame(class_exists('WFOCU_Core'), ! isset($steps['wc_upsells']['offers_unavailable']));
+    }
+
+    public function test_counts_carry_a_reason_when_a_stats_table_is_missing(): void
+    {
+        $ids = $this->seed_sales_funnel();
+        foreach ([ 'wfco_report_views', 'wfacp_stats', 'bwf_optin_entries' ] as $table) {
+            $this->hide_table($table);
+        }
+
+        $steps = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result']);
+
+        $this->assertSame(
+            [ 'views' => null, 'conversions' => null, 'views_unavailable' => 'wfco_report_views table missing', 'conversions_unavailable' => 'wfacp_stats table missing' ],
+            $steps['wc_checkout']['counts']
+        );
+        $this->assertSame('bwf_optin_entries table missing', $steps['optin']['counts']['conversions_unavailable']);
+        $this->assertSame('wfco_report_views table missing', $steps['landing']['counts']['conversions_unavailable']);
+    }
+
+    public function test_a_step_without_a_post_id_says_why_it_has_no_counts(): void
+    {
+        $funnel = wpmcp_test_funnelkit_funnel('Half built', [ [ 'type' => 'landing', 'id' => 0 ] ]);
+
+        $step = $this->read(self::GET_OP, [ 'id' => $funnel ])['result']['steps'][0];
+
+        $this->assertNull($step['post_id']);
+        $this->assertSame([ 'views' => null, 'conversions' => null, 'views_unavailable' => 'step has no post id', 'conversions_unavailable' => 'step has no post id' ], $step['counts']);
+    }
+
+    public function test_list_says_why_when_the_funnels_table_is_missing(): void
+    {
+        $this->hide_table('bwf_funnels');
+
+        $result = $this->read(self::LIST_OP)['result'];
+
+        $this->assertSame([], $result['funnels']);
+        $this->assertSame('bwf_funnels table missing', $result['funnels_unavailable']);
+
+        remove_all_filters('query');
+        $this->assertArrayNotHasKey('funnels_unavailable', $this->read(self::LIST_OP)['result']);
     }
 
     public function test_get_lists_upsell_offers_with_their_products(): void
@@ -364,7 +456,37 @@ class FunnelKitPackTest extends \WP_UnitTestCase
             ],
             $upsells['offers']
         );
+        $this->assertArrayNotHasKey('offers_unavailable', $upsells);
         $this->assertArrayNotHasKey('offers', $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['landing']);
+    }
+
+    public function test_offers_carry_a_reason_when_the_upsell_add_on_is_inactive(): void
+    {
+        $ids = $this->seed_sales_funnel();
+        remove_all_filters('wpmcp_funnelkit_upsells_active');
+        add_filter('wpmcp_funnelkit_upsells_active', '__return_false');
+
+        $upsells = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['wc_upsells'];
+
+        $this->assertArrayNotHasKey('offers', $upsells, 'no empty list that reads as "no offers"');
+        $this->assertSame('upsell add-on not active', $upsells['offers_unavailable']);
+        $this->assertSame([], $upsells['product_ids']);
+    }
+
+    public function test_offers_carry_a_reason_when_no_offer_list_is_stored(): void
+    {
+        $ids = $this->seed_sales_funnel();
+        delete_post_meta($ids['upsells'], '_funnel_steps');
+
+        $upsells = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['wc_upsells'];
+
+        $this->assertArrayNotHasKey('offers', $upsells);
+        $this->assertSame('no offer list stored in _funnel_steps', $upsells['offers_unavailable']);
+
+        update_post_meta($ids['upsells'], '_funnel_steps', []);
+        $upsells = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['wc_upsells'];
+        $this->assertSame([], $upsells['offers'], 'a stored empty list is a real "no offers"');
+        $this->assertArrayNotHasKey('offers_unavailable', $upsells);
     }
 
     public function test_get_reports_a_step_whose_post_is_gone_and_the_store_checkout(): void

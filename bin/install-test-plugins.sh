@@ -7,7 +7,8 @@
 # Polylang from the wordpress.org plugin repository or, with WPMCP_LIVE_FORMS=1,
 # Contact Form 7 and Flamingo only (bin/test-local.sh --live-forms), or, with
 # WPMCP_LIVE_BLOCKS=1, Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks
-# only (bin/test-local.sh --live-blocks). The script
+# only (bin/test-local.sh --live-blocks), or, with WPMCP_LIVE_BUDDYPRESS=1,
+# BuddyPress only (bin/test-local.sh --live-buddypress). The script
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
 #
@@ -71,6 +72,16 @@ if [ "${WPMCP_LIVE_BLOCKS:-}" = "1" ]; then
 		"generateblocks:plugin.php"
 		"ultimate-addons-for-gutenberg:ultimate-addons-for-gutenberg.php"
 		"otter-blocks:otter-blocks.php"
+	)
+fi
+
+# The live BuddyPress job (issue #363) runs the BuddyPress ops through the real
+# BuddyPress, so its hooks fire. Exclusive too: the stub-backed BuddyPress tests
+# fake its presence and build its tables from a fixture, and exercise the direct
+# table path that only runs while BuddyPress's own functions are absent.
+if [ "${WPMCP_LIVE_BUDDYPRESS:-}" = "1" ]; then
+	PLUGINS=(
+		"buddypress:bp-loader.php"
 	)
 fi
 
