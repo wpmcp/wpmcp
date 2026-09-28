@@ -1269,6 +1269,22 @@ $edits['src/Integrations/ACF_Integration.php'] = [
     ["            'batch-update-fields' => ACF_Batch_Update::definition(),\n", '', 1],
 ];
 
+// Two of the theme framework packs (issue #288) are the paid add-on's; their
+// spec files are removed by policy.php, so only the cases that build them
+// leave Theme_Framework_Pack.
+$edits['src/Integrations/Theme_Framework_Pack.php'] = [
+    [
+        "        if ('generatepress' === \$framework) {\n"
+            . "            return Theme_Pack_GeneratePress::operations();\n"
+            . "        }\n"
+            . "        if ('blocksy' === \$framework) {\n"
+            . "            return Theme_Pack_Blocksy::operations();\n"
+            . "        }\n",
+        '',
+        1,
+    ],
+];
+
 $edits['src/MCP/Tool_Exposure.php'] = [
     [
         " *    scope + pro-license, audited) if invoked anyway; this class only cuts\n",

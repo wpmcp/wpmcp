@@ -17,7 +17,10 @@ if (! defined('ABSPATH')) {
  * followed by that framework's CSS-cache refresh.
  *
  * Astra is the first pack (largest install base among the detected
- * frameworks); a second family adds another case to operations().
+ * frameworks). Kadence, GeneratePress and Blocksy (issue #288) keep their
+ * settings in nested theme storage, so each is a declarative spec built
+ * by Theme_Settings_Pack; a further family adds another case to
+ * operations().
  */
 final class Theme_Framework_Pack
 {
@@ -46,6 +49,15 @@ final class Theme_Framework_Pack
     {
         if ('astra' === $framework) {
             return self::astra_pack();
+        }
+        if ('kadence' === $framework) {
+            return Theme_Pack_Kadence::operations();
+        }
+        if ('generatepress' === $framework) {
+            return Theme_Pack_GeneratePress::operations();
+        }
+        if ('blocksy' === $framework) {
+            return Theme_Pack_Blocksy::operations();
         }
         return [];
     }
