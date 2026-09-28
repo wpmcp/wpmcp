@@ -20,6 +20,9 @@ class PromptsResourcesHttpTest extends \WP_UnitTestCase
 
     private ?string $session = null;
 
+    /** The revision initialize negotiated, echoed on every later request. */
+    private ?string $protocol = null;
+
     public static function wpSetUpBeforeClass(): void
     {
         if (0 === did_action('wp_abilities_api_init')) {
@@ -36,7 +39,8 @@ class PromptsResourcesHttpTest extends \WP_UnitTestCase
     protected function tearDown(): void
     {
         $this->tear_down_primitives();
-        $this->session = null;
+        $this->session  = null;
+        $this->protocol = null;
         global $wp_rest_server;
         $wp_rest_server = null;
         parent::tearDown();
@@ -81,6 +85,11 @@ class PromptsResourcesHttpTest extends \WP_UnitTestCase
         if (null !== $this->session) {
             $request->set_header('Mcp-Session-Id', $this->session);
         }
+        // Required after initialize since 2025-06-18; adapter 0.7.0 enforces
+        // it (issue #386), 0.6.x only validates it when present.
+        if (null !== $this->protocol) {
+            $request->set_header('MCP-Protocol-Version', $this->protocol);
+        }
         $request->set_body((string) wp_json_encode($message));
 
         $response = rest_do_request($request);
@@ -108,6 +117,7 @@ class PromptsResourcesHttpTest extends \WP_UnitTestCase
             'clientInfo'      => [ 'name' => 'conformance', 'version' => '0.0.0' ],
         ], 1);
         $this->assertNotNull($this->session, 'initialize must issue an Mcp-Session-Id');
+        $this->protocol = $init['result']['protocolVersion'] ?? null;
         return $init;
     }
 
@@ -163,7 +173,8 @@ class PromptsResourcesHttpTest extends \WP_UnitTestCase
         $this->assertSame(-32008, $this->rpc('prompts/get', [ 'name' => 'test-prompt-skill' ])['error']['code']);
         $this->assertSame(-32008, $this->rpc('resources/read', [ 'uri' => Context_Primitives::SITE_CONTEXT_URI ])['error']['code']);
 
-        $this->session = null;
+        $this->session  = null;
+        $this->protocol = null;
         $this->connect('administrator');
         Governance::set_ability_toggle('wpmcp/get-site-context', false);
         Governance::set_ability_toggle('wpmcp/get-skill', false);

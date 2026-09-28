@@ -128,6 +128,10 @@ class DiscoveryDocumentsTest extends \WP_UnitTestCase
         $this->assertSame('streamable-http', $card['remotes'][0]['type']);
         $this->assertSame(Mcp_Resource::canonical(), $card['remotes'][0]['url']);
         $this->assertContains('2025-06-18', $card['remotes'][0]['supportedProtocolVersions']);
+        // Both schema-backed revisions, whichever adapter copy mounts the
+        // endpoint (issue #386).
+        $this->assertContains('2026-07-28', $card['remotes'][0]['supportedProtocolVersions']);
+        $this->assertContains('2025-11-25', $card['remotes'][0]['supportedProtocolVersions']);
     }
 
     public function test_server_card_meta_reports_primitives_and_the_skills_index(): void
