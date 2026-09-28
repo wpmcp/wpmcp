@@ -164,6 +164,34 @@ class SearchStockImagesTest extends \WP_UnitTestCase
         (new Search_Stock_Images())->handle(['query' => 'x', 'provider' => 'clipart-heaven']);
     }
 
+    /**
+     * Issue #187: the readme promises Openverse whenever no other provider is
+     * named. An empty or blank provider is "not named", so it must reach
+     * Openverse rather than fail as an unknown provider.
+     */
+    public function test_an_empty_provider_falls_back_to_openverse(): void
+    {
+        foreach (['', '   ', null] as $provider) {
+            $this->respond_with = ['result_count' => 0, 'results' => []];
+            $out = (new Search_Stock_Images())->handle(['query' => 'barn', 'provider' => $provider]);
+            $this->assertSame('openverse', $out['provider']);
+            $this->assertStringContainsString('api.openverse.org', $this->request['url']);
+        }
+    }
+
+    /** Issue #187: the registered schema advertises the same default the handler applies. */
+    public function test_the_registered_schema_declares_openverse_as_the_default_provider(): void
+    {
+        $found = null;
+        foreach (\WPMCP\Tests\Free\Platform\RegisteredAbilities::all() as $ability) {
+            if ('wpmcp/search-stock-images' === $ability->name) {
+                $found = $ability;
+            }
+        }
+        $this->assertNotNull($found, 'search-stock-images is not registered');
+        $this->assertSame('openverse', $found->input_schema['properties']['provider']['default'] ?? null);
+    }
+
     public function test_per_page_is_capped(): void
     {
         $this->respond_with = ['result_count' => 0, 'results' => []];
