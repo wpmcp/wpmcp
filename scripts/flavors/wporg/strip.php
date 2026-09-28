@@ -267,10 +267,10 @@ $edits['src/Tools/Compose/Build_Page.php'][] = [
 // with the dialect. A docblock describing a step this build does not run is
 // as much a finding as the code would be: the reviewer reads those too.
 $edits['src/Tools/Compose/Build_Page.php'][] = [
-    " *  2. preflight() \u{2014} referential validation against live state (patterns\n"
+    " *  2. preflight() - referential validation against live state (patterns\n"
         . " *     registered, attachments exist, menu exists, Elementor widgets known),\n"
         . " *     still before any write.\n",
-    " *  2. preflight() \u{2014} referential validation against live state (patterns\n"
+    " *  2. preflight() - referential validation against live state (patterns\n"
         . " *     registered, attachments exist, menu exists), still before any write.\n",
     1,
 ];
@@ -487,7 +487,7 @@ $edits['src/Tools/Compose/Page_Spec.php'] = [
     [
         " * Elementor dialect node types:\n"
             . " *   containers: container, section, column (settings passed through to the\n"
-            . " *               element verbatim \u{2014} Elementor's settings vocabulary is its own)\n"
+            . " *               element verbatim - Elementor's settings vocabulary is its own)\n"
             . " *   leaf:       widget{widget: string, widget_settings?: object}\n *\n",
         '',
         1,
