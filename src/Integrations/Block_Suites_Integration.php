@@ -527,6 +527,10 @@ final class Block_Suites_Integration extends Integration_Dispatcher
 
         $node['attrs'][ $id_attr ] = $new;
         $taken[ $suite ][ $new ]    = true;
+        if (! $keep) {
+            // What the suite's editor sets with a new id, unless given.
+            $node['attrs'] += Block_Suite::new_id_attributes($suite, (string) $node['blockName']);
+        }
 
         $search = [ Block_Suite::PLACEHOLDER ];
         if (! $keep && is_string($old) && strlen($old) >= 4 && Block_Suite::PLACEHOLDER !== $old) {

@@ -42,6 +42,17 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'contact-form-7/wp-contact-form-7.php' );
         wpmcp_maybe_require_plugin( 'flamingo/flamingo.php' );
     }
+
+    // The live blocks job (issue #287, WPMCP_LIVE_BLOCKS=1) renders blocks
+    // inserted through the block-suites tools with the real block suites.
+    // Loaded only on request: the stub-backed block suite tests register
+    // stand-in block types under the suites' own names.
+    if ( getenv( 'WPMCP_LIVE_BLOCKS' ) ) {
+        wpmcp_maybe_require_plugin( 'kadence-blocks/kadence-blocks.php' );
+        wpmcp_maybe_require_plugin( 'generateblocks/plugin.php' );
+        wpmcp_maybe_require_plugin( 'ultimate-addons-for-gutenberg/ultimate-addons-for-gutenberg.php' );
+        wpmcp_maybe_require_plugin( 'otter-blocks/otter-blocks.php' );
+    }
 } );
 
 // Recreate the wpmcp snapshots table once per run, BEFORE any test
