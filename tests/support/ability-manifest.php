@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 395,
-    'free'      => 264,
+    'total'     => 397,
+    'free'      => 266,
     'pro'       => 131,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -303,6 +303,8 @@ return [
         'wpmcp/ninjaforms-write' => 'pro',
         'wpmcp/parse-blocks' => 'free',
         'wpmcp/plan-product-import' => 'free',
+        'wpmcp/plugin-data-read' => 'free',
+        'wpmcp/plugin-data-write' => 'free',
         'wpmcp/pmpro-read' => 'free',
         'wpmcp/pmpro-write' => 'free',
         'wpmcp/push-site-archive' => 'free',

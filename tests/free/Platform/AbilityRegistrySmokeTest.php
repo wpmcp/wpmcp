@@ -48,8 +48,9 @@ class AbilityRegistrySmokeTest extends \WP_UnitTestCase
         // A forms pair (issue #66) registers at boot only when its host
         // plugin was loaded at that moment, which for a harness double
         // depends on test order. Those pairs are driven through the replay
-        // below instead, the same way the pro tier is.
-        $conditional  = wpmcp_forms_pair_names();
+        // below instead, the same way the pro tier is. The plugin-data pair
+        // (issue #299) follows JetEngine, Pods and TranslatePress likewise.
+        $conditional  = array_merge(wpmcp_forms_pair_names(), [ 'wpmcp/plugin-data-read', 'wpmcp/plugin-data-write' ]);
         $missing_free = [];
         foreach ($manifest['abilities'] as $name => $tier) {
             if ('free' === $tier && ! wp_has_ability($name) && ! in_array($name, $conditional, true)) {
