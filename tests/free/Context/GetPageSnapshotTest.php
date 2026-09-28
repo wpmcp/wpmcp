@@ -448,6 +448,25 @@ class GetPageSnapshotTest extends \WP_UnitTestCase
         $this->assertContains('seo_lite', $snap['content_coverage']['unmeasured']);
     }
 
+    public function test_breakdance_body_is_read_from_its_stored_tree(): void
+    {
+        $id   = $this->post(['post_content' => '<p>Left over from before Breakdance</p>']);
+        $tree = '{"root":{"id":1,"data":{"type":"root","properties":[]},"children":['
+            . '{"id":100,"data":{"type":"EssentialElements\\\\Section","properties":{"design":{"size":{"min_height":{"breakpoint_base":"400px","breakpoint_phone_portrait":"200px"}}}}},"children":['
+            . '{"id":101,"data":{"type":"EssentialElements\\\\Heading","properties":{"content":{"content":{"text":"Hi","tags":"h1"}},"design":{"typography":{"size":{"breakpoint_tablet_portrait":"20px","breakpoint_phone_portrait":"18px"}}}}},"children":[],"_parentId":100}'
+            . '],"_parentId":1}]},"_nextNodeId":102,"status":"exported"}';
+        update_post_meta($id, '_breakdance_data', wp_slash((string) wp_json_encode(['tree_json_string' => $tree])));
+
+        $snap = $this->tool->handle(['post_id' => $id, 'sections' => ['responsive_overrides']]);
+
+        $this->assertSame('breakdance', $snap['builder']);
+        $this->assertFalse($snap['content_coverage']['complete']);
+        $this->assertTrue($snap['content_coverage']['stale_post_content']);
+        $this->assertSame(2, $snap['structure']['element_count']);
+        $this->assertTrue($snap['responsive_overrides']['supported']);
+        $this->assertSame(['phone_portrait' => 2, 'tablet_portrait' => 1], $snap['responsive_overrides']['breakpoints']);
+    }
+
     public function test_wpbakery_coverage_is_partial_like_divi(): void
     {
         $id = $this->post(['post_content' => '[vc_row][vc_column][vc_column_text]<p>Hi</p>[/vc_column_text][/vc_column][/vc_row]']);

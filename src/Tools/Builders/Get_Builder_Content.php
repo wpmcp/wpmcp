@@ -14,7 +14,9 @@ if (! defined('ABSPATH')) {
  * paths update-builder-content operations address), its two meta rows and
  * whether the plugin is loaded; Beaver Builder returns its node tree (the
  * node ids operations address), whether the draft holds unpublished edits
- * and whether the plugin is loaded.
+ * and whether the plugin is loaded; Breakdance returns its node tree (the
+ * node ids operations address), the next node id and whether the plugin is
+ * loaded.
  * Elementor/Gutenberg/classic posts are out of scope for this tool (use
  * get-elementor-data for Elementor) and return a WP_Error. Never mutates
  * anything, so this is not routed through the safety core.
@@ -60,9 +62,13 @@ class Get_Builder_Content
             return Beaver_Builder_Content::read($post_id);
         }
 
+        if ('breakdance' === $builder) {
+            return Breakdance_Content::read($post_id);
+        }
+
         return new \WP_Error(
             'unsupported_builder',
-            "get-builder-content only supports 'bricks', 'divi', 'wpbakery' and 'beaver-builder'; this post was detected as '{$builder}'."
+            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'beaver-builder' and 'breakdance'; this post was detected as '{$builder}'."
         );
     }
 }

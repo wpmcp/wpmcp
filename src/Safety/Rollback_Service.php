@@ -8,6 +8,7 @@ namespace WPMCP\Safety;
 
 use WPMCP\Tools\Database\Database_Guard;
 use WPMCP\Tools\Builders\Beaver_Builder_Cache;
+use WPMCP\Tools\Builders\Breakdance_Cache;
 use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
@@ -1069,6 +1070,10 @@ class Rollback_Service
 
         if (isset($snapshotted_meta['_fl_builder_data']) || isset($current_meta['_fl_builder_data'])) {
             Beaver_Builder_Cache::clear($object_id);
+        }
+
+        if (isset($snapshotted_meta['_breakdance_data']) || isset($current_meta['_breakdance_data'])) {
+            Breakdance_Cache::regenerate($object_id);
         }
 
         self::refresh_woocommerce_product($object_id);
