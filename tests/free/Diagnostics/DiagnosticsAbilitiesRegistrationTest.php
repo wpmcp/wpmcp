@@ -9,6 +9,7 @@ class DiagnosticsAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/get-debug-log',
         'wpmcp/list-transients',
         'wpmcp/delete-transient',
+        'wpmcp/get-site-health',
     ];
 
     public function test_diagnostics_tools_are_registered_as_free_abilities(): void
