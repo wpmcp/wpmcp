@@ -162,7 +162,11 @@ class Rollback_Service
             // And so is an option_set snapshot (classic widget writes): each
             // covers sidebars_widgets plus ONE widget type's option, so two
             // writes share sidebars_widgets but not the rest.
-            if (in_array($snapshot['object_type'], [ 'db_rows', 'acf_options', 'option_set' ], true)) {
+            // A Redirection redirect is unwound the same way: undoing its
+            // create removes the row only while it still matches what the
+            // create wrote (issue #334), so the session's later edits of that
+            // row must be put back first, newest first, every one of them.
+            if (in_array($snapshot['object_type'], [ 'db_rows', 'acf_options', 'option_set', 'redirection_item' ], true)) {
                 self::apply_snapshot($snapshot);
                 $count++;
                 continue;
@@ -918,7 +922,7 @@ class Rollback_Service
         }
 
         if ('redirection_item' === $snapshot['object_type']) {
-            Redirection_Item_Snapshot::restore($snapshot);
+            self::warn_if(Redirection_Item_Snapshot::restore($snapshot));
             return;
         }
 

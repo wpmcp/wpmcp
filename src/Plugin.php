@@ -819,6 +819,11 @@ final class Plugin
             // it wp_register_ability() gives us abilities but no MCP
             // transport at all. See WPMCP\MCP\Server.
             Mcp_Server::register();
+            // Public agent discovery documents (issue #302): the MCP Server
+            // Card at <endpoint>/server-card, the AI Catalog and the Agent
+            // Skills index under /.well-known/. Public metadata only; see
+            // WPMCP\MCP\Discovery_Documents for what is never advertised.
+            \WPMCP\MCP\Discovery_Endpoints::register();
             // Stdio MCP transport for WP-CLI-only and local workflows
             // (issue #77): `wp mcp-stdio serve`. No-op outside WP-CLI.
             Stdio_Transport::register();

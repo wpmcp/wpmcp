@@ -532,4 +532,94 @@ class RedirectionPackTest extends \WP_UnitTestCase
         $this->assertSame('/x', wpmcp_test_redirection_row($a)['action_data']);
         $this->assertSame('/y-later', wpmcp_test_redirection_row($b)['action_data']);
     }
+
+    // ---------------------------------------------------------------
+    // Racing creates (issue #334)
+    // ---------------------------------------------------------------
+
+    /**
+     * Simulate a second create winning the race for the id this create
+     * reserved: just before the create's own INSERT runs, a different
+     * redirect is written at that id, so the create's insert is refused as
+     * a duplicate key.
+     */
+    private function lose_the_race_to(string $source, string $target): void
+    {
+        global $wpdb;
+        $table  = $wpdb->prefix . 'redirection_items';
+        $group  = $this->group;
+        $filter = static function (string $query) use (&$filter, $table, $source, $target, $group): string {
+            if (0 !== stripos(ltrim($query), "INSERT INTO `{$table}`") || ! preg_match('/VALUES\s*\(\s*\'?(\d+)\'?/i', $query, $m)) {
+                return $query;
+            }
+            remove_filter('query', $filter);
+            wpmcp_test_redirection_item($source, $target, $group, [ 'id' => (int) $m[1] ]);
+            return $query;
+        };
+        add_filter('query', $filter);
+    }
+
+    public function test_a_create_refused_at_insert_leaves_no_snapshot(): void
+    {
+        $before_snaps = Snapshot_Store::row_count();
+        $this->lose_the_race_to('/winner', '/winner-target');
+
+        $out = $this->write('create-redirection-redirect', [ 'source' => '/loser', 'target' => '/loser-target' ]);
+
+        $this->assertSame('write_failed', $out['error']['code'] ?? null, (string) wp_json_encode($out));
+        $this->assertSame($before_snaps, Snapshot_Store::row_count(), 'a create that did not happen must leave no undo point');
+        $this->assertSame(1, $this->item_count(), 'only the winning redirect exists');
+    }
+
+    public function test_rollback_of_a_creation_whose_row_was_replaced_leaves_the_replacement(): void
+    {
+        $out = $this->write('create-redirection-redirect', [ 'source' => '/mine', 'target' => '/my-target' ]);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $id = (int) $out['result']['redirect']['id'];
+
+        // The created row is gone and a different redirect now holds its id.
+        global $wpdb;
+        $wpdb->delete($wpdb->prefix . 'redirection_items', [ 'id' => $id ]);
+        wpmcp_test_redirection_item('/theirs', '/their-target', $this->group, [ 'id' => $id ]);
+        $theirs = wpmcp_test_redirection_row($id);
+
+        Rollback_Service::restore_operation((string) $out['operation_id']);
+        $warnings = Rollback_Service::take_warnings();
+
+        $this->assertSame($theirs, wpmcp_test_redirection_row($id), 'someone else\'s redirect must survive the undo of ours');
+        $this->assertNotEmpty($warnings, 'the skipped restore is reported');
+        $this->assertStringContainsString((string) $id, implode(' ', $warnings));
+    }
+
+    public function test_rollback_of_a_creation_whose_target_changed_outside_wpmcp_is_skipped(): void
+    {
+        $out = $this->write('create-redirection-redirect', [ 'source' => '/moved', 'target' => '/first' ]);
+        $id  = (int) $out['result']['redirect']['id'];
+
+        global $wpdb;
+        $wpdb->update($wpdb->prefix . 'redirection_items', [ 'action_data' => '/someone-else' ], [ 'id' => $id ]);
+
+        Rollback_Service::restore_operation((string) $out['operation_id']);
+
+        $row = wpmcp_test_redirection_row($id);
+        $this->assertNotNull($row, 'a redirect that no longer matches what the create wrote is left in place');
+        $this->assertSame('/someone-else', $row['action_data']);
+        $this->assertNotEmpty(Rollback_Service::take_warnings());
+    }
+
+    public function test_session_rollback_of_a_create_then_update_still_removes_the_redirect(): void
+    {
+        $session = wp_generate_uuid4();
+        $call    = static fn (string $op, array $args): array => (new Theme_Integration())->handle_write([ 'operation' => $op, 'args' => $args, 'session_id' => $session ]);
+
+        $created = $call('create-redirection-redirect', [ 'source' => '/session', 'target' => '/one' ]);
+        $id      = (int) $created['result']['redirect']['id'];
+        $call('update-redirection-redirect', [ 'id' => $id, 'target' => '/two' ]);
+        $call('disable-redirection-redirect', [ 'id' => $id ]);
+
+        Rollback_Service::restore_session($session);
+
+        $this->assertNull(wpmcp_test_redirection_row($id), 'the session undo removes the redirect it created, edits and all');
+        $this->assertSame([], Rollback_Service::take_warnings());
+    }
 }

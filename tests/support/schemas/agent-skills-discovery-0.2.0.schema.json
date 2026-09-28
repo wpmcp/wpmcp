@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+  "$comment": "Transcribed field by field from the normative tables of the Agent Skills discovery RFC (index at /.well-known/agent-skills/index.json, schema version 0.2.0). The schema URI above is the identifier the RFC requires in the index; it did not resolve when this fixture was written (2026-09-28), so this file encodes the RFC text rather than a downloaded copy. Unknown members are allowed because the RFC says clients MUST ignore unrecognized fields.",
+  "type": "object",
+  "required": ["$schema", "skills"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://schemas.agentskills.io/discovery/0.2.0/schema.json"
+    },
+    "skills": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/SkillEntry" }
+    }
+  },
+  "$defs": {
+    "SkillEntry": {
+      "type": "object",
+      "required": ["name", "type", "description", "url", "digest"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["skill-md", "archive"]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}
