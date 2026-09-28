@@ -136,8 +136,14 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  characters. What remains is the consent and replace gates, the
      *  MCP-only and identity-only reach, and the once-only secrets, since
      *  an agent that misses those can upload a credential without consent
-     *  or kill a live one. */
-    private const TOOLS_LIST_BYTE_BUDGET = 206000;
+     *  or kill a live one. Raised 206000 -> 208000 for the classic sidebar
+     *  widget writes (#285: create/update/move/delete-sidebar-widget) when
+     *  they met that main: main measured about 206000 bytes, and the four
+     *  add 1641 bytes (207639 over 388 tools) after their descriptions were
+     *  cut to one line each and their property descriptions dropped. What
+     *  remains is the widget id shape, the 0-based position, the update()
+     *  sanitizing and that each write is undoable. */
+    private const TOOLS_LIST_BYTE_BUDGET = 208000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
