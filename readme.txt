@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.77
+Stable tag: 0.8.78
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * WooCommerce, ACF, Meta Box, JetEngine, Pods, TranslatePress, Yoast, Rank Math, SEOPress, The SEO Framework, SureRank, Slim SEO, Redirection; with Pro, All in One SEO
 * Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm; with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
 * Events, donations, memberships (read)
+* BuddyPress: groups, group members, activity moderation and extended profile fields
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
 * With Pro, FunnelKit funnels and their steps (read), with linked pages, products and step counts
 * Media library plus stock image imports
@@ -98,6 +99,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.78 =
+* New: BuddyPress integration. Read groups, group members, the activity stream and extended profile fields; create and update groups, edit profile field definitions, and hide or delete activity items, all snapshotted and undoable with rollback. The tools appear only while BuddyPress (or another supported data plugin) is active.
+* Member email addresses are only shown to users who can list users, and activity meta such as IP addresses is never returned.
 
 = 0.8.77 =
 * get-rendered-html can now continue a read from a byte offset, returns the next offset to read from, and includes a content hash so agents can tell when a page changed between reads.
@@ -438,6 +443,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.78 =
+New: BuddyPress integration. Read groups, group members, the activity stream and extended profile fields; create and update groups, edit profile field definitions, and hide or delete activity items, all snapshotted and undoable with rollback. The tools appear only while BuddyPress (or another supported data plugin) is active.
 
 = 0.8.77 =
 get-rendered-html can now continue a read from a byte offset, returns the next offset to read from, and includes a content hash so agents can tell when a page changed between reads.
