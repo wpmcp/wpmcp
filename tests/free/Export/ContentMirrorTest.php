@@ -243,6 +243,38 @@ class ContentMirrorTest extends \WP_UnitTestCase
                     update_post_meta($id, '_breakdance_data', wp_slash(self::breakdance_meta('Edited')));
                 },
             ],
+            'avada'          => [
+                static function (self $t): int {
+                    $id = $t->page("[fusion_builder_container type=\"flex\"][fusion_builder_row][fusion_builder_column type=\"1_1\"]\n[fusion_text]<p>Welcome to C:\\Sites\\avada</p>[/fusion_text]\n[fusion_separator style_type=\"default\" /][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]");
+                    update_post_meta($id, 'fusion_builder_status', 'active');
+                    return $id;
+                },
+                static function (self $t, int $id): void {
+                    wp_update_post(['ID' => $id, 'post_content' => '[fusion_builder_container][fusion_text]Edited[/fusion_text][/fusion_builder_container]']);
+                },
+            ],
+            'oxygen'         => [
+                static function (self $t): int {
+                    $id = $t->page();
+                    $t->raw_meta($id, '_oxygen_data', self::breakdance_meta('Welcome to C:\\Sites\\oxygen, "hi"'));
+                    return $id;
+                },
+                static function (self $t, int $id): void {
+                    update_post_meta($id, '_oxygen_data', wp_slash(self::breakdance_meta('Edited')));
+                },
+            ],
+            'thrive'         => [
+                static function (self $t): int {
+                    $id = $t->page('<h1>Welcome</h1>');
+                    update_post_meta($id, 'tcb2_ready', '1');
+                    update_post_meta($id, 'tcb_editor_enabled', '1');
+                    update_post_meta($id, 'tve_updated_post', wp_slash("<div class=\"thrv_wrapper thrv_text_element\" data-css=\"tve-u-1\">\n<h1>Welcome to C:\\Sites\\thrive &amp; \"friends\"</h1>\n</div>\n"));
+                    return $id;
+                },
+                static function (self $t, int $id): void {
+                    update_post_meta($id, 'tve_updated_post', '<div class="thrv_wrapper thrv_text_element"><p>Edited</p></div>');
+                },
+            ],
         ];
     }
 

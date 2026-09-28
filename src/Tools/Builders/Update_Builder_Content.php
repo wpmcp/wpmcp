@@ -26,13 +26,16 @@ if (! defined('ABSPATH')) {
  * Breakdance and Oxygen 6 (the same engine): either a whole node tree as a
  * JSON string, or one operation addressed by node id, written to
  * `_breakdance_data` or `_oxygen_data` (see Breakdance_Content::save).
+ * Thrive Architect: either a whole layout as an HTML string, or one element
+ * operation addressed by the dotted paths get-builder-content returns,
+ * written to its layout meta (see Thrive_Content::save).
  * Elementor/gutenberg/classic posts are out of scope for this tool (use
  * update-element for Elementor) and return a WP_Error.
  *
  * All writes go through Safe_Mutation::run() with object_type='post':
  * Bricks' JSON lives in ordinary postmeta and Divi's shortcodes live in
  * ordinary post_content (as do WPBakery's shortcodes and meta, and Beaver
- * Builder's, Breakdance's and Oxygen's layout meta), all of which
+ * Builder's, Breakdance's, Oxygen's and Thrive Architect's layout meta), all of which
  * are already part of the full post
  * row + postmeta the existing post snapshot captures and restores, so no
  * safety-core change is needed for either edit to be undoable.
@@ -73,13 +76,17 @@ class Update_Builder_Content
             return $this->update_beaver_builder($post_id, $args);
         }
 
+        if ('thrive' === $builder) {
+            return $this->update_thrive($post_id, $args);
+        }
+
         if ('breakdance' === $builder || 'oxygen' === $builder) {
             return $this->update_breakdance($post_id, $args, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance' and 'oxygen'; got '{$builder}'."
+            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen' and 'thrive'; got '{$builder}'."
         );
     }
 
@@ -371,10 +378,65 @@ class Update_Builder_Content
     }
 
     /**
-     * Apply one element operation to a shortcode string, through the parser
-     * of that builder's dialect.
+     * Thrive Architect pages: a whole layout HTML string or one element
+     * operation, only on a page already detected as Thrive (a first layout
+     * is made in the Thrive editor, which sets up the page's other rows).
+     */
+    private function update_thrive(int $post_id, array $args)
+    {
+        $operation = (string) ($args['operation'] ?? '');
+        $path      = null;
+
+        $detected = Builder_Detector::detect($post_id);
+        if ('thrive' !== $detected) {
+            return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not a Thrive Architect page.");
+        }
+
+        $old = Thrive_Content::get_content($post_id);
+        try {
+            if ('' === $operation) {
+                $content = $args['content'] ?? null;
+                if (! is_string($content)) {
+                    throw new \InvalidArgumentException(esc_html('Thrive content must be the layout HTML as a string, or pass an operation.'));
+                }
+                Thrive_Html::assert_balanced($content);
+                Thrive_Html::tree($content);
+            } else {
+                [$content, $path] = $this->apply_operation(Thrive_Html::class, $old, $operation, $args);
+            }
+            $before_more = Thrive_Content::before_more($post_id, $old, $content);
+        } catch (\InvalidArgumentException $e) {
+            return new \WP_Error('invalid_thrive_request', $e->getMessage());
+        }
+
+        $out = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $post_id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-builder-content',
+                'args'        => $args,
+            ],
+            function () use ($post_id, $content, $before_more) {
+                Thrive_Content::save($post_id, $content, $before_more);
+                return true;
+            }
+        );
+
+        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'thrive'];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Apply one element operation to a layout string, through the parser
+     * of that builder's dialect (the shortcode parsers, or Thrive's HTML
+     * parser, which has the same four static edits).
      *
-     * @param class-string<WPBakery_Shortcodes> $parser
+     * @param class-string<WPBakery_Shortcodes>|class-string<Thrive_Html> $parser
      * @return array{0:string,1:?string} new content, and the element's new
      *                                    path when the operation knows it
      */

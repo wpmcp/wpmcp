@@ -24,7 +24,10 @@ if (! defined('ABSPATH')) {
  * Builder's `_fl_builder_enabled` flag, a Breakdance `_breakdance_data`
  * row holding a valid tree (a root with id, data and children inside its
  * `tree_json_string`), the same for Oxygen 6's `_oxygen_data`, Avada's
- * `fusion_builder_status` = 'active' flag, Gutenberg's `<!-- wp: -->` block
+ * `fusion_builder_status` = 'active' flag, Thrive Architect's
+ * `tcb_editor_enabled` flag or `tve_landing_page` template (checked before
+ * block markers, since the plain-text copy Thrive keeps in post_content
+ * preserves them), Gutenberg's `<!-- wp: -->` block
  * comment markers in post_content, then a WPBakery `[vc_row]` or
  * `[vc_section]` shortcode in post_content (a WPBakery page saved with its
  * backend editor off) or an Avada `[fusion_builder_container]` (an Avada
@@ -68,6 +71,11 @@ class Builder_Detector
 
         if ('active' === get_post_meta($post_id, 'fusion_builder_status', true)) {
             return 'avada';
+        }
+
+        // A landing page built from a Thrive template may carry no flag.
+        if (! empty(get_post_meta($post_id, 'tcb_editor_enabled', true)) || '' !== (string) get_post_meta($post_id, 'tve_landing_page', true)) {
+            return 'thrive';
         }
 
         $post = get_post($post_id);
