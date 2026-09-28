@@ -57,6 +57,16 @@ if (! defined('ABSPATH')) {
  *  - ['type' => 'wc_order_create', 'create' => true]: the order does not
  *    exist yet, so Order_Ops records a creation row once it does, and
  *    rollback moves the order to the trash;
+ *  - ['type' => 'wc_shipping_zone', 'param' => P]: the whole zone (zone
+ *    row, location rows, method rows and each method's settings option),
+ *    so zone edits and method adds, edits and removals all roll back
+ *    exactly (Safety\Wc_Shipping_Zone_Snapshot);
+ *  - ['type' => 'wc_shipping_zone_create', 'create' => true] and
+ *    ['type' => 'wc_webhook_create', 'create' => true]: the zone or webhook
+ *    does not exist yet, so its handler records a creation row once it does,
+ *    and rollback deletes it (store configuration, not content);
+ *  - ['type' => 'wc_webhook', 'param' => P]: the raw webhook row, secret
+ *    included but never shown (Safety\Wc_Webhook_Snapshot);
  *  - ['type' => 'term', 'param' => P] or ['type' => 'term', 'create' => true]:
  *    one term of the row's taxonomy, keyed by (taxonomy, slug) with its meta
  *    and object assignments, so an update, a delete or a create (whose slug
@@ -68,8 +78,8 @@ if (! defined('ABSPATH')) {
  * Deliberately NOT in the catalog yet (each needs a snapshot type that does
  * not exist today, and a write with no honest undo does not belong on this
  * surface): order deletes, customer deletion (the user snapshot cannot
- * resurrect a deleted user), and writes to shipping zones, tax rates and
- * webhooks (custom tables with their own caches).
+ * resurrect a deleted user), and tax rate writes through this catalog (the
+ * dedicated tax rate tools carry their own snapshot type).
  *
  * The wc/v3 /batch endpoints are deliberately not rows either: woo-write
  * implements batching itself, one guarded and snapshotted op per item, so a
@@ -107,8 +117,9 @@ class Op_Catalog
      * 'redact' (top-level keys of each returned record that are masked),
      * 'taxonomy' (the op is unavailable unless it is registered, and a term
      * snapshot targets it) and 'handler' (the op runs in-process, through
-     * Brand_Ops or, for an order_* handler, Order_Ops, instead of
-     * dispatching its route).
+     * Brand_Ops or, for an order_*, shipping_* or webhook_* handler,
+     * Order_Ops, Shipping_Ops or Webhook_Ops, instead of dispatching its
+     * route).
      * Keep op names domain.kebab-case and route templates rooted at /wc/v3.
      */
     private const OPS = [
@@ -192,9 +203,21 @@ class Op_Catalog
         'brands.assign'       => [ 'PUT', '/wc/v3/products/{product_id}', 'brands', self::CAP_STORE, 'Add brands (a list of brand ids) to a product', 'write', [ 'type' => 'post', 'param' => 'product_id' ], [ 'taxonomy' => self::BRAND_TAXONOMY, 'handler' => 'assign' ] ],
         'brands.unassign'     => [ 'PUT', '/wc/v3/products/{product_id}', 'brands', self::CAP_STORE, 'Remove brands (a list of brand ids) from a product', 'write', [ 'type' => 'post', 'param' => 'product_id' ], [ 'taxonomy' => self::BRAND_TAXONOMY, 'handler' => 'unassign' ] ],
 
-        // Shipping.
-        'shipping.zones'        => [ 'GET', '/wc/v3/shipping/zones', 'shipping', self::CAP_STORE, 'Configured shipping zones' ],
-        'shipping.zone-methods' => [ 'GET', '/wc/v3/shipping/zones/{zone_id}/methods', 'shipping', self::CAP_STORE, 'Shipping methods enabled in one zone' ],
+        // Shipping. Zone reads and every zone and method write (issue #292)
+        // run in-process through WC_Shipping_Zone (Shipping_Ops). Each write
+        // to an existing zone, its methods included, is covered by a
+        // whole-zone snapshot (zone row, locations, method rows and each
+        // method's settings option); a zone create writes a creation row
+        // whose rollback deletes the zone.
+        'shipping.zones'         => [ 'GET', '/wc/v3/shipping/zones', 'shipping', self::CAP_STORE, 'Every shipping zone (the "locations not covered" zone 0 last) with its locations and methods', 'read', null, [ 'handler' => 'shipping_zones' ] ],
+        'shipping.zone'          => [ 'GET', '/wc/v3/shipping/zones/{id}', 'shipping', self::CAP_STORE, 'One shipping zone with its locations and methods, core method settings included', 'read', null, [ 'handler' => 'shipping_zone' ] ],
+        'shipping.zone-methods'  => [ 'GET', '/wc/v3/shipping/zones/{zone_id}/methods', 'shipping', self::CAP_STORE, 'Shipping methods enabled in one zone' ],
+        'shipping.create-zone'   => [ 'POST', '/wc/v3/shipping/zones', 'shipping', self::CAP_STORE, 'Create a shipping zone: name, order, locations [{code, type: country|state|continent|postcode}]. Rollback deletes it', 'write', [ 'type' => 'wc_shipping_zone_create', 'create' => true ], [ 'handler' => 'shipping_zone_create' ] ],
+        'shipping.update-zone'   => [ 'PUT', '/wc/v3/shipping/zones/{id}', 'shipping', self::CAP_STORE, 'Change a zone\'s name, order or locations (the list replaces the current one)', 'write', [ 'type' => 'wc_shipping_zone', 'param' => 'id' ], [ 'handler' => 'shipping_zone_update' ] ],
+        'shipping.delete-zone'   => [ 'DELETE', '/wc/v3/shipping/zones/{id}', 'shipping', self::CAP_STORE, 'Delete a zone with its methods and their settings', 'destructive', [ 'type' => 'wc_shipping_zone', 'param' => 'id' ], [ 'handler' => 'shipping_zone_delete' ] ],
+        'shipping.add-method'    => [ 'POST', '/wc/v3/shipping/zones/{zone_id}/methods', 'shipping', self::CAP_STORE, 'Add a flat_rate, free_shipping or local_pickup method to a zone (0 = locations not covered): method_id, enabled, order, settings. Rollback removes it', 'write', [ 'type' => 'wc_shipping_zone', 'param' => 'zone_id' ], [ 'handler' => 'shipping_method_add' ] ],
+        'shipping.update-method' => [ 'PUT', '/wc/v3/shipping/zones/{zone_id}/methods/{instance_id}', 'shipping', self::CAP_STORE, 'Change a core method\'s enabled flag, order or settings (validated against its own fields)', 'write', [ 'type' => 'wc_shipping_zone', 'param' => 'zone_id' ], [ 'handler' => 'shipping_method_update' ] ],
+        'shipping.remove-method' => [ 'DELETE', '/wc/v3/shipping/zones/{zone_id}/methods/{instance_id}', 'shipping', self::CAP_STORE, 'Remove a core method from a zone, with its settings', 'destructive', [ 'type' => 'wc_shipping_zone', 'param' => 'zone_id' ], [ 'handler' => 'shipping_method_remove' ] ],
 
         // Taxes.
         'taxes.rates'         => [ 'GET', '/wc/v3/taxes', 'taxes', self::CAP_STORE, 'Tax rates, filterable by class' ],
@@ -205,6 +228,16 @@ class Op_Catalog
         // model context.
         'webhooks.list'       => [ 'GET', '/wc/v3/webhooks', 'webhooks', self::CAP_STORE, 'Registered store webhooks and their delivery status (signing secret redacted)', 'read', null, [ 'redact' => [ 'secret' ] ] ],
         'webhooks.get'        => [ 'GET', '/wc/v3/webhooks/{id}', 'webhooks', self::CAP_STORE, 'One webhook: topic, delivery URL, status (signing secret redacted)', 'read', null, [ 'redact' => [ 'secret' ] ] ],
+        // Webhook writes (issue #292) run in-process through WC_Webhook
+        // (Webhook_Ops): the secret is write-only and masked in every
+        // response, the delivery URL must be https and pass the SSRF guard,
+        // and each change to an existing webhook is covered by a raw-row
+        // snapshot (secret included, never shown); a create writes a
+        // creation row whose rollback deletes the webhook.
+        'webhooks.create'     => [ 'POST', '/wc/v3/webhooks', 'webhooks', self::CAP_STORE, 'Create a webhook: topic (resource.event), delivery_url (public https), name, status, secret (write-only, generated when omitted). Rollback deletes it', 'write', [ 'type' => 'wc_webhook_create', 'create' => true ], [ 'handler' => 'webhook_create' ] ],
+        'webhooks.update'     => [ 'PUT', '/wc/v3/webhooks/{id}', 'webhooks', self::CAP_STORE, 'Change a webhook\'s name, topic, delivery_url, status or secret. The secret is never returned', 'write', [ 'type' => 'wc_webhook', 'param' => 'id' ], [ 'handler' => 'webhook_update' ] ],
+        'webhooks.pause'      => [ 'PUT', '/wc/v3/webhooks/{id}', 'webhooks', self::CAP_STORE, 'Pause a webhook (status paused); deliveries stop until it is set active again', 'write', [ 'type' => 'wc_webhook', 'param' => 'id' ], [ 'handler' => 'webhook_pause' ] ],
+        'webhooks.delete'     => [ 'DELETE', '/wc/v3/webhooks/{id}', 'webhooks', self::CAP_STORE, 'Delete a webhook', 'destructive', [ 'type' => 'wc_webhook', 'param' => 'id' ], [ 'handler' => 'webhook_delete' ] ],
 
         // Settings.
         'settings.groups'     => [ 'GET', '/wc/v3/settings', 'settings', self::CAP_STORE, 'Store settings groups (general, products, tax, shipping, ...)' ],

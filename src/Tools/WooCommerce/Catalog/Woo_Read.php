@@ -66,6 +66,16 @@ class Woo_Read
         $params = isset($args['params']) && is_array($args['params']) ? $args['params'] : [];
         [ $route, $query ] = Op_Catalog::resolve_route($op, $params);
 
+        // Zone reads (issue #292) run in-process so they can carry each
+        // zone's locations and methods in one call.
+        if (is_string($def['handler'] ?? null) && str_starts_with($def['handler'], 'shipping_')) {
+            $out = Shipping_Ops::read($def['handler'], $params);
+            if (isset($out['error'])) {
+                return $out;
+            }
+            return [ 'op' => $op, 'route' => $route, 'status' => $out['status'], 'body' => $out['body'] ];
+        }
+
         $out = $this->dispatch->get($route, $this->apply_query_defaults($def, $query));
 
         return [

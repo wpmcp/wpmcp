@@ -8712,11 +8712,12 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/extract-content',
             'pro',
-            'Extract a post\'s readable plain text and a structural summary (headings, word count, link and image counts) from its stored content. Read-only',
+            'Extract a post\'s readable plain text and a structural summary (headings, word count, link and image counts) from its stored content. keywords=N adds the top N ranked terms and 2-3 word phrases, title and headings weighted. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'post_id' => [ 'type' => 'integer' ],
+                    'post_id'  => [ 'type' => 'integer' ],
+                    'keywords' => [ 'type' => 'integer' ],
                 ],
                 'required'   => [ 'post_id' ],
             ],
