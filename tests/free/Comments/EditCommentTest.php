@@ -14,6 +14,8 @@ class EditCommentTest extends \WP_UnitTestCase
     {
         parent::setUp();
         Snapshot_Store::install();
+        // Restoring a comment snapshot takes moderate_comments (issue #348).
+        wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
     }
 
     protected function tearDown(): void
