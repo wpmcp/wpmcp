@@ -12,7 +12,8 @@ if (! defined('ABSPATH')) {
  *
  * Backed by a single wpmcp_oauth_refresh_tokens option, a map of the
  * SHA-256 hash of the token to its bound record:
- * { client_id, user_id, scope, chain_id, issued_at, rotated_at }.
+ * { client_id, user_id, scope, resource, chain_id, issued_at, rotated_at,
+ * pass_fingerprint }.
  * Storage properties match Token_Store and Code_Store exactly: the
  * plaintext token is returned once at issuance and never persisted, so a
  * leaked options row cannot be replayed.
@@ -61,11 +62,23 @@ if (! defined('ABSPATH')) {
  * deleting it would downgrade a detected breach into an ordinary
  * "unknown token" rejection. gc() only removes records that are past TTL.
  *
- * Concurrency: two simultaneous redemptions of the same FRESH token can
- * both observe rotated_at = 0 and both rotate. That is harmless here by
- * construction -- the outcome is identical to one rotation plus one grace
- * hit, which is exactly the case this class is designed to forgive -- so
- * this store does not need Code_Store's compare-and-swap.
+ * Every record also carries its audience (`resource`, the MCP endpoint per
+ * Mcp_Resource) and a fingerprint of the user's password hash at issuance
+ * (`pass_fingerprint`, the same binding Token_Store uses). A rotation
+ * carries the audience forward unchanged, and the token endpoint refuses to
+ * refresh once the fingerprint no longer matches, so a password change ends
+ * the grant instead of only its current access token.
+ *
+ * Concurrency: every write is a compare-and-swap on the option row
+ * (Atomic_Option), the same guarantee Code_Store has. Two simultaneous
+ * redemptions of one FRESH token can no longer both observe rotated_at = 0
+ * and both rotate: exactly one wins the swap, and the loser, on re-reading,
+ * finds the token rotated under it and is refused ('race_lost') rather than
+ * treated as a grace retry. A concurrent double redeem therefore mints at
+ * most one pair. A later, sequential replay inside the grace window (the
+ * dropped-response retry) is still forgiven. The same swap stops an
+ * unrelated issue() from overwriting a rotation stamp with a stale snapshot,
+ * which would otherwise have made a rotated token fresh again.
  */
 class Refresh_Token_Store
 {
@@ -111,32 +124,70 @@ class Refresh_Token_Store
         return is_array($stored) ? $stored : [];
     }
 
-    private static function save(array $stored): void
+    /**
+     * Apply a mutation to the store atomically; see Atomic_Option::mutate().
+     *
+     * @param callable(array, bool): array{0: ?array, 1: mixed} $mutator
+     * @return mixed
+     */
+    private static function mutate(callable $mutator, $on_exhausted = null)
     {
-        update_option(self::OPTION, $stored);
+        return Atomic_Option::mutate(self::OPTION, $mutator, $on_exhausted);
+    }
+
+    /**
+     * Remove every record matching $predicate. Returns the number removed.
+     *
+     * @param callable(array): bool $predicate
+     */
+    private static function remove_where(callable $predicate): int
+    {
+        return (int) self::mutate(
+            static function (array $stored) use ($predicate): array {
+                $removed = 0;
+                foreach ($stored as $key => $record) {
+                    if ($predicate(is_array($record) ? $record : [])) {
+                        unset($stored[ $key ]);
+                        $removed++;
+                    }
+                }
+
+                return [$removed > 0 ? $stored : null, $removed];
+            },
+            0
+        );
     }
 
     /**
      * Mint a refresh token. Omit $chain_id to start a new grant chain (the
      * authorization_code exchange); pass the redeemed token's chain_id to
-     * continue an existing one (a rotation).
+     * continue an existing one (a rotation). $resource is the audience,
+     * defaulting to the MCP endpoint; a rotation passes the redeemed
+     * record's own so the audience never changes along a chain.
      *
      * @return string The plaintext token, returned exactly once.
      */
-    public static function issue(string $client_id, int $user_id, string $scope, string $chain_id = ''): string
+    public static function issue(string $client_id, int $user_id, string $scope, string $chain_id = '', string $resource = ''): string
     {
-        $token = 'rt_' . bin2hex(random_bytes(32));
-
-        $stored                      = self::load();
-        $stored[ self::hash($token) ] = [
-            'client_id'  => $client_id,
-            'user_id'    => $user_id,
-            'scope'      => $scope,
-            'chain_id'   => '' !== $chain_id ? $chain_id : self::new_chain_id(),
-            'issued_at'  => self::now(),
-            'rotated_at' => 0,
+        $token  = 'rt_' . bin2hex(random_bytes(32));
+        $record = [
+            'client_id'        => $client_id,
+            'user_id'          => $user_id,
+            'scope'            => $scope,
+            'resource'         => '' !== $resource ? $resource : Mcp_Resource::canonical(),
+            'chain_id'         => '' !== $chain_id ? $chain_id : self::new_chain_id(),
+            'issued_at'        => self::now(),
+            'rotated_at'       => 0,
+            'pass_fingerprint' => Token_Store::pass_fingerprint($user_id),
         ];
-        self::save($stored);
+        $key = self::hash($token);
+
+        self::mutate(
+            static function (array $stored) use ($key, $record): array {
+                $stored[ $key ] = $record;
+                return [$stored, null];
+            }
+        );
 
         return $token;
     }
@@ -155,47 +206,65 @@ class Refresh_Token_Store
      * @return array{status: string, record?: array} status is one of
      *         'ok' (fresh, rotated now), 'grace' (rotated already but
      *         within the window), 'unknown', 'expired', 'client_mismatch',
+     *         'race_lost' (a concurrent redemption of the same token won),
      *         or 'reuse_detected' (chain revoked as a side effect).
      */
     public static function redeem(string $token, string $client_id = ''): array
     {
-        $key    = self::hash($token);
-        $stored = self::load();
+        $key = self::hash($token);
+        $now = self::now();
+        $ttl = self::ttl();
+        $grace = self::grace();
 
-        if (! isset($stored[ $key ])) {
-            return ['status' => 'unknown'];
+        $outcome = self::mutate(
+            static function (array $stored, bool $lost_race) use ($key, $client_id, $now, $ttl, $grace): array {
+                if (! isset($stored[ $key ]) || ! is_array($stored[ $key ])) {
+                    return [null, ['status' => 'unknown']];
+                }
+
+                $record = $stored[ $key ];
+
+                if ('' !== $client_id && (string) ($record['client_id'] ?? '') !== $client_id) {
+                    return [null, ['status' => 'client_mismatch']];
+                }
+
+                if ($now > (int) ($record['issued_at'] ?? 0) + $ttl) {
+                    unset($stored[ $key ]);
+                    return [$stored, ['status' => 'expired']];
+                }
+
+                $rotated_at = (int) ($record['rotated_at'] ?? 0);
+
+                if (0 === $rotated_at) {
+                    $stored[ $key ]['rotated_at'] = $now;
+                    return [$stored, ['status' => 'ok', 'record' => $record]];
+                }
+
+                if ($lost_race) {
+                    // This call read the token as FRESH, lost the swap, and
+                    // now finds it rotated: a concurrent redemption of the
+                    // same token won. Minting here too would hand out a
+                    // second pair for one redemption.
+                    return [null, ['status' => 'race_lost']];
+                }
+
+                if ($now <= $rotated_at + $grace) {
+                    // Deliberately does not re-stamp rotated_at: the window is
+                    // anchored to the FIRST rotation and cannot be walked forward.
+                    return [null, ['status' => 'grace', 'record' => $record]];
+                }
+
+                return [null, ['status' => 'reuse_detected', 'chain_id' => (string) ($record['chain_id'] ?? '')]];
+            },
+            ['status' => 'race_lost']
+        );
+
+        if ('reuse_detected' === $outcome['status']) {
+            self::revoke_chain($outcome['chain_id']);
+            return ['status' => 'reuse_detected'];
         }
 
-        $record = $stored[ $key ];
-        $now    = self::now();
-
-        if ('' !== $client_id && (string) ($record['client_id'] ?? '') !== $client_id) {
-            return ['status' => 'client_mismatch'];
-        }
-
-        if ($now > (int) $record['issued_at'] + self::ttl()) {
-            unset($stored[ $key ]);
-            self::save($stored);
-            return ['status' => 'expired'];
-        }
-
-        $rotated_at = (int) ($record['rotated_at'] ?? 0);
-
-        if (0 === $rotated_at) {
-            $stored[ $key ]['rotated_at'] = $now;
-            self::save($stored);
-            return ['status' => 'ok', 'record' => $record];
-        }
-
-        if ($now <= $rotated_at + self::grace()) {
-            // Deliberately does not re-stamp rotated_at: the window is
-            // anchored to the FIRST rotation and cannot be walked forward.
-            return ['status' => 'grace', 'record' => $record];
-        }
-
-        self::revoke_chain((string) ($record['chain_id'] ?? ''));
-
-        return ['status' => 'reuse_detected'];
+        return $outcome;
     }
 
     /**
@@ -208,19 +277,9 @@ class Refresh_Token_Store
             return 0;
         }
 
-        $stored  = self::load();
-        $removed = 0;
-
-        foreach ($stored as $key => $record) {
-            if ((string) ($record['chain_id'] ?? '') === $chain_id) {
-                unset($stored[ $key ]);
-                $removed++;
-            }
-        }
-
-        if ($removed > 0) {
-            self::save($stored);
-        }
+        $removed = self::remove_where(
+            static fn (array $record): bool => (string) ($record['chain_id'] ?? '') === $chain_id
+        );
 
         Token_Store::revoke_chain($chain_id);
 
@@ -230,21 +289,9 @@ class Refresh_Token_Store
     /** Revoke every refresh token bound to a client. Returns the number removed. */
     public static function revoke_for_client(string $client_id): int
     {
-        $stored  = self::load();
-        $removed = 0;
-
-        foreach ($stored as $key => $record) {
-            if ((string) ($record['client_id'] ?? '') === $client_id) {
-                unset($stored[ $key ]);
-                $removed++;
-            }
-        }
-
-        if ($removed > 0) {
-            self::save($stored);
-        }
-
-        return $removed;
+        return self::remove_where(
+            static fn (array $record): bool => (string) ($record['client_id'] ?? '') === $client_id
+        );
     }
 
     /** Whether any refresh token is currently bound to a client. */
@@ -267,23 +314,12 @@ class Refresh_Token_Store
      */
     public static function gc(): int
     {
-        $stored  = self::load();
-        $now     = self::now();
-        $ttl     = self::ttl();
-        $removed = 0;
+        $now = self::now();
+        $ttl = self::ttl();
 
-        foreach ($stored as $key => $record) {
-            if ($now > (int) ($record['issued_at'] ?? 0) + $ttl) {
-                unset($stored[ $key ]);
-                $removed++;
-            }
-        }
-
-        if ($removed > 0) {
-            self::save($stored);
-        }
-
-        return $removed;
+        return self::remove_where(
+            static fn (array $record): bool => $now > (int) ($record['issued_at'] ?? 0) + $ttl
+        );
     }
 
     /**
