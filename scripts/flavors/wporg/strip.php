@@ -1321,12 +1321,13 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
 // file is removed by policy.php, so the line that merges their ops into the
 // theme pair, the docblock sentence describing them, and the rollback hook
 // that refreshes one suite's cache all leave with it. The dynamic template
-// ops (issue #290) leave through the same two edits: their directory is
-// removed by policy.php too.
+// ops (issue #290) and the FunnelKit funnel reads (issue #356) leave through
+// the same two edits: their files are removed by policy.php too.
 $edits['src/Integrations/Theme_Integration.php'] = [
     [
         "            Redirection_Pack::operations(),\n"
             . "            Elementor_Addon_Packs::operations(),\n"
+            . "            FunnelKit_Pack::operations(),\n"
             . "            \\WPMCP\\Tools\\ThemeBuilder\\Dynamic\\Dynamic_Template_Ops::operations()\n",
         "            Redirection_Pack::operations()\n",
         1,
@@ -1338,7 +1339,9 @@ $edits['src/Integrations/Theme_Integration.php'] = [
             . "     * their suite is not loaded.\n"
             . "     * Issue #290 adds the paid-tier dynamic template ops\n"
             . "     * (Dynamic_Template_Ops): source discovery, preview, and create/update of\n"
-            . "     * single, archive and search templates on the site parts store.\n",
+            . "     * single, archive and search templates on the site parts store.\n"
+            . "     * Issue #356 adds the paid-tier FunnelKit funnel reads (FunnelKit_Pack),\n"
+            . "     * which answer funnelkit_inactive while FunnelKit is not loaded.\n",
         "     * catalog only while that family is active.\n",
         1,
     ],
