@@ -66,10 +66,13 @@ class Woo_Read
         $params = isset($args['params']) && is_array($args['params']) ? $args['params'] : [];
         [ $route, $query ] = Op_Catalog::resolve_route($op, $params);
 
-        // Zone reads (issue #292) run in-process so they can carry each
-        // zone's locations and methods in one call.
-        if (is_string($def['handler'] ?? null) && str_starts_with($def['handler'], 'shipping_')) {
-            $out = Shipping_Ops::read($def['handler'], $params);
+        // Zone reads, review listing and reports (issue #292) run in-process:
+        // zones carry their locations and methods in one call, reviews are
+        // filtered by rating and stripped of reviewer emails, and reports
+        // aggregate over the analytics tables or the order store.
+        $handler = self::handler_class($def);
+        if (null !== $handler) {
+            $out = $handler::read((string) $def['handler'], $params);
             if (isset($out['error'])) {
                 return $out;
             }
@@ -84,6 +87,25 @@ class Woo_Read
             'status' => $out['status'],
             'body'   => self::redact($out['body'], $def['redact'] ?? []),
         ];
+    }
+
+    /**
+     * The class an in-process read handler runs through, by its prefix.
+     *
+     * @return class-string<Shipping_Ops>|class-string<Review_Ops>|class-string<Report_Ops>|null
+     */
+    private static function handler_class(array $def): ?string
+    {
+        $handler = $def['handler'] ?? null;
+        if (! is_string($handler)) {
+            return null;
+        }
+        foreach ([ 'shipping_' => Shipping_Ops::class, 'review_' => Review_Ops::class, 'report_' => Report_Ops::class ] as $prefix => $class) {
+            if (str_starts_with($handler, $prefix)) {
+                return $class;
+            }
+        }
+        return null;
     }
 
     /** Whether the host plugin is loaded, mirroring Integration_Dispatcher. */

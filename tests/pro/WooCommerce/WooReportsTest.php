@@ -41,7 +41,7 @@ class WooReportsTest extends \WP_UnitTestCase
 
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
         update_option('woocommerce_calc_taxes', 'no');
-        update_option('timezone_string', '');
+        update_option('timezone_string', 'UTC');
         update_option('gmt_offset', 0);
         $this->made = [];
 
