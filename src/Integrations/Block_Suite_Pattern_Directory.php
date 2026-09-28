@@ -12,11 +12,10 @@ if (! defined('ABSPATH')) {
  * The WordPress.org Pattern Directory as a remote source for the block-suites
  * list-patterns and import-pattern ops (issue #364).
  *
- * The block suites' own cloud libraries are not used. Each is an
- * undocumented endpoint run by its vendor for its own editor, and one of
- * them is reached with a key shipped inside the plugin, which this plugin
- * must never reuse. The Pattern Directory is public, needs no key, and is
- * the service core's own pattern-directory REST route proxies.
+ * The Pattern Directory is public, needs no key, and is the service core's
+ * own pattern-directory REST route proxies. Of the suites' own libraries,
+ * only Spectra's is used (Block_Suite_Spectra_Library, which also records
+ * why the others are not).
  *
  * Nothing is sent unless an agent asks for this source: list-patterns with
  * source "directory", or import-pattern with a "directory:<id>" name. Every

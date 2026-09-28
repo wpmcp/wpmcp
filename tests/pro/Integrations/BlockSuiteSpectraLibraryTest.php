@@ -56,7 +56,9 @@ class BlockSuiteSpectraLibraryTest extends \WP_UnitTestCase
         Snapshot_Store::install();
         Gate::set_pro_for_tests(true);
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
-        $this->presence = fn ($default, string $suite): bool => 'spectra' === $suite && $this->spectra_active;
+        // Kadence stays active so the block-suites integration itself is
+        // available when a test turns Spectra off.
+        $this->presence = fn ($default, string $suite): bool => 'kadence-blocks' === $suite || ('spectra' === $suite && $this->spectra_active);
         add_filter('wpmcp_block_suite_active', $this->presence, 10, 2);
         $this->defaults = static function (array $defaults, string $suite): array {
             if ('spectra' !== $suite) {
