@@ -173,6 +173,7 @@ use WPMCP\Tools\Media\Delete_Media;
 use WPMCP\Tools\Media\Sideload_Image;
 use WPMCP\Tools\Media\Upload_Media;
 use WPMCP\Tools\Media\List_Media;
+use WPMCP\Tools\Media\Find_Unused_Media;
 use WPMCP\Tools\Media\Resize_Media;
 use WPMCP\Tools\Media\Upload_Svg;
 use WPMCP\Tools\Media\Stock\Set_Stock_Key;
@@ -1544,6 +1545,7 @@ final class Plugin
         ));
 
         $list_media          = new List_Media();
+        $find_unused_media   = new Find_Unused_Media();
         $resize_media        = new Resize_Media();
         $upload_svg          = new Upload_Svg();
         $set_stock_key       = new Set_Stock_Key();
@@ -1567,6 +1569,24 @@ final class Plugin
                 ],
             ],
             [$list_media, 'handle'],
+            'edit_posts',
+            'media',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/find-unused-media',
+            'free',
+            'Attachments nothing references (featured image, site logo/icon, content, builder data, post/term meta, options) with size on disk and checks run. Pass next_cursor as cursor until done; unattached:true lists parent-0 ones apart',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'cursor'     => [ 'type' => 'integer' ],
+                    'per_page'   => [ 'type' => 'integer' ],
+                    'type'       => [ 'type' => 'string' ],
+                    'unattached' => [ 'type' => 'boolean' ],
+                ],
+            ],
+            [$find_unused_media, 'handle'],
             'edit_posts',
             'media',
             'read'
@@ -4089,7 +4109,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/disable-maintenance',
             'free',
-            'Turn maintenance mode off: sets enabled=false on the wpmcp_maintenance option (message and retry_after are preserved for a later re-enable). Snapshotted via object_type option (the wpmcp_maintenance option); rollback-operation restores the prior state',
+            'Turn maintenance mode off: sets enabled=false on the wpmcp_maintenance option (message and retry_after are preserved for a later re-enable). Snapshotted; rollback-operation restores the prior state',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4318,7 +4338,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/parse-blocks',
             'free',
-            'Parse block markup into its block tree via parse_blocks(). Accepts either "blocks" (raw markup) or "id" (an existing post, parses its post_content). Each node reports blockName, attrs, recursively parsed innerBlocks, and an innerHTML summary. Read-only',
+            'Parse block markup into its block tree via parse_blocks(). Takes "blocks" (raw markup) or "id" (parses that post\'s post_content). Each node reports blockName, attrs, recursively parsed innerBlocks, and an innerHTML summary. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4480,7 +4500,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-block',
             'free',
-            'Update ONE block in place by "path" (zero-based indexes into the parse-blocks tree, descending innerBlocks): replace "attrs" (full replacement) and/or "inner_html" (leaf blocks only; target a container\'s children by their own paths). Requires expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; every other block stays byte-identical',
+            'Update ONE block in place by "path" (zero-based indexes into the parse-blocks tree, descending innerBlocks): replace "attrs" (full replacement) and/or "inner_html" (leaf blocks only; target a container\'s children by their own paths). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; every other block stays byte-identical',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5683,7 +5703,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-analytics-summary',
             'free',
-            'Read-only sessions/users/pageviews summary over a date range (Y-m-d, defaulting to a trailing 28-day window ending yesterday) via the connected analytics provider. Returns an error when no provider is connected',
+            'Read-only sessions/users/pageviews summary over a date range (Y-m-d; default the 28 days ending yesterday) from the connected analytics provider. Errors when no provider is connected',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5700,7 +5720,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-top-pages',
             'free',
-            'Read-only list of top pages by pageviews over a date range (Y-m-d, defaulting to a trailing 28-day window ending yesterday) via the connected analytics provider, with optional limit (default 10, capped at 100). Returns an error when no provider is connected',
+            'Read-only list of top pages by pageviews over a date range (Y-m-d; default the 28 days ending yesterday) from the connected analytics provider; limit default 10, max 100. Errors when no provider is connected',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5718,7 +5738,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-search-console-summary',
             'free',
-            'Read-only clicks/impressions/ctr/position summary over a date range (Y-m-d, defaulting to a trailing 28-day window ending yesterday) via the connected Search Console provider. Returns an error when no provider is connected',
+            'Read-only clicks/impressions/ctr/position summary over a date range (Y-m-d; default the 28 days ending yesterday) from the connected Search Console provider. Errors when no provider is connected',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5735,7 +5755,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-search-console-queries',
             'free',
-            'Read-only list of top search queries by clicks over a date range (Y-m-d, defaulting to a trailing 28-day window ending yesterday) via the connected Search Console provider, with optional limit (default 10, capped at 100). Returns an error when no provider is connected',
+            'Read-only list of top search queries by clicks over a date range (Y-m-d; default the 28 days ending yesterday) from the connected Search Console provider; limit default 10, max 100. Errors when no provider is connected',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6086,7 +6106,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-element',
             'pro',
-            'Update an Elementor element\'s settings by id, merging the given settings into its existing settings. Reads and writes the page\'s _elementor_data; undoable via rollback-operation since _elementor_data is ordinary postmeta captured by the existing post snapshot',
+            'Update an Elementor element\'s settings by id, merging the given settings into its existing settings. Writes the page\'s _elementor_data, snapshot-first; undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7991,7 +8011,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-write',
             'pro',
-            'Run one write op from woo-ops, or a batch of up to 25, as in-process wc/v3 requests as the current user, gated like woo-read. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. Refunds are unrecoverable and call the gateway only with api_refund:true. Deletes and refunds are off until the wpmcp_woo_op_enabled filter allows them, and need confirm:true. A batch prechecks every item, refuses whole on any failure, and shares one session_id for rollback-session',
+            'Run one woo-ops write op, or a batch of up to 25, as in-process wc/v3 requests as the current user, gated like woo-read. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. Refunds are not recoverable and call the gateway only with api_refund:true. Deletes and refunds need the wpmcp_woo_op_enabled filter and confirm:true. A batch prechecks every item, refuses whole on any failure, and shares one session_id for rollback-session',
             [
                 'type'       => 'object',
                 'properties' => [

@@ -33,7 +33,9 @@ if (! defined('ABSPATH')) {
  * (Post_CSS) and invalidates the document cache exactly as a builder save
  * would. When that path is unavailable the engine falls back to a raw
  * `_elementor_data` meta write and invalidates the page's render cache and
- * generated CSS explicitly (Elementor_Cache).
+ * generated CSS explicitly (Elementor_Cache). The same raw write is retried
+ * when Document::save() drops only elements whose type is not registered
+ * in the current request (issue #392).
  *
  * Failure handling: the snapshot is captured BEFORE the write; a verify
  * step re-reads the stored tree and requires it to match the intended tree
@@ -254,12 +256,69 @@ class Element_Tree
 
         if ($document) {
             self::document_save($document, ['elements' => $elements]);
-            return;
+
+            // Document::save() skips any element whose type is not
+            // registered in this request (a widget a plugin registers only
+            // on the pages that render it), so it silently drops it. When
+            // that is the only loss, retry through the raw path below; the
+            // verify step then checks the result as usual.
+            if (! self::dropped_only_unregistered($post_id, $elements)) {
+                return;
+            }
         }
 
         // Raw fallback: Elementor_Page_Data::save() writes the meta and
         // invalidates the page's render cache and generated CSS itself.
         Elementor_Page_Data::save($post_id, $elements);
+    }
+
+    /**
+     * Whether the stored tree lost elements and every lost id belongs to an
+     * element Elementor cannot instantiate in this request (or sits inside
+     * one). Any other difference, such as a save filter dropping a known
+     * element, is left for the verify step to reject and roll back.
+     */
+    private static function dropped_only_unregistered(int $post_id, array $elements): bool
+    {
+        $intended = Elementor_Template_Data::collect_ids($elements);
+        $stored   = Elementor_Template_Data::collect_ids(Elementor_Page_Data::get($post_id));
+        $missing  = array_diff($intended, $stored);
+
+        if ([] === $missing || [] !== array_diff($stored, $intended)) {
+            return false;
+        }
+
+        return [] === array_diff($missing, self::unregistered_ids($elements));
+    }
+
+    /** Ids of elements Elementor cannot instantiate now, plus their descendants. */
+    private static function unregistered_ids(array $elements): array
+    {
+        $ids     = [];
+        $manager = \Elementor\Plugin::instance()->elements_manager;
+
+        foreach ($elements as $element) {
+            if (! is_array($element)) {
+                continue;
+            }
+
+            $children = is_array($element['elements'] ?? null) ? $element['elements'] : [];
+
+            try {
+                $known = null !== $manager->create_element_instance($element);
+            } catch (\Throwable $e) {
+                $known = true;
+            }
+
+            $ids = array_merge(
+                $ids,
+                $known
+                    ? self::unregistered_ids($children)
+                    : Elementor_Template_Data::collect_ids([$element])
+            );
+        }
+
+        return $ids;
     }
 
     private static function persist_settings(int $post_id, array $settings): void

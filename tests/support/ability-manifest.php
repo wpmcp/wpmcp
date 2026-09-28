@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 403,
-    'free'      => 271,
+    'total'     => 404,
+    'free'      => 272,
     'pro'       => 132,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -143,6 +143,7 @@ return [
         'wpmcp/find-element' => 'pro',
         'wpmcp/find-orphan-posts' => 'free',
         'wpmcp/find-replace-content' => 'free',
+        'wpmcp/find-unused-media' => 'free',
         'wpmcp/fix-color-contrast' => 'pro',
         'wpmcp/fix-link-text' => 'pro',
         'wpmcp/fluentforms-read' => 'pro',
