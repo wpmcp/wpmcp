@@ -34,6 +34,9 @@ class Widget_Compiler
     /** Placeholder syntax, identical to Widget_Renderer's. */
     private const PLACEHOLDER = '/\{\{\s*([a-z0-9_\-]+)\s*\}\}/i';
 
+    /** The data-control renderer compiled widgets call; listed in Generated_Code_Lint::ALLOWED_STATIC_CALLS. */
+    public const DATA_RENDERER = '\\WPMCP\\Tools\\WidgetBuilder\\Data\\Widget_Data';
+
     /**
      * Compile a validated spec to PHP source (in memory; the caller is
      * responsible for the lint + sandbox write + manifest entry).
@@ -93,6 +96,7 @@ class Widget_Compiler
                 'label'   => (string) ($control['label'] ?? $name),
                 'default' => is_scalar($control['default'] ?? null) ? (string) $control['default'] : '',
                 'escaper' => Widget_Spec::escaper_for($type),
+                'query'   => Widget_Spec::is_data($type) && is_array($control['query'] ?? null) ? $control['query'] : [],
             ];
         }
 
@@ -146,7 +150,7 @@ class Widget_Compiler
     }
 
     /**
-     * @param array<string,array{type:string,label:string,default:string,escaper:string}> $controls
+     * @param array<string,array{type:string,label:string,default:string,escaper:string,query:array}> $controls
      */
     private static function emit(string $class, int $spec_id, array $spec, array $controls): string
     {
@@ -183,7 +187,7 @@ class Widget_Compiler
         return "    {$visibility} function {$name}()\n    {\n" . $body . "    }\n\n";
     }
 
-    /** @param array<string,array{type:string,label:string,default:string,escaper:string}> $controls */
+    /** @param array<string,array{type:string,label:string,default:string,escaper:string,query:array}> $controls */
     private static function controls_body(string $title, array $controls): string
     {
         $body = '        $this->start_controls_section(\'wpmcp_content\', [\'label\' => ' . self::lit($title) . "]);\n";
@@ -204,7 +208,7 @@ class Widget_Compiler
      * placeholder with no matching control echoes nothing (same as the
      * runtime renderer), so an unknown name can never reach output raw.
      *
-     * @param array<string,array{type:string,label:string,default:string,escaper:string}> $controls
+     * @param array<string,array{type:string,label:string,default:string,escaper:string,query:array}> $controls
      */
     private static function render_body(string $template, array $controls): string
     {
@@ -229,6 +233,14 @@ class Widget_Compiler
             }
             $body .= '        $value = ' . self::settings_read($key, $controls[$key]['default']) . ";\n";
             $body .= self::scalarize($controls[$key]['type']);
+            if (Widget_Spec::is_data($controls[$key]['type'])) {
+                // A data control (issue #296): the one static call the lint
+                // admits, with the type and the validated query as literals.
+                // Widget_Data::render() escapes everything it returns.
+                $body .= '        echo ' . self::DATA_RENDERER . '::render(' . self::lit($controls[$key]['type']) . ', '
+                    . self::lit_value($controls[$key]['query']) . ", is_scalar(\$value) ? (string) \$value : '');\n";
+                continue;
+            }
             $body .= '        echo ' . $controls[$key]['escaper'] . "(is_scalar(\$value) ? (string) \$value : '');\n";
         }
 
@@ -286,6 +298,31 @@ class Widget_Compiler
     private static function lit(string $value): string
     {
         return var_export($value, true); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- not debug output: var_export() is how spec text is emitted as an inert PHP string literal.
+    }
+
+    /**
+     * A validated data-control query as a PHP literal: strings through lit(),
+     * ints and bools as their literals, arrays as short-array syntax. Nothing
+     * else can reach here (Widget_Data::validate_query() admits only these).
+     *
+     * @param mixed $value
+     */
+    private static function lit_value($value): string
+    {
+        if (is_array($value)) {
+            $parts = [];
+            foreach ($value as $key => $item) {
+                $parts[] = (is_int($key) ? (string) $key : self::lit((string) $key)) . ' => ' . self::lit_value($item);
+            }
+            return '[' . implode(', ', $parts) . ']';
+        }
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+        if (is_int($value)) {
+            return (string) $value;
+        }
+        return self::lit(is_scalar($value) ? (string) $value : '');
     }
 
     /** @param array<int,string> $values */

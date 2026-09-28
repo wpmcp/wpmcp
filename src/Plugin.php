@@ -471,6 +471,9 @@ final class Plugin
         // An Elementor addon module toggle dropped the suite's cached module
         // map; its rollback does too (issue #286).
         [\WPMCP\Integrations\Elementor_Addon_Packs::class, 'after_restore'],
+        // A block suite write dropped the suite's cached per-post CSS; its
+        // rollback does too (issue #287). Hooked on the post restore action.
+        [\WPMCP\Integrations\Block_Suite::class, 'refresh_after_restore', 'wpmcp_rollback_post_restored'],
     ];
 
     /**
@@ -478,13 +481,17 @@ final class Plugin
      * a parameter only so a test can pass a class no build ships; boot()
      * always uses ROLLBACK_REFRESHERS.
      *
-     * @param array<int,array{0:string,1:string}>|null $refreshers
+     * Entries are [class, method] on wpmcp_rollback_options_restored, or
+     * [class, method, hook] for another rollback action.
+     *
+     * @param array<int,array{0:string,1:string,2?:string}>|null $refreshers
      */
     public static function register_rollback_refreshers(?array $refreshers = null): void
     {
-        foreach ($refreshers ?? self::ROLLBACK_REFRESHERS as [$class, $method]) {
+        foreach ($refreshers ?? self::ROLLBACK_REFRESHERS as $refresher) {
+            [$class, $method] = $refresher;
             if (class_exists($class)) {
-                add_action('wpmcp_rollback_options_restored', [$class, $method]);
+                add_action($refresher[2] ?? 'wpmcp_rollback_options_restored', [$class, $method]);
             }
         }
     }
@@ -3321,6 +3328,20 @@ final class Plugin
             new \WPMCP\Integrations\Theme_Integration(),
         ]);
         $this->register_forms_pack_abilities($registrar);
+        $this->register_block_suite_abilities($registrar);
+    }
+
+    /**
+     * Block suite packs (issue #287): Kadence Blocks and GenerateBlocks
+     * behind one pro dispatcher pair that registers only while a supported
+     * suite is loaded. Its own method so the WordPress.org directory build
+     * drops it by name, with the pack's files.
+     */
+    private function register_block_suite_abilities(Registrar $registrar): void
+    {
+        $this->register_integrations($registrar, [
+            new \WPMCP\Integrations\Block_Suites_Integration(),
+        ]);
     }
 
     /**
