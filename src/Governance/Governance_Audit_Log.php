@@ -73,6 +73,23 @@ class Governance_Audit_Log
         update_option(self::OPTION, $entries);
     }
 
+    /**
+     * record() for tool handlers: fills in the active identity ('none' when
+     * there is none) and swallows any failure, because auditing must never
+     * break or block the outcome it observes. Handlers that audit their own
+     * allow/deny decisions (add-custom-js, run-php-snippet) call this rather
+     * than each carrying the same try/catch.
+     */
+    public static function record_quietly(string $ability, bool $allowed, string $reason = ''): void
+    {
+        try {
+            self::record($ability, \WPMCP\Identity\Identity_Context::current() ?? 'none', $allowed, $reason);
+        } catch (\Throwable $e) {
+            // Deliberately empty: see the docblock.
+            unset($e);
+        }
+    }
+
     /** Newest-first entries, limited to $limit (default: the entire log). */
     public static function list(int $limit = self::CAP): array
     {
