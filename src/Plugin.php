@@ -570,6 +570,12 @@ final class Plugin
             Default_Seeder::seed();
             // Self-hosted translations from languages/ (issue #184).
             add_action('init', [$this, 'load_textdomain']);
+            // Seal any phase A plaintext cloud credentials on the first page
+            // load after an update (issue #141); a no-op query-wise otherwise.
+            // The class is absent from flavors that strip src/Cloud.
+            if (class_exists(\WPMCP\Cloud\Cloud_Credentials::class)) {
+                add_action('init', [\WPMCP\Cloud\Cloud_Credentials::class, 'maybe_migrate_on_boot']);
+            }
             $hook = function_exists('wp_register_ability') ? 'wp_abilities_api_init' : 'init';
             add_action($hook, [$this, 'register_abilities']);
             if (function_exists('wp_register_ability_category')) {
