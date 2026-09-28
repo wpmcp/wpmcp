@@ -44,7 +44,7 @@ printf(
 // Small epsilon so a floor set to exactly the measured value cannot fail on
 // float rounding.
 if ($percent + 0.0001 < $min) {
-    fwrite(STDERR, "check-coverage: FAIL — coverage fell below the floor.\n");
+    fwrite(STDERR, "check-coverage: FAIL, coverage fell below the floor.\n");
     exit(1);
 }
 

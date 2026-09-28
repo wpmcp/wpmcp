@@ -62,7 +62,7 @@ class WpCliGuardAllowlistTest extends \WP_UnitTestCase
      * for the only or the last guard in the chain. This replaces the
      * previous "plugin list w/ flags" case above, which asserted that
      * arbitrary trailing flags (e.g. --status=active) were allowed through
-     * is_allowed_subcommand() alone — that assertion encoded the
+     * is_allowed_subcommand() alone - that assertion encoded the
      * vulnerability and is why validate_flags() now exists as a mandatory,
      * separate check.
      */

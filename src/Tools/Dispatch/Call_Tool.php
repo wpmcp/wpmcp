@@ -14,15 +14,15 @@ if (! defined('ABSPATH')) {
  * ability by name, so a client on the collapsed tools/list can still reach
  * the entire long tail.
  *
- * SECURITY MODEL — this class must never become a bypass:
+ * SECURITY MODEL - this class must never become a bypass:
  *
  *  - The ONLY invocation path is the registered WP_Ability's execute(),
  *    the exact same entry point the MCP adapter uses for a direct tool
  *    call. WP_Ability::execute() validates the input against the target's
- *    schema and runs the target's permission_callback — i.e.
+ *    schema and runs the target's permission_callback - i.e.
  *    Registrar::is_permitted(): capability + live Governance + identity
  *    scope + the live pro-license re-check, with the decision audited under
- *    the TARGET ability's name — before the target's wrapped
+ *    the TARGET ability's name - before the target's wrapped
  *    execute_callback runs (rate limiter, then the tool with its
  *    Safe_Mutation snapshot path). This class never touches an Ability's
  *    raw handler, so a dispatched invocation is permission- and
@@ -37,7 +37,7 @@ if (! defined('ABSPATH')) {
  *    bypass): an identity that should dispatch in compact mode must include
  *    the 'dispatch' domain and 'update' operation in its scope. Note that a
  *    dispatched call passes the rate limiter twice (once for this shell,
- *    once for the target) — the shared per-client budget is spent, never
+ *    once for the target) - the shared per-client budget is spent, never
  *    stretched, by dispatching.
  */
 class Call_Tool
@@ -85,8 +85,8 @@ class Call_Tool
 
         // The full gate: input validation, the target's real
         // permission_callback (audited), rate limiting, and the tool's own
-        // Safety behavior all run inside execute(). Its result — success
-        // payload or WP_Error — is returned to the caller unchanged.
+        // Safety behavior all run inside execute(). Its result - success
+        // payload or WP_Error - is returned to the caller unchanged.
         return $ability->execute($arguments);
     }
 }

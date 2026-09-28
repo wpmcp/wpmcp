@@ -11,7 +11,7 @@ use WPMCP\Tools\Brand\Rollback_Brand_Kit;
 use WPMCP\Tools\Elementor\Get_Global_Settings;
 
 /**
- * Brand kits (issue #75, EMCP parity).
+ * Brand kits (issue #75).
  *
  * A brand kit is a named design system stored as data (bundled presets plus
  * the `wpmcp_brand_kits` option/filter) that apply-brand-kit folds into ONE

@@ -101,7 +101,7 @@ class Global_Classes_Store
      * read-modify-write of the complete items map, so a stale caller could
      * otherwise delete a class another agent added between read and write;
      * list-global-classes hands this back as `state_hash` and the write tools
-     * refuse a mismatch. EMCP has no equivalent and simply clobbers.
+     * refuse a mismatch instead of clobbering.
      */
     public static function state_hash(array $items, array $order): string
     {

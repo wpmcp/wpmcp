@@ -19,8 +19,8 @@ if (! defined('ABSPATH')) {
  *
  * wp_register_ability() makes a tool callable in-process and, with
  * show_in_rest, visible over WordPress's own abilities REST routes. Neither
- * of those is MCP. The protocol transport — initialize, tools/list,
- * tools/call, session handling — belongs to the WordPress MCP Adapter, and
+ * of those is MCP. The protocol transport - initialize, tools/list,
+ * tools/call, session handling - belongs to the WordPress MCP Adapter, and
  * the adapter only serves servers that are explicitly registered with it
  * during mcp_adapter_init. Nothing did that, so /wp-json/mcp/wpmcp-server
  * 404'd while README, the Connection screen and get-connection-info all
@@ -53,7 +53,7 @@ class Server
         // discover-abilities / get-ability-info / execute-ability meta-tools
         // on a second endpoint, which would be a way to reach abilities
         // without passing this plugin's compact-mode tools/list filter or
-        // its handshake instructions — an exposure surface we do not own and
+        // its handshake instructions - an exposure surface we do not own and
         // did not ask for. Every wpmcp tool is published by our own server
         // below, gated exactly as the rest of the plugin expects.
         add_filter('mcp_adapter_create_default_server', '__return_false');

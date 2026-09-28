@@ -38,8 +38,8 @@ class StructuredResultTest extends \WP_UnitTestCase
 
     public function test_an_empty_array_is_wrapped_because_php_cannot_tell_it_from_a_list(): void
     {
-        // Unwrapped, [] serializes to `[]` — exactly the invalid shape this
-        // guards against — so it must be wrapped even though it is
+        // Unwrapped, [] serializes to `[]` - exactly the invalid shape this
+        // guards against - so it must be wrapped even though it is
         // ambiguous.
         $this->assertSame(['data' => []], Structured_Result::normalize([]));
         $this->assertStringStartsWith('{', $this->encoded([]));

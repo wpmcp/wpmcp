@@ -113,7 +113,7 @@ class Snapshot_Store
      *
      * Raises rather than returning 0 on failure. The previous version
      * ignored the insert's return value and handed back (int) $wpdb->insert_id,
-     * which is 0 when nothing was written — and Safe_Mutation read that as
+     * which is 0 when nothing was written - and Safe_Mutation read that as
      * success and ran the write anyway. The result was a mutation that
      * reported a real-looking operation_id while its snapshot row did not
      * exist, so list-operations was empty and rollback quietly restored

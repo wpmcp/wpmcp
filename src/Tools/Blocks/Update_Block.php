@@ -10,7 +10,7 @@ if (! defined('ABSPATH')) {
  * Surgical update (issue #56): rewrite one block's attributes and/or inner
  * HTML in place, leaving every other block byte-identical. "attrs" is a
  * full replacement (read the block first via parse-blocks); "inner_html"
- * only applies to leaf blocks — a container's content lives in its inner
+ * only applies to leaf blocks - a container's content lives in its inner
  * blocks, which should be targeted by their own paths.
  */
 class Update_Block

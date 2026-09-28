@@ -18,7 +18,7 @@ if (! defined('ABSPATH')) {
  * 'exposure' (issue #79) is this identity's tool-surface preference:
  * 'full', 'compact', or '' (default) to inherit the site-wide
  * wpmcp_tool_exposure_mode option. It is purely an exposure choice consumed
- * by Tool_Exposure — unlike the scope arrays it grants or denies nothing.
+ * by Tool_Exposure - unlike the scope arrays it grants or denies nothing.
  */
 class Identity_Store
 {

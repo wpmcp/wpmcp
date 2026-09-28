@@ -10,7 +10,7 @@ use WPMCP\Tools\Elementor\Update_Widget;
  * validated params (issue #59): the same catalog schema add-widget inserts
  * with, applied as a merge into the existing settings through the
  * Element_Tree engine (snapshot-first, expected_hash concurrency).
- * Required params are NOT enforced here — a patch touches only what it
+ * Required params are NOT enforced here - a patch touches only what it
  * names. Non-cataloged widgets are refused toward update-element.
  */
 class UpdateWidgetTest extends Structural_Harness

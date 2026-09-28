@@ -19,7 +19,7 @@ if (! defined('ABSPATH')) {
  * wpmcp/update-fields tool's posture exactly: default-off, opted in through
  * the SAME wpmcp_enable_acf_write filter (a site that has already enabled
  * ACF writes gets the dispatcher write too, with no second switch), and
- * snapshotted on the post target — ACF values are ordinary postmeta, so the
+ * snapshotted on the post target - ACF values are ordinary postmeta, so the
  * standard post snapshot captures them and rollback-operation restores them
  * exactly.
  *

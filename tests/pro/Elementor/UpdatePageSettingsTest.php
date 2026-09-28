@@ -9,7 +9,7 @@ use WPMCP\Tools\Rollback_Operation;
  * update-page-settings (issue #58): non-destructive merge into the page's
  * `_elementor_page_settings`, hash-guarded against the settings meta the
  * same way element mutations are guarded against `_elementor_data`. Post
- * fields (title, status, ...) are refused — those belong to the post
+ * fields (title, status, ...) are refused - those belong to the post
  * tools, not the Elementor settings surface.
  */
 class UpdatePageSettingsTest extends Structural_Harness

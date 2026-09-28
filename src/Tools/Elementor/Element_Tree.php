@@ -18,7 +18,7 @@ if (! defined('ABSPATH')) {
  * snapshot-first through Safe_Mutation.
  *
  * Concurrency contract (mirrors the surgical block tools of issue #56):
- * every mutation requires `expected_hash` — sha256 of the raw
+ * every mutation requires `expected_hash` - sha256 of the raw
  * `_elementor_data` JSON string (or of the JSON-encoded page settings for
  * update-page-settings) as reported by get-elementor-data / find-element /
  * the previous mutation's response. A stale hash means the page changed
@@ -27,7 +27,7 @@ if (! defined('ABSPATH')) {
  * structured error and nothing is touched.
  *
  * Write routing: when Elementor is fully bootstrapped (document available
- * AND an active kit exists — container controls dereference the kit during
+ * AND an active kit exists - container controls dereference the kit during
  * save), the tree is written through Elementor's own Document::save() path,
  * which regenerates data canonically, deletes the page's generated CSS
  * (Post_CSS) and invalidates the document cache exactly as a builder save
@@ -42,7 +42,7 @@ if (! defined('ABSPATH')) {
  * Safe_Mutation's automatic restore; a mid-save throwable triggers an
  * explicit restore of the same snapshot. Either way the caller gets a
  * structured 'mutation_failed' error and the page is byte-identical to its
- * pre-operation state — this is what makes batch-update atomic.
+ * pre-operation state - this is what makes batch-update atomic.
  */
 class Element_Tree
 {

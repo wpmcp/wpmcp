@@ -13,11 +13,11 @@ if (! defined('ABSPATH')) {
  *
  *  1. URL shape: https only, no credentials, no custom port, and the host
  *     must match a static allowlist of known stock/CDN hosts (filterable via
- *     'wpmcp_remote_media_allowed_hosts') — checked BEFORE any request, with
+ *     'wpmcp_remote_media_allowed_hosts') - checked BEFORE any request, with
  *     label-boundary suffix matching so "images.pexels.com.evil.example"
  *     never matches "images.pexels.com".
  *  2. Transport: wp_safe_remote_get (WordPress's own unsafe-URL rejection on
- *     top of ours) with redirection disabled — any 3xx is a hard failure, so
+ *     top of ours) with redirection disabled - any 3xx is a hard failure, so
  *     an allowlisted host can never bounce the fetch to an internal address
  *     (SSRF via redirect chain).
  *  3. Size: the declared Content-Length is checked against the cap before
@@ -26,7 +26,7 @@ if (! defined('ABSPATH')) {
  *     'wpmcp_remote_media_max_bytes' (default 15 MB).
  *  4. Content: callers importing raster images run assert_image(), which
  *     requires the actual bytes to parse as a real image of an allowed type
- *     (getimagesize + wp_check_filetype_and_ext) — a polyglot file served
+ *     (getimagesize + wp_check_filetype_and_ext) - a polyglot file served
  *     with an image name/mime is rejected on its bytes, not its label.
  *  5. Filenames: derived from the URL path only, url-decoded, run through
  *     sanitize_file_name(), query strings discarded, length-capped.

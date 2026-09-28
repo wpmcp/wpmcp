@@ -21,7 +21,7 @@ if (! defined('ABSPATH')) {
  * Guards, all BEFORE any snapshot or write:
  *  1. the post must exist;
  *  2. the caller must pass expected_hash (sha256 of post_content, as
- *     returned by parse-blocks) and it must still match — a stale hash
+ *     returned by parse-blocks) and it must still match - a stale hash
  *     means the content changed between read and write, so the paths the
  *     caller computed can no longer be trusted;
  *  3. the content must round-trip byte-identically through

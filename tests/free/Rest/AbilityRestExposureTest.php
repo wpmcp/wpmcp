@@ -13,7 +13,7 @@ use WPMCP\Plugin;
  * defaults WP_Ability::DEFAULT_SHOW_IN_REST to false and gates BOTH the list
  * controller (class-wp-rest-abilities-v1-list-controller.php) and the run
  * controller (class-wp-rest-abilities-v1-run-controller.php) on that meta
- * item, so an ability registered without it is not merely undiscoverable —
+ * item, so an ability registered without it is not merely undiscoverable -
  * it cannot be executed at all. A registry assertion cannot tell the
  * difference; only a request through the REST controller can.
  */

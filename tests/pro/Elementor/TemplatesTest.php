@@ -8,7 +8,7 @@ use WPMCP\Tools\Elementor\Apply_Template;
 use WPMCP\Tools\Elementor\Import_Template;
 
 /**
- * Cluster 2 (EMCP parity): the Elementor template library surface.
+ * Cluster 2: the Elementor template library surface.
  *
  * Templates are ordinary `elementor_library` posts whose element tree lives in
  * `_elementor_data`. export-page reads a page to a portable structure;

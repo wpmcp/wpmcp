@@ -15,7 +15,7 @@ use WPMCP\Tools\WidgetBuilder\Validate_Widget_Spec;
 use WPMCP\Tools\WidgetBuilder\List_Control_Types;
 
 /**
- * Cluster 7 (EMCP parity): the custom Elementor widget builder, implemented
+ * Cluster 7: the custom Elementor widget builder, implemented
  * data-driven (no code generation, no eval, keeping wpmcp's single-eval-site
  * safety invariant). A spec is stored as a wpmcp_widget post; a single dynamic
  * Widget_Base renders it at runtime by interpolating control values into the

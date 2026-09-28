@@ -24,7 +24,7 @@ if (! defined('ABSPATH')) {
  *
  * The catalog cannot drift from reality: tests/free/Elementor/
  * WidgetCatalogDriftTest.php validates every satisfiable entry against the
- * live install — the type must resolve to a real registered widget and every
+ * live install - the type must resolve to a real registered widget and every
  * curated control name (plus responsive variants and repeater fields) must
  * exist on the widget's own control stack.
  *

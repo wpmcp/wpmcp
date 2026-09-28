@@ -8,7 +8,7 @@ if (! defined('ABSPATH')) {
 
 /**
  * Read-only search over a page's element tree (issue #58) by element type,
- * widget type, setting value, and CSS class token — AND-combined. Each
+ * widget type, setting value, and CSS class token - AND-combined. Each
  * match reports its id, types, navigator label, and ancestor id path, and
  * the response carries the current data_hash so a structural mutation can
  * be chained without a second read. Never mutates anything, so it is not

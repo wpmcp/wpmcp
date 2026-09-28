@@ -22,15 +22,15 @@ if (! defined('ABSPATH')) {
 /**
  * Read-only view of the default-off execution opt-in gates (issue #78).
  *
- * The RCE-class / destructive ability groups — exec (WP-CLI, PHP snippets),
- * database writes, and filesystem writes — each guard their own execution
+ * The RCE-class / destructive ability groups - exec (WP-CLI, PHP snippets),
+ * database writes, and filesystem writes - each guard their own execution
  * behind a default-false opt-in filter checked inside the tool
  * (wpmcp_allow_wp_cli, wpmcp_allow_php_exec, wpmcp_enable_db_writes,
  * wpmcp_enable_fs_writes). Those filters ARE the master gates and this class
  * does not touch them: it only maps ability names to the owning tool's own
  * is_enabled() check so the ability grid can (a) mark these rows with a
  * distinct warning and (b) REFUSE to write an enabling governance toggle
- * while the gate is closed — the grid must never become a UI that appears
+ * while the gate is closed - the grid must never become a UI that appears
  * to open a gate only code can open.
  */
 class Opt_In_Gates

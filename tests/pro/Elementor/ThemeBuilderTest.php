@@ -9,7 +9,7 @@ use WPMCP\Tools\Elementor\List_Theme_Templates;
 use WPMCP\Tools\Elementor\Delete_Theme_Template;
 
 /**
- * Cluster 3 (EMCP parity): the Elementor theme builder surface.
+ * Cluster 3: the Elementor theme builder surface.
  *
  * Theme templates are `elementor_library` posts whose `_elementor_template_type`
  * is a theme LOCATION (header, footer, single, archive, ...). Their display

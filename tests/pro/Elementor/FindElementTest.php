@@ -55,7 +55,7 @@ class FindElementTest extends Structural_Harness
     {
         $post_id = $this->make_page();
 
-        // `css_classes` (containers/sections) — token match, not substring.
+        // `css_classes` (containers/sections) - token match, not substring.
         $container = (new Find_Element())->handle(['post_id' => $post_id, 'css_class' => 'hero']);
         $this->assertSame(1, $container['match_count']);
         $this->assertSame('cont001', $container['matches'][0]['element_id']);
