@@ -213,7 +213,7 @@ class PortableBundleBuilderTest extends \WP_UnitTestCase
 
     public function test_the_builder_kinds_join_the_registry_with_their_groups(): void
     {
-        \WPMCP\Plugin::instance()->registrar();
+        wp_get_abilities();
         $kinds = Bundle_Kinds::all();
 
         $this->assertInstanceOf(Block_Bundle_Kind::class, $kinds['block']);

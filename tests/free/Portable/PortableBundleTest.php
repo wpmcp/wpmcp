@@ -265,6 +265,14 @@ class PortableBundleTest extends \WP_UnitTestCase
         $this->assertSame([$existing], array_keys(Php_Snippet_Store::all()), 'Only the imported snippets are removed');
     }
 
+    public function test_a_session_id_longer_than_the_ledger_column_is_refused(): void
+    {
+        $out = $this->import(['bundle' => Bundle::build([]), 'session_id' => str_repeat('s', 37)]);
+
+        $this->assertWPError($out);
+        $this->assertSame('invalid_session_id', $out->get_error_code());
+    }
+
     public function test_a_caller_session_id_is_used(): void
     {
         $out = $this->import([
@@ -278,11 +286,13 @@ class PortableBundleTest extends \WP_UnitTestCase
 
     public function test_the_default_kinds_include_the_snippet_store(): void
     {
+        wp_get_abilities();
         $this->assertArrayHasKey('snippet', Bundle_Kinds::all());
     }
 
     public function test_the_bundle_abilities_are_registered_free_with_the_right_operations(): void
     {
+        wp_get_abilities();
         $abilities = [];
         foreach (\WPMCP\Plugin::instance()->registrar()->all() as $ability) {
             $abilities[ $ability->name ] = $ability;

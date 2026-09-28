@@ -74,16 +74,22 @@ class Block_Spec
         return true;
     }
 
-    /** Normalize: a namespaced block name (wpmcp/<slug>) derived from name or title. */
+    /**
+     * Normalize: a namespaced block name (wpmcp/<slug>) derived from name or
+     * title. Idempotent, so a stored spec read back and written again (an
+     * update, a cloud pull, a bundle import) keeps its name: any provided
+     * namespace is stripped BEFORE sanitize_title(), which would otherwise
+     * fold "wpmcp/callout" into the slug "wpmcp-callout".
+     */
     public static function normalize(array $spec): array
     {
-        $slug = sanitize_title((string) ($spec['name'] ?? ''));
+        $raw  = preg_replace('#^[A-Za-z0-9_\-]+/#', '', trim((string) ($spec['name'] ?? '')));
+        $slug = sanitize_title((string) $raw);
         if ('' === $slug) {
             $slug = sanitize_title((string) $spec['title']);
         }
         $slug = $slug ?: 'custom-block';
-        // Strip any provided namespace; the block always lives under wpmcp/.
-        $slug = preg_replace('#^[a-z0-9\-]+/#', '', $slug);
+        // The block always lives under wpmcp/.
         $spec['name'] = 'wpmcp/' . $slug;
 
         return $spec;

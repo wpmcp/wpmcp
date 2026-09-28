@@ -53,6 +53,10 @@ return [
         // out along with Divi_Content once register_builder_abilities is gone.
         'src/Tools/BlockBuilder',
         'src/Tools/WidgetBuilder',
+        // The shared base of the two builders' portable bundle kinds (issue
+        // #297). The free bundle tools and the snippet kind stay; with both
+        // builders gone this base has nothing left to extend it.
+        'src/Tools/Portable/Spec_Bundle_Kind.php',
         // Execution. The guards stay (Governance\Opt_In_Gates references
         // them); the runners, the executor and their ability wrappers do not.
         'src/Tools/Cli/Run_Wp_Cli.php',
