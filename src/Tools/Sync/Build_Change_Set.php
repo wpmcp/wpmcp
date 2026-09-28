@@ -9,8 +9,10 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * Build a local-live sync change set from the snapshot ledger and write it
- * as an inspectable JSON artifact (issue #192, phase 1).
+ * Build a local-live sync change set from the snapshot ledger (and/or an
+ * explicit object selection) and write it as an inspectable JSON artifact
+ * (issue #192, phase 1). dry_run lists what would be pushed and writes
+ * nothing.
  *
  * The artifact lands in the protected site-backup directory with a random
  * suffix, same exposure reasoning as Site_Archive_Builder: it contains
@@ -18,8 +20,8 @@ if (! defined('ABSPATH')) {
  *
  * This tool only reads site data and writes one artifact file; it never
  * mutates user content, so it is not routed through Safe_Mutation. The
- * apply side (phase 2) is the mutating half and WILL go snapshot-first
- * through the safety core on the target site.
+ * apply side (apply-change-set) is the mutating half and goes
+ * snapshot-first through the safety core on the target site.
  *
  * Failures throw. Registrar wraps every call and records ok:false with the
  * exception class, so a returned ['error' => ...] would be logged, and
@@ -39,9 +41,18 @@ class Build_Change_Set
     {
         $marker = $this->marker($args);
 
-        $change_set = (new Change_Set_Builder())->build($marker);
+        try {
+            $change_set = (new Change_Set_Builder())->build($marker);
+        } catch (\InvalidArgumentException $e) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- the builder escapes the ref it interpolates; $e is the previous exception.
+            throw new \RuntimeException($e->getMessage(), 0, $e);
+        }
 
         $counts = $this->counts($change_set);
+
+        if (! empty($args['dry_run'])) {
+            return $this->preview($change_set, $counts);
+        }
 
         if (0 === $counts['exported'] && 0 === $counts['deleted']) {
             // No artifact, so the per-row excluded report has nowhere else to
@@ -75,6 +86,52 @@ class Build_Change_Set
             'excluded'    => count($change_set['excluded']),
             'truncated'   => $change_set['truncated'],
             'origin'      => $change_set['origin'],
+            'checksum'    => $change_set['checksum'],
+        ];
+    }
+
+    /**
+     * The dry run: what this change set would push, object by object, and
+     * what it depends on, without writing an artifact. Nothing here is a
+     * target-side prediction (that is apply-change-set's dry run); it is the
+     * origin's account of what it would send.
+     */
+    private function preview(array $set, array $counts): array
+    {
+        $objects = [];
+        foreach ($set['objects'] as $object) {
+            $objects[] = [
+                'key'       => $object['key'],
+                'type'      => $object['object_type'],
+                'post_type' => $object['post_type'] ?? null,
+                'title'     => $object['data']['post_title'] ?? ($object['data']['name'] ?? ($object['name'] ?? null)),
+                'deleted'   => ! empty($object['deleted']),
+                'unchanged' => ! empty($object['unchanged']),
+                'base'      => $object['base']['state'] ?? null,
+                'requires'  => $object['requires'] ?? [],
+            ];
+        }
+
+        $deps = $set['dependencies'];
+
+        return [
+            'dry_run'      => true,
+            'counts'       => $counts,
+            'objects'      => $objects,
+            'dependencies' => [
+                'attachments'              => array_map(
+                    static fn ($a) => ['key' => $a['key'], 'file' => $a['file'], 'size' => $a['size'], 'bytes_included' => null !== $a['bytes'], 'bytes_omitted' => $a['bytes_omitted']],
+                    $deps['attachments']
+                ),
+                'terms'                    => wp_list_pluck($deps['terms'], 'key'),
+                'posts'                    => wp_list_pluck($deps['posts'], 'key'),
+                'elementor_global_classes' => array_keys($deps['elementor_global_classes']),
+                'external'                 => $deps['external'],
+            ],
+            'excluded_rows' => $set['excluded'],
+            'truncated'     => $set['truncated'],
+            'checksum'      => $set['checksum'],
+            'note'          => 'Dry run: nothing was written. Run again without dry_run to write the artifact.',
         ];
     }
 
@@ -103,8 +160,9 @@ class Build_Change_Set
     }
 
     /**
-     * Exactly one marker, and it must be non-empty. An empty session_id used
-     * to pass isset() and come back as the reassuring "no syncable objects
+     * At most one ledger marker, and it must be non-empty; `objects` (an
+     * explicit selection) may stand alone or add to the marker's objects.
+     * An empty session_id used to pass isset() and come back as the reassuring "no syncable objects
      * found" rather than an argument error; two markers used to silently
      * drop one of them; and since_id of 0 (which is also what any
      * non-numeric value casts to) used to read the entire surviving ledger,
@@ -140,9 +198,20 @@ class Build_Change_Set
                 . 'combining them would silently pick one and hide the other.'
             );
         }
+
+        if (isset($args['objects'])) {
+            if (! is_array($args['objects'])) {
+                throw new \RuntimeException('objects must be a list of refs such as post:12, option:theme_mods_THEME or term:category:news.');
+            }
+            $refs = array_values(array_filter(array_map('strval', $args['objects']), static fn ($r) => '' !== trim($r)));
+            if ([] !== $refs) {
+                $marker['objects'] = $refs;
+            }
+        }
+
         if ([] === $marker) {
             throw new \RuntimeException(
-                'Pass session_id, operation_id or since_id: a change set is derived from a marker, never from the whole database.'
+                'Pass session_id, operation_id, since_id or objects: a change set is a set of selected objects, never the whole database.'
             );
         }
 
