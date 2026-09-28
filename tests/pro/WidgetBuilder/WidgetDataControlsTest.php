@@ -291,7 +291,11 @@ class WidgetDataControlsTest extends \WP_UnitTestCase
         $html = $this->render_both($this->spec(['type' => 'query_terms', 'query' => ['taxonomy' => 'post_tag', 'orderby' => 'name']]));
         $this->assertStringContainsString('<ul class="wpmcp-data wpmcp-terms">', $html);
         $this->assertStringContainsString(esc_url(get_term_link($t)), $html);
-        $this->assertStringContainsString('Tag &amp; &lt;i&gt;Friends&lt;/i&gt;', $html);
+        // WordPress strips tags from term names and stores "&" encoded on
+        // insert; the renderer must encode it exactly once.
+        $this->assertStringContainsString('Tag &amp; Friends', $html);
+        $this->assertStringNotContainsString('&amp;amp;', $html);
+        $this->assertStringNotContainsString('<i>', $html);
         $this->assertStringNotContainsString('Empty tag', $html, 'empty terms are hidden by default');
 
         $all = $this->render_both($this->spec(['type' => 'query_terms', 'query' => ['taxonomy' => 'post_tag', 'hide_empty' => false]]));

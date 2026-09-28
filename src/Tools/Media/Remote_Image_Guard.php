@@ -45,8 +45,15 @@ class Remote_Image_Guard
 
     private const ALLOWED_IMAGE_TYPES = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF, IMAGETYPE_WEBP];
 
-    /** @throws \InvalidArgumentException when the URL fails any pre-request check. */
-    public static function validate_url(string $url): void
+    /**
+     * Pre-request checks. Other remote readers (the widget builder's remote
+     * JSON data control, issue #296) pass their own host list and filter
+     * name so they share these exact rules without sharing the media list.
+     *
+     * @param string[]|null $allowed_hosts null means the remote media list.
+     * @throws \InvalidArgumentException when the URL fails any pre-request check.
+     */
+    public static function validate_url(string $url, ?array $allowed_hosts = null, string $filter = 'wpmcp_remote_media_allowed_hosts'): void
     {
         $parts = wp_parse_url($url);
         if (! is_array($parts) || empty($parts['host'])) {
@@ -63,7 +70,7 @@ class Remote_Image_Guard
         }
 
         $host = strtolower((string) $parts['host']);
-        foreach (self::allowed_hosts() as $allowed) {
+        foreach ($allowed_hosts ?? self::allowed_hosts() as $allowed) {
             $allowed = strtolower(trim((string) $allowed));
             if ('' === $allowed) {
                 continue;
@@ -76,9 +83,47 @@ class Remote_Image_Guard
         }
 
         throw new \InvalidArgumentException(sprintf(
-            'Host "%s" is not on the allowed remote media host list. Extend it with the wpmcp_remote_media_allowed_hosts filter if this source is trusted.',
-            esc_html($host)
+            'Host "%s" is not on the allowed host list. Extend it with the %s filter if this source is trusted.',
+            esc_html($host),
+            esc_html($filter)
         ));
+    }
+
+    /**
+     * Refuse a host that is, or resolves to, a loopback, private, link-local
+     * or reserved address, so an allowlist entry can never point a fetch
+     * inside the network. wp_safe_remote_get() checks the same thing, but
+     * only after pre_http_request, so this runs first and on its own.
+     * Resolution is filterable ('wpmcp_remote_host_addresses') so tests pin
+     * it; an unresolvable name is left to the transport, which fails it.
+     *
+     * @throws \InvalidArgumentException when the host is not public.
+     */
+    public static function assert_public_host(string $host): void
+    {
+        $host = strtolower(trim($host, '[]. '));
+        if ('' === $host || 'localhost' === $host || str_ends_with($host, '.localhost')) {
+            throw new \InvalidArgumentException('Remote requests to local hosts are refused.');
+        }
+
+        if (false !== filter_var($host, FILTER_VALIDATE_IP)) {
+            $addresses = [$host];
+        } else {
+            $addresses = apply_filters('wpmcp_remote_host_addresses', null, $host);
+            if (! is_array($addresses)) {
+                $addresses = gethostbynamel($host);
+                $addresses = is_array($addresses) ? $addresses : [];
+            }
+        }
+
+        foreach ($addresses as $address) {
+            $address = (string) $address;
+            $public  = filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+            // 100.64.0.0/10 (carrier-grade NAT) is not in PHP's ranges.
+            if (false === $public || 1 === preg_match('/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./', $address)) {
+                throw new \InvalidArgumentException(sprintf('Host "%s" resolves to a non-public address; refused.', esc_html($host)));
+            }
+        }
     }
 
     /** @return string[] */

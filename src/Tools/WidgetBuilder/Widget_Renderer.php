@@ -48,19 +48,31 @@ class Widget_Renderer
         $template = (string) ($spec['template'] ?? '');
 
         $values = [];
+        $data   = [];
         foreach ($controls as $control) {
             $name = sanitize_key((string) ($control['name'] ?? ''));
             if ('' === $name) {
                 continue;
             }
-            $raw = $settings[$name] ?? ($control['default'] ?? '');
-            $values[$name] = self::escape((string) ($control['type'] ?? 'text'), $raw);
+            $type = (string) ($control['type'] ?? 'text');
+            $raw  = $settings[$name] ?? ($control['default'] ?? '');
+            if (Widget_Spec::is_data($type)) {
+                // Rendered lazily, only when the template uses it, so an
+                // unused data control never queries or fetches anything.
+                $data[$name] = [$type, $control['query'] ?? [], is_scalar($raw) ? (string) $raw : ''];
+                continue;
+            }
+            $values[$name] = self::escape($type, $raw);
         }
 
         return (string) preg_replace_callback(
             '/\{\{\s*([a-z0-9_\-]+)\s*\}\}/i',
-            static function (array $m) use ($values): string {
+            static function (array $m) use (&$values, $data): string {
                 $key = sanitize_key($m[1]);
+                if (! isset($values[$key]) && isset($data[$key])) {
+                    // Output-ready: Widget_Data escapes every value it emits.
+                    $values[$key] = Data\Widget_Data::render($data[$key][0], $data[$key][1], $data[$key][2]);
+                }
                 return $values[$key] ?? '';
             },
             $template
