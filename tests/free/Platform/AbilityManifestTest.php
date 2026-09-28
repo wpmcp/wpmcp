@@ -13,7 +13,7 @@ namespace WPMCP\Tests\Free\Platform;
  * or re-tiered ability fails CI with a diff against the manifest.
  *
  * Deliberate changes to the ability surface are made by regenerating the
- * manifest — `composer manifest:regenerate` — and committing the diff, which
+ * manifest - `composer manifest:regenerate` - and committing the diff, which
  * makes the change visible in review instead of invisible in registration
  * code.
  */
@@ -151,7 +151,7 @@ class AbilityManifestTest extends \WP_UnitTestCase
         }
 
         $contents = sprintf(
-            "<?php\n\n/**\n * Registered-ability manifest — the drift guard for the plugin's MCP surface.\n *\n * GENERATED FILE: do not hand-edit. Regenerate deliberately with\n * `composer manifest:regenerate` after intentionally adding, removing,\n * renaming, or re-tiering an ability, and commit the diff.\n * Asserted by tests/free/Platform/AbilityManifestTest.php.\n *\n * Pins the canonical test environment: single-site WordPress with the\n * optional test plugins from bin/install-test-plugins.sh present (parts of\n * the registration path are conditional on ACF / SEO / i18n plugins and on\n * multisite), which is exactly the environment CI runs.\n */\n\nreturn [\n    'total'     => %d,\n    'free'      => %d,\n    'pro'       => %d,\n    'abilities' => [\n%s\n    ],\n];\n",
+            "<?php\n\n/**\n * Registered-ability manifest: the drift guard for the plugin's MCP surface.\n *\n * GENERATED FILE: do not hand-edit. Regenerate deliberately with\n * `composer manifest:regenerate` after intentionally adding, removing,\n * renaming, or re-tiering an ability, and commit the diff.\n * Asserted by tests/free/Platform/AbilityManifestTest.php.\n *\n * Pins the canonical test environment: single-site WordPress with the\n * optional test plugins from bin/install-test-plugins.sh present (parts of\n * the registration path are conditional on ACF / SEO / i18n plugins and on\n * multisite), which is exactly the environment CI runs.\n */\n\nreturn [\n    'total'     => %d,\n    'free'      => %d,\n    'pro'       => %d,\n    'abilities' => [\n%s\n    ],\n];\n",
             count($abilities),
             $tiers['free'] ?? 0,
             $tiers['pro'] ?? 0,

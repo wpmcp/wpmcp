@@ -10,8 +10,8 @@ if (! defined('ABSPATH')) {
  * Read-only: return the settings schema for a single Elementor widget type.
  *
  * By default, cataloged widgets (Widget_Catalog, issue #59) answer with the
- * hand-curated subset — typed params, defaults, responsive hints, and the
- * plugin the widget needs — which is what an agent should reach for first.
+ * hand-curated subset - typed params, defaults, responsive hints, and the
+ * plugin the widget needs - which is what an agent should reach for first.
  * The full control stack Elementor itself defines (control name, type,
  * label, default, section) is available behind `full: true`, and is the
  * automatic fallback for widgets the catalog does not curate.

@@ -11,7 +11,7 @@ if (! defined('ABSPATH')) {
 /**
  * Server-side connection self-test (issue #76): POST an MCP initialize
  * request to this site's own MCP endpoint and classify the outcome. Runs
- * without credentials on purpose — the question it answers is "is the
+ * without credentials on purpose - the question it answers is "is the
  * endpoint mounted and answering?", so 401/403 count as reachable (bring
  * credentials), 404 means the adapter route is missing, and a transport
  * error means the site cannot loop back to itself (common on hosts that
@@ -158,7 +158,7 @@ class Connection_Tester
      * Whether the body is clean JSON. A body that does not parse, or that
      * has content before the opening brace, is the signature of stray PHP
      * output (a notice, a warning, a _doing_it_wrong() block) landing in
-     * the response — the exact corruption Transport_Guard suppresses, and
+     * the response - the exact corruption Transport_Guard suppresses, and
      * the one a client reports as a dropped connection rather than a parse
      * error. An empty body is not evidence of anything either way.
      *

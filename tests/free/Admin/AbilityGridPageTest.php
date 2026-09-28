@@ -16,14 +16,14 @@ require_once __DIR__ . '/../../support/forms-adapters.php';
  * Issue #78: the per-ability admin toggle grid.
  *
  * A manage_options screen listing the ability surface this install would
- * actually register (sourced from the Registrar — never a hardcoded list),
+ * actually register (sourced from the Registrar - never a hardcoded list),
  * grouped by domain, showing tier, risk hints, and the effective state WITH
  * the layer that decides it. Toggles write through the existing Governance
  * mechanism only (no new bypass), every change is audited with the acting
  * user, an ability whose tier this install cannot run has no row and no write
  * path at all (issue #161), and default-off dangerous abilities (exec, db
  * writes, fs writes) cannot be enabled from the grid while their execution
- * opt-in filter is absent — the filter stays the master gate.
+ * opt-in filter is absent - the filter stays the master gate.
  */
 class AbilityGridPageTest extends \WP_UnitTestCase
 {
@@ -116,7 +116,7 @@ class AbilityGridPageTest extends \WP_UnitTestCase
         $this->assertSame(
             array_values(array_diff($expected, $conditional)),
             array_values(array_diff($this->row_names(), $conditional)),
-            'Grid rows must be exactly the Registrar\'s declared ability surface — not a hardcoded list.'
+            'Grid rows must be exactly the Registrar\'s declared ability surface - not a hardcoded list.'
         );
     }
 
@@ -279,7 +279,7 @@ class AbilityGridPageTest extends \WP_UnitTestCase
     }
 
     // ---------------------------------------------------------------
-    // Toggling writes through Governance — and is audited
+    // Toggling writes through Governance - and is audited
     // ---------------------------------------------------------------
 
     public function test_disabling_an_ability_writes_the_governance_toggle_and_registration_honors_it(): void

@@ -10,7 +10,7 @@ if (! defined('ABSPATH')) {
  * Patch a cataloged widget's settings from curated, typed params
  * (issue #59): the same Widget_Catalog schema add-widget inserts with,
  * validated (unknown params, enum and type violations refused) and merged
- * into the element's existing settings. Required params are NOT enforced —
+ * into the element's existing settings. Required params are NOT enforced -
  * a patch touches only what it names. Widgets outside the catalog are
  * refused toward update-element, which merges raw settings.
  *

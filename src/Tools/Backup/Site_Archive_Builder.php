@@ -61,7 +61,7 @@ class Site_Archive_Builder
      * WooCommerce store's downloadable products are .zip files in the Media
      * Library, and so are exports and backups a site owner deliberately
      * uploaded. Excluding them tree-wide meant a store migrated with every
-     * downloadable product missing while file_count still reported success —
+     * downloadable product missing while file_count still reported success -
      * a loss discovered by the first customer who tried to download, not by
      * anyone checking the archive.
      */

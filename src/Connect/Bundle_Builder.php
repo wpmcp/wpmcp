@@ -15,7 +15,7 @@ if (! defined('ABSPATH')) {
  * and runs on the runtime Claude Desktop bundles with mcpb extensions, so
  * connecting needs no PATH lookup, npx, or package install.
  *
- * Secret-free by construction: build() takes only the endpoint URL — there
+ * Secret-free by construction: build() takes only the endpoint URL - there
  * is no code path that could place a credential in the archive. The
  * username and Application Password are declared as required user_config
  * fields (the password marked sensitive, so the client stores it in the OS

@@ -8,7 +8,7 @@ use WPMCP\Tools\Elementor\List_Dynamic_Tags;
 use WPMCP\Tools\Elementor\Set_Dynamic_Tag;
 
 /**
- * Cluster 5 (EMCP parity): Elementor popups and dynamic tags.
+ * Cluster 5: Elementor popups and dynamic tags.
  *
  * A popup is an `elementor_library` post of type popup; its trigger/display
  * config lives in `_elementor_page_settings`. A dynamic tag binds to an

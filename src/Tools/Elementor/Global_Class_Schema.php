@@ -174,7 +174,7 @@ class Global_Class_Schema
     /**
      * The { breakpoint, state } meta a variant targets.
      *
-     * Unlike EMCP, which silently coerces an unknown breakpoint to desktop, an
+     * Rather than silently coercing an unknown breakpoint to desktop, an
      * unrecognized breakpoint or state is an error: quietly writing the styles
      * to a different breakpoint than the caller asked for is worse than
      * refusing, because the agent believes the responsive rule landed.
@@ -226,7 +226,7 @@ class Global_Class_Schema
 
     /**
      * Build a variant's typed props from friendly `styles` plus a raw `props`
-     * escape hatch. An unknown friendly key is an error (EMCP ignores it), so
+     * escape hatch. An unknown friendly key is an error (never ignored), so
      * a typo never silently produces a class with no styles.
      *
      * @return array|\WP_Error

@@ -13,9 +13,10 @@ use WPMCP\Skills\Skill_Library;
  *
  *  - The MCP Server Card (SEP-2127, extension io.modelcontextprotocol/server-card),
  *    served at <streamable-http-url>/server-card and validated against the
- *    extension's published schema.json, vendored verbatim from
+ *    extension's published schema.json, vendored from
  *    modelcontextprotocol/experimental-ext-server-card at 526201bb as
- *    tests/support/schemas/mcp-server-card.v1.schema.json.
+ *    tests/support/schemas/mcp-server-card.v1.schema.json (dashes in its
+ *    description strings normalized, see the README next to it).
  *  - The AI Catalog at /.well-known/ai-catalog.json that points at the card.
  *  - The Agent Skills discovery index at /.well-known/agent-skills/index.json
  *    (schema 0.2.0) with one skill-md artifact per published skill.

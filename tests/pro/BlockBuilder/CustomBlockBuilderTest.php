@@ -18,7 +18,7 @@ use WPMCP\Tools\BlockBuilder\Validate_Block_Spec;
 use WPMCP\Tools\BlockBuilder\List_Block_Control_Types;
 
 /**
- * Cluster 7b (EMCP parity): the custom Gutenberg block builder, data-driven
+ * Cluster 7b: the custom Gutenberg block builder, data-driven
  * (no code generation, no eval). A spec is stored as a wpmcp_block post and
  * registered via register_block_type with a render_callback that interpolates
  * attribute values into the template. Covers validation, the pure renderer's

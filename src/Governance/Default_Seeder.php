@@ -13,7 +13,7 @@ if (! defined('ABSPATH')) {
  * The shipped defaults are a map of defaults-version => ability names that
  * should be disabled by default FROM that version on. seed() applies every
  * version newer than the last one recorded (wpmcp_governance_defaults_version)
- * by writing an ordinary Governance ability toggle — never a new mechanism —
+ * by writing an ordinary Governance ability toggle - never a new mechanism -
  * and then records the latest version. Two properties fall out of that:
  *
  *  - Explicit admin decisions are never clobbered: a default is only written

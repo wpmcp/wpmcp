@@ -32,7 +32,7 @@ class Widget_View
      * bundled Elementor (free) widget lives under the Elementor\ namespace.
      * Free Elementor also registers PROMOTION placeholders under Pro widget
      * names (Elementor\Modules\Promotions\...): those represent pro widgets
-     * that are not installed, so they report as 'pro' — never as free
+     * that are not installed, so they report as 'pro' - never as free
      * widgets a caller could insert.
      */
     public static function tier(\Elementor\Widget_Base $widget): string

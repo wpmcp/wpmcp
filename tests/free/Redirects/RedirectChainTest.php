@@ -8,7 +8,7 @@ use WPMCP\Tools\Redirects\Redirect_Store;
 /**
  * Chain flattening and loop detection (issue #128).
  *
- * These are the two things EMCP's redirect store does not do at write time,
+ * These are the two things a naive redirect store does not do at write time,
  * and they are the difference between a redirect table that stays one hop
  * deep and one that quietly grows A -> B -> C -> D chains (or a cycle that
  * browsers turn into ERR_TOO_MANY_REDIRECTS).

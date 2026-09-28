@@ -6,7 +6,7 @@ use WPMCP\Governance\Governance;
 use WPMCP\MCP\Ability;
 
 /**
- * Issue #78: Governance::explain() — the same six-layer AND-of-narrowing
+ * Issue #78: Governance::explain() - the same six-layer AND-of-narrowing
  * walk as is_ability_enabled(), but reporting WHICH layer decided, so the
  * ability grid can show "disabled: governance toggle" vs "disabled:
  * wpmcp_domain_enabled filter" instead of a bare off state. Read-only:

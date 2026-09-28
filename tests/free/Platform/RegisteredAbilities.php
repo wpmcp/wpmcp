@@ -17,7 +17,7 @@ use WPMCP\Pro\Gate;
  * pro tier under test. This helper temporarily swaps a fresh Registrar into
  * the Plugin singleton, replays Plugin::register_abilities() against it with
  * Gate::set_pro_for_tests(true), captures the result, and restores both the
- * original Registrar and the Gate — the live registry is untouched because
+ * original Registrar and the Gate - the live registry is untouched because
  * Registrar only calls wp_register_ability() inside a real
  * wp_abilities_api_init action window.
  *
@@ -33,7 +33,7 @@ final class RegisteredAbilities
     {
         $plugin = Plugin::instance();
         $prop   = new \ReflectionProperty(Plugin::class, 'registrar');
-        // NOTE: no setAccessible() call — a no-op since PHP 8.1 and
+        // NOTE: no setAccessible() call - a no-op since PHP 8.1 and
         // deprecated in PHP 8.5.
         $original = $prop->getValue($plugin);
 

@@ -18,8 +18,8 @@ if (! defined('ABSPATH')) {
  * can lag, and for a delete confirmation we want what the content actually
  * says.
  *
- * EMCP's delete asks for confirm:true without ever telling the agent what
- * breaks; this is the report that makes that confirmation an informed one.
+ * A bare confirm:true on delete never tells the agent what breaks; this is
+ * the report that makes that confirmation an informed one.
  */
 class Global_Class_Usage
 {

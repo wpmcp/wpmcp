@@ -9,7 +9,7 @@ if (! defined('ABSPATH')) {
 /**
  * Non-destructive settings merge on a layout element (container, section,
  * or column) by id (issue #58): given keys are overwritten or added, every
- * other settings key survives untouched. Widgets are refused — that is
+ * other settings key survives untouched. Widgets are refused - that is
  * update-element's job. Hash-guarded and snapshot-first via Element_Tree.
  */
 class Update_Container
