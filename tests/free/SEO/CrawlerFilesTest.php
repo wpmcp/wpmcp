@@ -67,6 +67,9 @@ class CrawlerFilesTest extends \WP_UnitTestCase
     /** @return string[] the core sitemap index entries, as URLs. */
     private function sitemap_index(): array
     {
+        // Pretty permalinks, so the entry URLs do not depend on whatever
+        // structure an earlier test in the run left behind.
+        $this->set_permalink_structure('/%postname%/');
         $server = new \WP_Sitemaps();
         $server->register_sitemaps();
         return array_map(static fn (array $entry): string => $entry['loc'], $server->index->get_sitemap_list());
@@ -203,13 +206,13 @@ class CrawlerFilesTest extends \WP_UnitTestCase
         self::factory()->post->create(['post_type' => 'post', 'post_status' => 'publish']);
 
         $before = implode("\n", $this->sitemap_index());
-        $this->assertStringContainsString('sitemap-subtype=page&', $before);
+        $this->assertStringContainsString('wp-sitemap-posts-page-1', $before);
 
         $out = (new Update_Crawler_Files())->handle(['sitemap' => ['exclude_post_types' => ['page']]]);
 
         $after = implode("\n", $this->sitemap_index());
-        $this->assertStringNotContainsString('sitemap-subtype=page&', $after);
-        $this->assertStringContainsString('sitemap-subtype=post&', $after);
+        $this->assertStringNotContainsString('wp-sitemap-posts-page-1', $after);
+        $this->assertStringContainsString('wp-sitemap-posts-post-1', $after);
 
         $read = (new Get_Crawler_Files())->handle([]);
         $this->assertSame('core', $read['sitemap']['owner']);
@@ -217,7 +220,7 @@ class CrawlerFilesTest extends \WP_UnitTestCase
         $this->assertContains('post', $read['sitemap']['post_types']);
 
         Rollback_Service::restore_operation($out['operation_id']);
-        $this->assertStringContainsString('sitemap-subtype=page&', implode("\n", $this->sitemap_index()));
+        $this->assertStringContainsString('wp-sitemap-posts-page-1', implode("\n", $this->sitemap_index()));
     }
 
     public function test_excluding_a_single_post_drops_it_from_its_sitemap_page(): void
@@ -236,11 +239,11 @@ class CrawlerFilesTest extends \WP_UnitTestCase
     {
         $term = self::factory()->category->create();
         self::factory()->post->create(['post_status' => 'publish', 'post_category' => [$term]]);
-        $this->assertStringContainsString('sitemap-subtype=category&', implode("\n", $this->sitemap_index()));
+        $this->assertStringContainsString('wp-sitemap-taxonomies-category-1', implode("\n", $this->sitemap_index()));
 
         (new Update_Crawler_Files())->handle(['sitemap' => ['exclude_taxonomies' => ['category']]]);
 
-        $this->assertStringNotContainsString('sitemap-subtype=category&', implode("\n", $this->sitemap_index()));
+        $this->assertStringNotContainsString('wp-sitemap-taxonomies-category-1', implode("\n", $this->sitemap_index()));
     }
 
     public function test_unknown_post_types_are_refused(): void
