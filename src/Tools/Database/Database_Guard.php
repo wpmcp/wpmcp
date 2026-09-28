@@ -591,6 +591,14 @@ class Database_Guard
             return;
         }
 
+        if ($name === strtolower(\WPMCP\Tools\Redirects\Redirect_Store::table_name())) {
+            // The front-end redirect lookup is object-cached under a
+            // last_changed stamp; a runtime flush would not reach a
+            // persistent cache, so retire it explicitly.
+            \WPMCP\Tools\Redirects\Redirect_Store::invalidate_cache();
+            return;
+        }
+
         // Unrecognised table (a custom or plugin table): anything could be
         // memoized against it, so drop the runtime cache rather than guess.
         self::flush_runtime_cache();

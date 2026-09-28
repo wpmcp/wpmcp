@@ -76,20 +76,44 @@ class SEO_Adapter
     }
 
     /**
-     * Which SEO plugin is active: 'yoast', 'rankmath', 'seopress', or '' when
-     * none is.
+     * Which SEO plugin is active: 'yoast', 'rankmath', 'seopress',
+     * 'seoframework', 'surerank', or '' when none is.
      */
     public static function active_plugin(): string
     {
         if (null !== self::$active_override) {
             return self::$active_override;
         }
+
+        return self::detect_active_plugin();
+    }
+
+    /**
+     * The same detection, ignoring the test seam: what the real environment
+     * has installed, whatever a test has forced for itself.
+     *
+     * Public because the test harness's wpmcp_seo_plugin() gates on it. That
+     * helper used to restate the checks and had drifted to knowing only
+     * Yoast and RankMath, which makes a test skip itself on a SEOPress or
+     * SureRank leg while the code it covers is live: a silent green.
+     */
+    public static function detect_active_plugin(): string
+    {
         if (defined('WPSEO_VERSION') || class_exists('WPSEO_Options')) {
             return 'yoast';
         }
 
         if (class_exists('RankMath')) {
             return 'rankmath';
+        }
+
+        // SEOPress: the key map below has existed since the adapter was
+        // written, but detection did not, so a SEOPress site reported "no
+        // supported plugin". Both constants are defined by the free plugin;
+        // the function check covers installs that load the settings layer
+        // before the version constant.
+        if (defined('SEOPRESS_VERSION') || function_exists('seopress_get_toggle_titles_option')) {
+            return 'seopress';
         }
 
         if (defined('THE_SEO_FRAMEWORK_VERSION') || function_exists('tsf')) {

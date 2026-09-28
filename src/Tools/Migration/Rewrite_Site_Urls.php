@@ -246,7 +246,7 @@ class Rewrite_Site_Urls
         while (true) {
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table/column names come from the const map above, not input.
             $sql  = "SELECT `{$pk}`, {$col_list} FROM `{$table}` WHERE `{$pk}` > %d AND ({$where_any}){$exclude_sql} ORDER BY `{$pk}` ASC LIMIT %d";
-            // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- table/column names come from the const map above; every value is bound by prepare().
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, PluginCheck.Security.DirectDB.UnescapedDBParameter -- direct: no core API selects rows by a substring of their value across options/posts/postmeta/termmeta/usermeta/comments, and this is a keyset-paginated batch scan. Not cached: each batch must see the live rows it is about to rewrite, and every row is read once. Table/column names come from the const map above; every value is bound by prepare().
             $rows = $wpdb->get_results(
                 // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql is the literal-plus-const-map string built two lines above; every value is bound here.
                 $wpdb->prepare($sql, array_merge([$last], array_fill(0, count($columns), $like), $exclude_values, [self::BATCH_SIZE])),
@@ -304,6 +304,7 @@ class Rewrite_Site_Urls
                     continue;
                 }
 
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- direct: the rewritten value is already in its final stored form (serialized payloads re-encoded by Url_Rewriter), and update_option()/update_metadata() would run maybe_serialize() over it again and fire per-object hooks for a mechanical site-wide rewrite. Caches: handle() calls wp_cache_flush() once after the pass whenever any row changed.
                 $result = $wpdb->update($table, $updates, [ $pk => $row[ $pk ] ]);
                 if (false === $result) {
                     $failed++;

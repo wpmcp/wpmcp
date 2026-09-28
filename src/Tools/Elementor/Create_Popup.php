@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Elementor;
 
+use WPMCP\Tools\Builders\Elementor_Cache;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -31,6 +33,7 @@ class Create_Popup
         $settings = is_array($args['settings'] ?? null) ? $args['settings'] : [];
         if ([] !== $settings) {
             update_post_meta($popup_id, '_elementor_page_settings', $settings);
+            Elementor_Cache::invalidate_document($popup_id);
         }
 
         return [

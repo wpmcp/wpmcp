@@ -82,6 +82,20 @@ return [
         'src/Tools/Performance/Curl_Dns_Pin.php',
         // Paid ability whose handler lives inside an otherwise free directory.
         'src/Tools/Media/Stock/Insert_Stock_Image.php',
+        // Same shape for the SEO group (issue #67): the post-meta surface
+        // stays free, so the directory cannot go whole, but generation, the
+        // extended social vocabulary and term-level SEO are paid. The helpers
+        // (Schema_Generator, Social_Meta, Term_SEO) have no caller once the
+        // handlers are gone, so they go with them.
+        'src/Tools/SEO/Generate_Schema_Markup.php',
+        'src/Tools/SEO/Schema_Generator.php',
+        'src/Tools/SEO/Generate_Meta_Tags.php',
+        'src/Tools/SEO/Get_Social_Meta.php',
+        'src/Tools/SEO/Set_Social_Image.php',
+        'src/Tools/SEO/Social_Meta.php',
+        'src/Tools/SEO/Get_Term_SEO_Meta.php',
+        'src/Tools/SEO/Update_Term_SEO_Meta.php',
+        'src/Tools/SEO/Term_SEO.php',
         // The builder dialect of build-page is not in this build (issue #162);
         // its composer goes with it. Build_Page's references to it are edited
         // out in the exact-string pass.

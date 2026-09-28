@@ -5,6 +5,7 @@ namespace WPMCP\Tools\Elementor;
 use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -31,8 +32,8 @@ if (! defined('ABSPATH')) {
  * which regenerates data canonically, deletes the page's generated CSS
  * (Post_CSS) and invalidates the document cache exactly as a builder save
  * would. When that path is unavailable the engine falls back to a raw
- * `_elementor_data` meta write and clears Elementor's generated-CSS cache
- * explicitly.
+ * `_elementor_data` meta write and invalidates the page's render cache and
+ * generated CSS explicitly (Elementor_Cache).
  *
  * Failure handling: the snapshot is captured BEFORE the write; a verify
  * step re-reads the stored tree and requires it to match the intended tree
@@ -257,7 +258,7 @@ class Element_Tree
         }
 
         // Raw fallback: Elementor_Page_Data::save() writes the meta and
-        // clears Elementor's generated-CSS cache explicitly.
+        // invalidates the page's render cache and generated CSS itself.
         Elementor_Page_Data::save($post_id, $elements);
     }
 
@@ -271,10 +272,7 @@ class Element_Tree
         }
 
         update_post_meta($post_id, '_elementor_page_settings', $settings);
-
-        if (class_exists('\\Elementor\\Plugin') && isset(\Elementor\Plugin::instance()->files_manager)) {
-            \Elementor\Plugin::instance()->files_manager->clear_cache();
-        }
+        Elementor_Cache::invalidate_document($post_id);
     }
 
     /**
