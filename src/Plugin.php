@@ -41,6 +41,10 @@ use WPMCP\Tools\Structure\List_Shortcodes;
 use WPMCP\Tools\Structure\Render_Shortcode;
 use WPMCP\Tools\Structure\List_Sidebars;
 use WPMCP\Tools\Structure\List_Sidebar_Widgets;
+use WPMCP\Tools\Structure\Create_Sidebar_Widget;
+use WPMCP\Tools\Structure\Update_Sidebar_Widget;
+use WPMCP\Tools\Structure\Move_Sidebar_Widget;
+use WPMCP\Tools\Structure\Delete_Sidebar_Widget;
 use WPMCP\Tools\Export\Export_Content;
 use WPMCP\Tools\Export\List_Exports;
 use WPMCP\Tools\Export\Import_Content;
@@ -142,6 +146,7 @@ use WPMCP\Tools\Content\List_Post_Types;
 use WPMCP\Tools\Content\List_Taxonomies;
 use WPMCP\Tools\Content\Create_Post;
 use WPMCP\Tools\Content\Get_Post;
+use WPMCP\Tools\Content\Get_Preview_Link;
 use WPMCP\Tools\Content\Update_Post;
 use WPMCP\Tools\Content\Delete_Post;
 use WPMCP\Tools\Content\List_Posts;
@@ -1053,6 +1058,7 @@ final class Plugin
         $list_taxonomies = new List_Taxonomies();
         $create_post     = new Create_Post();
         $get_post        = new Get_Post();
+        $get_preview     = new Get_Preview_Link();
         $update_post     = new Update_Post();
         $delete_post     = new Delete_Post();
         $list_posts      = new List_Posts();
@@ -1127,6 +1133,22 @@ final class Plugin
                 'required'   => [ 'post_id' ],
             ],
             [$get_post, 'handle'],
+            'edit_posts',
+            'content',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-preview-link',
+            'free',
+            'Preview URL for a draft, pending or scheduled post you can edit',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$get_preview, 'handle'],
             'edit_posts',
             'content',
             'read'
@@ -1719,7 +1741,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-comments',
             'free',
-            'List comments as safe summary rows (id, post, author, content, status, date), optionally filtered by post and moderation status, with paging',
+            'List comments, optionally by post and status, with paging',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1737,7 +1759,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-comment',
             'free',
-            'Read one comment\'s detail (post, parent, author fields, content, status, date)',
+            'Read one comment',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1753,7 +1775,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/moderate-comment',
             'free',
-            'Change a comment\'s moderation status: approve, unapprove, spam, trash or untrash. Snapshotted so the change can be rolled back',
+            'Set a comment\'s status: approve, unapprove, spam, trash or untrash. Reversible',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1771,7 +1793,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/edit-comment',
             'free',
-            'Edit a comment\'s content and/or author fields (name, email, url). Snapshotted so the change can be rolled back',
+            'Edit a comment\'s content or author name, email, url. Reversible',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1792,7 +1814,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-comment',
             'free',
-            'Permanently delete a comment. Disabled by default (site must opt in via the wpmcp_enable_delete_comment filter) and requires confirm:true. Routed through the safety snapshot so it can be rolled back, though the resurrected comment gets a new ID',
+            'Permanently delete a comment. Off until the wpmcp_enable_delete_comment filter opts in; needs confirm:true. Rollback restores it under a new ID',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4528,6 +4550,86 @@ final class Plugin
             'edit_posts',
             'structure',
             'read'
+        ));
+
+        // Classic widget writes (issue #285). Each snapshots widget_{id_base}
+        // and sidebars_widgets as one undo point; see Sidebar_Widget_Store.
+        $widget_id = [ 'type' => 'string' ];
+        $position  = [ 'type' => 'integer' ];
+        $session   = [ 'type' => 'string' ];
+        $registrar->register(new Ability(
+            'wpmcp/create-sidebar-widget',
+            'free',
+            'Add a classic widget (registered id_base, incl. block) to a sidebar at a 0-based position, sanitized by its update(). Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'sidebar_id' => [ 'type' => 'string' ],
+                    'id_base'    => [ 'type' => 'string' ],
+                    'instance'   => [ 'type' => 'object' ],
+                    'position'   => $position,
+                    'session_id' => $session,
+                ],
+                'required'   => [ 'sidebar_id', 'id_base' ],
+            ],
+            [new Create_Sidebar_Widget(), 'handle'],
+            'edit_theme_options',
+            'structure',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-sidebar-widget',
+            'free',
+            'Merge settings into a classic widget (id like text-2) via its update(). Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'widget_id'  => $widget_id,
+                    'instance'   => [ 'type' => 'object' ],
+                    'session_id' => $session,
+                ],
+                'required'   => [ 'widget_id', 'instance' ],
+            ],
+            [new Update_Sidebar_Widget(), 'handle'],
+            'edit_theme_options',
+            'structure',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/move-sidebar-widget',
+            'free',
+            'Move a classic widget to a sidebar or wp_inactive_widgets at a 0-based position. Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'widget_id'  => $widget_id,
+                    'sidebar_id' => [ 'type' => 'string' ],
+                    'position'   => $position,
+                    'session_id' => $session,
+                ],
+                'required'   => [ 'widget_id', 'sidebar_id' ],
+            ],
+            [new Move_Sidebar_Widget(), 'handle'],
+            'edit_theme_options',
+            'structure',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/delete-sidebar-widget',
+            'free',
+            'Delete a classic widget instance. Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'widget_id'  => $widget_id,
+                    'session_id' => $session,
+                ],
+                'required'   => [ 'widget_id' ],
+            ],
+            [new Delete_Sidebar_Widget(), 'handle'],
+            'edit_theme_options',
+            'structure',
+            'delete'
         ));
     }
 

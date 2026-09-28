@@ -790,7 +790,7 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
 
         $routes = [
             'nav_menu_locations' => [ 'wpmcp/assign-menu-to-location' ],
-            'sidebars_widgets'   => [ 'wpmcp/list-sidebar-widgets', 'wpmcp/add-widget', 'wpmcp/update-widget' ],
+            'sidebars_widgets'   => [ 'wpmcp/list-sidebar-widgets', 'wpmcp/create-sidebar-widget', 'wpmcp/move-sidebar-widget' ],
             'custom_css_post_id' => [ 'wpmcp/get-custom-css', 'wpmcp/add-custom-css' ],
         ];
         foreach ($routes as $key => $abilities) {
@@ -806,6 +806,7 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
 
         $this->assertTrue(wp_has_ability('wpmcp/assign-menu-to-location'));
         $this->assertStringContainsString('wpmcp/assign-menu-to-location', $detail['nav_menu_locations']);
+        $this->assertStringContainsString('wpmcp/create-sidebar-widget', $detail['sidebars_widgets']);
         $this->assertStringContainsString('Widgets screen', $detail['sidebars_widgets']);
         $this->assertStringContainsString('Customizer', $detail['custom_css_post_id']);
     }

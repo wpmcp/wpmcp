@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 384,
-    'free'      => 255,
+    'total'     => 389,
+    'free'      => 260,
     'pro'       => 129,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -83,6 +83,7 @@ return [
         'wpmcp/create-post' => 'free',
         'wpmcp/create-product' => 'free',
         'wpmcp/create-redirect' => 'free',
+        'wpmcp/create-sidebar-widget' => 'free',
         'wpmcp/create-site-part' => 'free',
         'wpmcp/create-tax-rate' => 'free',
         'wpmcp/create-term' => 'free',
@@ -109,6 +110,7 @@ return [
         'wpmcp/delete-product' => 'free',
         'wpmcp/delete-redirect' => 'free',
         'wpmcp/delete-rows' => 'free',
+        'wpmcp/delete-sidebar-widget' => 'free',
         'wpmcp/delete-site-part' => 'free',
         'wpmcp/delete-tax-rate' => 'free',
         'wpmcp/delete-term' => 'free',
@@ -186,6 +188,7 @@ return [
         'wpmcp/get-post' => 'free',
         'wpmcp/get-post-meta' => 'free',
         'wpmcp/get-post-translations' => 'free',
+        'wpmcp/get-preview-link' => 'free',
         'wpmcp/get-product' => 'free',
         'wpmcp/get-rendered-html' => 'free',
         'wpmcp/get-revision' => 'free',
@@ -290,6 +293,7 @@ return [
         'wpmcp/moderate-comment' => 'free',
         'wpmcp/move-block' => 'free',
         'wpmcp/move-element' => 'pro',
+        'wpmcp/move-sidebar-widget' => 'free',
         'wpmcp/ninjaforms-read' => 'pro',
         'wpmcp/ninjaforms-write' => 'pro',
         'wpmcp/parse-blocks' => 'free',
@@ -383,6 +387,7 @@ return [
         'wpmcp/update-rows' => 'free',
         'wpmcp/update-seo-meta' => 'free',
         'wpmcp/update-settings' => 'free',
+        'wpmcp/update-sidebar-widget' => 'free',
         'wpmcp/update-site-part' => 'free',
         'wpmcp/update-tax-rate' => 'free',
         'wpmcp/update-term' => 'free',
