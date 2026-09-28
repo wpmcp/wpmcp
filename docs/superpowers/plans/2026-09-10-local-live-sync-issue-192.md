@@ -1,7 +1,6 @@
 # Local-live sync (issue #192): implementation plan
 
-Status: WIP. Phase 1 (change-set export) has a first slice in
-`src/Tools/Sync/`; phases 2-4 are design only.
+Status: phases 1-3 implemented in `src/Tools/Sync/`; phase 4 is design only.
 
 ## Design constraints (from the issue)
 
@@ -83,44 +82,81 @@ Implemented:
   references, terms, truncation, marker validation, artifact containment and
   malformed-artifact handling.
 
-Remaining in phase 1:
+Delivered in the phase 1 completion (format version 2):
 
-- Option export: decode the option name from the snapshot blob
-  (`Snapshot::unserialize` then `data.name`), allowlist of syncable option
-  families (theme mods, widget/block specs, menus). Until then option rows
-  are reported as excluded/not implemented, never as objects.
-- Term, menu and redirect objects as first-class change-set entries.
-- Template/pattern references (`wp:pattern`, template part refs) and
-  Elementor global classes as dependencies. Elementor *media* is resolved;
-  Elementor *global classes* are not.
-- Attachment bytes in the artifact with checksum dedup vs. manifest-only
-  (open question on the issue; current slice is manifest-only).
-- Changed vs. touched: export is keyed on "the session touched this", so an
-  object mutated and then rolled back still enters the change set and phase
-  2 would push the reverted state. Needs a comparison against the oldest
-  before-image in the marker range, or at minimum an `unchanged` flag the
-  apply side skips by default.
+- Explicit selection: `objects` refs (`post:ID`, `option:theme_mods_X`,
+  `term:TAX:SLUG`) alone or on top of a ledger marker. This is also how an
+  object created by a tool that writes no ledger row (create-post,
+  duplicate-post, widget/block spec creation) enters a change set.
+- Base revision per object: the before-image of the OLDEST ledger row in
+  range, hashed over a URL-normalized projection (synced columns, carried
+  meta keys, term slugs). `unchanged` flags an object edited and reverted,
+  so it is never pushed over live. Explicit selections carry base
+  `unknown`.
+- Theme mods as per-key changes (`changed_keys` / `removed_keys`); every
+  other option is excluded by design (site configuration).
+- Term objects from `term` ledger rows.
+- Dependencies: attachments carried as bytes (8MB per file, 64MB per
+  artifact, over-cap media listed with `bytes_omitted`), terms with their
+  parent chain, synced patterns (`core/block` ref), navigation menus
+  (`core/navigation` ref), database template parts, Elementor templates
+  (`template_id` / `templateID`) resolved transitively, Elementor global
+  classes, and file-based theme patterns / template parts listed under
+  `external`. Each object lists what it `requires`.
+- Live-side post types (WooCommerce orders, refunds, subscriptions,
+  coupons, scheduled actions, plus `wpmcp_sync_non_syncable_post_types`)
+  are excluded from export and refused on apply.
+- Deterministic artifact: sorted entries, key-sorted maps, and a SHA-256
+  `checksum` over the canonical form minus `origin.created_at`. Validated
+  on inspect and on apply.
+- `build-change-set dry_run=true` lists what would be pushed and writes
+  nothing. `get-change-set raw=true` returns the artifact verbatim for
+  transport; the summary never carries media bytes.
+
+Still open after phase 1:
+
+- Creation ledger rows: create-post and friends write no ledger row, so a
+  session-derived change set misses what they created unless it is
+  selected explicitly. Recording a creation row (page_build semantics)
+  in those tools would close it, at the cost of consuming history slots.
 - Artifact lifecycle: change sets accumulate in the site-backup directory
-  with no job record and no retention. `delete-backup-archive` already
-  removes one by path (it resolves through the same `Archive_Locator`), but
-  `build-change-set` never touches `Backup_Job_Store`, so `list-backup-jobs`
-  cannot show a change set and nothing ages them out. Either create a job
-  record for the artifact so the existing list/delete tooling covers it, or
-  give sync its own list/retention counterpart.
+  with no job record and no retention.
+- Classic widgets (`sidebars_widgets`, `widget_*`) and other option
+  families are not syncable.
 
-## Phase 2: apply to a target
+## Phase 2 and 3: apply to a target, conflict policy (delivered)
 
-- Push the artifact over the connect layer.
-- Apply snapshot-first on the live side via `Safe_Mutation`/`Rollback_Service`.
-- Rewrite URLs with `Tools\Backup\Url_Rewriter` from `origin.site_url` to the
-  target's.
-- Per-object outcome report: applied, skipped, conflicted.
+`apply-change-set` (dry_run by default) runs `Change_Set_Applier`:
 
-## Phase 3: conflict policy
-
-- Compare target `post_modified` against the change set's base revision.
-- Unmodified target: apply. Modified both sides: refuse and report, with
-  explicit per-object force.
+- Transport is the connect layer: `get-change-set raw=true` on the origin,
+  `apply-change-set change_set=...` on the target (one agent connected to
+  both, e.g. through `bin/wpmcp-proxy.php` with a named site each), or
+  `path` for an artifact already in the target's backup directory.
+- Identity, not ids: an object is matched on the target by id plus post
+  type plus creation date (plus slug for an unpublished draft), or by
+  type + slug + creation date under another id. An id held by a different
+  object is never written; the incoming object is created under a new id
+  and references (featured image, media blocks, wp-image-N, Elementor media
+  and template ids, synced pattern refs, menu item targets, parents) are
+  remapped.
+- Conflict policy per object: target hash equal to the new state is
+  skipped (already in sync); equal to the base is applied; anything else
+  is conflicted and nothing is written unless the key is in `force`. Theme
+  mods merge per key on the same rule. Never a silent last-writer-wins.
+- Dependencies are only ever added (created from carried bytes / term
+  definitions / template exports, or reused when already present); an
+  object whose required dependency cannot be placed is skipped, not pushed
+  broken.
+- Snapshot-first: updates via `Safe_Mutation`, creations via a creation
+  row (`page_build`, `media_import`, `term` not-existed) whose rollback
+  deletes exactly what was created, global classes via
+  `Global_Classes_Store::write`. One session per apply, so
+  `rollback-session` undoes a whole sync.
+- URLs are rewritten from the origin to the target via `Url_Rewriter`
+  (through neutral tokens, so a target URL containing the origin URL is
+  never rewritten twice).
+- Deletions are reported, never applied. Serialized meta is decoded with
+  `allowed_classes => false`; a value holding an object is refused.
 
 ## Phase 4 (maybe): scheduled sync
 
