@@ -100,6 +100,12 @@ class OpsStatusPacksTest extends \WP_UnitTestCase
         return (new Theme_Integration())->handle_write($call);
     }
 
+    /** Stand-in for w3tc_flush_all(), recording each purge. */
+    public function record_purge(): void
+    {
+        $this->purges[] = true;
+    }
+
     private function deactivate(string $filter): void
     {
         remove_all_filters($filter);
@@ -154,14 +160,11 @@ class OpsStatusPacksTest extends \WP_UnitTestCase
             $this->assertArrayNotHasKey('result', $out);
         }
 
-        $calls = 0;
-        add_filter('wpmcp_w3tc_purge_callback', fn () => function () use (&$calls) {
-            $calls++;
-        });
+        add_filter('wpmcp_w3tc_purge_callback', fn () => [ $this, 'record_purge' ]);
         $before = Snapshot_Store::row_count();
         $out    = $this->write('purge-w3tc-cache', [], true);
         $this->assertSame('w3tc_inactive', $out['error']['code']);
-        $this->assertSame(0, $calls, 'an inactive W3 Total Cache must never be purged');
+        $this->assertCount(0, $this->purges, 'an inactive W3 Total Cache must never be purged');
         $this->assertSame($before, Snapshot_Store::row_count());
     }
 
@@ -622,19 +625,16 @@ class OpsStatusPacksTest extends \WP_UnitTestCase
     public function test_w3tc_purge_needs_confirm_and_is_not_snapshotted(): void
     {
         $this->w3tc_fixture();
-        $calls = 0;
-        add_filter('wpmcp_w3tc_purge_callback', fn () => function () use (&$calls): void {
-            $calls++;
-        });
+        add_filter('wpmcp_w3tc_purge_callback', fn () => [ $this, 'record_purge' ]);
 
         $refused = $this->write('purge-w3tc-cache');
         $this->assertSame('confirmation_required', $refused['error']['code']);
-        $this->assertSame(0, $calls);
+        $this->assertCount(0, $this->purges);
 
         $before = Snapshot_Store::row_count();
         $out    = $this->write('purge-w3tc-cache', [], true);
         $this->assertArrayNotHasKey('error', $out);
-        $this->assertSame(1, $calls);
+        $this->assertCount(1, $this->purges);
         $this->assertTrue($out['result']['purged']);
         $this->assertSame([ 'page', 'object', 'minify', 'browser', 'cdn' ], $out['result']['caches']);
         $this->assertFalse($out['recoverable'], 'a cache purge has no before-image to restore');
@@ -643,15 +643,12 @@ class OpsStatusPacksTest extends \WP_UnitTestCase
 
     public function test_w3tc_purge_refuses_without_manage_options_or_a_purge_api(): void
     {
-        $calls = 0;
-        add_filter('wpmcp_w3tc_purge_callback', fn () => function () use (&$calls): void {
-            $calls++;
-        });
+        add_filter('wpmcp_w3tc_purge_callback', fn () => [ $this, 'record_purge' ]);
 
         wp_set_current_user(self::factory()->user->create([ 'role' => 'editor' ]));
         $denied = $this->write('purge-w3tc-cache', [], true);
         $this->assertSame('operation_denied', $denied['error']['code']);
-        $this->assertSame(0, $calls);
+        $this->assertCount(0, $this->purges);
 
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
         remove_all_filters('wpmcp_w3tc_purge_callback');

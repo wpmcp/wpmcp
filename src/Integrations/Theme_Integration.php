@@ -249,7 +249,7 @@ class Theme_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'the active theme (context, theme supports, and theme-mod presentation settings) plus Redirection plugin redirects';
+        return 'the active theme (context, theme supports, and theme-mod presentation settings) plus Redirection redirects and backup, security, analytics and cache plugin status';
     }
 
     protected function operations(): array
@@ -271,7 +271,11 @@ class Theme_Integration extends Integration_Dispatcher
      *
      * Issue #300 adds the Redirection plugin adapter (Redirection_Pack):
      * free redirect and group reads plus snapshotted redirect writes that
-     * answer redirection_inactive while the plugin is not loaded.
+     * answer redirection_inactive while the plugin is not loaded. Its second
+     * slice adds the operations status adapters (Ops_Status_Packs): read-only
+     * UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total
+     * Cache status plus the W3 Total Cache purge, each skipped cleanly while
+     * its plugin is not loaded.
      *
      * @return array<string,array<string,mixed>>
      */
@@ -280,6 +284,7 @@ class Theme_Integration extends Integration_Dispatcher
         return array_merge(
             [ 'create-child-theme' => Child_Theme_Scaffolder::operation() ],
             Theme_Framework_Pack::operations($this->detect_framework()),
+            Ops_Status_Packs::operations(),
             Redirection_Pack::operations(),
             Elementor_Addon_Packs::operations(),
             \WPMCP\Tools\ThemeBuilder\Dynamic\Dynamic_Template_Ops::operations()
