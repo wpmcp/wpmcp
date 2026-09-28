@@ -696,6 +696,10 @@ final class Plugin
             // rollback puts those options back. Wired only for the classes
             // this build ships; see register_rollback_refreshers().
             self::register_rollback_refreshers();
+            // A shipping zone deleted through WooCommerce drops the creation
+            // marker a woo-write create gave it, so a zone that later reuses
+            // the id is never mistaken for the created one (issue #338).
+            add_action('woocommerce_delete_shipping_zone', ['\\WPMCP\\Safety\\Wc_Shipping_Zone_Snapshot', 'forget_creation']);
             // The WP-Cron executor for trigger-backup's scheduled events: runs
             // the queued job (producing a backup artifact) and flips its
             // status to completed/failed. See Run_Backup_Job's docblock.

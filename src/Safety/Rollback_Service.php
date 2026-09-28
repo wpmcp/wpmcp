@@ -166,10 +166,22 @@ class Rollback_Service
             // create removes the row only while it still matches what the
             // create wrote (issue #334), so the session's later edits of that
             // row must be put back first, newest first, every one of them.
+            // Shipping zones likewise (issue #338): undoing a zone create
+            // deletes the zone only while its creation marker is intact, and
+            // a later delete-zone in the session removed that marker, so the
+            // session's whole-zone snapshots are put back first, newest first.
+            if (in_array($snapshot['object_type'], [ Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true) && ! self::may_restore($snapshot)) {
+                self::warn(sprintf(
+                    'snapshot %s skipped: restoring it requires the "%s" capability.',
+                    self::object_identity($snapshot),
+                    (string) self::restore_capability($snapshot)
+                ));
+                continue;
+            }
             // Plugin table rows (Pods table storage, TranslatePress
             // dictionary rows, issue #299) too: each covers only the ids ONE
             // write named, and two writes can name overlapping sets.
-            if (in_array($snapshot['object_type'], [ 'db_rows', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows' ], true)) {
+            if (in_array($snapshot['object_type'], [ 'db_rows', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)) {
                 self::apply_snapshot($snapshot);
                 $count++;
                 continue;
