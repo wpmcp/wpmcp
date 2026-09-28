@@ -71,6 +71,9 @@ if (! defined('ABSPATH')) {
  *    creation row once it does, and rollback trashes the reply;
  *  - ['type' => 'wc_webhook', 'param' => P]: the raw webhook row, secret
  *    included but never shown (Safety\Wc_Webhook_Snapshot);
+ *  - ['type' => 'wc_gateway', 'param' => P]: the one option a gateway write
+ *    changes (its settings option, or the gateway order option for an
+ *    order change), restorable only with manage_woocommerce;
  *  - ['type' => 'term', 'param' => P] or ['type' => 'term', 'create' => true]:
  *    one term of the row's taxonomy, keyed by (taxonomy, slug) with its meta
  *    and object assignments, so an update, a delete or a create (whose slug
@@ -122,9 +125,10 @@ class Op_Catalog
      * 'redact' (top-level keys of each returned record that are masked),
      * 'taxonomy' (the op is unavailable unless it is registered, and a term
      * snapshot targets it) and 'handler' (the op runs in-process, through
-     * Brand_Ops or, for an order_*, shipping_*, webhook_*, review_* or
-     * report_* handler, Order_Ops, Shipping_Ops, Webhook_Ops, Review_Ops or
-     * Report_Ops, instead of dispatching its route).
+     * Brand_Ops or, for an order_*, shipping_*, webhook_*, review_*,
+     * report_*, gateway_* or status_* handler, the matching *_Ops class,
+     * instead of dispatching its route; status_run_tool only validates, and
+     * its route is dispatched).
      * Keep op names domain.kebab-case and route templates rooted at /wc/v3.
      */
     private const OPS = [
@@ -249,6 +253,23 @@ class Op_Catalog
         'reports.orders'      => [ 'GET', '/wc/v3/reports/orders/totals', 'reports', self::CAP_STORE, 'Order counts by status for a period', 'read', null, [ 'handler' => 'report_orders' ] ],
         'reports.customers'   => [ 'GET', '/wc/v3/reports/customers/totals', 'reports', self::CAP_STORE, 'Customer counts for a period: buying, registered, guest, repeat, new accounts', 'read', null, [ 'handler' => 'report_customers' ] ],
         'reports.coupons'     => [ 'GET', '/wc/v3/reports/coupons/totals', 'reports', self::CAP_STORE, 'Coupon use for a period: codes used, orders with coupons, discount per code', 'read', null, [ 'handler' => 'report_coupons' ] ],
+
+        // Payment gateways (issue #292), in-process through WooCommerce's
+        // gateway registry (Gateway_Ops). Secret-like fields are masked in
+        // every response and refused on write; each write snapshots the one
+        // option it changes, the gateway's settings or the gateway order.
+        'gateways.list'       => [ 'GET', '/wc/v3/payment_gateways', 'gateways', self::CAP_STORE, 'Payment gateways: enabled, title, description, order and settings (secrets masked)', 'read', null, [ 'handler' => 'gateway_list' ] ],
+        'gateways.get'        => [ 'GET', '/wc/v3/payment_gateways/{id}', 'gateways', self::CAP_STORE, 'One payment gateway with its settings fields (secrets masked)', 'read', null, [ 'handler' => 'gateway_get' ] ],
+        'gateways.update'     => [ 'PUT', '/wc/v3/payment_gateways/{id}', 'gateways', self::CAP_STORE, 'Set a gateway\'s enabled, title, description or non-secret settings; or its order, alone. Secret fields are refused', 'write', [ 'type' => 'wc_gateway', 'param' => 'id' ], [ 'handler' => 'gateway_update' ] ],
+
+        // System status (issue #292), through the wc/v3 status endpoints
+        // (Status_Ops). The report masks secret-like values. run-tool runs
+        // allowlisted maintenance tools only, needs confirm:true for those
+        // that delete rows, and is never recoverable: it is a POST with no
+        // snapshot, and its response says why.
+        'system-status.get'      => [ 'GET', '/wc/v3/system_status', 'system-status', self::CAP_STORE, 'The system status report; sections (default environment, database, active_plugins, theme, settings, security)', 'read', null, [ 'handler' => 'status_get' ] ],
+        'system-status.tools'    => [ 'GET', '/wc/v3/system_status/tools', 'system-status', self::CAP_STORE, 'Status tools, with which ones run-tool accepts and which need confirm', 'read', null, [ 'handler' => 'status_tools' ] ],
+        'system-status.run-tool' => [ 'POST', '/wc/v3/system_status/tools/{id}', 'system-status', self::CAP_STORE, 'Run an allowlisted status tool (clear transients, regenerate lookup tables...). Not recoverable', 'write', null, [ 'handler' => 'status_run_tool' ] ],
 
         // Taxes.
         'taxes.rates'         => [ 'GET', '/wc/v3/taxes', 'taxes', self::CAP_STORE, 'Tax rates, filterable by class' ],
