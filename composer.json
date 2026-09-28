@@ -28,7 +28,7 @@
     "test:local": "bash bin/test-local.sh",
     "test:coverage": "phpunit --coverage-clover coverage/clover.xml --coverage-text",
     "drift:check": "php bin/check-ability-drift.php --strict",
-    "manifest:regenerate": "WPMCP_REGENERATE_MANIFEST=1 phpunit --filter AbilityManifestTest",
+    "manifest:regenerate": "WPMCP_REGENERATE_MANIFEST=1 bash bin/test-local.sh -- --filter AbilityManifestTest",
     "lint": ["@lint:psr12", "@lint:wpcs"],
     "lint:psr12": "phpcs -q",
     "lint:wpcs": "php bin/check-phpcs-baseline.php",

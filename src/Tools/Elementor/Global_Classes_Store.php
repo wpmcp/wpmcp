@@ -4,6 +4,7 @@ namespace WPMCP\Tools\Elementor;
 
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -213,9 +214,7 @@ class Global_Classes_Store
         $repo = call_user_func([self::REPOSITORY, 'make']);
         $repo->put($items, array_values($order));
 
-        if (class_exists('\\Elementor\\Plugin') && isset(\Elementor\Plugin::instance()->files_manager)) {
-            \Elementor\Plugin::instance()->files_manager->clear_cache();
-        }
+        Elementor_Cache::clear_all();
     }
 
     /**

@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Elementor;
 
+use WPMCP\Tools\Builders\Elementor_Cache;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -41,14 +43,9 @@ class Elementor_Page_Data
         // value), corrupting the stored JSON. Slashing here makes the two cancel.
         update_post_meta($post_id, '_elementor_data', wp_slash(wp_json_encode($elements)));
 
-        // Invalidate Elementor's generated CSS cache so the change renders on
-        // next view. Guarded: the files_manager service only exists when
-        // Elementor is fully bootstrapped, which is always true here since
-        // these tools already require Elementor to be active, but a guard
-        // keeps this safe if that ever changes.
-        if (class_exists('\\Elementor\\Plugin') && isset(\Elementor\Plugin::instance()->files_manager)) {
-            \Elementor\Plugin::instance()->files_manager->clear_cache();
-        }
+        // The render cache and generated CSS still describe the old tree;
+        // drop them for this document, as Elementor's own save does.
+        Elementor_Cache::invalidate_document($post_id);
     }
 
     /**

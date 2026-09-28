@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 356,
-    'free'      => 253,
+    'total'     => 361,
+    'free'      => 258,
     'pro'       => 103,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -133,6 +133,9 @@ return [
         'wpmcp/formidable-write' => 'free',
         'wpmcp/forminator-read' => 'free',
         'wpmcp/forminator-write' => 'free',
+        'wpmcp/gateway-provision' => 'free',
+        'wpmcp/gateway-revoke' => 'free',
+        'wpmcp/gateway-status' => 'free',
         'wpmcp/generate-meta-tags' => 'pro',
         'wpmcp/generate-schema-markup' => 'pro',
         'wpmcp/generate-widget' => 'pro',
@@ -279,6 +282,7 @@ return [
         'wpmcp/pmpro-write' => 'free',
         'wpmcp/query' => 'free',
         'wpmcp/read-file' => 'free',
+        'wpmcp/regenerate-elementor-css' => 'free',
         'wpmcp/reindex-search' => 'free',
         'wpmcp/remove-block' => 'free',
         'wpmcp/remove-element' => 'pro',
@@ -367,6 +371,7 @@ return [
         'wpmcp/update-user' => 'free',
         'wpmcp/update-variation' => 'free',
         'wpmcp/update-widget' => 'pro',
+        'wpmcp/upload-media' => 'free',
         'wpmcp/upload-svg' => 'free',
         'wpmcp/validate-block-spec' => 'pro',
         'wpmcp/validate-coupon' => 'free',

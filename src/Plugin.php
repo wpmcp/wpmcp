@@ -161,6 +161,7 @@ use WPMCP\Tools\Media\Get_Media;
 use WPMCP\Tools\Media\Update_Media;
 use WPMCP\Tools\Media\Delete_Media;
 use WPMCP\Tools\Media\Sideload_Image;
+use WPMCP\Tools\Media\Upload_Media;
 use WPMCP\Tools\Media\List_Media;
 use WPMCP\Tools\Media\Resize_Media;
 use WPMCP\Tools\Media\Upload_Svg;
@@ -248,6 +249,7 @@ use WPMCP\Tools\Identity\List_Identities;
 use WPMCP\Tools\Identity\Delete_Identity;
 use WPMCP\Tools\Elementor\List_Widgets;
 use WPMCP\Tools\Elementor\Get_Widget_Schema;
+use WPMCP\Tools\Elementor\Regenerate_Elementor_Css;
 use WPMCP\Tools\Elementor\Get_Elementor_Data;
 use WPMCP\Tools\Elementor\Update_Element;
 use WPMCP\Tools\Elementor\Update_Widget;
@@ -425,7 +427,7 @@ final class Plugin
             'compose', 'woocommerce', 'menu', 'seo', 'linking', 'redirects',
             'meta', 'diagnostics', 'cron', 'maintenance', 'context', 'block',
             'structure', 'taxonomy', 'export', 'backup', 'migration', 'analysis',
-            'connect', 'governance', 'skills',
+            'connect', 'governance', 'skills', 'gateway',
         ],
     ];
 
@@ -1305,11 +1307,12 @@ final class Plugin
         $update_media   = new Update_Media();
         $delete_media   = new Delete_Media();
         $sideload_image = new Sideload_Image();
+        $upload_media   = new Upload_Media();
 
         $registrar->register(new Ability(
             'wpmcp/get-media',
             'free',
-            'Read full detail for a Media Library attachment: title, URL, every registered image size, dimensions, mime type, alt text, caption, and description',
+            'Read a Media Library attachment: title, URL, every registered size, dimensions, mime type, alt text, caption and description',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1325,7 +1328,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-media',
             'free',
-            'Update a Media Library attachment\'s title, alt text, caption, and/or description',
+            'Update an attachment\'s title, alt text, caption or description',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1346,7 +1349,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-media',
             'free',
-            'Delete a Media Library attachment. Disabled by default (site must opt in via the wpmcp_enable_delete_media filter) and requires confirm:true. force:true permanently deletes, routed through the safety snapshot so it can be rolled back',
+            'Delete a Media Library attachment. Off until the wpmcp_enable_delete_media filter opts in; needs confirm:true. force:true deletes permanently, snapshotted so it can be rolled back',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1365,7 +1368,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/sideload-image',
             'free',
-            'Download an image from a URL and add it to the Media Library as a new attachment',
+            'Add an image from a URL to the Media Library as a new attachment',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1381,6 +1384,29 @@ final class Plugin
             'media',
             'create'
         ));
+        $registrar->register(new Ability(
+            'wpmcp/upload-media',
+            'free',
+            'Upload a file to the Media Library from base64 data. Type is sniffed from the bytes, not mime_type; executables and SVG refused; capped at the upload limit. Rollback deletes it',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'filename'   => [ 'type' => 'string' ],
+                    'data'       => [ 'type' => 'string' ],
+                    'mime_type'  => [ 'type' => 'string' ],
+                    'title'      => [ 'type' => 'string' ],
+                    'alt'        => [ 'type' => 'string' ],
+                    'caption'    => [ 'type' => 'string' ],
+                    'post_id'    => [ 'type' => 'integer' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'filename', 'data' ],
+            ],
+            [$upload_media, 'handle'],
+            'upload_files',
+            'media',
+            'create'
+        ));
 
         $list_media          = new List_Media();
         $resize_media        = new Resize_Media();
@@ -1393,7 +1419,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-media',
             'free',
-            'List Media Library attachments with type ("image" or an exact mime like "image/png"), date-range (after/before), and search filters, paged newest first with a total/pages envelope',
+            'List Media Library attachments, filtered by type ("image" or a mime like "image/png"), after/before dates and search, paged newest first with total/pages',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1413,7 +1439,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/resize-media',
             'free',
-            'Regenerate the specified registered image sizes for an attachment from its original file and report each resulting file (name, dimensions, URL). Snapshot-first with a physical-file backup, so the operation is rollbackable',
+            'Regenerate the given registered image sizes of an attachment from its original and report each file (name, dimensions, URL). Snapshot-first with a file backup, so it can be rolled back',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1431,7 +1457,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/upload-svg',
             'free',
-            'Add an SVG to the Media Library from raw markup or an allowlisted URL. Every SVG passes a bundled fail-closed sanitizer (script/foreignObject/event handlers/external references are rejected outright); only the sanitized markup is stored. Rollback deletes the upload',
+            'Add an SVG to the Media Library from markup or an allowlisted URL. A fail-closed sanitizer rejects script, foreignObject, event handlers and external references; only sanitized markup is stored. Rollback deletes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1451,7 +1477,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-stock-key',
             'free',
-            'Store (or clear, by passing an empty api_key) a bring-your-own stock-provider API key for pexels or unsplash. Keys are encrypted at rest with a site-salt-derived key and are never echoed back',
+            'Store (or clear with an empty api_key) your own pexels or unsplash API key. Keys are encrypted at rest with a site-salt-derived key and never echoed back',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1468,7 +1494,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/search-stock-images',
             'free',
-            'Search openly-licensed stock images. Providers: openverse (keyless, Creative Commons results), pexels and unsplash (bring-your-own key via set-stock-key). Results are provider-attributed with license, license_url, attribution, and source_url, ready to pass to import-stock-image',
+            'Search openly-licensed stock images: openverse (keyless, Creative Commons), pexels and unsplash (own key via set-stock-key). Results carry license, license_url, attribution and source_url for import-stock-image',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2336,6 +2362,7 @@ final class Plugin
             'block_builder'  => fn () => $this->register_block_builder_abilities($registrar),
             'theme_builder'  => fn () => $this->register_theme_builder_abilities($registrar),
             'cloud'          => fn () => $this->register_cloud_abilities($registrar),
+            'gateway'        => fn () => $this->register_gateway_abilities($registrar),
             'search'         => fn () => $this->register_search_abilities($registrar),
             'skills'         => fn () => $this->register_skills_abilities($registrar),
             'memory'         => fn () => $this->register_memory_abilities($registrar),
@@ -2624,6 +2651,87 @@ final class Plugin
             'edit_posts',
             'skills',
             'read'
+        ));
+    }
+
+    /**
+     * Site-local gateway credential lifecycle (issue #142, phase 1 of #130).
+     *
+     * Its own group, NOT part of 'cloud', and free tier. That looks odd for
+     * a credential whose consumer is the multi-site proxy, and it is
+     * deliberate: 'cloud' is pruned from the wp.org build
+     * (scripts/flavors/wporg/strip.php drops src/Tools/Cloud and this
+     * method's cloud sibling entirely) and excluded from the WooCommerce
+     * vertical's FLAVOR_GROUPS. A credential that can be minted on a build
+     * but not revoked on it is a security hole, and the issue's requirement
+     * is explicit that revocation works locally with no network. So the
+     * whole lifecycle lives where every flavor can reach it.
+     *
+     * All manage_options, domain 'gateway'. None of these touch the
+     * network, so provisioning and revocation work with the cloud
+     * unreachable.
+     */
+    private function register_gateway_abilities(Registrar $registrar): void
+    {
+        $confirm_schema = [
+            'type'       => 'object',
+            'properties' => ['confirm' => ['type' => 'boolean']],
+            'required'   => ['confirm'],
+        ];
+
+        // The destructive and idempotent hints are overridden, not derived,
+        // and both derived values would be wrong. 'create' would derive
+        // destructive: false for gateway-provision, but the call
+        // irreversibly kills the previous client secret, every refresh
+        // token bound to it and every access token already minted from it;
+        // MCP clients use destructiveHint for auto-approval, so the derived
+        // value invites an agent to retry it over a live proxy credential.
+        // 'delete' would derive idempotent: false for gateway-revoke, which
+        // is documented and tested as safe to call repeatedly.
+        //
+        // Each registration is a literal `new Ability('wpmcp/...')` so the
+        // wp.org free-tier assertion (scripts/flavors/wporg/assert-free-tier.php)
+        // can see these free abilities in the built zip.
+        $registrar->register(new Ability(
+            'wpmcp/gateway-provision',
+            'free',
+            'Provision or rotate the site gateway credential. Returns client_id, client_secret and refresh_token once; the previous credential dies immediately. Carries the calling user\'s capabilities. Requires confirm: true',
+            $confirm_schema,
+            [new \WPMCP\Tools\Gateway\Gateway_Provision(), 'handle'],
+            'manage_options',
+            'gateway',
+            'create',
+            null,
+            true,
+            false
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/gateway-status',
+            'free',
+            'Whether the site gateway credential exists, its client_id and whether OAuth is enabled. Never returns secrets',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [new \WPMCP\Tools\Gateway\Gateway_Status(), 'handle'],
+            'manage_options',
+            'gateway',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/gateway-revoke',
+            'free',
+            'Revoke the site gateway credential and every token bound to it. Local, idempotent. Requires confirm: true',
+            $confirm_schema,
+            [new \WPMCP\Tools\Gateway\Gateway_Revoke(), 'handle'],
+            'manage_options',
+            'gateway',
+            'delete',
+            null,
+            true,
+            true
         ));
     }
 
@@ -4393,7 +4501,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
             'free',
-            'Queue an asynchronous backup job and schedule a WP-Cron event that produces the backup artifact and flips the job\'s status to completed or failed. Returns the job id immediately, before the backup itself has run, so a large-site backup does not have to complete within a single request. type=full produces a portable site archive (a zip holding a complete SQL dump, wp-content, and a manifest describing the origin site) that can be restored or migrated to another install; database, files and uploads produce the same archive format narrowed to that scope; content produces a WXR export via export-content',
+            'Queue an asynchronous backup job run by WP-Cron, which marks it completed or failed. Returns the job id at once, so a large-site backup need not fit in one request. type=full builds a portable site archive (zip with a complete SQL dump, wp-content and an origin-site manifest) to restore or migrate to another install; database, files and uploads build the same format narrowed to that scope; content builds a WXR export via export-content',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4459,7 +4567,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-backup-manifest',
             'free',
-            'Read the manifest of a completed site-backup archive, by job id or archive path: origin site_url/home_url, table prefix, multisite flag, WordPress/PHP/plugin versions, scope, per-table row counts, tables holding BLOB columns, and file count. Use this to confirm an archive is the right one, and what it would take to restore or migrate it, before touching anything. Read-only; the archive is not extracted. Paths outside the site-backup directory are refused',
+            'Read the manifest of a completed site-backup archive (job id or archive path): origin site_url/home_url, table prefix, multisite flag, WordPress/PHP/plugin versions, scope, per-table row counts, BLOB tables and file count. Confirms an archive is the right one, and what restoring or migrating it takes, before touching anything. Read-only; nothing is extracted. Paths outside the site-backup directory are refused',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4491,7 +4599,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Restore this site in place from a site-backup archive (job_id or path). dry_run defaults to TRUE: a report only, checking format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full parse of db.sql (truncated dumps are refused). dry_run=false takes a database safety archive first (job id in the result; no restore if it fails), holds maintenance mode, imports statement by statement, and on failure reports the statement and rolls back. preserve_session (default true) keeps the caller signed in. include_files (default false, scope all) stages wp-content and swaps it in. Paths outside the site-backup directory are refused',
+            'Restore this site in place from a site-backup archive (job_id or path). dry_run defaults to TRUE: a report checking format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false first takes a database safety archive (job id returned; no restore if it fails), holds maintenance mode, imports statement by statement, and on failure reports the statement and rolls back. preserve_session (default true) keeps the caller signed in. include_files (default false, scope all) stages and swaps in wp-content. Paths outside the site-backup directory are refused',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4538,7 +4646,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/rewrite-site-urls',
             'free',
-            'Rewrite every embedded URL in the database from one site URL to another, serialization-aware: walks wp_options, wp_postmeta, wp_posts, wp_termmeta, wp_usermeta and wp_comments in batches through the plugin\'s serialization-aware Url_Rewriter, replacing plain, JSON-escaped, percent-encoded and scheme-relative forms in one pass without corrupting PHP-serialized values, and refusing (and reporting) any value whose decoded structure contains an object rather than risk mangling it. This is the pass that fixes broken images, widgets and theme mods after a site is restored under a different URL. dry_run defaults to true and only reports per-table counts; applying requires dry_run:false and confirm:true. Not snapshotted: an applied pass reports recoverable:false and is not rollback-able via rollback-operation, so take a database backup (trigger-backup type=database) first. Tables protected by wpmcp_db_protected_tables (usermeta by default) are reported as skipped, not written. Post GUIDs are never rewritten',
+            'Rewrite every embedded URL in the database from one site URL to another (wp_options, postmeta, posts, termmeta, usermeta, comments), serialization-aware: plain, JSON-escaped, percent-encoded and scheme-relative forms in one pass; values containing an object are refused and reported. Fixes broken images, widgets and theme mods after a restore under a new URL. dry_run defaults to true (per-table counts); applying needs dry_run:false and confirm:true. Not snapshotted (recoverable:false, no rollback-operation): back up the database first (trigger-backup type=database). Tables in wpmcp_db_protected_tables (usermeta by default) are skipped. Post GUIDs are never rewritten',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5249,7 +5357,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-global-settings',
             'free',
-            'Read the active Elementor kit\'s global design tokens: system and custom colors and typography (the four Elementor system tokens filled from defaults when the kit is untouched), plus the kit\'s spacing (space_between_widgets, container_padding) and layout (container_width, viewport_lg, viewport_md) groups. Returns a settings_hash to chain a guarded write with update-global-colors / update-global-typography / replace-system-colors / replace-system-typography. Read-only',
+            'Read the active Elementor kit\'s global design tokens: system and custom colors and typography (the four system tokens filled from defaults on an untouched kit), plus spacing (space_between_widgets, container_padding) and layout (container_width, viewport_lg, viewport_md). Returns a settings_hash for a guarded write via update-global-colors / update-global-typography / replace-system-colors / replace-system-typography. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -5258,6 +5366,27 @@ final class Plugin
             'edit_posts',
             'elementor',
             'read'
+        ));
+
+        // A cache operation, not a content write: like clear-cache it is not
+        // snapshotted, since generated CSS has no before-image worth restoring.
+        $regenerate_elementor_css = new Regenerate_Elementor_Css();
+
+        $registrar->register(new Ability(
+            'wpmcp/regenerate-elementor-css',
+            'free',
+            'Rebuild Elementor CSS; all needs confirm',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                    'confirm' => [ 'type' => 'boolean' ],
+                ],
+            ],
+            [$regenerate_elementor_css, 'handle'],
+            'edit_posts',
+            'elementor',
+            'update'
         ));
 
         $this->register_elementor_pro_abilities($registrar);

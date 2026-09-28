@@ -73,16 +73,28 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  include/exclude semantics stated once instead of on both conditions
      *  schemas, which brought it to 185172; the rest is the rule schema
      *  (type enum plus value) that create and update both need so an agent
-     *  can build a valid conditions object from tools/list alone. Raised
-     *  186000 -> 195000 for the WooCommerce depth cluster (#195: variation
-     *  create and delete, bulk-update-products, six coupon tools, four
-     *  tax-rate tools): 194455 bytes over 349 tools after trimming their
+     *  can build a valid conditions object from tools/list alone. The gateway
+     *  credential lifecycle (#142: gateway-provision, gateway-status,
+     *  gateway-revoke) trimmed its three descriptions from 612 to 425
+     *  characters but still names the rotation kill, the once-only secrets
+     *  and the confirm gate, since an agent that misses those can cut a live
+     *  proxy off; it still measured 186736 bytes over 339 tools, so the
+     *  long descriptions no open branch touches (rewrite-site-urls,
+     *  trigger-backup, restore-site-backup, run-wp-cli, get-backup-manifest,
+     *  search-content, get-global-settings) were reworded without dropping a
+     *  rule. build-page was left alone: the wporg strip rewrites its text.
+     *  Raised 186000 -> 195000 for the WooCommerce depth cluster (#195:
+     *  variation create and delete, bulk-update-products, six coupon tools,
+     *  four tax-rate tools): 194455 bytes over 349 tools after trimming their
      *  descriptions, about 8.5KB for the 13 tools (the raise approved in
      *  review, re-applied on the newer main). The coupon write
      *  schemas are most of it: they list every writable field so an agent
      *  can set limits and restrictions without a schema round trip. Compact
-     *  tool mode keeps clients with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 195000;
+     *  tool mode keeps clients with tool caps at ~2.8KB regardless. *  Raised 195000 -> 196000 when regenerate-elementor-css (#272) met
+     *  upload-media on main: 195107 bytes over 352 tools, with the new
+     *  description already cut to 40 characters.
+     */
+    private const TOOLS_LIST_BYTE_BUDGET = 196000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
@@ -141,9 +153,10 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
         // invariant this protects is unchanged: the 44-widget catalog is
         // consumed by a FIXED generic set, so adding a cataloged widget must
         // never add a tool. New tools here are per-feature, never per-widget,
-        // and stay well under the catalog size.
+        // and stay well under the catalog size. Raised 64 -> 65 for
+        // regenerate-elementor-css, a per-feature cache tool.
         $this->assertLessThanOrEqual(
-            64,
+            65,
             count($elementor),
             'The Elementor tool surface must stay a fixed set of generic, per-feature tools; '
             . 'widgets belong in the catalog data, not in new per-widget abilities.'
