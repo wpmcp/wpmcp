@@ -249,7 +249,7 @@ class Theme_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'the active theme (context, theme supports, and theme-mod presentation settings) plus Redirection redirects and backup, security, analytics and cache plugin status';
+        return 'the active theme (context, supports, theme-mod presentation settings) plus Redirection redirects and backup, security, analytics and cache plugin status';
     }
 
     protected function operations(): array
