@@ -170,7 +170,7 @@ class Replace_System_Typography
         }
 
         $sets_font = isset($fields['typography_font_family']) || isset($fields['typography_font_weight'])
-            || isset($fields['typography_font_size']);
+            || [] !== preg_grep('/^typography_font_size(_[a-z_]+)?$/', array_keys($fields));
         if ($sets_font && ! isset($fields['typography_typography'])) {
             $fields['typography_typography'] = 'custom';
         }

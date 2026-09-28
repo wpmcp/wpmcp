@@ -581,6 +581,7 @@ class Rollback_Service
             'media_import',
             'wc_product_create',
             'elementor_global_classes',
+            'elementor_global_variables',
             'theme_scaffold',
         ];
     }
@@ -715,6 +716,11 @@ class Rollback_Service
             return;
         }
 
+        if ('elementor_global_variables' === $snapshot['object_type']) {
+            self::apply_elementor_global_variables_snapshot($snapshot);
+            return;
+        }
+
         if ('theme_scaffold' === $snapshot['object_type']) {
             self::apply_theme_scaffold_snapshot($snapshot);
             return;
@@ -730,7 +736,10 @@ class Rollback_Service
             $current = get_post($object_id, ARRAY_A);
             if ($current && self::is_same_post($current, $snapshot['data']['post'])) {
                 $postarr = array_merge(['ID' => $object_id], self::restore_columns($snapshot['data']['post'], false));
-                wp_update_post($postarr);
+                // wp_update_post() unslashes its input; the snapshot holds
+                // the raw stored columns, so they are slashed first or every
+                // backslash (block JSON escapes such as \u003c) is lost.
+                wp_update_post(wp_slash($postarr));
             } else {
                 self::resurrect($object_id, $snapshot['data']['post'], $snapshot['data']['comments'] ?? []);
             }
@@ -749,7 +758,8 @@ class Rollback_Service
         foreach ($snapshotted_meta as $key => $values) {
             delete_post_meta($object_id, $key);
             foreach ((array) $values as $v) {
-                add_post_meta($object_id, $key, maybe_unserialize($v));
+                // add_post_meta() unslashes too; slash so the value lands byte-for-byte.
+                add_post_meta($object_id, $key, wp_slash(maybe_unserialize($v)));
             }
         }
 
@@ -1564,6 +1574,41 @@ class Rollback_Service
     }
 
     /**
+     * Undo an Elementor 4 global variables write (create / update / delete a
+     * design token).
+     *
+     * Elementor keeps every variable in one JSON record on the kit and bumps a
+     * watermark on each save, so replaying the change through its service
+     * could never reproduce the prior record. The snapshot holds the record's
+     * raw bytes instead (or that there was none), and the undo puts exactly
+     * those back, which also revives a soft-deleted variable. The generated
+     * CSS is cleared so the restored tokens render on the next view.
+     */
+    private static function apply_elementor_global_variables_snapshot(array $snapshot): void
+    {
+        $data   = (array) ($snapshot['data'] ?? []);
+        $kit_id = (int) ($data['kit_id'] ?? $snapshot['object_id'] ?? 0);
+
+        if ($kit_id <= 0 || ! get_post($kit_id)) {
+            self::warn('Elementor global variables cannot be restored: the kit they belonged to no longer exists.');
+            return;
+        }
+
+        // Written here, not through the Elementor tool layer, so the safety
+        // layer can restore without depending on the tool that wrote.
+        if (! empty($data['exists'])) {
+            update_post_meta($kit_id, '_elementor_global_variables', wp_slash((string) ($data['raw'] ?? '')));
+        } else {
+            delete_post_meta($kit_id, '_elementor_global_variables');
+        }
+        clean_post_cache($kit_id);
+
+        if (class_exists('\\Elementor\\Plugin') && isset(\Elementor\Plugin::instance()->files_manager)) {
+            \Elementor\Plugin::instance()->files_manager->clear_cache();
+        }
+    }
+
+    /**
      * Undo a create-child-theme scaffold (see Snapshot::capture_theme_scaffold()).
      *
      * Only the scaffold's own files are touched: each is put back to its
@@ -1722,7 +1767,7 @@ class Rollback_Service
     private static function resurrect(int $object_id, array $post_columns, array $comments): void
     {
         $postarr = array_merge(['import_id' => $object_id], self::restore_columns($post_columns, true));
-        $result  = wp_insert_post($postarr, true);
+        $result  = wp_insert_post(wp_slash($postarr), true);
 
         if (is_wp_error($result)) {
             throw new Mutation_Failed('Rollback failed to resurrect post ' . (int) $object_id . ': ' . esc_html($result->get_error_message()));

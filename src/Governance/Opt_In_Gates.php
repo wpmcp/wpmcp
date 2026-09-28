@@ -12,6 +12,7 @@ use WPMCP\Tools\Database\Update_Rows;
 use WPMCP\Tools\Filesystem\Delete_File;
 use WPMCP\Tools\Filesystem\Edit_File;
 use WPMCP\Tools\Filesystem\Write_File;
+use WPMCP\Tools\Migration\Migration_Guard;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -80,6 +81,10 @@ class Opt_In_Gates
             'wpmcp/list-site-abilities'  => ['filter' => 'wpmcp_enable_ability_bridge', 'is_open' => [Bridge_Guard::class, 'is_enabled']],
             'wpmcp/get-site-ability'     => ['filter' => 'wpmcp_enable_ability_bridge', 'is_open' => [Bridge_Guard::class, 'is_enabled']],
             'wpmcp/execute-site-ability' => ['filter' => 'wpmcp_enable_ability_bridge', 'is_open' => [Bridge_Guard::class, 'is_enabled']],
+            // Site-to-site migration (issue #191): receiving replaces this
+            // site's database, sending ships its secrets to another host.
+            'wpmcp/receive-site-archive' => ['filter' => 'wpmcp_accept_incoming_migrations', 'is_open' => [Migration_Guard::class, 'accepts_incoming']],
+            'wpmcp/push-site-archive'    => ['filter' => 'wpmcp_allow_outgoing_migrations', 'is_open' => [Migration_Guard::class, 'allows_outgoing']],
         ];
     }
 
