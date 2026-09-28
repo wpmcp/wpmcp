@@ -126,6 +126,12 @@ class Rollback_Service
         if (in_array($type, [ Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE, Wc_Webhook_Snapshot::TYPE, Wc_Webhook_Snapshot::CREATE_TYPE ], true)) {
             return [ [ 'manage_woocommerce' ] ];
         }
+        // An option snapshot may name the capability its restore needs: a
+        // payment gateway's settings option holds the gateway's credentials,
+        // so restoring it takes the capability its write required (issue #292).
+        if ('option' === $type && is_string($snapshot['data']['restore_capability'] ?? null)) {
+            return [ [ $snapshot['data']['restore_capability'] ] ];
+        }
         // A comment snapshot holds the whole comment row, author email and
         // IP included, so restoring one takes moderate_comments, the
         // capability that reading those fields takes (issue #348). A product

@@ -7862,7 +7862,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-ops',
             'pro',
-            'List the WooCommerce ops catalog (e.g. products.update) by domain: products, variations, orders, refunds, coupons, customers, reviews, reports, shipping, taxes, webhooks, settings. Each op gives mode, route, path params, capability, confirm, enabled, snapshot type and full-rollback flag. Read-only',
+            'List WooCommerce ops (e.g. orders.get) by domain: products, variations, orders, refunds, coupons, customers, reviews, reports, shipping, taxes, webhooks, settings, gateways, system-status. Each op: mode, route, path params, capability, confirm, enabled, snapshot type, full-rollback flag. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7877,7 +7877,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-read',
             'pro',
-            'Run one read op from woo-ops as an in-process wc/v3 request as the current user, gated by op capability and governance (wpmcp/woo-{op}, dots as dashes). Path params fill the route, the rest are query params. Returns the raw wc/v3 body (may include personal data; webhook secrets redacted); lists 20 per page, max 50. Read-only',
+            'Run one read op from woo-ops as an in-process wc/v3 request as the current user, gated by op capability and governance (wpmcp/woo-{op}, dots as dashes). Path params fill the route, the rest are query params. Returns the raw wc/v3 body (may include personal data; secrets redacted); lists 20 per page, max 50. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7894,7 +7894,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-write',
             'pro',
-            'Run one write op from woo-ops, or a batch of up to 25, as in-process wc/v3 requests as the current user, gated like woo-read. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. Refunds are not recoverable and call the gateway only with api_refund:true. Deletes and refunds are off until the wpmcp_woo_op_enabled filter allows them, and need confirm:true. A batch prechecks every item, refuses whole on any failure, and shares one session_id for rollback-session',
+            'Run one write op from woo-ops, or a batch of up to 25, as in-process wc/v3 requests as the current user, gated like woo-read. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. Refunds are not recoverable and call the gateway only with api_refund:true. Deletes and refunds are off until the wpmcp_woo_op_enabled filter allows them, and need confirm:true. A batch prechecks every item, refuses whole on any failure, shares one session_id for rollback-session',
             [
                 'type'       => 'object',
                 'properties' => [
