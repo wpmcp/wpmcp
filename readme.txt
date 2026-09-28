@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.10
+Stable tag: 0.8.11
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,11 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.11 =
+* The External services section of the readme now names Openverse as the default, keyless stock image provider and links its privacy policy, plus the terms and privacy policy of every other listed service.
+* search-stock-images falls back to Openverse when the provider is left empty, matching what the readme documents.
+* The readme now discloses the WP MCP Cloud announcements check, which runs only after a cloud connection has been saved.
+
 = 0.8.10 =
 * New built-in theme builder: create header, footer and 404 site parts, show each one by include/exclude display conditions (entire site, front page, archives, search, 404, post types and single posts), and render them into both classic and block themes without a page builder.
 * Site parts can be listed, previewed with a resolver that explains which part wins for a given page and why, edited, activated or deactivated, and deleted, with every change to an existing part snapshotted and reversible.
@@ -155,6 +160,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.11 =
+The External services section of the readme now names Openverse as the default, keyless stock image provider and links its privacy policy, plus the terms and privacy policy of every other listed service.
 
 = 0.8.10 =
 New built-in theme builder: create header, footer and 404 site parts, show each one by include/exclude display conditions (entire site, front page, archives, search, 404, post types and single posts), and render them into both classic and block themes without a page builder.
