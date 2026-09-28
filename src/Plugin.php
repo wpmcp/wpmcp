@@ -636,6 +636,9 @@ final class Plugin
             // A rollback of a theme framework pack write rebuilds the active
             // theme's generated CSS, as the write did (issue #316).
             add_action('wpmcp_rollback_options_restored', [\WPMCP\Integrations\Theme_Framework_Pack::class, 'refresh_after_restore']);
+            // A rollback of an Elementor addon module toggle drops the suite's
+            // cached module map, as the write did (issue #286).
+            add_action('wpmcp_rollback_options_restored', [\WPMCP\Integrations\Elementor_Addon_Packs::class, 'after_restore']);
             // The WP-Cron executor for trigger-backup's scheduled events: runs
             // the queued job (producing a backup artifact) and flips its
             // status to completed/failed. See Run_Backup_Job's docblock.
