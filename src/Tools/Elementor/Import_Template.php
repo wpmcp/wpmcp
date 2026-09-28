@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Elementor;
 
+use WPMCP\Tools\Builders\Elementor_Cache;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -63,6 +65,7 @@ class Import_Template
         if (! empty($export['page_settings']) && is_array($export['page_settings'])) {
             $page_settings = $export['page_settings'];
             update_post_meta($template_id, '_elementor_page_settings', $page_settings);
+            Elementor_Cache::invalidate_document($template_id);
         }
 
         // Display conditions travel with theme-builder parts. They are written

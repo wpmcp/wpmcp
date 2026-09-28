@@ -7,6 +7,7 @@
 namespace WPMCP\Safety;
 
 use WPMCP\Tools\Database\Database_Guard;
+use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -140,6 +141,22 @@ class Rollback_Service
                 $count++;
                 continue;
             }
+            // Compiled-widget manifest changes (issue #72) are unwound the
+            // same way, newest first, every one of them. A compile snapshot
+            // holds ONE widget's entry and bytes, and a status or spec update
+            // holds one widget's enabled flag, so several of them touch the
+            // same widget in different ways; only a reverse-chronological
+            // unwind lands on the pre-session manifest.
+            if (self::is_compiled_widget_snapshot($snapshot)) {
+                self::apply_snapshot($snapshot);
+                $count++;
+                continue;
+            }
+            if (is_array($snapshot['data']['compiled_widget_entry'] ?? null)) {
+                self::restore_compiled_widget_entry($snapshot['data']['compiled_widget_entry']);
+                // The post half still goes through the oldest-first pass.
+                unset($snapshot['data']['compiled_widget_entry']);
+            }
             $legacy[] = $snapshot;
         }
 
@@ -197,6 +214,12 @@ class Rollback_Service
      */
     private static function object_identity(array $snapshot): string
     {
+        // Every compile snapshot is an 'option' snapshot of the ONE shared
+        // manifest option, but it only ever describes one widget. Keyed by the
+        // option name, all compiles in a session collapsed onto one identity.
+        if (self::is_compiled_widget_snapshot($snapshot)) {
+            return 'compiled_widget:' . (int) ($snapshot['data']['compiled_widget']['spec_id'] ?? 0);
+        }
         if ('option' === $snapshot['object_type']) {
             return 'option:' . $snapshot['data']['name'];
         }
@@ -220,6 +243,32 @@ class Rollback_Service
         return $snapshot['object_type'] . ':' . $snapshot['object_id'];
     }
 
+    /** A compile-custom-widget snapshot: one widget's manifest entry plus bytes. */
+    private static function is_compiled_widget_snapshot(array $snapshot): bool
+    {
+        return 'option' === $snapshot['object_type']
+            && is_array($snapshot['data']['compiled_widget'] ?? null);
+    }
+
+    private static function restore_compiled_widget_entry(array $state): void
+    {
+        $manifest = self::compiled_widget_manifest();
+        if (null !== $manifest) {
+            $manifest::restore_entry($state);
+        }
+    }
+
+    /**
+     * The compiled-widget manifest class, when this build ships it. The only
+     * place Rollback_Service names it, so a build without the compiler has
+     * exactly one thing to remove.
+     */
+    private static function compiled_widget_manifest(): ?string
+    {
+        $class = '\\WPMCP\\Tools\\WidgetBuilder\\Compiler\\Compiled_Widget_Manifest';
+        return class_exists($class) ? $class : null;
+    }
+
     /**
      * Restore a WordPress option to its pre-mutation state. Unlike a post,
      * an option has no trash/soft-delete; the only two prior states a
@@ -230,11 +279,96 @@ class Rollback_Service
      */
     private static function apply_option_snapshot(array $snapshot): void
     {
+        // A compiled-widget snapshot carries the single manifest entry it
+        // changed plus the generated file's previous bytes. Restoring those
+        // together is the only correct undo: putting the whole option back
+        // would revert every other widget compiled since, and putting the old
+        // hash back against the new bytes would leave the widget inert.
+        $manifest = self::compiled_widget_manifest();
+        if (null !== $manifest && self::is_compiled_widget_snapshot($snapshot)) {
+            $manifest::restore($snapshot['data']['compiled_widget']);
+            return;
+        }
+
         $name = (string) $snapshot['data']['name'];
         if ($snapshot['data']['existed']) {
             update_option($name, $snapshot['data']['value']);
         } else {
             delete_option($name);
+        }
+    }
+
+    /**
+     * Put back ONE term's row inside Yoast's `wpseo_taxonomy_meta` option
+     * (see Snapshot::capture_yoast_term_seo()), leaving every other term's
+     * row as it is now. Goes through write_yoast_term_seo_row(), the same
+     * path the write took, which handles Yoast's re-validation of the option
+     * and refreshes the term's indexable.
+     */
+    private static function apply_yoast_term_seo_snapshot(array $snapshot): void
+    {
+        $data     = (array) $snapshot['data'];
+        $taxonomy = (string) ($data['taxonomy'] ?? '');
+        $term_id  = (int) ($data['term_id'] ?? 0);
+        if ('' === $taxonomy || $term_id <= 0) {
+            return;
+        }
+
+        $row = ! empty($data['existed']) && is_array($data['row'] ?? null) ? (array) $data['row'] : null;
+
+        self::write_yoast_term_seo_row($taxonomy, $term_id, $row);
+    }
+
+    /**
+     * Replace one term's row inside Yoast's `wpseo_taxonomy_meta` option,
+     * or remove it when $row is null. Used by the term SEO write (issue #67)
+     * and by the rollback of a 'yoast_term_seo' snapshot, so the write and
+     * its undo take one path. Lives here, in the safety layer, so the
+     * restore has no dependency on the paid SEO classes.
+     *
+     * With Yoast loaded every save of the option is re-validated through its
+     * sanitize_option filter, and that validation keeps the previously
+     * stored value for any key missing from the new row. Yoast also drops a
+     * key whose value is its default ('default' for noindex), so a cleared
+     * flag would be missing and the old 'noindex' would silently survive.
+     * The row is therefore removed in one save (leaving no old value to
+     * keep) and written in a second. Both run inside the caller's single
+     * Safe_Mutation, after its snapshot.
+     *
+     * Yoast renders from its indexables table and rebuilds a term's
+     * indexable only on `edited_term`, so that core action is fired after
+     * the save, or the page would keep showing the old values.
+     */
+    public static function write_yoast_term_seo_row(string $taxonomy, int $term_id, ?array $row): void
+    {
+        $yoast_loaded = class_exists('WPSEO_Taxonomy_Meta');
+
+        $option = get_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, []);
+        $option = is_array($option) ? $option : [];
+
+        if ($yoast_loaded || null === $row) {
+            unset($option[$taxonomy][$term_id]);
+            if (isset($option[$taxonomy]) && [] === $option[$taxonomy]) {
+                unset($option[$taxonomy]);
+            }
+            update_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, $option);
+        }
+
+        if (null !== $row) {
+            $option = get_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, []);
+            $option = is_array($option) ? $option : [];
+            if (! isset($option[$taxonomy]) || ! is_array($option[$taxonomy])) {
+                $option[$taxonomy] = [];
+            }
+            $option[$taxonomy][$term_id] = $row;
+            update_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, $option);
+        }
+
+        $term = get_term($term_id, $taxonomy);
+        if ($yoast_loaded && $term instanceof \WP_Term) {
+            clean_term_cache($term_id, $taxonomy);
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core hook, fired so Yoast rebuilds the term indexable.
+            do_action('edited_term', $term_id, (int) $term->term_taxonomy_id, $taxonomy, []);
         }
     }
 
@@ -435,6 +569,7 @@ class Rollback_Service
             'db_rows',
             'redirect',
             'term',
+            'yoast_term_seo',
             'wc_tax_rate',
             'php_snippet',
             'page_build',
@@ -492,6 +627,18 @@ class Rollback_Service
      */
     public static function apply_snapshot(array $snapshot): void
     {
+        // A post snapshot that also carries a compiled widget's enabled flag
+        // (set-widget-status, update-custom-widget): restore the post first,
+        // then the flag, so the undo brings back the spec AND the compiled
+        // path it was rendering through.
+        if (is_array($snapshot['data']['compiled_widget_entry'] ?? null)) {
+            $entry = $snapshot['data']['compiled_widget_entry'];
+            unset($snapshot['data']['compiled_widget_entry']);
+            self::apply_snapshot($snapshot);
+            self::restore_compiled_widget_entry($entry);
+            return;
+        }
+
         if ('option' === $snapshot['object_type']) {
             self::apply_option_snapshot($snapshot);
             return;
@@ -524,6 +671,11 @@ class Rollback_Service
 
         if ('term' === $snapshot['object_type']) {
             self::apply_term_snapshot($snapshot);
+            return;
+        }
+
+        if ('yoast_term_seo' === $snapshot['object_type']) {
+            self::apply_yoast_term_seo_snapshot($snapshot);
             return;
         }
 
@@ -575,6 +727,7 @@ class Rollback_Service
 
         $snapshotted_meta = (array) $snapshot['data']['meta'];
         $current_meta     = get_post_meta($object_id);
+        $is_elementor     = self::is_elementor_document($snapshotted_meta) || self::is_elementor_document($current_meta);
 
         // Purge any meta key that didn't exist at snapshot time (newly added by the mutation).
         foreach (array_keys(array_diff_key($current_meta, $snapshotted_meta)) as $key) {
@@ -597,6 +750,10 @@ class Rollback_Service
         }
 
         self::restore_files($snapshot['data']['files'] ?? null);
+
+        if ($is_elementor) {
+            self::refresh_elementor_caches($object_id, $snapshotted_meta);
+        }
 
         self::refresh_woocommerce_product($object_id);
         self::refresh_woocommerce_coupon($object_id);
@@ -675,6 +832,31 @@ class Rollback_Service
 
         \WC_Tax::_update_tax_rate_postcodes($tax_rate_id, array_map('strval', (array) ($data['postcodes'] ?? [])));
         \WC_Tax::_update_tax_rate_cities($tax_rate_id, array_map('strval', (array) ($data['cities'] ?? [])));
+    }
+
+    /** Whether a post meta map (get_post_meta() shape) carries Elementor document data. */
+    private static function is_elementor_document(array $meta): bool
+    {
+        return isset($meta['_elementor_data']) || isset($meta['_elementor_page_settings']);
+    }
+
+    /**
+     * Drop Elementor's derived caches after a raw post restore.
+     *
+     * The meta restore above puts back whatever `_elementor_css` and render
+     * cache the snapshot held, while the CSS file on disk was regenerated for
+     * the content being rolled back, so the page would be served that CSS for
+     * the restored data. A kit's settings feed every document's CSS, so
+     * restoring the kit purges site-wide.
+     */
+    private static function refresh_elementor_caches(int $object_id, array $snapshotted_meta): void
+    {
+        Elementor_Cache::invalidate_document($object_id);
+
+        $type = $snapshotted_meta['_elementor_template_type'][0] ?? get_post_meta($object_id, '_elementor_template_type', true);
+        if ('kit' === maybe_unserialize($type)) {
+            Elementor_Cache::clear_all();
+        }
     }
 
     /**
@@ -1302,6 +1484,9 @@ class Rollback_Service
         } catch (\Throwable $e) {
             self::warn('Elementor refused the global classes restore: ' . $e->getMessage());
         }
+
+        // Class styles are compiled into generated CSS across the site.
+        Elementor_Cache::clear_all();
     }
 
     /**

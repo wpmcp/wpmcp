@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.20
+Stable tag: 0.8.28
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -59,11 +59,11 @@ The plugin collects nothing about you and sends nothing to us. Its only schedule
 * api.unsplash.com - search-stock-images, when the Unsplash provider is used and you have saved an Unsplash key. Sends the search terms, paging and your key, under the same pinned user agent. Terms: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
 * api.freemius.com - licensing through the Freemius SDK. This is the one entry not tied to a tool. On activation the SDK shows its stock opt-in screen, which defaults to off and carries a Skip link; skip or decline it and the SDK sends nothing. Once you have opted in, there or later from the WP MCP > Account page, the SDK talks to Freemius during admin page loads and its own periodic sync. One path is independent of that choice: the optional deactivation feedback form on the Plugins screen. If you submit it, the reason you enter is stored locally and sent here when the plugin is deleted (uninstalled), whether or not you opted in; if you also untick "anonymous feedback" on that form, the SDK's opt-in call sends your display name and email along with the site details the opt-in screen lists. Terms: https://freemius.com/terms/ Privacy policy: https://freemius.com/privacy/
 * api.anthropic.com - the in-admin AI chat (Pro), opt-in and bring-your-own-key. Nothing is sent until an administrator saves their own Anthropic API key on the WP MCP > Chat screen and sends a message; there is no shared or built-in key. Each chat step sends, from this server, that administrator's key, a system prompt carrying the site name, site URL, their username and the names of the tools the chat may use, the tool schemas it has loaded, and the conversation so far: their messages, the assistant's replies, and the results of the tools it ran, which can include site content those tools read. The key is stored encrypted per user and is never sent to the browser. Terms: https://www.anthropic.com/legal/commercial-terms Privacy policy: https://www.anthropic.com/legal/privacy
-* WP MCP Cloud (the cloud URL you configure) - nothing is sent until you run cloud-connect with a cloud URL and API key you supply, and every request after that goes only to that URL with your API key in the Authorization header. cloud-connect verifies the key by fetching your account, cloud-push-assets sends the widget and block specs you push, and cloud-list-assets and cloud-pull-assets fetch the specs saved in your account. The announcements feed also fetches notices (GET /announcements, no site content) when an administrator opens a WP MCP admin screen, at most once a day, or once an hour after a failed fetch. Once connected, it also renews its sign-in token with that same URL over https. Terms: https://wpmcp-pro.com/terms.html Privacy policy: https://wpmcp-pro.com/privacy.html
+* WP MCP Cloud (the cloud URL you configure) - nothing is sent until you run cloud-connect with a cloud URL and API key you supply, and every request after that goes only to that URL with your API key in the Authorization header. cloud-connect verifies the key by fetching your account, cloud-push-assets sends the widget and block specs you push, and cloud-list-assets and cloud-pull-assets fetch the specs saved in your account. cloud-push-settings sends this site's governance, exposure and skills settings and identity scopes (never passwords, keys or tokens), cloud-apply-settings fetches the settings saved in your account, cloud-marketplace-browse fetches marketplace listings, and cloud-marketplace-install fetches the one listing you install. The announcements feed also fetches notices (GET /announcements, no site content) when an administrator opens a WP MCP admin screen, at most once a day, or once an hour after a failed fetch. Once connected, it also renews its sign-in token with that same URL over https. Terms: https://wpmcp-pro.com/terms.html Privacy policy: https://wpmcp-pro.com/privacy.html
 * Allowlisted media hosts - import-stock-image and upload-svg download the file you picked from a default allowlist of images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org (Wikimedia Commons, terms: https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use privacy policy: https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) and staticflickr.com (Flickr, terms: https://www.flickr.com/help/terms privacy policy: https://www.flickr.com/help/privacy), matched on the host or a subdomain of it. The site owner can change that list with the wpmcp_remote_media_allowed_hosts filter. The download carries WordPress's standard user agent.
 * Any host you name yourself - sideload-image passes the URL you or your agent supply to core's media_sideload_image(), so it can fetch an image from anywhere. It is not covered by the allowlist above; disable the ability if you do not want that reach.
 * Any URL you measure - analyze-performance fetches the URL you give it under a WPMCP-Performance-Analyzer/1.0 user agent, refusing private, loopback and reserved addresses and following no redirects.
-* This site itself - the connection self-test calls this site's own REST route, scan-security fetches this site's front page to read its security headers, and the analytics abilities call this site's own URL. These are loopback requests to your own server.
+* This site itself - the connection self-test calls this site's own REST route, scan-security fetches this site's front page to read its security headers, get-rendered-html fetches a page of this site (never another host, and redirects off the site are refused), and the analytics abilities call this site's own URL. These are loopback requests to your own server.
 
 == Installation ==
 
@@ -94,6 +94,41 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.28 =
+* New WooCommerce operations catalog (Pro): discover, read and write store data across products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks and settings through WooCommerce's own REST API, with WooCommerce's permission checks as the final gate.
+* Every change to existing store data is snapshotted and reversible, batches of up to 25 changes share one session for a single rollback, and changes a rollback could not undo are refused.
+* Destructive store operations such as deletes and refunds are off by default, need an explicit per-site opt-in and a confirmation on every call, and refunds never contact the payment gateway unless asked.
+
+= 0.8.27 =
+* New get-rendered-html ability returns the rendered front-end HTML a visitor sees for a published page on this site, in chunks, with optional script stripping or text-only output, so agents can verify edits against what visitors actually get.
+* get-rendered-html only ever fetches this site's own address: other hosts, IP addresses, non-web schemes and redirects that leave the site are refused, and drafts, private and password-protected posts are not fetched.
+
+= 0.8.26 =
+* New custom widget builder (Pro): describe an Elementor widget as a data spec and the plugin compiles it into a real widget class. The generated PHP is linted against a closed allowlist before it touches disk, and it loads only from a hardened sandbox through a hash-verified manifest, so a tampered file stops loading.
+* Compiling is opt-in through a filter and refuses without the edit_files capability or when DISALLOW_FILE_EDIT is set. Every control type escapes the same way in compiled and runtime rendering.
+
+= 0.8.25 =
+* New: sync your governance, exposure, skills and identity settings with WP MCP Cloud, with every synced change recorded and undoable through rollback.
+* New: browse the WP MCP Cloud marketplace and install widget and block specs as inactive drafts, validated and sanitized before they are stored.
+
+= 0.8.24 =
+* Security: MCP OAuth access tokens are now bound to the MCP endpoint and no longer authenticate any other route on the site (the WordPress REST API, admin-ajax and so on). If a connected MCP client stops working after this update, reconnect it.
+* OAuth discovery now names the MCP endpoint as the protected resource, lists the supported scope, is also served at the endpoint-specific well-known address, and unauthenticated MCP responses point clients to it.
+* Refresh token redemption is now atomic, so two simultaneous refreshes with the same token can no longer both succeed.
+
+= 0.8.23 =
+* Deeper SEO support: SEOPress is now detected alongside Yoast, Rank Math, The SEO Framework and SureRank, and SEO edits now require permission to edit the target post.
+* New Pro SEO tools: read and write term-level SEO, set OpenGraph and Twitter images, read resolved social meta, and generate meta tags and JSON-LD schema (Article, WebPage, LocalBusiness, Product). Every SEO write is snapshotted and reversible.
+
+= 0.8.22 =
+* New gateway credential tools: provision, inspect and revoke a site-local gateway credential with no cloud dependency. The client secret and refresh token are shown exactly once, re-provisioning rotates everything, and provision and revoke both require explicit confirmation.
+* Refresh tokens now stop working when the user they belong to changes their password or is deleted. Existing refresh tokens keep working and pick up this protection on their next use.
+
+= 0.8.21 =
+* Fixed: undoing an Elementor edit could leave the page showing the undone styling, because the generated CSS file was not refreshed on rollback. Rollback of pages, the site kit and global classes, duplicated posts, and popup and import settings writes now clear Elementor's generated CSS and element render cache.
+* New regenerate-elementor-css ability: rebuild Elementor's generated CSS for one page, or for the whole site with an explicit confirmation.
+* Editing a page's raw Elementor data now clears only that page's caches instead of every page on the site.
 
 = 0.8.20 =
 * New: upload-media adds a file to the Media Library straight from base64 bytes, for agents that hold the file itself rather than a URL. Supports title, alt text, caption and a parent post.
@@ -201,6 +236,30 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.28 =
+New WooCommerce operations catalog (Pro): discover, read and write store data across products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks and settings through WooCommerce's own REST API, with WooCommerce's permission checks as the final gate.
+
+= 0.8.27 =
+New get-rendered-html ability returns the rendered front-end HTML a visitor sees for a published page on this site, in chunks, with optional script stripping or text-only output, so agents can verify edits against what visitors actually get.
+
+= 0.8.26 =
+New custom widget builder (Pro): describe an Elementor widget as a data spec and the plugin compiles it into a real widget class. The generated PHP is linted against a closed allowlist before it touches disk, and it loads only from a hardened sandbox through a hash-verified manifest, so a tampered file stops loading.
+
+= 0.8.25 =
+New: sync your governance, exposure, skills and identity settings with WP MCP Cloud, with every synced change recorded and undoable through rollback.
+
+= 0.8.24 =
+Security: MCP OAuth access tokens are now bound to the MCP endpoint and no longer authenticate any other route on the site (the WordPress REST API, admin-ajax and so on). If a connected MCP client stops working after this update, reconnect it.
+
+= 0.8.23 =
+Deeper SEO support: SEOPress is now detected alongside Yoast, Rank Math, The SEO Framework and SureRank, and SEO edits now require permission to edit the target post.
+
+= 0.8.22 =
+New gateway credential tools: provision, inspect and revoke a site-local gateway credential with no cloud dependency. The client secret and refresh token are shown exactly once, re-provisioning rotates everything, and provision and revoke both require explicit confirmation.
+
+= 0.8.21 =
+Fixed: undoing an Elementor edit could leave the page showing the undone styling, because the generated CSS file was not refreshed on rollback. Rollback of pages, the site kit and global classes, duplicated posts, and popup and import settings writes now clear Elementor's generated CSS and element render cache.
 
 = 0.8.20 =
 New: upload-media adds a file to the Media Library straight from base64 bytes, for agents that hold the file itself rather than a URL. Supports title, alt text, caption and a parent post.

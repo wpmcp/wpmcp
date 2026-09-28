@@ -16,7 +16,8 @@ if (! defined('ABSPATH')) {
  * Pull the builder assets from this site's WP MCP Cloud account and recreate
  * them locally as custom widget / block specs. Each pulled spec is validated
  * before it is stored, so a malformed cloud asset is skipped rather than
- * creating a broken widget.
+ * creating a broken widget, and every skipped asset is reported by name with
+ * the reason it was refused.
  */
 class Cloud_Pull_Assets
 {
@@ -27,8 +28,9 @@ class Cloud_Pull_Assets
             return $result;
         }
 
-        $assets = is_array($result['assets'] ?? null) ? $result['assets'] : [];
-        $pulled = 0;
+        $assets  = is_array($result['assets'] ?? null) ? $result['assets'] : [];
+        $pulled  = 0;
+        $skipped = [];
 
         foreach ($assets as $asset) {
             if (! is_array($asset) || ! is_array($asset['spec'] ?? null)) {
@@ -37,17 +39,31 @@ class Cloud_Pull_Assets
             $type = (string) ($asset['type'] ?? '');
             $spec = $asset['spec'];
 
-            if ('widget' === $type && true === Widget_Spec::validate($spec)) {
-                if (! is_wp_error(Widget_Spec_Store::create($spec))) {
-                    $pulled++;
-                }
-            } elseif ('block' === $type && true === Block_Spec::validate($spec)) {
-                if (! is_wp_error(Block_Spec_Store::create($spec))) {
-                    $pulled++;
-                }
+            if ('widget' === $type) {
+                $valid = Widget_Spec::validate($spec);
+                $store = static fn (array $s) => Widget_Spec_Store::create($s);
+            } elseif ('block' === $type) {
+                $valid = Block_Spec::validate($spec);
+                $store = static fn (array $s) => Block_Spec_Store::create($s);
+            } else {
+                continue;
             }
+
+            $created = true === $valid ? $store($spec) : $valid;
+            if (is_wp_error($created) || true !== $valid) {
+                // Report, never silently drop: a spec pushed under older,
+                // looser rules is refused here, and the caller needs to know
+                // which one and why rather than just seeing a lower count.
+                $skipped[] = [
+                    'name'   => is_scalar($asset['name'] ?? null) ? (string) $asset['name'] : '',
+                    'type'   => $type,
+                    'reason' => is_wp_error($created) ? $created->get_error_message() : 'The spec was refused.',
+                ];
+                continue;
+            }
+            $pulled++;
         }
 
-        return ['pulled' => $pulled];
+        return ['pulled' => $pulled, 'skipped' => $skipped];
     }
 }
