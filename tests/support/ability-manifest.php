@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 352,
-    'free'      => 255,
+    'total'     => 355,
+    'free'      => 258,
     'pro'       => 97,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -133,6 +133,9 @@ return [
         'wpmcp/formidable-write' => 'free',
         'wpmcp/forminator-read' => 'free',
         'wpmcp/forminator-write' => 'free',
+        'wpmcp/gateway-provision' => 'free',
+        'wpmcp/gateway-revoke' => 'free',
+        'wpmcp/gateway-status' => 'free',
         'wpmcp/generate-widget' => 'pro',
         'wpmcp/get-analytics-connection-status' => 'free',
         'wpmcp/get-analytics-summary' => 'free',

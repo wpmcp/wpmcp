@@ -92,6 +92,14 @@ class Token_Grant
             return self::deny($client_id);
         }
 
+        // Gateway policy (issue #142): the gateway client's only credential
+        // is the chain gateway-provision mints locally. It never completes
+        // an interactive authorization, so a code presented by it is refused
+        // before the code is consumed.
+        if (Client_Store::is_protected($client_id)) {
+            return self::deny($client_id);
+        }
+
         $record = Code_Store::consume($code);
         if (null === $record) {
             return self::deny($client_id);
@@ -108,6 +116,15 @@ class Token_Grant
 
         $verifier = (string) ($params['code_verifier'] ?? '');
         if (! PKCE::verify($verifier, $record['code_challenge'], $record['code_challenge_method'])) {
+            return self::deny($client_id);
+        }
+
+        // The 'gateway' scope is reserved (issue #142). /authorize accepts
+        // the scope string from the client verbatim, so without this any DCR
+        // client could ask for 'gateway' and walk away with a session that
+        // carries the gateway refresh TTL. Same flat invalid_grant as every
+        // other rejection, so the reservation is not an oracle.
+        if (Refresh_Token_Store::is_gateway_scope((string) $record['scope'])) {
             return self::deny($client_id);
         }
 
@@ -152,6 +169,22 @@ class Token_Grant
         $user_id  = (int) $record['user_id'];
         $chain_id = (string) ($record['chain_id'] ?? '');
 
+        // Gateway policy (issue #142), both directions, keyed on the
+        // gateway flag stamped at issuance: a gateway chain is redeemable
+        // only by the gateway client, and the gateway client redeems nothing
+        // but its gateway chain. The scope clause is defence in depth for a
+        // record that carries the reserved scope without the flag (one minted
+        // before the scope was reserved). Any mismatch is a chain that should
+        // not exist, so it is killed rather than left to be retried.
+        $is_gateway_chain  = ! empty($record['gateway']);
+        $is_gateway_client = Client_Store::is_protected($client_id);
+        $flag_mismatch     = $is_gateway_chain !== $is_gateway_client;
+        $scope_mismatch    = ! $is_gateway_client && Refresh_Token_Store::is_gateway_scope((string) $record['scope']);
+        if ($flag_mismatch || $scope_mismatch) {
+            Refresh_Token_Store::revoke_chain($chain_id);
+            return self::deny($client_id);
+        }
+
         // A grant must not outlive the account it was issued for. The
         // access token's own credential fingerprint (Token_Store) already
         // catches a deleted or re-passworded user at validation time; this
@@ -163,7 +196,7 @@ class Token_Grant
 
         self::audit(true, $client_id);
 
-        return self::mint($client_id, $user_id, (string) $record['scope'], $chain_id);
+        return self::mint($client_id, $user_id, (string) $record['scope'], $chain_id, $is_gateway_chain);
     }
 
     /**
@@ -173,14 +206,14 @@ class Token_Grant
      *
      * @return array{access_token: string, token_type: string, expires_in: int, scope: string, refresh_token: string}
      */
-    private static function mint(string $client_id, int $user_id, string $scope, string $chain_id): array
+    private static function mint(string $client_id, int $user_id, string $scope, string $chain_id, bool $gateway = false): array
     {
         return [
-            'access_token'  => Token_Store::issue($client_id, $user_id, $scope, $chain_id),
+            'access_token'  => Token_Store::issue($client_id, $user_id, $scope, $chain_id, $gateway),
             'token_type'    => 'Bearer',
             'expires_in'    => Token_Store::TTL_SECONDS,
             'scope'         => $scope,
-            'refresh_token' => Refresh_Token_Store::issue($client_id, $user_id, $scope, $chain_id),
+            'refresh_token' => Refresh_Token_Store::issue($client_id, $user_id, $scope, $chain_id, $gateway),
         ];
     }
 
