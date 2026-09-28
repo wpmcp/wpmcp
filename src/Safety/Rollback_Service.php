@@ -1141,8 +1141,11 @@ class Rollback_Service
             Beaver_Builder_Cache::clear($object_id);
         }
 
-        if (isset($snapshotted_meta['_breakdance_data']) || isset($current_meta['_breakdance_data'])) {
-            Breakdance_Cache::regenerate($object_id);
+        foreach (['breakdance', 'oxygen'] as $engine_builder) {
+            $engine_key = Breakdance_Cache::prefix($engine_builder) . 'data';
+            if (isset($snapshotted_meta[ $engine_key ]) || isset($current_meta[ $engine_key ])) {
+                Breakdance_Cache::regenerate($object_id, $engine_builder);
+            }
         }
 
         self::refresh_woocommerce_product($object_id);

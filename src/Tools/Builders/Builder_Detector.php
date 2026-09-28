@@ -23,7 +23,7 @@ if (! defined('ABSPATH')) {
  * flag, WPBakery's `_wpb_vc_js_status` = 'true' editor flag, Beaver
  * Builder's `_fl_builder_enabled` flag, a Breakdance `_breakdance_data`
  * row holding a valid tree (a root with id, data and children inside its
- * `tree_json_string`), Gutenberg's
+ * `tree_json_string`), the same for Oxygen 6's `_oxygen_data`, Gutenberg's
  * `<!-- wp: -->` block comment markers in post_content, then a
  * WPBakery `[vc_row]` or `[vc_section]` shortcode in post_content (a
  * WPBakery page saved with its backend editor off), falling back to
@@ -55,8 +55,13 @@ class Builder_Detector
             return 'beaver-builder';
         }
 
-        if (self::has_breakdance_tree($post_id)) {
+        if (self::has_engine_tree($post_id, '_breakdance_data')) {
             return 'breakdance';
+        }
+
+        // Oxygen 6 is the Breakdance engine under the `_oxygen_` prefix.
+        if (self::has_engine_tree($post_id, '_oxygen_data')) {
+            return 'oxygen';
         }
 
         $post = get_post($post_id);
@@ -74,12 +79,13 @@ class Builder_Detector
     }
 
     /**
-     * Whether `_breakdance_data` holds a tree Breakdance would render: the
-     * same root check its own reader makes.
+     * Whether a Breakdance engine data row (`_breakdance_data`, or
+     * `_oxygen_data` for Oxygen 6) holds a tree the engine would render:
+     * the same root check its own reader makes.
      */
-    private static function has_breakdance_tree(int $post_id): bool
+    private static function has_engine_tree(int $post_id, string $key): bool
     {
-        $raw = get_post_meta($post_id, '_breakdance_data', true);
+        $raw = get_post_meta($post_id, $key, true);
         if (! is_string($raw) || '' === $raw) {
             return false;
         }
