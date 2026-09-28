@@ -33,10 +33,18 @@ if (! defined('ABSPATH')) {
  * WFFN_Report_Views and drops the write otherwise), so views, and the
  * landing and optin thank you conversions that are view rows too, need that
  * add-on. Offers need the upsell add-on (WFOCU_Core, the class the free
- * plugin guards its own upsell code on). Where the offer list lives inside
- * that add-on is not verifiable from the free source; _funnel_steps is read
- * as before. A value that cannot be read is null (or, for offers, left out)
- * and a sibling *_unavailable key says why.
+ * plugin guards its own upsell code on). The offer list is read the way the
+ * free plugin reaches it, most authoritative first: the add-on's own
+ * WFOCU_Core()->funnels->get_funnel_steps(); else the upsell step's
+ * _funnel_steps meta, which the free plugin reads back directly when it
+ * imports an upsell template; else the offers whose _funnel_id names the
+ * step, the link the free plugin follows from an offer to its upsell step.
+ * offers_source says which answered. Each offer's views and accepts come
+ * from wfocu_event (action 2 viewed, 4 accepted), as the canvas counts them.
+ *
+ * A value that cannot be read is null (or, for a list, left out or empty)
+ * and carries two siblings: *_unavailable, the reason in prose, and
+ * *_unavailable_reason, a stable code (see REASONS) a client can branch on.
  *
  * Answers are built from chosen fields only. The stats tables sit next to
  * customer data (optin emails and form data, contact and order ids), and
@@ -69,9 +77,20 @@ final class FunnelKit_Pack
         'optin_ty'    => [ 10, 11 ],
     ];
 
-    private const NOT_RECORDED = 'recorded only by the Funnel Builder Pro add-on, which is not active';
-    private const NOT_TRACKED  = 'FunnelKit does not track this for the step type';
-    private const PER_OFFER    = 'FunnelKit counts upsells per offer, not per step';
+    /** Reason code => its prose; %s is a table name. */
+    private const REASONS = [
+        'pro_addon_inactive'        => 'recorded only by the Funnel Builder Pro add-on, which is not active',
+        'upsell_addon_inactive'     => 'upsell add-on not active',
+        'table_missing'             => '%s table missing',
+        'not_tracked_for_step_type' => 'FunnelKit does not track this for the step type',
+        'counted_per_offer'         => 'FunnelKit counts upsells per offer, not per step',
+        'step_has_no_post_id'       => 'step has no post id',
+        'step_post_missing'         => 'the step post is missing or not of the step\'s type',
+        'no_offer_list_stored'      => 'no offer list stored for the upsell step',
+    ];
+
+    /** Most offers a fallback lookup reads for one upsell step. */
+    private const MAX_OFFERS = 100;
 
     /** @return array<string,array<string,mixed>> */
     public static function operations(): array
@@ -139,6 +158,30 @@ final class FunnelKit_Pack
     }
 
     /**
+     * A reason as [code, prose].
+     *
+     * @return array{0:string,1:string}
+     */
+    private static function reason(string $code, string $table = ''): array
+    {
+        return [ $code, sprintf(self::REASONS[ $code ], $table) ];
+    }
+
+    /**
+     * $out with $field's *_unavailable prose and *_unavailable_reason code.
+     *
+     * @param array<string,mixed>      $out
+     * @param array{0:string,1:string} $reason
+     * @return array<string,mixed>
+     */
+    private static function mark(array $out, string $field, array $reason): array
+    {
+        $out[ $field . '_unavailable' ]        = $reason[1];
+        $out[ $field . '_unavailable_reason' ] = $reason[0];
+        return $out;
+    }
+
+    /**
      * @param array<string,mixed> $args
      * @return array<string,mixed>
      */
@@ -152,7 +195,7 @@ final class FunnelKit_Pack
 
         $table = self::table('bwf_funnels');
         if (! Ops_Status_Packs::table_exists($table)) {
-            return $out + [ 'funnels_unavailable' => 'bwf_funnels table missing' ];
+            return self::mark($out, 'funnels', self::reason('table_missing', 'bwf_funnels'));
         }
 
         $search = trim((string) ($args['search'] ?? ''));
@@ -206,7 +249,8 @@ final class FunnelKit_Pack
 
         $out = [];
         foreach ($steps as $index => $step) {
-            $out[] = self::step($index + 1, $step['type'], $step['id'], $counts[ $step['id'] ] ?? self::counts_row(null, 'step has no post id', null, 'step has no post id'));
+            $no_id = self::reason('step_has_no_post_id');
+            $out[] = self::step($index + 1, $step['type'], $step['id'], $counts[ $step['id'] ] ?? self::counts_row(null, $no_id, null, $no_id));
         }
 
         return self::funnel_summary($row) + [
@@ -263,7 +307,7 @@ final class FunnelKit_Pack
     }
 
     /**
-     * @param array<string,int|string|null> $counts
+     * @param array<string,mixed> $counts
      * @return array<string,mixed>
      */
     private static function step(int $position, string $type, int $post_id, array $counts): array
@@ -283,18 +327,26 @@ final class FunnelKit_Pack
             'counts'      => $counts,
         ];
 
-        if ($own && 'wc_checkout' === $type) {
+        if (! in_array($type, [ 'wc_checkout', 'wc_upsells' ], true)) {
+            return $out;
+        }
+        if (! $own) {
+            $why = self::reason('step_post_missing');
+            $out = self::mark($out, 'product_ids', $why);
+            return 'wc_upsells' === $type ? self::mark($out, 'offers', $why) : $out;
+        }
+        if ('wc_checkout' === $type) {
             $out['product_ids'] = self::checkout_products($post_id);
+            return $out;
         }
-        if ($own && 'wc_upsells' === $type) {
-            $offers = self::upsells_active() ? self::offers($post_id) : 'upsell add-on not active';
-            if (is_string($offers)) {
-                $out['offers_unavailable'] = $offers;
-            } else {
-                $out['offers']      = $offers;
-                $out['product_ids'] = array_values(array_unique(array_merge([], ...array_column($offers, 'product_ids'))));
-            }
+
+        $found = self::upsells_active() ? self::offers($post_id) : self::reason('upsell_addon_inactive');
+        if (! isset($found['source'])) {
+            return self::mark(self::mark($out, 'product_ids', $found), 'offers', $found);
         }
+        $out['product_ids']   = array_values(array_unique(array_merge([], ...array_column($found['offers'], 'product_ids'))));
+        $out['offers_source'] = $found['source'];
+        $out['offers']        = $found['offers'];
 
         return $out;
     }
@@ -343,39 +395,150 @@ final class FunnelKit_Pack
     }
 
     /**
-     * An upsell step's offers in order, from its _funnel_steps, each with
-     * the products its _wfocu_setting sells. A string, the reason, when no
-     * list is stored.
+     * An upsell step's offers in order, each with the products its
+     * _wfocu_setting sells and its views and accepts. The reason, as
+     * [code, prose], when no offer list is found.
      *
-     * @return array<int,array{post_id:int,type:string,title:?string,status:string,product_ids:int[]}>|string
+     * @return array{source:string,offers:array<int,array<string,mixed>>}|array{0:string,1:string}
      */
     private static function offers(int $upsell_id)
     {
-        $rows = get_post_meta($upsell_id, '_funnel_steps', true);
-        if (! is_array($rows)) {
-            return 'no offer list stored in _funnel_steps';
+        $found = self::offer_rows($upsell_id);
+        if (null === $found) {
+            return self::reason('no_offer_list_stored');
         }
 
+        $types  = self::offer_post_types();
         $offers = [];
-        foreach ($rows as $row) {
+        foreach ($found[1] as $row) {
+            if (is_object($row)) {
+                $row = get_object_vars($row);
+            }
             $id = is_array($row) ? (int) ($row['id'] ?? 0) : 0;
             if ($id < 1) {
                 continue;
             }
             $post     = get_post($id);
-            $own      = $post instanceof \WP_Post && 'wfocu_offer' === $post->post_type;
+            $own      = $post instanceof \WP_Post && in_array($post->post_type, $types, true);
             $setting  = $own ? get_post_meta($id, '_wfocu_setting', true) : null;
             $products = is_object($setting) ? ($setting->products ?? null) : (is_array($setting) ? ($setting['products'] ?? null) : null);
 
-            $offers[] = [
+            $offers[ $id ] = [
                 'post_id'     => $id,
-                'type'        => is_string($row['type'] ?? null) ? sanitize_key($row['type']) : 'upsell',
+                'type'        => is_string($row['type'] ?? null) ? sanitize_key($row['type']) : null,
                 'title'       => $post instanceof \WP_Post ? sanitize_text_field($post->post_title) : null,
                 'status'      => self::status($post),
                 'product_ids' => self::product_ids($products),
             ];
         }
-        return $offers;
+
+        $counts = self::offer_counts(array_keys($offers));
+        foreach ($offers as $id => $offer) {
+            $offers[ $id ]['counts'] = is_array($counts)
+                ? [ 'views' => $counts[ $id ][0] ?? 0, 'conversions' => $counts[ $id ][1] ?? 0 ]
+                : self::counts_row(null, self::reason('table_missing', 'wfocu_event'), null, self::reason('table_missing', 'wfocu_event'));
+        }
+
+        return [ 'source' => $found[0], 'offers' => array_values($offers) ];
+    }
+
+    /**
+     * The raw offer list of an upsell step and where it came from, or null
+     * when no source has one.
+     *
+     * @return array{0:string,1:array<int|string,mixed>}|null
+     */
+    private static function offer_rows(int $upsell_id): ?array
+    {
+        $api = self::addon_offer_rows($upsell_id);
+        if (null !== $api) {
+            return [ 'addon_api', $api ];
+        }
+
+        $meta = get_post_meta($upsell_id, '_funnel_steps', true);
+        if (is_array($meta)) {
+            return [ 'funnel_steps_meta', $meta ];
+        }
+
+        $ids = get_posts([
+            'post_type'        => self::offer_post_types(),
+            'post_status'      => 'any',
+            'fields'           => 'ids',
+            'numberposts'      => self::MAX_OFFERS,
+            'orderby'          => [ 'menu_order' => 'ASC', 'ID' => 'ASC' ],
+            'meta_key'         => '_funnel_id', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- the link FunnelKit itself keeps from an offer to its upsell step.
+            'meta_value'       => (string) $upsell_id, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- as above.
+            'no_found_rows'    => true,
+            'suppress_filters' => true,
+        ]);
+        if ([] === $ids) {
+            return null;
+        }
+        return [ 'offer_parent_meta', array_map(static fn ($id): array => [ 'id' => (int) $id ], $ids) ];
+    }
+
+    /**
+     * The offer list as the upsell add-on's own API answers it, or null when
+     * the API is not there or does not answer with a list.
+     *
+     * @return array<int|string,mixed>|null
+     */
+    private static function addon_offer_rows(int $upsell_id): ?array
+    {
+        if (! function_exists('WFOCU_Core')) {
+            return null;
+        }
+        try {
+            $core    = WFOCU_Core();
+            $funnels = is_object($core) && (isset($core->funnels) || method_exists($core, '__get')) ? $core->funnels : null;
+            $rows    = is_object($funnels) && method_exists($funnels, 'get_funnel_steps') ? $funnels->get_funnel_steps($upsell_id) : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return is_array($rows) ? $rows : null;
+    }
+
+    /** @return string[] the post types an offer may be stored as. */
+    private static function offer_post_types(): array
+    {
+        $types = [ 'wfocu_offer' ];
+        if (is_callable([ 'WFOCU_Common', 'get_offer_post_type_slug' ])) {
+            $slug = call_user_func([ 'WFOCU_Common', 'get_offer_post_type_slug' ]);
+            if (is_string($slug) && '' !== $slug) {
+                $types[] = sanitize_key($slug);
+            }
+        }
+        return array_values(array_unique($types));
+    }
+
+    /**
+     * [views, accepts] per offer id from wfocu_event, or null when the table
+     * is absent. Only aggregates are selected.
+     *
+     * @param int[] $ids
+     * @return array<int,array{0:int,1:int}>|null
+     */
+    private static function offer_counts(array $ids): ?array
+    {
+        global $wpdb;
+
+        $table = self::table('wfocu_event');
+        if (! Ops_Status_Packs::table_exists($table)) {
+            return null;
+        }
+        if ([] === $ids) {
+            return [];
+        }
+
+        $in = implode(',', array_map('intval', $ids));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- the upsell add-on's own table; $in is a list of integers.
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT object_id, SUM(action_type_id = 2) AS views, SUM(action_type_id = 4) AS accepts FROM %i WHERE object_id IN ({$in}) AND action_type_id IN (2, 4) GROUP BY object_id", $table), ARRAY_A);
+
+        $out = [];
+        foreach ((array) $rows as $row) {
+            $out[ (int) $row['object_id'] ] = [ (int) $row['views'], (int) $row['accepts'] ];
+        }
+        return $out;
     }
 
     /**
@@ -401,13 +564,13 @@ final class FunnelKit_Pack
         }
 
         $sessions      = [];
-        $views_missing = self::NOT_RECORDED;
+        $views_missing = self::reason('pro_addon_inactive');
         $views_table   = self::table('wfco_report_views');
         if (! self::views_recorded()) {
             $sessions = null;
         } elseif (! Ops_Status_Packs::table_exists($views_table)) {
             $sessions      = null;
-            $views_missing = 'wfco_report_views table missing';
+            $views_missing = self::reason('table_missing', 'wfco_report_views');
         } else {
             $in = implode(',', array_map('intval', $all));
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- FunnelKit's own table; $in is a list of integers.
@@ -421,7 +584,7 @@ final class FunnelKit_Pack
         $entries = self::count_by('bwf_optin_entries', 'step_id', $by_type['optin'] ?? []);
 
         // A view row type's session count for a step id, as [value, reason].
-        $view = static function (int $id, ?int $type, string $untracked) use ($sessions, $views_missing): array {
+        $view = static function (int $id, ?int $type, array $untracked) use ($sessions, $views_missing): array {
             if (null === $type) {
                 return [ null, $untracked ];
             }
@@ -435,13 +598,13 @@ final class FunnelKit_Pack
                 continue;
             }
             $type      = $step['type'];
-            $untracked = 'wc_upsells' === $type ? self::PER_OFFER : self::NOT_TRACKED;
+            $untracked = self::reason('wc_upsells' === $type ? 'counted_per_offer' : 'not_tracked_for_step_type');
             [ $view_type, $convert_type ] = self::VIEW_TYPES[ $type ] ?? [ null, null ];
 
             [ $views, $views_why ] = $view($id, $view_type, $untracked);
             if ('wc_checkout' === $type || 'optin' === $type) {
                 [ $counted, $table ]        = 'optin' === $type ? [ $entries, 'bwf_optin_entries' ] : [ $orders, 'wfacp_stats' ];
-                [ $conversions, $conv_why ] = null === $counted ? [ null, "{$table} table missing" ] : [ $counted[ $id ] ?? 0, null ];
+                [ $conversions, $conv_why ] = null === $counted ? [ null, self::reason('table_missing', $table) ] : [ $counted[ $id ] ?? 0, null ];
             } else {
                 [ $conversions, $conv_why ] = $view($id, $convert_type, $untracked);
             }
@@ -452,18 +615,20 @@ final class FunnelKit_Pack
     }
 
     /**
-     * A step's counts, with a *_unavailable reason beside each null.
+     * A step's counts, with a *_unavailable reason and code beside each null.
      *
+     * @param array{0:string,1:string}|null $views_why
+     * @param array{0:string,1:string}|null $conv_why
      * @return array<string,int|string|null>
      */
-    private static function counts_row(?int $views, ?string $views_why, ?int $conversions, ?string $conv_why): array
+    private static function counts_row(?int $views, ?array $views_why, ?int $conversions, ?array $conv_why): array
     {
         $row = [ 'views' => $views, 'conversions' => $conversions ];
         if (null !== $views_why) {
-            $row['views_unavailable'] = $views_why;
+            $row = self::mark($row, 'views', $views_why);
         }
         if (null !== $conv_why) {
-            $row['conversions_unavailable'] = $conv_why;
+            $row = self::mark($row, 'conversions', $conv_why);
         }
         return $row;
     }
