@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Content;
 
+use WPMCP\Tools\Builders\Elementor_Cache;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -115,6 +117,12 @@ class Duplicate_Post
                     add_post_meta($new_id, (string) $key, maybe_unserialize($value));
                 }
             }
+        }
+
+        // The copied Elementor caches were built for the source document
+        // (its post-{id}.css, its render); the copy must build its own.
+        if (metadata_exists('post', $new_id, '_elementor_data')) {
+            Elementor_Cache::invalidate_document($new_id);
         }
 
         foreach (get_object_taxonomies($source->post_type) as $taxonomy) {

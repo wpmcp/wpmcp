@@ -82,4 +82,18 @@ class IdentityStoreTest extends \WP_UnitTestCase
         $this->assertSame(['database'], $identity['domains']);
         $this->assertCount(1, Identity_Store::list());
     }
+
+    public function test_normalize_is_the_shape_create_stores(): void
+    {
+        $fields = ['domains' => ['content', 7, ['x']], 'operations' => 'read', 'mode' => 'root', 'exposure' => 'compact', 'token' => 'secret'];
+
+        $normalized = Identity_Store::normalize(2024, $fields);
+
+        $this->assertSame(Identity_Store::create('2024', $fields), $normalized);
+        $this->assertSame(['name', 'domains', 'operations', 'abilities', 'mode', 'exposure'], array_keys($normalized));
+        $this->assertSame('2024', $normalized['name']);
+        $this->assertSame(['content', '7'], $normalized['domains']);
+        $this->assertSame([], $normalized['operations']);
+        $this->assertSame('allow', $normalized['mode']);
+    }
 }

@@ -5,6 +5,7 @@ namespace WPMCP\Tools\Elementor;
 use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -51,6 +52,7 @@ class Set_Popup_Settings
                 ],
                 function () use ($post_id, $merged) {
                     update_post_meta($post_id, '_elementor_page_settings', $merged);
+                    Elementor_Cache::invalidate_document($post_id);
                     return true;
                 },
                 function () use ($post_id, $settings) {
