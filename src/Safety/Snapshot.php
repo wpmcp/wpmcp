@@ -49,6 +49,9 @@ class Snapshot
         if ('wc_tax_rate' === $object_type) {
             return self::capture_wc_tax_rate((int) $object_id);
         }
+        if ('aioseo_row' === $object_type) {
+            return self::capture_aioseo_row((string) $object_id);
+        }
         if ('theme_scaffold' === $object_type) {
             return self::capture_theme_scaffold((string) $object_id);
         }
@@ -356,6 +359,103 @@ class Snapshot
                 'objects_truncated' => $truncated,
             ],
         ];
+    }
+
+    /**
+     * All in One SEO's per-object tables: kind => [table suffix, id column].
+     * The terms table ships only with the paid plugin.
+     */
+    public const AIOSEO_TABLES = [
+        'post' => ['aioseo_posts', 'post_id'],
+        'term' => ['aioseo_terms', 'term_id'],
+    ];
+
+    /**
+     * Capture every All in One SEO row one post or term has, keyed
+     * "post:<id>" or "term:<id>" (issue #294). AIOSEO keeps those fields in
+     * its own table, which the post and term snapshots do not see.
+     *
+     * The rows are kept verbatim (primary key and NULLs included), so the
+     * restore puts back exactly this set and removes any row the write
+     * added. Not db_rows: that type restores only rows a WHERE matched, so it
+     * cannot undo an insert, and its restore needs manage_options while the
+     * SEO tools run at edit_posts.
+     */
+    private static function capture_aioseo_row(string $key): array
+    {
+        [$kind, $id] = array_pad(explode(':', $key, 2), 2, '');
+        $rows        = self::aioseo_rows((string) $kind, (int) $id);
+
+        return [
+            'object_type' => 'aioseo_row',
+            'object_id'   => $key,
+            'data'        => [
+                'kind'         => (string) $kind,
+                'id'           => (int) $id,
+                'table_exists' => null !== $rows,
+                'rows'         => $rows ?? [],
+            ],
+        ];
+    }
+
+    /** The prefixed AIOSEO table and id column for a kind, or null for an unknown kind. */
+    public static function aioseo_table(string $kind): ?array
+    {
+        global $wpdb;
+
+        if (! isset(self::AIOSEO_TABLES[$kind])) {
+            return null;
+        }
+
+        return [$wpdb->prefix . self::AIOSEO_TABLES[$kind][0], self::AIOSEO_TABLES[$kind][1]];
+    }
+
+    /**
+     * The live column names of an AIOSEO table, or [] when it does not exist.
+     * SHOW COLUMNS rather than SHOW TABLES, which does not list temporary
+     * tables.
+     *
+     * @return string[]
+     */
+    public static function aioseo_columns(string $kind): array
+    {
+        global $wpdb;
+
+        $table = self::aioseo_table($kind);
+        if (null === $table) {
+            return [];
+        }
+
+        $suppress = $wpdb->suppress_errors(true);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- probing a third-party table's live shape; nothing to cache.
+        $columns = $wpdb->get_col($wpdb->prepare('SHOW COLUMNS FROM %i', $table[0]));
+        $wpdb->suppress_errors($suppress);
+
+        return array_map('strval', (array) $columns);
+    }
+
+    /**
+     * Every AIOSEO row for one post or term, oldest first, read live; null
+     * when the table does not exist on this site.
+     *
+     * @return array<int, array<string, string|null>>|null
+     */
+    public static function aioseo_rows(string $kind, int $id): ?array
+    {
+        global $wpdb;
+
+        $table = self::aioseo_table($kind);
+        if (null === $table || $id <= 0 || [] === self::aioseo_columns($kind)) {
+            return null;
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a snapshot must read the live row of a third-party table; there is no WP API for it.
+        $rows = $wpdb->get_results(
+            $wpdb->prepare('SELECT * FROM %i WHERE %i = %d ORDER BY id ASC', $table[0], $table[1], $id),
+            ARRAY_A
+        );
+
+        return array_values((array) $rows);
     }
 
     /** Where Yoast SEO keeps every term's SEO fields, in one option. */

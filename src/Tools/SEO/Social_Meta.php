@@ -23,6 +23,12 @@ if (! defined('ABSPATH')) {
  * "unsupported" payload until they get dedicated branches rather than a
  * guessed map.
  *
+ * Slim SEO stores two images in its `slim_seo` array (facebook_image,
+ * twitter_image); its Open Graph title and description are the SEO title
+ * and description, and its Twitter card reads the Open Graph tags, so those
+ * four fields are reported as inherited. All in One SEO keeps them in its
+ * own table, read and written by Aioseo_Store.
+ *
  * The SEO group answers "unsupported" with a payload rather than the
  * WP_Error / `unsupported_*` code the builder tools use, because the issue
  * asks for structured unsupported responses instead of errors: an agent
@@ -113,10 +119,21 @@ class Social_Meta
     /** RankMath's per-post switch for rendering Twitter from the OG fields. */
     private const RANKMATH_MIRROR_KEY = 'rank_math_twitter_use_facebook';
 
+    /** Plugins with a dedicated social branch rather than a flat key map. */
+    private const BRANCHED = ['slimseo', 'aioseo'];
+
+    /** Slim SEO's image keys inside its `slim_seo` array. */
+    private const SLIM_SEO_IMAGES = [
+        'og_image'      => 'facebook_image',
+        'twitter_image' => 'twitter_image',
+    ];
+
     /** Whether the active plugin has a verified per-post social map. */
     public static function supported(): bool
     {
-        return isset(self::MAPS[SEO_Adapter::active_plugin()]);
+        $active = SEO_Adapter::active_plugin();
+
+        return isset(self::MAPS[$active]) || in_array($active, self::BRANCHED, true);
     }
 
     /**
@@ -158,6 +175,12 @@ class Social_Meta
     public static function get(int $post_id): array
     {
         $active = SEO_Adapter::active_plugin();
+        if ('slimseo' === $active) {
+            return array_merge(['supported' => true, 'plugin' => $active], self::get_slim_seo($post_id));
+        }
+        if ('aioseo' === $active) {
+            return array_merge(['supported' => true, 'plugin' => $active], Aioseo_Store::get_social($post_id));
+        }
         if (! isset(self::MAPS[$active])) {
             return self::unsupported();
         }
@@ -204,6 +227,21 @@ class Social_Meta
     public static function set_image(int $post_id, string $target, string $url, int $attachment_id): void
     {
         $active = SEO_Adapter::active_plugin();
+        if ('aioseo' === $active) {
+            Aioseo_Store::set_social_image($post_id, $target, $url, $attachment_id);
+            return;
+        }
+        if ('slimseo' === $active) {
+            $data = get_post_meta($post_id, SEO_Adapter::SLIM_SEO_META, true);
+            $data = is_array($data) ? $data : [];
+            foreach (self::SLIM_SEO_IMAGES as $field => $key) {
+                if ('both' === $target || $target . '_image' === $field) {
+                    $data[$key] = $url;
+                }
+            }
+            update_post_meta($post_id, SEO_Adapter::SLIM_SEO_META, wp_slash($data));
+            return;
+        }
         if (! isset(self::MAPS[$active])) {
             return;
         }
@@ -244,6 +282,34 @@ class Social_Meta
                 self::write_seopress_dimensions($post_id, $field, $attachment_id);
             }
         }
+    }
+
+    /**
+     * Slim SEO's social fields: the two images are its own; the Open Graph
+     * copy is the SEO title and description, and Twitter reads Open Graph.
+     */
+    private static function get_slim_seo(int $post_id): array
+    {
+        $data = get_post_meta($post_id, SEO_Adapter::SLIM_SEO_META, true);
+        $data = is_array($data) ? $data : [];
+        $text = static fn (string $key): string => is_scalar($data[$key] ?? null) ? (string) $data[$key] : '';
+
+        $fields = [
+            'og_title'            => $text('title'),
+            'og_description'      => $text('description'),
+            'og_image'            => $text('facebook_image'),
+            'twitter_title'       => $text('title'),
+            'twitter_description' => $text('description'),
+            'twitter_image'       => $text('twitter_image'),
+        ];
+
+        $sources = [];
+        foreach ($fields as $field => $value) {
+            $own             = in_array($field, array_keys(self::SLIM_SEO_IMAGES), true);
+            $sources[$field] = '' === $value ? 'absent' : ($own ? 'override' : 'inherited');
+        }
+
+        return ['fields' => $fields, 'sources' => $sources];
     }
 
     /**

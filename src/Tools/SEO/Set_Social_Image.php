@@ -45,10 +45,12 @@ class Set_Social_Image
             return array_merge(['post_id' => $post_id], Social_Meta::unsupported());
         }
 
+        $snapshot = SEO_Adapter::post_snapshot_target($post_id);
+
         $out = Safe_Mutation::run(
             [
-                'object_type' => 'post',
-                'object_id'   => $post_id,
+                'object_type' => $snapshot['object_type'],
+                'object_id'   => $snapshot['object_id'],
                 'session_id'  => (string) ($args['session_id'] ?? 'default'),
                 'tool_name'   => 'set-social-image',
                 'args'        => $args,
