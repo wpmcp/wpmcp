@@ -42,10 +42,15 @@ class Post_Creation_Snapshot
 
     /**
      * @param int[] $post_ids The created posts, primary first.
+     * @param bool $remove_on_rollback Undo by trashing even a widget or block
+     *                                 spec, instead of deactivating it. Set by
+     *                                 import-bundle (issue #297): an import
+     *                                 already lands its specs inactive, so only
+     *                                 removing them undoes it.
      * @return string The operation id of the written row.
      * @throws Mutation_Failed When the row could not be written.
      */
-    public static function record(string $tool_name, array $post_ids, array $args, string $session_id): string
+    public static function record(string $tool_name, array $post_ids, array $args, string $session_id, bool $remove_on_rollback = false): string
     {
         $post_ids = array_values(array_filter(array_map('intval', $post_ids)));
         if ([] === $post_ids) {
@@ -62,6 +67,11 @@ class Post_Creation_Snapshot
             ];
         }
 
+        $data = ['created' => $created];
+        if ($remove_on_rollback) {
+            $data['remove_on_rollback'] = true;
+        }
+
         $operation_id = wp_generate_uuid4();
         try {
             Snapshot_Store::save(
@@ -70,7 +80,7 @@ class Post_Creation_Snapshot
                 [
                     'object_type' => self::OBJECT_TYPE,
                     'object_id'   => $post_ids[0],
-                    'data'        => ['created' => $created],
+                    'data'        => $data,
                 ],
                 $tool_name,
                 hash('sha256', (string) wp_json_encode($args))

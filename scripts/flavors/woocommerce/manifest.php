@@ -65,5 +65,9 @@ return [
         'src/Tools/Code/Update_Php_Snippet.php',
         'src/Tools/Code/Delete_Php_Snippet.php',
         'src/Tools/Code/Deactivate_Php_Snippet.php',
+        // Portable bundles (issue #297) register inside the same 'code'
+        // group, so they have no registration path here either.
+        'src/Tools/Code/Php_Snippet_Bundle_Kind.php',
+        'src/Tools/Portable',
     ],
 ];

@@ -142,8 +142,17 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  add 1641 bytes (207639 over 388 tools) after their descriptions were
      *  cut to one line each and their property descriptions dropped. What
      *  remains is the widget id shape, the 0-based position, the update()
-     *  sanitizing and that each write is undoable. */
-    private const TOOLS_LIST_BYTE_BUDGET = 208000;
+     *  sanitizing and that each write is undoable. Raised 208000 -> 209000
+     *  for portable bundles (#297: export-bundle, import-bundle): main
+     *  measured about 207560 bytes over 391 tools, and the pair adds 833
+     *  bytes as two abilities because export is read-only and import is a
+     *  write, which governance and the MCP annotations key on. Both
+     *  descriptions were cut to one line and validate-php-snippet's was
+     *  trimmed by 120 characters to pay for part of it, which puts the
+     *  payload at 208275 bytes over 393 tools. What remains is the
+     *  created-inactive rule, the on_conflict rename opt-in and the
+     *  rollback-session undo. */
+    private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

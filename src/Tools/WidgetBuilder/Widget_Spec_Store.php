@@ -63,6 +63,13 @@ class Widget_Spec_Store
             'post_type'   => self::POST_TYPE,
             'post_status' => $status,
             'post_title'  => sanitize_text_field((string) $spec['title']),
+            // Pinned even for a draft, where WordPress would otherwise leave
+            // the GMT date empty and stamp a new one on first publish. The
+            // creation row's identity check compares post_date_gmt, so an
+            // inactive spec activated later must keep the date it was born
+            // with, or rolling back its creation would skip it as a
+            // reclaimed id.
+            'post_date_gmt' => gmdate('Y-m-d H:i:s'),
             'post_name'   => $spec['name'],
         ], true);
 
