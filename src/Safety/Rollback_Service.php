@@ -29,6 +29,15 @@ class Rollback_Service
      */
     private static array $warnings = [];
 
+    /**
+     * Set while an agent-facing rollback runs for a caller without
+     * moderate_comments: the comments a post snapshot resurrects then come
+     * back with the commenter's email, IP and user agent blank (issue #362).
+     * Static for the same reason as $warnings: apply_snapshot() is a void
+     * pipeline, and Safe_Mutation's own unwind must stay exact.
+     */
+    private static bool $blank_commenter_data = false;
+
     /** Return and clear the warnings accumulated by the most recent restore. */
     public static function take_warnings(): array
     {
@@ -64,8 +73,26 @@ class Rollback_Service
             ));
             return false;
         }
-        self::apply_snapshot($row['snapshot']);
+        self::apply_for_caller($row['snapshot']);
         return true;
+    }
+
+    /**
+     * Apply a snapshot on behalf of the current user. A post snapshot keeps
+     * the post's comments for a force-delete undo, and those rows hold each
+     * commenter's email, IP and user agent. Refusing the restore would take
+     * away an author's undo of their own post, so a caller without
+     * moderate_comments gets the post and its comments with those fields
+     * blank instead (issue #362); a moderator gets the exact rows.
+     */
+    private static function apply_for_caller(array $snapshot): void
+    {
+        self::$blank_commenter_data = ! current_user_can('moderate_comments');
+        try {
+            self::apply_snapshot($snapshot);
+        } finally {
+            self::$blank_commenter_data = false;
+        }
     }
 
     /**
@@ -308,11 +335,11 @@ class Rollback_Service
                 $deferred[] = $snapshot;
                 continue;
             }
-            self::apply_snapshot($snapshot);
+            self::apply_for_caller($snapshot);
             $count++;
         }
         foreach ($deferred as $snapshot) {
-            self::apply_snapshot($snapshot);
+            self::apply_for_caller($snapshot);
             $count++;
         }
         return $count;
@@ -2509,6 +2536,16 @@ class Rollback_Service
      */
     private static function restore_comments(int $post_id, array $comments): void
     {
+        if (self::$blank_commenter_data) {
+            $exact    = $comments;
+            $comments = array_map(static fn ($c) => is_array($c) ? Snapshot::redact_comment($c, '') : $c, $comments);
+            if ($comments !== $exact) {
+                self::warn(sprintf(
+                    'post %d restored, but its comments came back with the commenter email, IP and user agent blank: restoring those exactly requires the "moderate_comments" capability.',
+                    $post_id
+                ));
+            }
+        }
         foreach ($comments as $comment) {
             $meta = $comment['meta'] ?? [];
             unset($comment['comment_ID'], $comment['meta']);
