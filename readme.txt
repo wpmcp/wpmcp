@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.11
+Stable tag: 0.8.12
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,11 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.12 =
+* Site backups can now be restored, not just checked: a real restore takes a safety archive first, puts the site in maintenance mode, validates every SQL statement before anything is written, and rolls back to the safety archive automatically if the import fails.
+* Restores keep the acting administrator signed in when the same account exists in the restored database, can optionally swap in the backup's wp-content with a journalled rollback, and refuse to run twice at once.
+* Database dumps no longer corrupt values containing a percent sign (such as permalink structures); older archives affected by this are repaired on restore with a warning.
+
 = 0.8.11 =
 * The External services section of the readme now names Openverse as the default, keyless stock image provider and links its privacy policy, plus the terms and privacy policy of every other listed service.
 * search-stock-images falls back to Openverse when the provider is left empty, matching what the readme documents.
@@ -160,6 +165,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.12 =
+Site backups can now be restored, not just checked: a real restore takes a safety archive first, puts the site in maintenance mode, validates every SQL statement before anything is written, and rolls back to the safety archive automatically if the import fails.
 
 = 0.8.11 =
 The External services section of the readme now names Openverse as the default, keyless stock image provider and links its privacy policy, plus the terms and privacy policy of every other listed service.
