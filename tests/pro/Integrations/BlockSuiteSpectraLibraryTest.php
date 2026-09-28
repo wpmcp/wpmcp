@@ -199,7 +199,7 @@ class BlockSuiteSpectraLibraryTest extends \WP_UnitTestCase
     {
         $this->answer(self::ITEMS, [
             self::summary(83549, 'Portfolio 10', [ 1425 ]),
-            self::summary(83247, 'Hero &#8211; 16'),
+            self::summary(83247, 'Hero &amp; Intro 16'),
         ], 200, [ 'x-wp-total' => '187' ]);
 
         $out = $this->read('list-patterns', [ 'source' => 'spectra', 'search' => 'hero', 'limit' => 2, 'offset' => 4 ]);
@@ -208,7 +208,7 @@ class BlockSuiteSpectraLibraryTest extends \WP_UnitTestCase
         $this->assertSame('spectra', $result['source']);
         $this->assertSame(187, $result['total']);
         $this->assertSame([ 'spectra:83549', 'spectra:83247' ], array_column($result['patterns'], 'name'));
-        $this->assertSame('Hero - 16', str_replace("\u{2013}", '-', $result['patterns'][1]['title']));
+        $this->assertSame('Hero & Intro 16', $result['patterns'][1]['title'], 'titles are entity decoded');
         $this->assertSame([ 'portfolio' ], $result['patterns'][0]['categories'], 'category ids come back as slugs');
         $this->assertSame([ 'spectra' ], $result['patterns'][0]['suites']);
         $this->assertSame('https://websitedemos.net/astra-blocks/item-83549/', $result['patterns'][0]['preview']);
