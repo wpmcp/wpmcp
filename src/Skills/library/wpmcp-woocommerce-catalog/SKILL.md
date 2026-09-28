@@ -40,6 +40,20 @@ Use the product tools. Always.
 - `wpmcp/delete-product` on a product that appears in past orders damages
   reporting. Prefer setting it to draft or out of stock and say why.
 
+## Variations, coupons and tax rates
+
+- A variable product's variations are listed with `wpmcp/list-variations`
+  and changed with `wpmcp/update-variation`; `wpmcp/create-variation` needs
+  the parent's variation attributes and one option for each (or "" for any).
+- For many price or stock changes at once use `wpmcp/bulk-update-products`.
+  Read its per-item results: some items can fail while the rest succeed, and
+  the returned session_id undoes the whole batch with rollback-session.
+- `wpmcp/create-coupon` saves a draft unless told otherwise. Run
+  `wpmcp/validate-coupon` before telling a customer a code works.
+- Tax rates change what every checkout charges. Confirm the rate, country
+  and class with the user before `wpmcp/create-tax-rate` or
+  `wpmcp/update-tax-rate`.
+
 ## Orders
 
 Orders are financial records. Read freely, write narrowly.

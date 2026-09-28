@@ -58,7 +58,8 @@ class FlavorTest extends \WP_UnitTestCase
         $this->assertNotContains('wpmcp/create-custom-block', $names);
 
         // Theme-builder site parts (issue #70): the group is not in
-        // FLAVOR_GROUPS['woocommerce'] and build-woo-release.sh prunes
+        // FLAVOR_GROUPS['woocommerce'] and the flavor manifest
+        // (scripts/flavors/woocommerce/manifest.php) prunes
         // src/Tools/ThemeBuilder, so the gate and the artifact stay in sync.
         $this->assertNotContains('wpmcp/create-site-part', $names);
         $this->assertNotContains('wpmcp/resolve-site-part', $names);

@@ -365,6 +365,7 @@ class Rollback_Service
             'db_rows',
             'redirect',
             'term',
+            'wc_tax_rate',
             'php_snippet',
             'page_build',
             'media_import',
@@ -456,6 +457,11 @@ class Rollback_Service
             return;
         }
 
+        if ('wc_tax_rate' === $snapshot['object_type']) {
+            self::apply_wc_tax_rate_snapshot($snapshot);
+            return;
+        }
+
         if ('php_snippet' === $snapshot['object_type']) {
             self::apply_php_snippet_snapshot($snapshot);
             return;
@@ -523,6 +529,82 @@ class Rollback_Service
         self::restore_files($snapshot['data']['files'] ?? null);
 
         self::refresh_woocommerce_product($object_id);
+        self::refresh_woocommerce_coupon($object_id);
+    }
+
+    /**
+     * Drop WooCommerce's coupon lookups after a raw restore of a shop_coupon
+     * post (issue #195). WooCommerce resolves a code to a coupon id through
+     * an object-cache entry keyed by the code, and its own save path only
+     * clears the entry for the code it is saving. A rollback of a code change
+     * writes wp_posts directly, so without this the NEW code would keep
+     * resolving to the coupon after it has been put back to the old one.
+     * Invalidating the whole 'coupons' group is what WooCommerce itself does
+     * when coupon data changes in bulk; it costs one cache prefix bump.
+     *
+     * No-op when WooCommerce is absent or the post is not a coupon.
+     */
+    private static function refresh_woocommerce_coupon(int $object_id): void
+    {
+        if (! class_exists('WC_Cache_Helper') || 'shop_coupon' !== get_post_type($object_id)) {
+            return;
+        }
+        \WC_Cache_Helper::invalidate_cache_group('coupons');
+    }
+
+    /**
+     * Restore a WooCommerce tax rate captured by Snapshot::capture_wc_tax_rate()
+     * (issue #195): update it in place when it still exists, or re-insert it
+     * at its original id when it was deleted, then put its postcode and city
+     * rows back exactly.
+     *
+     * Every write goes through WC_Tax's own internal CRUD helpers, so the
+     * 'taxes' cache group is invalidated and the woocommerce_tax_rate_added /
+     * _updated actions fire exactly as they do for an edit in wp-admin. The
+     * resurrection passes tax_rate_id through _insert_tax_rate(), which
+     * forwards unknown keys to $wpdb->insert() unchanged; the returned id is
+     * then checked, and a mismatch (the id was somehow taken) is a loud
+     * Mutation_Failed rather than a "restored" rate at the wrong id.
+     *
+     * Restoring store tax configuration is itself a store-settings write, so,
+     * like the redirect restore, it re-checks the capability the write tools
+     * require instead of trusting whoever reached the rollback.
+     */
+    private static function apply_wc_tax_rate_snapshot(array $snapshot): void
+    {
+        $data = (array) ($snapshot['data'] ?? []);
+        $row  = $data['rate'] ?? null;
+        if (! is_array($row) || ! class_exists('WC_Tax')) {
+            return;
+        }
+
+        if (! current_user_can('manage_woocommerce')) {
+            throw new Mutation_Failed('Rollback refused: restoring a tax rate requires the manage_woocommerce capability.');
+        }
+
+        $tax_rate_id = (int) $snapshot['object_id'];
+        if ($tax_rate_id <= 0) {
+            return;
+        }
+
+        $fields = array_diff_key($row, ['tax_rate_id' => true]);
+        $live   = \WC_Tax::_get_tax_rate($tax_rate_id, ARRAY_A);
+
+        if (is_array($live) && ! empty($live)) {
+            \WC_Tax::_update_tax_rate($tax_rate_id, $fields);
+        } else {
+            $inserted = (int) \WC_Tax::_insert_tax_rate(array_merge(['tax_rate_id' => $tax_rate_id], $fields));
+            if ($inserted !== $tax_rate_id) {
+                throw new Mutation_Failed(sprintf(
+                    'Rollback failed to restore tax rate %d at its original id (got %d).',
+                    (int) $tax_rate_id,
+                    (int) $inserted
+                ));
+            }
+        }
+
+        \WC_Tax::_update_tax_rate_postcodes($tax_rate_id, array_map('strval', (array) ($data['postcodes'] ?? [])));
+        \WC_Tax::_update_tax_rate_cities($tax_rate_id, array_map('strval', (array) ($data['cities'] ?? [])));
     }
 
     /**
