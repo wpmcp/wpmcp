@@ -636,6 +636,9 @@ final class Plugin
             // A rollback of a theme framework pack write rebuilds the active
             // theme's generated CSS, as the write did (issue #316).
             add_action('wpmcp_rollback_options_restored', [\WPMCP\Integrations\Theme_Framework_Pack::class, 'refresh_after_restore']);
+            // A rollback of an Elementor addon module toggle drops the suite's
+            // cached module map, as the write did (issue #286).
+            add_action('wpmcp_rollback_options_restored', [\WPMCP\Integrations\Elementor_Addon_Packs::class, 'after_restore']);
             // A rollback of a block suite write rebuilds that suite's cached
             // per-post CSS, as the write did (issue #287).
             add_action('wpmcp_rollback_post_restored', [\WPMCP\Integrations\Block_Suite::class, 'refresh_after_restore']);
