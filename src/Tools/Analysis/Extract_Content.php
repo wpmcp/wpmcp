@@ -13,6 +13,10 @@ if (! defined('ABSPATH')) {
  * structural summary (headings, word count, link and image counts) extracted
  * from its stored content. Delegates to Content_Extractor; reads have nothing
  * to roll back, so this never touches Safe_Mutation.
+ *
+ * Optional `keywords` (issue #295): a positive N adds the top N ranked terms
+ * and 2 to 3 word phrases (see Keyword_Extractor, capped at
+ * Keyword_Extractor::MAX_LIMIT). Absent or 0 leaves the response unchanged.
  */
 class Extract_Content
 {
@@ -25,7 +29,7 @@ class Extract_Content
 
         $extract = Content_Extractor::extract($post_id);
 
-        return [
+        $out = [
             'post_id' => $extract['post_id'],
             'text'    => $extract['text'],
             'summary' => [
@@ -36,5 +40,13 @@ class Extract_Content
                 'form_fields' => $extract['form_fields'],
             ],
         ];
+
+        $keywords = (int) ($args['keywords'] ?? 0);
+        $post     = get_post($post_id);
+        if ($keywords > 0 && $post instanceof \WP_Post) {
+            $out['keywords'] = Keyword_Extractor::extract($post, $keywords);
+        }
+
+        return $out;
     }
 }
