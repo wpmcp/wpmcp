@@ -3718,7 +3718,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/dispatch-cli-job',
             'pro',
-            'Queue an allowlisted wp-cli command as a background job and return its job id at once, for long work (imports, media regeneration). Poll with get-cli-job. Same gates as run-wp-cli: off by default (WPMCP_ALLOW_WP_CLI or wpmcp_allow_wp_cli), refused on production without a separate override, allowlisted subcommands and flags only, no shell metacharacters. Gates are re-checked right before the job runs, so closing them stops queued jobs. timeout in seconds (default 300, max 900). Refused while too many jobs are queued or running',
+            'Queue an allowlisted wp-cli command as a background job and return its id at once, for long work (imports, media regeneration); poll with get-cli-job. Gates as run-wp-cli: off by default (WPMCP_ALLOW_WP_CLI or wpmcp_allow_wp_cli), refused on production without a separate override, allowlisted subcommands and flags only, no shell metacharacters. Gates are re-checked when the job runs (closing them stops queued jobs). timeout seconds (default 300, max 900). Refused while too many jobs are queued or running',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3812,7 +3812,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/run-php-snippet',
             'pro',
-            'Run a guarded, arbitrary PHP snippet; returns its return value, echoed output and any thrown error. THIS IS REMOTE CODE EXECUTION: off by default (WPMCP_ALLOW_PHP_EXEC constant or wpmcp_allow_php_exec filter); refused on production or any unrecognized environment unless WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION is also set; snippets the static validator flags are rejected first, a usability speed-bump only, not a security boundary. Its effects are not snapshotted and cannot be undone.',
+            'Run a guarded, arbitrary PHP snippet; returns its return value, echoed output and any thrown error. THIS IS REMOTE CODE EXECUTION: off by default (WPMCP_ALLOW_PHP_EXEC constant or wpmcp_allow_php_exec filter); refused on production or any unrecognized environment unless WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION is also set; snippets the static validator flags are rejected first, as a speed-bump, not a security boundary. Its effects are not snapshotted and cannot be undone.',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3892,7 +3892,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-scoped-css',
             'pro',
-            'Store CSS for one post/page (post_id required), printed in wp_head only there. Pass css, or a selector plus bare declarations; element_id (an Elementor element id) scopes it to .elementor-element-<id>. Appends; replace=true overwrites, css="" with replace=true clears. Site-wide: add-custom-css. Needs edit_css and manage_options. Script-capable CSS (markup, expression(), script or data: URLs, @import) is refused, even obfuscated. Snapshot-first per page',
+            'Store CSS for one post/page (post_id required), printed in wp_head only there. Pass css, or a selector plus bare declarations; element_id (Elementor) scopes it to .elementor-element-<id>. Appends; replace=true overwrites, css="" with replace=true clears. Site-wide: add-custom-css. Needs edit_css and manage_options. Script-capable CSS (markup, expression(), script or data: URLs, @import) is refused, even obfuscated. Snapshot-first per page',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5967,7 +5967,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-elementor-data',
             'pro',
-            'Return a page\'s parsed Elementor element tree (id, elType, widgetType, settings, children) from its _elementor_data postmeta. For large pages use summary=true (skeleton: id, elType, widgetType, label, child and descendant counts), max_depth (cut nodes report truncated_children) or element_id to window on one subtree. Reports total_elements, returned_elements and truncated; data_hash covers the whole page, so a windowed read is still valid as expected_hash. Read-only',
+            'A page\'s parsed Elementor element tree (id, elType, widgetType, settings, children) from _elementor_data. For large pages: summary=true (skeleton: id, elType, widgetType, label, child and descendant counts), max_depth (cut nodes report truncated_children) or element_id for one subtree. Reports total_elements, returned_elements, truncated; data_hash covers the whole page, so windowed reads are valid expected_hash. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6183,7 +6183,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/replace-system-typography',
             'pro',
-            'Atomically replace all four Elementor system typography slots (primary, secondary, text, accent) on the active kit: every slot exactly once, or nothing is written. Each entry carries only typography_* fields (unknown keys are refused, not dropped) and at least one; setting a font enables custom typography, and an entry without "title" keeps the current title. Requires expected_hash from get-global-settings. Undoable via rollback-operation',
+            'Atomically replace all four Elementor system typography slots (primary, secondary, text, accent) on the active kit: each slot exactly once, or nothing is written. Each entry has at least one typography_* field and nothing else (unknown keys refused, not dropped); a font enables custom typography; no "title" keeps the current one. Needs expected_hash from get-global-settings. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8346,7 +8346,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/generate-schema-markup',
             'pro',
-            'Generate schema.org JSON-LD (Article, WebPage, LocalBusiness or Product) for a post from its title, dates, author, excerpt or SEO description, featured image, permalink and, for Product, its WooCommerce record. Proposal only: writes nothing',
+            'Generate schema.org JSON-LD (Article, WebPage, LocalBusiness or Product) for a post from title, dates, author, excerpt or SEO description, featured image, permalink and, for Product, the WooCommerce record. Proposal only: writes nothing',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8414,7 +8414,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-social-image',
             'pro',
-            'Set a post\'s OpenGraph and/or Twitter image from an attachment_id or image_url via the active SEO plugin. Snapshotted; rollback-operation undoes it. Unmapped plugins return supported:false',
+            'Set a post\'s OpenGraph and/or Twitter image from an attachment_id or image_url via the active SEO plugin. Snapshotted, undo with rollback-operation. Unmapped plugins return supported:false',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8818,7 +8818,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/analyze-seo',
             'pro',
-            'op score (default; post_id): on-page SEO 0-100 with findings (title/meta length, headings, words, alt, links, keyword density, readability). op keywords (keywords[]): volume, difficulty, CPC, intent. op backlinks (target domain or URL): link counts. Both call your SEO data provider (set-seo-data-key), cached. Read-only',
+            'op score (default; post_id): on-page SEO 0-100 with findings (title/meta length, headings, words, alt, links, keyword density, readability). op keywords: volume, difficulty, CPC, intent. op backlinks (target domain or URL): link counts. Both use your provider key (set-seo-data-key), cached. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8839,7 +8839,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-seo-data-key',
             'pro',
-            'Store (empty api_key clears) your SEO data provider credentials for analyze-seo; dataforseo takes "login:password". Encrypted, never echoed',
+            'Save SEO data provider credentials for analyze-seo (empty api_key clears); dataforseo: "login:password". Encrypted, never echoed',
             [
                 'type'       => 'object',
                 'properties' => [
