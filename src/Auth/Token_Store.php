@@ -9,7 +9,9 @@ if (! defined('ABSPATH')) {
 /**
  * Issues and validates OAuth 2.1 bearer access tokens. Backed by a single
  * wpmcp_oauth_tokens option, a map of a SHA-256 hash of the token to its
- * bound record: { client_id, user_id, scope, issued_at, pass_fingerprint }.
+ * bound record: { client_id, user_id, scope, resource, chain_id, issued_at,
+ * pass_fingerprint }. resource is the RFC 8707 audience (Mcp_Resource);
+ * Bearer_Auth only honours a token on requests to that resource.
  *
  * Token_Store::validate() is the helper the MCP permission layer
  * (Registrar's execute/permission_callback wiring) calls to authenticate a
@@ -74,9 +76,14 @@ class Token_Store
      *                          what lets Refresh_Token_Store's reuse
      *                          detection revoke the access tokens a thief
      *                          already minted, not just the refresh tokens.
+     * @param bool   $gateway  Stamp the token as minted from a gateway
+     *                          credential chain (issue #142). Token_Grant
+     *                          carries it over from the refresh record; it
+     *                          is what validate() keys the gateway check on.
+     * @param string $resource The audience; defaults to the MCP endpoint.
      * @return string The plaintext bearer token, returned exactly once.
      */
-    public static function issue(string $client_id, int $user_id, string $scope, string $chain_id = ''): string
+    public static function issue(string $client_id, int $user_id, string $scope, string $chain_id = '', bool $gateway = false, string $resource = ''): string
     {
         $token = 'at_' . bin2hex(random_bytes(32));
 
@@ -85,9 +92,11 @@ class Token_Store
             'client_id'        => $client_id,
             'user_id'          => $user_id,
             'scope'            => $scope,
+            'resource'         => '' !== $resource ? $resource : Mcp_Resource::canonical(),
             'chain_id'         => $chain_id,
             'issued_at'        => self::now(),
             'pass_fingerprint' => self::pass_fingerprint($user_id),
+            'gateway'          => $gateway,
         ];
         self::save($stored);
 
@@ -96,7 +105,7 @@ class Token_Store
 
     /**
      * Validate a presented bearer token. Returns its bound record
-     * ({ client_id, user_id, scope }) if the token's hash matches a stored,
+     * ({ client_id, user_id, scope, resource }) if the token's hash matches a stored,
      * unexpired record AND the bound user still exists with an unchanged
      * password, otherwise null. An expired match is also evicted.
      */
@@ -126,10 +135,25 @@ class Token_Store
             return null;
         }
 
+        // Gateway tokens (issue #142) live and die with the gateway client
+        // row. The token store and the clients store are separate options
+        // written without a lock, so a refresh that loaded this store before
+        // Gateway_Credential::deprovision() swept it can write its freshly
+        // minted access token back afterwards. The client row is the one
+        // thing that revoke removes and nothing on the grant path recreates,
+        // so checking it here keeps the kill switch total. Keyed on the
+        // gateway flag stamped at issuance, never on the scope string.
+        if (! empty($record['gateway']) && ! Client_Store::is_protected((string) ($record['client_id'] ?? ''))) {
+            return null;
+        }
+
         return [
             'client_id' => $record['client_id'],
             'user_id'   => $record['user_id'],
             'scope'     => $record['scope'],
+            // Tokens issued before audience binding carry no resource; they
+            // were only ever minted for the MCP endpoint.
+            'resource'  => (string) ($record['resource'] ?? Mcp_Resource::canonical()),
         ];
     }
 
@@ -153,6 +177,26 @@ class Token_Store
 
         foreach ($stored as $key => $record) {
             if ((string) ($record['chain_id'] ?? '') === $chain_id) {
+                unset($stored[ $key ]);
+                $removed++;
+            }
+        }
+
+        if ($removed > 0) {
+            self::save($stored);
+        }
+
+        return $removed;
+    }
+
+    /** Revoke every access token bound to a client. Returns the number removed. */
+    public static function revoke_for_client(string $client_id): int
+    {
+        $stored  = self::load();
+        $removed = 0;
+
+        foreach ($stored as $key => $record) {
+            if ((string) ($record['client_id'] ?? '') === $client_id) {
                 unset($stored[ $key ]);
                 $removed++;
             }
@@ -207,12 +251,16 @@ class Token_Store
 
     /**
      * A SHA-256 fingerprint of the user's current password hash, or null if
-     * the user no longer exists. Never the raw user_pass itself; used only
+     * the user no longer exists. Public since issue #142 so
+     * Refresh_Token_Store can bind long-lived gateway refresh tokens to the
+     * same credential state, using one definition of "fingerprint" rather
+     * than two that could drift apart. Never the raw user_pass itself; used only
      * to detect "this user still exists and their credentials have not
      * changed since token issuance" (issue #43 C1/C2). Never returned from
-     * validate(), never logged.
+     * validate(), never logged. Public so Refresh_Token_Store binds refresh
+     * records to the same credential state.
      */
-    private static function pass_fingerprint(int $user_id): ?string
+    public static function pass_fingerprint(int $user_id): ?string
     {
         $user = get_userdata($user_id);
         if (false === $user) {

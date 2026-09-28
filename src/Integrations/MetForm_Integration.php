@@ -29,7 +29,7 @@ if (! defined('ABSPATH')) {
  * wpmcp/metform-delete-entry name, and it demands manage_options on top of the
  * pair's own capability because a submission is personal data.
  */
-class MetForm_Integration extends Integration_Dispatcher
+class MetForm_Integration extends Forms_Integration
 {
     private const FORM_CPT  = 'metform-form';
     private const ENTRY_CPT = 'metform-entry';
@@ -179,6 +179,7 @@ class MetForm_Integration extends Integration_Dispatcher
             ],
             'list-entries' => [
                 'mode'         => 'read',
+                'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'List a MetForm form\'s entries, newest first, with paging (page_size default 20, max 100) and their stored field values',
                 'input_schema' => [
                     'type'       => 'object',
@@ -213,6 +214,7 @@ class MetForm_Integration extends Integration_Dispatcher
             ],
             'get-entry' => [
                 'mode'         => 'read',
+                'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Read one MetForm entry by entry_id, with its source form, timestamp, and stored field values',
                 'input_schema' => [
                     'type'       => 'object',
@@ -234,9 +236,13 @@ class MetForm_Integration extends Integration_Dispatcher
                 },
             ],
             'delete-entry' => [
-                'mode'         => 'destructive',
-                'capability'   => 'manage_options',
-                'description'  => 'Delete one MetForm entry. Requires confirm:true. Reversible: a MetForm entry is a metform-entry post, so it is snapshotted (row plus postmeta) before deletion and can be resurrected at its original id with rollback-operation using the returned operation_id',
+                'mode'               => 'destructive',
+                // Issue #66: entry deletion is off by default across every
+                // forms adapter. A site opts in with the
+                // wpmcp_integration_op_enabled filter.
+                'enabled_by_default' => false,
+                'capability'         => 'manage_options',
+                'description'  => 'Delete one MetForm entry. Default-off (opt in via the wpmcp_integration_op_enabled filter); requires confirm:true. Reversible: a MetForm entry is a metform-entry post, so it is snapshotted (row plus postmeta) before deletion and can be resurrected at its original id with rollback-operation using the returned operation_id',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],

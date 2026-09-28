@@ -42,10 +42,17 @@ final class RegisteredAbilities
 
         $prop->setValue($plugin, new Registrar());
         Gate::set_pro_for_tests(true);
+        // The forms pairs (issue #66) register only while their host plugin
+        // is loaded, and whether a harness double counts as "loaded" depends
+        // on which test files ran first. The manifest pins the full surface,
+        // so enumerate with every integration registering. PHP_INT_MAX - 1
+        // leaves the last word to a test that deliberately forces one off.
+        add_filter('wpmcp_integration_should_register', '__return_true', PHP_INT_MAX - 1);
         try {
             $plugin->register_abilities();
             return $plugin->registrar()->all();
         } finally {
+            remove_filter('wpmcp_integration_should_register', '__return_true', PHP_INT_MAX - 1);
             Gate::set_pro_for_tests($gate_original);
             $prop->setValue($plugin, $original);
         }

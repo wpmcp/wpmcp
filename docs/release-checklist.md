@@ -65,6 +65,15 @@ gate rather than substitute for one:
       against the wp.org zip on every push; the other two are manual).
 - [ ] Smoke pass on the target WordPress version for each artifact: activate,
       run a representative MCP session, snapshot and rollback, deactivate.
+- [ ] Forms adapter pack live check (issue #66). The local test gate covers
+      Contact Form 7 + Flamingo against the real plugins (the live forms leg
+      of `bin/test-local.sh`) but the pack only against documented-API
+      doubles, because the paid plugins cannot be installed there. On a site with each of Gravity Forms, WPForms (with
+      entry storage), Formidable, Ninja Forms and Fluent Forms active, run
+      list-forms, get-form, list-fields, list-notifications, list-entries and
+      get-entry, plus update-entry-status followed by rollback-operation where
+      the adapter offers it, and record the plugin versions checked in the
+      release notes. A pack adapter nobody has run live says so in the notes.
 
 ## Publish
 

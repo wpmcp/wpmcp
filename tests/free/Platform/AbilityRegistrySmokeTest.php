@@ -5,6 +5,8 @@ namespace WPMCP\Tests\Free\Platform;
 use WPMCP\MCP\Registrar;
 use WPMCP\Pro\Gate;
 
+require_once __DIR__ . '/../../support/forms-adapters.php';
+
 /**
  * Live-registry smoke test (issue #55): every ability in the committed
  * manifest must actually resolve in the WordPress Abilities API registry,
@@ -43,9 +45,14 @@ class AbilityRegistrySmokeTest extends \WP_UnitTestCase
         // Plugin::boot() registers the (free-tier) abilities.
         wp_get_abilities();
 
+        // A forms pair (issue #66) registers at boot only when its host
+        // plugin was loaded at that moment, which for a harness double
+        // depends on test order. Those pairs are driven through the replay
+        // below instead, the same way the pro tier is.
+        $conditional  = wpmcp_forms_pair_names();
         $missing_free = [];
         foreach ($manifest['abilities'] as $name => $tier) {
-            if ('free' === $tier && ! wp_has_ability($name)) {
+            if ('free' === $tier && ! wp_has_ability($name) && ! in_array($name, $conditional, true)) {
                 $missing_free[] = $name;
             }
         }
@@ -62,9 +69,12 @@ class AbilityRegistrySmokeTest extends \WP_UnitTestCase
         // (WP_UnitTestCase restores the original hooks in tearDown), so no
         // other plugin re-registers and no duplicate-registration notices fire.
         $pro_abilities = [];
+        $replayed      = [];
         foreach (RegisteredAbilities::all() as $ability) {
-            if ('pro' === $ability->tier && ! wp_has_ability($ability->name)) {
+            $replay = 'pro' === $ability->tier || in_array($ability->name, $conditional, true);
+            if ($replay && ! wp_has_ability($ability->name)) {
                 $pro_abilities[] = $ability;
+                $replayed[]      = $ability->name;
             }
         }
 
@@ -81,7 +91,7 @@ class AbilityRegistrySmokeTest extends \WP_UnitTestCase
         $added       = [];
         $missing_pro = [];
         foreach ($manifest['abilities'] as $name => $tier) {
-            if ('pro' !== $tier) {
+            if ('pro' !== $tier && ! in_array($name, $replayed, true)) {
                 continue;
             }
             if (wp_has_ability($name)) {
