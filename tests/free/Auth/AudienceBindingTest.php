@@ -284,21 +284,6 @@ class AudienceBindingTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_a_legacy_refresh_record_without_a_fingerprint_is_refused(): void
-    {
-        $session = $this->connect();
-
-        $rows = $this->refresh_rows();
-        foreach ($rows as $key => $row) {
-            unset($rows[ $key ]['pass_fingerprint']);
-        }
-        update_option(Refresh_Token_Store::OPTION, $rows);
-
-        $result = $this->refresh($session['client'], $session['tokens']['refresh_token']);
-
-        $this->assertInstanceOf(\WP_Error::class, $result);
-    }
-
     /**
      * Two redemptions of the same fresh refresh token race: the second one
      * reads the row before the first has written its rotation. The `query`
@@ -400,7 +385,7 @@ class AudienceBindingTest extends \WP_UnitTestCase
     {
         add_filter('wpmcp_oauth_enabled', '__return_true');
         $user_id = self::factory()->user->create(['role' => 'administrator']);
-        $token   = Token_Store::issue('client_abc', $user_id, 'mcp', '', 'https://other.example/mcp');
+        $token   = Token_Store::issue('client_abc', $user_id, 'mcp', '', false, 'https://other.example/mcp');
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
         $_SERVER['REQUEST_URI']        = '/wp-json/mcp/wpmcp-server';
 

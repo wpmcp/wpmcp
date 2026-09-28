@@ -73,10 +73,19 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  include/exclude semantics stated once instead of on both conditions
      *  schemas, which brought it to 185172; the rest is the rule schema
      *  (type enum plus value) that create and update both need so an agent
-     *  can build a valid conditions object from tools/list alone. Raised
-     *  186000 -> 195000 for the WooCommerce depth cluster (#195: variation
-     *  create and delete, bulk-update-products, six coupon tools, four
-     *  tax-rate tools): 194455 bytes over 349 tools after trimming their
+     *  can build a valid conditions object from tools/list alone. The gateway
+     *  credential lifecycle (#142: gateway-provision, gateway-status,
+     *  gateway-revoke) trimmed its three descriptions from 612 to 425
+     *  characters but still names the rotation kill, the once-only secrets
+     *  and the confirm gate, since an agent that misses those can cut a live
+     *  proxy off; it still measured 186736 bytes over 339 tools, so the
+     *  long descriptions no open branch touches (rewrite-site-urls,
+     *  trigger-backup, restore-site-backup, run-wp-cli, get-backup-manifest,
+     *  search-content, get-global-settings) were reworded without dropping a
+     *  rule. build-page was left alone: the wporg strip rewrites its text.
+     *  Raised 186000 -> 195000 for the WooCommerce depth cluster (#195:
+     *  variation create and delete, bulk-update-products, six coupon tools,
+     *  four tax-rate tools): 194455 bytes over 349 tools after trimming their
      *  descriptions, about 8.5KB for the 13 tools (the raise approved in
      *  review, re-applied on the newer main). The coupon write
      *  schemas are most of it: they list every writable field so an agent
