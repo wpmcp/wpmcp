@@ -249,4 +249,207 @@ class FlavorTest extends \WP_UnitTestCase
 
         return array_map(fn ($a) => $a->name, array_values($registrar->declared()));
     }
+
+    public function test_woocommerce_flavor_keeps_the_whole_gateway_lifecycle(): void
+    {
+        // Issue #142. The gateway group ships on every flavor on purpose:
+        // a build that can mint a credential but not revoke one is a
+        // security hole, and revocation is required to work locally with
+        // the cloud unreachable.
+        $names = $this->registered_names('woocommerce');
+
+        $this->assertContains('wpmcp/gateway-provision', $names);
+        $this->assertContains('wpmcp/gateway-status', $names);
+        $this->assertContains('wpmcp/gateway-revoke', $names);
+    }
+
+    public function test_woo_build_does_not_prune_a_directory_the_woo_flavor_still_needs(): void
+    {
+        // The regression this pins: Gateway_Credential once lived in
+        // src/Cloud, which the WooCommerce build deletes wholesale, so every
+        // gateway tool in that zip was a class-not-found fatal while the
+        // flavor whitelist happily registered all three. Ability gating is
+        // exercised against the full tree, so nothing else here can catch
+        // a prune/whitelist divergence.
+        //
+        // build-woo-release.sh prunes through the shared wp.org strip
+        // (scripts/flavors/wporg/strip.php, policy.php) plus this flavor's
+        // manifest (issue #257), and the strip also rewrites imports (the
+        // Pro\Gate calls in free tools, for one). So the walk runs over a
+        // tree stripped exactly the way the build strips it, not over src/.
+        $root  = dirname(__DIR__, 2);
+        $stage = $this->stripped_woo_src();
+
+        try {
+            $needed = [];
+            foreach ($this->registered_names('woocommerce') as $name) {
+                $ability = $this->ability_by_name('woocommerce', $name);
+                // The strip removes every pro-tier registration along with
+                // its files, so only free-tier tools ship in this zip.
+                if ('free' !== $ability->tier) {
+                    continue;
+                }
+                $handler = $ability->handler;
+                $object  = is_array($handler) ? $handler[0] : null;
+                if (! is_object($object)) {
+                    continue;
+                }
+                $file = (string) (new \ReflectionClass($object))->getFileName();
+                $needed[ $name ] = ltrim(str_replace($root . '/src', '', $file), '/');
+            }
+            $this->assertNotEmpty($needed);
+            $this->assertArrayHasKey('wpmcp/gateway-provision', $needed);
+            $this->assertArrayHasKey('wpmcp/gateway-revoke', $needed);
+
+            // Divergences that predate this check and are tracked
+            // separately; listed so every NEW divergence still fails.
+            // Delete an entry when the build or the import is fixed.
+            $known = [];
+
+            $resolved = 0;
+            foreach ($needed as $name => $relative) {
+                $this->assertFileExists(
+                    $stage . '/' . $relative,
+                    $name . ' is registered by the woocommerce flavor but its handler src/' . $relative . ' is pruned from the zip'
+                );
+                foreach ($this->stage_imports($stage, $relative, $resolved) as $owner => $missing) {
+                    foreach ($missing as $import) {
+                        if (in_array($import, $known[ $owner ] ?? [], true)) {
+                            continue;
+                        }
+                        $this->fail('src/' . $owner . ' ships in the woocommerce zip but imports ' . $import . ', which the build prunes');
+                    }
+                }
+            }
+
+            // Guards the guard: an import pattern that never matches makes
+            // the loop above check only the handler files themselves.
+            $this->assertGreaterThan(0, $resolved, 'no use-statement resolved; the import pattern is not matching');
+        } finally {
+            $this->remove_tree(dirname($stage));
+        }
+    }
+
+    /**
+     * Copies src/ and the flavor's rendered header and readme into a temp
+     * directory and runs the wp.org strip with the WooCommerce manifest over
+     * it, as build-woo-release.sh does. Returns the stripped src/ path; the
+     * caller removes dirname() of it.
+     */
+    private function stripped_woo_src(): string
+    {
+        $root  = dirname(__DIR__, 2);
+        $stage = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-woo-prune-' . uniqid('', true) . '/wpmcp-for-woocommerce';
+        $this->assertTrue(mkdir($stage, 0777, true), 'could not create the staging directory');
+        $this->copy_tree($root . '/src', $stage . '/src');
+        foreach (['wpmcp-for-woocommerce.php', 'readme.txt'] as $rendered) {
+            file_put_contents(
+                $stage . '/' . $rendered,
+                str_replace('{{VERSION}}', '0.0.0', (string) file_get_contents($root . '/scripts/flavors/woocommerce/' . $rendered))
+            );
+        }
+
+        $output = [];
+        $code   = 1;
+        exec(
+            escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/scripts/flavors/wporg/strip.php') . ' '
+                . escapeshellarg($stage) . ' ' . escapeshellarg($root . '/scripts/flavors/woocommerce/manifest.php') . ' 2>&1',
+            $output,
+            $code
+        );
+        if (0 !== $code) {
+            $this->remove_tree(dirname($stage));
+            $this->fail("the woocommerce strip failed:\n" . implode("\n", $output));
+        }
+
+        return $stage . '/src';
+    }
+
+    /**
+     * Walks a stripped handler file and every WPMCP class it imports,
+     * transitively, inside the stripped tree (PSR-4: WPMCP\ => src/).
+     * Returns owner file => imports that resolve to no file in the tree.
+     * $resolved counts the imports that did resolve.
+     *
+     * @return array<string, string[]>
+     */
+    private function stage_imports(string $src, string $relative, int &$resolved): array
+    {
+        $missing = [];
+        $seen    = [$relative => true];
+        $queue   = [$relative];
+
+        while ([] !== $queue) {
+            $current = array_shift($queue);
+            $source  = (string) file_get_contents($src . '/' . $current);
+            // Regex text: ^use\s+WPMCP\\([A-Za-z0-9_\\]+); in a
+            // single-quoted PHP string every regex backslash that must
+            // reach PCRE as a literal backslash is written four times.
+            preg_match_all('/^use\s+WPMCP\\\\([A-Za-z0-9_\\\\]+);/m', $source, $matches);
+            foreach ($matches[1] as $class) {
+                $file = str_replace('\\', '/', $class) . '.php';
+                if (! is_file($src . '/' . $file)) {
+                    $missing[ $current ][] = 'WPMCP\\' . $class;
+                    continue;
+                }
+                $resolved++;
+                // Plugin is the composition root: its imports are the
+                // registration table for every flavor, gated at runtime by
+                // FLAVOR_GROUPS, so following them would report every pruned
+                // group as "needed". It is still checked itself, just not
+                // walked through.
+                if ('Plugin.php' === $file || isset($seen[ $file ])) {
+                    continue;
+                }
+                $seen[ $file ] = true;
+                $queue[]       = $file;
+            }
+        }
+
+        return $missing;
+    }
+
+    private function copy_tree(string $from, string $to): void
+    {
+        if (! is_dir($to)) {
+            mkdir($to, 0777, true);
+        }
+        foreach (scandir($from) ?: [] as $entry) {
+            if ('.' === $entry[0]) {
+                continue;
+            }
+            is_dir($from . '/' . $entry)
+                ? $this->copy_tree($from . '/' . $entry, $to . '/' . $entry)
+                : copy($from . '/' . $entry, $to . '/' . $entry);
+        }
+    }
+
+    private function remove_tree(string $path): void
+    {
+        if (is_file($path) || is_link($path)) {
+            unlink($path);
+            return;
+        }
+        foreach (scandir($path) ?: [] as $entry) {
+            if ('.' !== $entry && '..' !== $entry) {
+                $this->remove_tree($path . '/' . $entry);
+            }
+        }
+        rmdir($path);
+    }
+
+    private function ability_by_name(?string $flavor, string $name): \WPMCP\MCP\Ability
+    {
+        Plugin::set_flavor_for_tests($flavor);
+        $registrar = new Registrar();
+        Plugin::instance()->register_abilities_into($registrar);
+
+        foreach (array_values($registrar->declared()) as $ability) {
+            if ($ability->name === $name) {
+                return $ability;
+            }
+        }
+
+        $this->fail('ability not registered: ' . $name);
+    }
 }

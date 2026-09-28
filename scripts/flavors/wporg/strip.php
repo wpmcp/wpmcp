@@ -119,6 +119,10 @@ const REMOVED_METHODS = [
     'register_elementor_structural_abilities',
     'register_brand_kit_abilities',
     'register_memory_abilities',
+    // The forms adapter pack (issue #66). Its five adapter files leave by
+    // path (policy.php removed_paths) and its one call site is edited out of
+    // register_integration_abilities() below.
+    'register_forms_pack_abilities',
     'register_custom_code_abilities',
     // Not an ability registration: the front-end output wiring for the same
     // group. Its own method in Plugin.php precisely so this build can take it
@@ -136,6 +140,10 @@ const REMOVED_METHODS = [
     // private and reached only from register_elementor_abilities(), whose
     // call site is edited out below.
     'register_atomic_elementor_abilities',
+    // The paid half of the SEO group (issue #67). Private and reached only
+    // from register_seo_abilities(), whose call site is edited out below;
+    // the free post-meta registrations stay in that method.
+    'register_seo_pro_abilities',
     // Not pro, but not for this build either: the directory delivers language
     // packs just in time, and I18n_Rule flags load_plugin_textdomain() as
     // unnecessary there. The off-directory builds keep it (issue #184).
@@ -877,6 +885,10 @@ $plugin_edits = [
     ["\n        \$this->register_elementor_pro_abilities(\$registrar);\n", "\n", 1],
     ["\n        \$this->register_atomic_elementor_abilities(\$registrar);\n", "\n", 1],
     ["\n        \$this->register_elementor_structural_abilities(\$registrar);\n", "\n", 1],
+    // The forms adapter pack chained off the free integration group.
+    ["\n        \$this->register_forms_pack_abilities(\$registrar);\n", "\n", 1],
+    // The paid SEO registrations chained off the free SEO group (issue #67).
+    ["\n        \$this->register_seo_pro_abilities(\$registrar);\n", "\n", 1],
 ];
 // Runtime hook wiring for the two builder suites, which are not in this
 // build. These are string callables, so nothing but removing them stops them
@@ -887,6 +899,8 @@ $plugin_edits[] = [
         . "        if (\$this->group_enabled('widget_builder')) {\n"
         . "            add_action('init', ['\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Widget_Spec_Store', 'ensure_post_type']);\n"
         . "            add_action('elementor/widgets/register', ['\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Widget_Registry', 'register']);\n"
+        . "            // A permanently deleted spec must not leave generated PHP behind.\n"
+        . "            add_action('before_delete_post', ['\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Widget_Registry', 'purge_on_delete'], 10, 2);\n"
         . "        }\n"
         . "        // Data-driven custom Gutenberg block builder: register the wpmcp_block\n"
         . "        // CPT and register active specs as real blocks via register_block_type.\n"
@@ -1178,6 +1192,23 @@ $edits['src/Tools/Connect/List_Tool_Catalog.php'] = [
     ],
 ];
 
+// ----------------------------------------------------------- Rollback_Service
+// The compiled-widget undo helpers resolve the compiler's manifest class,
+// which leaves with src/Tools/WidgetBuilder. The lookup is guarded by
+// class_exists() so it could never succeed here, but the class-reference gate
+// in the build script rejects any name the zip does not ship, guarded or not.
+// Every compiled-widget branch in Rollback_Service goes through this one
+// helper, so returning null here makes all of them inert.
+$edits['src/Safety/Rollback_Service.php'] = [
+    [
+        "        \$class = '\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Compiler\\\\Compiled_Widget_Manifest';\n"
+            . "        return class_exists(\$class) ? \$class : null;\n",
+        "        // The widget compiler is part of the off-directory add-on, so no\n"
+            . "        // snapshot in this build carries a compiled-widget payload.\n"
+            . "        return null;\n",
+        1,
+    ],
+];
 
 // ------------------------------------------------- prose the strip falsifies
 // Deleting the Registrar tier branch makes a set of statements elsewhere in

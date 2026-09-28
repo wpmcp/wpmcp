@@ -62,6 +62,7 @@ class Option_Guard
         'apikey',
         'private_key',
         'access_token',
+        'refresh_token',
         'credential',
         // Every WP MCP Cloud option (issue #141): the sealed vault, the phase
         // A plaintext key until it is migrated, a legacy URL whose import

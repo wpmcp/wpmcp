@@ -82,6 +82,25 @@ return [
         'src/Tools/Performance/Curl_Dns_Pin.php',
         // Paid ability whose handler lives inside an otherwise free directory.
         'src/Tools/Media/Stock/Insert_Stock_Image.php',
+        // Cloud settings sync (issue #135). The engine behind the paid
+        // cloud-sync-settings / cloud-apply-settings wrappers, and its apply()
+        // path is the Pro\Gate entitlement itself. Only src/Tools/Cloud
+        // reaches it, so once the wrappers are gone it goes too.
+        'src/Cloud/Settings_Sync.php',
+        // Same shape for the SEO group (issue #67): the post-meta surface
+        // stays free, so the directory cannot go whole, but generation, the
+        // extended social vocabulary and term-level SEO are paid. The helpers
+        // (Schema_Generator, Social_Meta, Term_SEO) have no caller once the
+        // handlers are gone, so they go with them.
+        'src/Tools/SEO/Generate_Schema_Markup.php',
+        'src/Tools/SEO/Schema_Generator.php',
+        'src/Tools/SEO/Generate_Meta_Tags.php',
+        'src/Tools/SEO/Get_Social_Meta.php',
+        'src/Tools/SEO/Set_Social_Image.php',
+        'src/Tools/SEO/Social_Meta.php',
+        'src/Tools/SEO/Get_Term_SEO_Meta.php',
+        'src/Tools/SEO/Update_Term_SEO_Meta.php',
+        'src/Tools/SEO/Term_SEO.php',
         // The builder dialect of build-page is not in this build (issue #162);
         // its composer goes with it. Build_Page's references to it are edited
         // out in the exact-string pass.
@@ -103,6 +122,17 @@ return [
         // that stopped applying in this build would be worse than not
         // shipping it.
         'src/Tools/Memory',
+        // The forms adapter pack (issue #66). The five adapters sit beside
+        // the free ones (Contact Form 7, Forminator, MetForm, SureForms) and
+        // the shared dispatcher in src/Integrations, so they leave file by
+        // file; strip.php removes register_forms_pack_abilities(), the only
+        // place that constructs them.
+        'src/Integrations/WPForms_Integration.php',
+        'src/Integrations/Gravity_Forms_Integration.php',
+        'src/Integrations/Formidable_Integration.php',
+        'src/Integrations/Ninja_Forms_Integration.php',
+        'src/Integrations/Fluent_Forms_Integration.php',
+        'src/Tools/WooCommerce/Catalog',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the
         // two handlers, the sanitizer, the store and the front-end renderer
         // all go. Named file by file rather than by directory because

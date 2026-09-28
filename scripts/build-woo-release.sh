@@ -204,6 +204,16 @@ case "$gate_status" in
   *) echo "ERROR: the exec gate failed unexpectedly (exit $gate_status)" >&2; exit 1 ;;
 esac
 
+# Belt and braces: fail the build if the prune list left a dangling
+# inheritance edge. The flavor gate is a RUNTIME check, so a class that a
+# still-registered group instantiates (register_woocommerce_abilities, say)
+# fatals with "Class not found" the moment it is autoloaded, and nothing
+# catches that. Lazy `use` imports are fine and stay quiet; only extends /
+# implements edges are checked. See the script header for the issue #68 case
+# this exists to prevent.
+php "$ROOT/scripts/lib/check-dangling-inheritance.php" "$STAGE/src" \
+  || { echo "ERROR: dangling inheritance edge to a pruned domain in the $SLUG build" >&2; exit 1; }
+
 # Every WPMCP class the ALWAYS-LOADED SAFETY CORE names must still exist.
 # Scoped to src/Safety on purpose: unlike the wp.org build, this one does not
 # rewrite Plugin.php, it gates at runtime through Plugin::FLAVOR_GROUPS, so
