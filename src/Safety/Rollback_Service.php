@@ -725,7 +725,9 @@ class Rollback_Service
             return;
         }
 
-        if (Post_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
+        // Spelled as a literal (Post_Creation_Snapshot::OBJECT_TYPE) like
+        // every other branch here, so the restorable-types parity test sees it.
+        if ('post_create' === $snapshot['object_type']) {
             self::apply_post_create_snapshot($snapshot);
             return;
         }
