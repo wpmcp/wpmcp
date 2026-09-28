@@ -22,6 +22,7 @@ use WPMCP\Tools\Maintenance\Enable_Maintenance;
 use WPMCP\Tools\Maintenance\Disable_Maintenance;
 use WPMCP\Tools\Context\Get_Site_Context;
 use WPMCP\Tools\Context\Get_Page_Snapshot;
+use WPMCP\Tools\Context\Get_Rendered_Html;
 use WPMCP\Tools\Rest\List_Rest_Routes;
 use WPMCP\Tools\Rest\Call_Rest;
 use WPMCP\Tools\Blocks\List_Block_Types;
@@ -3672,7 +3673,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-page-snapshot',
             'free',
-            'One-call page digest for a post: structure counts, content outline in document order, media and link inventory, builder detection (elementor/bricks/divi/gutenberg/classic) and SEO-lite signals. Content comes from stored post_content, so for builder pages content_coverage reports what could not be measured instead of misleading zeros. Heavy sections (global_tokens, responsive_overrides) are opt-in via sections. Response size is capped. Read-only',
+            'One-call page digest for a post: structure counts, outline, media and link inventory, builder detection and SEO-lite signals. Built from stored post_content (content_coverage flags what builder pages hide). Heavy sections (global_tokens, responsive_overrides) are opt-in via sections. Size-capped. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3690,6 +3691,33 @@ final class Plugin
                 'required'   => [ 'post_id' ],
             ],
             [$get_page_snapshot, 'handle'],
+            'edit_posts',
+            'context',
+            'read'
+        ));
+
+        // get-rendered-html: what a logged-out visitor actually receives for
+        // a page, fetched from this site's own host only (see the SSRF model
+        // on the class). Free and in the 'context' group for the same reason
+        // as get-page-snapshot above.
+        $get_rendered_html = new Get_Rendered_Html();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-rendered-html',
+            'free',
+            'A page of this site as logged-out visitors get it (post_id or url/path): status, final URL, chunked HTML. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'url'           => [ 'type' => 'string' ],
+                    'chunk'         => [ 'type' => 'integer' ],
+                    'chunk_size'    => [ 'type' => 'integer' ],
+                    'strip_scripts' => [ 'type' => 'boolean' ],
+                    'text_only'     => [ 'type' => 'boolean' ],
+                ],
+            ],
+            [$get_rendered_html, 'handle'],
             'edit_posts',
             'context',
             'read'
