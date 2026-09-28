@@ -145,6 +145,11 @@ return [
         // The ACF batch write (issue #291): the op definition and its handler.
         // strip.php takes out the one line in ACF_Integration that merges it.
         'src/Integrations/ACF_Batch_Update.php',
+        // The GeneratePress and Blocksy theme settings packs (issue #288).
+        // strip.php takes out the two cases in Theme_Framework_Pack that
+        // build them; the Kadence pack and the shared builder stay.
+        'src/Integrations/Theme_Pack_GeneratePress.php',
+        'src/Integrations/Theme_Pack_Blocksy.php',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the
         // two handlers, the sanitizer, the store and the front-end renderer
         // all go. Named file by file rather than by directory because
