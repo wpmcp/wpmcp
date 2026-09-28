@@ -167,6 +167,21 @@ class DbDumperTest extends \WP_UnitTestCase
         $this->assertSame($original, $copy, 'A dump that does not round-trip its own data is not a backup.');
     }
 
+    public function test_a_percent_sign_is_written_as_itself_not_as_the_prepare_placeholder(): void
+    {
+        global $wpdb;
+        $this->create_fixture_table();
+        $wpdb->query($wpdb->prepare('INSERT INTO `' . $this->scratch . '` (label, body, score) VALUES (%s, %s, %d)', 'p', '/%postname%/ 100%', 1));
+
+        [$sql] = $this->dump_to_string([$this->scratch]);
+
+        // prepare() swaps "%" for a per-request {64 hex} token that only
+        // $wpdb->query() in the same request turns back. A dump is replayed
+        // in a later request (issue #190), so the file itself must hold "%".
+        $this->assertStringContainsString("'/%postname%/ 100%'", $sql);
+        $this->assertDoesNotMatchRegularExpression('/\{[0-9a-f]{64}\}/', $sql);
+    }
+
     public function test_multi_row_inserts_are_split_once_a_statement_grows_too_large(): void
     {
         global $wpdb;
