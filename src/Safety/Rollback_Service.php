@@ -8,6 +8,7 @@ namespace WPMCP\Safety;
 
 use WPMCP\Tools\Database\Database_Guard;
 use WPMCP\Tools\Builders\Beaver_Builder_Cache;
+use WPMCP\Tools\Builders\Breakdance_Cache;
 use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
@@ -178,7 +179,10 @@ class Rollback_Service
                 ));
                 continue;
             }
-            if (in_array($snapshot['object_type'], [ 'db_rows', 'acf_options', 'option_set', 'redirection_item', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)) {
+            // Plugin table rows (Pods table storage, TranslatePress
+            // dictionary rows, issue #299) too: each covers only the ids ONE
+            // write named, and two writes can name overlapping sets.
+            if (in_array($snapshot['object_type'], [ 'db_rows', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)) {
                 self::apply_snapshot($snapshot);
                 $count++;
                 continue;
@@ -763,6 +767,7 @@ class Rollback_Service
             'yoast_term_seo',
             'aioseo_row',
             'redirection_item',
+            'plugin_table_rows',
             'wc_tax_rate',
             'php_snippet',
             'page_build',
@@ -938,6 +943,12 @@ class Rollback_Service
             return;
         }
 
+        // Plugin_Table_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('plugin_table_rows' === $snapshot['object_type']) {
+            Plugin_Table_Rows_Snapshot::restore($snapshot);
+            return;
+        }
+
         if ('php_snippet' === $snapshot['object_type']) {
             self::apply_php_snippet_snapshot($snapshot);
             return;
@@ -1059,6 +1070,10 @@ class Rollback_Service
 
         if (isset($snapshotted_meta['_fl_builder_data']) || isset($current_meta['_fl_builder_data'])) {
             Beaver_Builder_Cache::clear($object_id);
+        }
+
+        if (isset($snapshotted_meta['_breakdance_data']) || isset($current_meta['_breakdance_data'])) {
+            Breakdance_Cache::regenerate($object_id);
         }
 
         self::refresh_woocommerce_product($object_id);

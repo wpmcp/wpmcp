@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.64
+Stable tag: 0.8.66
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -33,7 +33,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * Gutenberg: surgical block edits, custom block building, full page composition
 * Elementor: widgets, templates, theme builder, popups, global styles, custom widget building
 * Bricks and Divi structural editing
-* WooCommerce, ACF, Meta Box, Yoast, Rank Math, SEOPress, The SEO Framework, SureRank, Slim SEO, Redirection; with Pro, All in One SEO
+* WooCommerce, ACF, Meta Box, JetEngine, Pods, TranslatePress, Yoast, Rank Math, SEOPress, The SEO Framework, SureRank, Slim SEO, Redirection; with Pro, All in One SEO
 * Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm; with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
 * Events, donations, memberships (read)
 * Media library plus stock image imports
@@ -95,6 +95,15 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.66 =
+* New: JetEngine, Pods and TranslatePress integrations. Read field definitions and read or write post field values for JetEngine and Pods (including Pods table storage), and read or write TranslatePress string translations, all snapshotted and undoable with rollback. The tools appear only while one of these plugins is active.
+* Field value writes for JetEngine and Pods are off until a site opts in, the same as ACF and Meta Box.
+
+= 0.8.65 =
+* New: Breakdance pages can be read and edited through the builder tools: detection, a node tree read, and node updates, adds, removes and moves or a whole-layout write, each undoable with rollback.
+* Breakdance writes keep the stored layout byte for byte outside the edited nodes and refresh the page's generated CSS through Breakdance when it is active.
+* Page snapshots of Breakdance pages now count elements and responsive overrides from the stored layout.
 
 = 0.8.64 =
 * Fix: rolling back a shipping zone creation now removes the zone only while it is still the zone that was created; a different zone that reuses the id is left in place and the skipped restore is reported.
@@ -382,6 +391,12 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.66 =
+New: JetEngine, Pods and TranslatePress integrations. Read field definitions and read or write post field values for JetEngine and Pods (including Pods table storage), and read or write TranslatePress string translations, all snapshotted and undoable with rollback. The tools appear only while one of these plugins is active.
+
+= 0.8.65 =
+New: Breakdance pages can be read and edited through the builder tools: detection, a node tree read, and node updates, adds, removes and moves or a whole-layout write, each undoable with rollback.
 
 = 0.8.64 =
 Fix: rolling back a shipping zone creation now removes the zone only while it is still the zone that was created; a different zone that reuses the id is left in place and the skipped restore is reported.

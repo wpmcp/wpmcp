@@ -3348,6 +3348,7 @@ final class Plugin
             new \WPMCP\Integrations\Give_Integration(),
             new \WPMCP\Integrations\Paid_Memberships_Pro_Integration(),
             new \WPMCP\Integrations\Meta_Box_Integration(),
+            new \WPMCP\Integrations\Plugin_Data_Integration(),
             new \WPMCP\Integrations\Forminator_Integration(),
             new \WPMCP\Integrations\SureForms_Integration(),
             new \WPMCP\Integrations\MetForm_Integration(),
@@ -9004,7 +9005,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-builder',
             'pro',
-            'Detect a post\'s builder: elementor, bricks, divi, wpbakery, beaver-builder, gutenberg or classic. Read-only',
+            'Detect a post\'s builder: elementor, bricks, divi, wpbakery, beaver-builder, breakdance, gutenberg, classic. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9023,7 +9024,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-builder-content',
             'pro',
-            'Return a post\'s builder data: Bricks elements, Divi/WPBakery shortcodes (WPBakery adds a path tree), Beaver Builder node tree. Read-only',
+            'Return a post\'s builder data: Bricks elements, Divi/WPBakery shortcodes (WPBakery adds a path tree), Beaver Builder/Breakdance node tree. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9042,7 +9043,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-builder-content',
             'pro',
-            'Write a post\'s builder data. Bricks: JSON array. Divi/WPBakery: shortcodes. Beaver Builder: JSON node tree. WPBakery, Beaver Builder: or operation update (path, attrs, text), add (to, index, element), remove (path), move (path, to, index); to "" = top. Undoable via rollback-operation',
+            'Write a post\'s builder data. Bricks: JSON array. Divi/WPBakery: shortcodes. Beaver Builder/Breakdance: JSON node tree. Those three: or operation update (path, attrs, text), add (to, index, element), remove (path), move (path, to, index); to "" = top. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
