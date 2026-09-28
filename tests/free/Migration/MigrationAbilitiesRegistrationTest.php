@@ -10,6 +10,7 @@ class MigrationAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/rewrite-site-urls',
         'wpmcp/push-site-archive',
         'wpmcp/receive-site-archive',
+        'wpmcp/find-replace-content',
     ];
 
     public function test_migration_tools_are_registered_as_free_abilities(): void
@@ -81,5 +82,26 @@ class MigrationAbilitiesRegistrationTest extends \WP_UnitTestCase
             $this->assertTrue($ability->destructive_hint, "{$name} can end in a database replace");
             $this->assertFalse($ability->idempotent_hint);
         }
+    }
+
+    /**
+     * find-replace-content follows the URL rewrite's conventions: free tier,
+     * manage_options, migration domain, destructive and not idempotent. It
+     * differs in being snapshot-backed, which the description must say.
+     */
+    public function test_find_replace_content_matches_the_url_rewrite_conventions(): void
+    {
+        $ability = Plugin::instance()->registrar()->get('wpmcp/find-replace-content');
+
+        $this->assertNotNull($ability);
+        $this->assertSame('free', $ability->tier);
+        $this->assertSame('manage_options', $ability->capability);
+        $this->assertSame('migration', $ability->domain);
+        $this->assertFalse($ability->read_only_hint);
+        $this->assertTrue($ability->destructive_hint);
+        $this->assertFalse($ability->idempotent_hint);
+        $this->assertStringContainsString('rollback-session', $ability->description);
+        $this->assertLessThanOrEqual(400, strlen($ability->description));
+        $this->assertSame(['search', 'replace'], $ability->input_schema['required']);
     }
 }

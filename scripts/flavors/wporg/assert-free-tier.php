@@ -73,6 +73,7 @@ const WITHHELD_METHODS = [
     'register_cli_abilities',
     'register_cli_job_abilities',
     'register_global_class_write_abilities',
+    'register_global_variable_abilities',
     'register_php_exec_abilities',
     'register_widget_builder_abilities',
     'register_block_builder_abilities',

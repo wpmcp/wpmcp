@@ -47,8 +47,68 @@ class Rollback_Service
         if (! $row) {
             return false;
         }
+        if (! self::may_restore($row['snapshot'])) {
+            self::warn(sprintf(
+                'operation %s refused: its snapshot holds personal data and restoring it requires the "%s" capability.',
+                $operation_id,
+                (string) self::restore_capability($row['snapshot'])
+            ));
+            return false;
+        }
         self::apply_snapshot($row['snapshot']);
         return true;
+    }
+
+    /**
+     * Post types whose snapshots hold personal data, mapped to the capability
+     * a caller must hold to restore one.
+     *
+     * Deleting a form submission is snapshotted so it can be undone, which
+     * means a verbatim plaintext copy of the submission (name, email, remote
+     * IP, message body) sits in wpmcp_snapshots until it is pruned. The forms
+     * adapters gate reading and deleting a submission behind an
+     * administrator-only capability, but wpmcp/rollback-operation and
+     * wpmcp/rollback-session are registered at edit_posts, so without this the
+     * gate is one-way: anyone who can edit posts could resurrect a submission
+     * they are not allowed to read. Keyed on the snapshotted post type rather
+     * than on the adapter, because the snapshot outlives the adapter call and
+     * every entry-bearing adapter needs the same protection.
+     *
+     * @return array<string, string> post type => required capability
+     */
+    private static function pii_snapshot_capabilities(): array
+    {
+        return (array) apply_filters('wpmcp_pii_snapshot_capabilities', [
+            // Contact Form 7 via Flamingo; edit_users is the cap Flamingo maps
+            // every inbound-message capability to.
+            'flamingo_inbound' => 'edit_users',
+            'metform-entry'    => 'manage_options',
+            // Ninja Forms submissions (issue #66): the adapter's status change
+            // snapshots the whole nf_sub post, submitted values included.
+            'nf_sub'           => 'manage_options',
+        ]);
+    }
+
+    /** The capability this snapshot demands, or null when it holds no PII. */
+    private static function restore_capability(array $snapshot): ?string
+    {
+        if ('post' !== ($snapshot['object_type'] ?? '')) {
+            return null;
+        }
+        $post_type = (string) ($snapshot['data']['post']['post_type'] ?? '');
+        return self::pii_snapshot_capabilities()[ $post_type ] ?? null;
+    }
+
+    /**
+     * Whether the CURRENT user may restore this snapshot. Only the two
+     * agent-facing entry points below consult it: Safe_Mutation's own unwind
+     * of a mutation that threw is an internal integrity operation, already
+     * behind the op's capability, and must never be blocked half way through.
+     */
+    private static function may_restore(array $snapshot): bool
+    {
+        $capability = self::restore_capability($snapshot);
+        return null === $capability || current_user_can($capability);
     }
 
     public static function restore_session(string $session_id): int
@@ -81,6 +141,22 @@ class Rollback_Service
                 $count++;
                 continue;
             }
+            // Compiled-widget manifest changes (issue #72) are unwound the
+            // same way, newest first, every one of them. A compile snapshot
+            // holds ONE widget's entry and bytes, and a status or spec update
+            // holds one widget's enabled flag, so several of them touch the
+            // same widget in different ways; only a reverse-chronological
+            // unwind lands on the pre-session manifest.
+            if (self::is_compiled_widget_snapshot($snapshot)) {
+                self::apply_snapshot($snapshot);
+                $count++;
+                continue;
+            }
+            if (is_array($snapshot['data']['compiled_widget_entry'] ?? null)) {
+                self::restore_compiled_widget_entry($snapshot['data']['compiled_widget_entry']);
+                // The post half still goes through the oldest-first pass.
+                unset($snapshot['data']['compiled_widget_entry']);
+            }
             $legacy[] = $snapshot;
         }
 
@@ -98,6 +174,16 @@ class Rollback_Service
                 continue;
             }
             $seen[ $key ] = true;
+            if (! self::may_restore($snapshot)) {
+                // One refused snapshot must not abort the rest of the unwind,
+                // but it must be visible and must NOT be counted as restored.
+                self::warn(sprintf(
+                    'snapshot %s skipped: it holds personal data and restoring it requires the "%s" capability.',
+                    $key,
+                    (string) self::restore_capability($snapshot)
+                ));
+                continue;
+            }
             // A child-theme scaffold is undone LAST: its restore refuses to
             // delete the active theme, so the stylesheet/template options a
             // later switch-theme in the same session changed must be put back
@@ -128,6 +214,12 @@ class Rollback_Service
      */
     private static function object_identity(array $snapshot): string
     {
+        // Every compile snapshot is an 'option' snapshot of the ONE shared
+        // manifest option, but it only ever describes one widget. Keyed by the
+        // option name, all compiles in a session collapsed onto one identity.
+        if (self::is_compiled_widget_snapshot($snapshot)) {
+            return 'compiled_widget:' . (int) ($snapshot['data']['compiled_widget']['spec_id'] ?? 0);
+        }
         if ('option' === $snapshot['object_type']) {
             return 'option:' . $snapshot['data']['name'];
         }
@@ -151,6 +243,32 @@ class Rollback_Service
         return $snapshot['object_type'] . ':' . $snapshot['object_id'];
     }
 
+    /** A compile-custom-widget snapshot: one widget's manifest entry plus bytes. */
+    private static function is_compiled_widget_snapshot(array $snapshot): bool
+    {
+        return 'option' === $snapshot['object_type']
+            && is_array($snapshot['data']['compiled_widget'] ?? null);
+    }
+
+    private static function restore_compiled_widget_entry(array $state): void
+    {
+        $manifest = self::compiled_widget_manifest();
+        if (null !== $manifest) {
+            $manifest::restore_entry($state);
+        }
+    }
+
+    /**
+     * The compiled-widget manifest class, when this build ships it. The only
+     * place Rollback_Service names it, so a build without the compiler has
+     * exactly one thing to remove.
+     */
+    private static function compiled_widget_manifest(): ?string
+    {
+        $class = '\\WPMCP\\Tools\\WidgetBuilder\\Compiler\\Compiled_Widget_Manifest';
+        return class_exists($class) ? $class : null;
+    }
+
     /**
      * Restore a WordPress option to its pre-mutation state. Unlike a post,
      * an option has no trash/soft-delete; the only two prior states a
@@ -161,6 +279,17 @@ class Rollback_Service
      */
     private static function apply_option_snapshot(array $snapshot): void
     {
+        // A compiled-widget snapshot carries the single manifest entry it
+        // changed plus the generated file's previous bytes. Restoring those
+        // together is the only correct undo: putting the whole option back
+        // would revert every other widget compiled since, and putting the old
+        // hash back against the new bytes would leave the widget inert.
+        $manifest = self::compiled_widget_manifest();
+        if (null !== $manifest && self::is_compiled_widget_snapshot($snapshot)) {
+            $manifest::restore($snapshot['data']['compiled_widget']);
+            return;
+        }
+
         $name = (string) $snapshot['data']['name'];
         if ($snapshot['data']['existed']) {
             update_option($name, $snapshot['data']['value']);
@@ -446,6 +575,7 @@ class Rollback_Service
             'page_build',
             'media_import',
             'elementor_global_classes',
+            'elementor_global_variables',
             'theme_scaffold',
         ];
     }
@@ -498,6 +628,18 @@ class Rollback_Service
      */
     public static function apply_snapshot(array $snapshot): void
     {
+        // A post snapshot that also carries a compiled widget's enabled flag
+        // (set-widget-status, update-custom-widget): restore the post first,
+        // then the flag, so the undo brings back the spec AND the compiled
+        // path it was rendering through.
+        if (is_array($snapshot['data']['compiled_widget_entry'] ?? null)) {
+            $entry = $snapshot['data']['compiled_widget_entry'];
+            unset($snapshot['data']['compiled_widget_entry']);
+            self::apply_snapshot($snapshot);
+            self::restore_compiled_widget_entry($entry);
+            return;
+        }
+
         if ('option' === $snapshot['object_type']) {
             self::apply_option_snapshot($snapshot);
             return;
@@ -563,6 +705,11 @@ class Rollback_Service
             return;
         }
 
+        if ('elementor_global_variables' === $snapshot['object_type']) {
+            self::apply_elementor_global_variables_snapshot($snapshot);
+            return;
+        }
+
         if ('theme_scaffold' === $snapshot['object_type']) {
             self::apply_theme_scaffold_snapshot($snapshot);
             return;
@@ -578,7 +725,10 @@ class Rollback_Service
             $current = get_post($object_id, ARRAY_A);
             if ($current && self::is_same_post($current, $snapshot['data']['post'])) {
                 $postarr = array_merge(['ID' => $object_id], self::restore_columns($snapshot['data']['post'], false));
-                wp_update_post($postarr);
+                // wp_update_post() unslashes its input; the snapshot holds
+                // the raw stored columns, so they are slashed first or every
+                // backslash (block JSON escapes such as \u003c) is lost.
+                wp_update_post(wp_slash($postarr));
             } else {
                 self::resurrect($object_id, $snapshot['data']['post'], $snapshot['data']['comments'] ?? []);
             }
@@ -597,7 +747,8 @@ class Rollback_Service
         foreach ($snapshotted_meta as $key => $values) {
             delete_post_meta($object_id, $key);
             foreach ((array) $values as $v) {
-                add_post_meta($object_id, $key, maybe_unserialize($v));
+                // add_post_meta() unslashes too; slash so the value lands byte-for-byte.
+                add_post_meta($object_id, $key, wp_slash(maybe_unserialize($v)));
             }
         }
 
@@ -1349,6 +1500,41 @@ class Rollback_Service
     }
 
     /**
+     * Undo an Elementor 4 global variables write (create / update / delete a
+     * design token).
+     *
+     * Elementor keeps every variable in one JSON record on the kit and bumps a
+     * watermark on each save, so replaying the change through its service
+     * could never reproduce the prior record. The snapshot holds the record's
+     * raw bytes instead (or that there was none), and the undo puts exactly
+     * those back, which also revives a soft-deleted variable. The generated
+     * CSS is cleared so the restored tokens render on the next view.
+     */
+    private static function apply_elementor_global_variables_snapshot(array $snapshot): void
+    {
+        $data   = (array) ($snapshot['data'] ?? []);
+        $kit_id = (int) ($data['kit_id'] ?? $snapshot['object_id'] ?? 0);
+
+        if ($kit_id <= 0 || ! get_post($kit_id)) {
+            self::warn('Elementor global variables cannot be restored: the kit they belonged to no longer exists.');
+            return;
+        }
+
+        // Written here, not through the Elementor tool layer, so the safety
+        // layer can restore without depending on the tool that wrote.
+        if (! empty($data['exists'])) {
+            update_post_meta($kit_id, '_elementor_global_variables', wp_slash((string) ($data['raw'] ?? '')));
+        } else {
+            delete_post_meta($kit_id, '_elementor_global_variables');
+        }
+        clean_post_cache($kit_id);
+
+        if (class_exists('\\Elementor\\Plugin') && isset(\Elementor\Plugin::instance()->files_manager)) {
+            \Elementor\Plugin::instance()->files_manager->clear_cache();
+        }
+    }
+
+    /**
      * Undo a create-child-theme scaffold (see Snapshot::capture_theme_scaffold()).
      *
      * Only the scaffold's own files are touched: each is put back to its
@@ -1507,7 +1693,7 @@ class Rollback_Service
     private static function resurrect(int $object_id, array $post_columns, array $comments): void
     {
         $postarr = array_merge(['import_id' => $object_id], self::restore_columns($post_columns, true));
-        $result  = wp_insert_post($postarr, true);
+        $result  = wp_insert_post(wp_slash($postarr), true);
 
         if (is_wp_error($result)) {
             throw new Mutation_Failed('Rollback failed to resurrect post ' . (int) $object_id . ': ' . esc_html($result->get_error_message()));

@@ -62,8 +62,15 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  lifecycle store (#85) adds seven tools whose descriptions were trimmed
      *  to the store-vs-Elementor-custom-code disambiguation, the
      *  created-inactive rule and the execution-gate refusal. Raised 180000 ->
-     *  185000 when main was merged into the theme dispatcher branches (#144,
-     *  #69): main itself measured 180308 bytes over 326 tools once #85 and #262
+     *  185000 for cloud settings sync and marketplace (#135: sync-, push- and
+     *  apply-settings, marketplace-browse, marketplace-install): main had
+     *  reached 179878 bytes over 326 tools, so no new tool fit; the five
+     *  descriptions were trimmed first (182841 -> 182175 bytes) but still
+     *  name what never syncs, the merge-not-replace and never-disable
+     *  rollback rules, and the inactive-draft install, since an agent that
+     *  misses those makes a failed or unsafe call.
+     *  The same 185000 also covers main being merged into the theme
+     *  dispatcher branches (#144, #69): main itself measured 180308 bytes over 326 tools once #85 and #262
      *  had both landed, and the theme-read/theme-write pair adds about 820
      *  bytes that are almost all the shared dispatcher text, so no
      *  theme-specific trim could make it fit. Raised 185000 -> 186000 when
@@ -89,12 +96,34 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  descriptions, about 8.5KB for the 13 tools (the raise approved in
      *  review, re-applied on the newer main). The coupon write
      *  schemas are most of it: they list every writable field so an agent
-     *  can set limits and restrictions without a schema round trip. Compact
-     *  tool mode keeps clients with tool caps at ~2.8KB regardless. *  Raised 195000 -> 196000 when regenerate-elementor-css (#272) met
+     *  can set limits and restrictions without a schema round trip. Raised
+     *  195000 -> 196000 when regenerate-elementor-css (#272) met
      *  upload-media on main: 195107 bytes over 352 tools, with the new
-     *  description already cut to 40 characters.
-     */
-    private const TOOLS_LIST_BYTE_BUDGET = 196000;
+     *  description already cut to 40 characters. Raised
+     *  196000 -> 198000 when the five cloud settings sync and marketplace
+     *  tools (#135) met that main: 197816 bytes over 366 tools, after their
+     *  descriptions were trimmed twice without dropping the never-syncs,
+     *  merge, never-disable-rollback or inactive-install rules. The widget
+     *  compiler (#72) adds compile-custom-widget, trimmed from 569 characters
+     *  (it keeps the opt-in filter and the edit_files and DISALLOW_FILE_EDIT
+     *  refusals), with the other widget builder descriptions tightened to
+     *  pay for it. Raised 198000 -> 199000 when get-rendered-html met that
+     *  main: 198264 bytes over 368 tools, with its description already cut
+     *  to 72 characters and get-page-snapshot's tightened alongside to pay
+     *  for part of it; the rest is its six-property input schema. Raised
+     *  199000 -> 201000 for the WooCommerce operations catalog (#68: woo-ops,
+     *  woo-read, woo-write) when it met that main: 200344 bytes over 371
+     *  tools. The three catalog descriptions were already trimmed twice to
+     *  the op model, the gates and the rollback contract; what remains is
+     *  the destructive-op opt-in, confirm, refund and batch rollback rules an
+     *  agent must see before it writes to a store. Compact tool mode keeps
+     *  clients with tool caps at ~2.8KB regardless. Raised 201000 -> 203000
+     *  for the Elementor v4 global variable suite
+     *  (list/create/update/delete-global-variable) when it met that main:
+     *  202840 bytes over 376 tools. The four descriptions were trimmed
+     *  first; the create description keeps the per-type value rules because
+     *  an agent that reads them does not burn a call on a refusal. */
+    private const TOOLS_LIST_BYTE_BUDGET = 203000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
@@ -154,9 +183,14 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
         // consumed by a FIXED generic set, so adding a cataloged widget must
         // never add a tool. New tools here are per-feature, never per-widget,
         // and stay well under the catalog size. Raised 64 -> 65 for
-        // regenerate-elementor-css, a per-feature cache tool.
+        // regenerate-elementor-css, a per-feature cache tool, and 65 -> 66
+        // for compile-custom-widget (issue #72: one ability compiles ANY
+        // stored spec, so the count stays independent of how many widgets
+        // exist, cataloged or custom). Raised 66 -> 70 for the v4 global
+        // variable suite (list/create/update/delete-global-variable), one
+        // per-feature CRUD set like the global class suite.
         $this->assertLessThanOrEqual(
-            65,
+            70,
             count($elementor),
             'The Elementor tool surface must stay a fixed set of generic, per-feature tools; '
             . 'widgets belong in the catalog data, not in new per-widget abilities.'

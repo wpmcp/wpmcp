@@ -119,6 +119,7 @@ The same endpoint works with Cursor, Claude Desktop, and any MCP-compatible clie
 | `set-post-terms` | write (safe) | Assign taxonomy terms to a post: replace, append, or remove |
 | `search-content` | read | Search all of the site's text at once, including copy `post_content` search cannot see: Elementor/Bricks element settings, Gutenberg block attributes, template parts, reusable blocks, and nav menus. Every hit returns an addressable location (block path, element id, menu item id) plus a snippet |
 | `get-page-snapshot` | read | One-call normalized page digest: structure summary with counts, content outline in document order, media and link inventory, builder detection, and SEO-lite signals, so understanding a page costs one call instead of a chain of reads. Heavy sections (`global_tokens`, `responsive_overrides`) are opt-in via `sections`; a `content_coverage` block says which sections the stored content could not answer for Elementor/Bricks/Divi pages, and the response is bounded by item, string, and byte caps, the last of which is applied after the overlay filter and can drop whole sections (reported in `sections.dropped`) |
+| `get-rendered-html` | read | The rendered front-end HTML a logged-out visitor receives for a published post (`post_id`) or a path/URL on this site, so an agent can check what visitors actually see after an edit. Returns status code, final URL, total size and chunk count plus one chunk (`chunk`, `chunk_size` bounded to 1000 to 50000 bytes); `strip_scripts` drops script and style blocks and `text_only` returns visible text. Only this site's own host and port are fetched: other hosts, IP literals, non-http(s) schemes, credentials and redirects off the site are refused before any request, the body is capped at 1 MB, and drafts, private and password-protected posts are refused rather than fetched with elevated auth |
 | `reindex-search` | write (index only) | Build or rebuild the content search index. Cursor-based (`batch_size`/`offset`/`next_offset`) so large sites rebuild across bounded calls; the index is otherwise maintained incrementally on every save |
 | `get-media` | read | Read a Media Library attachment's full detail: sizes, dimensions, metadata, alt text, caption, description |
 | `update-media` | write (safe) | Update an attachment's title, alt text, caption, and/or description |
@@ -261,9 +262,10 @@ bin/test-local.sh                       # default WordPress leg with the coverag
 bin/test-local.sh --all                 # also the `Requires at least` WordPress
 bin/test-local.sh -- --filter SnapshotTest   # a targeted PHPUnit run
 ELEMENTOR_VERSION=latest bin/test-local.sh   # check for drift against the newest Elementor
+bin/test-local.sh --live-forms          # only the Contact Form 7 + Flamingo live group
 ```
 
-It starts a private MariaDB server under `~/.cache/wpmcp-tests`, installs each WordPress version there once, and gives every worktree its own database, so worktrees can run side by side. MySQL does not work: the harness makes every table TEMPORARY and MySQL cannot reopen one inside a query, which WooCommerce does. Skip the gate for one push with `WPMCP_SKIP_LOCAL_TESTS=1 git push`.
+It starts a private MariaDB server under `~/.cache/wpmcp-tests`, installs each WordPress version there once per version of the install scripts, and gives every worktree its own database, so worktrees can run side by side. The default run ends with the live forms group: the Contact Form 7 adapter against the real Contact Form 7 and Flamingo, on a separate install. MySQL does not work: the harness makes every table TEMPORARY and MySQL cannot reopen one inside a query, which WooCommerce does. Skip the gate for one push with `WPMCP_SKIP_LOCAL_TESTS=1 git push`.
 
 ## Contributing
 

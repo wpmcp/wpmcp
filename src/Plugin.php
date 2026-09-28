@@ -22,6 +22,7 @@ use WPMCP\Tools\Maintenance\Enable_Maintenance;
 use WPMCP\Tools\Maintenance\Disable_Maintenance;
 use WPMCP\Tools\Context\Get_Site_Context;
 use WPMCP\Tools\Context\Get_Page_Snapshot;
+use WPMCP\Tools\Context\Get_Rendered_Html;
 use WPMCP\Tools\Rest\List_Rest_Routes;
 use WPMCP\Tools\Rest\Call_Rest;
 use WPMCP\Tools\Blocks\List_Block_Types;
@@ -230,6 +231,7 @@ use WPMCP\Tools\Backup\Delete_Backup_Archive;
 use WPMCP\Tools\Backup\Restore_Site_Backup;
 use WPMCP\Tools\Migration\Push_Site_Archive;
 use WPMCP\Tools\Migration\Receive_Site_Archive;
+use WPMCP\Tools\Migration\Find_Replace_Content;
 use WPMCP\Tools\Migration\Rewrite_Site_Urls;
 use WPMCP\Tools\Sync\Apply_Change_Set;
 use WPMCP\Tools\Sync\Build_Change_Set;
@@ -270,6 +272,11 @@ use WPMCP\Tools\Elementor\Update_Global_Class;
 use WPMCP\Tools\Elementor\Delete_Global_Class;
 use WPMCP\Tools\Elementor\Reorder_Global_Classes;
 use WPMCP\Tools\Elementor\Global_Class_Schema;
+use WPMCP\Tools\Elementor\List_Global_Variables;
+use WPMCP\Tools\Elementor\Create_Global_Variable;
+use WPMCP\Tools\Elementor\Update_Global_Variable;
+use WPMCP\Tools\Elementor\Delete_Global_Variable;
+use WPMCP\Tools\Elementor\Global_Variable_Schema;
 use WPMCP\Tools\Brand\List_Brand_Kits;
 use WPMCP\Tools\Brand\Get_Brand_Kit;
 use WPMCP\Tools\Brand\Apply_Brand_Kit;
@@ -339,6 +346,9 @@ use WPMCP\Tools\WooCommerce\List_Tax_Rates;
 use WPMCP\Tools\WooCommerce\Create_Tax_Rate;
 use WPMCP\Tools\WooCommerce\Update_Tax_Rate;
 use WPMCP\Tools\WooCommerce\Delete_Tax_Rate;
+use WPMCP\Tools\WooCommerce\Catalog\Woo_Ops;
+use WPMCP\Tools\WooCommerce\Catalog\Woo_Read;
+use WPMCP\Tools\WooCommerce\Catalog\Woo_Write;
 use WPMCP\Tools\Menus\List_Menus;
 use WPMCP\Tools\Menus\Get_Menu;
 use WPMCP\Tools\Menus\List_Menu_Locations;
@@ -503,6 +513,8 @@ final class Plugin
         if ($this->group_enabled('widget_builder')) {
             add_action('init', ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Spec_Store', 'ensure_post_type']);
             add_action('elementor/widgets/register', ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Registry', 'register']);
+            // A permanently deleted spec must not leave generated PHP behind.
+            add_action('before_delete_post', ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Registry', 'purge_on_delete'], 10, 2);
         }
         // Data-driven custom Gutenberg block builder: register the wpmcp_block
         // CPT and register active specs as real blocks via register_block_type.
@@ -2744,7 +2756,12 @@ final class Plugin
             ['cloud-status', 'read', new \WPMCP\Tools\Cloud\Cloud_Status(), 'Report whether this site is connected to WP MCP Cloud, and where. Read-only', [], []],
             ['cloud-list-assets', 'read', new \WPMCP\Tools\Cloud\Cloud_List_Assets(), 'List the assets (widget/block specs) in this site\'s WP MCP Cloud account. Read-only', [], []],
             ['cloud-push-assets', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Assets(), 'Push this site\'s custom widget and block specs up to WP MCP Cloud (backup + reuse across sites). Optionally filter by type (widget|block)', ['types' => ['type' => 'array']], []],
-            ['cloud-pull-assets', 'create', new \WPMCP\Tools\Cloud\Cloud_Pull_Assets(), 'Pull the builder assets from this site\'s WP MCP Cloud account and recreate them locally as custom widget/block specs (each validated before it is stored)', [], []],
+            ['cloud-pull-assets', 'create', new \WPMCP\Tools\Cloud\Cloud_Pull_Assets(), 'Pull this site\'s WP MCP Cloud builder assets and recreate them as local custom widget/block specs (each validated first; refusals listed under skipped with a reason)', [], []],
+            ['cloud-sync-settings', 'read', new \WPMCP\Tools\Cloud\Cloud_Sync_Settings(), 'Preview what would sync to WP MCP Cloud: governance toggles, MCP exposure switch, tool-exposure mode, skills switch. Never secrets or code-level gates (db writes, php exec, cli allowlist). Read-only', [], []],
+            ['cloud-push-settings', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Settings(), 'Push the cloud-sync-settings posture plus identity scopes (no secrets) to WP MCP Cloud for cloud-apply-settings elsewhere. Paid. Changes nothing here', [], []],
+            ['cloud-apply-settings', 'update', new \WPMCP\Tools\Cloud\Cloud_Apply_Settings(), 'Apply a posture: a cloud-sync-settings map, or (settings omitted) the last pushed one. Re-filtered to the allowlist; toggles and identities merge, scope fields only; never changes the MCP exposure switch or disables rollback-operation. Paid. Each write snapshotted; applied[i] pairs with operation_ids[i]; matching options listed as unchanged', ['settings' => ['type' => 'object'], 'session_id' => ['type' => 'string']], []],
+            ['cloud-marketplace-browse', 'read', new \WPMCP\Tools\Cloud\Cloud_Marketplace_Browse(), 'Browse WP MCP Cloud marketplace widget and block specs, optionally by type and search. Read-only', ['type' => ['type' => 'string', 'enum' => ['widget', 'block']], 'search' => ['type' => 'string']], []],
+            ['cloud-marketplace-install', 'create', new \WPMCP\Tools\Cloud\Cloud_Marketplace_Install(), 'Install a WP MCP Cloud marketplace listing by slug: validated like validate-widget-spec / validate-block-spec, template run through wp_kses_post, lands INACTIVE until set-widget-status / set-block-status. Refuses a name colliding with a local spec', ['slug' => ['type' => 'string']], ['slug']],
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
@@ -3070,14 +3087,15 @@ final class Plugin
         $spec_schema = [ 'type' => 'object' ];
 
         $tools = [
-            ['create-custom-widget', 'create', new \WPMCP\Tools\WidgetBuilder\Create_Custom_Widget(), 'Create a custom Elementor widget from a data spec (title, controls, template with {{name}} placeholders). Validated, stored as a wpmcp_widget post, and registered as a real Elementor widget at runtime by a single data-driven widget (no code generation, no eval). Callers without unfiltered_html get the template wp_kses_post-filtered; the response then reports template_filtered: true with the stored template. Remove with delete-custom-widget', ['spec' => $spec_schema], ['spec']],
-            ['update-custom-widget', 'update', new \WPMCP\Tools\WidgetBuilder\Update_Custom_Widget(), 'Replace a custom widget\'s spec by id (re-validated before it is stored; same wp_kses_post gate and template_filtered report as create-custom-widget)', ['widget_id' => ['type' => 'integer'], 'spec' => $spec_schema], ['widget_id', 'spec']],
-            ['get-custom-widget', 'read', new \WPMCP\Tools\WidgetBuilder\Get_Custom_Widget(), 'Read one custom widget\'s stored spec by id. Read-only', ['widget_id' => ['type' => 'integer']], ['widget_id']],
-            ['list-custom-widgets', 'read', new \WPMCP\Tools\WidgetBuilder\List_Custom_Widgets(), 'List the custom widgets on this site (id, name, title, active/inactive). Read-only', [], []],
-            ['delete-custom-widget', 'delete', new \WPMCP\Tools\WidgetBuilder\Delete_Custom_Widget(), 'Delete a custom widget by moving it to the trash (reversible via restore-post)', ['widget_id' => ['type' => 'integer']], ['widget_id']],
+            ['create-custom-widget', 'create', new \WPMCP\Tools\WidgetBuilder\Create_Custom_Widget(), 'Create a custom Elementor widget from a data spec (title, controls, template with {{name}} placeholders), stored as a wpmcp_widget post. Without unfiltered_html the template is wp_kses_post-filtered (template_filtered: true)', ['spec' => $spec_schema], ['spec']],
+            ['update-custom-widget', 'update', new \WPMCP\Tools\WidgetBuilder\Update_Custom_Widget(), 'Replace a custom widget\'s spec by id (re-validated; same wp_kses_post gate as create)', ['widget_id' => ['type' => 'integer'], 'spec' => $spec_schema], ['widget_id', 'spec']],
+            ['get-custom-widget', 'read', new \WPMCP\Tools\WidgetBuilder\Get_Custom_Widget(), 'Read a custom widget\'s stored spec by id. Read-only', ['widget_id' => ['type' => 'integer']], ['widget_id']],
+            ['list-custom-widgets', 'read', new \WPMCP\Tools\WidgetBuilder\List_Custom_Widgets(), 'List this site\'s custom widgets (id, name, title, active/inactive). Read-only', [], []],
+            ['delete-custom-widget', 'delete', new \WPMCP\Tools\WidgetBuilder\Delete_Custom_Widget(), 'Move a custom widget to the trash (reversible via restore-post)', ['widget_id' => ['type' => 'integer']], ['widget_id']],
             ['set-widget-status', 'update', new \WPMCP\Tools\WidgetBuilder\Set_Widget_Status(), 'Enable (publish) or disable (draft) a custom widget by id', ['widget_id' => ['type' => 'integer'], 'status' => ['type' => 'string']], ['widget_id', 'status']],
-            ['validate-widget-spec', 'read', new \WPMCP\Tools\WidgetBuilder\Validate_Widget_Spec(), 'Statically validate a custom-widget spec (title, controls, template) without storing it. Read-only', ['spec' => $spec_schema], ['spec']],
-            ['list-control-types', 'read', new \WPMCP\Tools\WidgetBuilder\List_Control_Types(), 'List the control types a custom-widget spec may use and the Elementor control each maps to. Read-only', [], []],
+            ['validate-widget-spec', 'read', new \WPMCP\Tools\WidgetBuilder\Validate_Widget_Spec(), 'Validate a custom-widget spec without storing it. Read-only', ['spec' => $spec_schema], ['spec']],
+            ['compile-custom-widget', 'update', new \WPMCP\Tools\WidgetBuilder\Compiler\Compile_Custom_Widget(), 'Compile a published custom-widget spec into a native Elementor widget; the plugin, never the agent, writes and lints the PHP. Off unless wpmcp_enable_widget_compiler is on; needs edit_files, honors DISALLOW_FILE_EDIT. set-widget-status disables it', ['widget_id' => ['type' => 'integer']], ['widget_id']],
+            ['list-control-types', 'read', new \WPMCP\Tools\WidgetBuilder\List_Control_Types(), 'List the control types a custom-widget spec may use and their Elementor controls. Read-only', [], []],
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
@@ -3108,34 +3126,64 @@ final class Plugin
      * Register the integration-dispatcher pairs (issue #65): one
      * {integration}-read plus one {integration}-write ability per third-party
      * integration, dispatching to a per-operation catalog instead of N flat
-     * tools. Registered unconditionally — availability is a call-time concern
-     * for dispatchers (a missing host plugin yields a structured
-     * integration_unavailable error, never a fatal), unlike the flat ACF/SEO/
-     * i18n groups which skip registration when their plugin is absent.
+     * tools. Most pairs register unconditionally: availability is a call-time
+     * concern for them (a missing host plugin yields a structured
+     * integration_unavailable error, never a fatal). The forms adapters
+     * (issue #66) opt out of that through
+     * Integration_Dispatcher::registers_only_when_available() and register
+     * only while their host plugin is loaded. This runs on
+     * wp_abilities_api_init, after every plugin has loaded, so that check sees
+     * the real answer.
      */
     private function register_integration_abilities(Registrar $registrar): void
     {
-        $integrations = [
+        $this->register_integrations($registrar, [
             new \WPMCP\Integrations\ACF_Integration(),
-            new \WPMCP\Integrations\Gravity_Forms_Integration(),
-            new \WPMCP\Integrations\Formidable_Integration(),
             new \WPMCP\Integrations\Contact_Form_7_Integration(),
-            new \WPMCP\Integrations\WPForms_Integration(),
             new \WPMCP\Integrations\Gravity_Tables_Integration(),
             new \WPMCP\Integrations\Modern_Events_Calendar_Integration(),
             new \WPMCP\Integrations\The_Events_Calendar_Integration(),
             new \WPMCP\Integrations\Give_Integration(),
             new \WPMCP\Integrations\Paid_Memberships_Pro_Integration(),
             new \WPMCP\Integrations\Meta_Box_Integration(),
-            new \WPMCP\Integrations\Ninja_Forms_Integration(),
-            new \WPMCP\Integrations\Fluent_Forms_Integration(),
             new \WPMCP\Integrations\Forminator_Integration(),
             new \WPMCP\Integrations\SureForms_Integration(),
             new \WPMCP\Integrations\MetForm_Integration(),
             new \WPMCP\Integrations\Theme_Integration(),
-        ];
+        ]);
+        $this->register_forms_pack_abilities($registrar);
+    }
 
+    /**
+     * The forms adapter pack (issue #66): WPForms, Gravity Forms, Formidable,
+     * Ninja Forms and Fluent Forms, each a pro-tier dispatcher pair (the
+     * adapters override tier()). Kept in its own method so the WordPress.org
+     * directory build can drop the whole pack at build time, method and
+     * adapter files together, rather than gating it at runtime.
+     */
+    private function register_forms_pack_abilities(Registrar $registrar): void
+    {
+        $this->register_integrations($registrar, [
+            new \WPMCP\Integrations\Gravity_Forms_Integration(),
+            new \WPMCP\Integrations\Formidable_Integration(),
+            new \WPMCP\Integrations\WPForms_Integration(),
+            new \WPMCP\Integrations\Ninja_Forms_Integration(),
+            new \WPMCP\Integrations\Fluent_Forms_Integration(),
+        ]);
+    }
+
+    /**
+     * Register each integration's read/write pair, skipping one that asks to
+     * register only while its host plugin is loaded when that plugin is not.
+     *
+     * @param \WPMCP\Integrations\Integration_Dispatcher[] $integrations
+     */
+    private function register_integrations(Registrar $registrar, array $integrations): void
+    {
         foreach ($integrations as $integration) {
+            if (! $integration->should_register()) {
+                continue;
+            }
             foreach ($integration->abilities() as $ability) {
                 $registrar->register($ability);
             }
@@ -3809,7 +3857,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-page-snapshot',
             'free',
-            'One-call page digest for a post: structure counts, content outline in document order, media and link inventory, builder detection (elementor/bricks/divi/gutenberg/classic) and SEO-lite signals. Content comes from stored post_content, so for builder pages content_coverage reports what could not be measured instead of misleading zeros. Heavy sections (global_tokens, responsive_overrides) are opt-in via sections. Response size is capped. Read-only',
+            'One-call page digest: structure counts, outline, media and link inventory, builder detection, SEO-lite signals, from stored post_content (content_coverage flags gaps on builder pages). Heavy sections (global_tokens, responsive_overrides) are opt-in via sections. Size-capped. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3827,6 +3875,33 @@ final class Plugin
                 'required'   => [ 'post_id' ],
             ],
             [$get_page_snapshot, 'handle'],
+            'edit_posts',
+            'context',
+            'read'
+        ));
+
+        // get-rendered-html: what a logged-out visitor actually receives for
+        // a page, fetched from this site's own host only (see the SSRF model
+        // on the class). Free and in the 'context' group for the same reason
+        // as get-page-snapshot above.
+        $get_rendered_html = new Get_Rendered_Html();
+
+        $registrar->register(new Ability(
+            'wpmcp/get-rendered-html',
+            'free',
+            'Visitor-view HTML of a site page (post_id or url/path), chunked. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'       => [ 'type' => 'integer' ],
+                    'url'           => [ 'type' => 'string' ],
+                    'chunk'         => [ 'type' => 'integer' ],
+                    'chunk_size'    => [ 'type' => 'integer' ],
+                    'strip_scripts' => [ 'type' => 'boolean' ],
+                    'text_only'     => [ 'type' => 'boolean' ],
+                ],
+            ],
+            [$get_rendered_html, 'handle'],
             'edit_posts',
             'context',
             'read'
@@ -4503,7 +4578,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
             'free',
-            'Queue a backup job run by WP-Cron and return its job id at once. type=full builds a portable site archive (zip with a full SQL dump, wp-content and an origin manifest) that can be restored or migrated; database, files and uploads build the same format narrowed to that scope; content produces a WXR export via export-content',
+            'Queue a backup job run by WP-Cron and return its job id at once. type=full builds a portable site archive (zip: full SQL dump, wp-content, origin manifest) to restore or migrate; database, files and uploads narrow it to that scope; content is a WXR export via export-content',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4569,7 +4644,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-backup-manifest',
             'free',
-            'Read a completed site-backup archive\'s manifest by job id or path: origin site_url/home_url, table prefix, multisite, WordPress/PHP/plugin versions, scope, per-table row counts, BLOB tables and file count. Read-only, nothing is extracted; paths outside the site-backup directory are refused',
+            'Read a completed site-backup archive\'s manifest by job id or path: origin site_url/home_url, table prefix, multisite, WordPress/PHP/plugin versions, scope, per-table row counts, BLOB tables and file count. Read-only; paths outside the site-backup directory are refused',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4657,7 +4732,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/rewrite-site-urls',
             'free',
-            'Rewrite every embedded URL in the database from one site URL to another (options, postmeta, posts, termmeta, usermeta, comments), serialization-aware: plain, JSON-escaped, percent-encoded and scheme-relative forms; values holding an object are refused and reported. Fixes images, widgets and theme mods after a move. dry_run (default true) reports per-table counts; applying needs dry_run:false and confirm:true, takes a database safety archive first (or refuses) and returns its job_id for restore-site-backup to undo. Tables in wpmcp_db_protected_tables (usermeta by default) are skipped; GUIDs are never rewritten',
+            'Rewrite every embedded URL in the database from one site URL to another (options, postmeta, posts, termmeta, usermeta, comments), serialization-aware: plain, JSON-escaped, percent-encoded and scheme-relative forms; object values are refused and reported. Fixes images, widgets and theme mods after a move. dry_run (default) reports per-table counts; applying (dry_run:false, confirm:true) takes a database safety archive first or refuses, and returns its job_id for restore-site-backup to undo. Tables in wpmcp_db_protected_tables (usermeta by default) are skipped; GUIDs are never rewritten',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4686,7 +4761,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/push-site-archive',
             'free',
-            'Push a site-backup archive (job_id or path; scope all or database) to another wpmcp site at target_url as an administrator there (target_user + target_app_password, or target_token). dry_run (default true) only checks the target can take it; dry_run:false + confirm:true uploads resumable chunks for up to max_seconds, call again to continue; apply:true also has the target restore it (safety archive first) and rewrite URLs. Needs the outgoing-migration opt-in here and the incoming one there',
+            'Push a site-backup archive (job_id or path; scope all or database) to another wpmcp site at target_url as its administrator (target_user + target_app_password, or target_token). dry_run (default) only checks the target; dry_run:false + confirm:true uploads resumable chunks for max_seconds, call again to continue; apply:true also has the target restore it (safety archive first) and rewrite URLs. Needs the outgoing-migration opt-in here and the incoming one there',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4718,7 +4793,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/receive-site-archive',
             'free',
-            'Target side of push-site-archive, called by another site. action start (sha256, bytes, manifest; checked before upload, resumes a partial one), chunk (upload_id, offset, base64 data), status, apply (verify, restore with a safety archive, rewrite URLs; dry_run defaults to true, confirm:true applies). Needs the incoming-migration opt-in',
+            'Target side of push-site-archive. action start (sha256, bytes, manifest; checked before upload, resumes), chunk (upload_id, offset, base64 data), status, apply (verify, restore with a safety archive, rewrite URLs; dry_run default, confirm:true applies). Needs the incoming-migration opt-in',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4741,6 +4816,46 @@ final class Plugin
                 'required'   => [ 'action' ],
             ],
             [$receive_site_archive, 'handle'],
+            'manage_options',
+            'migration',
+            'update',
+            false,
+            true,
+            false
+        ));
+
+        // Snapshot-backed per post: every changed post goes through
+        // Safe_Mutation under one returned session_id. Annotated like
+        // its sibling (destructive, not idempotent: a replacement containing
+        // the search text matches again on a second run).
+        $find_replace_content = new Find_Replace_Content();
+
+        $registrar->register(new Ability(
+            'wpmcp/find-replace-content',
+            'free',
+            'Serialization-safe find and replace in post content, titles, excerpts or meta. dry_run (default) previews; apply returns a rollback-session id; over 10 posts needs confirm:true',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'search'         => [ 'type' => 'string' ],
+                    'replace'        => [ 'type' => 'string' ],
+                    'regex'          => [ 'type' => 'boolean' ],
+                    'case_sensitive' => [ 'type' => 'boolean' ],
+                    'fields'         => [
+                        'type'  => 'array',
+                        'items' => [ 'type' => 'string', 'enum' => ['content', 'title', 'excerpt', 'meta'] ],
+                    ],
+                    'meta_keys'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'post_types'     => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'statuses'       => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'post_ids'       => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
+                    'max_matches'    => [ 'type' => 'integer' ],
+                    'dry_run'        => [ 'type' => 'boolean' ],
+                    'confirm'        => [ 'type' => 'boolean' ],
+                ],
+                'required'   => [ 'search', 'replace' ],
+            ],
+            [$find_replace_content, 'handle'],
             'manage_options',
             'migration',
             'update',
@@ -5739,6 +5854,7 @@ final class Plugin
         ));
 
         $this->register_global_class_write_abilities($registrar);
+        $this->register_global_variable_abilities($registrar);
 
         $export_page = new Export_Page();
 
@@ -6409,6 +6525,107 @@ final class Plugin
     }
 
     /**
+     * Register the Elementor 4 global variable (design token) suite.
+     *
+     * Same conventions as the global class suite: pro tier, edit_posts to read
+     * and manage_options to write (what Elementor's own variables REST API
+     * asks for), expected_hash from list-global-variables on every write, and
+     * a dedicated 'elementor_global_variables' snapshot of the kit's raw
+     * variables record so rollback-operation restores it exactly. Writes go
+     * through Elementor's Variables_Service. Registered unconditionally; the
+     * tools refuse with 'unsupported' when the v4 variables module is absent.
+     */
+    private function register_global_variable_abilities(Registrar $registrar): void
+    {
+        $type_schema = [
+            'type' => 'string',
+            'enum' => array_keys(Global_Variable_Schema::TYPES),
+        ];
+
+        $list_global_variables = new List_Global_Variables();
+
+        $registrar->register(new Ability(
+            'wpmcp/list-global-variables',
+            'pro',
+            'List Elementor v4 global variables (color, font, size design tokens) with the state_hash the write tools need as expected_hash. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$list_global_variables, 'handle'],
+            'edit_posts',
+            'elementor',
+            'read'
+        ));
+
+        $create_global_variable = new Create_Global_Variable();
+
+        $registrar->register(new Ability(
+            'wpmcp/create-global-variable',
+            'pro',
+            'Create an Elementor v4 global variable; returns its e-gv- id. label is the CSS variable name (letters, digits, - _). value: hex/rgb()/hsl() color, font family, size like 16px, or any CSS for custom-size (sizes need Elementor Pro). Needs expected_hash from list-global-variables. Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'label'         => [ 'type' => 'string' ],
+                    'type'          => $type_schema,
+                    'value'         => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'expected_hash', 'label', 'type', 'value' ],
+            ],
+            [$create_global_variable, 'handle'],
+            'manage_options',
+            'elementor',
+            'create'
+        ));
+
+        $update_global_variable = new Update_Global_Variable();
+
+        $registrar->register(new Ability(
+            'wpmcp/update-global-variable',
+            'pro',
+            'Update an Elementor v4 global variable by e-gv- id: label, value, or size/custom-size switch (no other type change). Needs expected_hash from list-global-variables. Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'id'            => [ 'type' => 'string' ],
+                    'label'         => [ 'type' => 'string' ],
+                    'value'         => [ 'type' => 'string' ],
+                    'type'          => $type_schema,
+                ],
+                'required'   => [ 'expected_hash', 'id' ],
+            ],
+            [$update_global_variable, 'handle'],
+            'manage_options',
+            'elementor',
+            'update'
+        ));
+
+        $delete_global_variable = new Delete_Global_Variable();
+
+        $registrar->register(new Ability(
+            'wpmcp/delete-global-variable',
+            'pro',
+            'Delete an Elementor v4 global variable by e-gv- id. Without confirm:true it is a dry run listing the posts and classes using it. Needs expected_hash from list-global-variables. Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'id'            => [ 'type' => 'string' ],
+                    'confirm'       => [ 'type' => 'boolean' ],
+                ],
+                'required'   => [ 'expected_hash', 'id' ],
+            ],
+            [$delete_global_variable, 'handle'],
+            'manage_options',
+            'elementor',
+            'delete'
+        ));
+    }
+
+    /**
      * Register the Elementor structural editing suite as pro-tier abilities
      * (issue #58).
      *
@@ -6616,7 +6833,8 @@ final class Plugin
     }
 
     /**
-     * Register the WooCommerce store tools as free-tier abilities.
+     * Register the WooCommerce store tools: the simple store tools plus the
+     * deep operations catalog (woo-ops, woo-read, woo-write, issue #68).
      *
      * These are registered unconditionally (matching every other tool group):
      * a caller only reaches a handler by invoking the ability, and each handler
@@ -6627,6 +6845,18 @@ final class Plugin
      * engine. Writes require manage_woocommerce; order writes require
      * edit_shop_orders. The destructive delete-product tool is disabled by
      * default behind the wpmcp_enable_delete_product filter and needs confirm.
+     *
+     * The catalog is the deep surface over the store's own wc/v3 REST API:
+     * woo-ops lists the named ops, woo-read and woo-write dispatch one
+     * in-process. All three carry manage_woocommerce at the ability layer;
+     * the dispatchers then enforce per-op governance and the SAME per-op
+     * capability split as the simple tools above (edit_shop_orders for
+     * orders, notes and refunds, list_users to read customers, edit_users /
+     * create_users to write them) before dispatching, so the catalog is never
+     * looser than the tool covering the same data. They refuse to dispatch at
+     * all when WooCommerce is inactive, returning a structured
+     * integration_unavailable error rather than a bare rest_no_route 404.
+     * woo-write routes every change to existing state through Safe_Mutation.
      *
      * Issue #195 depth: variation create/delete and bulk updates, coupons
      * (shop_coupon posts, 'post' snapshots) and tax rates (custom tables, the
@@ -7215,6 +7445,86 @@ final class Plugin
             'manage_woocommerce',
             'woocommerce',
             'delete'
+        ));
+
+        // Deep WooCommerce operations catalog (issue #68). The tools above
+        // stay the simple surface; the catalog dispatchers template internal
+        // wc/v3 REST routes through their own in-process dispatch
+        // (Wc_Rest_Dispatch for reads, Wc_Rest_Write_Dispatch for writes,
+        // both free of any dependency on src/Tools/Rest or src/Integrations,
+        // which the vertical wpmcp-for-woocommerce build prunes), so
+        // authorization is the target endpoint's own permission_callback
+        // running as the current user, on top of per-op governance and the
+        // per-op capability (Op_Guard). woo-write snapshots every change to
+        // existing state through Safe_Mutation, keeps destructive ops off
+        // until a site opts in and behind confirm:true, and batches by
+        // running each item through the same gates.
+        // The handlers are constructed inline so the directory build's strip,
+        // which deletes these registrations whole, leaves the catalog classes
+        // unreferenced and sweeps them out of that zip.
+        $registrar->register(new Ability(
+            'wpmcp/woo-ops',
+            'pro',
+            'List the WooCommerce ops catalog (e.g. products.update) by domain: products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks, settings. Each op gives mode, route, path params, capability, confirm, enabled, snapshot type and full-rollback flag. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'domain' => [ 'type' => 'string' ],
+                ],
+            ],
+            [new Woo_Ops(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/woo-read',
+            'pro',
+            'Run one read op from woo-ops as an in-process wc/v3 request as the current user, gated by op capability and governance (wpmcp/woo-{op}, dots as dashes). Path params fill the route, the rest are query params. Returns the raw wc/v3 body (may include personal data; webhook secrets redacted); lists 20 per page, max 50. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'op'     => [ 'type' => 'string' ],
+                    'params' => [ 'type' => 'object' ],
+                ],
+                'required'   => [ 'op' ],
+            ],
+            [new Woo_Read(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/woo-write',
+            'pro',
+            'Run one write op from woo-ops, or a batch of up to 25, as in-process wc/v3 requests as the current user, gated like woo-read. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. Refunds are not recoverable and call the gateway only with api_refund:true. Deletes and refunds are off until the wpmcp_woo_op_enabled filter allows them, and need confirm:true. A batch prechecks every item, refuses whole on any failure, and shares one session_id for rollback-session',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'op'         => [ 'type' => 'string' ],
+                    'params'     => [ 'type' => 'object' ],
+                    'batch'      => [
+                        'type'  => 'array',
+                        'items' => [
+                            'type'       => 'object',
+                            'properties' => [
+                                'op'     => [ 'type' => 'string' ],
+                                'params' => [ 'type' => 'object' ],
+                            ],
+                            'required'   => [ 'op' ],
+                        ],
+                    ],
+                    'confirm'    => [ 'type' => 'boolean' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+            ],
+            [new Woo_Write(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'update',
+            null,
+            true,
+            false
         ));
     }
 

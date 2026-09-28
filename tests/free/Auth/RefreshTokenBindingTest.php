@@ -118,16 +118,22 @@ class RefreshTokenBindingTest extends \WP_UnitTestCase
         unset($stored[ array_key_first($stored) ]['pass_fingerprint']);
         update_option(Refresh_Token_Store::OPTION, $stored);
 
+        // Writes to the store are compare-and-swap UPDATEs issued straight
+        // through $wpdb (Atomic_Option), not update_option(), so count the
+        // UPDATE statements that reach the row.
         $writes  = 0;
-        $counter = static function () use (&$writes): void {
-            $writes++;
+        $counter = static function ($query) use (&$writes) {
+            if (false !== stripos($query, 'UPDATE') && false !== strpos($query, Refresh_Token_Store::OPTION)) {
+                $writes++;
+            }
+            return $query;
         };
-        add_action('update_option_' . Refresh_Token_Store::OPTION, $counter);
+        add_filter('query', $counter);
 
         try {
             $this->assertSame('ok', Refresh_Token_Store::redeem($token)['status']);
         } finally {
-            remove_action('update_option_' . Refresh_Token_Store::OPTION, $counter);
+            remove_filter('query', $counter);
         }
 
         $this->assertSame(1, $writes, 'the fingerprint stamp rides on the rotation save');

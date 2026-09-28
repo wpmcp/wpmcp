@@ -16,64 +16,188 @@ if (! defined('ABSPATH')) {
  */
 class Widget_Spec
 {
-    /** Supported control types, mapped to the Elementor control each one uses. */
+    /**
+     * Supported control types, mapped to the Elementor control each one uses
+     * and to the escaper applied to its value on output.
+     *
+     * The 'escaper' key is the SINGLE source of truth for output escaping:
+     * Widget_Renderer (runtime interpolation) and Compiler\Widget_Compiler
+     * (emitted PHP) both read it, so a spec escapes identically whether it is
+     * rendered by the dynamic widget or compiled to a class. Adding a control
+     * type without an escaper here is impossible by construction; there is no
+     * raw/unescaped output path.
+     */
     public const CONTROL_TYPES = [
-        'text'     => ['elementor' => 'text', 'desc' => 'Single-line text (escaped on output)'],
-        'textarea' => ['elementor' => 'textarea', 'desc' => 'Multi-line text (escaped on output)'],
-        'wysiwyg'  => ['elementor' => 'wysiwyg', 'desc' => 'Rich text (rendered with wp_kses_post)'],
-        'number'   => ['elementor' => 'number', 'desc' => 'Numeric value'],
-        'url'      => ['elementor' => 'url', 'desc' => 'Link URL (escaped with esc_url)'],
-        'image'    => ['elementor' => 'media', 'desc' => 'Media-library image; {{name}} outputs the image URL'],
-        'icon'     => ['elementor' => 'icons', 'desc' => 'Icon picker; {{name}} outputs the icon class (the file URL for an inline SVG icon)'],
-        'color'    => ['elementor' => 'color', 'desc' => 'Color value. Authors without unfiltered_html cannot use it inside a style attribute: wp_kses_post drops any style rule containing a {{placeholder}}'],
-        'select'   => ['elementor' => 'select', 'desc' => 'Choice from options'],
-        'switcher' => ['elementor' => 'switcher', 'desc' => 'On/off toggle (yes/empty)'],
+        'text'     => ['elementor' => 'text', 'escaper' => 'esc_html', 'desc' => 'Single-line text (escaped on output)'],
+        'textarea' => ['elementor' => 'textarea', 'escaper' => 'esc_html', 'desc' => 'Multi-line text (escaped on output)'],
+        'wysiwyg'  => ['elementor' => 'wysiwyg', 'escaper' => 'wp_kses_post', 'desc' => 'Rich text (rendered with wp_kses_post)'],
+        'number'   => ['elementor' => 'number', 'escaper' => 'esc_html', 'desc' => 'Numeric value'],
+        'url'      => ['elementor' => 'url', 'escaper' => 'esc_url', 'desc' => 'Link URL (escaped with esc_url)'],
+        'image'    => ['elementor' => 'media', 'escaper' => 'esc_url', 'desc' => 'Media-library image; {{name}} outputs the image URL'],
+        'icon'     => ['elementor' => 'icons', 'escaper' => 'esc_attr', 'desc' => 'Icon picker; {{name}} outputs the icon class (the file URL for an inline SVG icon)'],
+        'color'    => ['elementor' => 'color', 'escaper' => 'esc_attr', 'desc' => 'Color value. Authors without unfiltered_html cannot use it inside a style attribute: wp_kses_post drops any style rule containing a {{placeholder}}'],
+        'select'   => ['elementor' => 'select', 'escaper' => 'esc_html', 'desc' => 'Choice from options'],
+        'switcher' => ['elementor' => 'switcher', 'escaper' => 'esc_attr', 'desc' => 'On/off toggle (yes/empty)'],
     ];
 
+    /** The escaper declared for a control type; esc_html for anything unknown. */
+    public static function escaper_for(string $type): string
+    {
+        return (string) (self::CONTROL_TYPES[$type]['escaper'] ?? 'esc_html');
+    }
+
+    /** Size ceilings. A spec is authored data, so every field is bounded. */
+    public const MAX_CONTROLS = 50;
+    public const MAX_KEYWORDS = 20;
+    public const MAX_NAME     = 64;
+    public const MAX_TEXT     = 200;
+    public const MAX_DEFAULT  = 10000;
+    public const MAX_TEMPLATE = 65535;
+
     /**
+     * Static, side-effect-free validation. Hostile or malformed input gets a
+     * WP_Error, never a PHP warning: every field is type-checked BEFORE it is
+     * cast, because a cast is where an array becomes the literal "Array" and a
+     * notice. Every field is also bounded, and the identifiers that end up in
+     * markup or in generated PHP (control names, the icon class) are held to a
+     * strict character set rather than silently sanitized into something the
+     * author did not write.
+     *
      * @return true|\WP_Error true when the spec is well-formed.
      */
     public static function validate(array $spec)
     {
-        if ('' === trim((string) ($spec['title'] ?? ''))) {
-            return new \WP_Error('invalid_spec', 'A non-empty title is required.');
+        $title = $spec['title'] ?? '';
+        if (! is_string($title) || '' === trim($title)) {
+            return self::invalid('invalid_spec', 'title', 'A non-empty title is required.');
+        }
+        if (strlen($title) > self::MAX_TEXT) {
+            return self::invalid('invalid_spec', 'title', sprintf('The title is longer than %d bytes.', self::MAX_TEXT));
+        }
+        if (isset($spec['name']) && (! is_string($spec['name']) || strlen($spec['name']) > self::MAX_TEXT)) {
+            return self::invalid('invalid_spec', 'name', 'The name must be a short string.');
+        }
+        if (isset($spec['icon']) && (! is_string($spec['icon']) || 1 !== preg_match('/^[A-Za-z0-9_\- ]{1,100}$/', $spec['icon']))) {
+            return self::invalid('invalid_spec', 'icon', 'The icon must be an icon class name (letters, digits, "-", "_" and spaces).');
+        }
+        if (isset($spec['keywords'])) {
+            $keywords = $spec['keywords'];
+            if (! is_array($keywords) || count($keywords) > self::MAX_KEYWORDS) {
+                return self::invalid('invalid_spec', 'keywords', sprintf('Keywords must be a list of at most %d strings.', self::MAX_KEYWORDS));
+            }
+            foreach ($keywords as $keyword) {
+                if (! is_string($keyword) || strlen($keyword) > self::MAX_TEXT) {
+                    return self::invalid('invalid_spec', 'keywords', 'Each keyword must be a short string.');
+                }
+            }
         }
 
         $controls = $spec['controls'] ?? null;
         if (! is_array($controls) || [] === $controls) {
-            return new \WP_Error('invalid_spec', 'At least one control is required.');
+            return self::invalid('invalid_spec', 'controls', 'At least one control is required.');
+        }
+        if (count($controls) > self::MAX_CONTROLS) {
+            return self::invalid('invalid_spec', 'controls', sprintf('A widget may declare at most %d controls.', self::MAX_CONTROLS));
         }
 
         $seen = [];
-        foreach ($controls as $control) {
+        foreach (array_values($controls) as $index => $control) {
             if (! is_array($control)) {
-                return new \WP_Error('invalid_control', 'Each control must be an object.');
+                return self::invalid('invalid_control', sprintf('controls[%d]', $index), 'Each control must be an object.');
             }
-            $name = sanitize_key((string) ($control['name'] ?? ''));
-            if ('' === $name) {
-                return new \WP_Error('invalid_control', 'Each control needs a name.');
+            $raw_name = $control['name'] ?? '';
+            if (! is_string($raw_name) || '' === $raw_name) {
+                return self::invalid('invalid_control', sprintf('controls[%d].name', $index), 'Each control needs a name.');
             }
+            if (1 !== preg_match('/^[A-Za-z0-9_\-]{1,' . self::MAX_NAME . '}$/', $raw_name)) {
+                return self::invalid('invalid_control', sprintf('controls[%d].name', $index), sprintf('Control names may use only letters, digits, "-" and "_", up to %d characters.', self::MAX_NAME));
+            }
+            $name = sanitize_key($raw_name);
             if (isset($seen[$name])) {
-                return new \WP_Error('invalid_control', sprintf('Duplicate control name "%s".', $name));
+                return self::invalid('invalid_control', sprintf('controls[%d].name', $index), sprintf('Duplicate control name "%s".', $name));
             }
             $seen[$name] = true;
 
-            $type = (string) ($control['type'] ?? '');
-            if (! isset(self::CONTROL_TYPES[$type])) {
-                return new \WP_Error(
-                    'invalid_control',
-                    sprintf('"%s" is not a supported control type (%s).', $type, implode(', ', array_keys(self::CONTROL_TYPES)))
-                );
+            $type = $control['type'] ?? '';
+            if (! is_string($type) || ! isset(self::CONTROL_TYPES[$type])) {
+                return self::invalid('invalid_control', sprintf('controls[%d].type', $index), sprintf('Control "%s" has an unsupported type; use one of: %s.', $name, implode(', ', array_keys(self::CONTROL_TYPES))));
             }
-            if ('' === trim((string) ($control['label'] ?? ''))) {
-                return new \WP_Error('invalid_control', sprintf('Control "%s" needs a label.', $name));
+            $label = $control['label'] ?? '';
+            if (! is_string($label) || '' === trim($label)) {
+                return self::invalid('invalid_control', sprintf('controls[%d].label', $index), sprintf('Control "%s" needs a label.', $name));
+            }
+            if (strlen($label) > self::MAX_TEXT) {
+                return self::invalid('invalid_control', sprintf('controls[%d].label', $index), sprintf('The label of control "%s" is longer than %d bytes.', $name, self::MAX_TEXT));
+            }
+            $default = $control['default'] ?? null;
+            if (null !== $default && ! is_scalar($default)) {
+                return self::invalid('invalid_control', sprintf('controls[%d].default', $index), sprintf('The default of control "%s" must be a plain value.', $name));
+            }
+            if (is_string($default) && strlen($default) > self::MAX_DEFAULT) {
+                return self::invalid('invalid_control', sprintf('controls[%d].default', $index), sprintf('The default of control "%s" is longer than %d bytes.', $name, self::MAX_DEFAULT));
             }
         }
 
-        if ('' === trim((string) ($spec['template'] ?? ''))) {
-            return new \WP_Error('invalid_spec', 'A non-empty template is required.');
+        $template = $spec['template'] ?? '';
+        if (! is_string($template) || '' === trim($template)) {
+            return self::invalid('invalid_spec', 'template', 'A non-empty template is required.');
+        }
+        if (strlen($template) > self::MAX_TEMPLATE) {
+            return self::invalid('invalid_spec', 'template', sprintf('The template is longer than %d bytes.', self::MAX_TEMPLATE));
         }
 
+        return true;
+    }
+
+    /**
+     * A validation failure that names the field it is about, both in the
+     * message and as `field` in the error data, so a caller (an agent editing
+     * a spec stored under older rules, or a cloud pull report) can tell which
+     * field to fix without guessing.
+     */
+    private static function invalid(string $code, string $field, string $message): \WP_Error
+    {
+        return new \WP_Error($code, $message . ' (field: ' . $field . ')', ['field' => $field]);
+    }
+
+    /**
+     * Whether an ALREADY-STORED spec is structurally renderable.
+     *
+     * validate() is the write-time gate and is deliberately strict (bounded
+     * sizes, strict identifier character sets, scalar defaults). Applying it
+     * at registration time would silently unregister every widget stored
+     * before those rules existed, e.g. a control named "My Heading" that has
+     * always worked through sanitize_key(). The runtime path only needs what
+     * Dynamic_Widget and Widget_Renderer themselves rely on, type-checked so
+     * nothing is cast from an array.
+     */
+    public static function is_renderable(array $spec): bool
+    {
+        $title    = $spec['title'] ?? '';
+        $controls = $spec['controls'] ?? null;
+        $template = $spec['template'] ?? '';
+        if (! is_scalar($title) || '' === trim((string) $title) || ! is_string($template) || '' === trim($template)) {
+            return false;
+        }
+        if (! is_array($controls) || [] === $controls) {
+            return false;
+        }
+        $seen = [];
+        foreach ($controls as $control) {
+            if (! is_array($control) || ! is_scalar($control['name'] ?? null) || ! is_string($control['type'] ?? null)) {
+                return false;
+            }
+            $name = sanitize_key((string) $control['name']);
+            if ('' === $name || ! isset(self::CONTROL_TYPES[ $control['type'] ])) {
+                return false;
+            }
+            // Two controls collapsing onto one key would register the same
+            // Elementor control id twice.
+            if (isset($seen[ $name ])) {
+                return false;
+            }
+            $seen[ $name ] = true;
+        }
         return true;
     }
 
