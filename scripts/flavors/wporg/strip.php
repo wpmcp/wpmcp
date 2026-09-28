@@ -59,6 +59,12 @@ const REMOVED_METHODS = [
     'register_elementor_structural_abilities',
     'register_brand_kit_abilities',
     'register_memory_abilities',
+    'register_custom_code_abilities',
+    // Not an ability registration: the front-end output wiring for the same
+    // group. Its own method in Plugin.php precisely so this build can take it
+    // out by name, rather than leaving wp_head/wp_footer/deleted_post hooks
+    // pointing at a renderer the zip no longer contains.
+    'register_custom_code_runtime_hooks',
     // Called only from register_cli_abilities(), which leaves above. Without
     // this it survives as a private method with no caller, and its four
     // `new *_Cli_Job()` instantiations hold the whole async wp-cli package
@@ -724,6 +730,7 @@ $plugin_edits = [
     ["            'block_builder'  => fn () => \$this->register_block_builder_abilities(\$registrar),\n", '', 1],
     ["            'cloud'          => fn () => \$this->register_cloud_abilities(\$registrar),\n", '', 1],
     ["            'memory'         => fn () => \$this->register_memory_abilities(\$registrar),\n", '', 1],
+    ["            'custom_code'    => fn () => \$this->register_custom_code_abilities(\$registrar),\n", '', 1],
     // The two pro suites chained off the free Elementor group.
     ["\n        \$this->register_elementor_pro_abilities(\$registrar);\n", "\n", 1],
     ["\n        \$this->register_atomic_elementor_abilities(\$registrar);\n", "\n", 1],
@@ -747,6 +754,27 @@ $plugin_edits[] = [
         . "        }\n",
     "        // The widget and block builders are part of the off-directory\n"
         . "        // add-on, so this build has no runtime hooks to wire.\n",
+    1,
+];
+
+// Documentation that would name a method this build deletes.
+$plugin_edits[] = [
+    "     * data-driven widget/block builders, the content search index, stored\n"
+        . "     * custom CSS/JS output (delegated to\n"
+        . "     * register_custom_code_runtime_hooks()), and agent project memory.\n",
+    "     * data-driven widget/block builders, the content search index and\n"
+        . "     * agent project memory. Stored custom CSS/JS is part of the\n"
+        . "     * off-directory add-on, so this build has nothing to wire for it.\n",
+    1,
+];
+
+// The call site of the custom-code output wiring. remove_method() above takes
+// the method itself; this is the line that called it, which would otherwise
+// fatal on every front-end request against a method that no longer exists.
+$plugin_edits[] = [
+    "        // Stored custom CSS/JS output (issue #63), gated on its own group.\n"
+        . "        \$this->register_custom_code_runtime_hooks();\n",
+    '',
     1,
 ];
 

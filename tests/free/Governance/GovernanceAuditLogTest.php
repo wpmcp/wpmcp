@@ -42,6 +42,39 @@ class GovernanceAuditLogTest extends \WP_UnitTestCase
         $this->assertSame(1700000000, $entries[0]['timestamp']);
     }
 
+    /**
+     * record_quietly() is the one-liner tool handlers use: it fills in the
+     * active identity ('none' when there is none) and never lets an audit
+     * failure break the outcome it observes.
+     */
+    public function test_record_quietly_fills_in_the_identity_and_the_reason(): void
+    {
+        \WPMCP\Identity\Identity_Context::set_current_for_tests(null);
+
+        Governance_Audit_Log::record_quietly('wpmcp/example', false, 'some-reason');
+
+        $entry = Governance_Audit_Log::list(1)[0];
+        $this->assertSame('wpmcp/example', $entry['ability']);
+        $this->assertSame('none', $entry['identity']);
+        $this->assertFalse($entry['allowed']);
+        $this->assertSame('some-reason', $entry['reason']);
+    }
+
+    public function test_record_quietly_swallows_a_failing_write(): void
+    {
+        $boom = static function () {
+            throw new \RuntimeException('storage is down');
+        };
+        add_filter('pre_update_option_' . Governance_Audit_Log::OPTION, $boom);
+
+        try {
+            Governance_Audit_Log::record_quietly('wpmcp/example', true);
+            $this->addToAssertionCount(1);
+        } finally {
+            remove_filter('pre_update_option_' . Governance_Audit_Log::OPTION, $boom);
+        }
+    }
+
     public function test_list_returns_newest_first(): void
     {
         Governance_Audit_Log::set_clock_for_tests(1000);

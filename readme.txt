@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.5
+Stable tag: 0.8.8
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,18 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.8 =
+* New custom code tools: add CSS scoped to a single page or a single Elementor element, sanitized when written and again when rendered, with a snapshot per page so each change can be rolled back on its own.
+* Optional site-wide custom JavaScript, off by default. It works only when the site owner opens the `WPMCP_ALLOW_JS_INJECTION` gate and the caller can post unfiltered HTML, and every attempt is audited.
+* The stored custom code options can no longer be read or changed through the generic option tools.
+
+= 0.8.7 =
+* Code quality: the remaining discouraged-function calls (serialization, base64 storage encoding and the opt-in PHP snippet runner) are now justified in place, and the coding-standards baseline is lower.
+
+= 0.8.6 =
+* Bridged third-party abilities are now governed one by one: each is checked against the same governance toggles, identity scope and block rules as built-in abilities before it runs, and refused abilities are hidden from discovery and logged.
+* Sites can narrow the ability bridge to specific abilities or namespaces with the WPMCP_ABILITY_BRIDGE_ALLOWLIST constant or the wpmcp_ability_bridge_allowlist filter. The target ability's own permission check always still runs.
+
 = 0.8.5 =
 * New in-admin AI chat (Pro): talk to your site from wp-admin using your own Anthropic API key, stored encrypted per user and never sent to the browser. Chat runs every tool through the same permission, governance, rate-limit and snapshot path as any MCP client, under its own scoped identity that admins can narrow.
 * Any chat action that is not a pure read is shown as a proposal with its exact arguments and runs only after you approve it, with a single-use, server-verified approval bound to that call.
@@ -136,6 +148,15 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.8 =
+New custom code tools: add CSS scoped to a single page or a single Elementor element, sanitized when written and again when rendered, with a snapshot per page so each change can be rolled back on its own.
+
+= 0.8.7 =
+Code quality: the remaining discouraged-function calls (serialization, base64 storage encoding and the opt-in PHP snippet runner) are now justified in place, and the coding-standards baseline is lower.
+
+= 0.8.6 =
+Bridged third-party abilities are now governed one by one: each is checked against the same governance toggles, identity scope and block rules as built-in abilities before it runs, and refused abilities are hidden from discovery and logged.
 
 = 0.8.5 =
 New in-admin AI chat (Pro): talk to your site from wp-admin using your own Anthropic API key, stored encrypted per user and never sent to the browser. Chat runs every tool through the same permission, governance, rate-limit and snapshot path as any MCP client, under its own scoped identity that admins can narrow.
