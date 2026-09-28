@@ -301,12 +301,13 @@ run_suite() {
 # with --fail-on-skipped: the test skips itself when the real plugins are
 # missing, and a skip here would mean the check never ran.
 run_live_forms() {
-	local version=$1 dir config
+	local version=$1 dir core config
 	export WPMCP_LIVE_FORMS=1
 	dir=$(install_wp "$version")
-	config=$(db_config "$dir" "$version-forms-live")
+	core=$(checkout_core "$dir")
+	config=$(db_config "$dir" "$version-forms-live" "$core")
 	say "PHPUnit live forms group on WordPress $version (real Contact Form 7 + Flamingo)"
-	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$dir/wordpress/" \
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
 		"$PHP" vendor/bin/phpunit --group forms-live --fail-on-skipped
 	unset WPMCP_LIVE_FORMS
 }
