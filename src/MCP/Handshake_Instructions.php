@@ -158,8 +158,8 @@ class Handshake_Instructions
     /**
      * Site-level builder detection, reusing the same markers the builder
      * tools check: Elementor's plugin class, then the Bricks and Divi theme
-     * constants/templates, then the WPBakery plugin constant, falling back
-     * to gutenberg (the WP default).
+     * constants/templates, then the WPBakery and Beaver Builder plugin
+     * constants, falling back to gutenberg (the WP default).
      */
     public function active_builder(): string
     {
@@ -177,6 +177,9 @@ class Handshake_Instructions
         }
         if (defined('WPB_VC_VERSION')) {
             return 'wpbakery';
+        }
+        if (defined('FL_BUILDER_VERSION')) {
+            return 'beaver-builder';
         }
 
         return 'gutenberg';
