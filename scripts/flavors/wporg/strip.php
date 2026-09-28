@@ -1298,9 +1298,9 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
 // that refreshes one suite's cache all leave with it.
 $edits['src/Integrations/Theme_Integration.php'] = [
     [
-        "            Theme_Framework_Pack::operations(\$this->detect_framework()),\n"
+        "            Redirection_Pack::operations(),\n"
             . "            Elementor_Addon_Packs::operations()\n",
-        "            Theme_Framework_Pack::operations(\$this->detect_framework())\n",
+        "            Redirection_Pack::operations()\n",
         1,
     ],
     [

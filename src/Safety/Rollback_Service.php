@@ -746,6 +746,7 @@ class Rollback_Service
             'term',
             'yoast_term_seo',
             'aioseo_row',
+            'redirection_item',
             'wc_tax_rate',
             'php_snippet',
             'page_build',
@@ -913,6 +914,11 @@ class Rollback_Service
             if (! empty($data['table_exists'])) {
                 self::write_aioseo_rows((string) ($data['kind'] ?? ''), (int) ($data['id'] ?? 0), (array) ($data['rows'] ?? []));
             }
+            return;
+        }
+
+        if ('redirection_item' === $snapshot['object_type']) {
+            Redirection_Item_Snapshot::restore($snapshot);
             return;
         }
 
