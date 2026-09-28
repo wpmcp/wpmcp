@@ -69,7 +69,7 @@ class Add_Widget
             'id'         => $element_id,
             'elType'     => 'widget',
             'widgetType' => $widget_type,
-            'settings'   => $settings,
+            'settings'   => Classic_Dimensions::normalize($settings),
             'elements'   => [],
         ];
 
