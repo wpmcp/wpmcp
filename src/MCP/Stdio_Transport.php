@@ -201,6 +201,16 @@ class Stdio_Transport
                 return self::result_response($id, [ 'tools' => $this->list_tools() ]);
             case 'tools/call':
                 return $this->call_tool($id, $params);
+            case 'prompts/list':
+                return self::result_response($id, [ 'prompts' => Context_Primitives::prompts() ]);
+            case 'prompts/get':
+                return $this->get_prompt($id, $params);
+            case 'resources/list':
+                return self::result_response($id, [ 'resources' => Context_Primitives::resources() ]);
+            case 'resources/templates/list':
+                return self::result_response($id, [ 'resourceTemplates' => [] ]);
+            case 'resources/read':
+                return $this->read_resource($id, $params);
             default:
                 return self::error_response($id, -32601, sprintf('Method not found: %s', $method));
         }
@@ -214,7 +224,12 @@ class Stdio_Transport
     {
         $result = [
             'protocolVersion' => self::negotiate_protocol_version($params),
-            'capabilities'    => [ 'tools' => [ 'listChanged' => false ] ],
+            // Same capability set the adapter advertises on the HTTP route.
+            'capabilities'    => [
+                'prompts'   => [ 'listChanged' => false ],
+                'resources' => [ 'subscribe' => false, 'listChanged' => false ],
+                'tools'     => [ 'listChanged' => false ],
+            ],
             'serverInfo'      => [
                 // The name the adapter is handed in Server::create_server(),
                 // not the server id: clients key config and display off
@@ -365,6 +380,91 @@ class Stdio_Transport
             'content'           => [ [ 'type' => 'text', 'text' => $text ] ],
             'structuredContent' => $normalized,
         ]);
+    }
+
+    /**
+     * prompts/get (issue #301). An unknown name is invalid params per the
+     * MCP prompts spec; a denial by the backing ability is the same
+     * permission-denied code the adapter returns on the HTTP route.
+     *
+     * @param mixed               $id     Request id.
+     * @param array<string,mixed> $params prompts/get params.
+     * @return array<string,mixed>
+     */
+    private function get_prompt($id, array $params): array
+    {
+        $name = isset($params['name']) && is_string($params['name']) ? trim($params['name']) : '';
+        if (! Context_Primitives::has_prompt($name)) {
+            return self::error_response($id, -32602, sprintf('Unknown prompt: %s', $name));
+        }
+
+        $allowed = Context_Primitives::prompt_permission($name);
+        if (true !== $allowed) {
+            return self::primitive_error($id, $allowed, -32602);
+        }
+
+        $result = Context_Primitives::render_prompt($name);
+        if (is_wp_error($result)) {
+            return self::primitive_error($id, $result, -32602);
+        }
+
+        return self::result_response($id, $result);
+    }
+
+    /**
+     * resources/read (issue #301). An unknown URI is -32002, the resource
+     * not found code from the MCP resources spec.
+     *
+     * @param mixed               $id     Request id.
+     * @param array<string,mixed> $params resources/read params.
+     * @return array<string,mixed>
+     */
+    private function read_resource($id, array $params): array
+    {
+        if (! isset($params['uri']) || ! is_string($params['uri'])) {
+            return self::error_response($id, -32602, 'Missing required parameter: uri');
+        }
+
+        $uri = trim($params['uri']);
+        if (! Context_Primitives::has_resource($uri)) {
+            return self::error_response($id, -32002, sprintf('Resource not found: %s', $uri));
+        }
+
+        $allowed = Context_Primitives::resource_permission($uri);
+        if (true !== $allowed) {
+            return self::primitive_error($id, $allowed, -32002);
+        }
+
+        $contents = Context_Primitives::read_resource($uri);
+        if (is_wp_error($contents)) {
+            return self::primitive_error($id, $contents, -32002);
+        }
+
+        return self::result_response($id, [ 'contents' => $contents ]);
+    }
+
+    /**
+     * Map a Context_Primitives failure onto a JSON-RPC error.
+     *
+     * @param mixed     $id             Request id.
+     * @param mixed     $error          WP_Error (or a non-true permission result).
+     * @param int       $not_found_code Code for a missing primitive on this method.
+     * @return array<string,mixed>
+     */
+    private static function primitive_error($id, $error, int $not_found_code): array
+    {
+        if (! is_wp_error($error)) {
+            return self::error_response($id, -32008, 'Permission denied');
+        }
+
+        switch ($error->get_error_code()) {
+            case Context_Primitives::ERROR_NOT_FOUND:
+                return self::error_response($id, $not_found_code, $error->get_error_message());
+            case Context_Primitives::ERROR_DENIED:
+                return self::error_response($id, -32008, 'Permission denied: ' . $error->get_error_message());
+            default:
+                return self::error_response($id, -32603, $error->get_error_message());
+        }
     }
 
     /**

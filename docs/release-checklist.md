@@ -89,6 +89,6 @@ row here is a claim nothing stands behind.
 | WordPress | Plugin version | Artifact | Date | Result |
 | --- | --- | --- | --- | --- |
 | 7.1 | 0.8.1 | source tree, free suite | 2026-08-30 | Pass. 2784 tests against a clean WordPress 7.1 install. The four `RestoreControllerAjaxTest` failures in that run are WooCommerce's first-install path in a brand new database (`WC_Install::newly_installed` enabling HPOS mid-request); the same class passes 6/6 on the same 7.1 install without it, and on 6.9. |
-| 7.1 | 0.8.1 | wp.org zip | pending | Manual pass: activate, MCP session, snapshot and rollback, deactivate. |
-| 7.1 | 0.8.1 | WooCommerce zip | pending | As above. |
-| 7.1 | 0.8.1 | general zip | pending | As above. |
+| 7.1 | 0.8.33 | wp.org zip (`wpmcp-0.8.33.zip`) | 2026-09-28 | Pass. Fresh 7.1 install, zip installed and activated, MCP over HTTP with an application password: initialize, tools/list (237 tools), create-post then update-post changed the title, list-operations showed the snapshot (op `9bce8fb2`), rollback-operation restored the original title and content; deactivated and deleted cleanly, no PHP errors. |
+| 7.1 | 0.8.33 | WooCommerce zip (`wpmcp-for-woocommerce-0.8.33.zip`) | 2026-09-28 | Pass. Same session with WooCommerce 11.1.2 active: tools/list (185 tools), post update rolled back (op `f8b722da`), plus update-product raised a price from 10.00 to 25.00 and rollback-operation put it back to 10.00 (op `2ff1c410`); deactivated and deleted cleanly, no PHP errors from the plugin. |
+| 7.1 | 0.8.33 | general zip (`wpmcp-pro-0.8.33.zip`) | 2026-09-28 | Pass. Same session: tools/list (237 tools), post update rolled back to the original title and content (op `03669753`); deactivated and deleted cleanly, no PHP errors. |

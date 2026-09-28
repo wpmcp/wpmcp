@@ -4,6 +4,8 @@ namespace WPMCP\MCP;
 
 use WPMCP\Connect\Client_Config_Generator;
 use WP\MCP\Core\McpAdapter;
+use WP\MCP\Domain\Prompts\McpPrompt;
+use WP\MCP\Domain\Resources\McpResource;
 use WP\MCP\Infrastructure\ErrorHandling\ErrorLogMcpErrorHandler;
 use WP\MCP\Infrastructure\Observability\NullMcpObservabilityHandler;
 use WP\MCP\Transport\HttpTransport;
@@ -104,7 +106,9 @@ class Server
             [ HttpTransport::class ],
             ErrorLogMcpErrorHandler::class,
             NullMcpObservabilityHandler::class,
-            $tools
+            $tools,
+            self::resources(),
+            self::prompts()
         );
 
         if (is_wp_error($result)) {
@@ -143,6 +147,61 @@ class Server
         }
 
         return $names;
+    }
+
+    /**
+     * The skills library as MCP prompts (issue #301). Each one defers its
+     * permission and its content to Context_Primitives, i.e. to the live
+     * get-skill ability, so a prompt is governed exactly like the tool.
+     *
+     * @return McpPrompt[]
+     */
+    private static function prompts(): array
+    {
+        if (! class_exists(McpPrompt::class)) {
+            return [];
+        }
+
+        $prompts = [];
+        foreach (Context_Primitives::prompts() as $descriptor) {
+            $name   = $descriptor['name'];
+            $prompt = McpPrompt::fromArray($descriptor + [
+                'permission' => static fn () => Context_Primitives::prompt_permission($name),
+                'handler'    => static fn () => Context_Primitives::render_prompt($name),
+            ]);
+            if (! is_wp_error($prompt)) {
+                $prompts[] = $prompt;
+            }
+        }
+
+        return $prompts;
+    }
+
+    /**
+     * Read-only site context as MCP resources (issue #301), governed by the
+     * backing tool the same way as the prompts above.
+     *
+     * @return McpResource[]
+     */
+    private static function resources(): array
+    {
+        if (! class_exists(McpResource::class)) {
+            return [];
+        }
+
+        $resources = [];
+        foreach (Context_Primitives::resources() as $descriptor) {
+            $uri      = $descriptor['uri'];
+            $resource = McpResource::fromArray($descriptor + [
+                'permission' => static fn () => Context_Primitives::resource_permission($uri),
+                'handler'    => static fn () => Context_Primitives::read_resource($uri),
+            ]);
+            if (! is_wp_error($resource)) {
+                $resources[] = $resource;
+            }
+        }
+
+        return $resources;
     }
 
     /** The absolute endpoint, for anything that needs to show it to a user. */

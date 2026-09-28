@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\BlockBuilder;
 
+use WPMCP\Safety\Post_Creation_Snapshot;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -11,6 +13,9 @@ if (! defined('ABSPATH')) {
  * Validated, stored as a wpmcp_block post, and registered via
  * register_block_type at runtime with a render_callback that interprets the
  * template (no code generation, no eval). Remove with delete-custom-block.
+ * The creation is recorded as a 'post_create' ledger row under the caller's
+ * session_id (issue #192): rolling it back deactivates the block (post
+ * status draft) rather than deleting it.
  */
 class Create_Custom_Block
 {
@@ -28,11 +33,14 @@ class Create_Custom_Block
             return $id;
         }
 
+        $operation_id = Post_Creation_Snapshot::record('create-custom-block', [$id], $args, (string) ($args['session_id'] ?? 'default'));
+
         $stored = Block_Spec_Store::get($id);
         return [
-            'block_id' => $id,
-            'name'     => (string) ($stored['name'] ?? ''),
-            'title'    => (string) ($stored['title'] ?? ''),
+            'block_id'     => $id,
+            'name'         => (string) ($stored['name'] ?? ''),
+            'title'        => (string) ($stored['title'] ?? ''),
+            'operation_id' => $operation_id,
         ];
     }
 }
