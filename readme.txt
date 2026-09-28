@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.16
+Stable tag: 0.8.17
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,11 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.17 =
+* New: WooCommerce variations can be created and deleted, and up to 50 products or variations can be updated in one call, with the whole batch undoable as a single session.
+* New: manage WooCommerce coupons (list, get, create, update, delete, and validate against store rules) and tax rates (list, create, update, delete), with snapshots so every change can be rolled back.
+* Deletes of variations, coupons and tax rates stay off until the site opts in, and always require confirmation.
+
 = 0.8.16 =
 * Cloud credentials are now stored encrypted: the cloud URL, API key and tokens are sealed in one authenticated-encryption vault keyed to your site's salts, existing plaintext settings are migrated automatically, and nothing is ever stored unencrypted if encryption is unavailable.
 * Cloud access tokens refresh safely: refreshes are serialized across requests, a lost race never discards a working token, and cloud-status now reports a read-only token status.
@@ -181,6 +186,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.17 =
+New: WooCommerce variations can be created and deleted, and up to 50 products or variations can be updated in one call, with the whole batch undoable as a single session.
 
 = 0.8.16 =
 Cloud credentials are now stored encrypted: the cloud URL, API key and tokens are sealed in one authenticated-encryption vault keyed to your site's salts, existing plaintext settings are migrated automatically, and nothing is ever stored unencrypted if encryption is unavailable.
