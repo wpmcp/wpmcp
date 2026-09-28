@@ -32,6 +32,8 @@ class WooCommerceAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/create-tax-rate',
         'wpmcp/update-tax-rate',
         'wpmcp/delete-tax-rate',
+        'wpmcp/plan-product-import',
+        'wpmcp/apply-product-import',
     ];
 
     public function test_all_woocommerce_tools_are_registered_as_free_abilities(): void

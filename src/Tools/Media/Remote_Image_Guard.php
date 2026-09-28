@@ -153,6 +153,49 @@ class Remote_Image_Guard
     }
 
     /**
+     * Fetch a remote image into the Media Library through every layer above:
+     * shape and allowlist before any request, the guarded download, then the
+     * byte-level type check and a sanitized name. The temp file is always
+     * cleaned up. Shared by import-stock-image and apply-product-import so
+     * both take exactly the same path.
+     *
+     * @throws \InvalidArgumentException when the URL fails a pre-request check.
+     * @throws \RuntimeException on any download, type or sideload failure.
+     */
+    public static function sideload(string $url, int $post_id = 0, string $fallback = 'remote-media'): int
+    {
+        // Layer 1: shape + allowlist, BEFORE any request leaves the site.
+        self::validate_url($url);
+
+        // Layers 2-3: guarded transport (no redirects, size caps).
+        $tmp = self::download($url);
+
+        try {
+            // Layers 4-5: the bytes must BE an allowed image; name sanitized.
+            $filename = self::safe_filename($url, $fallback);
+            $filename = self::assert_image($tmp, $filename);
+
+            if (! function_exists('media_handle_sideload')) {
+                require_once ABSPATH . 'wp-admin/includes/media.php';
+                require_once ABSPATH . 'wp-admin/includes/file.php';
+                require_once ABSPATH . 'wp-admin/includes/image.php';
+            }
+
+            $media_id = media_handle_sideload(['name' => $filename, 'tmp_name' => $tmp], $post_id);
+            if (is_wp_error($media_id)) {
+                throw new \RuntimeException('The image could not be added to the Media Library: ' . esc_html($media_id->get_error_message()));
+            }
+        } catch (\Throwable $e) {
+            if (is_file($tmp)) {
+                wp_delete_file($tmp);
+            }
+            throw $e;
+        }
+
+        return (int) $media_id;
+    }
+
+    /**
      * Sanitized filename derived from the URL path ONLY: the query string is
      * discarded entirely, percent-encoding decoded, and the result run
      * through sanitize_file_name() and length-capped.

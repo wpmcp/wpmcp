@@ -135,12 +135,29 @@ final class Source_File
     }
 
     /**
+     * How many files keep their token arrays cached at once. Rules walk the
+     * tree one file at a time and ask for the same file's tokens several
+     * times in a row, so a short window keeps every hit; caching the whole
+     * tree instead held every file's token array for the life of the run,
+     * which outgrew PHP's default 128M memory_limit once src/ passed about
+     * 140MB of tokens.
+     */
+    private const TOKEN_CACHE_FILES = 16;
+
+    /** @var Source_File[] files currently holding tokens, oldest first */
+    private static array $token_holders = [];
+
+    /**
      * @return array<int,array|string>
      */
     public function tokens(): array
     {
         if (null === $this->tokens) {
             $this->tokens = $this->is_php() ? @token_get_all($this->contents()) : [];
+            self::$token_holders[] = $this;
+            if (count(self::$token_holders) > self::TOKEN_CACHE_FILES) {
+                array_shift(self::$token_holders)->tokens = null;
+            }
         }
         return $this->tokens;
     }

@@ -45,6 +45,8 @@ class WooCommerceCapabilityTest extends \WP_UnitTestCase
         'wpmcp/create-tax-rate'         => 'manage_woocommerce',
         'wpmcp/update-tax-rate'         => 'manage_woocommerce',
         'wpmcp/delete-tax-rate'         => 'manage_woocommerce',
+        'wpmcp/plan-product-import'     => 'manage_woocommerce',
+        'wpmcp/apply-product-import'    => 'manage_woocommerce',
         'wpmcp/list-orders'             => 'edit_shop_orders',
         'wpmcp/get-order'               => 'edit_shop_orders',
         'wpmcp/update-order-status'     => 'edit_shop_orders',
