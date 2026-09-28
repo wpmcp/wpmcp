@@ -308,6 +308,11 @@ exit(1);
 #    ::class and string callables.
 php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --strings \
   || fail "the $SLUG build names a class it does not ship"
+# 4a. The same tree through the hook scan the woo build relies on. Gate 4
+#     already fails on any dangling name, so this is belt and braces here,
+#     kept so both builds hold the hook-callback invariant explicitly.
+php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --hooks \
+  || fail "a hook in the $SLUG build names a class it does not ship"
 
 # 4b. Compatibility headers, re-derived from the staged files rather than
 #     from the checkout the strip ran over. `Tested up to` is a Plugin Check

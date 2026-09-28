@@ -1313,9 +1313,9 @@ $edits['src/Integrations/Theme_Integration.php'] = [
     ],
 ];
 $edits['src/Plugin.php'][] = [
-    "            // A rollback of an Elementor addon module toggle drops the suite's\n"
-        . "            // cached module map, as the write did (issue #286).\n"
-        . "            add_action('wpmcp_rollback_options_restored', [\\WPMCP\\Integrations\\Elementor_Addon_Packs::class, 'after_restore']);\n",
+    "        // An Elementor addon module toggle dropped the suite's cached module\n"
+        . "        // map; its rollback does too (issue #286).\n"
+        . "        [\\WPMCP\\Integrations\\Elementor_Addon_Packs::class, 'after_restore'],\n",
     '',
     1,
 ];

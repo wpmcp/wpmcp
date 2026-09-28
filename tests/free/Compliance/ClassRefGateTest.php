@@ -75,4 +75,86 @@ class ClassRefGateTest extends \WP_UnitTestCase
         $this->assertStringContainsString('WPMCP\\Tools\\Code\\Pruned_Guard', $missing);
         $this->assertStringNotContainsString('WPMCP\\Safety\\Kept', $missing);
     }
+
+    /**
+     * A hook callback is where a pruned class hides best: it resolves only
+     * when the hook fires, so the build loads fine and the first request that
+     * fires the hook fatals. The WooCommerce build shipped exactly that
+     * (a rollback listener naming a class under the pruned src/Integrations),
+     * so the hook scan covers the whole tree, and only a branch that cannot
+     * run in this build (a class_exists() guard on the same class, or an
+     * ability group the flavor never enables) excuses a reference.
+     */
+    public function test_a_hook_callback_naming_a_pruned_class_is_reported(): void
+    {
+        $missing = $this->dangling_hooks(
+            "<?php\nnamespace WPMCP;\nuse WPMCP\\Kept\\Short_Import;\nclass Boot {\n    public function boot(): void {\n"
+            . "        add_action('wpmcp_rollback_options_restored', [\\WPMCP\\Integrations\\Pruned_Pack::class, 'refresh']);\n"
+            . "        add_filter('the_title', ['\\\\WPMCP\\\\Integrations\\\\Pruned_String', 'filter'], 10, 2);\n"
+            . "        add_action('init', [new \\WPMCP\\Integrations\\Pruned_New(), 'run']);\n"
+            . "        add_action('init', [Short_Import::class, 'run']);\n"
+            . "        add_action('init', [Pruned_Relative::class, 'run']);\n"
+            . "        add_action('init', [\\WPMCP\\Kept\\Present::class, 'run']);\n"
+            . "    }\n}\n",
+            []
+        );
+
+        $this->assertStringContainsString('WPMCP\\Integrations\\Pruned_Pack', $missing);
+        $this->assertStringContainsString('WPMCP\\Integrations\\Pruned_String', $missing);
+        $this->assertStringContainsString('WPMCP\\Integrations\\Pruned_New', $missing);
+        $this->assertStringContainsString('WPMCP\\Kept\\Short_Import', $missing);
+        $this->assertStringContainsString('WPMCP\\Pruned_Relative', $missing);
+        $this->assertStringNotContainsString('WPMCP\\Kept\\Present', $missing);
+    }
+
+    public function test_a_hook_in_a_branch_the_build_cannot_reach_is_not_reported(): void
+    {
+        $missing = $this->dangling_hooks(
+            "<?php\nnamespace WPMCP;\nclass Boot {\n    public function boot(): void {\n"
+            . "        if (class_exists(\\WPMCP\\Integrations\\Guarded::class)) {\n"
+            . "            add_action('init', [\\WPMCP\\Integrations\\Guarded::class, 'run']);\n"
+            . "        }\n"
+            . "        if (class_exists(\\WPMCP\\Integrations\\Other::class)) {\n"
+            . "            add_action('init', [\\WPMCP\\Integrations\\Wrong_Guard::class, 'run']);\n"
+            . "        }\n"
+            . "        if (\$this->group_enabled('theme_builder')) {\n"
+            . "            add_action('init', ['\\\\WPMCP\\\\Tools\\\\ThemeBuilder\\\\Store', 'run']);\n"
+            . "        }\n"
+            . "        if (\$this->group_enabled('woocommerce')) {\n"
+            . "            add_action('init', [\\WPMCP\\Tools\\Woo\\Pruned_But_Live::class, 'run']);\n"
+            . "        }\n"
+            . "    }\n}\n",
+            [ 'woocommerce' ]
+        );
+
+        $this->assertStringNotContainsString('WPMCP\\Integrations\\Guarded', $missing);
+        $this->assertStringNotContainsString('ThemeBuilder', $missing);
+        $this->assertStringContainsString('WPMCP\\Integrations\\Wrong_Guard', $missing);
+        $this->assertStringContainsString('WPMCP\\Tools\\Woo\\Pruned_But_Live', $missing);
+    }
+
+    /**
+     * Runs the hook scan over a one-file stage whose classmap holds only
+     * WPMCP\Boot and WPMCP\Kept\Present.
+     *
+     * @param string[] $live_groups
+     */
+    private function dangling_hooks(string $src, array $live_groups): string
+    {
+        $stage = sys_get_temp_dir() . '/wpmcp-class-ref-gate-' . wp_generate_uuid4();
+        mkdir($stage . '/vendor/composer', 0777, true);
+        mkdir($stage . '/src', 0777, true);
+        file_put_contents(
+            $stage . '/vendor/composer/autoload_classmap.php',
+            "<?php return ['WPMCP\\\\Boot' => 'x', 'WPMCP\\\\Kept\\\\Present' => 'x'];"
+        );
+        file_put_contents($stage . '/src/Boot.php', $src);
+
+        try {
+            return implode("\n", \Class_Ref_Gate::dangling_hooks($stage, 'src', $live_groups));
+        } finally {
+            unlink($stage . '/src/Boot.php');
+            unlink($stage . '/vendor/composer/autoload_classmap.php');
+        }
+    }
 }

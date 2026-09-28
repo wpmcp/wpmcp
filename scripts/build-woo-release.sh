@@ -229,6 +229,16 @@ php "$ROOT/scripts/lib/check-dangling-inheritance.php" "$STAGE/src" \
 php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src/Safety \
   || { echo "ERROR: the $SLUG safety core names a class the build does not ship" >&2; exit 1; }
 
+# Every hook callback in the whole tree, Plugin.php included, must name a class
+# this build ships unless the branch it sits in cannot run here: a
+# class_exists() check on that class, or a group_enabled() branch for a group
+# Plugin::FLAVOR_GROUPS['woocommerce'] never enables. A callback naming a
+# pruned class loads fine and fatals when its hook fires: v0.8.46 to v0.8.56
+# hooked Theme_Framework_Pack (pruned with src/Integrations) on every option
+# rollback, and the src/Safety scope above could not see Plugin.php.
+php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --hooks --flavor=woocommerce \
+  || { echo "ERROR: a hook in the $SLUG build names a class the build does not ship" >&2; exit 1; }
+
 mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/$SLUG-$VERSION.zip"
 rm -f "$ZIP"
