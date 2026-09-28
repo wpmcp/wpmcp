@@ -730,6 +730,56 @@ class Snapshot
         ];
     }
 
+    /** Comment columns that identify the commenter beyond the name they chose to show. */
+    public const COMMENT_PERSONAL_FIELDS = [ 'comment_author_email', 'comment_author_IP', 'comment_agent' ];
+
+    /** Commentmeta that copies those fields (Akismet keeps the submitted comment verbatim). */
+    public const COMMENT_PERSONAL_META = [ 'akismet_as_submitted' ];
+
+    /** What a redacted field reads as. */
+    public const REDACTED = '[redacted]';
+
+    /**
+     * A copy of a snapshot safe to show outside a restore (issue #348): the
+     * author email, IP and user agent of every comment it holds are
+     * redacted, and meta that copies them is dropped. That covers a comment
+     * snapshot's row and the comments a post snapshot carries for its
+     * resurrection. The stored snapshot keeps them, because a restore needs
+     * the exact row; anything that reports on a snapshot uses this instead.
+     */
+    public static function without_personal_data(array $snapshot): array
+    {
+        if ('comment' === ($snapshot['object_type'] ?? '') && is_array($snapshot['data'] ?? null)) {
+            if (is_array($snapshot['data']['comment'] ?? null)) {
+                $snapshot['data']['comment'] = self::redact_comment_row($snapshot['data']['comment']);
+            }
+            if (is_array($snapshot['data']['meta'] ?? null)) {
+                $snapshot['data']['meta'] = array_diff_key($snapshot['data']['meta'], array_flip(self::COMMENT_PERSONAL_META));
+            }
+        }
+        if (is_array($snapshot['data']['comments'] ?? null)) {
+            foreach ($snapshot['data']['comments'] as $i => $comment) {
+                if (is_array($comment)) {
+                    $snapshot['data']['comments'][ $i ] = self::redact_comment_row($comment);
+                }
+            }
+        }
+        return $snapshot;
+    }
+
+    private static function redact_comment_row(array $row): array
+    {
+        foreach (self::COMMENT_PERSONAL_FIELDS as $field) {
+            if (isset($row[ $field ]) && '' !== $row[ $field ]) {
+                $row[ $field ] = self::REDACTED;
+            }
+        }
+        if (is_array($row['meta'] ?? null)) {
+            $row['meta'] = array_diff_key($row['meta'], array_flip(self::COMMENT_PERSONAL_META));
+        }
+        return $row;
+    }
+
     /**
      * Capture a user's editable profile so Update_User's write can be undone.
      *
