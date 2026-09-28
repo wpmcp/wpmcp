@@ -1284,7 +1284,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-media',
             'free',
-            'Read full detail for a Media Library attachment: title, URL, every registered image size, dimensions, mime type, alt text, caption, and description',
+            'Read a Media Library attachment: title, URL, every registered size, dimensions, mime type, alt text, caption and description',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1340,7 +1340,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/sideload-image',
             'free',
-            'Download an image from a URL and add it to the Media Library as a new attachment',
+            'Add an image from a URL to the Media Library as a new attachment',
             [
                 'type'       => 'object',
                 'properties' => [
