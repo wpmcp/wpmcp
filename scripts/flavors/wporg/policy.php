@@ -117,6 +117,18 @@ return [
         // that stopped applying in this build would be worse than not
         // shipping it.
         'src/Tools/Memory',
+        // Stored custom CSS/JS (issue #63). The whole group is pro, so the
+        // two handlers, the sanitizer, the store and the front-end renderer
+        // all go. Named file by file rather than by directory because
+        // Custom_Js_Guard.php STAYS, exactly as the wp-cli and PHP-snippet
+        // guards do: Governance\Opt_In_Gates reports the JS opt-in gate's
+        // state on every build, and a build that could not answer "is JS
+        // injection enabled here" would be reporting a gate it cannot see.
+        'src/Tools/CustomCode/Add_Scoped_Css.php',
+        'src/Tools/CustomCode/Add_Custom_Js.php',
+        'src/Tools/CustomCode/Css_Sanitizer.php',
+        'src/Tools/CustomCode/Custom_Code_Store.php',
+        'src/Tools/CustomCode/Custom_Code_Renderer.php',
     ],
 
     /**

@@ -2,8 +2,6 @@
 
 namespace WPMCP\Tools\Sync;
 
-use WPMCP\Tools\Backup\Archive_Locator;
-
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -12,67 +10,48 @@ if (! defined('ABSPATH')) {
  * Inspect a change-set artifact before it is applied anywhere (issue #192).
  *
  * This is the definition-of-done item "the artifact is inspectable": which
- * origin it came from, which objects it carries, which dependencies it
- * resolved, whether the ledger it was derived from had been pruned, and
- * what was excluded and why. By default only the summary is returned; pass
- * include_objects=true for the full per-object data.
+ * origin it came from, which objects it carries (with each one's base
+ * revision state and what it requires), which dependencies it resolved,
+ * whether the ledger it was derived from had been pruned, and what was
+ * excluded and why. By default only the summary is returned, with media
+ * bytes replaced by their size; include_objects=true adds the full
+ * per-object data, and raw=true returns the artifact itself, verbatim, for
+ * handing to apply-change-set on another site over the connect layer.
  *
- * Read-only. Containment is delegated to Archive_Locator::resolve(), the
- * single security boundary for every path-taking tool in the backup
- * directory: re-implementing realpath + prefix here would mean the next
- * hardening fix lands in one copy only. Only `path` is forwarded (job_id is
- * not in this tool's schema, and honouring it would resolve a completed
- * backup zip and then complain it is not a change set), and the locator's
- * backup-flavoured not-found message is reworded so the agent is pointed at
- * the right kind of object.
- *
- * The resolved file must look like something build-change-set wrote
- * (wpmcp-changeset-*.json) before a byte of it is read: the same directory
- * holds full site archives, and file_get_contents() on one of those is a
- * memory_limit fatal, not the RuntimeException Registrar records.
- *
- * The artifact itself is untrusted after that check: it is a file on disk
- * that anything with write access to the directory could have truncated or
- * hand-edited, so its shape is validated rather than assumed.
+ * Read-only. Loading goes through Change_Set_Format::load_path(), which
+ * delegates containment to Archive_Locator::resolve() (the single security
+ * boundary for path-taking backup tools) and refuses anything that is not a
+ * wpmcp-changeset-*.json file before reading a byte of it. The artifact is
+ * then validated, checksum included, rather than trusted.
  */
 class Get_Change_Set
 {
     /** @throws \RuntimeException */
     public function handle(array $args): array
     {
-        $real = $this->locate(isset($args['path']) ? (string) $args['path'] : '');
+        [$real, $set] = Change_Set_Format::load_path(isset($args['path']) ? (string) $args['path'] : '');
 
-        $base = wp_basename($real);
-        if (! str_starts_with($base, Build_Change_Set::ARTIFACT_PREFIX) || ! str_ends_with($base, '.json')) {
-            throw new \RuntimeException(sprintf(
-                'The file is not a change-set artifact: expected a %s*.json file written by build-change-set.',
-                esc_html(Build_Change_Set::ARTIFACT_PREFIX)
-            ));
+        Change_Set_Format::validate($set);
+
+        if (! empty($args['raw'])) {
+            return ['file' => $real, 'change_set' => $set];
         }
 
-        $json = file_get_contents($real);
-        $set  = false !== $json ? json_decode($json, true) : null;
-        if (! is_array($set)) {
-            throw new \RuntimeException('The file is not a readable change-set artifact.');
-        }
-
-        $version = isset($set['format_version']) ? (int) $set['format_version'] : 0;
-        if (Change_Set_Builder::FORMAT_VERSION !== $version) {
-            throw new \RuntimeException(sprintf(
-                'That artifact is change-set format version %d; this plugin reads version %d.',
-                (int) $version,
-                (int) Change_Set_Builder::FORMAT_VERSION
-            ));
-        }
-
-        $objects = array_values(array_filter((array) ($set['objects'] ?? []), 'is_array'));
+        $objects = array_values(array_filter((array) $set['objects'], 'is_array'));
+        $deps    = (array) $set['dependencies'];
 
         $summary = [
             'file'           => $real,
-            'format_version' => $version,
+            'format_version' => (int) $set['format_version'],
+            'checksum'       => (string) $set['checksum'],
             'origin'         => $set['origin'] ?? null,
+            'marker'         => $set['marker'] ?? null,
             'objects'        => array_map([$this, 'object_summary'], $objects),
-            'attachments'    => (array) ($set['dependencies']['attachments'] ?? []),
+            'attachments'    => array_map([$this, 'attachment_summary'], array_values(array_filter((array) ($deps['attachments'] ?? []), 'is_array'))),
+            'terms'          => array_values(array_filter(array_map(static fn ($t) => is_array($t) ? ($t['key'] ?? null) : null, (array) ($deps['terms'] ?? [])))),
+            'posts'          => array_map([$this, 'object_summary'], array_values(array_filter((array) ($deps['posts'] ?? []), 'is_array'))),
+            'global_classes' => array_keys((array) ($deps['elementor_global_classes'] ?? [])),
+            'external'       => (array) ($deps['external'] ?? []),
             'excluded'       => (array) ($set['excluded'] ?? []),
             'truncated'      => $set['truncated'] ?? null,
         ];
@@ -84,33 +63,29 @@ class Get_Change_Set
         return $summary;
     }
 
-    /** @throws \RuntimeException */
-    private function locate(string $path): string
-    {
-        if ('' === trim($path)) {
-            throw new \RuntimeException('Pass the path of a change-set artifact, as returned by build-change-set.');
-        }
-
-        try {
-            return Archive_Locator::resolve(['path' => $path]);
-        } catch (\RuntimeException $e) {
-            if ('No such backup archive.' === $e->getMessage()) {
-                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $e is the previous exception, not message text.
-                throw new \RuntimeException('No such change-set artifact.', 0, $e);
-            }
-            throw $e;
-        }
-    }
-
     private function object_summary(array $object): array
     {
         return [
+            'key'           => $object['key'] ?? null,
             'object_type'   => $object['object_type'] ?? null,
             'object_id'     => $object['object_id'] ?? null,
             'post_type'     => $object['post_type'] ?? null,
+            'title'         => $object['data']['post_title'] ?? ($object['data']['name'] ?? ($object['name'] ?? null)),
             'post_modified' => $object['post_modified'] ?? null,
+            'base'          => $object['base']['state'] ?? null,
+            'unchanged'     => ! empty($object['unchanged']),
             'deleted'       => ! empty($object['deleted']),
             'trashed'       => ! empty($object['trashed']),
+            'requires'      => (array) ($object['requires'] ?? []),
         ];
+    }
+
+    /** Media without its bytes: an inspection summary must stay readable. */
+    private function attachment_summary(array $attachment): array
+    {
+        $bytes = $attachment['bytes'] ?? null;
+        unset($attachment['bytes']);
+        $attachment['bytes_included'] = is_string($bytes) && '' !== $bytes;
+        return $attachment;
     }
 }
