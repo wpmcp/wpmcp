@@ -154,6 +154,7 @@ class Site_Archive_Builder
             ? $dir . '/db-' . wp_generate_password(12, false) . '.sql'
             : null;
 
+        $closing = false;
         try {
             if (null !== $sql_path) {
                 $dump_result = $this->write_dump($sql_path);
@@ -171,6 +172,10 @@ class Site_Archive_Builder
                 (string) wp_json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
             );
 
+            // A failed close() still frees the archive, and a second close()
+            // on it throws a ValueError that would skip the cleanup below and
+            // hide the real error, so it is attempted once only.
+            $closing = true;
             if (true !== $zip->close()) {
                 throw new \RuntimeException('The backup archive could not be finalised.');
             }
@@ -178,7 +183,9 @@ class Site_Archive_Builder
             // Leave no half-written archive behind: a truncated zip that
             // looks like a backup is more dangerous than an obvious failure,
             // because it is the file someone reaches for in an emergency.
-            @$zip->close();
+            if (! $closing) {
+                @$zip->close();
+            }
             if (is_file($target)) {
                 wp_delete_file($target);
             }
