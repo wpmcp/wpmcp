@@ -365,6 +365,52 @@ class Rollback_Service
     }
 
     /**
+     * Replace every All in One SEO row of one post or term with $rows
+     * (issue #294): the SEO write and the rollback of an 'aioseo_row'
+     * snapshot both go through here, so the write and its undo take one path.
+     * Lives in the safety layer so the restore needs none of the SEO classes.
+     *
+     * Delete, then insert each row as given, primary key included, so a
+     * restore brings back the same ids and an empty $rows leaves none. Any
+     * failure is a Mutation_Failed. AIOSEO memoizes SELECTs per request, so
+     * its cache for the table is busted when the plugin is loaded.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     */
+    public static function write_aioseo_rows(string $kind, int $id, array $rows): void
+    {
+        global $wpdb;
+
+        $table = Snapshot::aioseo_table($kind);
+        if (null === $table || $id <= 0) {
+            return;
+        }
+        [$name, $column] = $table;
+
+        try {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- third-party table with no WP API; AIOSEO's own cache is busted below.
+            if (false === $wpdb->delete($name, [$column => $id], ['%d'])) {
+                throw new Mutation_Failed('Could not clear the SEO row of ' . esc_html($kind) . ' ' . (int) $id . '.');
+            }
+            foreach ($rows as $row) {
+                $row          = (array) $row;
+                $row[$column] = $id;
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- third-party table with no WP API.
+                if (false === $wpdb->insert($name, $row)) {
+                    throw new Mutation_Failed('Could not write the SEO row of ' . esc_html($kind) . ' ' . (int) $id . ': ' . esc_html($wpdb->last_error));
+                }
+            }
+        } finally {
+            if (function_exists('aioseo')) {
+                $db = aioseo()->core->db ?? null;
+                if (is_object($db) && method_exists($db, 'bustCache')) {
+                    $db->bustCache(Snapshot::AIOSEO_TABLES[$kind][0]);
+                }
+            }
+        }
+    }
+
+    /**
      * Replace one term's row inside Yoast's `wpseo_taxonomy_meta` option,
      * or remove it when $row is null. Used by the term SEO write (issue #67)
      * and by the rollback of a 'yoast_term_seo' snapshot, so the write and
@@ -636,6 +682,7 @@ class Rollback_Service
             'redirect',
             'term',
             'yoast_term_seo',
+            'aioseo_row',
             'wc_tax_rate',
             'php_snippet',
             'page_build',
@@ -755,6 +802,14 @@ class Rollback_Service
 
         if ('wc_tax_rate' === $snapshot['object_type']) {
             self::apply_wc_tax_rate_snapshot($snapshot);
+            return;
+        }
+
+        if ('aioseo_row' === $snapshot['object_type']) {
+            $data = (array) $snapshot['data'];
+            if (! empty($data['table_exists'])) {
+                self::write_aioseo_rows((string) ($data['kind'] ?? ''), (int) ($data['id'] ?? 0), (array) ($data['rows'] ?? []));
+            }
             return;
         }
 

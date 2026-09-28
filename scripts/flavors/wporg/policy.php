@@ -110,6 +110,9 @@ return [
         'src/Tools/SEO/Get_Term_SEO_Meta.php',
         'src/Tools/SEO/Update_Term_SEO_Meta.php',
         'src/Tools/SEO/Term_SEO.php',
+        // All in One SEO support (issue #294) is the paid add-on's; strip.php
+        // takes its one registration line out of SEO_Adapter.
+        'src/Tools/SEO/Aioseo_Store.php',
         // The builder dialect of build-page is not in this build (issue #162);
         // its composer goes with it. Build_Page's references to it are edited
         // out in the exact-string pass.

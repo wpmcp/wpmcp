@@ -1269,6 +1269,13 @@ $edits['src/Integrations/ACF_Integration.php'] = [
     ["            'batch-update-fields' => ACF_Batch_Update::definition(),\n", '', 1],
 ];
 
+// All in One SEO support (issue #294) is the paid add-on's. Its store file
+// is removed by policy.php, so only its entry in the adapter's table-store
+// map leaves SEO_Adapter; detection then never reports it.
+$edits['src/Tools/SEO/SEO_Adapter.php'] = [
+    ["        'aioseo' => Aioseo_Store::class,\n", '', 1],
+];
+
 // Two of the theme framework packs (issue #288) are the paid add-on's; their
 // spec files are removed by policy.php, so only the cases that build them
 // leave Theme_Framework_Pack.

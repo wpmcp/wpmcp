@@ -65,6 +65,19 @@ class SEO_Adapter
         'nofollow'      => '_genesis_nofollow',
     ];
 
+    /** Slim SEO keeps every post and term field in this one meta array. */
+    public const SLIM_SEO_META = 'slim_seo';
+
+    /**
+     * Plugins that keep their SEO fields in their own tables rather than in
+     * post meta, each read and written by a store class in its own file:
+     * slug => class. Detection, the field reads and writes, and the snapshot
+     * target are all delegated to it.
+     */
+    private const TABLE_STORES = [
+        'aioseo' => Aioseo_Store::class,
+    ];
+
     /** Test seam: force the detected plugin. Guarded by WPMCP_TESTING. */
     private static ?string $active_override = null;
 
@@ -77,7 +90,7 @@ class SEO_Adapter
 
     /**
      * Which SEO plugin is active: 'yoast', 'rankmath', 'seopress',
-     * 'seoframework', 'surerank', or '' when none is.
+     * 'seoframework', 'surerank', 'aioseo', 'slimseo', or '' when none is.
      */
     public static function active_plugin(): string
     {
@@ -124,7 +137,45 @@ class SEO_Adapter
             return 'surerank';
         }
 
+        foreach (self::TABLE_STORES as $slug => $store) {
+            if ($store::present()) {
+                return $slug;
+            }
+        }
+
+        if (self::slim_seo_present()) {
+            return 'slimseo';
+        }
+
         return '';
+    }
+
+    /** Whether Slim SEO is loaded. Filterable, so tests need not install it. */
+    public static function slim_seo_present(): bool
+    {
+        return (bool) apply_filters('wpmcp_seo_slim_seo_active', defined('SLIM_SEO_VER'));
+    }
+
+    /** The table store class for the active plugin, or null when it keeps post meta. */
+    public static function table_store(): ?string
+    {
+        return self::TABLE_STORES[self::active_plugin()] ?? null;
+    }
+
+    /**
+     * What Safe_Mutation must snapshot before an SEO write to a post: the
+     * post (its snapshot carries the full meta map), or, for a plugin with
+     * its own table, the post's row there.
+     *
+     * @return array{object_type: string, object_id: int|string}
+     */
+    public static function post_snapshot_target(int $post_id): array
+    {
+        $store = self::table_store();
+
+        return null !== $store
+            ? $store::snapshot_target('post', $post_id)
+            : ['object_type' => 'post', 'object_id' => $post_id];
     }
 
     /**
@@ -174,7 +225,18 @@ class SEO_Adapter
                 'version' => defined('SURERANK_VERSION') ? SURERANK_VERSION : '',
             ];
         }
-        return null;
+
+        if ('slimseo' === $active) {
+            return [
+                'plugin'  => 'slimseo',
+                'name'    => 'Slim SEO',
+                'version' => defined('SLIM_SEO_VER') ? SLIM_SEO_VER : '',
+            ];
+        }
+
+        $store = self::table_store();
+
+        return null !== $store ? $store::info() : null;
     }
 
     /**
@@ -256,6 +318,54 @@ class SEO_Adapter
     }
 
     /**
+     * Apply neutral fields to a Slim SEO array the way the plugin saves one:
+     * noindex as 1, and empty values dropped (it stores through
+     * array_filter()). Slim SEO has no focus keyword or nofollow field, so
+     * those are ignored. Shared with the term path.
+     */
+    public static function slim_seo_apply(array $data, array $fields): array
+    {
+        foreach (['title', 'description', 'canonical'] as $field) {
+            if (array_key_exists($field, $fields)) {
+                $data[$field] = (string) $fields[$field];
+            }
+        }
+        if (array_key_exists('noindex', $fields)) {
+            $data['noindex'] = $fields['noindex'] ? 1 : 0;
+        }
+
+        return array_filter($data);
+    }
+
+    /** A Slim SEO array read as the neutral field set. */
+    public static function slim_seo_fields($data): array
+    {
+        $data = is_array($data) ? $data : [];
+        $text = static fn (string $key): string => is_scalar($data[$key] ?? null) ? (string) $data[$key] : '';
+
+        return [
+            'title'         => $text('title'),
+            'description'   => $text('description'),
+            'focus_keyword' => '',
+            'canonical'     => $text('canonical'),
+            'noindex'       => ! empty($data['noindex']),
+            'nofollow'      => false,
+        ];
+    }
+
+    private static function update_slim_seo_meta(int $post_id, array $fields): void
+    {
+        $data = get_post_meta($post_id, self::SLIM_SEO_META, true);
+        $data = self::slim_seo_apply(is_array($data) ? $data : [], $fields);
+
+        if ([] === $data) {
+            delete_post_meta($post_id, self::SLIM_SEO_META);
+            return;
+        }
+        update_post_meta($post_id, self::SLIM_SEO_META, wp_slash($data));
+    }
+
+    /**
      * Read the neutral SEO field set for a post from the active plugin's
      * postmeta keys. noindex/nofollow are normalized to booleans regardless
      * of how the active plugin stores them on the post.
@@ -264,6 +374,15 @@ class SEO_Adapter
     {
         if ('surerank' === self::active_plugin()) {
             return self::get_surerank_meta($post_id);
+        }
+
+        if ('slimseo' === self::active_plugin()) {
+            return self::slim_seo_fields(get_post_meta($post_id, self::SLIM_SEO_META, true));
+        }
+
+        $store = self::table_store();
+        if (null !== $store) {
+            return $store::get_post($post_id);
         }
 
         $keys   = self::meta_keys();
@@ -318,6 +437,17 @@ class SEO_Adapter
     {
         if ('surerank' === self::active_plugin()) {
             self::update_surerank_meta($post_id, $fields);
+            return;
+        }
+
+        if ('slimseo' === self::active_plugin()) {
+            self::update_slim_seo_meta($post_id, $fields);
+            return;
+        }
+
+        $store = self::table_store();
+        if (null !== $store) {
+            $store::update_post($post_id, $fields);
             return;
         }
 

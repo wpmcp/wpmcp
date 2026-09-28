@@ -18,7 +18,7 @@ use WPMCP\Tools\SEO\SEO_Adapter;
 class SeoPluginDetectionTest extends \WP_UnitTestCase
 {
     /** Every plugin the adapter can detect, in its precedence order. */
-    private const DETECTABLE = ['yoast', 'rankmath', 'seopress', 'seoframework', 'surerank'];
+    private const DETECTABLE = ['yoast', 'rankmath', 'seopress', 'seoframework', 'surerank', 'aioseo', 'slimseo'];
 
     /** The signal each detected plugin is keyed off, mirroring the adapter. */
     private static function present(string $plugin): bool
@@ -35,6 +35,12 @@ class SeoPluginDetectionTest extends \WP_UnitTestCase
                 return defined('THE_SEO_FRAMEWORK_VERSION') || function_exists('tsf');
             case 'surerank':
                 return defined('SURERANK_VERSION');
+            case 'aioseo':
+                // Only where the build ships the AIOSEO store.
+                return class_exists('WPMCP\\Tools\\SEO\\Aioseo_Store')
+                    && (bool) apply_filters('wpmcp_seo_aioseo_active', defined('AIOSEO_VERSION'));
+            case 'slimseo':
+                return (bool) apply_filters('wpmcp_seo_slim_seo_active', defined('SLIM_SEO_VER'));
             default:
                 return false;
         }
