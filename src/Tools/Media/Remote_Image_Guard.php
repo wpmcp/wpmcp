@@ -202,15 +202,18 @@ class Remote_Image_Guard
      * shape and allowlist before any request, the guarded download, then the
      * byte-level type check and a sanitized name. The temp file is always
      * cleaned up. Shared by import-stock-image and apply-product-import so
-     * both take exactly the same path.
+     * both take exactly the same path. A caller with its own host list (the
+     * Pattern Directory import, issue #364) passes it with the filter that
+     * extends it, as validate_url() takes them.
      *
+     * @param string[]|null $allowed_hosts null means the remote media list.
      * @throws \InvalidArgumentException when the URL fails a pre-request check.
      * @throws \RuntimeException on any download, type or sideload failure.
      */
-    public static function sideload(string $url, int $post_id = 0, string $fallback = 'remote-media'): int
+    public static function sideload(string $url, int $post_id = 0, string $fallback = 'remote-media', ?array $allowed_hosts = null, string $filter = 'wpmcp_remote_media_allowed_hosts'): int
     {
         // Layer 1: shape + allowlist, BEFORE any request leaves the site.
-        self::validate_url($url);
+        self::validate_url($url, $allowed_hosts, $filter);
 
         // Layers 2-3: guarded transport (no redirects, size caps).
         $tmp = self::download($url);

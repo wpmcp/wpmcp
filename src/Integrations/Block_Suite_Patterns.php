@@ -20,6 +20,10 @@ if (! defined('ABSPATH')) {
  * (wpmcp_remote_media_allowed_hosts) checked before any request, no
  * redirects, size caps and a byte-level image check. An image the guard
  * refuses is left at its URL and reported, never fetched another way.
+ *
+ * The WordPress.org Pattern Directory is a second source (issue #364):
+ * list-patterns with source "directory" and "directory:<id>" names are
+ * handed to Block_Suite_Pattern_Directory.
  */
 final class Block_Suite_Patterns
 {
@@ -32,6 +36,10 @@ final class Block_Suite_Patterns
 
     public static function list_patterns(array $args): array
     {
+        if (Block_Suite_Pattern_Directory::SOURCE === ($args['source'] ?? '')) {
+            return Block_Suite_Pattern_Directory::list_patterns($args);
+        }
+
         $suite    = (string) ($args['suite'] ?? '');
         $category = (string) ($args['category'] ?? '');
         $search   = strtolower(trim((string) ($args['search'] ?? '')));
@@ -70,9 +78,12 @@ final class Block_Suite_Patterns
         ];
     }
 
-    /** A registered pattern's content, or an unknown_pattern refusal. */
+    /** A registered or Pattern Directory pattern's content, or an unknown_pattern refusal. */
     public static function content(string $name): string
     {
+        if (Block_Suite_Pattern_Directory::owns($name)) {
+            return Block_Suite_Pattern_Directory::content($name);
+        }
         $pattern = \WP_Block_Patterns_Registry::get_instance()->get_registered($name);
         if (! $pattern) {
             throw new Operation_Error('unknown_pattern', sprintf('Pattern "%s" is not registered. Browse them with list-patterns.', $name), [ 'name' => $name ]);
@@ -128,9 +139,13 @@ final class Block_Suite_Patterns
      * point the markup at the local copies. Each image is reported as
      * sideloaded (with media_id) or kept (with the reason).
      *
+     * A source with its own image hosts (the Pattern Directory) passes them
+     * with the filter that extends them; null keeps the remote media list.
+     *
+     * @param string[]|null $hosts
      * @return array{content:string,images:array<int,array<string,mixed>>,map:array<string,array{url:string,id:int}>}
      */
-    public static function import_images(string $content, int $post_id, bool $sideload): array
+    public static function import_images(string $content, int $post_id, bool $sideload, ?array $hosts = null, string $filter = 'wpmcp_remote_media_allowed_hosts'): array
     {
         $images = [];
         $map    = [];
@@ -144,7 +159,7 @@ final class Block_Suite_Patterns
                 continue;
             }
             try {
-                $media = Remote_Image_Guard::sideload($url, $post_id, 'pattern-image');
+                $media = Remote_Image_Guard::sideload($url, $post_id, 'pattern-image', $hosts, $filter);
             } catch (\InvalidArgumentException | \RuntimeException $e) {
                 $images[] = [ 'url' => $url, 'status' => 'kept', 'reason' => $e->getMessage() ];
                 continue;
