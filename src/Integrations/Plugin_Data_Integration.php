@@ -9,26 +9,30 @@ if (! defined('ABSPATH')) {
 /**
  * Custom field and translation plugins beyond ACF, Meta Box and Polylang
  * (issue #299) behind one free dispatcher pair, wpmcp/plugin-data-read and
- * wpmcp/plugin-data-write, so three plugins cost the tools/list surface one
- * pair rather than three:
+ * wpmcp/plugin-data-write, so several plugins cost the tools/list surface
+ * one pair rather than one each:
  *  - JetEngine: field definitions per post type and post field values
  *    (JetEngine_Pack);
  *  - Pods: field definitions per post type pod and post field values, in
  *    post meta or in the pod's own table when it uses table storage
  *    (Pods_Pack);
  *  - TranslatePress: languages and string translations in its dictionary
- *    tables (TranslatePress_Pack).
+ *    tables (TranslatePress_Pack);
+ *  - BuddyPress (issue #354): groups, group members, activity and extended
+ *    profile field definitions, with group writes, profile field updates
+ *    and activity moderation (BuddyPress_Pack).
  *
- * The pair registers only while at least one of the three is loaded, and
+ * The pair registers only while at least one of the four is loaded, and
  * every op declares a 'requires' check, so a plugin that is not active is
  * skipped cleanly: its ops stay documented in list-operations
  * (dependency_met:false) and answer <plugin>_inactive without touching
  * anything. Presence is filterable per plugin (wpmcp_jetengine_active,
- * wpmcp_pods_active, wpmcp_translatepress_active).
+ * wpmcp_pods_active, wpmcp_translatepress_active, wpmcp_buddypress_active).
  *
  * Every write is snapshotted: field values in post meta as a post snapshot,
  * Pods table rows and TranslatePress dictionary rows as a
- * 'plugin_table_rows' row image, so rollback-operation restores exactly.
+ * 'plugin_table_rows' row image, BuddyPress rows as a 'buddypress_rows'
+ * image, so rollback-operation restores exactly.
  * Field value writes follow the ACF and Meta Box posture and are off until a
  * site opts in (wpmcp_enable_jetengine_write, wpmcp_enable_pods_write).
  */
@@ -41,7 +45,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active();
+        return JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || BuddyPress_Pack::active();
     }
 
     public function registers_only_when_available(): bool
@@ -51,7 +55,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods field values and TranslatePress string translations';
+        return 'JetEngine and Pods fields, TranslatePress strings, BuddyPress community data';
     }
 
     protected function operations(): array
@@ -59,7 +63,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
         return array_merge(
             JetEngine_Pack::operations(),
             Pods_Pack::operations(),
-            TranslatePress_Pack::operations()
+            TranslatePress_Pack::operations(),
+            BuddyPress_Pack::operations()
         );
     }
 
