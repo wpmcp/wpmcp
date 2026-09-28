@@ -24,8 +24,9 @@ if (! defined('ABSPATH')) {
  *   taxonomy) available -> op-level governance -> per-op capability ->
  *   opt-in (destructive ops are off until the wpmcp_woo_op_enabled filter
  *   enables them) -> confirm:true for destructive ops -> forbidden params
- *   and meta keys -> path params -> brand checks (Brand_Ops, rows naming a
- *   taxonomy) -> snapshot target resolves -> Safe_Mutation (snapshot first)
+ *   and meta keys -> path params -> order checks (Order_Ops, order_*
+ *   handlers) -> brand checks (Brand_Ops, rows naming a taxonomy) ->
+ *   snapshot target resolves -> Safe_Mutation (snapshot first)
  *   -> dispatch, or the row's in-process handler.
  *
  * Ops that change or remove existing state always run inside
@@ -252,6 +253,14 @@ class Woo_Write
             }
         }
 
+        if (self::is_order_handler($def)) {
+            $order = Order_Ops::prepare((string) $def['handler'], $params);
+            if (isset($order['error'])) {
+                return $order;
+            }
+            $body = $order['body'];
+        }
+
         $report = [];
         if (null !== $def['taxonomy']) {
             $brand = Brand_Ops::prepare($op, $params, $body);
@@ -304,6 +313,19 @@ class Woo_Write
         }
         $extra = $plan['report'] + (null !== $media_op ? [ 'media_operation_id' => $media_op ] : []);
 
+        // An order create has no prior state; Order_Ops records the creation
+        // row itself once the order exists (issue #292).
+        if (null !== $plan['target'] && ! empty($plan['target']['creation'])) {
+            $made = Order_Ops::create($plan['body'], $session_id, $plan['op']);
+            if (isset($made['error'])) {
+                return [ 'op' => $plan['op'], 'applied' => false ] + $made;
+            }
+            return $this->result($plan, $made) + [
+                'operation_id' => $made['operation_id'],
+                'recoverable'  => $def['recoverable'],
+            ];
+        }
+
         if (null === $plan['target']) {
             $out = $this->dispatch->send($def['method'], $plan['route'], $plan['body']);
             return $this->result($plan, $out) + [
@@ -320,15 +342,38 @@ class Woo_Write
                 'tool_name'   => 'woo-write',
                 'args'        => [ 'op' => $plan['op'], 'route' => $plan['route'], 'params' => $plan['body'] ],
             ],
-            fn () => null !== $def['handler']
-                ? Brand_Ops::apply_assignment($def['handler'], (int) $plan['target']['object_id'], $plan['body']['brands'])
-                : $this->dispatch->send($def['method'], $plan['route'], $plan['body'])
+            fn () => $this->run($plan)
         );
 
         return $this->result($plan, $mutation['result']) + [
             'operation_id' => $mutation['operation_id'],
             'recoverable'  => $def['recoverable'],
         ] + $extra;
+    }
+
+    /**
+     * The mutation one snapshotted op performs: its in-process handler, or
+     * the dispatch of its route.
+     *
+     * @param array<string, mixed> $plan
+     * @return array{status: int, body: mixed}
+     */
+    private function run(array $plan): array
+    {
+        $def = $plan['def'];
+        if (self::is_order_handler($def)) {
+            return Order_Ops::update((int) $plan['target']['object_id'], $plan['body']);
+        }
+        if (null !== $def['handler']) {
+            return Brand_Ops::apply_assignment($def['handler'], (int) $plan['target']['object_id'], $plan['body']['brands']);
+        }
+        return $this->dispatch->send($def['method'], $plan['route'], $plan['body']);
+    }
+
+    /** Whether a row runs through Order_Ops (issue #292). */
+    private static function is_order_handler(array $def): bool
+    {
+        return is_string($def['handler'] ?? null) && str_starts_with($def['handler'], 'order_');
     }
 
     /**
@@ -399,6 +444,11 @@ class Woo_Write
                 return Op_Guard::error('invalid_params', 'The term this op writes could not be resolved.');
             }
             return [ 'object_type' => 'term', 'object_id' => Snapshot::term_key($taxonomy, $slug) ];
+        }
+
+        if ('wc_order_create' === $strategy['type']) {
+            // Nothing exists to capture yet; execute() records the creation.
+            return [ 'object_type' => 'wc_order_create', 'object_id' => 0, 'creation' => true ];
         }
 
         if ('wc_setting' === $strategy['type']) {

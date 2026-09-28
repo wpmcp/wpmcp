@@ -51,6 +51,12 @@ if (! defined('ABSPATH')) {
  *    resolved from WooCommerce's own settings registry;
  *  - ['type' => 'wc_order', 'param' => P]: only the order status is
  *    captured, so rows using it are flagged recoverable:false;
+ *  - ['type' => 'wc_order_full', 'param' => P]: the whole order (props,
+ *    addresses, totals, every item and its meta), restored exactly in
+ *    either order store (Safety\Wc_Order_Snapshot);
+ *  - ['type' => 'wc_order_create', 'create' => true]: the order does not
+ *    exist yet, so Order_Ops records a creation row once it does, and
+ *    rollback moves the order to the trash;
  *  - ['type' => 'term', 'param' => P] or ['type' => 'term', 'create' => true]:
  *    one term of the row's taxonomy, keyed by (taxonomy, slug) with its meta
  *    and object assignments, so an update, a delete or a create (whose slug
@@ -61,10 +67,9 @@ if (! defined('ABSPATH')) {
  *
  * Deliberately NOT in the catalog yet (each needs a snapshot type that does
  * not exist today, and a write with no honest undo does not belong on this
- * surface): order updates and deletes (the wc_order snapshot captures status
- * only, and HPOS orders are not posts), customer deletion (the user snapshot
- * cannot resurrect a deleted user), and writes to shipping zones, tax rates
- * and webhooks (custom tables with their own caches).
+ * surface): order deletes, customer deletion (the user snapshot cannot
+ * resurrect a deleted user), and writes to shipping zones, tax rates and
+ * webhooks (custom tables with their own caches).
  *
  * The wc/v3 /batch endpoints are deliberately not rows either: woo-write
  * implements batching itself, one guarded and snapshotted op per item, so a
@@ -101,8 +106,9 @@ class Op_Catalog
      * (injected unless the caller sets them), 'undo_op' (for creates),
      * 'redact' (top-level keys of each returned record that are masked),
      * 'taxonomy' (the op is unavailable unless it is registered, and a term
-     * snapshot targets it) and 'handler' (the op runs in-process through
-     * Brand_Ops instead of dispatching its route).
+     * snapshot targets it) and 'handler' (the op runs in-process, through
+     * Brand_Ops or, for an order_* handler, Order_Ops, instead of
+     * dispatching its route).
      * Keep op names domain.kebab-case and route templates rooted at /wc/v3.
      */
     private const OPS = [
@@ -136,6 +142,13 @@ class Op_Catalog
         'orders.get'          => [ 'GET', '/wc/v3/orders/{id}', 'orders', self::CAP_ORDERS, 'Full wc/v3 representation of one order, line items included' ],
         'orders.notes'        => [ 'GET', '/wc/v3/orders/{order_id}/notes', 'orders', self::CAP_ORDERS, 'Notes on one order, including customer-facing ones' ],
         'orders.add-note'     => [ 'POST', '/wc/v3/orders/{order_id}/notes', 'orders', self::CAP_ORDERS, 'Add an internal or customer-facing (customer_note:true) note to an order. Additive', 'write', null, [ 'undo_op' => null ] ],
+        // Order create and edit (issue #292) run in-process through the
+        // WooCommerce order CRUD (Order_Ops), so HPOS and the legacy store
+        // both work and no gateway is ever called. An edit is covered by a
+        // full order snapshot (props, addresses, totals, items, item meta);
+        // a create writes a creation row whose rollback trashes the order.
+        'orders.create'       => [ 'POST', '/wc/v3/orders', 'orders', self::CAP_STORE, 'Create an order: line_items [{product_id, variation_id, quantity}], customer_id, billing, shipping, shipping_lines, fee_lines, coupon_codes, status, payment_method(_title), customer_note. Never charges a gateway; rollback trashes it', 'write', [ 'type' => 'wc_order_create', 'create' => true ], [ 'handler' => 'order_create', 'forbidden_params' => [ 'set_paid', 'transaction_id', 'meta_data' ] ] ],
+        'orders.update'       => [ 'PUT', '/wc/v3/orders/{id}', 'orders', self::CAP_STORE, 'Edit an order: line_items (add {product_id, variation_id, quantity}, change {id, quantity}, drop {id, remove:true}), shipping_lines and fee_lines (same shape), billing, shipping, customer_note, payment_method(_title); totals recalculated unless recalculate:false. Status changes go through update-order-status', 'write', [ 'type' => 'wc_order_full', 'param' => 'id' ], [ 'handler' => 'order_update', 'forbidden_params' => [ 'status', 'set_paid', 'transaction_id', 'meta_data', 'coupon_lines', 'customer_id' ] ] ],
 
         // Refunds. Creating a refund moves money when api_refund is true
         // (the gateway is called), so it is destructive, and it is flagged
