@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 330,
-    'free'      => 233,
+    'total'     => 336,
+    'free'      => 239,
     'pro'       => 97,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -70,6 +70,7 @@ return [
         'wpmcp/create-post' => 'free',
         'wpmcp/create-product' => 'free',
         'wpmcp/create-redirect' => 'free',
+        'wpmcp/create-site-part' => 'free',
         'wpmcp/create-term' => 'free',
         'wpmcp/create-theme-template' => 'pro',
         'wpmcp/create-user' => 'free',
@@ -91,6 +92,7 @@ return [
         'wpmcp/delete-product' => 'free',
         'wpmcp/delete-redirect' => 'free',
         'wpmcp/delete-rows' => 'free',
+        'wpmcp/delete-site-part' => 'free',
         'wpmcp/delete-term' => 'free',
         'wpmcp/delete-theme' => 'free',
         'wpmcp/delete-theme-template' => 'pro',
@@ -230,6 +232,7 @@ return [
         'wpmcp/list-sidebar-widgets' => 'free',
         'wpmcp/list-sidebars' => 'free',
         'wpmcp/list-site-abilities' => 'free',
+        'wpmcp/list-site-parts' => 'free',
         'wpmcp/list-skills' => 'free',
         'wpmcp/list-tables' => 'free',
         'wpmcp/list-taxonomies' => 'free',
@@ -271,6 +274,7 @@ return [
         'wpmcp/replace-system-colors' => 'pro',
         'wpmcp/replace-system-typography' => 'pro',
         'wpmcp/resize-media' => 'free',
+        'wpmcp/resolve-site-part' => 'free',
         'wpmcp/resolve-theme-template' => 'pro',
         'wpmcp/restore-revision' => 'free',
         'wpmcp/restore-site-backup' => 'free',
@@ -296,6 +300,7 @@ return [
         'wpmcp/set-post-language' => 'free',
         'wpmcp/set-post-meta' => 'free',
         'wpmcp/set-post-terms' => 'free',
+        'wpmcp/set-site-part-status' => 'free',
         'wpmcp/set-stock-key' => 'free',
         'wpmcp/set-template-conditions' => 'pro',
         'wpmcp/set-term-meta' => 'free',
@@ -337,6 +342,7 @@ return [
         'wpmcp/update-rows' => 'free',
         'wpmcp/update-seo-meta' => 'free',
         'wpmcp/update-settings' => 'free',
+        'wpmcp/update-site-part' => 'free',
         'wpmcp/update-term' => 'free',
         'wpmcp/update-theme' => 'free',
         'wpmcp/update-user' => 'free',

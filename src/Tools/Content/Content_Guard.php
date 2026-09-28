@@ -25,6 +25,14 @@ class Content_Guard
         'wp_global_styles',
         'wp_navigation',
         'attachment',
+        // The theme-builder site parts (issue #70). Same reasoning as core's
+        // wp_template / wp_template_part above: the payload is post_content
+        // and it renders on every matching page, so the generic content tools
+        // (edit_posts) must not reach markup whose own create tool requires
+        // manage_options. The wpmcp_block / wpmcp_widget CPTs need no entry
+        // here because their payload lives in protected `_`-prefixed meta,
+        // which check_meta() already refuses.
+        'wpmcp_template',
         // The in-admin chat conversation store (issue #73). Named as a
         // literal rather than through the class constant so this guard
         // holds even on a request where that CPT was never registered,
