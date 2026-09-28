@@ -109,7 +109,7 @@ class Get_Page_Snapshot
     private const OPT_IN_SECTIONS = ['global_tokens', 'responsive_overrides'];
 
     /** Builders whose page body is not stored in post_content. */
-    private const OFF_CONTENT_BUILDERS = ['elementor', 'bricks'];
+    private const OFF_CONTENT_BUILDERS = ['elementor', 'bricks', 'beaver-builder'];
 
     /**
      * Sections derived from the extracted content, as paths into the digest.

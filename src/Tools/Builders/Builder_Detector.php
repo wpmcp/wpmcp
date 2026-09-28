@@ -20,7 +20,8 @@ if (! defined('ABSPATH')) {
  *
  * Checked in priority order: Elementor's `_elementor_edit_mode` flag,
  * Bricks' `_bricks_page_content_2` postmeta, Divi's `_et_pb_use_builder`
- * flag, WPBakery's `_wpb_vc_js_status` = 'true' editor flag, Gutenberg's
+ * flag, WPBakery's `_wpb_vc_js_status` = 'true' editor flag, Beaver
+ * Builder's `_fl_builder_enabled` flag, Gutenberg's
  * `<!-- wp: -->` block comment markers in post_content, then a
  * WPBakery `[vc_row]` or `[vc_section]` shortcode in post_content (a
  * WPBakery page saved with its backend editor off), falling back to
@@ -45,6 +46,11 @@ class Builder_Detector
 
         if ('true' === get_post_meta($post_id, '_wpb_vc_js_status', true)) {
             return 'wpbakery';
+        }
+
+        // Beaver Builder stores true, which postmeta keeps as '1'.
+        if ('1' === (string) get_post_meta($post_id, '_fl_builder_enabled', true)) {
+            return 'beaver-builder';
         }
 
         $post = get_post($post_id);

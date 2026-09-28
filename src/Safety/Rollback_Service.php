@@ -7,6 +7,7 @@
 namespace WPMCP\Safety;
 
 use WPMCP\Tools\Database\Database_Guard;
+use WPMCP\Tools\Builders\Beaver_Builder_Cache;
 use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
@@ -845,7 +846,7 @@ class Rollback_Service
             delete_post_meta($object_id, $key);
             foreach ((array) $values as $v) {
                 // add_post_meta() unslashes too; slash so the value lands byte-for-byte.
-                add_post_meta($object_id, $key, wp_slash(maybe_unserialize($v)));
+                add_post_meta($object_id, $key, self::slash_meta_value(maybe_unserialize($v)));
             }
         }
 
@@ -860,6 +861,10 @@ class Rollback_Service
 
         if ($is_elementor) {
             self::refresh_elementor_caches($object_id, $snapshotted_meta);
+        }
+
+        if (isset($snapshotted_meta['_fl_builder_data']) || isset($current_meta['_fl_builder_data'])) {
+            Beaver_Builder_Cache::clear($object_id);
         }
 
         self::refresh_woocommerce_product($object_id);
@@ -939,6 +944,22 @@ class Rollback_Service
 
         \WC_Tax::_update_tax_rate_postcodes($tax_rate_id, array_map('strval', (array) ($data['postcodes'] ?? [])));
         \WC_Tax::_update_tax_rate_cities($tax_rate_id, array_map('strval', (array) ($data['cities'] ?? [])));
+    }
+
+    /**
+     * Slash a meta value for add_post_meta(), strings inside objects too.
+     * add_post_meta() unslashes with map_deep(), which walks object
+     * properties, while wp_slash() skips objects, so a value holding objects
+     * (a Beaver Builder node map is an array of stdClass) would otherwise
+     * lose every backslash in those strings on restore. Identical to
+     * wp_slash() for strings and arrays.
+     *
+     * @param mixed $value freshly unserialized, so mutating its objects is safe
+     * @return mixed
+     */
+    private static function slash_meta_value($value)
+    {
+        return map_deep($value, static fn ($item) => is_string($item) ? addslashes($item) : $item);
     }
 
     /** Whether a post meta map (get_post_meta() shape) carries Elementor document data. */
