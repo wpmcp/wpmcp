@@ -82,9 +82,16 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  long descriptions no open branch touches (rewrite-site-urls,
      *  trigger-backup, restore-site-backup, run-wp-cli, get-backup-manifest,
      *  search-content, get-global-settings) were reworded without dropping a
-     *  rule. build-page was left alone: the wporg strip rewrites its text. Compact tool mode keeps clients with tool caps at ~2.8KB
-     *  regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 186000;
+     *  rule. build-page was left alone: the wporg strip rewrites its text.
+     *  Raised 186000 -> 195000 for the WooCommerce depth cluster (#195:
+     *  variation create and delete, bulk-update-products, six coupon tools,
+     *  four tax-rate tools): 194455 bytes over 349 tools after trimming their
+     *  descriptions, about 8.5KB for the 13 tools (the raise approved in
+     *  review, re-applied on the newer main). The coupon write
+     *  schemas are most of it: they list every writable field so an agent
+     *  can set limits and restrictions without a schema round trip. Compact
+     *  tool mode keeps clients with tool caps at ~2.8KB regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 195000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

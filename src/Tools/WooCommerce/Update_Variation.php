@@ -84,8 +84,11 @@ class Update_Variation
         );
     }
 
-    /** Reject inputs WooCommerce would otherwise coerce or silently drop. */
-    private function validate(\WC_Product_Variation $variation, array $args): void
+    /**
+     * Reject inputs WooCommerce would otherwise coerce or silently drop.
+     * Public so create-variation applies exactly the same rules.
+     */
+    public function validate(\WC_Product_Variation $variation, array $args): void
     {
         if (array_key_exists('status', $args)) {
             $status = sanitize_key((string) $args['status']);
@@ -131,7 +134,7 @@ class Update_Variation
     }
 
     /** Apply only the writable fields present in $args to the variation. */
-    private function apply_changes(\WC_Product_Variation $variation, array $args): void
+    public function apply_changes(\WC_Product_Variation $variation, array $args): void
     {
         if (array_key_exists('regular_price', $args)) {
             $variation->set_regular_price((string) $args['regular_price']);
