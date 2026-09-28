@@ -2051,7 +2051,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/search-themes',
             'free',
-            'Search the wordpress.org theme directory; same filters as search-plugins',
+            'Search wordpress.org themes; filters as in search-plugins',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2073,7 +2073,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/install-package-from-zip',
             'pro',
-            'Install or replace a plugin/theme from a Media Library ZIP. Off by default (wpmcp_enable_zip_install); needs confirm:true and its sha256. Undo: rollback-operation',
+            'Install or replace a plugin/theme from a Media Library ZIP. Off by default (wpmcp_enable_zip_install); needs confirm:true and its sha256. Rollbackable',
             [
                 'type'       => 'object',
                 'properties' => [

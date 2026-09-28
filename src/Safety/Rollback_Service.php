@@ -136,7 +136,10 @@ class Rollback_Service
                 self::warn(sprintf('operation %s skipped: %s', $r['operation_id'], $e->getMessage()));
                 continue;
             }
-            if ('db_rows' === $snapshot['object_type']) {
+            // An acf_options snapshot is partial in the same way: it covers
+            // the rows under the field names ONE write named, and two writes
+            // to one options page can name overlapping sets.
+            if ('db_rows' === $snapshot['object_type'] || 'acf_options' === $snapshot['object_type']) {
                 self::apply_snapshot($snapshot);
                 $count++;
                 continue;
@@ -554,6 +557,27 @@ class Rollback_Service
     }
 
     /**
+     * Put the captured guid back byte for byte. Both core write paths run a
+     * guid through its db-context sanitizing filters, which entity-encode the
+     * "&" in a custom post type's "?post_type=x&p=N" guid ("&#038;" on an
+     * update, "&amp;" on an insert), so a post a write merely re-saved came
+     * back from rollback with a different guid than it had. Nothing reads the
+     * encoded form differently, but a restore that promises the captured row
+     * should return the captured row.
+     */
+    private static function restore_guid(int $object_id, string $guid): void
+    {
+        $current = get_post($object_id);
+        if ('' === $guid || ! $current || $current->guid === $guid) {
+            return;
+        }
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- core offers no unsanitized guid write; the post cache is cleaned below.
+        $wpdb->update($wpdb->posts, [ 'guid' => $guid ], [ 'ID' => $object_id ]);
+        clean_post_cache($object_id);
+    }
+
+    /**
      * True if $current (a live get_post(ARRAY_A) row) is plausibly the same
      * post the snapshot was captured from, rather than a different post that
      * has since reclaimed the same ID. post_date_gmt is set once at
@@ -598,6 +622,8 @@ class Rollback_Service
             'elementor_global_variables',
             'theme_scaffold',
             'package_install',
+            'acf_structure',
+            'acf_options',
         ];
     }
 
@@ -753,6 +779,16 @@ class Rollback_Service
             return;
         }
 
+        if ('acf_structure' === $snapshot['object_type']) {
+            self::apply_acf_structure_snapshot($snapshot);
+            return;
+        }
+
+        if ('acf_options' === $snapshot['object_type']) {
+            self::apply_acf_options_snapshot($snapshot);
+            return;
+        }
+
         if ('post' !== $snapshot['object_type']) {
             return;
         }
@@ -770,6 +806,7 @@ class Rollback_Service
             } else {
                 self::resurrect($object_id, $snapshot['data']['post'], $snapshot['data']['comments'] ?? []);
             }
+            self::restore_guid($object_id, (string) ($snapshot['data']['post']['guid'] ?? ''));
         }
 
         $snapshotted_meta = (array) $snapshot['data']['meta'];
@@ -1692,6 +1729,114 @@ class Rollback_Service
 
         if (class_exists('\\Elementor\\Plugin') && isset(\Elementor\Plugin::instance()->files_manager)) {
             \Elementor\Plugin::instance()->files_manager->clear_cache();
+        }
+    }
+
+    /**
+     * Restore one piece of ACF structure (issue #291) to its captured tree:
+     * the field group, ACF post type or ACF taxonomy post plus every acf-field
+     * post beneath it. Posts under the key now that were not captured (a new
+     * group, or a field an update added) are deleted; every captured post is
+     * restored through the ordinary post path, which updates in place or
+     * resurrects a force-deleted field at its original ID. ACF's own caches
+     * for every touched key are flushed afterwards, since the restore writes
+     * rows underneath ACF rather than through it.
+     *
+     * Restoring structure needs the capability ACF itself demands for editing
+     * it, so rollback cannot become a way around ACF's own admin gate.
+     */
+    private static function apply_acf_structure_snapshot(array $snapshot): void
+    {
+        $capability = function_exists('acf_get_setting') ? (string) acf_get_setting('capability') : 'manage_options';
+        if (! current_user_can('' === $capability ? 'manage_options' : $capability)) {
+            throw new Mutation_Failed(esc_html(sprintf('Rollback refused: restoring ACF structure requires the %s capability.', $capability)));
+        }
+
+        $data     = (array) ($snapshot['data'] ?? []);
+        $key      = (string) ($data['key'] ?? $snapshot['object_id']);
+        $captured = (array) ($data['posts'] ?? []);
+
+        $root    = Snapshot::acf_structure_root_id($key);
+        $current = null === $root ? [] : Snapshot::acf_structure_tree($root);
+        $touched = [];
+        foreach ($current as $id) {
+            $touched[ $id ] = get_post($id, ARRAY_A);
+        }
+
+        // Children first, so a parent is never deleted with live children.
+        foreach (array_reverse($current) as $id) {
+            if (! isset($captured[ (string) $id ])) {
+                wp_delete_post($id, true);
+            }
+        }
+
+        foreach ($captured as $id => $post_data) {
+            self::apply_snapshot([
+                'object_type' => 'post',
+                'object_id'   => (int) $id,
+                'data'        => (array) $post_data,
+            ]);
+            $touched[ (int) $id ] = (array) ($post_data['post'] ?? []);
+        }
+
+        self::flush_acf_caches(array_filter($touched));
+    }
+
+    /** Drop ACF's stores and cached lookups for every restored or removed structure post. */
+    private static function flush_acf_caches(array $rows): void
+    {
+        if (! function_exists('acf_flush_field_cache')) {
+            return;
+        }
+        foreach ($rows as $row) {
+            $type = (string) ($row['post_type'] ?? '');
+            $key  = (string) ($row['post_name'] ?? '');
+            if ('acf-field' === $type) {
+                acf_flush_field_cache([
+                    'key'    => $key,
+                    'name'   => (string) ($row['post_excerpt'] ?? ''),
+                    'parent' => (int) ($row['post_parent'] ?? 0),
+                ]);
+            } elseif (in_array($type, Snapshot::ACF_STRUCTURE_POST_TYPES, true) && function_exists('acf_flush_internal_post_type_cache')) {
+                acf_flush_internal_post_type_cache([ 'key' => $key ], $type);
+            }
+        }
+        foreach ([ 'fields', 'field-groups', 'post-types', 'taxonomies' ] as $store) {
+            $instance = acf_get_store($store);
+            if ($instance) {
+                $instance->reset();
+            }
+        }
+    }
+
+    /**
+     * Restore the option rows an ACF options page write touched (issue #291):
+     * rows under the captured field names that the write added are deleted,
+     * and every captured row gets its captured value back. The in-request
+     * value store is reset so a later get_field() in the same request reads
+     * the restored rows instead of ACF's memo of the undone ones.
+     */
+    private static function apply_acf_options_snapshot(array $snapshot): void
+    {
+        $data    = (array) ($snapshot['data'] ?? []);
+        $post_id = (string) ($data['post_id'] ?? '');
+        $names   = array_map('strval', (array) ($data['names'] ?? []));
+        $rows    = (array) ($data['rows'] ?? []);
+
+        foreach (Snapshot::acf_option_names($post_id, $names) as $name) {
+            if (! array_key_exists($name, $rows)) {
+                delete_option($name);
+            }
+        }
+        foreach ($rows as $name => $value) {
+            update_option((string) $name, $value);
+        }
+
+        if (function_exists('acf_get_store')) {
+            $values = acf_get_store('values');
+            if ($values) {
+                $values->reset();
+            }
         }
     }
 

@@ -142,6 +142,9 @@ return [
         'src/Integrations/Ninja_Forms_Integration.php',
         'src/Integrations/Fluent_Forms_Integration.php',
         'src/Tools/WooCommerce/Catalog',
+        // The ACF batch write (issue #291): the op definition and its handler.
+        // strip.php takes out the one line in ACF_Integration that merges it.
+        'src/Integrations/ACF_Batch_Update.php',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the
         // two handlers, the sanitizer, the store and the front-end renderer
         // all go. Named file by file rather than by directory because

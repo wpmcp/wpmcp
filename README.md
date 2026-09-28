@@ -219,6 +219,14 @@ Discovery is deliberately cheap: `list-skills` returns slug, name, a one-line de
 - **Tiering is per skill, not per surface.** Both tools and the starter library are free. A skill whose frontmatter says `tier: pro` stays listed but its body is withheld behind `Pro\Gate` until the site is licensed.
 - **Removable.** The checkbox on the Skills screen (option `wpmcp_skills_enabled`, or the filter of the same name) unregisters both abilities entirely, so a site that does not want them pays zero tokens for them in `tools/list`.
 
+### Prompts and resources
+
+The same content is also served through the MCP prompts and resources primitives, so clients that surface those natively (slash-command prompt pickers, attachable context) can use it without a tool call. The server advertises both capabilities on `initialize`, on the HTTP and the stdio transport alike.
+
+- **Prompts.** `prompts/list` offers every skill whose body this site can serve (available and not withheld), named by slug. `prompts/get` returns the skill body exactly as written, as a single user message.
+- **Resources.** `resources/list` offers `wpmcp://site/context` (the `get-site-context` payload) and `wpmcp://skills` (the `list-skills` catalog), both `application/json`. `resources/read` returns the same payload the tool would.
+- **Governed like the tools behind them.** Each primitive is backed by the live ability that serves the same data (`get-skill`, `get-site-context`, `list-skills`): the capability check, governance toggles, scoped identities, project-memory rules, audit log, rate limit and request log are that ability's own. When the backing ability is not registered (governance-disabled, skills switched off, exposure switch off) the primitive is absent. Every backing ability is a read, so nothing here writes.
+
 ## Free vs Pro
 
 The free plugin (this repo) is fully functional: the safety engine, Gutenberg editing, one-click rollback, and snapshot history.

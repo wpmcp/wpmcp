@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.36
+Stable tag: 0.8.38
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -95,6 +95,15 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.38 =
+* New: author ACF structure from an agent. Create and update field groups and their fields, register ACF post types and taxonomies, read and write options pages, list field types and validate values, all through the existing ACF tools with snapshot-first rollback.
+* New: batch-update ACF field values across many posts in one call; the whole batch is validated first and runs under one session, so a single session rollback undoes it.
+* Fix: rolling back a custom post type now restores its GUID exactly.
+
+= 0.8.37 =
+* New: the skills library is now available as MCP prompts and site context as MCP resources, so clients that support prompts and resources can use them directly. Both follow the same permissions and governance as the matching tools.
+* New: prompts and resources work over both the HTTP and the WP-CLI stdio connection.
 
 = 0.8.36 =
 * Rolling back a session now moves posts it created to the trash: create-post, duplicate-post, create-custom-widget and create-custom-block record their creations in the undo history, so rollback-session and rollback-operation trash a created post (restore it from the trash) and deactivate a created widget or block spec. Nothing is permanently deleted.
@@ -271,6 +280,12 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.38 =
+New: author ACF structure from an agent. Create and update field groups and their fields, register ACF post types and taxonomies, read and write options pages, list field types and validate values, all through the existing ACF tools with snapshot-first rollback.
+
+= 0.8.37 =
+New: the skills library is now available as MCP prompts and site context as MCP resources, so clients that support prompts and resources can use them directly. Both follow the same permissions and governance as the matching tools.
 
 = 0.8.36 =
 Rolling back a session now moves posts it created to the trash: create-post, duplicate-post, create-custom-widget and create-custom-block record their creations in the undo history, so rollback-session and rollback-operation trash a created post (restore it from the trash) and deactivate a created widget or block spec. Nothing is permanently deleted.
