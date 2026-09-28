@@ -30,7 +30,14 @@ require_once __DIR__ . '/../../support/funnelkit-tables.php';
  * WFCO_Model_Report_views shim forwards to the paid WFFN_Report_Views and
  * drops the write otherwise), and upsell offers exist only with the upsell
  * add-on (WFOCU_Core). Both are driven through filters here, on by default,
- * and a value that cannot be read carries a *_unavailable reason.
+ * and a value that cannot be read carries a *_unavailable reason in prose
+ * and a *_unavailable_reason code a client can branch on.
+ *
+ * Offers are read through the add-on's own WFOCU_Core()->funnels
+ * ->get_funnel_steps() when it answers, else from the upsell step's
+ * _funnel_steps (where the free plugin itself reads it back), else from the
+ * offers whose _funnel_id names the step. Per offer, views and accepts come
+ * from wfocu_event as FunnelKit's canvas counts them.
  */
 class FunnelKitPackTest extends \WP_UnitTestCase
 {
@@ -72,6 +79,7 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         remove_all_filters('wpmcp_funnelkit_views_recorded');
         remove_all_filters('wpmcp_funnelkit_upsells_active');
         remove_all_filters('query');
+        unset($GLOBALS['wpmcp_test_wfocu_core']);
         delete_option('_bwf_global_funnel');
         Gate::set_pro_for_tests(null);
         parent::tearDown();
@@ -201,6 +209,39 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         }
 
         return $ids;
+    }
+
+    private function offer_event(int $offer_id, int $action_type, string $value = '0'): void
+    {
+        global $wpdb;
+        $wpdb->insert($wpdb->prefix . 'wfocu_event', [
+            'sess_id'        => 1,
+            'object_id'      => $offer_id,
+            'object_type'    => 'offer',
+            'action_type_id' => $action_type,
+            'value'          => $value,
+            'timestamp'      => '2026-09-20 12:00:00',
+        ]);
+    }
+
+    /**
+     * Every *_unavailable key under $node, and every null count, must carry
+     * a *_unavailable_reason code beside it.
+     */
+    private function assert_reasons_everywhere(array $node, string $path = 'result'): void
+    {
+        foreach ($node as $key => $value) {
+            if (is_string($key) && str_ends_with($key, '_unavailable')) {
+                $this->assertArrayHasKey($key . '_reason', $node, "{$path}.{$key} needs a reason code");
+                $this->assertMatchesRegularExpression('/^[a-z][a-z_]*$/', (string) $node[ $key . '_reason' ], "{$path}.{$key}_reason is a code");
+            }
+            if (in_array($key, [ 'views', 'conversions' ], true) && null === $value) {
+                $this->assertArrayHasKey($key . '_unavailable_reason', $node, "{$path}.{$key} is null without a reason");
+            }
+            if (is_array($value)) {
+                $this->assert_reasons_everywhere($value, "{$path}.{$key}");
+            }
+        }
     }
 
     /** Make FunnelKit's {prefix}$name look absent to the reader's table probe. */
@@ -364,9 +405,10 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         $thankyou = $steps['wc_thankyou'];
         $this->assertSame('wffn_ty', $thankyou['post_type']);
         $this->assertSame('inactive', $thankyou['status']);
-        $this->assertSame([ 'views' => 9, 'conversions' => null, 'conversions_unavailable' => 'FunnelKit does not track this for the step type' ], $thankyou['counts']);
+        $this->assertSame([ 'views' => 9, 'conversions' => null, 'conversions_unavailable' => 'FunnelKit does not track this for the step type', 'conversions_unavailable_reason' => 'not_tracked_for_step_type' ], $thankyou['counts']);
+        $per_offer = 'FunnelKit counts upsells per offer, not per step';
         $this->assertSame(
-            [ 'views' => null, 'conversions' => null, 'views_unavailable' => 'FunnelKit counts upsells per offer, not per step', 'conversions_unavailable' => 'FunnelKit counts upsells per offer, not per step' ],
+            [ 'views' => null, 'conversions' => null, 'views_unavailable' => $per_offer, 'views_unavailable_reason' => 'counted_per_offer', 'conversions_unavailable' => $per_offer, 'conversions_unavailable_reason' => 'counted_per_offer' ],
             $steps['wc_upsells']['counts']
         );
     }
@@ -379,13 +421,15 @@ class FunnelKitPackTest extends \WP_UnitTestCase
 
         $steps  = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result']);
         $reason = 'recorded only by the Funnel Builder Pro add-on, which is not active';
+        $code   = 'pro_addon_inactive';
 
-        $this->assertSame([ 'views' => null, 'conversions' => null, 'views_unavailable' => $reason, 'conversions_unavailable' => $reason ], $steps['landing']['counts'], 'landing conversions are view rows too');
-        $this->assertSame([ 'views' => null, 'conversions' => 2, 'views_unavailable' => $reason ], $steps['optin']['counts'], 'optin entries are the free plugin\'s own');
-        $this->assertSame([ 'views' => null, 'conversions' => null, 'views_unavailable' => $reason, 'conversions_unavailable' => $reason ], $steps['optin_ty']['counts']);
-        $this->assertSame([ 'views' => null, 'conversions' => 3, 'views_unavailable' => $reason ], $steps['wc_checkout']['counts'], 'checkout orders are the free plugin\'s own');
+        $this->assertSame([ 'views' => null, 'conversions' => null, 'views_unavailable' => $reason, 'views_unavailable_reason' => $code, 'conversions_unavailable' => $reason, 'conversions_unavailable_reason' => $code ], $steps['landing']['counts'], 'landing conversions are view rows too');
+        $this->assertSame([ 'views' => null, 'conversions' => 2, 'views_unavailable' => $reason, 'views_unavailable_reason' => $code ], $steps['optin']['counts'], 'optin entries are the free plugin\'s own');
+        $this->assertSame([ 'views' => null, 'conversions' => null, 'views_unavailable' => $reason, 'views_unavailable_reason' => $code, 'conversions_unavailable' => $reason, 'conversions_unavailable_reason' => $code ], $steps['optin_ty']['counts']);
+        $this->assertSame([ 'views' => null, 'conversions' => 3, 'views_unavailable' => $reason, 'views_unavailable_reason' => $code ], $steps['wc_checkout']['counts'], 'checkout orders are the free plugin\'s own');
         $this->assertSame(null, $steps['wc_thankyou']['counts']['views']);
         $this->assertSame($reason, $steps['wc_thankyou']['counts']['views_unavailable']);
+        $this->assertSame($code, $steps['wc_thankyou']['counts']['views_unavailable_reason']);
     }
 
     public function test_presence_of_the_paid_add_ons_defaults_to_their_own_classes(): void
@@ -410,10 +454,11 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         $steps = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result']);
 
         $this->assertSame(
-            [ 'views' => null, 'conversions' => null, 'views_unavailable' => 'wfco_report_views table missing', 'conversions_unavailable' => 'wfacp_stats table missing' ],
+            [ 'views' => null, 'conversions' => null, 'views_unavailable' => 'wfco_report_views table missing', 'views_unavailable_reason' => 'table_missing', 'conversions_unavailable' => 'wfacp_stats table missing', 'conversions_unavailable_reason' => 'table_missing' ],
             $steps['wc_checkout']['counts']
         );
         $this->assertSame('bwf_optin_entries table missing', $steps['optin']['counts']['conversions_unavailable']);
+        $this->assertSame('table_missing', $steps['optin']['counts']['conversions_unavailable_reason']);
         $this->assertSame('wfco_report_views table missing', $steps['landing']['counts']['conversions_unavailable']);
     }
 
@@ -424,7 +469,7 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         $step = $this->read(self::GET_OP, [ 'id' => $funnel ])['result']['steps'][0];
 
         $this->assertNull($step['post_id']);
-        $this->assertSame([ 'views' => null, 'conversions' => null, 'views_unavailable' => 'step has no post id', 'conversions_unavailable' => 'step has no post id' ], $step['counts']);
+        $this->assertSame([ 'views' => null, 'conversions' => null, 'views_unavailable' => 'step has no post id', 'views_unavailable_reason' => 'step_has_no_post_id', 'conversions_unavailable' => 'step has no post id', 'conversions_unavailable_reason' => 'step_has_no_post_id' ], $step['counts']);
     }
 
     public function test_list_says_why_when_the_funnels_table_is_missing(): void
@@ -435,9 +480,11 @@ class FunnelKitPackTest extends \WP_UnitTestCase
 
         $this->assertSame([], $result['funnels']);
         $this->assertSame('bwf_funnels table missing', $result['funnels_unavailable']);
+        $this->assertSame('table_missing', $result['funnels_unavailable_reason']);
 
         remove_all_filters('query');
         $this->assertArrayNotHasKey('funnels_unavailable', $this->read(self::LIST_OP)['result']);
+        $this->assertArrayNotHasKey('funnels_unavailable_reason', $this->read(self::LIST_OP)['result']);
     }
 
     public function test_get_lists_upsell_offers_with_their_products(): void
@@ -451,11 +498,12 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         $this->assertSame([ $ids['product_c'] ], $upsells['product_ids'], 'an upsell step links the products its offers sell');
         $this->assertSame(
             [
-                [ 'post_id' => $ids['offer1'], 'type' => 'upsell', 'title' => 'Add the travel case', 'status' => 'active', 'product_ids' => [ $ids['product_c'] ] ],
-                [ 'post_id' => $ids['offer2'], 'type' => 'downsell', 'title' => 'Or the mini case', 'status' => 'inactive', 'product_ids' => [] ],
+                [ 'post_id' => $ids['offer1'], 'type' => 'upsell', 'title' => 'Add the travel case', 'status' => 'active', 'product_ids' => [ $ids['product_c'] ], 'counts' => [ 'views' => 0, 'conversions' => 0 ] ],
+                [ 'post_id' => $ids['offer2'], 'type' => 'downsell', 'title' => 'Or the mini case', 'status' => 'inactive', 'product_ids' => [], 'counts' => [ 'views' => 0, 'conversions' => 0 ] ],
             ],
             $upsells['offers']
         );
+        $this->assertSame('funnel_steps_meta', $upsells['offers_source']);
         $this->assertArrayNotHasKey('offers_unavailable', $upsells);
         $this->assertArrayNotHasKey('offers', $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['landing']);
     }
@@ -470,7 +518,10 @@ class FunnelKitPackTest extends \WP_UnitTestCase
 
         $this->assertArrayNotHasKey('offers', $upsells, 'no empty list that reads as "no offers"');
         $this->assertSame('upsell add-on not active', $upsells['offers_unavailable']);
+        $this->assertSame('upsell_addon_inactive', $upsells['offers_unavailable_reason']);
         $this->assertSame([], $upsells['product_ids']);
+        $this->assertSame('upsell_addon_inactive', $upsells['product_ids_unavailable_reason'], 'the offers\' products are unknown too, not "none"');
+        $this->assertArrayNotHasKey('offers_source', $upsells);
     }
 
     public function test_offers_carry_a_reason_when_no_offer_list_is_stored(): void
@@ -481,7 +532,9 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         $upsells = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['wc_upsells'];
 
         $this->assertArrayNotHasKey('offers', $upsells);
-        $this->assertSame('no offer list stored in _funnel_steps', $upsells['offers_unavailable']);
+        $this->assertSame('no offer list stored for the upsell step', $upsells['offers_unavailable']);
+        $this->assertSame('no_offer_list_stored', $upsells['offers_unavailable_reason']);
+        $this->assertSame('no_offer_list_stored', $upsells['product_ids_unavailable_reason']);
 
         update_post_meta($ids['upsells'], '_funnel_steps', []);
         $upsells = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['wc_upsells'];
@@ -507,6 +560,121 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         $this->assertNull($gone['title']);
         $this->assertSame('missing', $gone['status']);
         $this->assertSame([], $gone['product_ids']);
+        $this->assertSame('step_post_missing', $gone['product_ids_unavailable_reason']);
+        $this->assertArrayNotHasKey('product_ids_unavailable_reason', $result['steps'][0], 'a landing step links no products by design');
+    }
+
+    public function test_offers_come_from_the_upsell_add_ons_own_api_when_it_answers(): void
+    {
+        $ids = $this->seed_sales_funnel();
+        // Stored meta says two offers; the add-on's accessor is authoritative.
+        $upsell_id = $ids['upsells'];
+        $offer2    = $ids['offer2'];
+        $GLOBALS['wpmcp_test_wfocu_core'] = (object) [
+            'funnels' => new class ($upsell_id, $offer2) {
+                public function __construct(private int $upsell, private int $offer)
+                {
+                }
+
+                public function get_funnel_steps($funnel_id)
+                {
+                    return (int) $funnel_id === $this->upsell ? [ (object) [ 'id' => $this->offer, 'type' => 'downsell' ] ] : [];
+                }
+            },
+        ];
+
+        $upsells = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['wc_upsells'];
+
+        $this->assertSame('addon_api', $upsells['offers_source']);
+        $this->assertSame([ $ids['offer2'] ], array_column($upsells['offers'], 'post_id'));
+        $this->assertSame('downsell', $upsells['offers'][0]['type']);
+    }
+
+    public function test_an_add_on_api_that_does_not_answer_falls_back_to_stored_meta(): void
+    {
+        $ids = $this->seed_sales_funnel();
+        $GLOBALS['wpmcp_test_wfocu_core'] = (object) [ 'funnels' => new \stdClass() ];
+
+        $upsells = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['wc_upsells'];
+
+        $this->assertSame('funnel_steps_meta', $upsells['offers_source']);
+        $this->assertSame([ $ids['offer1'], $ids['offer2'] ], array_column($upsells['offers'], 'post_id'));
+    }
+
+    public function test_offers_fall_back_to_the_offers_that_name_the_upsell_step(): void
+    {
+        $ids = $this->seed_sales_funnel();
+        delete_post_meta($ids['upsells'], '_funnel_steps');
+        // The free plugin finds an offer's upsell step through its _funnel_id.
+        update_post_meta($ids['offer1'], '_funnel_id', $ids['upsells']);
+        update_post_meta($ids['offer2'], '_funnel_id', $ids['upsells']);
+        wp_update_post([ 'ID' => $ids['offer1'], 'menu_order' => 2 ]);
+        wp_update_post([ 'ID' => $ids['offer2'], 'menu_order' => 1 ]);
+        $stray = $this->step('wfocu_offer', 'Someone else\'s offer');
+        update_post_meta($stray, '_funnel_id', 999999);
+
+        $upsells = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['wc_upsells'];
+
+        $this->assertSame('offer_parent_meta', $upsells['offers_source']);
+        $this->assertSame([ $ids['offer2'], $ids['offer1'] ], array_column($upsells['offers'], 'post_id'), 'in menu order');
+        $this->assertSame([ $ids['product_c'] ], $upsells['product_ids']);
+        $this->assertArrayNotHasKey('offers_unavailable', $upsells);
+    }
+
+    public function test_each_offer_carries_its_views_and_accepts(): void
+    {
+        $ids = $this->seed_sales_funnel();
+        foreach ([ 2, 2, 2, 4, 1 ] as $type) {
+            $this->offer_event($ids['offer1'], $type, 4 === $type ? '19.00' : '0');
+        }
+        $this->offer_event($ids['offer2'], 2);
+
+        $offers = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['wc_upsells']['offers'];
+
+        $this->assertSame([ 'views' => 3, 'conversions' => 1 ], $offers[0]['counts']);
+        $this->assertSame([ 'views' => 1, 'conversions' => 0 ], $offers[1]['counts']);
+
+        $this->hide_table('wfocu_event');
+        $offers = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['wc_upsells']['offers'];
+        $this->assertSame(
+            [ 'views' => null, 'conversions' => null, 'views_unavailable' => 'wfocu_event table missing', 'views_unavailable_reason' => 'table_missing', 'conversions_unavailable' => 'wfocu_event table missing', 'conversions_unavailable_reason' => 'table_missing' ],
+            $offers[0]['counts']
+        );
+    }
+
+    public function test_every_unavailable_value_carries_a_reason_code(): void
+    {
+        $ids = $this->seed_sales_funnel();
+        delete_post_meta($ids['upsells'], '_funnel_steps');
+        $bare = wpmcp_test_funnelkit_funnel('Bare', [ [ 'type' => 'landing', 'id' => 0 ], [ 'type' => 'wc_upsells', 'id' => 999998 ] ]);
+
+        $degraded = [
+            'as seeded'           => static function (): void {
+            },
+            'no views add-on'     => static function (): void {
+                add_filter('wpmcp_funnelkit_views_recorded', '__return_false', 20);
+            },
+            'no upsell add-on'    => static function (): void {
+                add_filter('wpmcp_funnelkit_upsells_active', '__return_false', 20);
+            },
+            'stats tables hidden' => function (): void {
+                foreach ([ 'wfco_report_views', 'wfacp_stats', 'bwf_optin_entries', 'wfocu_event' ] as $table) {
+                    $this->hide_table($table);
+                }
+            },
+        ];
+        foreach ($degraded as $label => $apply) {
+            $apply();
+            foreach ([ $ids['funnel'], $bare ] as $funnel) {
+                $out = $this->read(self::GET_OP, [ 'id' => $funnel ]);
+                $this->assertArrayNotHasKey('error', $out, $label);
+                $this->assert_reasons_everywhere($out['result'], "{$label}: funnel {$funnel}");
+            }
+        }
+
+        $bare_upsell = $this->read(self::GET_OP, [ 'id' => $bare ])['result']['steps'][1];
+        $this->assertSame('step_post_missing', $bare_upsell['offers_unavailable_reason']);
+        $this->assert_reasons_everywhere($this->read(self::LIST_OP)['result'], 'list');
     }
 
     public function test_get_refuses_an_unknown_funnel(): void
