@@ -454,6 +454,48 @@ final class Plugin
         ],
     ];
 
+    /**
+     * Listeners on wpmcp_rollback_options_restored, which every option and
+     * option_set rollback fires. Each rebuilds state an integration derives
+     * from options, the same way the forward write did.
+     *
+     * These classes live in src/Integrations, which the WooCommerce build
+     * removes, so they are wired through register_rollback_refreshers() and
+     * never named in a bare add_action(): a listener naming a class the build
+     * does not ship fatals every option rollback on that build.
+     */
+    private const ROLLBACK_REFRESHERS = [
+        // A theme framework pack write rebuilt the active theme's generated
+        // CSS; its rollback does too (issue #316).
+        [\WPMCP\Integrations\Theme_Framework_Pack::class, 'refresh_after_restore'],
+        // An Elementor addon module toggle dropped the suite's cached module
+        // map; its rollback does too (issue #286).
+        [\WPMCP\Integrations\Elementor_Addon_Packs::class, 'after_restore'],
+        // A block suite write dropped the suite's cached per-post CSS; its
+        // rollback does too (issue #287). Hooked on the post restore action.
+        [\WPMCP\Integrations\Block_Suite::class, 'refresh_after_restore', 'wpmcp_rollback_post_restored'],
+    ];
+
+    /**
+     * Hook each rollback refresher whose class this build ships. The list is
+     * a parameter only so a test can pass a class no build ships; boot()
+     * always uses ROLLBACK_REFRESHERS.
+     *
+     * Entries are [class, method] on wpmcp_rollback_options_restored, or
+     * [class, method, hook] for another rollback action.
+     *
+     * @param array<int,array{0:string,1:string,2?:string}>|null $refreshers
+     */
+    public static function register_rollback_refreshers(?array $refreshers = null): void
+    {
+        foreach ($refreshers ?? self::ROLLBACK_REFRESHERS as $refresher) {
+            [$class, $method] = $refresher;
+            if (class_exists($class)) {
+                add_action($refresher[2] ?? 'wpmcp_rollback_options_restored', [$class, $method]);
+            }
+        }
+    }
+
     public static function set_flavor_for_tests(?string $flavor): void
     {
         if (! defined('WPMCP_TESTING') || ! WPMCP_TESTING) {
@@ -633,15 +675,10 @@ final class Plugin
             add_action('wp_ajax_wpmcp_restore', [new Restore_Controller(), 'handle']);
             // Redacted CSV export of the filtered request log (issue #303).
             add_action('admin_post_' . Audit_Log_Page::EXPORT_ACTION, [new Audit_Log_Page(), 'export_requests']);
-            // A rollback of a theme framework pack write rebuilds the active
-            // theme's generated CSS, as the write did (issue #316).
-            add_action('wpmcp_rollback_options_restored', [\WPMCP\Integrations\Theme_Framework_Pack::class, 'refresh_after_restore']);
-            // A rollback of an Elementor addon module toggle drops the suite's
-            // cached module map, as the write did (issue #286).
-            add_action('wpmcp_rollback_options_restored', [\WPMCP\Integrations\Elementor_Addon_Packs::class, 'after_restore']);
-            // A rollback of a block suite write rebuilds that suite's cached
-            // per-post CSS, as the write did (issue #287).
-            add_action('wpmcp_rollback_post_restored', [\WPMCP\Integrations\Block_Suite::class, 'refresh_after_restore']);
+            // Integrations that derive state from options rebuild it after a
+            // rollback puts those options back. Wired only for the classes
+            // this build ships; see register_rollback_refreshers().
+            self::register_rollback_refreshers();
             // The WP-Cron executor for trigger-backup's scheduled events: runs
             // the queued job (producing a backup artifact) and flips its
             // status to completed/failed. See Run_Backup_Job's docblock.

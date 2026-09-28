@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.56
+Stable tag: 0.8.57
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -95,6 +95,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.57 =
+* Fix: the WooCommerce build no longer crashes when undoing a settings change. Any site on that build should update.
+* The release builds now refuse to ship a hook that points at code the build leaves out.
 
 = 0.8.56 =
 * New: Elementor addon suite packs for Essential Addons, Premium Addons and Ultimate Addons. Agents can list each suite's widgets with their controls and switch its modules on or off, with every toggle undoable.
@@ -350,6 +354,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.57 =
+Fix: the WooCommerce build no longer crashes when undoing a settings change. Any site on that build should update.
 
 = 0.8.56 =
 New: Elementor addon suite packs for Essential Addons, Premium Addons and Ultimate Addons. Agents can list each suite's widgets with their controls and switch its modules on or off, with every toggle undoable.

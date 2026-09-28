@@ -894,11 +894,11 @@ $plugin_edits = [
     ["\n        \$this->register_forms_pack_abilities(\$registrar);\n", "\n", 1],
     // The block suite packs chained off the same group (issue #287).
     ["\n        \$this->register_block_suite_abilities(\$registrar);\n", "\n", 1],
-    // Their rollback hook in boot(): the class it names is not in this build.
+    // Their rollback refresher entry: the class it names is not in this build.
     [
-        "            // A rollback of a block suite write rebuilds that suite's cached\n"
-            . "            // per-post CSS, as the write did (issue #287).\n"
-            . "            add_action('wpmcp_rollback_post_restored', [\\WPMCP\\Integrations\\Block_Suite::class, 'refresh_after_restore']);\n",
+        "        // A block suite write dropped the suite's cached per-post CSS; its\n"
+            . "        // rollback does too (issue #287). Hooked on the post restore action.\n"
+            . "        [\\WPMCP\\Integrations\\Block_Suite::class, 'refresh_after_restore', 'wpmcp_rollback_post_restored'],\n",
         '',
         1,
     ],
@@ -1326,9 +1326,9 @@ $edits['src/Integrations/Theme_Integration.php'] = [
     ],
 ];
 $edits['src/Plugin.php'][] = [
-    "            // A rollback of an Elementor addon module toggle drops the suite's\n"
-        . "            // cached module map, as the write did (issue #286).\n"
-        . "            add_action('wpmcp_rollback_options_restored', [\\WPMCP\\Integrations\\Elementor_Addon_Packs::class, 'after_restore']);\n",
+    "        // An Elementor addon module toggle dropped the suite's cached module\n"
+        . "        // map; its rollback does too (issue #286).\n"
+        . "        [\\WPMCP\\Integrations\\Elementor_Addon_Packs::class, 'after_restore'],\n",
     '',
     1,
 ];
