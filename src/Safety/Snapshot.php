@@ -31,6 +31,9 @@ class Snapshot
         if ('wc_order' === $object_type) {
             return self::capture_wc_order((int) $object_id);
         }
+        if ('wc_order_full' === $object_type) {
+            return Wc_Order_Snapshot::capture((int) $object_id);
+        }
         if ('db_rows' === $object_type) {
             return self::capture_db_rows((string) $object_id);
         }
