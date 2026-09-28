@@ -34,6 +34,7 @@ return [
         'src/Tools/Multisite',
         'src/Tools/Dispatch',
         'src/Tools/Bridge',
+        'src/Tools/ThemeBuilder',
         'src/Tools/Search',
         'src/Tools/Sync',
         'src/Integrations',
