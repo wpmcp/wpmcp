@@ -15,7 +15,16 @@
  *  - {prefix}wfacp_stats: modules/checkouts/includes/class-wfacp-reporting.php,
  *    one row per order placed through a checkout step;
  *  - {prefix}bwf_optin_entries: modules/optins/admin/db/class-wfopp-db-tables.php,
- *    one row per optin submission, email included.
+ *    one row per optin submission, email included;
+ *  - {prefix}wfocu_event: created by the upsell add-on, so its DDL is not in
+ *    the free source. The columns are the ones the free plugin's own queries
+ *    select (admin/rest-api/class-wffn-rest-funnel-canvas.php,
+ *    includes/wffn-functions.php): one row per offer event, action_type_id
+ *    2 viewed and 4 accepted, value the offer revenue.
+ *
+ * WFOCU_Core() stands in for the upsell add-on's accessor. It answers the
+ * object in $GLOBALS['wpmcp_test_wfocu_core'], null by default, so the
+ * reader's add-on API path runs only in tests that set one.
  *
  * DDL commits implicitly, so callers create the tables in
  * wpSetUpBeforeClass() and drop them in wpTearDownAfterClass(), outside the
@@ -81,6 +90,19 @@ if ( ! function_exists( 'wpmcp_test_create_funnelkit_tables' ) ) {
 			KEY `funnel_id` (`funnel_id`),
 			KEY `date` (`date`)
 		) {$charset}" );
+
+		$wpdb->query( "CREATE TABLE `{$wpdb->prefix}wfocu_event` (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			sess_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			object_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			object_type varchar(100) NOT NULL DEFAULT '',
+			action_type_id tinyint(2) unsigned NOT NULL DEFAULT 0,
+			value varchar(255) NOT NULL DEFAULT '',
+			timestamp datetime NOT NULL,
+			PRIMARY KEY  (id),
+			KEY object_id (object_id),
+			KEY action_type_id (action_type_id)
+		) {$charset}" );
 		// phpcs:enable
 	}
 }
@@ -89,7 +111,7 @@ if ( ! function_exists( 'wpmcp_test_drop_funnelkit_tables' ) ) {
 	function wpmcp_test_drop_funnelkit_tables(): void {
 		global $wpdb;
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- test fixture DDL built from literals.
-		$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}bwf_funnels, {$wpdb->prefix}wfco_report_views, {$wpdb->prefix}wfacp_stats, {$wpdb->prefix}bwf_optin_entries" );
+		$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}bwf_funnels, {$wpdb->prefix}wfco_report_views, {$wpdb->prefix}wfacp_stats, {$wpdb->prefix}bwf_optin_entries, {$wpdb->prefix}wfocu_event" );
 	}
 }
 
@@ -113,5 +135,12 @@ if ( ! function_exists( 'wpmcp_test_funnelkit_funnel' ) ) {
 		);
 
 		return (int) $wpdb->insert_id;
+	}
+}
+
+if ( ! function_exists( 'WFOCU_Core' ) ) {
+	// phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid -- mirrors the upsell add-on's accessor name.
+	function WFOCU_Core() {
+		return $GLOBALS['wpmcp_test_wfocu_core'] ?? null;
 	}
 }
