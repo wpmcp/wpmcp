@@ -27,10 +27,10 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
 
         // The free forms pairs (issue #66) register only while their host
         // plugin was loaded at boot, which for a harness double depends on
-        // test order, so they are counted apart: 223 free abilities, of which
+        // test order, so they are counted apart: 230 free abilities, of which
         // 8 are the four free forms adapters' pairs.
         $forms = wpmcp_forms_pair_names();
-        $this->assertCount(215, array_diff($names, $forms));
+        $this->assertCount(222, array_diff($names, $forms));
         $this->assertLessThanOrEqual(8, count(array_intersect($names, $forms)));
     }
 
@@ -75,6 +75,34 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertSame('read', $abilities['wpmcp/list-operations']->operation);
         $this->assertSame('core', $abilities['wpmcp/rollback-operation']->domain);
         $this->assertSame('update', $abilities['wpmcp/rollback-operation']->operation);
+    }
+
+    public function test_theme_builder_abilities_are_tagged_theme_domain(): void
+    {
+        $abilities = $this->index(Plugin::instance()->registrar()->all());
+
+        foreach (
+            [
+                'wpmcp/create-site-part'     => 'create',
+                'wpmcp/list-site-parts'      => 'read',
+                'wpmcp/resolve-site-part'    => 'read',
+                'wpmcp/update-site-part'     => 'update',
+                'wpmcp/set-site-part-status' => 'update',
+                'wpmcp/delete-site-part'     => 'delete',
+            ] as $name => $operation
+        ) {
+            $this->assertArrayHasKey($name, $abilities);
+            $this->assertSame('theme', $abilities[$name]->domain, $name);
+            $this->assertSame($operation, $abilities[$name]->operation, $name);
+            // The engine is free; only the per-part-type cap is a tier thing.
+            $this->assertSame('free', $abilities[$name]->tier, $name);
+            // These templates render site-wide markup, so no edit_posts caller
+            // may write one.
+            $this->assertSame('manage_options', $abilities[$name]->capability, $name);
+        }
+
+        $this->assertTrue($abilities['wpmcp/resolve-site-part']->read_only_hint);
+        $this->assertTrue($abilities['wpmcp/delete-site-part']->destructive_hint);
     }
 
     public function test_content_abilities_are_tagged_content_domain(): void

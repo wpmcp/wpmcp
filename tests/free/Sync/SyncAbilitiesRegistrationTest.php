@@ -7,6 +7,7 @@ class SyncAbilitiesRegistrationTest extends \WP_UnitTestCase
     private const NAMES = [
         'wpmcp/build-change-set',
         'wpmcp/get-change-set',
+        'wpmcp/apply-change-set',
     ];
 
     public function test_sync_tools_are_registered_as_free_abilities(): void
@@ -44,5 +45,19 @@ class SyncAbilitiesRegistrationTest extends \WP_UnitTestCase
         foreach (self::NAMES as $name) {
             $this->assertTrue($abilities[ $name ]->check_permissions(), "{$name} must allow an administrator");
         }
+    }
+
+    public function test_apply_change_set_is_advertised_as_a_destructive_write(): void
+    {
+        $found = null;
+        foreach (\WPMCP\Tests\Free\Platform\RegisteredAbilities::all() as $ability) {
+            if ('wpmcp/apply-change-set' === $ability->name) {
+                $found = $ability;
+            }
+        }
+
+        $this->assertNotNull($found);
+        $this->assertFalse($found->read_only_hint);
+        $this->assertTrue($found->destructive_hint, 'It can overwrite live content (snapshotted), so clients must treat it as destructive');
     }
 }

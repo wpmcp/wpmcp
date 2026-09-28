@@ -81,6 +81,8 @@ const WITHHELD_METHODS = [
     'register_elementor_structural_abilities',
     'register_brand_kit_abilities',
     'register_memory_abilities',
+    'register_custom_code_abilities',
+    'register_custom_code_runtime_hooks',
 ];
 
 /** Directories never inspected: third-party code is not this build's prose. */
