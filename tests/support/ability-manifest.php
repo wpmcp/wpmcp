@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 351,
-    'free'      => 254,
+    'total'     => 352,
+    'free'      => 255,
     'pro'       => 97,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -275,6 +275,7 @@ return [
         'wpmcp/pmpro-write' => 'free',
         'wpmcp/query' => 'free',
         'wpmcp/read-file' => 'free',
+        'wpmcp/regenerate-elementor-css' => 'free',
         'wpmcp/reindex-search' => 'free',
         'wpmcp/remove-block' => 'free',
         'wpmcp/remove-element' => 'pro',
