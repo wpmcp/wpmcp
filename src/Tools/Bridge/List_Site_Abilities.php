@@ -53,6 +53,13 @@ class List_Site_Abilities
                 continue;
             }
 
+            // Outside the site allowlist, or refused by wpmcp governance for
+            // this request (toggle, filter, identity scope): not listed, so
+            // the listing only ever offers what get/execute would accept.
+            if (! Bridge_Guard::is_allowlisted($name) || null !== Bridge_Guard::governance_denial($ability)) {
+                continue;
+            }
+
             $owner = Bridge_Guard::owner_of($name);
             if ('' !== $plugin && $owner !== $plugin) {
                 continue;
@@ -69,6 +76,9 @@ class List_Site_Abilities
                 'summary'          => mb_substr($description, 0, self::SUMMARY_LENGTH),
                 'plugin'           => $owner,
                 'has_input_schema' => $has_schema,
+                // The governance operation derived from the owner's own
+                // annotations (read, update or delete).
+                'operation'        => Bridge_Guard::governed($ability)->operation,
                 // Honesty-critical: no snapshot promise for foreign code.
                 'reversible'       => false,
             ];

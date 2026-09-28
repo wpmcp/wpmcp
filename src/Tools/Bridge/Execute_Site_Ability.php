@@ -39,9 +39,14 @@ if (! defined('ABSPATH')) {
  *    third-party code mutates, so every result is wrapped with
  *    reversible:false rather than silently appearing to carry the rollback
  *    guarantee.
- *
- * TODO(#194): per-ability governance toggles for bridged names so a single
- * foreign ability can be disabled per identity/role/environment like ours.
+ *  - Each bridged ability is also governed individually, like one of ours
+ *    (Bridge_Guard::governance_denial()): by its own name, the "bridge"
+ *    domain and an operation derived from its annotations, plus identity
+ *    scope and project-memory block rules. That check can only refuse, and
+ *    it runs BEFORE execute(), never instead of the target's own gate.
+ *  - A site allowlist (Bridge_Guard::allowlist()) can narrow the bridge to
+ *    named abilities or namespaces; anything outside it answers like an
+ *    unregistered name.
  */
 class Execute_Site_Ability
 {
@@ -82,6 +87,15 @@ class Execute_Site_Ability
         // (ability_missing_input_schema) reaches the caller unchanged.
         if ([] === $arguments && empty($ability->get_input_schema())) {
             $arguments = null;
+        }
+
+        // wpmcp's own per-ability narrowing. A refusal here is final and
+        // audited; a pass grants nothing and falls through to the target's
+        // own gate below.
+        $denial = Bridge_Guard::governance_denial($ability, is_array($arguments) ? $arguments : []);
+        if (null !== $denial) {
+            $this->audit($name, false, 'bridge:' . $owner . ':' . $denial);
+            return Bridge_Guard::governance_error($name, $denial);
         }
 
         // The target's real gate: input validation and its own

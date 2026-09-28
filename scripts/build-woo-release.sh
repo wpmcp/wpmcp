@@ -158,6 +158,15 @@ rm -f \
 # are dead weight here, but Custom_Js_Guard stays because Opt_In_Gates
 # references it exactly as it references the wp-cli and PHP-snippet guards.
 
+# The in-admin chat (issue #73) is a paid feature this free-only build can
+# never run: Pro\Gate fails closed here, so its routes and screen are never
+# registered. The conversation store stays (Plugin.php registers the private
+# CPT and the owner-deletion purge unconditionally), but the one file that
+# talks to an LLM provider leaves the zip, so this build reaches no host its
+# readme does not disclose. Chat_Rest_Controller references the class only
+# inside a route callback, which cannot run without the routes.
+rm -f "$STAGE/src/Pro/Chat/Anthropic_Provider.php"
+
 # This build never calls Freemius (free-only, no license checks needed;
 # Pro\Gate fails closed without the SDK).
 composer install --working-dir="$STAGE" --no-dev --optimize-autoloader --quiet --no-interaction
