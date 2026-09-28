@@ -11,9 +11,10 @@ if (! defined('ABSPATH')) {
 /**
  * Block suite packs (issue #287) as one pro dispatcher pair,
  * wpmcp/block-suites-read and wpmcp/block-suites-write, registered only
- * while at least one supported suite is loaded. This first slice covers
- * Kadence Blocks and GenerateBlocks (see Block_Suite); pattern libraries
- * are not part of it.
+ * while at least one supported suite is loaded: Kadence Blocks,
+ * GenerateBlocks, Spectra, Otter Blocks and the Blocksy companion blocks
+ * (see Block_Suite), plus browsing and importing registered block patterns
+ * (see Block_Suite_Patterns).
  *
  * Every write goes through the surgical block engine (Block_Tree): the
  * expected_hash freshness proof, the round-trip guard, and one post
@@ -30,6 +31,13 @@ if (! defined('ABSPATH')) {
  *    (Block_Suite_Styles), which the front end prints verbatim;
  *  - then drops the suite's cached per-post CSS, as a rollback does too
  *    (Block_Suite::refresh_after_restore on wpmcp_rollback_post_restored).
+ *
+ * import-pattern inserts a registered pattern's blocks the same way, in one
+ * snapshot, with two differences: attributes are not refused (a suite's own
+ * pattern may carry attributes its current schema dropped, and the editor
+ * accepts them too), and remote images are first fetched into the Media
+ * Library through Remote_Image_Guard::sideload(), the guard every remote
+ * media fetch uses, before the post is snapshotted and written.
  */
 final class Block_Suites_Integration extends Integration_Dispatcher
 {
@@ -70,7 +78,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'Kadence Blocks and GenerateBlocks blocks';
+        return 'block suite blocks and patterns';
     }
 
     protected function operations(): array
@@ -83,6 +91,11 @@ final class Block_Suites_Integration extends Integration_Dispatcher
             'path'          => [ 'type' => 'array', 'minItems' => 1, 'items' => [ 'type' => 'integer', 'minimum' => 0 ] ],
         ];
         $suite_ready = [ self::class, 'refuse_inactive_suite' ];
+        $location    = [
+            'id'            => $edit_props['id'],
+            'expected_hash' => $edit_props['expected_hash'],
+            'path'          => $edit_props['path'],
+        ];
 
         return [
             'list-suites'       => [
@@ -95,7 +108,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
             'get-block-schemas' => [
                 'mode'         => 'read',
                 'tier'         => 'pro',
-                'description'  => 'The active suite\'s registered blocks (from its block.json files). Without name: every block with title, parent/ancestor and attribute names. With name: that block with its full attribute definitions (type, default, enum)',
+                'description'  => 'The active suite\'s blocks (block.json; Spectra: its attribute defaults, typed from the values, unknown attributes allowed). Without name: every block with title, parent/ancestor and attribute names. With name: that block with its full attribute definitions (type, default, enum)',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'suite' => $suite_prop, 'name' => [ 'type' => 'string' ] ],
@@ -132,6 +145,37 @@ final class Block_Suites_Integration extends Integration_Dispatcher
                 ],
                 'validate'          => $suite_ready,
                 'handler'           => [ self::class, 'update_block' ],
+            ],
+            'list-patterns'     => [
+                'mode'         => 'read',
+                'tier'         => 'pro',
+                'description'  => 'Browse registered block patterns (core, theme and suite): name, title, categories, the suites whose blocks each uses and its remote image count. Filter by suite, category or search (name or title); paged by limit and offset',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'suite'    => $suite_prop,
+                        'category' => [ 'type' => 'string' ],
+                        'search'   => [ 'type' => 'string' ],
+                        'limit'    => [ 'type' => 'integer', 'minimum' => 1, 'maximum' => 200 ],
+                        'offset'   => [ 'type' => 'integer', 'minimum' => 0 ],
+                    ],
+                ],
+                'handler'      => [ Block_Suite_Patterns::class, 'list_patterns' ],
+            ],
+            'import-pattern'    => [
+                'mode'              => 'write',
+                'tier'              => 'pro',
+                'self_snapshotting' => true,
+                'description'       => 'Insert registered pattern name AT path in post id (expected_hash from parse-blocks). Suite unique ids are made unique in the post as insert-block does. Remote images are sideloaded through the remote media host allowlist and their urls (and attachment ids) rewritten; others are kept and reported. sideload_images:false keeps all. One snapshot; rollback-operation restores the post (sideloaded media stays)',
+                'input_schema'      => [
+                    'type'       => 'object',
+                    'properties' => $location + [
+                        'name'            => [ 'type' => 'string', 'minLength' => 1 ],
+                        'sideload_images' => [ 'type' => 'boolean' ],
+                    ],
+                    'required'   => [ 'name', 'id', 'expected_hash', 'path' ],
+                ],
+                'handler'           => [ self::class, 'import_pattern' ],
             ],
         ];
     }
@@ -176,15 +220,9 @@ final class Block_Suites_Integration extends Integration_Dispatcher
         $types = [];
 
         if ('' !== $name) {
-            $type = self::suite_block_type($suite, $name);
-            $types = [ $name => $type ];
+            $types = [ $name => self::suite_block_type($suite, $name) ];
         } else {
-            foreach (\WP_Block_Type_Registry::get_instance()->get_all_registered() as $block_name => $type) {
-                if (0 === strpos((string) $block_name, $spec['namespace'])) {
-                    $types[ (string) $block_name ] = $type;
-                }
-            }
-            ksort($types, SORT_STRING);
+            $types = Block_Suite::block_types($suite);
         }
 
         $blocks = [];
@@ -207,6 +245,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
         return [
             'suite'               => $suite,
             'unique_id_attribute' => $spec['id_attr'],
+            'unknown_attributes'  => Block_Suite::strict_attributes($suite) ? 'refused' : 'allowed',
             'blocks'              => $blocks,
         ];
     }
@@ -270,7 +309,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
                 $attrs[ (string) $key ] = $value;
             }
         }
-        $problem = self::attribute_problem($type, $attrs);
+        $problem = self::attribute_problem($type, $attrs, Block_Suite::strict_attributes($suite));
         if (null !== $problem) {
             throw new Operation_Error('invalid_block_attributes', $problem, [ 'block' => $name ]);
         }
@@ -300,6 +339,81 @@ final class Block_Suites_Integration extends Integration_Dispatcher
         }
 
         return self::commit($suite, $post_id, $blocks, $path, $ids, 'update-block', $args, $context);
+    }
+
+    /**
+     * Insert a registered pattern's blocks at path in one snapshot: refuse
+     * an unknown pattern or a stale hash before anything is fetched, then
+     * sideload its remote images, id its suite blocks, write, and refresh the
+     * CSS of every suite the pattern uses. Media sideloaded for a write that
+     * then fails is deleted again.
+     *
+     * @param array{session_id:string} $context
+     */
+    public static function import_pattern(array $args, array $context): array
+    {
+        $content = Block_Suite_Patterns::content((string) $args['name']);
+        [ $post_id, $blocks ] = self::load($args);
+        $path = self::path($args);
+
+        $images = Block_Suite_Patterns::import_images($content, $post_id, false !== ($args['sideload_images'] ?? true));
+        $media  = array_filter(array_column($images['images'], 'media_id'));
+        try {
+            $nodes = array_values(array_filter(
+                parse_blocks($images['content']),
+                static fn (array $b) => null !== $b['blockName'] || '' !== trim((string) ($b['innerHTML'] ?? ''))
+            ));
+            if ([] === $nodes) {
+                throw new Operation_Error('unknown_pattern', sprintf('Pattern "%s" contains no blocks to insert.', (string) $args['name']));
+            }
+
+            $taken  = self::collect_ids($blocks);
+            $ids    = [];
+            $suites = [];
+            foreach ($nodes as $offset => $node) {
+                $at                      = $path;
+                $at[ count($at) - 1 ]   += $offset;
+                $node                    = Block_Suite_Patterns::relink_attachments($node, $images['map']);
+                $node                    = self::normalize($node, $post_id, $taken, $ids, $at, true);
+                $suites                 += Block_Suite_Patterns::suites_in(serialize_block($node));
+                try {
+                    $blocks = Block_Tree::insert($blocks, $at, $node);
+                } catch (\InvalidArgumentException $e) {
+                    throw new Operation_Error('invalid_block_edit', $e->getMessage());
+                }
+            }
+
+            $out = Block_Tree::write($post_id, $blocks, 'block-suites-write', [
+                'session_id' => (string) $context['session_id'],
+                'operation'  => 'import-pattern',
+                'args'       => $args,
+            ]);
+        } catch (\Throwable $e) {
+            foreach ($media as $attachment) {
+                wp_delete_attachment((int) $attachment, true);
+            }
+            throw $e;
+        }
+
+        $css = [];
+        foreach (array_keys($suites) as $suite) {
+            if (Block_Suite::is_active($suite)) {
+                $css[] = [ 'suite' => $suite ] + Block_Suite::refresh_css($suite, $post_id);
+            }
+        }
+
+        return [
+            'result'        => [
+                'id'           => $post_id,
+                'path'         => $path,
+                'inserted'     => count($nodes),
+                'content_hash' => $out['content_hash'],
+                'unique_ids'   => $ids,
+                'images'       => $images['images'],
+                'css'          => $css,
+            ],
+            'operation_ids' => [ $out['operation_id'] ],
+        ];
     }
 
     /** @return array{0:int,1:array} */
@@ -367,25 +481,27 @@ final class Block_Suites_Integration extends Integration_Dispatcher
      * @param array<string,array<string,bool>> $taken suite => ids in use
      * @param array<int,array<string,mixed>>   $ids   out: the ids assigned
      */
-    private static function normalize(array $node, int $post_id, array &$taken, array &$ids, array $rel_path): array
+    private static function normalize(array $node, int $post_id, array &$taken, array &$ids, array $rel_path, bool $import = false): array
     {
         $name  = (string) ($node['blockName'] ?? '');
         $suite = '' === $name ? null : Block_Suite::suite_of($name);
-        if (null !== $suite && Block_Suite::is_active($suite)) {
-            $type    = self::suite_block_type($suite, $name);
-            $attrs   = is_array($node['attrs'] ?? null) ? $node['attrs'] : [];
-            $problem = self::attribute_problem($type, $attrs);
-            if (null !== $problem) {
-                throw new Operation_Error('invalid_block_attributes', $problem, [ 'block' => $name ]);
+        if (null !== $suite && Block_Suite::is_active($suite) && (! $import || isset(Block_Suite::block_types($suite)[ $name ]))) {
+            if (! $import) {
+                $type    = self::suite_block_type($suite, $name);
+                $attrs   = is_array($node['attrs'] ?? null) ? $node['attrs'] : [];
+                $problem = self::attribute_problem($type, $attrs, Block_Suite::strict_attributes($suite));
+                if (null !== $problem) {
+                    throw new Operation_Error('invalid_block_attributes', $problem, [ 'block' => $name ]);
+                }
             }
             $node = self::assign_id($node, $suite, $post_id, $taken, $ids, $rel_path);
-            if (Block_Suite::GENERATEBLOCKS === $suite && ! empty($node['attrs']['styles'])) {
+            if (! $import && Block_Suite::GENERATEBLOCKS === $suite && ! empty($node['attrs']['styles'])) {
                 $node = self::compile_css($node);
             }
         }
 
         foreach ((array) ($node['innerBlocks'] ?? []) as $i => $child) {
-            $node['innerBlocks'][ $i ] = self::normalize($child, $post_id, $taken, $ids, array_merge($rel_path, [ (int) $i ]));
+            $node['innerBlocks'][ $i ] = self::normalize($child, $post_id, $taken, $ids, array_merge($rel_path, [ (int) $i ]), $import);
         }
         return $node;
     }
@@ -407,7 +523,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
         $taken[ $suite ] = $taken[ $suite ] ?? [];
         $old             = $node['attrs'][ $id_attr ] ?? '';
         $keep            = Block_Suite::keeps_id($suite, $old, $post_id, $taken[ $suite ]);
-        $new             = $keep ? (string) $old : Block_Suite::generate_id($suite, $post_id, $taken[ $suite ]);
+        $new             = $keep ? (string) $old : Block_Suite::generate_id($suite, $post_id, $taken[ $suite ], (string) $node['blockName']);
 
         $node['attrs'][ $id_attr ] = $new;
         $taken[ $suite ][ $new ]    = true;
@@ -471,21 +587,24 @@ final class Block_Suites_Integration extends Integration_Dispatcher
     /** The registered block type of a suite block, or an unknown_suite_block refusal. */
     private static function suite_block_type(string $suite, string $name): \WP_Block_Type
     {
-        $type = \WP_Block_Type_Registry::get_instance()->get_registered($name);
-        if (! $type || Block_Suite::suite_of($name) !== $suite) {
+        $type = Block_Suite::suite_of($name) === $suite ? (Block_Suite::block_types($suite)[ $name ] ?? null) : null;
+        if (! $type) {
             throw new Operation_Error('unknown_suite_block', sprintf('"%s" is not a registered %s block.', $name, (string) (Block_Suite::spec($suite)['label'] ?? $suite)), [ 'block' => $name ]);
         }
         return $type;
     }
 
-    /** Why a set of attributes does not fit the block's registered schema, or null. */
-    private static function attribute_problem(\WP_Block_Type $type, array $attrs): ?string
+    /**
+     * Why a set of attributes does not fit the block's schema, or null. A
+     * lenient suite (Spectra) lets attributes its schema does not list through.
+     */
+    private static function attribute_problem(\WP_Block_Type $type, array $attrs, bool $strict = true): ?string
     {
         $schema = is_array($type->attributes ?? null) ? $type->attributes : [];
         foreach ($attrs as $key => $value) {
             $key = (string) $key;
             if (! isset($schema[ $key ])) {
-                if (in_array($key, self::CORE_ATTRIBUTES, true)) {
+                if (! $strict || in_array($key, self::CORE_ATTRIBUTES, true)) {
                     continue;
                 }
                 return sprintf('"%s" is not an attribute of %s. Read its schema with get-block-schemas.', $key, $type->name);
