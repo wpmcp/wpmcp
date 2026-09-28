@@ -469,7 +469,6 @@ final class FunnelKit_Pack
             'meta_key'         => '_funnel_id', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- the link FunnelKit itself keeps from an offer to its upsell step.
             'meta_value'       => (string) $upsell_id, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- as above.
             'no_found_rows'    => true,
-            'suppress_filters' => true,
         ]);
         if ([] === $ids) {
             return null;
