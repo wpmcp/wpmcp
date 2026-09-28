@@ -82,6 +82,11 @@ return [
         'src/Tools/Performance/Curl_Dns_Pin.php',
         // Paid ability whose handler lives inside an otherwise free directory.
         'src/Tools/Media/Stock/Insert_Stock_Image.php',
+        // Cloud settings sync (issue #135). The engine behind the paid
+        // cloud-sync-settings / cloud-apply-settings wrappers, and its apply()
+        // path is the Pro\Gate entitlement itself. Only src/Tools/Cloud
+        // reaches it, so once the wrappers are gone it goes too.
+        'src/Cloud/Settings_Sync.php',
         // Same shape for the SEO group (issue #67): the post-meta surface
         // stays free, so the directory cannot go whole, but generation, the
         // extended social vocabulary and term-level SEO are paid. The helpers

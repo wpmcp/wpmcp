@@ -62,8 +62,15 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  lifecycle store (#85) adds seven tools whose descriptions were trimmed
      *  to the store-vs-Elementor-custom-code disambiguation, the
      *  created-inactive rule and the execution-gate refusal. Raised 180000 ->
-     *  185000 when main was merged into the theme dispatcher branches (#144,
-     *  #69): main itself measured 180308 bytes over 326 tools once #85 and #262
+     *  185000 for cloud settings sync and marketplace (#135: sync-, push- and
+     *  apply-settings, marketplace-browse, marketplace-install): main had
+     *  reached 179878 bytes over 326 tools, so no new tool fit; the five
+     *  descriptions were trimmed first (182841 -> 182175 bytes) but still
+     *  name what never syncs, the merge-not-replace and never-disable
+     *  rollback rules, and the inactive-draft install, since an agent that
+     *  misses those makes a failed or unsafe call.
+     *  The same 185000 also covers main being merged into the theme
+     *  dispatcher branches (#144, #69): main itself measured 180308 bytes over 326 tools once #85 and #262
      *  had both landed, and the theme-read/theme-write pair adds about 820
      *  bytes that are almost all the shared dispatcher text, so no
      *  theme-specific trim could make it fit. Raised 185000 -> 186000 when
@@ -89,12 +96,16 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  descriptions, about 8.5KB for the 13 tools (the raise approved in
      *  review, re-applied on the newer main). The coupon write
      *  schemas are most of it: they list every writable field so an agent
-     *  can set limits and restrictions without a schema round trip. Compact
-     *  tool mode keeps clients with tool caps at ~2.8KB regardless. *  Raised 195000 -> 196000 when regenerate-elementor-css (#272) met
+     *  can set limits and restrictions without a schema round trip. Raised
+     *  195000 -> 196000 when regenerate-elementor-css (#272) met
      *  upload-media on main: 195107 bytes over 352 tools, with the new
-     *  description already cut to 40 characters.
-     */
-    private const TOOLS_LIST_BYTE_BUDGET = 196000;
+     *  description already cut to 40 characters. Raised
+     *  196000 -> 198000 when the five cloud settings sync and marketplace
+     *  tools (#135) met that main: 197816 bytes over 366 tools, after their
+     *  descriptions were trimmed twice without dropping the never-syncs,
+     *  merge, never-disable-rollback or inactive-install rules.
+     *  Compact tool mode keeps clients with tool caps at ~2.8KB regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 198000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
