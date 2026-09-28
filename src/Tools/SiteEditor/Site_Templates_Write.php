@@ -20,7 +20,8 @@ if (! defined('ABSPATH')) {
  *    "blocks" (a parsed tree as site-templates-read returns it). For a
  *    template that only lives in a theme file this creates the user
  *    customization core renders instead; the theme file is never written.
- *  - add_block, update_block, remove_block: one block by "path", with the
+ *  - add_block (the block in "content"), update_block, remove_block: one
+ *    block by "path", with the
  *    same targeting and expected_hash freshness rule as the surgical block
  *    tools, through the same Block_Tree helpers.
  *  - revert (templates and parts only): delete the customization, so the
@@ -239,7 +240,7 @@ class Site_Templates_Write
             return Block_Tree::remove($blocks, $path);
         }
         if ('add_block' === $action) {
-            return Block_Tree::insert($blocks, $path, $this->single_block((string) ($args['markup'] ?? '')));
+            return Block_Tree::insert($blocks, $path, $this->single_block((string) ($args['content'] ?? '')));
         }
         return Block_Tree::replace($blocks, $path, $this->updated_node(Block_Tree::get($blocks, $path), $args));
     }
@@ -262,7 +263,7 @@ class Site_Templates_Write
             static fn (array $b) => null !== $b['blockName'] || '' !== trim((string) ($b['innerHTML'] ?? ''))
         ));
         if (1 !== count($parsed) || null === $parsed[0]['blockName']) {
-            throw new \InvalidArgumentException('"markup" must contain exactly one block (a single "<!-- wp:... -->" delimited block).');
+            throw new \InvalidArgumentException('add_block needs "content" holding exactly one block (a single "<!-- wp:... -->" delimited block).');
         }
         return $parsed[0];
     }

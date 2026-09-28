@@ -115,6 +115,9 @@ use WPMCP\Tools\Meta\Set_Post_Meta;
 use WPMCP\Tools\Meta\Get_Option;
 use WPMCP\Tools\Meta\Update_Option;
 use WPMCP\Tools\SEO\Get_SEO_Status;
+use WPMCP\Tools\SEO\Crawler_Files;
+use WPMCP\Tools\SEO\Get_Crawler_Files;
+use WPMCP\Tools\SEO\Update_Crawler_Files;
 use WPMCP\Tools\SEO\Get_SEO_Meta;
 use WPMCP\Tools\SEO\Update_SEO_Meta;
 use WPMCP\Tools\SEO\SEO_Adapter;
@@ -726,6 +729,10 @@ final class Plugin
             // no managed redirect matches, this does nothing and canonical
             // behavior is untouched. See Redirect_Handler's docblock.
             add_action('template_redirect', [new Redirect_Handler(), 'maybe_redirect'], Redirect_Handler::PRIORITY);
+            // Managed crawler files (issue #384): robots.txt rules, llms.txt and
+            // the core sitemap exclusions, all read from one option at request
+            // time. See Crawler_Files.
+            Crawler_Files::register_runtime_hooks();
             // The WP-Cron executor for a background broken-link scan: one
             // batch per run, rescheduling itself until the scan completes.
             add_action(Run_Broken_Link_Scan::HOOK, [new Run_Broken_Link_Scan(), 'handle']);
@@ -3722,7 +3729,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/dispatch-cli-job',
             'pro',
-            'Queue an allowlisted wp-cli command as a background job and return its id at once, for long work; poll with get-cli-job. Gates as run-wp-cli: off by default (WPMCP_ALLOW_WP_CLI or wpmcp_allow_wp_cli), refused on production without a separate override, allowlisted subcommands and flags only, no shell metacharacters. Gates are re-checked when the job runs (closing them stops queued jobs). timeout seconds (default 300, max 900). Refused while too many jobs are queued or running',
+            'Queue an allowlisted wp-cli command as a background job; returns its id at once (poll get-cli-job). Same gates as run-wp-cli: off by default (WPMCP_ALLOW_WP_CLI or wpmcp_allow_wp_cli), refused on production without a separate override, allowlisted subcommands and flags, no shell metacharacters; re-checked when the job runs (closing them stops queued jobs). timeout seconds (default 300, max 900). Refused while too many jobs are queued or running',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3896,7 +3903,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-scoped-css',
             'pro',
-            'Store CSS for one post/page (post_id required), printed in wp_head only there. Pass css, or a selector plus bare declarations; element_id (Elementor) scopes it to .elementor-element-<id>. Appends; replace=true overwrites, css="" with replace=true clears. Site-wide: add-custom-css. Needs edit_css and manage_options. Script-capable CSS (markup, expression(), script or data: URLs, @import) is refused, even obfuscated. Snapshot-first per page',
+            'Store CSS for one post/page (post_id required), printed in wp_head only there. Pass css, or a selector plus bare declarations; element_id (Elementor) scopes it to .elementor-element-<id>. Appends; replace=true overwrites, css="" + replace=true clears. Site-wide: add-custom-css. Needs edit_css and manage_options. Refuses script-capable CSS (markup, expression(), script or data: URLs, @import), even obfuscated. Snapshot-first per page',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4114,7 +4121,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-site-context',
             'free',
-            'Orientation payload for an agent: site name, URL, tagline, WordPress and PHP versions, theme, active plugins, public post types with counts, taxonomies, user count, locale, timezone, multisite, and which integrations (Elementor, WooCommerce, ACF, Yoast, RankMath) are active. No admin email. Read-only',
+            'Orientation payload: site name, URL, tagline, WordPress and PHP versions, theme, active plugins, public post types with counts, taxonomies, user count, locale, timezone, multisite, and active integrations (Elementor, WooCommerce, ACF, Yoast, RankMath). No admin email. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -4138,7 +4145,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-page-snapshot',
             'free',
-            'One-call page digest: structure counts, outline, media and link inventory, builder detection, SEO-lite signals, from stored post_content (content_coverage flags gaps on builder pages). Heavy sections (global_tokens, responsive_overrides) are opt-in via sections. Size-capped. Read-only',
+            'One-call page digest from stored post_content: structure counts, outline, media and link inventory, builder detection, SEO-lite signals (content_coverage flags builder page gaps). Heavy sections (global_tokens, responsive_overrides) are opt-in via sections. Size-capped. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4343,7 +4350,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/convert-html-to-blocks',
             'free',
-            'Convert raw HTML to Gutenberg block markup: top-level h1-h6, p, img, ul/ol, blockquote, pre/code, hr and table map to core blocks; anything else is wrapped in core/html so nothing is lost. Pure transform, never touches a post; write the result with update-blocks',
+            'Convert raw HTML to Gutenberg block markup: h1-h6, p, img, ul/ol, blockquote, pre/code, hr and table map to core blocks; anything else is wrapped in core/html so nothing is lost. Pure transform, never touches a post; write it with update-blocks',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4396,7 +4403,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/site-templates-write',
             'free',
-            'Edit a block theme template or part (id: slug or theme//slug) or wp_navigation menu (id). save: content or blocks, customizing over the theme file; add_block/update_block/remove_block: one block by path with expected_hash; revert: delete the customization. Snapshot-first',
+            'Edit a block theme template or part (id: slug or theme//slug) or wp_navigation menu (id). save: content or blocks, customizing over the theme file; add_block (content: one block)/update_block/remove_block: by path with expected_hash; revert: delete the customization. Snapshot-first',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4406,7 +4413,6 @@ final class Plugin
                     'content'       => [ 'type' => 'string' ],
                     'blocks'        => [ 'type' => 'array' ],
                     'path'          => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
-                    'markup'        => [ 'type' => 'string' ],
                     'attrs'         => [ 'type' => 'object' ],
                     'inner_html'    => [ 'type' => 'string' ],
                     'expected_hash' => [ 'type' => 'string' ],
@@ -4474,7 +4480,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-block',
             'free',
-            'Surgically update ONE block in place by "path" (zero-based indexes into the parse-blocks tree, descending innerBlocks): replace "attrs" (full replacement) and/or "inner_html" (leaf blocks only; target a container\'s children by their own paths). Requires expected_hash (content_hash from parse-blocks); stale reads are refused. Snapshot-first; other blocks stay byte-identical',
+            'Update ONE block in place by "path" (zero-based indexes into the parse-blocks tree, descending innerBlocks): replace "attrs" (full replacement) and/or "inner_html" (leaf blocks only; target a container\'s children by their own paths). Requires expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; every other block stays byte-identical',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4654,7 +4660,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-term',
             'free',
-            'Create a category, tag or custom taxonomy term. Snapshot-first, so the creation itself is reversible with rollback-operation. Refuses an existing slug, a missing parent, or a parent on a non-hierarchical taxonomy',
+            'Create a category, tag or custom taxonomy term. Snapshot-first; rollback-operation reverses the creation. Refuses an existing slug, a missing parent, or a parent on a non-hierarchical taxonomy',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4911,7 +4917,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-content',
             'free',
-            'WXR export via core export_wp(), narrowed by content, author, start_date, end_date, status. Writes to a protected uploads directory; returns path, size, count. Once per PHP process (core limit). mirror:true instead writes builder pages as stable JSON files for git (post_id, or all 50 per page). Read-only',
+            'WXR export via core export_wp(), narrowed by content, author, start_date, end_date, status, to a protected uploads directory; returns path, size, count. Once per PHP process (core limit). mirror:true instead writes builder pages as stable JSON files for git (post_id, or all 50 per page). Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5106,7 +5112,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Restore this site in place from a site-backup archive (job_id or path). dry_run defaults to TRUE: a report checking format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false first takes a database safety archive (job id returned; no restore if it fails), holds maintenance mode, imports each statement, and on failure reports it and rolls back. preserve_session (default true) keeps the caller signed in. include_files (default false, scope all) stages and swaps in wp-content. Paths outside the site-backup directory are refused',
+            'Restore this site in place from a site-backup archive (job_id or path). dry_run defaults to TRUE: a report on format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false first takes a database safety archive (job id returned; no restore if it fails), holds maintenance mode, imports each statement, and on failure reports it and rolls back. preserve_session (default true) keeps the caller signed in. include_files (default false, scope all) stages and swaps in wp-content. Refuses paths outside the site-backup dir',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5191,7 +5197,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/push-site-archive',
             'free',
-            'Push a site-backup archive (job_id or path; scope all or database) to another wpmcp site at target_url as its administrator (target_user + target_app_password, or target_token). dry_run (default) only checks the target; dry_run:false + confirm:true uploads resumable chunks for max_seconds (call again to go on); apply:true also has the target restore it (safety archive first) and rewrite URLs. Needs the outgoing-migration opt-in here and the incoming one there',
+            'Push a site-backup archive (job_id or path; scope all or database) to another wpmcp site at target_url as its admin (target_user + target_app_password, or target_token). dry_run (default) only checks the target; dry_run:false + confirm:true uploads resumable chunks for max_seconds (call again to go on); apply:true also has the target restore it (safety archive first) and rewrite URLs. Needs the outgoing-migration opt-in here, incoming there',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5322,7 +5328,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/build-change-set',
             'free',
-            'Build a local-live sync change set (objects, media bytes, terms, templates, global classes, base revisions) from a ledger marker (session_id, operation_id or since_id) and/or objects refs (post:ID, option:theme_mods_X, term:TAX:SLUG) into a JSON artifact in the site-backup dir. dry_run lists it without writing',
+            'Build a local-live sync change set (objects, media bytes, terms, templates, global classes, base revisions) from a ledger marker (session_id, operation_id or since_id) and/or object refs (post:ID, option:theme_mods_X, term:TAX:SLUG) as a JSON artifact in the site-backup dir. dry_run only lists it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5359,7 +5365,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/apply-change-set',
             'free',
-            'Apply a change set (change_set from get-change-set raw=true, or path) here. dry_run defaults to true. Only selected objects are written, snapshot-first; media, terms and templates are only added; objects changed here since the base are refused unless keyed in force; deletions never apply. rollback-session undoes it',
+            'Apply a change set (change_set from get-change-set raw=true, or path) here; dry_run defaults to true. Only selected objects are written, snapshot-first; media, terms and templates are only added; objects changed here since the base are refused unless keyed in force; deletions never apply. rollback-session undoes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6058,7 +6064,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-elementor-data',
             'pro',
-            'A page\'s parsed Elementor tree (id, elType, widgetType, settings, children). Large pages: summary=true (skeleton plus label and child and descendant counts), max_depth (cut nodes report truncated_children) or element_id for one subtree. Reports total_elements, returned_elements, truncated; data_hash covers the whole page, so windowed reads give a valid expected_hash. Read-only',
+            'A page\'s parsed Elementor tree (id, elType, widgetType, settings, children). Large pages: summary=true (skeleton with labels and child/descendant counts), max_depth (cut nodes report truncated_children) or element_id for one subtree. Reports total_elements, returned_elements, truncated; data_hash covers the whole page, so windowed reads are a valid expected_hash. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6101,7 +6107,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-widget',
             'pro',
-            'Add a widget to a page\'s _elementor_data under parent_id (or top level) at an optional position. Cataloged widget_types (list-widgets) take typed params validated before any write; other registered widgets take raw settings. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Add a widget to a page\'s _elementor_data under parent_id (or top level) at an optional position. Cataloged widget_types (list-widgets) take typed params validated before any write; other registered widgets take raw settings. Needs expected_hash from get-elementor-data. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6254,7 +6260,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/replace-system-colors',
             'pro',
-            'Atomically replace all four Elementor system color slots (primary, secondary, text, accent) on the active kit: every slot exactly once with a valid hex color, or nothing is written. An entry without "title" keeps the current title. Requires expected_hash from get-global-settings. Undoable via rollback-operation',
+            'Atomically replace all four Elementor system color slots (primary, secondary, text, accent) on the active kit: each exactly once with a valid hex color, or nothing is written. No "title" keeps the current one. Needs expected_hash from get-global-settings. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6332,7 +6338,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/save-as-template',
             'pro',
-            'Save a page\'s Elementor content as a reusable elementor_library template of the given template_type (page, section, container, header, footer, single, archive, popup, ...; defaults to page). Creating a template destroys nothing, so it is not snapshotted; remove it with delete-post',
+            'Save a page\'s Elementor content as a reusable elementor_library template of template_type (page, section, container, header, footer, single, archive, popup, ...; default page). Not snapshotted (a create destroys nothing); remove with delete-post',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6377,7 +6383,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/import-template',
             'pro',
-            'Create an elementor_library template from a portable export envelope (as export-page and export-template produce), also across sites. Element ids are regenerated; the envelope\'s page_settings and display conditions apply when present. Not snapshotted (a create destroys nothing); remove with delete-post',
+            'Create an elementor_library template from an export-page or export-template envelope, also across sites. Element ids are regenerated; the envelope\'s page_settings and display conditions apply when present. Not snapshotted (a create destroys nothing); remove with delete-post',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6439,7 +6445,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-template-conditions',
             'pro',
-            'Set where an Elementor theme template renders: display conditions as arrays of parts (["include","singular","post"]) or slash strings ("include/general"). Uses Elementor Pro\'s conditions manager when present, else writes the same _elementor_conditions meta. Snapshot-first, undoable via rollback-operation',
+            'Set where an Elementor theme template renders: conditions as part arrays (["include","singular","post"]) or slash strings ("include/general"), through Elementor Pro\'s conditions manager when present, else the same _elementor_conditions meta. Snapshot-first, undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6496,7 +6502,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/resolve-theme-template',
             'pro',
-            'Report which Elementor theme-builder template wins for a location (header, footer, single, archive, ...): every candidate with its conditions, specificity score and matching excludes, plus the winner. post_type/post_id resolve against a real target; without them only specificity counts. Read-only',
+            'Which Elementor theme-builder template wins for a location (header, footer, single, archive, ...): every candidate with its conditions, specificity and matching excludes, plus the winner. post_type/post_id resolve against a real target; without them only specificity counts. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6536,7 +6542,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-elementor-version',
             'pro',
-            'Elementor and Elementor Pro versions, whether atomic elements (4.0+) are supported (supports_atomic), and whether the four atomic write tools are registered here (atomic_tools_registered): they register only on a builder that renders atomic elements, so check before assuming them. Read-only',
+            'Report the Elementor and Elementor Pro versions, supports_atomic (Elementor 4.0+), and atomic_tools_registered: the four atomic write tools register only on a builder that renders atomic elements, so check before assuming they exist. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -6677,7 +6683,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-code-snippet',
             'pro',
-            'Create an Elementor Custom Code snippet (elementor_snippet post with _elementor_code, _elementor_location, _elementor_priority); location is wp_head, wp_body_open or wp_footer. Stored anywhere; renders where Elementor Pro Custom Code is active. Not snapshotted (a create destroys nothing); remove with delete-code-snippet',
+            'Create an Elementor Custom Code snippet (elementor_snippet post: _elementor_code, _elementor_location, _elementor_priority). location: wp_head, wp_body_open or wp_footer. Stored on any site; renders where Elementor Pro Custom Code is active. Not snapshotted (a create destroys nothing); remove with delete-code-snippet',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6799,7 +6805,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/apply-brand-kit',
             'pro',
-            'Apply a brand kit to the active Elementor kit (system colors, swatches, the four system typography tokens, logo) as ONE snapshotted operation. Without confirm:true nothing is written and the per-token diff plus settings_hash is returned; with it, expected_hash must match. Any invalid entry refuses the whole kit. Undo with rollback-brand-kit or rollback-operation',
+            'Apply a brand kit to the active Elementor kit (system colors, swatches, the four system typography tokens, logo) as ONE snapshotted operation. Without confirm:true it only returns the per-token diff and settings_hash; with it, expected_hash must match. Any invalid entry refuses the whole kit. Undo: rollback-brand-kit or rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6821,7 +6827,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/rollback-brand-kit',
             'pro',
-            'Undo a brand-kit apply by restoring the single snapshot it took, putting palette, swatches, typography and logo back as they were. Defaults to the most recent apply not already rolled back, so the operation_id need not be remembered; pass operation_id to target a specific apply',
+            'Undo a brand-kit apply by restoring its single snapshot (palette, swatches, typography, logo). Defaults to the most recent apply not yet rolled back; pass operation_id to target a specific apply',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6886,7 +6892,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-global-class',
             'pro',
-            'Create an Elementor v4 global class (Class Manager) with a label and styles; returns its g- id. Pass friendly "styles" and/or raw $$type "props" with optional breakpoint/state; styles are validated against Elementor\'s schema, so a property it would drop is refused. Requires expected_hash from list-global-classes. Undoable via rollback-operation',
+            'Create an Elementor v4 global class (Class Manager) with a label and styles; returns its g- id. Pass friendly "styles" and/or raw $$type "props", optional breakpoint/state; validated against Elementor\'s schema, so a property it would drop is refused. Needs expected_hash from list-global-classes. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7101,7 +7107,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-container',
             'pro',
-            'Create an Elementor layout element (container by default, or section/column) at the top level or under parent_id, at an optional position. Columns need a parent; widgets are never parents. Requires expected_hash from get-elementor-data; stale reads are refused. Undoable via rollback-operation',
+            'Create an Elementor layout element (container by default, or section/column) at the top level or under parent_id, at an optional position. Columns need a parent; widgets are never parents. Needs expected_hash from get-elementor-data; stale reads are refused. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7396,7 +7402,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-product',
             'free',
-            'Update a WooCommerce product\'s fields (price, stock, description, etc.). stock_status is accepted only while stock is unmanaged and never on a variable product. A product is a post, so this is snapshotted via object_type post and rollback-operation restores the prior price and stock exactly',
+            'Update a WooCommerce product\'s fields (price, stock, description, etc.). stock_status is accepted only while stock is unmanaged and never on a variable product. Snapshotted as a post; rollback-operation restores the prior price and stock exactly',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7985,7 +7991,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-write',
             'pro',
-            'Run one write op from woo-ops, or a batch of up to 25, as in-process wc/v3 requests as the current user, gated like woo-read. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. Refunds are not recoverable and call the gateway only with api_refund:true. Deletes and refunds are off until the wpmcp_woo_op_enabled filter allows them, and need confirm:true. A batch prechecks every item, refuses whole on any failure, shares one session_id for rollback-session',
+            'Run one write op from woo-ops, or a batch of up to 25, as in-process wc/v3 requests as the current user, gated like woo-read. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. Refunds are unrecoverable and call the gateway only with api_refund:true. Deletes and refunds are off until the wpmcp_woo_op_enabled filter allows them, and need confirm:true. A batch prechecks every item, refuses whole on any failure, and shares one session_id for rollback-session',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8189,7 +8195,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-menu-item',
             'free',
-            'Update a navigation menu item\'s title, url, parent, or position. A menu item is a post, so this is snapshotted via object_type post and rollback-operation restores the prior values exactly',
+            'Update a navigation menu item\'s title, url, parent, or position. Snapshotted as a post; rollback-operation restores the prior values exactly',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8210,7 +8216,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/remove-menu-item',
             'free',
-            'Remove an item from a navigation menu. The item is a post, so this is snapshotted via object_type post and rollback-operation resurrects it at its original id, re-attached to its menu',
+            'Remove an item from a navigation menu. Snapshotted as a post; rollback-operation resurrects it at its original id, re-attached to its menu',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8227,7 +8233,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/assign-menu-to-location',
             'free',
-            'Assign a navigation menu to a registered theme location. The assignment lives in the nav_menu_locations theme_mod, so this is snapshotted via object_type option and rollback-operation restores the prior assignment',
+            'Assign a navigation menu to a registered theme location (the nav_menu_locations theme_mod). Snapshotted; rollback-operation restores the prior assignment',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8317,7 +8323,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-fields',
             'free',
-            'Set one or more ACF field values on a post via update_field(). A field value is ordinary postmeta, so this is snapshotted via object_type post and rollback-operation restores the prior values exactly. Disabled by default (site must opt in via the wpmcp_enable_acf_write filter)',
+            'Set one or more ACF field values on a post via update_field(). Snapshotted as a post; rollback-operation restores the prior values exactly. Disabled by default (site must opt in via the wpmcp_enable_acf_write filter)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8353,7 +8359,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-seo-status',
             'free',
-            'Report which SEO plugin (Yoast SEO or Rank Math) is active on this site, by name and version',
+            'Report which SEO plugin is active on this site, by name and version',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -8362,6 +8368,54 @@ final class Plugin
             'edit_posts',
             'seo',
             'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/get-crawler-files',
+            'free',
+            'robots.txt (served output, physical file, managed rules), llms.txt, and the served sitemap (core or SEO plugin) with its post types',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [new Get_Crawler_Files(), 'handle'],
+            'edit_posts',
+            'seo',
+            'read'
+        ));
+
+        $registrar->register(new Ability(
+            'wpmcp/update-crawler-files',
+            'free',
+            'Add robots.txt rules (filter, never the file), build llms.txt from pages, or exclude post types, taxonomies or posts from the core sitemap (lists replace). Refused if a physical file or the SEO plugin owns it. Snapshotted',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'robots_rules' => [ 'type' => 'string' ],
+                    'llms'         => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'enabled' => [ 'type' => 'boolean' ],
+                            'title'   => [ 'type' => 'string' ],
+                            'summary' => [ 'type' => 'string' ],
+                            'pages'   => [ 'type' => 'array', 'items' => [ 'type' => 'object' ] ],
+                        ],
+                    ],
+                    'sitemap'      => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'exclude_post_types' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                            'exclude_taxonomies' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                            'exclude_post_ids'   => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
+                        ],
+                    ],
+                    'session_id'   => [ 'type' => 'string' ],
+                ],
+            ],
+            [new Update_Crawler_Files(), 'handle'],
+            'manage_options',
+            'seo',
+            'update'
         ));
 
         $this->register_seo_pro_abilities($registrar);
@@ -8392,7 +8446,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-seo-meta',
             'free',
-            'Set a post\'s SEO title, meta description, focus keyword, canonical URL, and/or robots flags (noindex/nofollow) via the active SEO plugin\'s postmeta keys. A field value is ordinary postmeta, so this is snapshotted via object_type post and rollback-operation restores the prior values exactly',
+            'Set a post\'s SEO title, meta description, focus keyword, canonical URL and/or robots flags (noindex/nofollow) via the active SEO plugin\'s postmeta keys. Snapshotted as a post; rollback-operation restores the prior values exactly',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8623,7 +8677,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-post-language',
             'free',
-            'Assign a post to a language (by code) via the active multilingual plugin (Polylang or WPML). For Polylang the language is a term in the \'language\' taxonomy, so this is snapshotted via object_type post and rollback-operation restores the prior language assignment exactly',
+            'Assign a post to a language (by code) via the active multilingual plugin (Polylang or WPML). Snapshotted as a post (a Polylang language is a term); rollback-operation restores the prior language assignment exactly',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9211,7 +9265,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-tools',
             'free',
-            'List every tool this install registers: name, short summary, domain, operation and tier, sorted by name. Optional domain filter; full:true adds full descriptions and MCP annotations; schemas stay behind get-tool-schema. Read-only. In compact mode this is the discovery entry point for unlisted tools',
+            'List every tool this install registers: name, summary, domain, operation and tier, by name. Optional domain filter; full:true adds full descriptions and MCP annotations; schemas are behind get-tool-schema. Read-only. In compact mode, the discovery entry point for unlisted tools',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9243,7 +9297,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/call-tool',
             'free',
-            'Invoke any wpmcp tool by name with an arguments object: the dispatch path for tools compact mode hides from tools/list. The target\'s own permission checks (capability, governance, identity scope, license), rate limit, input validation and snapshot/rollback behavior apply exactly as if called directly; access can never widen. Refuses tools not registered by wpmcp and the meta-tools themselves',
+            'Invoke any wpmcp tool by name with an arguments object, the path to tools compact mode hides from tools/list. The target\'s own checks (capability, governance, identity scope, license, rate limit, input validation, snapshot/rollback) apply as if called directly; it never widens access. Refuses non-wpmcp tools and the meta-tools',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9288,7 +9342,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-site-abilities',
             'free',
-            'List every ability OTHER plugins register via the Abilities API: name, summary, owning plugin, whether an input schema exists, and reversible:false (outside the wpmcp rollback guarantee). Optional plugin filter. Read-only. Needs the site ability bridge opt-in (default off)',
+            'Abilities OTHER plugins register via the Abilities API: name, summary, owning plugin, whether an input schema exists, and reversible:false (bridged results are outside wpmcp rollback). Optional plugin filter. Read-only. Needs the ability bridge opt-in (default off)',
             [
                 'type'       => 'object',
                 'properties' => [

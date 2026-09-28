@@ -268,7 +268,7 @@ class SiteTemplatesTest extends \WP_UnitTestCase
             'id'            => 'index',
             'action'        => 'add_block',
             'path'          => [0],
-            'markup'        => $this->header_markup('Inserted by path'),
+            'content'       => $this->header_markup('Inserted by path'),
             'expected_hash' => $read['content_hash'],
         ]);
 
@@ -347,7 +347,7 @@ class SiteTemplatesTest extends \WP_UnitTestCase
             'id'            => $nav,
             'action'        => 'add_block',
             'path'          => [1],
-            'markup'        => '<!-- wp:navigation-link {"label":"About","url":"/about"} /-->',
+            'content'       => '<!-- wp:navigation-link {"label":"About","url":"/about"} /-->',
             'expected_hash' => $one['content_hash'],
         ]);
         $this->assertStringContainsString('"About"', get_post($nav)->post_content);
@@ -463,7 +463,7 @@ class SiteTemplatesTest extends \WP_UnitTestCase
             'id'            => 'footer',
             'action'        => 'add_block',
             'path'          => [0],
-            'markup'        => $this->header_markup('a') . $this->header_markup('b'),
+            'content'       => $this->header_markup('a') . $this->header_markup('b'),
             'expected_hash' => $read['content_hash'],
         ]);
     }
