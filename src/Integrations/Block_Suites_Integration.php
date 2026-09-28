@@ -70,7 +70,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'block suites (Kadence Blocks, GenerateBlocks): their block schemas, and inserting or updating their blocks with unique ids and generated CSS';
+        return 'Kadence Blocks and GenerateBlocks blocks';
     }
 
     protected function operations(): array

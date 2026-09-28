@@ -191,7 +191,7 @@ abstract class Integration_Dispatcher
             "wpmcp/{$slug}-read",
             $this->tier(),
             sprintf(
-                'Dispatch a read operation against %s. Pass operation (use the reserved "list-operations" to discover every operation with its input schema) plus args matching that operation\'s schema. Read-only',
+                'Run a read operation against %s. Pass operation (the reserved "list-operations" lists every operation with its input schema) and args matching its schema. Read-only',
                 $this->summary()
             ),
             $this->dispatcher_schema(false),
@@ -205,7 +205,7 @@ abstract class Integration_Dispatcher
             "wpmcp/{$slug}-write",
             $this->tier(),
             sprintf(
-                'Dispatch a write operation against %s. Pass operation plus args matching that operation\'s schema (discoverable via list-operations on the read half). Operations with a snapshotable target are snapshotted first and undoable with rollback-operation; destructive ones also require confirm:true',
+                'Run a write operation against %s. Pass operation and args matching its schema (see list-operations on the read half). Operations with a snapshotable target are snapshotted first and undoable with rollback-operation; destructive ones also require confirm:true',
                 $this->summary()
             ),
             $this->dispatcher_schema(true),
