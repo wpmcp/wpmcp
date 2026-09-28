@@ -7,6 +7,7 @@
 namespace WPMCP\Safety;
 
 use WPMCP\Tools\Database\Database_Guard;
+use WPMCP\Tools\Builders\Avada_Cache;
 use WPMCP\Tools\Builders\Beaver_Builder_Cache;
 use WPMCP\Tools\Builders\Breakdance_Cache;
 use WPMCP\Tools\Builders\Elementor_Cache;
@@ -1139,6 +1140,10 @@ class Rollback_Service
 
         if (isset($snapshotted_meta['_fl_builder_data']) || isset($current_meta['_fl_builder_data'])) {
             Beaver_Builder_Cache::clear($object_id);
+        }
+
+        if (isset($snapshotted_meta[ Avada_Cache::STATUS_META_KEY ]) || isset($current_meta[ Avada_Cache::STATUS_META_KEY ])) {
+            Avada_Cache::invalidate($object_id);
         }
 
         foreach (['breakdance', 'oxygen'] as $engine_builder) {

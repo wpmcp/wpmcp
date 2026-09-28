@@ -23,11 +23,13 @@ if (! defined('ABSPATH')) {
  * flag, WPBakery's `_wpb_vc_js_status` = 'true' editor flag, Beaver
  * Builder's `_fl_builder_enabled` flag, a Breakdance `_breakdance_data`
  * row holding a valid tree (a root with id, data and children inside its
- * `tree_json_string`), the same for Oxygen 6's `_oxygen_data`, Gutenberg's
- * `<!-- wp: -->` block comment markers in post_content, then a
- * WPBakery `[vc_row]` or `[vc_section]` shortcode in post_content (a
- * WPBakery page saved with its backend editor off), falling back to
- * 'classic' when none match.
+ * `tree_json_string`), the same for Oxygen 6's `_oxygen_data`, Avada's
+ * `fusion_builder_status` = 'active' flag, Gutenberg's `<!-- wp: -->` block
+ * comment markers in post_content, then a WPBakery `[vc_row]` or
+ * `[vc_section]` shortcode in post_content (a WPBakery page saved with its
+ * backend editor off) or an Avada `[fusion_builder_container]` (an Avada
+ * page whose flag is off or was never written, as on imported content),
+ * falling back to 'classic' when none match.
  */
 class Builder_Detector
 {
@@ -64,6 +66,10 @@ class Builder_Detector
             return 'oxygen';
         }
 
+        if ('active' === get_post_meta($post_id, 'fusion_builder_status', true)) {
+            return 'avada';
+        }
+
         $post = get_post($post_id);
         $content = $post ? (string) $post->post_content : '';
 
@@ -73,6 +79,10 @@ class Builder_Detector
 
         if (preg_match('/\[vc_(?:row|section)[\s\]]/', $content)) {
             return 'wpbakery';
+        }
+
+        if (preg_match('/\[fusion_builder_container[\s\]]/', $content)) {
+            return 'avada';
         }
 
         return 'classic';
