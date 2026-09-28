@@ -346,7 +346,7 @@ class Get_Page_Snapshot
             ];
         }
 
-        if ('divi' === $builder) {
+        if ('divi' === $builder || 'wpbakery' === $builder) {
             return [
                 'source'             => 'post_content',
                 'complete'           => false,
@@ -355,7 +355,10 @@ class Get_Page_Snapshot
                 // listed here too rather than reading as a measurement.
                 'unmeasured'         => self::CONTENT_SECTIONS,
                 'stale_post_content' => false,
-                'note'               => 'Divi stores its layout as shortcodes in post_content. word_count includes shortcode markup and the element inventory is partial.',
+                'note'               => sprintf(
+                    '%s stores its layout as shortcodes in post_content. word_count includes shortcode markup and the element inventory is partial.',
+                    'divi' === $builder ? 'Divi' : 'WPBakery'
+                ),
             ];
         }
 

@@ -13,13 +13,17 @@ if (! defined('ABSPATH')) {
  * string is well-formed JSON decoding to an array, then writes it to the
  * `_bricks_page_content_2` postmeta. Divi: validates the given content is a
  * string, then writes it to post_content and ensures the
- * `_et_pb_use_builder` flag is 'on'. Elementor/gutenberg/classic posts are
- * out of scope for this tool (use update-element for Elementor) and return
- * a WP_Error.
+ * `_et_pb_use_builder` flag is 'on'. WPBakery: either a whole shortcode
+ * string, or one element operation (update / add / remove / move) addressed
+ * by the dotted paths get-builder-content returns, written to post_content
+ * with the WPBakery meta kept in step (see WPBakery_Content::save).
+ * Elementor/gutenberg/classic posts are out of scope for this tool (use
+ * update-element for Elementor) and return a WP_Error.
  *
- * Both writes go through Safe_Mutation::run() with object_type='post':
+ * All writes go through Safe_Mutation::run() with object_type='post':
  * Bricks' JSON lives in ordinary postmeta and Divi's shortcodes live in
- * ordinary post_content, both of which are already part of the full post
+ * ordinary post_content (as do WPBakery's shortcodes and meta), all of which
+ * are already part of the full post
  * row + postmeta the existing post snapshot captures and restores, so no
  * safety-core change is needed for either edit to be undoable.
  */
@@ -47,10 +51,103 @@ class Update_Builder_Content
             return $this->update_divi($post_id, $content, $args);
         }
 
+        if ('wpbakery' === $builder) {
+            return $this->update_wpbakery($post_id, $args);
+        }
+
         return new \WP_Error(
             'unsupported_builder',
-            "update-builder-content only supports 'bricks' and 'divi'; got '{$builder}'."
+            "update-builder-content only supports 'bricks', 'divi' and 'wpbakery'; got '{$builder}'."
         );
+    }
+
+    private function update_wpbakery(int $post_id, array $args)
+    {
+        $operation = (string) ($args['operation'] ?? '');
+        $path      = null;
+
+        if ('' === $operation) {
+            $content = $args['content'] ?? null;
+            if (! is_string($content)) {
+                return new \WP_Error('invalid_wpbakery_content', 'WPBakery content must be a shortcode string, or pass an operation.');
+            }
+        } else {
+            $detected = Builder_Detector::detect($post_id);
+            if (! in_array($detected, ['wpbakery', 'classic'], true)) {
+                return new \WP_Error(
+                    'unsupported_builder',
+                    "This post was detected as '{$detected}', not a WPBakery page."
+                );
+            }
+
+            try {
+                [$content, $path] = $this->apply_operation(WPBakery_Content::get_content($post_id), $operation, $args);
+            } catch (\InvalidArgumentException $e) {
+                return new \WP_Error('invalid_wpbakery_operation', $e->getMessage());
+            }
+        }
+
+        $out = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $post_id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-builder-content',
+                'args'        => $args,
+            ],
+            function () use ($post_id, $content) {
+                WPBakery_Content::save($post_id, $content);
+                return true;
+            }
+        );
+
+        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'wpbakery'];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Apply one element operation to the shortcode string.
+     *
+     * @return array{0:string,1:?string} new content, and the element's new
+     *                                    path when the operation knows it
+     */
+    private function apply_operation(string $content, string $operation, array $args): array
+    {
+        $path  = (string) ($args['path'] ?? '');
+        $to    = (string) ($args['to'] ?? '');
+        $index = isset($args['index']) ? (int) $args['index'] : null;
+
+        switch ($operation) {
+            case 'update':
+                $attrs = $args['attrs'] ?? null;
+                $text  = $args['text'] ?? null;
+                if (null !== $attrs && ! is_array($attrs)) {
+                    throw new \InvalidArgumentException(esc_html('attrs must be an object.'));
+                }
+                if (null !== $text && ! is_string($text)) {
+                    throw new \InvalidArgumentException(esc_html('text must be a string.'));
+                }
+                return [WPBakery_Shortcodes::update($content, $path, $attrs, $text), $path];
+
+            case 'add':
+                $element = $args['element'] ?? null;
+                if (! is_array($element)) {
+                    throw new \InvalidArgumentException(esc_html('add needs an element object: {tag, attrs?, text? | children?}.'));
+                }
+                return WPBakery_Shortcodes::add($content, $to, $index, $element);
+
+            case 'remove':
+                return [WPBakery_Shortcodes::remove($content, $path), null];
+
+            case 'move':
+                return [WPBakery_Shortcodes::move($content, $path, $to, $index), null];
+        }
+
+        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove or move."));
     }
 
     /** @param mixed $content */
