@@ -174,7 +174,14 @@ class Site_Archive_Builder
             // Leave no half-written archive behind: a truncated zip that
             // looks like a backup is more dangerous than an obvious failure,
             // because it is the file someone reaches for in an emergency.
-            @$zip->close();
+            // close() already ran when it is the call that failed, and a
+            // second close() on a released archive throws a ValueError on
+            // PHP 8. Swallow only that, so the scratch dump below is still
+            // removed and the original failure is what propagates.
+            try {
+                @$zip->close();
+            } catch (\ValueError $ignored) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+            }
             if (is_file($target)) {
                 wp_delete_file($target);
             }

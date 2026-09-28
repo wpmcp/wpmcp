@@ -230,6 +230,29 @@ class SiteArchiveBuilderTest extends \WP_UnitTestCase
         );
     }
 
+    public function test_a_failing_close_still_removes_the_scratch_dump(): void
+    {
+        // ZipArchive only touches the disk on close(), so a target inside a
+        // directory that does not exist opens fine and fails at close(). The
+        // cleanup path must not trip over the already-released archive (a
+        // second close() throws a ValueError on PHP 8) and leak the dump.
+        $before = glob(Site_Backup_Dir::path() . '/db-*.sql') ?: [];
+        $target = Site_Backup_Dir::path() . '/missing-' . wp_generate_password(8, false) . '/archive.zip';
+
+        try {
+            (new Site_Archive_Builder($this->stub_dumper()))->build('database', $target);
+            $this->fail('The builder must report an archive it could not finalise.');
+        } catch (\Throwable $e) {
+            // The close() failure itself (a RuntimeException, or the warning
+            // PHPUnit converts) is what must surface, never the ValueError.
+            $this->assertNotInstanceOf(\ValueError::class, $e, $e->getMessage());
+        }
+
+        $after = glob(Site_Backup_Dir::path() . '/db-*.sql') ?: [];
+        $this->assertSame([], array_values(array_diff($after, $before)), 'The scratch dump file must be cleaned up when close() fails.');
+        $this->assertFileDoesNotExist($target);
+    }
+
     public function test_the_real_dumper_produces_an_importable_db_sql(): void
     {
         // No stub: this is the wiring between the builder and the real
