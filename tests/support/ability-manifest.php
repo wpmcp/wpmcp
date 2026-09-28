@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 355,
+    'total'     => 361,
     'free'      => 258,
-    'pro'       => 97,
+    'pro'       => 103,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -136,6 +136,8 @@ return [
         'wpmcp/gateway-provision' => 'free',
         'wpmcp/gateway-revoke' => 'free',
         'wpmcp/gateway-status' => 'free',
+        'wpmcp/generate-meta-tags' => 'pro',
+        'wpmcp/generate-schema-markup' => 'pro',
         'wpmcp/generate-widget' => 'pro',
         'wpmcp/get-analytics-connection-status' => 'free',
         'wpmcp/get-analytics-summary' => 'free',
@@ -183,7 +185,9 @@ return [
         'wpmcp/get-site-ability' => 'free',
         'wpmcp/get-site-context' => 'free',
         'wpmcp/get-skill' => 'free',
+        'wpmcp/get-social-meta' => 'pro',
         'wpmcp/get-term' => 'free',
+        'wpmcp/get-term-seo-meta' => 'pro',
         'wpmcp/get-theme-template' => 'pro',
         'wpmcp/get-tool-schema' => 'free',
         'wpmcp/get-top-pages' => 'free',
@@ -316,6 +320,7 @@ return [
         'wpmcp/set-post-meta' => 'free',
         'wpmcp/set-post-terms' => 'free',
         'wpmcp/set-site-part-status' => 'free',
+        'wpmcp/set-social-image' => 'pro',
         'wpmcp/set-stock-key' => 'free',
         'wpmcp/set-template-conditions' => 'pro',
         'wpmcp/set-term-meta' => 'free',
@@ -361,6 +366,7 @@ return [
         'wpmcp/update-site-part' => 'free',
         'wpmcp/update-tax-rate' => 'free',
         'wpmcp/update-term' => 'free',
+        'wpmcp/update-term-seo-meta' => 'pro',
         'wpmcp/update-theme' => 'free',
         'wpmcp/update-user' => 'free',
         'wpmcp/update-variation' => 'free',

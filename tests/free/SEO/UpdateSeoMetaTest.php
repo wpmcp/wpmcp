@@ -15,6 +15,8 @@ class UpdateSeoMetaTest extends \WP_UnitTestCase
     {
         parent::setUp();
         Snapshot_Store::install();
+        // update-seo-meta re-checks edit_post on the target post.
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
     }
 
     protected function tearDown(): void
@@ -23,6 +25,7 @@ class UpdateSeoMetaTest extends \WP_UnitTestCase
             wp_delete_post($id, true);
         }
         $this->created = [];
+        wp_set_current_user(0);
         parent::tearDown();
     }
 
@@ -102,5 +105,22 @@ class UpdateSeoMetaTest extends \WP_UnitTestCase
         $post_id = $this->post();
         $this->expectException(\InvalidArgumentException::class);
         (new Update_SEO_Meta())->handle(['post_id' => $post_id]);
+    }
+
+    /**
+     * edit_posts on the ability says the caller edits posts somewhere, not
+     * that they may rewrite the SEO fields of a post someone else published.
+     */
+    public function test_contributor_cannot_update_another_authors_post(): void
+    {
+        if ('' === wpmcp_seo_plugin()) {
+            $this->markTestSkipped('No SEO plugin active');
+        }
+
+        $post_id = $this->post();
+        wp_set_current_user(self::factory()->user->create(['role' => 'contributor']));
+
+        $this->expectException(\RuntimeException::class);
+        (new Update_SEO_Meta())->handle(['post_id' => $post_id, 'title' => 'Hijacked']);
     }
 }

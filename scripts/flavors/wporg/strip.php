@@ -136,6 +136,10 @@ const REMOVED_METHODS = [
     // private and reached only from register_elementor_abilities(), whose
     // call site is edited out below.
     'register_atomic_elementor_abilities',
+    // The paid half of the SEO group (issue #67). Private and reached only
+    // from register_seo_abilities(), whose call site is edited out below;
+    // the free post-meta registrations stay in that method.
+    'register_seo_pro_abilities',
     // Not pro, but not for this build either: the directory delivers language
     // packs just in time, and I18n_Rule flags load_plugin_textdomain() as
     // unnecessary there. The off-directory builds keep it (issue #184).
@@ -877,6 +881,8 @@ $plugin_edits = [
     ["\n        \$this->register_elementor_pro_abilities(\$registrar);\n", "\n", 1],
     ["\n        \$this->register_atomic_elementor_abilities(\$registrar);\n", "\n", 1],
     ["\n        \$this->register_elementor_structural_abilities(\$registrar);\n", "\n", 1],
+    // The paid SEO registrations chained off the free SEO group (issue #67).
+    ["\n        \$this->register_seo_pro_abilities(\$registrar);\n", "\n", 1],
 ];
 // Runtime hook wiring for the two builder suites, which are not in this
 // build. These are string callables, so nothing but removing them stops them
