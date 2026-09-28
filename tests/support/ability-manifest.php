@@ -362,6 +362,7 @@ return [
         'wpmcp/update-user' => 'free',
         'wpmcp/update-variation' => 'free',
         'wpmcp/update-widget' => 'pro',
+        'wpmcp/upload-media' => 'free',
         'wpmcp/upload-svg' => 'free',
         'wpmcp/validate-block-spec' => 'pro',
         'wpmcp/validate-coupon' => 'free',

@@ -149,6 +149,68 @@ class DbWriteCacheInvalidationTest extends \WP_UnitTestCase
     }
 
     /**
+     * A db_rows restore that fails on a later row must still invalidate the
+     * rows it already wrote; otherwise the failed rollback leaves
+     * get_option() disagreeing with the table for the rows it did restore.
+     */
+    public function test_a_rollback_that_fails_part_way_still_invalidates_the_rows_it_restored(): void
+    {
+        global $wpdb;
+
+        add_option('wpmcp_cache_probe_partial_a', 'shared-before');
+        add_option('wpmcp_cache_probe_partial_b', 'shared-before');
+
+        $result = (new Update_Rows())->handle([
+            'table'   => $wpdb->options,
+            'data'    => ['option_value' => 'after'],
+            'where'   => ['option_value' => 'shared-before'],
+            'confirm' => true,
+        ]);
+        $this->assertNotEmpty($result['operation_id'] ?? null);
+        // Prime both entries with the overwritten value.
+        $this->assertSame('after', get_option('wpmcp_cache_probe_partial_a'));
+        $this->assertSame('after', get_option('wpmcp_cache_probe_partial_b'));
+
+        // Let the first row restore through and fail the second, whichever
+        // order the restore walks the captured rows in.
+        $options = $wpdb->options;
+        $seen    = 0;
+        $break   = static function (string $query) use ($options, &$seen): string {
+            if (0 === stripos(ltrim($query), 'UPDATE `' . $options . '`') && false !== strpos($query, '`option_id` = ')) {
+                $seen++;
+                if (2 === $seen) {
+                    return 'UPDATE wpmcp_no_such_table SET x = 1';
+                }
+            }
+            return $query;
+        };
+        add_filter('query', $break);
+        $suppress = $wpdb->suppress_errors(true);
+        $failed   = false;
+        try {
+            $failed = ! Rollback_Service::restore_operation($result['operation_id']);
+        } catch (\RuntimeException $e) {
+            $failed = true;
+        } finally {
+            $wpdb->suppress_errors($suppress);
+            remove_filter('query', $break);
+        }
+        $this->assertTrue($failed, 'The fixture should make the rollback fail on the second row.');
+
+        $restored = $wpdb->get_col($wpdb->prepare(
+            "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s AND option_value = %s",
+            'wpmcp_cache_probe_partial_%',
+            'shared-before'
+        ));
+        $this->assertCount(1, $restored, 'Exactly one row should have been restored before the failure.');
+        $this->assertSame(
+            'shared-before',
+            get_option($restored[0]),
+            'get_option() still serves the overwritten value for a row the failed rollback did restore.'
+        );
+    }
+
+    /**
      * clean_term_cache() with no taxonomy treats its ids as
      * term_taxonomy_ids. Those only coincide with term_ids on a site that
      * has never shared or deleted a term, so the fixture forces the two

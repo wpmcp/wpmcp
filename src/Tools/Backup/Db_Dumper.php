@@ -131,7 +131,7 @@ class Db_Dumper
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- $table came from tables() above (SHOW TABLES on our own prefix) and is bound with %i. SHOW CREATE TABLE reads the schema, it does not change it.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- $table came from tables() above (SHOW TABLES on our own prefix) and is bound with %i. SHOW CREATE TABLE reads the schema, it does not change it. Not cached: a backup must capture the live schema.
         $create = $wpdb->get_row($wpdb->prepare('SHOW CREATE TABLE %i', $table), ARRAY_N);
 
         if (! is_array($create) || ! isset($create[1])) {
@@ -174,7 +174,7 @@ class Db_Dumper
                 $sql = $wpdb->prepare("SELECT * FROM %i ORDER BY {$order} LIMIT %d OFFSET %d", $table, self::BATCH, $offset);
             }
 
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Identifiers come from the validated table list and from SHOW KEYS/SHOW COLUMNS on that table; every value is bound.
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Identifiers come from the validated table list and from SHOW KEYS/SHOW COLUMNS on that table; every value is bound. Not cached: a backup must capture the live rows, each read once.
             $rows = $wpdb->get_results($sql, ARRAY_A);
 
             if (! is_array($rows) || [] === $rows) {

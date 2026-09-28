@@ -1,8 +1,5 @@
 {
     "sniffs": {
-        "WordPress.DB.DirectDatabaseQuery.DirectQuery": 2,
-        "WordPress.DB.DirectDatabaseQuery.NoCaching": 2,
-        "WordPress.DB.SlowDBQuery.slow_db_query_meta_query": 2,
         "WordPress.PHP.NoSilencedErrors.Discouraged": 20
     }
 }
