@@ -33,18 +33,34 @@ if (! defined('ABSPATH')) {
  *
  * A write that runs through BuddyPress fires its hooks, and those add rows of
  * their own (a "created the group" activity item, a notification, an accepted
- * membership). The write records every row it and its hooks created, as the
- * ids above a per-table watermark taken just before it ran, into its
- * persisted snapshot ('created_rows'), and the restore deletes them first. A
- * create is also re-keyed on the id BuddyPress assigned, when that is not the
- * one reserved for the snapshot.
+ * membership). While the write runs, the ids BuddyPress reports through its
+ * own after-save and meta-added hooks are recorded, and a row counts as
+ * created only when its id is also above the table's highest id from just
+ * before the write (an after-save hook fires for updates too). Rows
+ * BuddyPress inserts without a hook (a field's options, a member's
+ * last_activity item) are taken from that id range only when they belong to
+ * the write: an option of a field it touched, or the acting user's own
+ * last_activity item. A row another request adds meanwhile is never taken
+ * (issue #372). Each created row is persisted in the snapshot
+ * ('created_rows') with the columns that say whose it is, and the restore
+ * deletes it first, unless those columns changed since, in which case it is
+ * left and reported. A create is also re-keyed on the id BuddyPress assigned,
+ * when that is not the one reserved for the snapshot.
  *
- * Every captured row is kept verbatim (NULLs and ids included), and the
- * restore deletes every row the capture's predicates match and re-inserts
- * what was there, so an edit goes back in place, a deleted thread returns at
- * its own ids, and a created group is removed. The tables are always built
- * from BuddyPress's table prefix and a fixed allowlist of names, so a key can
- * never reach any other table.
+ * Every captured row is kept verbatim (NULLs and ids included) and put back
+ * by id (issue #375): a saved row that still exists is set back to its saved
+ * values, and one that is gone is re-inserted at its own id, so an edit goes
+ * back in place and a deleted thread returns at its own ids. A row a set now
+ * also matches that was neither saved nor created by the write, such as a
+ * membership request another member sent since, is left alone. When such a
+ * reply sits in a restored activity thread, the thread is renumbered the way
+ * BuddyPress numbers it, since the saved nested-set values would overlap it.
+ * Two shapes still clear each set and re-insert the saved rows: a created
+ * group, which did not exist before, so every row keyed on it goes with it,
+ * and a snapshot recorded before created rows were tracked (no
+ * 'created_rows'), whose own rows only that clearing removes. The tables are
+ * always built from BuddyPress's table prefix and a fixed allowlist of names,
+ * so a key can never reach any other table.
  *
  * Undoing a create removes the group only while it is still the group the
  * create wrote (same slug, recorded as 'created'); otherwise it is left and
@@ -70,6 +86,42 @@ final class BuddyPress_Rows_Snapshot
         'bp_notifications',
         'bp_notifications_meta',
         'bp_invitations',
+    ];
+
+    /**
+     * BuddyPress's own hooks that report a saved or added row, and the table
+     * of that row: after-save hooks pass the object, meta-added hooks the
+     * meta id.
+     */
+    private const HOOKS = [
+        'groups_group_after_save'    => 'bp_groups',
+        'groups_member_after_save'   => 'bp_groups_members',
+        'added_group_meta'           => 'bp_groups_groupmeta',
+        'bp_activity_after_save'     => 'bp_activity',
+        'added_activity_meta'        => 'bp_activity_meta',
+        'bp_notification_after_save' => 'bp_notifications',
+        'added_notification_meta'    => 'bp_notifications_meta',
+        'bp_invitation_after_save'   => 'bp_invitations',
+        'xprofile_group_after_save'  => 'bp_xprofile_groups',
+        'xprofile_field_after_save'  => 'bp_xprofile_fields',
+        'added_xprofile_field_meta'  => 'bp_xprofile_meta',
+        'added_xprofile_group_meta'  => 'bp_xprofile_meta',
+        'added_xprofile_data_meta'   => 'bp_xprofile_meta',
+    ];
+
+    /** Per table, the columns that say whose a row is: a created row is removed only while they are unchanged. */
+    private const OWNERS = [
+        'bp_groups'             => [ 'creator_id' ],
+        'bp_groups_members'     => [ 'group_id', 'user_id' ],
+        'bp_groups_groupmeta'   => [ 'group_id', 'meta_key' ],
+        'bp_activity'           => [ 'user_id', 'component', 'type', 'item_id', 'secondary_item_id' ],
+        'bp_activity_meta'      => [ 'activity_id', 'meta_key' ],
+        'bp_xprofile_groups'    => [],
+        'bp_xprofile_fields'    => [ 'group_id', 'parent_id', 'type' ],
+        'bp_xprofile_meta'      => [ 'object_id', 'object_type', 'meta_key' ],
+        'bp_notifications'      => [ 'user_id', 'item_id', 'secondary_item_id', 'component_name', 'component_action' ],
+        'bp_notifications_meta' => [ 'notification_id', 'meta_key' ],
+        'bp_invitations'        => [ 'user_id', 'inviter_id', 'class', 'item_id', 'type' ],
     ];
 
     /** The bp_invitations class of group invitations and membership requests. */
@@ -275,39 +327,186 @@ final class BuddyPress_Rows_Snapshot
             }
         }
 
-        global $wpdb;
         $touched = [];
+        $skipped = [];
 
-        // The rows the write and its hooks created go first.
+        // The rows the write and its hooks created go first, each only while
+        // it still belongs to the write.
         foreach ((array) ($data['created_rows'] ?? []) as $name => $created) {
             $name = (string) $name;
             if (! in_array($name, self::TABLES, true) || ! self::tables_exist($name)) {
                 continue;
             }
-            $set                = [ 'table' => $name, 'column' => 'id', 'ids' => (array) $created, 'object_type' => null ];
+            $ids = [];
+            foreach ((array) $created as $entry) {
+                $row_id = is_array($entry) ? (int) ($entry['id'] ?? 0) : (int) $entry;
+                $row    = $row_id > 0 ? (self::rows([ 'table' => $name, 'column' => 'id', 'ids' => [ $row_id ], 'object_type' => null ])[0] ?? null) : null;
+                if (null === $row) {
+                    continue; // Already gone.
+                }
+                // An entry recorded before #372 is a bare id, without owner.
+                if (is_array($entry) && ! self::still_owned($row, (array) ($entry['owner'] ?? []))) {
+                    $skipped[] = $name . ' #' . $row_id;
+                    continue;
+                }
+                $ids[] = $row_id;
+            }
+            if ([] === $ids) {
+                continue;
+            }
+            $set                = [ 'table' => $name, 'column' => 'id', 'ids' => $ids, 'object_type' => null ];
             $touched[ $name ][] = self::rows($set);
             self::delete($set);
         }
-        foreach ($sets as $set) {
-            $set                                 = (array) $set;
-            $touched[ (string) $set['table'] ][] = self::rows($set);
-            self::delete($set);
-        }
-        foreach ($sets as $set) {
-            $set = (array) $set;
-            foreach ((array) ($set['rows'] ?? []) as $row) {
-                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- BuddyPress's own table; rows restored verbatim.
-                if (false === $wpdb->insert(self::table((string) $set['table']), (array) $row)) {
-                    throw new Mutation_Failed('Could not restore a BuddyPress row: ' . esc_html($wpdb->last_error));
-                }
+        if ('group_created' !== $kind && array_key_exists('created_rows', $data)) {
+            foreach ($sets as $set) {
+                $set                                 = (array) $set;
+                $touched[ (string) $set['table'] ][] = self::put_back($set);
             }
-            $touched[ (string) $set['table'] ][] = (array) ($set['rows'] ?? []);
+            if ('activity' === $kind) {
+                $saved                    = array_map('intval', array_column((array) (((array) $sets[0])['rows'] ?? []), 'id'));
+                $touched['bp_activity'][] = self::renumber_thread($id, $saved);
+            }
+        } else {
+            foreach ($sets as $set) {
+                $set                                 = (array) $set;
+                $touched[ (string) $set['table'] ][] = self::rows($set);
+                self::delete($set);
+            }
+            foreach ($sets as $set) {
+                $set = (array) $set;
+                foreach ((array) ($set['rows'] ?? []) as $row) {
+                    self::insert((string) $set['table'], (array) $row);
+                }
+                $touched[ (string) $set['table'] ][] = (array) ($set['rows'] ?? []);
+            }
         }
 
         $ids = (array) (((array) $sets[0])['ids'] ?? [ $id ]);
         self::flush($kind, array_map('intval', $ids));
         self::flush_rows(array_map(static fn (array $lists): array => array_merge(...$lists), $touched));
-        return null;
+
+        return [] === $skipped ? null : sprintf(
+            'BuddyPress rows this operation created have changed hands since and were left in place: %s.',
+            implode(', ', $skipped)
+        );
+    }
+
+    /**
+     * Whether a row still holds the owner columns recorded when the write
+     * created it.
+     *
+     * @param array<string, string|null> $row
+     * @param array<string, mixed>       $owner
+     */
+    private static function still_owned(array $row, array $owner): bool
+    {
+        foreach ($owner as $column => $value) {
+            $now = $row[ (string) $column ] ?? null;
+            if ((null === $value) !== (null === $now) || (string) $value !== (string) $now) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Insert one saved row verbatim, at its own id. */
+    private static function insert(string $name, array $row): void
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- BuddyPress's own table; rows restored verbatim.
+        if (false === $wpdb->insert(self::table($name), $row)) {
+            throw new Mutation_Failed('Could not restore a BuddyPress row: ' . esc_html($wpdb->last_error));
+        }
+    }
+
+    /**
+     * Put one set's saved rows back by id: a row that still exists is set
+     * back to its saved values, one that is gone is re-inserted at its id.
+     * Nothing else the set matches is touched.
+     *
+     * @return array<int, array<string, mixed>> the rows as they were and as restored, for the cache flush
+     */
+    private static function put_back(array $set): array
+    {
+        global $wpdb;
+
+        $name  = (string) $set['table'];
+        $saved = [];
+        foreach ((array) ($set['rows'] ?? []) as $row) {
+            $row = (array) $row;
+            if ((int) ($row['id'] ?? 0) > 0) {
+                $saved[ (int) $row['id'] ] = $row;
+            }
+        }
+        if ([] === $saved) {
+            return [];
+        }
+
+        $current = array_column(self::rows([ 'table' => $name, 'column' => 'id', 'ids' => array_keys($saved), 'object_type' => null ]), null, 'id');
+        foreach ($saved as $row_id => $row) {
+            if (! isset($current[ $row_id ])) {
+                self::insert($name, $row);
+                continue;
+            }
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- BuddyPress's own table; a saved row set back verbatim.
+            if (false === $wpdb->update(self::table($name), $row, [ 'id' => $row_id ])) {
+                throw new Mutation_Failed('Could not restore a BuddyPress row: ' . esc_html($wpdb->last_error));
+            }
+        }
+        return array_merge(array_values($current), array_values($saved));
+    }
+
+    /**
+     * Renumber the thread an activity item belongs to when it holds items the
+     * snapshot did not save, such as a reply posted since: the saved
+     * nested-set values would overlap theirs. Otherwise the saved values are
+     * exact and stay.
+     *
+     * @param int[] $saved the thread's saved ids
+     * @return array<int, array{id: int}> the renumbered items, for the cache flush
+     */
+    private static function renumber_thread(int $item, array $saved): array
+    {
+        $root   = self::thread_root($item);
+        $thread = self::activity_thread($root);
+        if ([] === array_diff($thread, $saved)) {
+            return [];
+        }
+        $seen = [];
+        self::number_thread($root, 1, $seen);
+        return array_map(static fn (int $id): array => [ 'id' => $id ], $thread);
+    }
+
+    /**
+     * Number one item and the replies below it, the way BuddyPress does
+     * (BP_Activity_Activity::rebuild_activity_comment_tree()): a reply's left
+     * value follows its parent's, its children come in id order, and its
+     * right value closes them. Returns the next free value.
+     *
+     * @param array<int, true> $seen items already numbered, so a malformed thread cannot loop
+     */
+    private static function number_thread(int $parent, int $left, array &$seen): int
+    {
+        global $wpdb;
+
+        $seen[ $parent ] = true;
+        $table           = self::table('bp_activity');
+        $right           = $left + 1;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- BuddyPress's own table, read live while renumbering.
+        $children = array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT id FROM %i WHERE type = 'activity_comment' AND secondary_item_id = %d ORDER BY id ASC", $table, $parent)));
+        foreach ($children as $child) {
+            if (! isset($seen[ $child ])) {
+                $right = self::number_thread($child, $right, $seen);
+            }
+        }
+        $where = 1 === $left ? 'id = %d' : "type = 'activity_comment' AND id = %d";
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; $where is one of two literals holding one placeholder.
+        if (false === $wpdb->query($wpdb->prepare('UPDATE %i SET mptt_left = %d, mptt_right = %d WHERE ' . $where, $table, $left, $right, $parent))) {
+            throw new Mutation_Failed('Could not renumber a BuddyPress activity thread.');
+        }
+        return $right + 1;
     }
 
     /** Delete the rows one set matches. */
@@ -328,8 +527,7 @@ final class BuddyPress_Rows_Snapshot
 
     /**
      * The highest id in every BuddyPress table this type covers that exists,
-     * taken just before a write: every row above it afterwards is one the
-     * write or its hooks created.
+     * taken just before a write: a row at or below it existed before.
      *
      * @return array<string, int> table => highest id
      */
@@ -348,7 +546,9 @@ final class BuddyPress_Rows_Snapshot
     }
 
     /**
-     * The ids above each watermark: the rows created since it was taken.
+     * The ids above each watermark: every row added since it was taken, by
+     * this request or any other. Only a candidate list; tracked() narrows it
+     * to the rows the write created.
      *
      * @param array<string, int> $marks
      * @return array<string, int[]> table => new ids, tables with none left out
@@ -370,10 +570,11 @@ final class BuddyPress_Rows_Snapshot
 
     /**
      * Add the rows a write created to its persisted snapshot, so its undo
-     * removes them too. For a create, $group names the group BuddyPress
-     * wrote (id and slug); when that is not the id reserved for the
-     * snapshot, the snapshot is re-keyed on it, so the undo neither misses
-     * the new group nor touches whatever now holds the reserved id.
+     * removes them too, each with the columns that say whose it is. For a
+     * create, $group names the group BuddyPress wrote (id and slug); when
+     * that is not the id reserved for the snapshot, the snapshot is re-keyed
+     * on it, so the undo neither misses the new group nor touches whatever
+     * now holds the reserved id.
      *
      * @param array<string, int[]>             $created table => ids
      * @param array{id: int, slug: string}|null $group
@@ -389,9 +590,26 @@ final class BuddyPress_Rows_Snapshot
 
         $merged = (array) ($data['created_rows'] ?? []);
         foreach ($created as $name => $ids) {
-            $all              = array_merge((array) ($merged[ $name ] ?? []), array_map('intval', (array) $ids));
-            $merged[ $name ] = array_values(array_unique($all));
-            sort($merged[ $name ]);
+            $name = (string) $name;
+            if (! in_array($name, self::TABLES, true)) {
+                continue;
+            }
+            $entries = [];
+            foreach ((array) ($merged[ $name ] ?? []) as $entry) {
+                $entry_id             = is_array($entry) ? (int) ($entry['id'] ?? 0) : (int) $entry;
+                $entries[ $entry_id ] = $entry;
+            }
+            $ids  = array_values(array_diff(array_map('intval', (array) $ids), array_keys($entries)));
+            $rows = [] === $ids ? [] : self::rows([ 'table' => $name, 'column' => 'id', 'ids' => $ids, 'object_type' => null ]);
+            foreach ($rows as $found) {
+                $owner = [];
+                foreach (self::OWNERS[ $name ] as $column) {
+                    $owner[ $column ] = $found[ $column ] ?? null;
+                }
+                $entries[ (int) $found['id'] ] = [ 'id' => (int) $found['id'], 'owner' => $owner ];
+            }
+            ksort($entries);
+            $merged[ $name ] = array_values($entries);
         }
         $data['created_rows'] = $merged;
 
@@ -414,9 +632,10 @@ final class BuddyPress_Rows_Snapshot
     }
 
     /**
-     * Run one write with its created rows recorded into its snapshot. The
+     * Run one write with the rows it created recorded into its snapshot. The
      * write returns its result, or [result, group] for a create that learns
-     * its group only once it ran. The rows are recorded even when the write
+     * its group only once it ran. BuddyPress's own hooks are listened to only
+     * while the write runs, and the rows are recorded even when the write
      * throws, so a half-done write stays fully undoable.
      *
      * @param callable(): mixed $write
@@ -424,20 +643,107 @@ final class BuddyPress_Rows_Snapshot
      */
     public static function tracked(string $operation_id, callable $write, bool $returns_group = false)
     {
-        $marks = self::watermarks();
-        try {
+        if ('' === $operation_id) {
             $out = $write();
-        } catch (\Throwable $e) {
-            if ('' !== $operation_id) {
-                self::record_created($operation_id, self::created_since($marks));
-            }
-            throw $e;
+            return $returns_group ? $out[0] : $out;
         }
-        [$result, $group] = $returns_group ? $out : [ $out, null ];
-        if ('' !== $operation_id) {
-            self::record_created($operation_id, self::created_since($marks), $group);
+
+        $marks     = self::watermarks();
+        $actor     = get_current_user_id();
+        $reported  = [];
+        $listeners = [];
+        foreach (self::HOOKS as $hook => $name) {
+            $listeners[ $hook ] = static function ($subject = null) use ($name, &$reported): void {
+                $id = is_object($subject) ? (int) ($subject->id ?? 0) : (int) $subject;
+                if ($id > 0) {
+                    $reported[ $name ][ $id ] = true;
+                }
+            };
+            add_action($hook, $listeners[ $hook ], 10, 1);
+        }
+
+        $group = null;
+        try {
+            $out              = $write();
+            [$result, $group] = $returns_group ? $out : [ $out, null ];
+        } finally {
+            foreach ($listeners as $hook => $listener) {
+                remove_action($hook, $listener, 10);
+            }
+            self::record_created($operation_id, self::created_by_write($marks, $reported, $actor, $operation_id), $group);
         }
         return $result;
+    }
+
+    /**
+     * The rows a write created: those BuddyPress reported through its hooks
+     * while the write ran and that were not there before it, plus the rows
+     * it inserts without a hook that belong to the write (an option of a
+     * field the write touched, the acting user's own last_activity item).
+     *
+     * @param array<string, int>              $marks    table => highest id before the write
+     * @param array<string, array<int, true>> $reported table => ids the hooks reported
+     * @return array<string, int[]> table => ids
+     */
+    private static function created_by_write(array $marks, array $reported, int $actor, string $operation_id): array
+    {
+        $created = [];
+        foreach ($reported as $name => $ids) {
+            if (! isset($marks[ $name ])) {
+                continue;
+            }
+            $mark = $marks[ $name ];
+            $new  = array_values(array_filter(array_keys($ids), static fn (int $id): bool => $id > $mark));
+            if ([] !== $new) {
+                $created[ $name ] = $new;
+            }
+        }
+
+        // Rows BuddyPress inserts without a hook, taken from the id range
+        // only when they belong to the write.
+        $row    = Snapshot_Store::get_by_operation($operation_id);
+        $data   = (array) ($row['snapshot']['data'] ?? []);
+        $fields = array_keys($reported['bp_xprofile_fields'] ?? []);
+        if ('xprofile_field' === ($data['kind'] ?? '')) {
+            $fields[] = (int) ($data['id'] ?? 0);
+        }
+        $unhooked = [
+            'bp_xprofile_fields' => [ 'type' => 'option', 'parent_id' => $fields ],
+            'bp_activity'        => [ 'type' => 'last_activity', 'user_id' => $actor > 0 ? [ $actor ] : [] ],
+        ];
+        foreach ($unhooked as $name => $match) {
+            if (! isset($marks[ $name ])) {
+                continue;
+            }
+            $ids = self::owned_since($name, $marks[ $name ], $match);
+            if ([] !== $ids) {
+                $created[ $name ] = array_values(array_unique(array_merge($created[ $name ] ?? [], $ids)));
+            }
+        }
+        return $created;
+    }
+
+    /**
+     * The ids above a watermark in one table whose type is $match['type']
+     * and whose owner column holds one of the listed ids.
+     *
+     * @param array{type: string} $match plus one column => int[] owner ids
+     * @return int[]
+     */
+    private static function owned_since(string $name, int $mark, array $match): array
+    {
+        global $wpdb;
+
+        $type = (string) $match['type'];
+        unset($match['type']);
+        $column = (string) array_key_first($match);
+        $owners = array_values(array_filter(array_map('intval', (array) $match[ $column ]), static fn (int $id): bool => $id > 0));
+        if ([] === $owners || ! in_array($column, [ 'parent_id', 'user_id' ], true)) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($owners), '%d'));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table, read live around a write; the column is allowlisted and $in holds only %d placeholders.
+        return array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT id FROM %i WHERE id > %d AND type = %s AND %i IN ($in) ORDER BY id ASC", self::table($name), $mark, $type, $column, ...$owners)));
     }
 
     /**
