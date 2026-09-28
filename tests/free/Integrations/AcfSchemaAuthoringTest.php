@@ -83,6 +83,25 @@ class AcfSchemaAuthoringTest extends \WP_UnitTestCase
         return $rows;
     }
 
+    /**
+     * Move every row of a structure tree's modified timestamps into the past,
+     * so the write and the rollback that follow always land in a different
+     * second than the captured values. Without this the whole-row comparisons
+     * below only failed when the clock happened to tick mid-test (issue #320).
+     */
+    private function backdateTree(string $key): void
+    {
+        global $wpdb;
+        foreach (Snapshot::acf_structure_tree((int) Snapshot::acf_structure_root_id($key)) as $id) {
+            $wpdb->update(
+                $wpdb->posts,
+                [ 'post_modified' => '2001-02-03 04:05:06', 'post_modified_gmt' => '2001-02-03 09:05:06' ],
+                [ 'ID' => $id ]
+            );
+            clean_post_cache($id);
+        }
+    }
+
     private function rollback(array $out): void
     {
         $this->assertTrue($out['recoverable'], 'write must be recoverable');
@@ -220,6 +239,7 @@ class AcfSchemaAuthoringTest extends \WP_UnitTestCase
     {
         $key    = $this->newGroup()['result']['key'];
         $fields = $this->read('get-field-group', [ 'key' => $key ])['result']['fields'];
+        $this->backdateTree($key);
         $before = $this->treeRows($key);
 
         $out = $this->write('save-field-group', [
@@ -237,6 +257,10 @@ class AcfSchemaAuthoringTest extends \WP_UnitTestCase
         $this->rollback($out);
 
         $this->assertEquals($before, $this->treeRows($key), 'deleted field resurrected, added field removed, changes undone');
+        foreach ($this->treeRows($key) as $id => $row) {
+            $this->assertSame('2001-02-03 04:05:06', $row['post_modified'], "post_modified of {$id}");
+            $this->assertSame('2001-02-03 09:05:06', $row['post_modified_gmt'], "post_modified_gmt of {$id}");
+        }
         $read = $this->read('get-field-group', [ 'key' => $key ])['result'];
         $this->assertSame('Book Details', $read['title']);
         $this->assertSame([ 'wpmcp_subtitle', 'wpmcp_pages' ], array_column($read['fields'], 'name'));
@@ -318,6 +342,7 @@ class AcfSchemaAuthoringTest extends \WP_UnitTestCase
         $this->assertSame('Books', $read['title']);
         $this->assertSame('Book', $read['labels']['singular_name']);
 
+        $this->backdateTree($key);
         $before  = $this->treeRows($key);
         $updated = $this->write('save-post-type', [ 'key' => $key, 'title' => 'Novels', 'hierarchical' => true ]);
         $this->assertArrayNotHasKey('error', $updated, wp_json_encode($updated));
@@ -353,6 +378,7 @@ class AcfSchemaAuthoringTest extends \WP_UnitTestCase
         $read = $this->read('get-taxonomy', [ 'key' => $key ])['result'];
         $this->assertSame([ 'post' ], $read['object_type']);
 
+        $this->backdateTree($key);
         $before  = $this->treeRows($key);
         $updated = $this->write('save-taxonomy', [ 'key' => $key, 'title' => 'Kinds' ]);
         $this->assertArrayNotHasKey('error', $updated, wp_json_encode($updated));
