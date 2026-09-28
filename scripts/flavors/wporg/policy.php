@@ -162,6 +162,9 @@ return [
         // takes out the line in Theme_Integration that merges them and the
         // rollback hook in Plugin that refreshes one suite's cache.
         'src/Integrations/Elementor_Addon_Packs.php',
+        // FunnelKit funnel and step reads (issue #356), paid-tier. strip.php
+        // takes out the line in Theme_Integration that merges them.
+        'src/Integrations/FunnelKit_Pack.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration
