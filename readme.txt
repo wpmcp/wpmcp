@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.83
+Stable tag: 0.8.84
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -100,6 +100,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.84 =
+* New: Avada (Fusion Builder) pages can now be read and edited structurally through get-builder-content and update-builder-content. Update, add, remove or move one element by path, or replace the whole layout; untouched elements keep their exact markup.
+* Avada's per-page dynamic CSS is invalidated after every Avada write and rollback, so the page recompiles its styles instead of serving the old ones.
 
 = 0.8.83 =
 * Pro: Browse and import patterns from the WordPress.org Pattern Directory through the block suite pattern tools. Each import is one undoable write, and its images are brought into the Media Library through the same guarded download as other remote media.
@@ -463,6 +467,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.84 =
+New: Avada (Fusion Builder) pages can now be read and edited structurally through get-builder-content and update-builder-content. Update, add, remove or move one element by path, or replace the whole layout; untouched elements keep their exact markup.
 
 = 0.8.83 =
 Pro: Browse and import patterns from the WordPress.org Pattern Directory through the block suite pattern tools. Each import is one undoable write, and its images are brought into the Media Library through the same guarded download as other remote media.
