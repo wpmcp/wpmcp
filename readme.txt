@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.42
+Stable tag: 0.8.44
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -95,6 +95,13 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.44 =
+* New theme settings packs for Kadence, and for GeneratePress and Blocksy (Pro): read and change global colors, typography, container width and basic header and footer settings through each theme's own storage. Every change is snapshotted and restorable with rollback, and a pack only appears while its theme is active.
+
+= 0.8.43 =
+* New: create-comment and reply-to-comment post a comment or reply as the current user, approved (for moderators) or held for moderation.
+* Comments created this way are part of the undo history: rollback-operation and rollback-session move them to the trash, so they can still be restored.
 
 = 0.8.42 =
 * New: WPBakery page support in the builder tools. Detect WPBakery pages, read their layout as an element tree, and update, add, remove or move elements, with every change undoable through rollback.
@@ -294,6 +301,12 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.44 =
+New theme settings packs for Kadence, and for GeneratePress and Blocksy (Pro): read and change global colors, typography, container width and basic header and footer settings through each theme's own storage. Every change is snapshotted and restorable with rollback, and a pack only appears while its theme is active.
+
+= 0.8.43 =
+New: create-comment and reply-to-comment post a comment or reply as the current user, approved (for moderators) or held for moderation.
 
 = 0.8.42 =
 New: WPBakery page support in the builder tools. Detect WPBakery pages, read their layout as an element tree, and update, add, remove or move elements, with every change undoable through rollback.
