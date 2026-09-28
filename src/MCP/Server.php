@@ -70,6 +70,11 @@ class Server
         }
 
         add_action('mcp_adapter_init', [self::class, 'create_server']);
+
+        // MCP 2026-07-28 on this route whichever adapter copy mounts it
+        // (issue #386): server/discover always, the rest only when the
+        // adapter predates the revision.
+        Modern_Http_Bridge::register();
     }
 
     public static function boot(): void

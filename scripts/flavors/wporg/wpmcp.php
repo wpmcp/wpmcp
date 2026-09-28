@@ -40,4 +40,8 @@ define( 'WPMCP_VERSION', '{{VERSION}}' );
 define( 'WPMCP_FILE', __FILE__ );
 define( 'WPMCP_DIR', plugin_dir_path( __FILE__ ) );
 require_once __DIR__ . '/vendor/autoload.php';
+// Never let the bundled MCP Adapter shadow the canonical plugin or another
+// plugin's copy (issue #386); see src/adapter-guard.php.
+require_once __DIR__ . '/src/adapter-guard.php';
+wpmcp_prefer_shared_mcp_adapter( __DIR__ . '/vendor' );
 \WPMCP\Plugin::instance()->boot();

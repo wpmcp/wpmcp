@@ -24,6 +24,43 @@ require __DIR__ . '/support/network-guard.php';
 \WPMCP\Tests\Support\Network_Guard::register();
 
 tests_add_filter( 'muplugins_loaded', function () {
+    // Run the suite against a canonical MCP Adapter plugin build instead of
+    // the bundled library (issue #386), e.g. a trunk checkout after
+    // `composer install --no-dev`:
+    //   WPMCP_TEST_ADAPTER_PLUGIN=/path/to/mcp-adapter/mcp-adapter.php bin/test-local.sh
+    // Loaded first, the way core loads 'mcp-adapter/' before 'wpmcp/', so
+    // src/adapter-guard.php is exercised exactly as on a real site.
+    // The suite registers vendor/autoload.php before WordPress loads, which
+    // a real site never does; apply the guard now, as wpmcp.php would.
+    require_once dirname( __DIR__ ) . '/src/adapter-guard.php';
+    wpmcp_prefer_shared_mcp_adapter( dirname( __DIR__ ) . '/vendor' );
+
+    $adapter_plugin = getenv( 'WPMCP_TEST_ADAPTER_PLUGIN' );
+    if ( $adapter_plugin ) {
+        require $adapter_plugin;
+
+        // Other plugins in the harness bundle their own adapter copies
+        // behind autoloaders that sit ahead of everyone else's (Elementor
+        // ships 0.6.x, WooCommerce 0.3.x), and each serves any adapter class
+        // not yet loaded when it is asked. Load the whole build now, from
+        // its own class map, so every WP\MCP and WP\McpSchema class in the
+        // run comes from the build under test and never from a mix.
+        $classmap = dirname( $adapter_plugin ) . '/vendor/composer/jetpack_autoload_classmap.php';
+        if ( is_readable( $classmap ) ) {
+            foreach ( array_keys( (array) require $classmap ) as $class ) {
+                // Not the WP-CLI commands (their parent class only exists
+                // under WP-CLI) and not the build's own test classes.
+                if (
+                    wpmcp_is_shared_adapter_class( $class )
+                    && 0 !== strpos( $class, 'WP\\MCP\\Cli\\' )
+                    && 0 !== strpos( $class, 'WP\\MCP\\Tests\\' )
+                ) {
+                    class_exists( $class ) || interface_exists( $class ) || trait_exists( $class );
+                }
+            }
+        }
+    }
+
     require dirname( __DIR__ ) . '/wpmcp.php';
 
     // Activate optional third-party plugins when present. Each is guarded so a

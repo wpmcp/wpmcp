@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP - MCP Server with Snapshot Undo for AI Agents
  * Description: AI builds and edits your WordPress site, and physically can't wreck it. MCP server + snapshot/rollback safety.
- * Version: 0.8.93
+ * Version: 0.8.94
  * Requires at least: 6.9
  * Tested up to:      7.1
  * Requires PHP: 8.1
@@ -38,7 +38,7 @@ if ( wpmcp_flavor_should_defer( __FILE__, 'full', defined( 'WPMCP_VERSION' ) ) )
 	} );
 	return;
 }
-define( 'WPMCP_VERSION', '0.8.93' );
+define( 'WPMCP_VERSION', '0.8.94' );
 // Must match the Text Domain header above: Plugin::load_textdomain() loads
 // the self-hosted .mo from languages/ into this domain (issue #184).
 define( 'WPMCP_TEXT_DOMAIN', 'wpmcp' );
@@ -48,5 +48,9 @@ define( 'WPMCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPMCP_FS_ID', 34955 );
 define( 'WPMCP_FS_PUBLIC_KEY', 'pk_198c5294157bf7068fd2ffd493957' );
 require_once __DIR__ . '/vendor/autoload.php';
+// Never let the bundled MCP Adapter shadow the canonical plugin or another
+// plugin's copy (issue #386); see src/adapter-guard.php.
+require_once __DIR__ . '/src/adapter-guard.php';
+wpmcp_prefer_shared_mcp_adapter( __DIR__ . '/vendor' );
 \WPMCP\Freemius\Bootstrap::init();
 \WPMCP\Plugin::instance()->boot();

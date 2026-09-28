@@ -110,7 +110,12 @@ class McpTransportMountedTest extends \WP_UnitTestCase
         $server = \WP\MCP\Core\McpAdapter::instance()->get_server('wpmcp-server');
 
         $this->assertNotNull($server, 'The wpmcp MCP server was never registered with the adapter.');
-        $this->assertNotEmpty($server->get_tools(), 'The MCP server mounted with no tools on it.');
+        // Adapter 0.7.0 (issue #386) lists components per protocol revision
+        // and requires the selected schema; 0.6.x takes no argument.
+        $tools = (new \ReflectionMethod($server, 'get_tools'))->getNumberOfRequiredParameters() > 0
+            ? $server->get_tools($server->get_schemas()->forVersion('2025-11-25'))
+            : $server->get_tools();
+        $this->assertNotEmpty($tools, 'The MCP server mounted with no tools on it.');
         $this->assertSame(self::NAMESPACE_SEGMENT, $server->get_server_route_namespace());
 
         // The assertion that stops the documented URL drifting from the

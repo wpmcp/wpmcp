@@ -228,33 +228,59 @@ class Handshake_Instructions
     /**
      * Callback for the MCP Adapter's mcp_adapter_initialize_response filter:
      * replaces the initialize result's `instructions` with build(), leaving
-     * every other field untouched. Duck-typed against the InitializeResult
-     * DTO's documented toArray()/fromArray() round-trip (the adapter is a
-     * separate plugin, so its DTO class cannot be referenced here); anything
-     * not honoring that contract passes through unchanged.
+     * every other field untouched. The adapter is a separate plugin, so its
+     * result classes are never referenced here; two documented shapes are
+     * duck-typed instead, and anything else passes through unchanged:
      *
-     * @param mixed $result The adapter's InitializeResult DTO.
+     *  - adapter 0.6.x hands over an InitializeResult DTO with a
+     *    toArray()/fromArray() round trip;
+     *  - adapter 0.7.0 (issue #386) hands over an immutable schema record
+     *    plus the selected schema as a third argument, and documents the
+     *    round trip as jsonSerialize() then $schema->fromArray(). Missing
+     *    this shape is how 0.7.0 would silently drop the instructions.
+     *
+     * @param mixed $result The adapter's initialize result.
      * @param mixed $server The McpServer instance (unused).
+     * @param mixed $schema The selected schema (adapter 0.7.0 and later).
      * @return mixed
      */
-    public function filter_initialize($result, $server = null)
+    public function filter_initialize($result, $server = null, $schema = null)
     {
-        if (
-            ! is_object($result)
-            || ! method_exists($result, 'toArray')
-            || ! method_exists($result, 'fromArray')
-        ) {
+        if (! is_object($result)) {
             return $result;
         }
 
-        $data = $result->toArray();
-        if (! is_array($data)) {
-            return $result;
+        if (method_exists($result, 'toArray') && method_exists($result, 'fromArray')) {
+            $data = $result->toArray();
+            if (! is_array($data)) {
+                return $result;
+            }
+
+            $data['instructions'] = $this->build();
+
+            return $result::fromArray($data);
         }
 
-        $data['instructions'] = $this->build();
+        if ($result instanceof \JsonSerializable && is_object($schema) && method_exists($schema, 'fromArray')) {
+            $data = json_decode((string) wp_json_encode($result->jsonSerialize()), true);
+            if (! is_array($data)) {
+                return $result;
+            }
 
-        return $result::fromArray($data);
+            $data['instructions'] = $this->build();
+
+            try {
+                $rebuilt = $schema->fromArray(get_class($result), $data);
+            } catch (\Throwable $e) {
+                // A record the schema will not rebuild keeps its stock
+                // instructions rather than failing the handshake.
+                return $result;
+            }
+
+            return is_object($rebuilt) ? $rebuilt : $result;
+        }
+
+        return $result;
     }
 
     /** Multibyte-safe length clamp that never splits a UTF-8 character. */
