@@ -180,6 +180,30 @@ class GlobalKitTest extends Structural_Harness
         $this->assertSame('custom', $entry['typography_typography']);
     }
 
+    public function test_update_global_typography_accepts_per_breakpoint_sizes(): void
+    {
+        $hash = (new Get_Global_Settings())->handle([])['settings_hash'];
+
+        $out = (new Update_Global_Typography())->handle([
+            'expected_hash'     => $hash,
+            'system_typography' => [[
+                '_id'                           => 'primary',
+                'typography_font_size_tablet'   => ['unit' => 'px', 'size' => 32],
+                'typography_font_size_mobile'   => ['unit' => 'px', 'size' => 24],
+                'typography_line_height_mobile' => ['unit' => 'em', 'size' => 1.2],
+            ]],
+        ]);
+
+        $this->assertIsArray($out);
+        $entry = $this->entry_by_id($this->kit_meta()['system_typography'], 'primary');
+        $this->assertSame(['unit' => 'px', 'size' => 32], $entry['typography_font_size_tablet']);
+        $this->assertSame(['unit' => 'px', 'size' => 24], $entry['typography_font_size_mobile']);
+        $this->assertSame(['unit' => 'em', 'size' => 1.2], $entry['typography_line_height_mobile']);
+        // A responsive-only size must still enable custom typography, or
+        // Elementor ignores the token and the breakpoint value never renders.
+        $this->assertSame('custom', $entry['typography_typography']);
+    }
+
     // ---- list-global-classes ------------------------------------------------
 
     public function test_list_global_classes_reads_kit_store(): void
