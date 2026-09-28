@@ -142,6 +142,7 @@ use WPMCP\Tools\Content\List_Post_Types;
 use WPMCP\Tools\Content\List_Taxonomies;
 use WPMCP\Tools\Content\Create_Post;
 use WPMCP\Tools\Content\Get_Post;
+use WPMCP\Tools\Content\Get_Preview_Link;
 use WPMCP\Tools\Content\Update_Post;
 use WPMCP\Tools\Content\Delete_Post;
 use WPMCP\Tools\Content\List_Posts;
@@ -1051,6 +1052,7 @@ final class Plugin
         $list_taxonomies = new List_Taxonomies();
         $create_post     = new Create_Post();
         $get_post        = new Get_Post();
+        $get_preview     = new Get_Preview_Link();
         $update_post     = new Update_Post();
         $delete_post     = new Delete_Post();
         $list_posts      = new List_Posts();
@@ -1125,6 +1127,22 @@ final class Plugin
                 'required'   => [ 'post_id' ],
             ],
             [$get_post, 'handle'],
+            'edit_posts',
+            'content',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-preview-link',
+            'free',
+            'Preview URL for a draft, pending or scheduled post you can edit',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                ],
+                'required'   => [ 'post_id' ],
+            ],
+            [$get_preview, 'handle'],
             'edit_posts',
             'content',
             'read'
