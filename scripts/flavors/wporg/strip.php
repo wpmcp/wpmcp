@@ -59,6 +59,12 @@ const REMOVED_METHODS = [
     'register_elementor_structural_abilities',
     'register_brand_kit_abilities',
     'register_memory_abilities',
+    'register_custom_code_abilities',
+    // Not an ability registration: the front-end output wiring for the same
+    // group. Its own method in Plugin.php precisely so this build can take it
+    // out by name, rather than leaving wp_head/wp_footer/deleted_post hooks
+    // pointing at a renderer the zip no longer contains.
+    'register_custom_code_runtime_hooks',
     // Called only from register_cli_abilities(), which leaves above. Without
     // this it survives as a private method with no caller, and its four
     // `new *_Cli_Job()` instantiations hold the whole async wp-cli package
@@ -724,6 +730,7 @@ $plugin_edits = [
     ["            'block_builder'  => fn () => \$this->register_block_builder_abilities(\$registrar),\n", '', 1],
     ["            'cloud'          => fn () => \$this->register_cloud_abilities(\$registrar),\n", '', 1],
     ["            'memory'         => fn () => \$this->register_memory_abilities(\$registrar),\n", '', 1],
+    ["            'custom_code'    => fn () => \$this->register_custom_code_abilities(\$registrar),\n", '', 1],
     // The two pro suites chained off the free Elementor group.
     ["\n        \$this->register_elementor_pro_abilities(\$registrar);\n", "\n", 1],
     ["\n        \$this->register_atomic_elementor_abilities(\$registrar);\n", "\n", 1],
@@ -747,6 +754,27 @@ $plugin_edits[] = [
         . "        }\n",
     "        // The widget and block builders are part of the off-directory\n"
         . "        // add-on, so this build has no runtime hooks to wire.\n",
+    1,
+];
+
+// Documentation that would name a method this build deletes.
+$plugin_edits[] = [
+    "     * data-driven widget/block builders, the content search index, stored\n"
+        . "     * custom CSS/JS output (delegated to\n"
+        . "     * register_custom_code_runtime_hooks()), and agent project memory.\n",
+    "     * data-driven widget/block builders, the content search index and\n"
+        . "     * agent project memory. Stored custom CSS/JS is part of the\n"
+        . "     * off-directory add-on, so this build has nothing to wire for it.\n",
+    1,
+];
+
+// The call site of the custom-code output wiring. remove_method() above takes
+// the method itself; this is the line that called it, which would otherwise
+// fatal on every front-end request against a method that no longer exists.
+$plugin_edits[] = [
+    "        // Stored custom CSS/JS output (issue #63), gated on its own group.\n"
+        . "        \$this->register_custom_code_runtime_hooks();\n",
+    '',
     1,
 ];
 
@@ -820,6 +848,62 @@ $plugin_edits[] = [
         . "     * they serve: this build has no premium skill library to withhold.\n",
     1,
 ];
+// The in-admin AI chat (issue #73) is part of the add-on: src/Pro goes
+// whole, so the imports, the two runtime hooks and the submenu that name
+// those classes have to go with it or this build would name classes it does
+// not ship and fatal on init, rest_api_init and admin_menu.
+$plugin_edits[] = [
+    "use WPMCP\\Pro\\Chat\\Chat_Page;\n"
+        . "use WPMCP\\Pro\\Chat\\Chat_Rest_Controller;\n"
+        . "use WPMCP\\Pro\\Chat\\Conversation_Store;\n"
+        . "use WPMCP\\Pro\\Gate;\n",
+    '',
+    1,
+];
+$plugin_edits[] = [
+    "            // In-admin AI chat (issue #73, PRO). The conversation CPT and the\n"
+        . "            // purge that destroys conversations with their owner register\n"
+        . "            // unconditionally, for the same reason the memory CPT above does:\n"
+        . "            // a safety rule must not stop applying because a license lapsed.\n"
+        . "            // If the type were unregistered on a lapsed install, the existing\n"
+        . "            // conversations would become orphan rows that no deletion path\n"
+        . "            // still claims. Only the routes and the screen are tier-gated.\n"
+        . "            add_action('init', [Conversation_Store::class, 'register_post_type'], 5);\n"
+        . "            Conversation_Store::register_user_deletion_hooks();\n"
+        . "            // The route hook resolves the tier inside the callback and\n"
+        . "            // self-no-ops, so no object is constructed at plugin load. That\n"
+        . "            // matters here: the controller's Key_Vault needs aes-256-gcm, and\n"
+        . "            // building it eagerly would turn an unsupported host into a\n"
+        . "            // site-wide fatal instead of one unavailable feature.\n"
+        . "            add_action('rest_api_init', static function (): void {\n"
+        . "                if (! Gate::is_pro()) {\n"
+        . "                    return;\n"
+        . "                }\n"
+        . "                (new Chat_Rest_Controller())->register_routes();\n"
+        . "            });\n",
+    "            // The in-admin AI chat is part of the off-directory add-on, so\n"
+        . "            // this build has no chat hooks to wire.\n",
+    1,
+];
+$plugin_edits[] = [
+    "        // In-admin AI chat (issue #73): the chat drives the same governed\n"
+        . "        // ability surface as external MCP clients under the admin's own\n"
+        . "        // identity, so viewing the screen is manage_options like the rest.\n"
+        . "        // The entry appears only where the feature can actually run: no dead\n"
+        . "        // menu item and no locked screen on installs without it.\n"
+        . "        if (Gate::is_pro()) {\n"
+        . "            add_submenu_page(\n"
+        . "                'wpmcp',\n"
+        . "                self::page_title(__('Chat', 'wpmcp')),\n"
+        . "                __('Chat', 'wpmcp'),\n"
+        . "                'manage_options',\n"
+        . "                Chat_Page::SLUG,\n"
+        . "                [new Chat_Page(), 'render']\n"
+        . "            );\n"
+        . "        }\n\n",
+    '',
+    1,
+];
 // The PHP snippet store (issue #85) ships here; ACTIVATING a stored snippet
 // does not. Agent-facing ability descriptions and the readme must not point
 // at an ability this zip lacks, so those strings are rewritten. Docblocks may
@@ -856,6 +940,49 @@ $plugin_edits[] = [
 ];
 
 $edits['src/Plugin.php'] = $plugin_edits;
+
+// The chat surface is add-on-only, so the directory build must not carry the
+// guard constant, the classifier or the docblock that name a route it cannot
+// register: the wp.org tree should never describe a paid endpoint.
+$edits['src/MCP/Transport_Guard.php'] = [
+    [
+        "    /**\n"
+            . "     * The in-admin chat route prefix. Guarded for the same reason as the\n"
+            . "     * OAuth surface, only more so: GET /wpmcp/v1/chat/key\n"
+            . "     * returns provider-key status, and a cached credential-adjacent response\n"
+            . "     * is the worse of the two failure modes this guard exists to prevent.\n"
+            . "     */\n"
+            . "    public const CHAT_ROUTE_PREFIX = '/wpmcp/v1/chat';\n\n",
+        '',
+        1,
+    ],
+    [
+        '    /** Whether a REST route belongs to the in-admin chat surface. */' . "\n"
+            . '    public static function is_chat_route(string $route): bool' . "\n"
+            . '    {' . "\n"
+            . '        return str_starts_with($route, self::CHAT_ROUTE_PREFIX);' . "\n"
+            . '    }' . "\n\n",
+        '',
+        1,
+    ],
+    [
+        '        return self::is_mcp_route($route)' . "\n"
+            . '            || self::is_oauth_route($route)' . "\n"
+            . '            || self::is_chat_route($route);',
+        '        return self::is_mcp_route($route) || self::is_oauth_route($route);',
+        1,
+    ],
+    [
+        " *     suppresses the *display* channel only, and only on our three route\n",
+        " *     suppresses the *display* channel only, and only on our two route\n",
+        1,
+    ],
+    [
+        " * its host guard returns a bare message. Ours covers all three route families,",
+        " * its host guard returns a bare message. Ours covers both route families,",
+        1,
+    ],
+];
 
 $edits['src/Identity/Identity_Context.php'] = [
     [

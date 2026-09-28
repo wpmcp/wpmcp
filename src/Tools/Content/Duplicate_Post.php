@@ -36,7 +36,14 @@ class Duplicate_Post
         $post_id = (int) ($args['post_id'] ?? 0);
         $source  = $post_id ? get_post($post_id) : null;
 
-        if (! $source instanceof \WP_Post) {
+        // A private type (the chat conversation store) is refused with the
+        // same answer as a missing post, so the tool cannot copy another
+        // user's private record, meta and all, into a post the caller owns.
+        // Registrar refuses the call before it gets here; this is the tool's
+        // own guard for callers that reach the handler directly.
+        $allowed = $source instanceof \WP_Post
+            && Content_Guard::is_agent_readable_post_type((string) $source->post_type);
+        if (! $allowed) {
             throw new \InvalidArgumentException('Post not found.');
         }
 
@@ -58,6 +65,9 @@ class Duplicate_Post
         $children = [];
         if ($with_children) {
             foreach (get_children(['post_parent' => $post_id, 'post_type' => 'any']) as $child) {
+                if (! Content_Guard::is_agent_readable_post_type((string) $child->post_type)) {
+                    continue;
+                }
                 $children[] = $this->copy($child, (string) $child->post_title, $status, $new_id);
             }
         }

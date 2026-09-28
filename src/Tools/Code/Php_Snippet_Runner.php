@@ -44,7 +44,7 @@ class Php_Snippet_Runner
         // with the CLI SAPI or safe mode remnants disable it. This is a
         // best-effort bound, not a hard sandbox: there is no way to sandbox
         // in-process PHP execution.
-        // phpcs:ignore Squiz.PHP.DiscouragedFunctions -- best-effort execution bound for the guarded snippet runner; pro-only file, stripped from the directory build by scripts/flavors/wporg/strip.php.
+        // phpcs:ignore Squiz.PHP.DiscouragedFunctions -- best-effort execution bound for the guarded snippet runner; pro-only file, listed in scripts/flavors/wporg/policy.php removed_paths and deleted by strip.php (B-16).
         set_time_limit($timeout_seconds);
 
         ob_start();
@@ -83,6 +83,7 @@ class Php_Snippet_Runner
      */
     private static function evaluate(string $code)
     {
+        // phpcs:ignore Squiz.PHP.Eval.Discouraged -- evaluating an admin-supplied snippet is this ability's whole purpose (default-off, refused on production, manage_options only; see Run_Php_Snippet); listed in scripts/flavors/wporg/policy.php removed_paths and deleted by strip.php (B-16).
         return eval($code);
     }
 }

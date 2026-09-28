@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 328,
+    'total'     => 330,
     'free'      => 233,
-    'pro'       => 95,
+    'pro'       => 97,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -28,10 +28,12 @@ return [
         'wpmcp/add-block' => 'free',
         'wpmcp/add-container' => 'pro',
         'wpmcp/add-custom-css' => 'pro',
+        'wpmcp/add-custom-js' => 'pro',
         'wpmcp/add-div-block' => 'pro',
         'wpmcp/add-flexbox' => 'pro',
         'wpmcp/add-menu-item' => 'free',
         'wpmcp/add-order-note' => 'free',
+        'wpmcp/add-scoped-css' => 'pro',
         'wpmcp/add-widget' => 'pro',
         'wpmcp/analyze-accessibility' => 'pro',
         'wpmcp/analyze-performance' => 'free',
