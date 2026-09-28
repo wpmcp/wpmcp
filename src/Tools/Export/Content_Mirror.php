@@ -137,10 +137,11 @@ class Content_Mirror
         }
         $raw = (string) $fs->get_contents($path);
 
-        $doc = json_decode($raw);
-        $arr = json_decode($raw, true);
-        if (! is_object($doc) || self::FORMAT !== ($doc->mirror_format ?? null) || $post_id !== ($doc->post_id ?? null)
-            || ! is_string($doc->builder ?? null) || ! property_exists($doc, 'data')) {
+        $doc   = json_decode($raw);
+        $arr   = json_decode($raw, true);
+        $valid = is_object($doc) && self::FORMAT === ($doc->mirror_format ?? null) && $post_id === ($doc->post_id ?? null)
+            && is_string($doc->builder ?? null) && property_exists($doc, 'data');
+        if (! $valid) {
             throw new \RuntimeException(esc_html("The mirror file for post {$post_id} is not a mirror of that post."));
         }
 
