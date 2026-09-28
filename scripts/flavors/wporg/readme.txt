@@ -81,11 +81,11 @@ policy: https://wordpress.org/about/privacy/
 = WordPress.org plugin and theme directory (api.wordpress.org, downloads.wordpress.org) =
 
 Used by the `search-plugins`, `get-plugin-info`, `install-plugin`,
-`update-plugin`, `install-theme` and `update-theme` abilities, only when you
-or your agent run one of them. What is sent to api.wordpress.org: your
-search terms, or the directory slug of the plugin or theme in question,
-through core's `plugins_api()` and `themes_api()`, with core's standard user
-agent (WordPress version and this site's address). Installs and updates then
+`update-plugin`, `search-themes`, `install-theme` and `update-theme`
+abilities, only when you or your agent run one of them. What is sent to
+api.wordpress.org: your search terms, or the directory slug of the plugin or
+theme in question, through core's `plugins_api()` and `themes_api()`, with
+core's standard user agent (WordPress version and this site's address). Installs and updates then
 download the package archive from downloads.wordpress.org. Only directory
 slugs are accepted; these abilities cannot be pointed at an arbitrary zip
 URL. Privacy policy: https://wordpress.org/about/privacy/

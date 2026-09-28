@@ -142,6 +142,7 @@ The same endpoint works with Cursor, Claude Desktop, and any MCP-compatible clie
 | `list-themes` | read | List installed themes with active status, parent theme, and pending update info |
 | `switch-theme` | write (safe) | Activate (switch to) an installed theme; snapshots the prior `template`/`stylesheet` options |
 | `install-theme` | write | Install a theme from wordpress.org by slug, optionally activating it |
+| `search-themes` | read | Search the wordpress.org theme directory by keyword, with optional tag/author filters and a capped `per_page` |
 | `update-theme` | write (irreversible) | Update an installed theme from wordpress.org. Disabled by default, requires `confirm: true`; not rollback-able |
 | `delete-theme` | write (irreversible) | Permanently delete an installed theme's files. Disabled by default, requires `confirm: true`; refuses the active theme (or its active parent); not rollback-able |
 | `list-tables` | read | List database tables with estimated row counts and sizes |

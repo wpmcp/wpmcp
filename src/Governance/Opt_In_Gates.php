@@ -13,6 +13,7 @@ use WPMCP\Tools\Filesystem\Delete_File;
 use WPMCP\Tools\Filesystem\Edit_File;
 use WPMCP\Tools\Filesystem\Write_File;
 use WPMCP\Tools\Migration\Migration_Guard;
+use WPMCP\Tools\Packages\Package_Guard;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -85,6 +86,9 @@ class Opt_In_Gates
             // site's database, sending ships its secrets to another host.
             'wpmcp/receive-site-archive' => ['filter' => 'wpmcp_accept_incoming_migrations', 'is_open' => [Migration_Guard::class, 'accepts_incoming']],
             'wpmcp/push-site-archive'    => ['filter' => 'wpmcp_allow_outgoing_migrations', 'is_open' => [Migration_Guard::class, 'allows_outgoing']],
+            // Installing a plugin or theme from an uploaded ZIP (issue #282) puts
+            // code from outside the directory on the site.
+            'wpmcp/install-package-from-zip' => ['filter' => 'wpmcp_enable_zip_install', 'is_open' => [Package_Guard::class, 'zip_install_enabled']],
         ];
     }
 
