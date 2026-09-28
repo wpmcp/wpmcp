@@ -61,6 +61,9 @@ class Snapshot
         if ('aioseo_row' === $object_type) {
             return self::capture_aioseo_row((string) $object_id);
         }
+        if (Redirection_Item_Snapshot::TYPE === $object_type) {
+            return Redirection_Item_Snapshot::capture((int) $object_id);
+        }
         if ('theme_scaffold' === $object_type) {
             return self::capture_theme_scaffold((string) $object_id);
         }

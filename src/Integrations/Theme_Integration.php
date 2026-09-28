@@ -249,7 +249,7 @@ class Theme_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'the active theme (context, theme supports, and theme-mod presentation settings)';
+        return 'the active theme (context, theme supports, and theme-mod presentation settings) plus Redirection plugin redirects';
     }
 
     protected function operations(): array
@@ -269,6 +269,10 @@ class Theme_Integration extends Integration_Dispatcher
      * (Dynamic_Template_Ops): source discovery, preview, and create/update of
      * single, archive and search templates on the site parts store.
      *
+     * Issue #300 adds the Redirection plugin adapter (Redirection_Pack):
+     * free redirect and group reads plus snapshotted redirect writes that
+     * answer redirection_inactive while the plugin is not loaded.
+     *
      * @return array<string,array<string,mixed>>
      */
     private function extension_operations(): array
@@ -276,6 +280,7 @@ class Theme_Integration extends Integration_Dispatcher
         return array_merge(
             [ 'create-child-theme' => Child_Theme_Scaffolder::operation() ],
             Theme_Framework_Pack::operations($this->detect_framework()),
+            Redirection_Pack::operations(),
             Elementor_Addon_Packs::operations(),
             \WPMCP\Tools\ThemeBuilder\Dynamic\Dynamic_Template_Ops::operations()
         );

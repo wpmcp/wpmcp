@@ -1320,13 +1320,15 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
 // The Elementor addon suite packs (issue #286) are the paid add-on's. Their
 // file is removed by policy.php, so the line that merges their ops into the
 // theme pair, the docblock sentence describing them, and the rollback hook
-// that refreshes one suite's cache all leave with it.
+// that refreshes one suite's cache all leave with it. The dynamic template
+// ops (issue #290) leave through the same two edits: their directory is
+// removed by policy.php too.
 $edits['src/Integrations/Theme_Integration.php'] = [
     [
-        "            Theme_Framework_Pack::operations(\$this->detect_framework()),\n"
+        "            Redirection_Pack::operations(),\n"
             . "            Elementor_Addon_Packs::operations(),\n"
             . "            \\WPMCP\\Tools\\ThemeBuilder\\Dynamic\\Dynamic_Template_Ops::operations()\n",
-        "            Theme_Framework_Pack::operations(\$this->detect_framework())\n",
+        "            Redirection_Pack::operations()\n",
         1,
     ],
     [
