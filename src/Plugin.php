@@ -9033,7 +9033,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-builder',
             'pro',
-            'A post\'s builder: elementor, bricks, divi, wpbakery, avada, beaver-builder, breakdance, oxygen, gutenberg, classic. Read-only',
+            'Post builder: elementor, bricks, divi, wpbakery, avada, beaver-builder, breakdance, oxygen, thrive, gutenberg, classic. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9052,7 +9052,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-builder-content',
             'pro',
-            'A post\'s builder data: Bricks elements, Divi/WPBakery/Avada shortcodes (the last two add a path tree), Beaver Builder/Breakdance/Oxygen node tree. Read-only',
+            'Builder data: Bricks elements, Divi/WPBakery/Avada shortcodes, Thrive HTML (the last three with paths), Beaver Builder/Breakdance/Oxygen node tree. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9071,7 +9071,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-builder-content',
             'pro',
-            'Write builder data. Bricks: JSON array. Divi/WPBakery/Avada: shortcodes. Beaver Builder/Breakdance/Oxygen: JSON node tree. Those five: or operation update (path, attrs, text), add (to, index, element), remove (path), move (path, to, index); to "" = top. Undoable via rollback-operation',
+            'Write builder data: Bricks JSON array, Divi/WPBakery/Avada shortcodes, Thrive HTML, Beaver Builder/Breakdance/Oxygen JSON tree. All but Bricks/Divi: operation update (path, attrs, text), add (to, index, element), remove (path), move (path, to, index); to "" = top. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
