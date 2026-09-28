@@ -123,6 +123,9 @@ const REMOVED_METHODS = [
     // path (policy.php removed_paths) and its one call site is edited out of
     // register_integration_abilities() below.
     'register_forms_pack_abilities',
+    // The block suite packs (issue #287). Files leave by path; the call
+    // site and the boot() rollback hook are edited out below.
+    'register_block_suite_abilities',
     'register_custom_code_abilities',
     // Not an ability registration: the front-end output wiring for the same
     // group. Its own method in Plugin.php precisely so this build can take it
@@ -889,6 +892,16 @@ $plugin_edits = [
     ["\n        \$this->register_elementor_structural_abilities(\$registrar);\n", "\n", 1],
     // The forms adapter pack chained off the free integration group.
     ["\n        \$this->register_forms_pack_abilities(\$registrar);\n", "\n", 1],
+    // The block suite packs chained off the same group (issue #287).
+    ["\n        \$this->register_block_suite_abilities(\$registrar);\n", "\n", 1],
+    // Their rollback refresher entry: the class it names is not in this build.
+    [
+        "        // A block suite write dropped the suite's cached per-post CSS; its\n"
+            . "        // rollback does too (issue #287). Hooked on the post restore action.\n"
+            . "        [\\WPMCP\\Integrations\\Block_Suite::class, 'refresh_after_restore', 'wpmcp_rollback_post_restored'],\n",
+        '',
+        1,
+    ],
     // The paid SEO registrations chained off the free SEO group (issue #67).
     ["\n        \$this->register_seo_pro_abilities(\$registrar);\n", "\n", 1],
 ];
