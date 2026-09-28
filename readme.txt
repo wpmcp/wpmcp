@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.71
+Stable tag: 0.8.73
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * WooCommerce, ACF, Meta Box, JetEngine, Pods, TranslatePress, Yoast, Rank Math, SEOPress, The SEO Framework, SureRank, Slim SEO, Redirection; with Pro, All in One SEO
 * Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm; with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
 * Events, donations, memberships (read)
+* Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
 * Media library plus stock image imports
 * REST passthrough for anything else, still snapshotted
 
@@ -96,6 +97,13 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.73 =
+* New: read-only status for UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache (last backups and schedules, backup packages, enabled security modules and last scan, analytics connection and tracking settings, enabled caches), with credentials and IP addresses never returned.
+* New: purge every W3 Total Cache cache with purge-w3tc-cache (needs confirm).
+
+= 0.8.72 =
+* Internal: the bundled compliance checker no longer reports superglobal names that appear only in code comments or docblocks.
 
 = 0.8.71 =
 * New (Pro): analyze-seo can look up keyword search volume, difficulty, CPC and intent, and backlink counts for a domain or URL, from your own DataForSEO account. Save the credentials once with set-seo-data-key; they are stored encrypted and never returned.
@@ -412,6 +420,12 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.73 =
+New: read-only status for UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache (last backups and schedules, backup packages, enabled security modules and last scan, analytics connection and tracking settings, enabled caches), with credentials and IP addresses never returned.
+
+= 0.8.72 =
+Internal: the bundled compliance checker no longer reports superglobal names that appear only in code comments or docblocks.
 
 = 0.8.71 =
 New (Pro): analyze-seo can look up keyword search volume, difficulty, CPC and intent, and backlink counts for a domain or URL, from your own DataForSEO account. Save the credentials once with set-seo-data-key; they are stored encrypted and never returned.

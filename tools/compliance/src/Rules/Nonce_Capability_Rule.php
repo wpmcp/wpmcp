@@ -74,6 +74,6 @@ final class Nonce_Capability_Rule extends Base_Rule
     private function write_reads(Source_File $file): array
     {
         $pattern = '/\$(' . implode('|', self::WRITE_SUPERGLOBALS) . ')\s*\[/';
-        return array_column($file->grep($pattern), 'line');
+        return array_column($file->grep_code($pattern), 'line');
     }
 }
