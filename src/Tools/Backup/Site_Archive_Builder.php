@@ -46,6 +46,10 @@ class Site_Archive_Builder
         'upgrade',
         'upgrade-temp-backup',
         'wp-personal-data-exports',
+        // Restore staging and the wp-content trees a files restore replaced
+        // (Restore_Files::DIR_NAME): archiving them would nest every
+        // previous site inside the next backup.
+        'wpmcp-restore',
     ];
 
     /**
@@ -150,6 +154,7 @@ class Site_Archive_Builder
             ? $dir . '/db-' . wp_generate_password(12, false) . '.sql'
             : null;
 
+        $closing = false;
         try {
             if (null !== $sql_path) {
                 $dump_result = $this->write_dump($sql_path);
@@ -167,6 +172,10 @@ class Site_Archive_Builder
                 (string) wp_json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
             );
 
+            // A failed close() still frees the archive, and a second close()
+            // on it throws a ValueError that would skip the cleanup below and
+            // hide the real error, so it is attempted once only.
+            $closing = true;
             if (true !== $zip->close()) {
                 throw new \RuntimeException('The backup archive could not be finalised.');
             }
@@ -174,13 +183,8 @@ class Site_Archive_Builder
             // Leave no half-written archive behind: a truncated zip that
             // looks like a backup is more dangerous than an obvious failure,
             // because it is the file someone reaches for in an emergency.
-            // close() already ran when it is the call that failed, and a
-            // second close() on a released archive throws a ValueError on
-            // PHP 8. Swallow only that, so the scratch dump below is still
-            // removed and the original failure is what propagates.
-            try {
+            if (! $closing) {
                 @$zip->close();
-            } catch (\ValueError $ignored) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
             }
             if (is_file($target)) {
                 wp_delete_file($target);
@@ -354,6 +358,9 @@ class Site_Archive_Builder
                 'row_count'   => array_sum($dump_result['tables']),
                 'blob_tables' => $dump_result['blob_tables'],
                 'bytes'       => $dump_result['bytes'],
+                // "%" in values is written as itself (see Db_Dumper); older
+                // archives lack this key and may hold wpdb's placeholder.
+                'percent'     => 'literal',
             ],
             'files'         => [
                 'count' => $file_count,

@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 339,
-    'free'      => 239,
+    'total'     => 340,
+    'free'      => 240,
     'pro'       => 100,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -39,6 +39,7 @@ return [
         'wpmcp/analyze-performance' => 'free',
         'wpmcp/analyze-seo' => 'pro',
         'wpmcp/apply-brand-kit' => 'pro',
+        'wpmcp/apply-change-set' => 'free',
         'wpmcp/apply-template' => 'pro',
         'wpmcp/assign-menu-to-location' => 'free',
         'wpmcp/batch-update' => 'pro',

@@ -203,10 +203,18 @@ class SiteArchiveBuilderTest extends \WP_UnitTestCase
 
     public function test_a_failing_dump_leaves_no_partial_archive_behind(): void
     {
-        $exploding = new class extends Db_Dumper {
+        // A marker unique to this run: the backup directory is shared with
+        // any other suite running against the same install, so the check
+        // below looks for this run's scratch dump, not for any db-*.sql.
+        $marker    = '-- partial ' . wp_generate_password(20, false);
+        $exploding = new class ($marker) extends Db_Dumper {
+            public function __construct(private string $marker)
+            {
+            }
+
             public function dump(callable $write, ?array $tables = null): array
             {
-                $write("-- partial\n");
+                $write($this->marker . "\n");
                 throw new \RuntimeException('disk full');
             }
         };
@@ -223,34 +231,58 @@ class SiteArchiveBuilderTest extends \WP_UnitTestCase
         // A truncated zip that looks like a backup is worse than no backup:
         // it is the file someone reaches for during an incident.
         $this->assertFileDoesNotExist($target);
-        $this->assertSame(
-            [],
+        $leftovers = array_filter(
             glob(Site_Backup_Dir::path() . '/db-*.sql') ?: [],
-            'The scratch dump file must be cleaned up after a failure.'
+            static fn (string $file): bool => str_contains((string) @file_get_contents($file), $marker)
         );
+        $this->assertSame([], array_values($leftovers), 'The scratch dump file must be cleaned up after a failure.');
     }
 
-    public function test_a_failing_close_still_removes_the_scratch_dump(): void
+    public function test_an_archive_that_cannot_be_finalised_reports_that_and_cleans_up(): void
     {
-        // ZipArchive only touches the disk on close(), so a target inside a
-        // directory that does not exist opens fine and fails at close(). The
-        // cleanup path must not trip over the already-released archive (a
-        // second close() throws a ValueError on PHP 8) and leak the dump.
-        $before = glob(Site_Backup_Dir::path() . '/db-*.sql') ?: [];
-        $target = Site_Backup_Dir::path() . '/missing-' . wp_generate_password(8, false) . '/archive.zip';
+        // close() is where libzip actually writes, so it is where a full disk
+        // or a vanished directory surfaces. A failed close() frees the
+        // archive, and closing it a second time throws a ValueError that
+        // used to hide this error and skip the scratch dump's cleanup.
+        $dir    = get_temp_dir() . 'wpmcp-unfinalisable-' . wp_generate_password(12, false);
+        $marker = '-- unfinalisable ' . wp_generate_password(20, false);
+        mkdir($dir);
+
+        $dumper = new class ($marker, $dir) extends Db_Dumper {
+            public function __construct(private string $marker, private string $dir)
+            {
+            }
+
+            public function dump(callable $write, ?array $tables = null): array
+            {
+                $write($this->marker . "\n");
+                rmdir($this->dir);
+                return ['tables' => [], 'blob_tables' => [], 'bytes' => 0];
+            }
+        };
 
         try {
-            (new Site_Archive_Builder($this->stub_dumper()))->build('database', $target);
-            $this->fail('The builder must report an archive it could not finalise.');
+            (new Site_Archive_Builder($dumper))->build('database', $dir . '/archive.zip');
+            $this->fail('An archive that cannot be written must not be reported as built.');
         } catch (\Throwable $e) {
-            // The close() failure itself (a RuntimeException, or the warning
-            // PHPUnit converts) is what must surface, never the ValueError.
-            $this->assertNotInstanceOf(\ValueError::class, $e, $e->getMessage());
+            // In production close() returns false and the builder throws its
+            // own message; under PHPUnit libzip's warning is already an
+            // exception. Either way it must be the close failure itself, not
+            // a ValueError from closing the freed archive again.
+            $this->assertNotInstanceOf(\ValueError::class, $e);
+            $this->assertMatchesRegularExpression('/could not be finalised|ZipArchive::close\(\)/', $e->getMessage());
+        } finally {
+            if (is_dir($dir)) {
+                array_map('unlink', glob($dir . '/*') ?: []);
+                rmdir($dir);
+            }
         }
 
-        $after = glob(Site_Backup_Dir::path() . '/db-*.sql') ?: [];
-        $this->assertSame([], array_values(array_diff($after, $before)), 'The scratch dump file must be cleaned up when close() fails.');
-        $this->assertFileDoesNotExist($target);
+        $leftovers = array_filter(
+            glob(Site_Backup_Dir::path() . '/db-*.sql') ?: [],
+            static fn (string $file): bool => str_contains((string) @file_get_contents($file), $marker)
+        );
+        $this->assertSame([], array_values($leftovers), 'The scratch dump file must be cleaned up after a failed close.');
     }
 
     public function test_the_real_dumper_produces_an_importable_db_sql(): void
