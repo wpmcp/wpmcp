@@ -21,15 +21,26 @@ if (! defined('ABSPATH')) {
  *  - void: a shortcode with no closing tag (vc_single_image, vc_btn ...).
  *
  * Edits splice the original string by offsets, so every byte outside the
- * touched element is kept exactly. Attribute values are returned as stored;
- * on write, the three characters that would break the shortcode (double
- * quote and square brackets) are encoded the way the WPBakery editor
- * encodes them (``, `{`, `}`).
+ * touched element is kept exactly, and an element stored self-closed
+ * (`[tag ... /]`) keeps that form when its attributes change. Attribute
+ * values are returned as stored; on write, the three characters that would
+ * break the shortcode (double quote and square brackets) are encoded the way
+ * the WPBakery editor encodes them (``, `{`, `}`).
+ *
+ * Other builders that store the same kind of nested shortcode layout reuse
+ * this parser through a subclass that overrides the three dialect constants
+ * below.
  */
 class WPBakery_Shortcodes
 {
     /** Tags always written with a closing tag, even when empty. */
-    private const CONTAINER_TAG = '/^vc_(?:section|row|row_inner|column|column_inner|tta_[a-z_]+|tabs|tab|tour|accordion|accordion_tab)$/';
+    protected const CONTAINER_TAG = '/^vc_(?:section|row|row_inner|column|column_inner|tta_[a-z_]+|tabs|tab|tour|accordion|accordion_tab)$/';
+
+    /** How a written attribute value encodes `"`, `[` and `]`. */
+    protected const ATTR_ENCODING = ['"' => '``', '[' => '`{`', ']' => '`}`'];
+
+    /** Whether a new element with no body is written self-closed (`[tag /]`). */
+    protected const SELF_CLOSE_EMPTY = false;
 
     private const TAG_TOKEN = '/\[(\/?)([A-Za-z][\w-]*)((?:\s[^\]]*?)?)(\/?)\]/';
 
@@ -82,7 +93,7 @@ class WPBakery_Shortcodes
                 }
                 $merged[strtolower((string) $key)] = self::attr_value($value);
             }
-            $open = self::open_tag($node['tag'], $merged);
+            $open = self::open_tag($node['tag'], $merged, (bool) preg_match('#/\]$#', $open));
         }
 
         if (null === $text) {
@@ -209,12 +220,11 @@ class WPBakery_Shortcodes
             }
         }
 
-        $open = self::open_tag($tag, $clean);
-        if ($has_text || $has_children || preg_match(self::CONTAINER_TAG, $tag)) {
-            return $open . $body . '[/' . $tag . ']';
+        if ($has_text || $has_children || preg_match(static::CONTAINER_TAG, $tag)) {
+            return self::open_tag($tag, $clean) . $body . '[/' . $tag . ']';
         }
 
-        return $open;
+        return self::open_tag($tag, $clean, static::SELF_CLOSE_EMPTY);
     }
 
     /**
@@ -373,15 +383,15 @@ class WPBakery_Shortcodes
         return $attrs;
     }
 
-    private static function open_tag(string $tag, array $attrs): string
+    private static function open_tag(string $tag, array $attrs, bool $self_close = false): string
     {
         $out = '[' . $tag;
         foreach ($attrs as $key => $value) {
-            $value = str_replace(['"', '[', ']'], ['``', '`{`', '`}`'], (string) $value);
+            $value = strtr((string) $value, static::ATTR_ENCODING);
             $out  .= is_int($key) ? ' "' . $value . '"' : ' ' . $key . '="' . $value . '"';
         }
 
-        return $out . ']';
+        return $out . ($self_close ? ' /]' : ']');
     }
 
     /** @param mixed $value */

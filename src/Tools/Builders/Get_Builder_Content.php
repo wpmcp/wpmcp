@@ -12,7 +12,8 @@ if (! defined('ABSPATH')) {
  * returns the post_content shortcode string plus the use-builder flag;
  * WPBakery returns the shortcode string, its parsed element tree (the dotted
  * paths update-builder-content operations address), its two meta rows and
- * whether the plugin is loaded; Beaver Builder returns its node tree (the
+ * whether the plugin is loaded; Avada the same shortcode string and path
+ * tree, its fusion_builder_status flag and whether the plugin is loaded; Beaver Builder returns its node tree (the
  * node ids operations address), whether the draft holds unpublished edits
  * and whether the plugin is loaded; Breakdance and Oxygen 6 (the same
  * engine) return their node tree (the node ids operations address), the
@@ -58,6 +59,10 @@ class Get_Builder_Content
             return WPBakery_Content::read($post_id);
         }
 
+        if ('avada' === $builder) {
+            return Avada_Content::read($post_id);
+        }
+
         if ('beaver-builder' === $builder) {
             return Beaver_Builder_Content::read($post_id);
         }
@@ -68,7 +73,7 @@ class Get_Builder_Content
 
         return new \WP_Error(
             'unsupported_builder',
-            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'beaver-builder', 'breakdance' and 'oxygen'; this post was detected as '{$builder}'."
+            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance' and 'oxygen'; this post was detected as '{$builder}'."
         );
     }
 }

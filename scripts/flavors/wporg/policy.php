@@ -178,6 +178,9 @@ return [
         'src/Integrations/Block_Suite.php',
         'src/Integrations/Block_Suite_Styles.php',
         'src/Integrations/Block_Suite_Patterns.php',
+        // Its Pattern Directory source (issue #364), and with it the only
+        // path that reaches api.wordpress.org/patterns.
+        'src/Integrations/Block_Suite_Pattern_Directory.php',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the
         // two handlers, the sanitizer, the store and the front-end renderer
         // all go. Named file by file rather than by directory because

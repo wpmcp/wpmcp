@@ -346,7 +346,7 @@ class Get_Page_Snapshot
             ];
         }
 
-        if ('divi' === $builder || 'wpbakery' === $builder) {
+        if (in_array($builder, ['divi', 'wpbakery', 'avada'], true)) {
             return [
                 'source'             => 'post_content',
                 'complete'           => false,
@@ -357,7 +357,7 @@ class Get_Page_Snapshot
                 'stale_post_content' => false,
                 'note'               => sprintf(
                     '%s stores its layout as shortcodes in post_content. word_count includes shortcode markup and the element inventory is partial.',
-                    'divi' === $builder ? 'Divi' : 'WPBakery'
+                    ['divi' => 'Divi', 'wpbakery' => 'WPBakery', 'avada' => 'Avada'][ $builder ]
                 ),
             ];
         }
