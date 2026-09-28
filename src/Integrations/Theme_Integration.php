@@ -93,7 +93,7 @@ class Theme_Integration extends Integration_Dispatcher
             'fallback'  => 'Assign menu locations under Appearance > Menus.',
         ],
         'sidebars_widgets'   => [
-            'abilities' => [ 'wpmcp/list-sidebar-widgets', 'wpmcp/add-widget', 'wpmcp/update-widget' ],
+            'abilities' => [ 'wpmcp/list-sidebar-widgets', 'wpmcp/create-sidebar-widget', 'wpmcp/move-sidebar-widget' ],
             'fallback'  => 'Place and update widgets on the Widgets screen.',
         ],
         'custom_css_post_id' => [

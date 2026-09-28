@@ -41,6 +41,10 @@ use WPMCP\Tools\Structure\List_Shortcodes;
 use WPMCP\Tools\Structure\Render_Shortcode;
 use WPMCP\Tools\Structure\List_Sidebars;
 use WPMCP\Tools\Structure\List_Sidebar_Widgets;
+use WPMCP\Tools\Structure\Create_Sidebar_Widget;
+use WPMCP\Tools\Structure\Update_Sidebar_Widget;
+use WPMCP\Tools\Structure\Move_Sidebar_Widget;
+use WPMCP\Tools\Structure\Delete_Sidebar_Widget;
 use WPMCP\Tools\Export\Export_Content;
 use WPMCP\Tools\Export\List_Exports;
 use WPMCP\Tools\Export\Import_Content;
@@ -4546,6 +4550,86 @@ final class Plugin
             'edit_posts',
             'structure',
             'read'
+        ));
+
+        // Classic widget writes (issue #285). Each snapshots widget_{id_base}
+        // and sidebars_widgets as one undo point; see Sidebar_Widget_Store.
+        $widget_id = [ 'type' => 'string' ];
+        $position  = [ 'type' => 'integer' ];
+        $session   = [ 'type' => 'string' ];
+        $registrar->register(new Ability(
+            'wpmcp/create-sidebar-widget',
+            'free',
+            'Add a classic widget (registered id_base, incl. block) to a sidebar at a 0-based position, sanitized by its update(). Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'sidebar_id' => [ 'type' => 'string' ],
+                    'id_base'    => [ 'type' => 'string' ],
+                    'instance'   => [ 'type' => 'object' ],
+                    'position'   => $position,
+                    'session_id' => $session,
+                ],
+                'required'   => [ 'sidebar_id', 'id_base' ],
+            ],
+            [new Create_Sidebar_Widget(), 'handle'],
+            'edit_theme_options',
+            'structure',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-sidebar-widget',
+            'free',
+            'Merge settings into a classic widget (id like text-2) via its update(). Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'widget_id'  => $widget_id,
+                    'instance'   => [ 'type' => 'object' ],
+                    'session_id' => $session,
+                ],
+                'required'   => [ 'widget_id', 'instance' ],
+            ],
+            [new Update_Sidebar_Widget(), 'handle'],
+            'edit_theme_options',
+            'structure',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/move-sidebar-widget',
+            'free',
+            'Move a classic widget to a sidebar or wp_inactive_widgets at a 0-based position. Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'widget_id'  => $widget_id,
+                    'sidebar_id' => [ 'type' => 'string' ],
+                    'position'   => $position,
+                    'session_id' => $session,
+                ],
+                'required'   => [ 'widget_id', 'sidebar_id' ],
+            ],
+            [new Move_Sidebar_Widget(), 'handle'],
+            'edit_theme_options',
+            'structure',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/delete-sidebar-widget',
+            'free',
+            'Delete a classic widget instance. Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'widget_id'  => $widget_id,
+                    'session_id' => $session,
+                ],
+                'required'   => [ 'widget_id' ],
+            ],
+            [new Delete_Sidebar_Widget(), 'handle'],
+            'edit_theme_options',
+            'structure',
+            'delete'
         ));
     }
 
