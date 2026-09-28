@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.20
+Stable tag: 0.8.21
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,11 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.21 =
+* Fixed: undoing an Elementor edit could leave the page showing the undone styling, because the generated CSS file was not refreshed on rollback. Rollback of pages, the site kit and global classes, duplicated posts, and popup and import settings writes now clear Elementor's generated CSS and element render cache.
+* New regenerate-elementor-css ability: rebuild Elementor's generated CSS for one page, or for the whole site with an explicit confirmation.
+* Editing a page's raw Elementor data now clears only that page's caches instead of every page on the site.
 
 = 0.8.20 =
 * New: upload-media adds a file to the Media Library straight from base64 bytes, for agents that hold the file itself rather than a URL. Supports title, alt text, caption and a parent post.
@@ -200,6 +205,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.21 =
+Fixed: undoing an Elementor edit could leave the page showing the undone styling, because the generated CSS file was not refreshed on rollback. Rollback of pages, the site kit and global classes, duplicated posts, and popup and import settings writes now clear Elementor's generated CSS and element render cache.
 
 = 0.8.20 =
 New: upload-media adds a file to the Media Library straight from base64 bytes, for agents that hold the file itself rather than a URL. Supports title, alt text, caption and a parent post.
