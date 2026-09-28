@@ -107,9 +107,12 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  compiler (#72) adds compile-custom-widget, trimmed from 569 characters
      *  (it keeps the opt-in filter and the edit_files and DISALLOW_FILE_EDIT
      *  refusals), with the other widget builder descriptions tightened to
-     *  pay for it. Compact tool mode keeps clients with tool caps at ~2.8KB
-     *  regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 198000;
+     *  pay for it. Raised 198000 -> 199000 when get-rendered-html met that
+     *  main: 198264 bytes over 368 tools, with its description already cut
+     *  to 72 characters and get-page-snapshot's tightened alongside to pay
+     *  for part of it; the rest is its six-property input schema. Compact
+     *  tool mode keeps clients with tool caps at ~2.8KB regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 199000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
