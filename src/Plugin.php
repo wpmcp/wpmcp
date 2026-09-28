@@ -4174,6 +4174,7 @@ final class Plugin
                     'post_id'       => [ 'type' => 'integer' ],
                     'url'           => [ 'type' => 'string' ],
                     'chunk'         => [ 'type' => 'integer' ],
+                    'offset'        => [ 'type' => 'integer' ],
                     'chunk_size'    => [ 'type' => 'integer' ],
                     'strip_scripts' => [ 'type' => 'boolean' ],
                     'text_only'     => [ 'type' => 'boolean' ],
@@ -4339,7 +4340,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/convert-html-to-blocks',
             'free',
-            'Convert raw HTML into Gutenberg block markup. Maps common top-level elements to core blocks (h1-h6 heading, p paragraph, img image, ul/ol list, blockquote quote, pre/code code, hr separator, table); anything else is wrapped in core/html so nothing is lost. A pure transform that never touches a post; write the result with update-blocks',
+            'Convert raw HTML into Gutenberg block markup. Maps top-level elements to core blocks (h1-h6 heading, p paragraph, img image, ul/ol list, blockquote quote, pre/code code, hr separator, table); anything else is wrapped in core/html so nothing is lost. Pure transform, never touches a post; write the result with update-blocks',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9198,7 +9199,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-site-abilities',
             'free',
-            'List every ability registered on this site by OTHER plugins via the Abilities API: name, a short summary, the owning plugin, whether an input schema is available, and reversible:false (bridged results are outside the wpmcp rollback guarantee). Optional plugin filter narrows the result. Read-only. Requires the site to opt in to the ability bridge (default off)',
+            'List every ability registered on this site by OTHER plugins via the Abilities API: name, summary, owning plugin, whether an input schema is available, and reversible:false (bridged results are outside the wpmcp rollback guarantee). Optional plugin filter. Read-only. Requires the site to opt in to the ability bridge (default off)',
             [
                 'type'       => 'object',
                 'properties' => [
