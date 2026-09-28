@@ -581,6 +581,7 @@ final class Plugin
         if ($this->group_enabled('theme_builder')) {
             add_action('init', ['\\WPMCP\\Tools\\ThemeBuilder\\Template_Store', 'ensure_post_type']);
             add_action('wp', ['\\WPMCP\\Tools\\ThemeBuilder\\Render\\Adapters', 'boot']);
+            $this->register_dynamic_template_runtime_hooks();
         }
         // Content search index (issue #83): keep it correct incrementally on
         // every save/delete so search-content never reads stale copy. Gated
@@ -606,6 +607,22 @@ final class Plugin
             // on deletion instead of trusting every write to route through us.
             add_action('transition_post_status', [Memory_Store::class, 'flush_rules_cache_on_transition'], 10, 3);
             add_action('deleted_post', [Memory_Store::class, 'flush_rules_cache_on_delete'], 10, 2);
+        }
+    }
+
+    /**
+     * Front-end wiring for dynamic single, archive and search templates
+     * (issue #290): swap in the winning template on template_include and
+     * resolve its binding tokens as it renders. Its own method so the wp.org
+     * build, which ships the site parts engine without these templates, can
+     * remove it by name. String callables, like the builder branches above,
+     * because vertical builds prune the classes they name.
+     */
+    public function register_dynamic_template_runtime_hooks(): void
+    {
+        if ($this->group_enabled('theme_builder')) {
+            add_action('wp', ['\\WPMCP\\Tools\\ThemeBuilder\\Dynamic\\Dynamic_Templates', 'boot']);
+            add_filter('wpmcp_site_part_rendered', ['\\WPMCP\\Tools\\ThemeBuilder\\Dynamic\\Binding_Resolver', 'filter_rendered'], 10, 2);
         }
     }
 

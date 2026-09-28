@@ -31,6 +31,12 @@ class Block_Adapter implements Adapter
     /** Wrapper elements a template part may declare that are safe to print. */
     private const ALLOWED_TAGS = ['header', 'footer', 'div', 'section', 'aside', 'main'];
 
+    /** The placeholder block compose_document() renders a whole-page body through. */
+    private const BODY_BLOCK = 'wpmcp/site-part';
+
+    /** @var array<string,bool> whole-page part types this request composed. */
+    private static array $composed = [];
+
     /** Part types currently being rendered, so a part that embeds itself cannot recurse. */
     private static array $rendering = [];
 
@@ -116,6 +122,68 @@ class Block_Adapter implements Adapter
             . '<!-- wp:template-part {"slug":"footer","tagName":"footer","area":"footer"} /-->';
 
         return ABSPATH . WPINC . '/template-canvas.php';
+    }
+
+    /**
+     * Replace the block template for a whole-page part type with the theme's
+     * own header and footer template parts around a body block that renders
+     * the winning template. The body is a placeholder block answered from
+     * `pre_render_block` (render_body()), so the template is rendered once,
+     * through Template_Renderer::render_template(), and its output is never
+     * parsed as block markup a second time.
+     */
+    public function compose_document(string $part_type, string $template): string
+    {
+        self::$composed[$part_type] = true;
+        if (! has_filter('pre_render_block', [$this, 'render_body'])) {
+            add_filter('pre_render_block', [$this, 'render_body'], 10, 2);
+        }
+
+        global $_wp_current_template_content;
+        // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- The block template system's hand-off from locate_block_template() to template-canvas.php, as in compose_404().
+        $_wp_current_template_content = '<!-- wp:template-part {"slug":"header","tagName":"header","area":"header"} /-->' . "\n"
+            . '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group">' . "\n"
+            . '<!-- wp:' . self::BODY_BLOCK . ' ' . wp_json_encode(['partType' => $part_type]) . ' /-->' . "\n"
+            . '</main><!-- /wp:group -->' . "\n"
+            . '<!-- wp:template-part {"slug":"footer","tagName":"footer","area":"footer"} /-->';
+
+        return ABSPATH . WPINC . '/template-canvas.php';
+    }
+
+    /**
+     * The body placeholder compose_document() put into the canvas. Answered
+     * only for a part type this request composed, so the same comment typed
+     * into a post cannot pull a template into the page.
+     *
+     * @param string|null         $pre   an earlier short-circuit, respected as-is
+     * @param array<string,mixed> $block the parsed block
+     *
+     * @return string|null
+     */
+    public function render_body($pre, $block)
+    {
+        if (null !== $pre || ! is_array($block) || self::BODY_BLOCK !== ($block['blockName'] ?? '')) {
+            return $pre;
+        }
+        $part_type = is_array($block['attrs'] ?? null) ? (string) ($block['attrs']['partType'] ?? '') : '';
+        if (! isset(self::$composed[$part_type]) || isset(self::$rendering[$part_type])) {
+            return '';
+        }
+        $template = Template_Renderer::winner($part_type);
+        if (null === $template) {
+            return '';
+        }
+
+        self::$rendering[$part_type] = true;
+        try {
+            $inner = Template_Renderer::render_template($template);
+        } finally {
+            unset(self::$rendering[$part_type]);
+        }
+
+        $class = 'wpmcp-site-part wpmcp-site-part-' . $part_type;
+        // $inner was filtered with wp_kses_post() on the way into the store.
+        return sprintf('<div class="%1$s">%2$s</div>', esc_attr($class), $inner);
     }
 
     /**

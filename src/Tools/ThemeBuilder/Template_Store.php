@@ -98,6 +98,21 @@ class Template_Store
             );
         }
 
+        return self::insert($part_type, $title, $content, $conditions, $priority);
+    }
+
+    /**
+     * Store a new template once the caller has checked its part type (and
+     * any cap). create() is the site-part path with those checks; every
+     * other writer of this CPT goes through here too, so all templates share
+     * one row shape, one content filter and one condition check.
+     *
+     * @return int|\WP_Error the new template post id.
+     */
+    public static function insert(string $part_type, string $title, string $content, array $conditions, int $priority)
+    {
+        self::ensure_post_type();
+
         $valid = Condition_Schema::validate($conditions);
         if (is_wp_error($valid)) {
             return $valid;

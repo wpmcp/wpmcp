@@ -58,7 +58,17 @@ class Classic_Adapter implements Adapter
         if (! is_404() || null === Template_Renderer::winner('404')) {
             return $template;
         }
-        Template_Renderer::set_current_part('404');
+        return $this->compose_document('404', (string) $template);
+    }
+
+    /**
+     * Swap the whole document for this subsystem's document.php, which
+     * prints the winning template of $part_type between get_header() and
+     * get_footer().
+     */
+    public function compose_document(string $part_type, string $template): string
+    {
+        Template_Renderer::set_current_part($part_type);
         return Template_Renderer::document_template();
     }
 

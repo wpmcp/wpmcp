@@ -19,4 +19,13 @@ interface Adapter
 
     /** Hook the adapter into the front-end render pipeline for a part type. */
     public function register(string $part_type): void;
+
+    /**
+     * Hand WordPress a document whose body is the winning template of a
+     * whole-page part type, framed by the theme's (or the winning site
+     * parts') header and footer. Called from a `template_include` filter
+     * once the caller knows a template wins; returns the template file to
+     * load.
+     */
+    public function compose_document(string $part_type, string $template): string;
 }
