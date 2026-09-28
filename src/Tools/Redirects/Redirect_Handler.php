@@ -81,7 +81,7 @@ class Redirect_Handler
             return null; // Never redirect the site root out from under itself.
         }
 
-        $row = Redirect_Store::find_by_source($source);
+        $row = Redirect_Store::find_by_source_cached($source, true);
         if (! $row || ! $row['enabled']) {
             return null;
         }
