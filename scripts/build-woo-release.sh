@@ -180,6 +180,12 @@ GUARD_I18N="$(grep -nE \
   echo "$GUARD_I18N" >&2
   exit 1
 }
+# The MCP adapter guard (issue #386): global functions the main file calls
+# right after the autoloader, so a prune that dropped them would fatal.
+[ -f "$STAGE/src/adapter-guard.php" ] && grep -q "wpmcp_prefer_shared_mcp_adapter" "$STAGE/$SLUG.php" || {
+  echo "ERROR: the $SLUG build does not ship or apply src/adapter-guard.php" >&2
+  exit 1
+}
 grep -q "^ \* WPMCP Flavor: woocommerce$" "$STAGE/$SLUG.php" || {
   echo "ERROR: $SLUG.php does not declare the woocommerce flavor header" >&2
   exit 1

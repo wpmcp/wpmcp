@@ -789,7 +789,7 @@ final class Plugin
                 'mcp_adapter_initialize_response',
                 [new Handshake_Instructions(), 'filter_initialize'],
                 10,
-                2
+                3
             );
             // The Settings API registration for the handshake instructions
             // option (sanitize + clamp on every save through options.php).
