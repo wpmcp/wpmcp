@@ -7861,7 +7861,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-ops',
             'pro',
-            'List the WooCommerce ops catalog (e.g. products.update) by domain: products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks, settings. Each op gives mode, route, path params, capability, confirm, enabled, snapshot type and full-rollback flag. Read-only',
+            'List the WooCommerce ops catalog (e.g. products.update) by domain: products, variations, orders, refunds, coupons, customers, reviews, reports, shipping, taxes, webhooks, settings. Each op gives mode, route, path params, capability, confirm, enabled, snapshot type and full-rollback flag. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
