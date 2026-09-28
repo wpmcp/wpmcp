@@ -204,8 +204,9 @@ class Upload_Media
             $filename = (string) $check['proper_filename'];
         }
 
-        if (in_array(strtolower($type), self::BLOCKED_TYPES, true)
-            || in_array(strtolower($ext), self::BLOCKED_EXTENSIONS, true)) {
+        $blocked = in_array(strtolower($type), self::BLOCKED_TYPES, true)
+            || in_array(strtolower($ext), self::BLOCKED_EXTENSIONS, true);
+        if ($blocked) {
             throw new \InvalidArgumentException('That file type cannot be uploaded.');
         }
 
