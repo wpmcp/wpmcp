@@ -174,7 +174,7 @@ class Keyword_Extractor
     {
         $text = mb_strtolower(str_replace(["\u{2018}", "\u{2019}"], "'", $text), 'UTF-8');
         // A spaced dash separates clauses the way punctuation does.
-        $text = (string) preg_replace('/\s[\-\x{2013}\x{2014}]+\s/u', ' . ', $text);
+        $text = (string) preg_replace('/\s[\-\x{2013}\x{2014}]+\s/u', ' . ', $text); // dash-guard-ignore: matches dashes in user content
 
         $sentences = preg_split('/[^\p{L}\p{N}\p{M}\s\'\-]+/u', $text) ?: [];
         foreach ($sentences as $sentence) {
