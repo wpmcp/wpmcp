@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 350,
+    'total'     => 354,
     'free'      => 253,
-    'pro'       => 97,
+    'pro'       => 101,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -66,6 +66,7 @@ return [
         'wpmcp/create-custom-block' => 'pro',
         'wpmcp/create-custom-widget' => 'pro',
         'wpmcp/create-global-class' => 'pro',
+        'wpmcp/create-global-variable' => 'pro',
         'wpmcp/create-identity' => 'free',
         'wpmcp/create-menu' => 'free',
         'wpmcp/create-php-snippet' => 'free',
@@ -89,6 +90,7 @@ return [
         'wpmcp/delete-custom-widget' => 'pro',
         'wpmcp/delete-file' => 'free',
         'wpmcp/delete-global-class' => 'pro',
+        'wpmcp/delete-global-variable' => 'pro',
         'wpmcp/delete-identity' => 'free',
         'wpmcp/delete-media' => 'free',
         'wpmcp/delete-menu' => 'free',
@@ -219,6 +221,7 @@ return [
         'wpmcp/list-exports' => 'free',
         'wpmcp/list-field-groups' => 'free',
         'wpmcp/list-global-classes' => 'pro',
+        'wpmcp/list-global-variables' => 'pro',
         'wpmcp/list-governance-audit-log' => 'free',
         'wpmcp/list-identities' => 'free',
         'wpmcp/list-languages' => 'free',
@@ -340,6 +343,7 @@ return [
         'wpmcp/update-global-class' => 'pro',
         'wpmcp/update-global-colors' => 'pro',
         'wpmcp/update-global-typography' => 'pro',
+        'wpmcp/update-global-variable' => 'pro',
         'wpmcp/update-governance-settings' => 'free',
         'wpmcp/update-media' => 'free',
         'wpmcp/update-menu-item' => 'free',

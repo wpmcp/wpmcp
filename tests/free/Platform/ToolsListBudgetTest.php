@@ -81,8 +81,14 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  review, re-applied on the newer main). The coupon write
      *  schemas are most of it: they list every writable field so an agent
      *  can set limits and restrictions without a schema round trip. Compact
-     *  tool mode keeps clients with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 195000;
+     *  tool mode keeps clients with tool caps at ~2.8KB regardless.
+     *  Raised 195000 -> 200000 for the Elementor v4 global variable suite
+     *  (list/create/update/delete-global-variable): main measured 194546
+     *  bytes over 350 tools, 454 bytes under the ceiling, and the four tools
+     *  add 2078 bytes after trimming, which puts the payload at 196624 bytes
+     *  over 354 tools. The create description keeps the per-type value rules
+     *  because an agent that reads them does not burn a call on a refusal. */
+    private const TOOLS_LIST_BYTE_BUDGET = 200000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
@@ -141,9 +147,11 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
         // invariant this protects is unchanged: the 44-widget catalog is
         // consumed by a FIXED generic set, so adding a cataloged widget must
         // never add a tool. New tools here are per-feature, never per-widget,
-        // and stay well under the catalog size.
+        // and stay well under the catalog size. Raised 64 -> 68 for the v4
+        // global variable suite (list/create/update/delete-global-variable),
+        // one per-feature CRUD set like the global class suite.
         $this->assertLessThanOrEqual(
-            64,
+            68,
             count($elementor),
             'The Elementor tool surface must stay a fixed set of generic, per-feature tools; '
             . 'widgets belong in the catalog data, not in new per-widget abilities.'

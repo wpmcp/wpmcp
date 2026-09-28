@@ -132,6 +132,8 @@ const REMOVED_METHODS = [
     'register_cli_job_abilities',
     // Same shape: its only caller is register_elementor_pro_abilities().
     'register_global_class_write_abilities',
+    // Same shape: its only caller is register_elementor_pro_abilities().
+    'register_global_variable_abilities',
     // Atomic (v4) Elementor writes (issue #62) are pro-tier; the method is
     // private and reached only from register_elementor_abilities(), whose
     // call site is edited out below.

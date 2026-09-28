@@ -259,6 +259,11 @@ use WPMCP\Tools\Elementor\Update_Global_Class;
 use WPMCP\Tools\Elementor\Delete_Global_Class;
 use WPMCP\Tools\Elementor\Reorder_Global_Classes;
 use WPMCP\Tools\Elementor\Global_Class_Schema;
+use WPMCP\Tools\Elementor\List_Global_Variables;
+use WPMCP\Tools\Elementor\Create_Global_Variable;
+use WPMCP\Tools\Elementor\Update_Global_Variable;
+use WPMCP\Tools\Elementor\Delete_Global_Variable;
+use WPMCP\Tools\Elementor\Global_Variable_Schema;
 use WPMCP\Tools\Brand\List_Brand_Kits;
 use WPMCP\Tools\Brand\Get_Brand_Kit;
 use WPMCP\Tools\Brand\Apply_Brand_Kit;
@@ -5527,6 +5532,7 @@ final class Plugin
         ));
 
         $this->register_global_class_write_abilities($registrar);
+        $this->register_global_variable_abilities($registrar);
 
         $export_page = new Export_Page();
 
@@ -6193,6 +6199,107 @@ final class Plugin
             'manage_options',
             'elementor',
             'update'
+        ));
+    }
+
+    /**
+     * Register the Elementor 4 global variable (design token) suite.
+     *
+     * Same conventions as the global class suite: pro tier, edit_posts to read
+     * and manage_options to write (what Elementor's own variables REST API
+     * asks for), expected_hash from list-global-variables on every write, and
+     * a dedicated 'elementor_global_variables' snapshot of the kit's raw
+     * variables record so rollback-operation restores it exactly. Writes go
+     * through Elementor's Variables_Service. Registered unconditionally; the
+     * tools refuse with 'unsupported' when the v4 variables module is absent.
+     */
+    private function register_global_variable_abilities(Registrar $registrar): void
+    {
+        $type_schema = [
+            'type' => 'string',
+            'enum' => array_keys(Global_Variable_Schema::TYPES),
+        ];
+
+        $list_global_variables = new List_Global_Variables();
+
+        $registrar->register(new Ability(
+            'wpmcp/list-global-variables',
+            'pro',
+            'List Elementor v4 global variables (color, font, size design tokens) with the state_hash the write tools need as expected_hash. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [],
+            ],
+            [$list_global_variables, 'handle'],
+            'edit_posts',
+            'elementor',
+            'read'
+        ));
+
+        $create_global_variable = new Create_Global_Variable();
+
+        $registrar->register(new Ability(
+            'wpmcp/create-global-variable',
+            'pro',
+            'Create an Elementor v4 global variable; returns its e-gv- id. label is the CSS variable name (letters, digits, - _). value: hex/rgb()/hsl() color, font family, size like 16px, or any CSS for custom-size (sizes need Elementor Pro). Needs expected_hash from list-global-variables. Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'label'         => [ 'type' => 'string' ],
+                    'type'          => $type_schema,
+                    'value'         => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'expected_hash', 'label', 'type', 'value' ],
+            ],
+            [$create_global_variable, 'handle'],
+            'manage_options',
+            'elementor',
+            'create'
+        ));
+
+        $update_global_variable = new Update_Global_Variable();
+
+        $registrar->register(new Ability(
+            'wpmcp/update-global-variable',
+            'pro',
+            'Update an Elementor v4 global variable by e-gv- id: label, value, or size/custom-size switch (no other type change). Needs expected_hash from list-global-variables. Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'id'            => [ 'type' => 'string' ],
+                    'label'         => [ 'type' => 'string' ],
+                    'value'         => [ 'type' => 'string' ],
+                    'type'          => $type_schema,
+                ],
+                'required'   => [ 'expected_hash', 'id' ],
+            ],
+            [$update_global_variable, 'handle'],
+            'manage_options',
+            'elementor',
+            'update'
+        ));
+
+        $delete_global_variable = new Delete_Global_Variable();
+
+        $registrar->register(new Ability(
+            'wpmcp/delete-global-variable',
+            'pro',
+            'Delete an Elementor v4 global variable by e-gv- id. Without confirm:true it is a dry run listing the posts and classes using it. Needs expected_hash from list-global-variables. Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'expected_hash' => [ 'type' => 'string' ],
+                    'id'            => [ 'type' => 'string' ],
+                    'confirm'       => [ 'type' => 'boolean' ],
+                ],
+                'required'   => [ 'expected_hash', 'id' ],
+            ],
+            [$delete_global_variable, 'handle'],
+            'manage_options',
+            'elementor',
+            'delete'
         ));
     }
 
