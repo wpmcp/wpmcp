@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.39
+Stable tag: 0.8.40
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -95,6 +95,9 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.40 =
+* New: get-preview-link returns the preview URL for a draft, pending or scheduled post you can edit, so an agent can share a link to review before publishing.
 
 = 0.8.39 =
 * New: install a plugin or theme from a ZIP uploaded to the Media Library (off by default, requires confirm and the file's SHA-256; unsafe archives are refused before extraction, and rollback restores the previous version or removes the new one).
@@ -284,6 +287,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.40 =
+New: get-preview-link returns the preview URL for a draft, pending or scheduled post you can edit, so an agent can share a link to review before publishing.
 
 = 0.8.39 =
 New: install a plugin or theme from a ZIP uploaded to the Media Library (off by default, requires confirm and the file's SHA-256; unsafe archives are refused before extraction, and rollback restores the previous version or removes the new one).
