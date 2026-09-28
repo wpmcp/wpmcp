@@ -4513,7 +4513,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/rewrite-site-urls',
             'free',
-            'Rewrite embedded URLs from one site URL to another across core tables after a restore, serialization-safe in plain, JSON-escaped, encoded and scheme-relative forms; object values are reported, not rewritten. dry_run defaults to true; apply needs confirm:true. Not snapshotted (recoverable:false): run trigger-backup type=database first. GUIDs never change',
+            'Rewrite embedded URLs from one site URL to another across core tables, serialization-safe, in plain, JSON-escaped and encoded forms; object values are reported, not rewritten. dry_run defaults to true; apply needs confirm:true. Not snapshotted (recoverable:false): run trigger-backup type=database first. GUIDs never change',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4549,7 +4549,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/find-replace-content',
             'free',
-            'Find and replace in post content, titles, excerpts or named meta, serialization-safe. dry_run (default) returns counts and snippets; apply snapshots each post under one session_id for rollback-session, and over 10 posts needs confirm:true. Builder content and JSON-breaking edits are skipped',
+            'Serialization-safe find and replace in post content, titles, excerpts or named meta. dry_run (default) previews matches; apply returns a session_id for rollback-session; over 10 posts needs confirm:true',
             [
                 'type'       => 'object',
                 'properties' => [
