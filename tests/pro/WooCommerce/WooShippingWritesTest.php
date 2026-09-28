@@ -525,6 +525,78 @@ class WooShippingWritesTest extends \WP_UnitTestCase
         $this->assertFalse(get_option("woocommerce_flat_rate_{$instance}_settings"));
     }
 
+    public function test_rollback_of_a_zone_create_whose_id_now_holds_another_zone_leaves_it(): void
+    {
+        $out = $this->write('shipping.create-zone', ['name' => 'Mine', 'locations' => [['code' => 'DE', 'type' => 'country']]]);
+        $this->assertSame(201, $out['status'], wp_json_encode($out));
+        $id = (int) $out['body']['id'];
+
+        // The created zone is deleted in the store admin, and a different
+        // zone later lands on the same id.
+        (new \WC_Shipping_Zone($id))->delete(true);
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- test fixture: a foreign zone at a reused id.
+        $wpdb->insert($wpdb->prefix . 'woocommerce_shipping_zones', ['zone_id' => $id, 'zone_name' => 'Theirs', 'zone_order' => 0], ['%d', '%s', '%d']);
+        \WC_Cache_Helper::invalidate_cache_group('shipping_zones');
+        $theirs = $this->state($id);
+
+        $rolled = (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+
+        $this->assertSame($theirs, $this->state($id), 'someone else\'s zone must survive the undo of ours');
+        $this->assertSame('Theirs', $this->state($id)['wc_name']);
+        $this->assertNotEmpty($rolled['warnings'], 'the skipped restore is reported');
+        $this->assertStringContainsString((string) $id, implode(' ', $rolled['warnings']));
+    }
+
+    public function test_a_session_that_created_edited_and_deleted_a_zone_rolls_back_fully(): void
+    {
+        $this->enable_destructive();
+        $session = wp_generate_uuid4();
+        $zones   = $this->zone_count();
+
+        $made = $this->write('shipping.create-zone', ['name' => 'Asia', 'locations' => [['code' => 'JP', 'type' => 'country']]], ['session_id' => $session]);
+        $this->assertSame(201, $made['status'], wp_json_encode($made));
+        $id = (int) $made['body']['id'];
+
+        $method = $this->write('shipping.add-method', ['zone_id' => $id, 'method_id' => 'flat_rate', 'settings' => ['cost' => '4']], ['session_id' => $session]);
+        $this->assertSame(201, $method['status'], wp_json_encode($method));
+        $instance = (int) $method['body']['instance_id'];
+
+        $rename = $this->write('shipping.update-zone', ['id' => $id, 'name' => 'Japan'], ['session_id' => $session]);
+        $this->assertSame(200, $rename['status'], wp_json_encode($rename));
+
+        $deleted = $this->write('shipping.delete-zone', ['id' => $id], ['session_id' => $session, 'confirm' => true]);
+        $this->assertSame(200, $deleted['status'], wp_json_encode($deleted));
+
+        $rolled = (new Rollback_Session())->handle(['session_id' => $session]);
+
+        $this->assertSame([], $rolled['warnings'], wp_json_encode($rolled));
+        $this->assertSame($zones, $this->zone_count(), 'the created zone is gone again');
+        $this->assertNull($this->state($id)['zone']);
+        $this->assertSame([], $this->instance_ids($id));
+        $this->assertFalse(get_option("woocommerce_flat_rate_{$instance}_settings"));
+    }
+
+    public function test_a_session_that_created_then_renamed_a_zone_rolls_back_fully(): void
+    {
+        $session = wp_generate_uuid4();
+        $zones   = $this->zone_count();
+
+        $made = $this->write('shipping.create-zone', ['name' => 'Africa'], ['session_id' => $session]);
+        $this->assertSame(201, $made['status'], wp_json_encode($made));
+        $id = (int) $made['body']['id'];
+
+        $rename = $this->write('shipping.update-zone', ['id' => $id, 'name' => 'Kenya', 'locations' => [['code' => 'KE', 'type' => 'country']]], ['session_id' => $session]);
+        $this->assertSame(200, $rename['status'], wp_json_encode($rename));
+
+        $rolled = (new Rollback_Session())->handle(['session_id' => $session]);
+
+        $this->assertSame([], $rolled['warnings'], wp_json_encode($rolled));
+        $this->assertSame($zones, $this->zone_count());
+        $this->assertNull($this->state($id)['zone']);
+        $this->assertSame([], $this->state($id)['locations']);
+    }
+
     public function test_shipping_writes_batch_under_one_session(): void
     {
         $zone = $this->zone();
