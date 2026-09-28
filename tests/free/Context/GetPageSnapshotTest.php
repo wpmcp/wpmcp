@@ -496,6 +496,18 @@ class GetPageSnapshotTest extends \WP_UnitTestCase
         $this->assertStringStartsWith('WPBakery stores its layout', $snap['content_coverage']['note']);
     }
 
+    public function test_avada_coverage_is_partial_like_wpbakery(): void
+    {
+        $id = $this->post(['post_content' => '[fusion_builder_container type="flex"][fusion_builder_row][fusion_builder_column type="1_1"][fusion_text]<p>Hi</p>[/fusion_text][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]']);
+        update_post_meta($id, 'fusion_builder_status', 'active');
+
+        $snap = $this->tool->handle(['post_id' => $id]);
+
+        $this->assertSame('avada', $snap['builder']);
+        $this->assertFalse($snap['content_coverage']['complete']);
+        $this->assertStringStartsWith('Avada stores its layout', $snap['content_coverage']['note']);
+    }
+
     // -------------------------------------------------------- read gate
 
     public function test_a_published_post_of_a_non_public_type_still_needs_the_read_gate(): void
