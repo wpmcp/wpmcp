@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Content;
 
+use WPMCP\Safety\Post_Creation_Snapshot;
 use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
@@ -13,9 +14,11 @@ if (! defined('ABSPATH')) {
  * terms and (optionally) its children.
  *
  * NOT routed through Safe_Mutation, following the same reasoning as
- * Create_Post: this only ever creates new posts and never reads back onto
- * the source, so there is no prior state to capture and nothing a rollback
- * could restore. The copies are plain posts and delete-post removes them.
+ * Create_Post: this only ever creates new posts and never writes back onto
+ * the source, so there is no prior state to capture. Like create-post it
+ * records ONE 'post_create' ledger row covering the copy and every copied
+ * child (issue #192), so a session-derived change set lists them and
+ * rollback-operation / rollback-session move them all to the trash.
  *
  * The copy is created as a DRAFT regardless of the source's status, unless a
  * status is explicitly requested. Silently publishing a duplicate is how a
@@ -74,14 +77,22 @@ class Duplicate_Post
             }
         }
 
+        $operation_id = Post_Creation_Snapshot::record(
+            'duplicate-post',
+            array_merge([$new_id], $children),
+            $args,
+            (string) ($args['session_id'] ?? 'default')
+        );
+
         $new = get_post($new_id);
 
         return [
-            'source_id' => $post_id,
-            'post_id'   => $new_id,
-            'children'  => $children,
-            'status'    => $new instanceof \WP_Post ? (string) $new->post_status : $status,
-            'edit_link' => get_edit_post_link($new_id, 'raw'),
+            'source_id'    => $post_id,
+            'post_id'      => $new_id,
+            'children'     => $children,
+            'status'       => $new instanceof \WP_Post ? (string) $new->post_status : $status,
+            'edit_link'    => get_edit_post_link($new_id, 'raw'),
+            'operation_id' => $operation_id,
         ];
     }
 

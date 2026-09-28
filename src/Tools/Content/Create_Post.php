@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Content;
 
+use WPMCP\Safety\Post_Creation_Snapshot;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -11,10 +13,15 @@ class Create_Post
     private const VALID_STATUSES = ['draft', 'publish', 'pending', 'private', 'future'];
 
     /**
-     * NOT routed through Safe_Mutation: creating a brand new post cannot destroy
-     * or overwrite any existing content, so there is nothing to snapshot/roll
-     * back. update-post, delete-post (force), and set-post-terms mutate or
-     * remove existing state and therefore ARE safe-wrapped.
+     * NOT routed through Safe_Mutation, which captures an object's state
+     * BEFORE a write: a brand new post has no prior state to capture. The
+     * creation is still recorded (issue #192): once the post exists, a
+     * 'post_create' row is written to the snapshot ledger under the caller's
+     * session_id (Post_Creation_Snapshot). That row is what lets a change set
+     * derived from the session list this post, and what rollback-operation
+     * and rollback-session undo. Undoing it moves the post to the trash, so
+     * the rollback is itself reversible with restore-post; nothing is
+     * permanently deleted.
      */
     public function handle(array $args): array
     {
@@ -70,10 +77,13 @@ class Create_Post
             }
         }
 
+        $operation_id = Post_Creation_Snapshot::record('create-post', [$post_id], $args, (string) ($args['session_id'] ?? 'default'));
+
         return [
-            'post_id'   => $post_id,
-            'status'    => $status,
-            'permalink' => (string) get_permalink($post_id),
+            'post_id'      => $post_id,
+            'status'       => $status,
+            'permalink'    => (string) get_permalink($post_id),
+            'operation_id' => $operation_id,
         ];
     }
 }

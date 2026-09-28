@@ -174,6 +174,14 @@ class Rollback_Service
                 continue;
             }
             $seen[ $key ] = true;
+            // A creation row that covers several posts (duplicate-post with
+            // include_children) claims every one of them, so a later edit of
+            // a created child cannot bring it back out of the trash.
+            if (Post_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
+                foreach (Post_Creation_Snapshot::post_ids($snapshot) as $created_id) {
+                    $seen[ 'post:' . $created_id ] = true;
+                }
+            }
             if (! self::may_restore($snapshot)) {
                 // One refused snapshot must not abort the rest of the unwind,
                 // but it must be visible and must NOT be counted as restored.
@@ -236,6 +244,11 @@ class Rollback_Service
         // session rollback deletes the import instead of restoring any later
         // 'post' snapshot of the same attachment (e.g. an update-media edit).
         if ('media_import' === $snapshot['object_type']) {
+            return 'post:' . $snapshot['object_id'];
+        }
+        // And for a post create-post, duplicate-post or a spec builder
+        // created (issue #192): its oldest state is "did not exist yet".
+        if (Post_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
             return 'post:' . $snapshot['object_id'];
         }
         // And for a product or variation an import created: its oldest
@@ -580,6 +593,7 @@ class Rollback_Service
             'page_build',
             'media_import',
             'wc_product_create',
+            Post_Creation_Snapshot::OBJECT_TYPE,
             'elementor_global_classes',
             'elementor_global_variables',
             'theme_scaffold',
@@ -708,6 +722,11 @@ class Rollback_Service
 
         if ('wc_product_create' === $snapshot['object_type']) {
             self::apply_wc_product_create_snapshot($snapshot);
+            return;
+        }
+
+        if (Post_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
+            self::apply_post_create_snapshot($snapshot);
             return;
         }
 
@@ -1222,6 +1241,66 @@ class Rollback_Service
             if ($parent && $parent->is_type('variable')) {
                 wc_delete_product_transients($parent_id);
                 \WC_Product_Variable::sync($parent_id);
+            }
+        }
+    }
+
+    /**
+     * Post types whose creation is undone by deactivating rather than
+     * trashing: the custom widget and block spec stores, where post status
+     * draft is the store's own "inactive" (set-widget-status and
+     * set-block-status use the same switch). A draft spec stops rendering in
+     * both the dynamic and the compiled form and stays editable.
+     */
+    private const DEACTIVATE_ON_CREATION_ROLLBACK = ['wpmcp_widget', 'wpmcp_block'];
+
+    /**
+     * Undo a creation recorded by Post_Creation_Snapshot (create-post,
+     * duplicate-post, create-custom-widget, create-custom-block; issue #192).
+     *
+     * Deliberately non-destructive, unlike 'page_build' and 'media_import':
+     * every created post is moved to the trash, where restore-post can bring
+     * it back, and a custom widget or block spec is deactivated instead.
+     * Nothing is permanently deleted.
+     *
+     * Each post gets the same identity check as the other creation restores:
+     * post_type and post_date_gmt are fixed at creation, so a mismatch means
+     * a different post has since reclaimed the id; it is left untouched with
+     * a warning. A post that is already gone, already in the trash, or (for a
+     * spec) already inactive needs nothing.
+     */
+    private static function apply_post_create_snapshot(array $snapshot): void
+    {
+        $created = (array) ($snapshot['data']['created'] ?? []);
+
+        // Children first, so no trashed parent is ever left with live children.
+        foreach (array_reverse($created) as $entry) {
+            $post_id = (int) ($entry['post_id'] ?? 0);
+            $current = $post_id > 0 ? get_post($post_id) : null;
+            if (! $current) {
+                continue; // Already gone; nothing left to undo.
+            }
+
+            if (($entry['post_type'] ?? null) !== $current->post_type || ($entry['post_date_gmt'] ?? null) !== $current->post_date_gmt) {
+                self::warn("Post {$post_id} is not the post this operation created (the id was reclaimed); it was left untouched.");
+                continue;
+            }
+
+            if (in_array($current->post_type, self::DEACTIVATE_ON_CREATION_ROLLBACK, true)) {
+                if ('draft' !== $current->post_status && 'trash' !== $current->post_status) {
+                    $updated = wp_update_post(['ID' => $post_id, 'post_status' => 'draft'], true);
+                    if (is_wp_error($updated) || 0 === $updated) {
+                        self::warn("Spec {$post_id} created by this operation could not be deactivated.");
+                    }
+                }
+                continue;
+            }
+
+            if ('trash' === $current->post_status) {
+                continue;
+            }
+            if (! wp_trash_post($post_id)) {
+                self::warn("Post {$post_id} created by this operation could not be moved to the trash; it was left in place.");
             }
         }
     }
