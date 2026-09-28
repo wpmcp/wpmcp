@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.93
+Stable tag: 0.8.94
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -101,6 +101,11 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.94 =
+* Ready for the next WordPress MCP adapter: both the HTTP endpoint and the stdio transport now speak MCP protocol 2026-07-28 (sessionless discovery via server/discover) alongside 2025-11-25.
+* When the canonical MCP Adapter plugin is active, WP MCP now uses it instead of its bundled copy, so the two never conflict.
+* The server card lists every protocol revision the endpoint answers.
 
 = 0.8.93 =
 * New: get-site-health runs the Site Health tests, including those other plugins add, and returns each result's status, label, badge, description and recommended action as plain text.
@@ -507,6 +512,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.94 =
+Ready for the next WordPress MCP adapter: both the HTTP endpoint and the stdio transport now speak MCP protocol 2026-07-28 (sessionless discovery via server/discover) alongside 2025-11-25.
 
 = 0.8.93 =
 New: get-site-health runs the Site Health tests, including those other plugins add, and returns each result's status, label, badge, description and recommended action as plain text.
