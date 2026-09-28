@@ -110,8 +110,9 @@ class AbilityGridPageTest extends \WP_UnitTestCase
 
         // Forms pairs follow their host plugin's presence at boot (issue #66);
         // see test_the_unlicensed_grid_is_exactly_the_free_tier_of_the_manifest.
-        // The block suites pair does the same with its suites (issue #287).
-        $conditional = array_merge(wpmcp_forms_pair_names(), [ 'wpmcp/block-suites-read', 'wpmcp/block-suites-write' ]);
+        // The block suites pair does the same with its suites (issue #287),
+        // and the plugin-data pair with JetEngine, Pods and TranslatePress (#299).
+        $conditional = array_merge(wpmcp_forms_pair_names(), [ 'wpmcp/block-suites-read', 'wpmcp/block-suites-write', 'wpmcp/plugin-data-read', 'wpmcp/plugin-data-write' ]);
         $this->assertSame(
             array_values(array_diff($expected, $conditional)),
             array_values(array_diff($this->row_names(), $conditional)),

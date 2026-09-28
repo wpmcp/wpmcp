@@ -179,7 +179,10 @@ class Rollback_Service
                 ));
                 continue;
             }
-            if (in_array($snapshot['object_type'], [ 'db_rows', 'acf_options', 'option_set', 'redirection_item', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)) {
+            // Plugin table rows (Pods table storage, TranslatePress
+            // dictionary rows, issue #299) too: each covers only the ids ONE
+            // write named, and two writes can name overlapping sets.
+            if (in_array($snapshot['object_type'], [ 'db_rows', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)) {
                 self::apply_snapshot($snapshot);
                 $count++;
                 continue;
@@ -764,6 +767,7 @@ class Rollback_Service
             'yoast_term_seo',
             'aioseo_row',
             'redirection_item',
+            'plugin_table_rows',
             'wc_tax_rate',
             'php_snippet',
             'page_build',
@@ -936,6 +940,12 @@ class Rollback_Service
 
         if ('redirection_item' === $snapshot['object_type']) {
             self::warn_if(Redirection_Item_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // Plugin_Table_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('plugin_table_rows' === $snapshot['object_type']) {
+            Plugin_Table_Rows_Snapshot::restore($snapshot);
             return;
         }
 
