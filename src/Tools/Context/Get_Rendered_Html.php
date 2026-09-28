@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Context;
 
+use WPMCP\Tools\Performance\Curl_Dns_Pin;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -30,9 +32,24 @@ if (! defined('ABSPATH')) {
  * resolves to a private or loopback address on local and intranet installs,
  * which core's wp_http_validate_url() also allows for the home host.
  *
+ * DNS pin. The site host is resolved once per call and, when curl is the
+ * transport, every hop is pinned to that address with Curl_Dns_Pin (the
+ * same CURLOPT_RESOLVE helper Page_Audit uses), so the host cannot be
+ * re-resolved somewhere else between the check and a later hop. Unlike
+ * Page_Audit the resolved address is not required to be public, for the
+ * local and intranet reason above. When the host does not resolve, or curl
+ * is unavailable, the request still goes through wp_safe_remote_get().
+ *
  * No auth is added. The request carries no cookies and no Authorization
  * header, so drafts, private and password-protected posts are refused up
- * front instead of being fetched through some elevated path.
+ * front instead of being fetched through some elevated path: a
+ * credential-free fetch would only get a 404 or a login page. A post_id
+ * target must also pass read_post for the caller.
+ *
+ * Reads are chunked by chunk index or by byte offset. Each response carries
+ * next_offset (null on the last read) and content_hash, the sha256 of the
+ * whole served document, so a caller can continue and detect that the page
+ * changed between reads.
  */
 class Get_Rendered_Html
 {
@@ -44,8 +61,34 @@ class Get_Rendered_Html
     private const TIMEOUT       = 8;
     private const MAX_REDIRECTS = 3;
 
+    /** @var callable(string):string[] Resolves a hostname to IPs. */
+    private $resolver;
+
+    private ?string $last_pinned_ip = null;
+
+    /**
+     * @param null|callable(string):string[] $resolver Test seam for the DNS
+     *        lookup. Defaults to the system resolver.
+     */
+    public function __construct(?callable $resolver = null)
+    {
+        $this->resolver = $resolver ?? static fn(string $host): array => (array) gethostbynamel($host);
+    }
+
+    /** The IP the last handle() call pinned, or null. Test seam only. */
+    public function get_last_pinned_ip(): ?string
+    {
+        return $this->last_pinned_ip;
+    }
+
     public function handle(array $args): array
     {
+        $has_chunk  = isset($args['chunk']) && '' !== $args['chunk'];
+        $has_offset = isset($args['offset']) && '' !== $args['offset'];
+        if ($has_chunk && $has_offset) {
+            throw new \InvalidArgumentException('Pass chunk or offset, not both.');
+        }
+
         $url = $this->resolve_target($args);
 
         [$response, $final_url, $hops] = $this->fetch($url);
@@ -70,13 +113,23 @@ class Get_Rendered_Html
         $size  = max(self::MIN_CHUNK, min(self::MAX_CHUNK, (int) ($args['chunk_size'] ?? self::DEFAULT_CHUNK)));
         $total = strlen($body);
         $count = max(1, (int) ceil($total / $size));
-        $index = (int) ($args['chunk'] ?? 0);
-        if ($index < 0 || $index >= $count) {
-            throw new \InvalidArgumentException(esc_html(sprintf('chunk %d is out of range (chunk_count %d).', $index, $count)));
-        }
 
-        $start = self::char_boundary($body, $index * $size);
-        $end   = self::char_boundary($body, ($index + 1) * $size);
+        if ($has_offset) {
+            $index  = null;
+            $offset = (int) $args['offset'];
+            if ($offset < 0 || $offset > $total || ($offset === $total && $total > 0)) {
+                throw new \InvalidArgumentException(esc_html(sprintf('offset %d is out of range (total_bytes %d).', $offset, $total)));
+            }
+            $start = self::char_boundary($body, $offset);
+            $end   = self::char_boundary($body, $start + $size);
+        } else {
+            $index = (int) ($args['chunk'] ?? 0);
+            if ($index < 0 || $index >= $count) {
+                throw new \InvalidArgumentException(esc_html(sprintf('chunk %d is out of range (chunk_count %d).', $index, $count)));
+            }
+            $start = self::char_boundary($body, $index * $size);
+            $end   = self::char_boundary($body, ($index + 1) * $size);
+        }
 
         return [
             'requested_url' => $url,
@@ -91,6 +144,9 @@ class Get_Rendered_Html
             'chunk_size'    => $size,
             'chunk_count'   => $count,
             'chunk_index'   => $index,
+            'offset'        => $start,
+            'next_offset'   => $end < $total ? $end : null,
+            'content_hash'  => hash('sha256', $body),
             'content'       => (string) substr($body, $start, $end - $start),
         ];
     }
@@ -109,12 +165,12 @@ class Get_Rendered_Html
 
         if ($has_post) {
             $post = get_post((int) $args['post_id']);
-            if (! $post) {
-                throw new \InvalidArgumentException('Post not found.');
+            if (! $post || ! current_user_can('read_post', $post->ID)) {
+                throw new \InvalidArgumentException('Post not found, or you cannot read it.');
             }
             if (! is_post_publicly_viewable($post)) {
                 throw new \InvalidArgumentException(esc_html(sprintf(
-                    'Post %d is not publicly viewable (status %s); only published content can be fetched.',
+                    'Post %d is not publicly viewable (status %s); the fetch is logged-out, so only published content can be fetched.',
                     (int) $post->ID,
                     (string) $post->post_status
                 )));
@@ -188,6 +244,59 @@ class Get_Rendered_Html
      */
     private function fetch(string $url): array
     {
+        $this->last_pinned_ip = null;
+        $pin                  = $this->pin_filter($url);
+        if (null !== $pin) {
+            add_filter('http_api_curl', $pin);
+        }
+
+        // Every hop stays on the site host and port (guard()), so one pin
+        // covers them all. It is removed unconditionally: a throw from a
+        // redirect refusal or an open HTTP hook must not leave it in place.
+        try {
+            return $this->fetch_hops($url);
+        } finally {
+            if (null !== $pin) {
+                remove_filter('http_api_curl', $pin);
+            }
+        }
+    }
+
+    /**
+     * A Curl_Dns_Pin filter for the URL's host and port, or null when curl
+     * is unavailable, the host is an IP literal, or it does not resolve.
+     */
+    private function pin_filter(string $url): ?callable
+    {
+        if (! function_exists('curl_init') || ! class_exists(Curl_Dns_Pin::class)) {
+            return null;
+        }
+        $parts = (array) wp_parse_url($url);
+        $host  = (string) ($parts['host'] ?? '');
+        if ('' === $host || false !== filter_var(trim($host, '[]'), FILTER_VALIDATE_IP)) {
+            return null;
+        }
+        $ip = null;
+        foreach ((array) ($this->resolver)($host) as $candidate) {
+            if (false !== filter_var($candidate, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                $ip = (string) $candidate;
+                break;
+            }
+        }
+        if (null === $ip) {
+            return null;
+        }
+        $port = (int) ($parts['port'] ?? ('https' === strtolower((string) ($parts['scheme'] ?? '')) ? 443 : 80));
+
+        $this->last_pinned_ip = $ip;
+        return Curl_Dns_Pin::filter(sprintf('%s:%d:%s', $host, $port, $ip));
+    }
+
+    /**
+     * @return array{0:array,1:string,2:int} response, final URL, redirect hops.
+     */
+    private function fetch_hops(string $url): array
+    {
         $hops = 0;
         while (true) {
             $response = wp_safe_remote_get($url, [
@@ -195,6 +304,8 @@ class Get_Rendered_Html
                 'redirection'         => 0,
                 'limit_response_size' => self::MAX_BYTES,
                 'user-agent'          => 'WPMCP-Rendered-Html/1.0',
+                'cookies'             => [],
+                'headers'             => [],
             ]);
             if (is_wp_error($response)) {
                 throw new \InvalidArgumentException(esc_html('Fetch failed: ' . $response->get_error_message()));
