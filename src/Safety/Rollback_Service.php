@@ -10,6 +10,7 @@ use WPMCP\Tools\Database\Database_Guard;
 use WPMCP\Tools\Builders\Avada_Cache;
 use WPMCP\Tools\Builders\Beaver_Builder_Cache;
 use WPMCP\Tools\Builders\Breakdance_Cache;
+use WPMCP\Tools\Builders\Oxygen_Classic_Cache;
 use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
@@ -1177,6 +1178,13 @@ class Rollback_Service
             $engine_key = Breakdance_Cache::prefix($engine_builder) . 'data';
             if (isset($snapshotted_meta[ $engine_key ]) || isset($current_meta[ $engine_key ])) {
                 Breakdance_Cache::regenerate($object_id, $engine_builder);
+            }
+        }
+
+        foreach (Oxygen_Classic_Cache::LAYOUT_KEYS as $classic_key) {
+            if (isset($snapshotted_meta[ $classic_key ]) || isset($current_meta[ $classic_key ])) {
+                Oxygen_Classic_Cache::refresh($object_id);
+                break;
             }
         }
 

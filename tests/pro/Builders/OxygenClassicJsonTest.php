@@ -355,7 +355,7 @@ class OxygenClassicJsonTest extends \WP_UnitTestCase
         $cb9  = str_replace('"depth":3', '"depth":2', self::CB9);
         $col7 = str_replace(['"ct_parent":6', '"depth":2,"children":[' . self::CB9], ['"ct_parent":0', '"depth":1,"children":[' . $cb9], self::COL7);
         $expected = $this->swap(self::FIXTURE, self::COL7 . ',', '');
-        $expected = $this->swap($expected, '"children":[' . self::S1, '"children":[' . $col7 . ',' . self::S1);
+        $expected = $this->swap($expected, '"name":"root","depth":0,"children":[', '"name":"root","depth":0,"children":[' . $col7 . ',');
         $this->assertSame($expected, $out);
     }
 

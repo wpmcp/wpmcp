@@ -29,13 +29,18 @@ if (! defined('ABSPATH')) {
  * Thrive Architect: either a whole layout as an HTML string, or one element
  * operation addressed by the dotted paths get-builder-content returns,
  * written to its layout meta (see Thrive_Content::save).
+ * Classic Oxygen (4.x and earlier): either a whole JSON tree, or one element
+ * operation addressed by the dotted paths get-builder-content returns,
+ * written to its tree with its shortcode copy regenerated through Oxygen
+ * (see Oxygen_Classic_Content::save).
  * Elementor/gutenberg/classic posts are out of scope for this tool (use
  * update-element for Elementor) and return a WP_Error.
  *
  * All writes go through Safe_Mutation::run() with object_type='post':
  * Bricks' JSON lives in ordinary postmeta and Divi's shortcodes live in
  * ordinary post_content (as do WPBakery's shortcodes and meta, and Beaver
- * Builder's, Breakdance's, Oxygen's and Thrive Architect's layout meta), all of which
+ * Builder's, Breakdance's, Oxygen's, classic Oxygen's and Thrive
+ * Architect's layout meta), all of which
  * are already part of the full post
  * row + postmeta the existing post snapshot captures and restores, so no
  * safety-core change is needed for either edit to be undoable.
@@ -80,13 +85,17 @@ class Update_Builder_Content
             return $this->update_thrive($post_id, $args);
         }
 
+        if ('oxygen-classic' === $builder) {
+            return $this->update_oxygen_classic($post_id, $args);
+        }
+
         if ('breakdance' === $builder || 'oxygen' === $builder) {
             return $this->update_breakdance($post_id, $args, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen' and 'thrive'; got '{$builder}'."
+            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic' and 'thrive'; got '{$builder}'."
         );
     }
 
@@ -429,6 +438,123 @@ class Update_Builder_Content
         }
 
         return $result;
+    }
+
+    /**
+     * Classic Oxygen pages: a whole JSON tree or one element operation, only
+     * on a page already detected as classic Oxygen and stored in the JSON
+     * format, and only when both of its stores can be kept consistent.
+     */
+    private function update_oxygen_classic(int $post_id, array $args)
+    {
+        $operation = (string) ($args['operation'] ?? '');
+        $path      = null;
+
+        $detected = Builder_Detector::detect($post_id);
+        if ('oxygen-classic' !== $detected) {
+            return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not a classic Oxygen page.");
+        }
+        if ('json' !== Oxygen_Classic_Content::format($post_id)) {
+            return new \WP_Error(
+                'oxygen_classic_legacy_format',
+                'This page is still in Oxygen\'s pre-4.0 format, signed shortcodes that only Oxygen can rewrite. Open and save it in Oxygen 4 (or sign its shortcodes in Oxygen\'s settings) to store it as JSON, then edit it here.'
+            );
+        }
+        if (! Oxygen_Classic_Content::writable($post_id)) {
+            return new \WP_Error(
+                'oxygen_classic_inactive',
+                'Oxygen keeps a signed shortcode copy of this page beside its JSON, and only Oxygen can sign it; activate Oxygen to edit this page.'
+            );
+        }
+
+        $old  = Oxygen_Classic_Content::get_json($post_id);
+        $sign = Oxygen_Classic_Content::signer();
+        try {
+            if ('' === $operation) {
+                $content = $args['content'] ?? null;
+                if (! is_string($content)) {
+                    throw new \InvalidArgumentException(esc_html('Classic Oxygen content must be the whole JSON tree as a string, or pass an operation.'));
+                }
+                Oxygen_Classic_Json::validate($content);
+                $json = $sign($content);
+            } else {
+                [$json, $path] = $this->apply_oxygen_classic_operation($post_id, $old, $operation, $args, $sign);
+            }
+        } catch (\InvalidArgumentException $e) {
+            return new \WP_Error('invalid_oxygen_classic_request', $e->getMessage());
+        }
+
+        $shortcodes = null;
+        if ($json !== $old) {
+            try {
+                $shortcodes = Oxygen_Classic_Content::shortcodes_for($json);
+            } catch (\RuntimeException $e) {
+                return new \WP_Error('oxygen_classic_shortcodes_failed', $e->getMessage());
+            }
+        }
+
+        $out = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $post_id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-builder-content',
+                'args'        => $args,
+            ],
+            function () use ($post_id, $json, $shortcodes) {
+                Oxygen_Classic_Content::save($post_id, $json, $shortcodes);
+                return true;
+            }
+        );
+
+        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'oxygen-classic'];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Apply one classic Oxygen element operation; `path` and `to` are dotted
+     * paths, and every fragment written goes through the signer.
+     *
+     * @return array{0:string,1:?string} new tree, and the element's path when
+     *                                    the operation knows it
+     */
+    private function apply_oxygen_classic_operation(int $post_id, string $json, string $operation, array $args, callable $sign): array
+    {
+        $path  = (string) ($args['path'] ?? '');
+        $to    = (string) ($args['to'] ?? '');
+        $index = isset($args['index']) ? (int) $args['index'] : null;
+
+        switch ($operation) {
+            case 'update':
+                $attrs = $args['attrs'] ?? null;
+                $text  = $args['text'] ?? null;
+                if (null !== $attrs && ! is_array($attrs)) {
+                    throw new \InvalidArgumentException(esc_html('attrs must be an object: the options to merge (null removes a key).'));
+                }
+                if (null !== $text && ! is_string($text)) {
+                    throw new \InvalidArgumentException(esc_html('text must be a string.'));
+                }
+                return [Oxygen_Classic_Json::update($json, $path, $attrs, $text, $sign), $path];
+
+            case 'add':
+                $element = $args['element'] ?? null;
+                if (! is_array($element)) {
+                    throw new \InvalidArgumentException(esc_html('add needs an element object: {name, options?, text? | children?}.'));
+                }
+                return Oxygen_Classic_Json::add($json, $to, $index, $element, $post_id, $sign);
+
+            case 'remove':
+                return [Oxygen_Classic_Json::remove($json, $path), null];
+
+            case 'move':
+                return [Oxygen_Classic_Json::move($json, $path, $to, $index), null];
+        }
+
+        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove or move."));
     }
 
     /**

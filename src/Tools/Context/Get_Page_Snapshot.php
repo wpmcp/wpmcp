@@ -109,7 +109,7 @@ class Get_Page_Snapshot
     private const OPT_IN_SECTIONS = ['global_tokens', 'responsive_overrides'];
 
     /** Builders whose page body is not stored in post_content. */
-    private const OFF_CONTENT_BUILDERS = ['elementor', 'bricks', 'beaver-builder', 'breakdance', 'oxygen'];
+    private const OFF_CONTENT_BUILDERS = ['elementor', 'bricks', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic'];
 
     /**
      * Sections derived from the extracted content, as paths into the digest.
@@ -435,6 +435,10 @@ class Get_Page_Snapshot
      * Oxygen 6, the same engine) nests its tree as a JSON string inside a
      * JSON row, so for it this returns the
      * root's children re-encoded, which keeps the root node out of counts.
+     * Classic Oxygen keeps a {name: root, children} tree under either key
+     * layout (`_ct_builder_json` from Oxygen 4.8.3, `ct_builder_json`
+     * before), so the same applies; a page still in the pre-4.0 shortcode
+     * format has no tree to count.
      *
      * @return mixed
      */
@@ -442,6 +446,17 @@ class Get_Page_Snapshot
     {
         if ('elementor' === $builder) {
             return get_post_meta($post_id, '_elementor_data', true);
+        }
+
+        if ('oxygen-classic' === $builder) {
+            foreach (['_ct_builder_json', 'ct_builder_json'] as $key) {
+                $tree = json_decode((string) get_post_meta($post_id, $key, true), true);
+                if (is_array($tree['children'] ?? null) && [] !== $tree['children']) {
+                    return wp_json_encode($tree['children']);
+                }
+            }
+
+            return null;
         }
 
         if ('breakdance' === $builder || 'oxygen' === $builder) {

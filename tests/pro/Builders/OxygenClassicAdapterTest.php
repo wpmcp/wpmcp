@@ -319,7 +319,8 @@ namespace WPMCP\Tests\Pro\Builders {
             $this->assertSame('unsupported_builder', (new Update_Builder_Content())->handle(['post_id' => $post_id, 'builder' => 'oxygen', 'operation' => 'remove', 'path' => '1'])->get_error_code());
 
             $before = $this->meta($post_id);
-            foreach ([
+            foreach (
+                [
                 ['operation' => 'update', 'path' => '9', 'text' => 'x'],
                 ['operation' => 'update', 'path' => '0.0.0', 'attrs' => 'x'],
                 ['operation' => 'add', 'to' => '0', 'element' => 'x'],
@@ -329,7 +330,8 @@ namespace WPMCP\Tests\Pro\Builders {
                 ['content' => '{"id":0,"name":"root","depth":0,"children":[{"id":1}]}'],
                 ['content' => 'not json'],
                 [],
-            ] as $args) {
+                ] as $args
+            ) {
                 $out = $this->update($post_id, $args);
                 $this->assertWPError($out, wp_json_encode($args));
                 $this->assertSame('invalid_oxygen_classic_request', $out->get_error_code());
