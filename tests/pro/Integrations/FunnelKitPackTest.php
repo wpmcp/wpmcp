@@ -50,7 +50,11 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         parent::setUp();
         Snapshot_Store::install();
         Gate::set_pro_for_tests(true);
-        wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        // WooCommerce grants manage_woocommerce to administrators when it
+        // installs its roles; the shared core may not have run that.
+        $admin = self::factory()->user->create([ 'role' => 'administrator' ]);
+        get_userdata($admin)->add_cap('manage_woocommerce');
+        wp_set_current_user($admin);
         add_filter('wpmcp_funnelkit_active', '__return_true');
     }
 

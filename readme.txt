@@ -37,6 +37,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm; with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
 * Events, donations, memberships (read)
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
+* With Pro, FunnelKit funnels and their steps (read), with linked pages, products and step counts
 * Media library plus stock image imports
 * REST passthrough for anything else, still snapshotted
 

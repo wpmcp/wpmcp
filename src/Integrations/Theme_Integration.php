@@ -268,6 +268,8 @@ class Theme_Integration extends Integration_Dispatcher
      * Issue #290 adds the paid-tier dynamic template ops
      * (Dynamic_Template_Ops): source discovery, preview, and create/update of
      * single, archive and search templates on the site parts store.
+     * Issue #356 adds the paid-tier FunnelKit funnel reads (FunnelKit_Pack),
+     * which answer funnelkit_inactive while FunnelKit is not loaded.
      *
      * Issue #300 adds the Redirection plugin adapter (Redirection_Pack):
      * free redirect and group reads plus snapshotted redirect writes that
@@ -287,6 +289,7 @@ class Theme_Integration extends Integration_Dispatcher
             Ops_Status_Packs::operations(),
             Redirection_Pack::operations(),
             Elementor_Addon_Packs::operations(),
+            FunnelKit_Pack::operations(),
             \WPMCP\Tools\ThemeBuilder\Dynamic\Dynamic_Template_Ops::operations()
         );
     }
