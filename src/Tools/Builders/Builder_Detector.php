@@ -20,8 +20,11 @@ if (! defined('ABSPATH')) {
  *
  * Checked in priority order: Elementor's `_elementor_edit_mode` flag,
  * Bricks' `_bricks_page_content_2` postmeta, Divi's `_et_pb_use_builder`
- * flag, Gutenberg's `<!-- wp: -->` block comment markers in post_content,
- * falling back to 'classic' when none match.
+ * flag, WPBakery's `_wpb_vc_js_status` = 'true' editor flag, Gutenberg's
+ * `<!-- wp: -->` block comment markers in post_content, then a
+ * WPBakery `[vc_row]` or `[vc_section]` shortcode in post_content (a
+ * WPBakery page saved with its backend editor off), falling back to
+ * 'classic' when none match.
  */
 class Builder_Detector
 {
@@ -40,11 +43,19 @@ class Builder_Detector
             return 'divi';
         }
 
+        if ('true' === get_post_meta($post_id, '_wpb_vc_js_status', true)) {
+            return 'wpbakery';
+        }
+
         $post = get_post($post_id);
         $content = $post ? (string) $post->post_content : '';
 
         if (false !== strpos($content, '<!-- wp:')) {
             return 'gutenberg';
+        }
+
+        if (preg_match('/\[vc_(?:row|section)[\s\]]/', $content)) {
+            return 'wpbakery';
         }
 
         return 'classic';

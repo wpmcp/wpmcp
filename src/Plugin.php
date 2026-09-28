@@ -8812,7 +8812,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-builder',
             'pro',
-            'Detect which builder authored a post (elementor / bricks / divi / gutenberg / classic) from _elementor_edit_mode, _bricks_page_content_2, _et_pb_use_builder or block comments, falling back to classic. Read-only',
+            'Detect a post\'s page builder: elementor, bricks, divi, wpbakery, gutenberg or classic. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8831,7 +8831,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-builder-content',
             'pro',
-            'Return the raw builder structure for a post: for Bricks, the decoded _bricks_page_content_2 postmeta JSON; for Divi, the post_content shortcode string plus the use-builder flag. Returns a WP_Error for posts detected as elementor, gutenberg, or classic. Read-only',
+            'Return a post\'s builder structure: the Bricks element array, or the Divi or WPBakery shortcode string (WPBakery adds an element tree with dotted paths). Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8850,15 +8850,22 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-builder-content',
             'pro',
-            'Replace a post\'s builder structure. Bricks: the string must be JSON decoding to an array, written to _bricks_page_content_2. Divi: a string written to post_content, with _et_pb_use_builder on. Undoable via rollback-operation (post snapshot)',
+            'Write a post\'s builder structure. Bricks: JSON array string. Divi or WPBakery: shortcode string, or for WPBakery an operation update (path, attrs, text), add (to, index, element), remove (path) or move (path, to, index); to "" is top level. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'post_id' => [ 'type' => 'integer' ],
-                    'builder' => [ 'type' => 'string' ],
-                    'content' => [ 'type' => 'string' ],
+                    'post_id'   => [ 'type' => 'integer' ],
+                    'builder'   => [ 'type' => 'string' ],
+                    'content'   => [ 'type' => 'string' ],
+                    'operation' => [ 'type' => 'string' ],
+                    'path'      => [ 'type' => 'string' ],
+                    'to'        => [ 'type' => 'string' ],
+                    'index'     => [ 'type' => 'integer' ],
+                    'attrs'     => [ 'type' => 'object' ],
+                    'text'      => [ 'type' => 'string' ],
+                    'element'   => [ 'type' => 'object' ],
                 ],
-                'required'   => [ 'post_id', 'builder', 'content' ],
+                'required'   => [ 'post_id', 'builder' ],
             ],
             [$update_builder_content, 'handle'],
             'edit_posts',
