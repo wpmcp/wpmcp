@@ -154,6 +154,8 @@ class DeletePostTest extends \WP_UnitTestCase
             'comment_approved'     => '1',
         ]);
         add_comment_meta($comment_id, 'helpful_votes', '3');
+        // An exact restore of a commenter's email takes moderate_comments (issue #362).
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
 
         $out = (new Delete_Post())->handle(['post_id' => $id, 'force' => true, 'confirm' => true, 'session_id' => 's1']);
         $this->assertNull(get_post($id));
