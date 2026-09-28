@@ -37,6 +37,10 @@ class ContentMirrorTest extends \WP_UnitTestCase
         }
         $this->cleanup = [];
         $this->wipe_mirror();
+        // Rolling back an Elementor page lets the real Elementor, when it is
+        // loaded, boot the REST server mid-test. Drop it so the next REST
+        // test builds a server with every route registered.
+        $GLOBALS['wp_rest_server'] = null;
         parent::tearDown();
     }
 
