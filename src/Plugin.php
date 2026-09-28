@@ -6316,7 +6316,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-variation',
             'free',
-            'Add a variation to a variable product. attributes maps each variation attribute to one of its options ("" or omitted = any); unknown attributes or options are refused. Prices, sku, status and stock follow update-variation\'s rules. Not snapshotted (nothing existed); undo with delete-variation',
+            'Add a variation to a variable product. attributes maps each variation attribute to one of its options ("" or omitted = any); unknown attributes or options are refused. Prices, sku, status and stock follow update-variation\'s rules. Undo with delete-variation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6341,7 +6341,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-variation',
             'free',
-            'Permanently delete a product variation (WooCommerce has no variation trash). Disabled until the site opts in via the wpmcp_enable_delete_variation filter; requires confirm:true. Snapshotted: rollback-operation resurrects it at the same id, attached to its parent',
+            'Permanently delete a product variation (there is no variation trash). Disabled until the site opts in via the wpmcp_enable_delete_variation filter; requires confirm:true. Snapshotted: rollback-operation resurrects it at the same id, attached to its parent',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6359,7 +6359,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/bulk-update-products',
             'free',
-            'Update up to 50 products and variations in one call; each item is {id, ...fields} as update-product or update-variation takes them, with the same rules and permission checks. Reports ok, operation_id or error per item; one failure does not stop the rest. Returns the session_id: rollback-session undoes the whole batch',
+            'Update up to 50 products and variations in one call; each item is {id, ...fields} as update-product or update-variation takes them, with the same rules and permission checks. Reports ok, operation_id or error per item; one failure does not stop the rest. rollback-session on the returned session_id undoes the batch',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6418,7 +6418,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-coupon',
             'free',
-            'Create a coupon. Refuses a code already in use, an unknown discount_type, a percent over 100 or an invalid email restriction. Status defaults to draft so nothing goes live by accident. Not snapshotted (nothing existed); undo with delete-coupon',
+            'Create a coupon. Refuses a code already in use, an unknown discount_type, a percent over 100 or an invalid email restriction. Status defaults to draft. Undo with delete-coupon',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6452,7 +6452,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-coupon',
             'free',
-            'Update a coupon\'s fields with the same checks as create-coupon. A coupon is a post, so this is snapshotted and rollback-operation restores every setting and its usage history',
+            'Update a coupon\'s fields with the same checks as create-coupon. Snapshotted: rollback-operation restores every setting and usage history',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6507,7 +6507,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/validate-coupon',
             'free',
-            'Check whether a coupon code would be accepted: published, expiry, usage limits, and (when email or subtotal is given) per-customer limit, email allow-list and spend rules. Each rule reports pass, fail or skipped; cart-dependent product rules are flagged. Read-only, records no usage',
+            'Check whether a coupon code would be accepted: published, expiry, usage limits, and (when email or subtotal is given) per-customer limit, email allow-list and spend rules. Each rule reports pass, fail or skipped; cart-dependent rules are flagged. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6525,7 +6525,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-tax-rates',
             'free',
-            'List the store\'s tax classes and tax rates (country, state, postcodes, cities, rate, priority, compound, shipping, class), filterable by class or country, with paging. Read-only',
+            'List the store\'s tax classes and tax rates, filterable by class or country, with paging. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6543,7 +6543,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-tax-rate',
             'free',
-            'Create a tax rate. rate is a percentage from 0 to 100; country must be a known ISO code or "" for all; class must be standard or an existing class. Not snapshotted (nothing existed); undo with delete-tax-rate',
+            'Create a tax rate. rate is a percentage from 0 to 100; country must be a known ISO code or "" for all; class must be standard or an existing class. Undo with delete-tax-rate',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6569,7 +6569,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-tax-rate',
             'free',
-            'Update a tax rate with the same checks as create-tax-rate; postcodes and cities replace the whole list. Snapshotted as a wc_tax_rate, so rollback-operation restores the row and its locations exactly',
+            'Update a tax rate with the same checks as create-tax-rate; postcodes and cities replace the whole list. Snapshotted: rollback-operation restores the row and its locations',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6597,7 +6597,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-tax-rate',
             'free',
-            'Delete a tax rate. Disabled until the site opts in via the wpmcp_enable_delete_tax_rate filter; requires confirm:true. Snapshotted: rollback-operation restores it at the same id, which past orders reference',
+            'Delete a tax rate. Disabled until the site opts in via the wpmcp_enable_delete_tax_rate filter; requires confirm:true. Snapshotted: rollback-operation restores it at the same id',
             [
                 'type'       => 'object',
                 'properties' => [
