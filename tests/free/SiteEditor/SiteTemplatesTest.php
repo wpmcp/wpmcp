@@ -365,6 +365,118 @@ class SiteTemplatesTest extends \WP_UnitTestCase
         $this->assertSame($markup, get_post($nav)->post_content);
     }
 
+    public function test_a_new_custom_template_is_created_and_reverting_it_deletes_it(): void
+    {
+        $this->use_block_theme();
+
+        $out = $this->write->handle([
+            'entity'  => 'template',
+            'id'      => 'wpmcp-landing',
+            'title'   => 'Landing',
+            'content' => $this->header_markup('Landing body'),
+        ]);
+        $read = $this->read->handle(['entity' => 'template', 'id' => self::THEME . '//wpmcp-landing']);
+        $this->assertSame('Landing', $read['title']);
+        $this->assertFalse($read['has_theme_file']);
+        $this->assertTrue($read['customized']);
+
+        $revert = $this->write->handle(['entity' => 'template', 'id' => 'wpmcp-landing', 'action' => 'revert']);
+        $this->assertSame('none', $revert['source']);
+        $this->assertNotSame('', $revert['notes']);
+        $this->assertSame([], $this->customization_ids('wp_template', 'wpmcp-landing'));
+
+        $this->assertTrue(Rollback_Service::restore_operation($revert['operation_id']));
+        $this->assertSame([$out['wp_id']], $this->customization_ids('wp_template', 'wpmcp-landing'));
+    }
+
+    /** @return array<string, array{0: array, 1: string}> */
+    public function refusals(): array
+    {
+        return [
+            'missing id'         => [['entity' => 'template_part'], '"id" is required'],
+            'unknown action'     => [['entity' => 'template_part', 'id' => 'footer', 'action' => 'rename'], '"action" must be one of'],
+            'unknown entity'     => [['entity' => 'style', 'id' => 'x', 'content' => 'x'], '"entity" must be one of'],
+            'bad slug'           => [['entity' => 'template_part', 'id' => 'Bad Slug!', 'content' => 'x'], 'must be a template slug'],
+            'bad area'           => [['entity' => 'template_part', 'id' => 'wpmcp-new-part', 'area' => 'nowhere', 'content' => 'x'], '"area" must be one of'],
+            'save without body'  => [['entity' => 'template_part', 'id' => 'footer'], 'save needs "content"'],
+            'stale save hash'    => [['entity' => 'template_part', 'id' => 'footer', 'content' => 'x', 'expected_hash' => 'abc'], 'Stale expected_hash'],
+            'path without hash'  => [['entity' => 'template_part', 'id' => 'footer', 'action' => 'remove_block', 'path' => [0]], '"expected_hash" is required'],
+            'path on missing'    => [['entity' => 'template_part', 'id' => 'wpmcp-missing', 'action' => 'remove_block', 'path' => [0], 'expected_hash' => 'x'], 'to edit by path'],
+            'read missing'       => [['read' => true, 'entity' => 'template_part', 'id' => 'wpmcp-missing'], 'No template part'],
+            'navigation revert'  => [['nav' => true, 'entity' => 'navigation', 'action' => 'revert'], 'no theme file'],
+            'navigation missing' => [['entity' => 'navigation', 'id' => 999999, 'content' => 'x'], 'wp_navigation'],
+        ];
+    }
+
+    /** @dataProvider refusals */
+    public function test_invalid_calls_are_refused_without_writing(array $args, string $message): void
+    {
+        $this->use_block_theme();
+        $before = count(Snapshot_Store::recent(100));
+        if (! empty($args['nav'])) {
+            $args['id'] = self::factory()->post->create(['post_type' => 'wp_navigation', 'post_status' => 'publish']);
+        }
+        $read = ! empty($args['read']);
+        unset($args['nav'], $args['read']);
+
+        try {
+            $read ? $this->read->handle($args) : $this->write->handle($args);
+            $this->fail('Expected a refusal.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString($message, $e->getMessage());
+        }
+        $this->assertCount($before, Snapshot_Store::recent(100));
+    }
+
+    public function test_update_block_needs_a_change_and_refuses_inner_html_on_a_container(): void
+    {
+        $this->use_block_theme();
+        $read = $this->read->handle(['entity' => 'template_part', 'id' => 'header']);
+        $base = ['entity' => 'template_part', 'id' => 'header', 'action' => 'update_block', 'path' => [0], 'expected_hash' => $read['content_hash']];
+
+        foreach ([
+            [[], 'needs "attrs"'],
+            [['attrs' => 'x'], '"attrs" must be an object'],
+            [['inner_html' => '<p>x</p>'], 'has innerBlocks'],
+        ] as [$extra, $message]) {
+            try {
+                $this->write->handle($base + $extra);
+                $this->fail('Expected a refusal.');
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString($message, $e->getMessage());
+            }
+        }
+
+        $out = $this->write->handle($base + ['attrs' => ['tagName' => 'header']]);
+        $this->assertSame(['tagName' => 'header'], parse_blocks(get_post($out['wp_id'])->post_content)[0]['attrs']);
+    }
+
+    public function test_add_block_needs_exactly_one_block(): void
+    {
+        $this->use_block_theme();
+        $read = $this->read->handle(['entity' => 'template_part', 'id' => 'footer']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('exactly one block');
+        $this->write->handle([
+            'entity'        => 'template_part',
+            'id'            => 'footer',
+            'action'        => 'add_block',
+            'path'          => [0],
+            'markup'        => $this->header_markup('a') . $this->header_markup('b'),
+            'expected_hash' => $read['content_hash'],
+        ]);
+    }
+
+    public function test_navigation_is_listed_on_a_classic_theme_too(): void
+    {
+        $nav = self::factory()->post->create(['post_type' => 'wp_navigation', 'post_status' => 'publish', 'post_title' => 'Classic nav']);
+
+        $ids = array_map('intval', wp_list_pluck($this->read->handle(['entity' => 'navigation'])['navigation'], 'id'));
+
+        $this->assertContains($nav, $ids);
+    }
+
     public function test_navigation_write_refuses_a_post_that_is_not_a_navigation_menu(): void
     {
         $page = self::factory()->post->create(['post_type' => 'page']);
