@@ -370,6 +370,10 @@ true
 #    WPMCP Flavor header the guard ranks by.
 [ -f "$STAGE/src/flavor-guard.php" ] || fail "src/flavor-guard.php missing from the $SLUG build"
 grep -q "flavor-guard.php" "$STAGE/$SLUG.php" || fail "$SLUG.php does not load the flavor coexistence guard"
+# Same for the MCP adapter guard (issue #386): global functions the main
+# file calls right after the autoloader, invisible to the classmap walk.
+[ -f "$STAGE/src/adapter-guard.php" ] || fail "src/adapter-guard.php missing from the $SLUG build"
+grep -q "wpmcp_prefer_shared_mcp_adapter" "$STAGE/$SLUG.php" || fail "$SLUG.php does not apply the MCP adapter guard"
 grep -q "^ \* WPMCP Flavor: wporg$" "$STAGE/$SLUG.php" || fail "$SLUG.php does not declare the wporg flavor header"
 
 # 6. Packaging hygiene: no dotfiles, no development directories, no build

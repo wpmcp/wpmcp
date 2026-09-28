@@ -48,5 +48,9 @@ define( 'WPMCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPMCP_FS_ID', 34955 );
 define( 'WPMCP_FS_PUBLIC_KEY', 'pk_198c5294157bf7068fd2ffd493957' );
 require_once __DIR__ . '/vendor/autoload.php';
+// Never let the bundled MCP Adapter shadow the canonical plugin or another
+// plugin's copy (issue #386); see src/adapter-guard.php.
+require_once __DIR__ . '/src/adapter-guard.php';
+wpmcp_prefer_shared_mcp_adapter( __DIR__ . '/vendor' );
 \WPMCP\Freemius\Bootstrap::init();
 \WPMCP\Plugin::instance()->boot();
