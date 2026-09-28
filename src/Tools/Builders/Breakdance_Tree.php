@@ -7,14 +7,17 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * Tree view and editor for a Breakdance document: the JSON Breakdance keeps
- * in the `tree_json_string` key of its `_breakdance_data` postmeta. Pure data
- * work, so it runs without the Breakdance plugin loaded.
+ * Tree view and editor for a Breakdance engine document: the JSON the
+ * engine keeps in the `tree_json_string` key of its `_breakdance_data`
+ * postmeta, or `_oxygen_data` for Oxygen 6, which runs on the same engine.
+ * Pure data work, so it runs without either plugin loaded.
  *
- * The document is {root, _nextNodeId, status, ...}. `root` is a node with id
- * 1 and data.type "root"; every node is {id, data: {type, properties},
+ * The document is {root, _nextNodeId, status, ...}. `root` is a node with
+ * data.type "root" and id 1 (Breakdance) or 0 (Oxygen 6); every node id is
+ * above the root's. Every node is {id, data: {type, properties},
  * children, _parentId}, where `id` is an integer unique in the document,
- * `data.type` is the element class (EssentialElements\Heading and so on),
+ * `data.type` is the element class (EssentialElements\Heading,
+ * OxygenElements\Text and so on),
  * `data.properties` holds the element's settings (nested objects with
  * per-breakpoint values, or null) and `_parentId` is the parent's id. New
  * ids come from `_nextNodeId`, which only ever grows. Any other key a node or
@@ -87,7 +90,7 @@ class Breakdance_Tree
     public static function replace(object $doc, $list): object
     {
         if (! is_array($list) || ! array_is_list($list)) {
-            throw new \InvalidArgumentException(esc_html('Breakdance content must be a JSON array of top-level nodes.'));
+            throw new \InvalidArgumentException(esc_html('Content must be a JSON array of top-level nodes.'));
         }
 
         $doc  = self::copy($doc);
@@ -214,7 +217,7 @@ class Breakdance_Tree
         }
 
         if (! is_string($type) || ! preg_match('/^[A-Za-z_][A-Za-z0-9_]*(\\\\[A-Za-z_][A-Za-z0-9_]*)+$/', $type)) {
-            throw new \InvalidArgumentException(esc_html('Node type must be a Breakdance element class, such as EssentialElements\\Heading.'));
+            throw new \InvalidArgumentException(esc_html('Node type must be an element class, such as EssentialElements\\Heading or OxygenElements\\Text.'));
         }
         if (null !== $node->data->properties && ! is_object($node->data->properties)) {
             throw new \InvalidArgumentException(esc_html('Node properties must be an object or null.'));
@@ -224,8 +227,8 @@ class Breakdance_Tree
         if ($fresh_ids || ! property_exists($node, 'id')) {
             $node = self::with_id_first($node, self::next_id($doc));
             $doc->_nextNodeId = $node->id + 1;
-        } elseif (! is_int($node->id) || $node->id < 2) {
-            throw new \InvalidArgumentException(esc_html('A node id must be an integer above 1.'));
+        } elseif (! is_int($node->id) || $node->id <= self::root_id($doc)) {
+            throw new \InvalidArgumentException(esc_html('A node id must be an integer above the root\'s id (' . self::root_id($doc) . ').'));
         }
 
         $children = $spec->children ?? [];
@@ -335,6 +338,12 @@ class Breakdance_Tree
         }
 
         return null;
+    }
+
+    /** The root's id: 1 in Breakdance documents, 0 in Oxygen 6 ones. */
+    private static function root_id(object $doc): int
+    {
+        return is_int($doc->root->id ?? null) ? $doc->root->id : 1;
     }
 
     private static function parse_id(string $id): int

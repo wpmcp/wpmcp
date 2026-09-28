@@ -20,16 +20,16 @@ if (! defined('ABSPATH')) {
  * Beaver Builder: either a whole node tree as a JSON string, or one
  * operation addressed by node id, written to its layout meta (see
  * Beaver_Builder_Content::save).
- * Breakdance: either a whole node tree as a JSON string, or one operation
- * addressed by node id, written to `_breakdance_data` (see
- * Breakdance_Content::save).
+ * Breakdance and Oxygen 6 (the same engine): either a whole node tree as a
+ * JSON string, or one operation addressed by node id, written to
+ * `_breakdance_data` or `_oxygen_data` (see Breakdance_Content::save).
  * Elementor/gutenberg/classic posts are out of scope for this tool (use
  * update-element for Elementor) and return a WP_Error.
  *
  * All writes go through Safe_Mutation::run() with object_type='post':
  * Bricks' JSON lives in ordinary postmeta and Divi's shortcodes live in
  * ordinary post_content (as do WPBakery's shortcodes and meta, and Beaver
- * Builder's and Breakdance's layout meta), all of which
+ * Builder's, Breakdance's and Oxygen's layout meta), all of which
  * are already part of the full post
  * row + postmeta the existing post snapshot captures and restores, so no
  * safety-core change is needed for either edit to be undoable.
@@ -66,44 +66,49 @@ class Update_Builder_Content
             return $this->update_beaver_builder($post_id, $args);
         }
 
-        if ('breakdance' === $builder) {
-            return $this->update_breakdance($post_id, $args);
+        if ('breakdance' === $builder || 'oxygen' === $builder) {
+            return $this->update_breakdance($post_id, $args, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'beaver-builder' and 'breakdance'; got '{$builder}'."
+            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'beaver-builder', 'breakdance' and 'oxygen'; got '{$builder}'."
         );
     }
 
-    private function update_breakdance(int $post_id, array $args)
+    /**
+     * Breakdance and Oxygen 6 pages: one engine, so one path; `$builder`
+     * picks the meta prefix and the plugin whose cache is refreshed.
+     */
+    private function update_breakdance(int $post_id, array $args, string $builder)
     {
         $operation = (string) ($args['operation'] ?? '');
         $detected  = Builder_Detector::detect($post_id);
         $blank     = 'classic' === $detected && '' === trim((string) get_post($post_id)->post_content);
 
-        if ('breakdance' !== $detected && ! $blank) {
+        if ($builder !== $detected && ! $blank) {
+            $label = 'oxygen' === $builder ? 'an Oxygen' : 'a Breakdance';
             return new \WP_Error(
                 'unsupported_builder',
-                "This post was detected as '{$detected}', not a Breakdance page."
+                "This post was detected as '{$detected}', not {$label} page."
             );
         }
 
-        $doc  = Breakdance_Content::get_document($post_id) ?? Breakdance_Tree::blank();
+        $doc  = Breakdance_Content::get_document($post_id, $builder) ?? Breakdance_Tree::blank();
         $path = null;
         try {
             if ('' === $operation) {
                 $content = $args['content'] ?? null;
                 $list    = is_string($content) ? json_decode($content) : null;
                 if (! is_array($list)) {
-                    throw new \InvalidArgumentException(esc_html('Breakdance content must be a JSON array of nodes, or pass an operation.'));
+                    throw new \InvalidArgumentException(esc_html('Content must be a JSON array of nodes, or pass an operation.'));
                 }
                 $doc = Breakdance_Tree::replace($doc, $list);
             } else {
                 [$doc, $path] = $this->apply_breakdance_operation($doc, $operation, $args);
             }
         } catch (\InvalidArgumentException $e) {
-            return new \WP_Error('invalid_breakdance_request', $e->getMessage());
+            return new \WP_Error("invalid_{$builder}_request", $e->getMessage());
         }
 
         $out = Safe_Mutation::run(
@@ -114,13 +119,13 @@ class Update_Builder_Content
                 'tool_name'   => 'update-builder-content',
                 'args'        => $args,
             ],
-            function () use ($post_id, $doc) {
-                Breakdance_Content::save($post_id, $doc);
+            function () use ($post_id, $doc, $builder) {
+                Breakdance_Content::save($post_id, $doc, $builder);
                 return true;
             }
         );
 
-        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'breakdance'];
+        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => $builder];
         if (null !== $path) {
             $result['path'] = $path;
         }

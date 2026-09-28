@@ -8,7 +8,7 @@ if (! defined('ABSPATH')) {
 
 /**
  * Read-only: report which page builder authored a post (elementor / bricks /
- * divi / wpbakery / beaver-builder / breakdance / gutenberg / classic), by inspecting plain postmeta/post_content
+ * divi / wpbakery / beaver-builder / breakdance / oxygen / gutenberg / classic), by inspecting plain postmeta/post_content
  * markers via Builder_Detector. Never mutates anything, so this is not
  * routed through the safety core.
  */

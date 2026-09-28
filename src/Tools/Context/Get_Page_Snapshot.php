@@ -109,7 +109,7 @@ class Get_Page_Snapshot
     private const OPT_IN_SECTIONS = ['global_tokens', 'responsive_overrides'];
 
     /** Builders whose page body is not stored in post_content. */
-    private const OFF_CONTENT_BUILDERS = ['elementor', 'bricks', 'beaver-builder', 'breakdance'];
+    private const OFF_CONTENT_BUILDERS = ['elementor', 'bricks', 'beaver-builder', 'breakdance', 'oxygen'];
 
     /**
      * Sections derived from the extracted content, as paths into the digest.
@@ -421,8 +421,9 @@ class Get_Page_Snapshot
     }
 
     /**
-     * The builder's stored tree as it sits in postmeta. Breakdance nests its
-     * tree as a JSON string inside a JSON row, so for it this returns the
+     * The builder's stored tree as it sits in postmeta. Breakdance (and
+     * Oxygen 6, the same engine) nests its tree as a JSON string inside a
+     * JSON row, so for it this returns the
      * root's children re-encoded, which keeps the root node out of counts.
      *
      * @return mixed
@@ -433,8 +434,8 @@ class Get_Page_Snapshot
             return get_post_meta($post_id, '_elementor_data', true);
         }
 
-        if ('breakdance' === $builder) {
-            $outer = json_decode((string) get_post_meta($post_id, '_breakdance_data', true), true);
+        if ('breakdance' === $builder || 'oxygen' === $builder) {
+            $outer = json_decode((string) get_post_meta($post_id, "_{$builder}_data", true), true);
             $tree  = is_array($outer) && is_string($outer['tree_json_string'] ?? null) ? json_decode($outer['tree_json_string'], true) : null;
 
             return is_array($tree['root']['children'] ?? null) ? wp_json_encode($tree['root']['children']) : null;
