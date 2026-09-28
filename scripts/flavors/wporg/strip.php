@@ -22,17 +22,77 @@
  * string it expects is missing, so a refactor upstream breaks the build
  * loudly instead of silently shipping a gated zip. Usage:
  *
- *   php scripts/flavors/wporg/strip.php <staged-plugin-dir>
+ *   php scripts/flavors/wporg/strip.php <staged-plugin-dir> [flavor-manifest]
+ *
+ * The strip itself is the policy every WordPress.org submission shares: the
+ * directory cut and the WooCommerce vertical (issue #257) both run it, so
+ * guideline 5 is answered once for both zips. What differs per flavor lives
+ * in a small manifest beside that flavor's templates (see
+ * scripts/flavors/wporg/manifest.php and scripts/flavors/woocommerce/
+ * manifest.php): extra exact-string edits, extra methods and extra paths.
+ * The manifest defaults to the directory cut's, so a bare invocation behaves
+ * exactly as it always has.
  */
 
 declare(strict_types=1);
 
 $stage = $argv[1] ?? '';
 if ('' === $stage || ! is_dir($stage)) {
-    fwrite(STDERR, "usage: strip.php <staged-plugin-dir>\n");
+    fwrite(STDERR, "usage: strip.php <staged-plugin-dir> [flavor-manifest]\n");
     exit(2);
 }
 $stage = rtrim($stage, '/');
+
+$manifest_path = $argv[2] ?? __DIR__ . '/manifest.php';
+if (! is_file($manifest_path)) {
+    fwrite(STDERR, "flavor manifest not found: $manifest_path\n");
+    exit(2);
+}
+/**
+ * Per-flavor additions to the shared strip. Every key is required, so a
+ * manifest that misspells one fails here instead of silently adding nothing.
+ *
+ * @var array{label:string,removed_methods:string[],edits:array<string,array<int,array{0:string,1:string,2:int}>>,removed_paths:string[]}
+ */
+$manifest = require $manifest_path;
+foreach (['label' => 'is_string', 'removed_methods' => 'is_array', 'edits' => 'is_array', 'removed_paths' => 'is_array'] as $key => $type) {
+    if (! is_array($manifest) || ! array_key_exists($key, $manifest) || ! $type($manifest[$key])) {
+        fwrite(STDERR, sprintf("%s: flavor manifest must declare '%s'\n", $manifest_path, $key));
+        exit(2);
+    }
+}
+/**
+ * Shape-check the manifest's own lists here, so a malformed entry is a
+ * labelled strip failure rather than a TypeError halfway through the edits.
+ */
+$manifest_errors = [];
+foreach (['removed_methods', 'removed_paths'] as $key) {
+    foreach ($manifest[$key] as $index => $entry) {
+        if (! is_string($entry) || '' === trim($entry)) {
+            $manifest_errors[] = sprintf("'%s'[%s] must be a non-empty string", $key, $index);
+        }
+    }
+}
+foreach ($manifest['edits'] as $relative => $file_edits) {
+    if (! is_string($relative) || ! is_array($file_edits)) {
+        $manifest_errors[] = sprintf("'edits'[%s] must map a relative path to a list of edits", $relative);
+        continue;
+    }
+    foreach ($file_edits as $index => $edit) {
+        if (
+            ! is_array($edit) || 3 !== count($edit) || ! array_is_list($edit)
+            || ! is_string($edit[0]) || '' === $edit[0] || ! is_string($edit[1])
+            || ! is_int($edit[2]) || $edit[2] < 1
+        ) {
+            $manifest_errors[] = sprintf("'edits'[%s][%s] must be [old string, new string, expected count >= 1]", $relative, $index);
+        }
+    }
+}
+if ([] !== $manifest_errors) {
+    fwrite(STDERR, $manifest['label'] . " strip failed: malformed flavor manifest " . $manifest_path . ":\n  " . implode("\n  ", $manifest_errors) . "\n");
+    exit(2);
+}
+define('STRIP_LABEL', $manifest['label']);
 
 /**
  * What must not survive into the directory cut, shared with the build
@@ -1352,6 +1412,16 @@ $edits['src/Memory/Memory_Config.php'][] = [
 ];
 
 
+/**
+ * The flavor's own exact-string edits run after the shared ones, in the same
+ * loop and under the same count validation.
+ */
+foreach ($manifest['edits'] as $relative => $file_edits) {
+    foreach ($file_edits as $edit) {
+        $edits[$relative][] = $edit;
+    }
+}
+
 $failures = [];
 $applied = 0;
 
@@ -1420,7 +1490,7 @@ if (is_file($snapshot_store)) {
 
 /** Delete the pro-only method declarations from Plugin.php, docblock included. */
 $plugin_php = $stage . '/src/Plugin.php';
-foreach (REMOVED_METHODS as $method) {
+foreach (array_merge(REMOVED_METHODS, $manifest['removed_methods']) as $method) {
     $result = remove_method($plugin_php, $method);
     if (true !== $result) {
         $failures[] = sprintf('src/Plugin.php: %s', $result);
@@ -1439,6 +1509,30 @@ foreach ($removed_paths as $relative) {
     // remove_path() reports the first thing it could not delete, so a
     // partial removal aborts here with the offending path instead of
     // leaving a later grep in a different script to notice.
+    $undeleted = remove_path($path);
+    if ([] !== $undeleted) {
+        $failures[] = sprintf('%s: could not be removed (%s)', $relative, implode(', ', $undeleted));
+        continue;
+    }
+    $applied++;
+}
+
+/**
+ * The flavor's own paths, removed after the shared ones and before the
+ * import prune and the sweep, so both of those see the tree the flavor
+ * actually ships. A path the shared policy already removes does not belong
+ * in a manifest, and one that no longer exists is a stale entry: both fail.
+ */
+foreach ($manifest['removed_paths'] as $relative) {
+    if (in_array($relative, $removed_paths, true)) {
+        $failures[] = sprintf('%s: already removed by the shared policy; drop it from %s', $relative, basename(dirname($manifest_path)) . '/' . basename($manifest_path));
+        continue;
+    }
+    $path = $stage . '/' . $relative;
+    if (! file_exists($path)) {
+        $failures[] = sprintf('%s: nothing to remove at this path', $relative);
+        continue;
+    }
     $undeleted = remove_path($path);
     if ([] !== $undeleted) {
         $failures[] = sprintf('%s: could not be removed (%s)', $relative, implode(', ', $undeleted));
@@ -1477,12 +1571,13 @@ $swept = sweep_unreferenced($stage, SWEPT_DIRECTORIES);
 $applied += count($swept);
 
 if ([] !== $failures) {
-    fwrite(STDERR, "wp.org strip failed:\n  " . implode("\n  ", $failures) . "\n");
+    fwrite(STDERR, $manifest['label'] . " strip failed:\n  " . implode("\n  ", $failures) . "\n");
     exit(1);
 }
 
 printf(
-    "wp.org strip: %d edits applied, %d inline pro abilities removed, %d unreferenced files swept\n",
+    "%s strip: %d edits applied, %d inline pro abilities removed, %d unreferenced files swept\n",
+    $manifest['label'],
     $applied,
     $removed_inline,
     count($swept)
@@ -1639,7 +1734,7 @@ function remove_pro_abilities(string $path): int
 
         $end = statement_end($contents, $target);
         if (null === $end) {
-            fwrite(STDERR, "wp.org strip: unbalanced pro Ability registration\n");
+            fwrite(STDERR, STRIP_LABEL . " strip: unbalanced pro Ability registration\n");
             exit(1);
         }
         $line_start = (int) strrpos(substr($contents, 0, $target), "\n") + 1;
@@ -1651,7 +1746,7 @@ function remove_pro_abilities(string $path): int
     file_put_contents($path, $contents);
 
     if (preg_match("/new Ability\(\s*\n\s*'[^']+',\s*\n\s*'pro',/", $contents)) {
-        fwrite(STDERR, "wp.org strip: a pro-tier Ability survived the prune\n");
+        fwrite(STDERR, STRIP_LABEL . " strip: a pro-tier Ability survived the prune\n");
         exit(1);
     }
 

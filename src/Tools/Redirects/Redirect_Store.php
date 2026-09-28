@@ -18,7 +18,7 @@ if (! defined('ABSPATH')) {
  *
  * Everything in the "pure helpers" block is DB-free so it can be unit tested
  * without touching MySQL, and so the front-end hot path does no work beyond
- * one indexed lookup.
+ * one indexed lookup, which is object-cached (find_by_source_cached()).
  *
  * Nothing in this class writes a snapshot: the tool classes own that, so the
  * store stays a dumb, testable persistence layer and every write that
@@ -38,6 +38,17 @@ class Redirect_Store
     /** Schema version, and the option it is recorded in, for self-healing upgrades. */
     public const DB_VERSION        = 1;
     public const DB_VERSION_OPTION = 'wpmcp_redirects_db_version';
+
+    /** Object-cache group for the front-end lookup; see find_by_source_cached(). */
+    public const CACHE_GROUP = 'wpmcp_redirects';
+
+    /**
+     * Most enabled redirects the front-end lookup will hold as one cached
+     * map. Above this the map would outgrow a typical object-cache item
+     * limit (memcached defaults to 1MB), so the lookup falls back to the
+     * live indexed query instead of caching a value that cannot be stored.
+     */
+    public const MAX_CACHED_REDIRECTS = 2000;
 
     public static function table_name(): string
     {
@@ -75,6 +86,11 @@ class Redirect_Store
             UNIQUE KEY source_path (source_path),
             KEY enabled (enabled)
         ) {$charset};");
+        // A (re)installed table may not hold what a persistent object cache
+        // remembers from before; start the front-end lookup cache over. Only
+        // after dbDelta(): bumped earlier, a concurrent request could cache
+        // an empty map under the new stamp while the table is still missing.
+        self::invalidate_cache();
     }
 
     /**
@@ -185,7 +201,7 @@ class Redirect_Store
     public static function get(int $id): ?array
     {
         global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; the read must reflect the live row (it feeds snapshots and the undo path).
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; the read must reflect the live row (it feeds snapshots and the undo path), so it is deliberately not cached.
         $row = $wpdb->get_row(
             $wpdb->prepare('SELECT * FROM %i WHERE id = %d', self::table_name(), $id),
             ARRAY_A
@@ -196,17 +212,146 @@ class Redirect_Store
     /** @return array<string,mixed>|null */
     public static function find_by_source(string $source_path): ?array
     {
+        return self::find_by_normalized_source(self::normalize_path($source_path));
+    }
+
+    /**
+     * The live indexed lookup behind find_by_source() and the over-cap
+     * fallback of find_by_source_cached(); $source must already be
+     * normalized.
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function find_by_normalized_source(string $source): ?array
+    {
         global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; the front-end matcher must see the live row for a source path.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table with no WP API. Deliberately live: this is the write-path lookup (clash checks, chain flattening, snapshots, rollback), which must see the row as it is now; the front-end matcher reads through find_by_source_cached() instead.
         $row = $wpdb->get_row(
-            $wpdb->prepare(
-                'SELECT * FROM %i WHERE source_path = %s',
-                self::table_name(),
-                self::normalize_path($source_path)
-            ),
+            $wpdb->prepare('SELECT * FROM %i WHERE source_path = %s', self::table_name(), $source),
             ARRAY_A
         );
         return $row ? self::cast($row) : null;
+    }
+
+    /**
+     * The front-end lookup: the ENABLED redirect for a source path, or null.
+     * Redirect_Handler runs on every front-end request, so this is the one
+     * repeated read against the table.
+     *
+     * The table is small and admin-curated, so the cache holds ONE entry per
+     * last_changed stamp: the map of every enabled normalized source_path to
+     * its row, looked up here in PHP. Caching per request path instead would
+     * write one key per distinct URL a crawler tries. Every write in this
+     * class bumps the stamp (invalidate_cache()), as does
+     * Database_Guard::invalidate_caches() for the generic row tools, so a
+     * change is visible on the next request, including a renamed source.
+     *
+     * The cached rows carry only what the redirect decision reads: no
+     * hits/last_hit_at (record_hit() deliberately does not bump the stamp,
+     * so those would be stale), no notes or timestamps. Callers that need
+     * the full live row use find_by_source().
+     *
+     * A failed map query is never cached, so a transient database error or a
+     * table that does not exist yet cannot pin "no redirects" in a
+     * persistent cache. Above MAX_CACHED_REDIRECTS the map is not cached
+     * either (a marker is) and each lookup uses the live indexed query.
+     *
+     * @param bool $normalized Pass true when $source_path is already the
+     *                         output of normalize_path(), to skip redoing it.
+     * @return array<string,mixed>|null
+     */
+    public static function find_by_source_cached(string $source_path, bool $normalized = false): ?array
+    {
+        $source = $normalized ? $source_path : self::normalize_path($source_path);
+        $map    = self::enabled_source_map();
+
+        if (null === $map) {
+            $row = self::find_by_normalized_source($source);
+            return ($row && $row['enabled']) ? self::lookup_view($row) : null;
+        }
+
+        return $map[ $source ] ?? null;
+    }
+
+    /**
+     * The cached map of enabled source_path => lookup row, or null when the
+     * lookup must go to the live query (map over the cap, or the map query
+     * failed).
+     *
+     * @return array<string, array<string,mixed>>|null
+     */
+    private static function enabled_source_map(): ?array
+    {
+        global $wpdb;
+
+        $key   = 'enabled_map:' . wp_cache_get_last_changed(self::CACHE_GROUP);
+        $found = false;
+        $hit   = wp_cache_get($key, self::CACHE_GROUP, false, $found);
+        if ($found && is_array($hit)) {
+            if (! empty($hit['overflow'])) {
+                return null;
+            }
+            if (isset($hit['map']) && is_array($hit['map'])) {
+                return $hit['map'];
+            }
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table with no WP API. This is the cache fill: the result is stored with wp_cache_set() below under the last_changed stamp.
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                'SELECT id, source_path, target_url, target_post_id, status_code, enabled FROM %i WHERE enabled = 1 ORDER BY id ASC LIMIT %d',
+                self::table_name(),
+                self::MAX_CACHED_REDIRECTS + 1
+            ),
+            ARRAY_A
+        );
+
+        if ('' !== (string) $wpdb->last_error || ! is_array($rows)) {
+            return null; // Not cached: a failed read is not an empty table.
+        }
+
+        if (count($rows) > self::MAX_CACHED_REDIRECTS) {
+            wp_cache_set($key, ['overflow' => true], self::CACHE_GROUP, DAY_IN_SECONDS);
+            return null;
+        }
+
+        // Keyed by the normalized form, which is what writes through this
+        // class store anyway; a row written raw by the generic database
+        // tools still matches. On a collision the lowest id wins.
+        $map = [];
+        foreach ($rows as $row) {
+            $map[ self::normalize_path((string) $row['source_path']) ] ??= self::lookup_view($row);
+        }
+        wp_cache_set($key, ['map' => $map], self::CACHE_GROUP, DAY_IN_SECONDS);
+        return $map;
+    }
+
+    /**
+     * The subset of a row the redirect decision reads.
+     *
+     * @param array<string,mixed> $row
+     * @return array<string,mixed>
+     */
+    private static function lookup_view(array $row): array
+    {
+        return [
+            'id'             => (int) $row['id'],
+            'source_path'    => (string) $row['source_path'],
+            'target_url'     => (string) $row['target_url'],
+            'target_post_id' => (int) $row['target_post_id'],
+            'status_code'    => (int) $row['status_code'],
+            'enabled'        => (bool) (int) $row['enabled'],
+        ];
+    }
+
+    /**
+     * Retire every cached front-end lookup. Called after each write below and
+     * by Database_Guard::invalidate_caches() when a generic row tool writes
+     * to this table.
+     */
+    public static function invalidate_cache(): void
+    {
+        wp_cache_set_last_changed(self::CACHE_GROUP);
     }
 
     /**
@@ -285,11 +430,12 @@ class Redirect_Store
     {
         global $wpdb;
         $now = current_time('mysql', true);
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_redirects is this plugin's own table; undo is handled by Safe_Mutation at the tool layer (see block comment above).
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_redirects is this plugin's own table with no WP API; undo is handled by Safe_Mutation at the tool layer (see block comment above). Caching: no cached copy survives the write; invalidate_cache() below retires the front-end lookup cache.
         $wpdb->insert(self::table_name(), array_merge(self::defaults(), $fields, [
             'created_at' => $now,
             'updated_at' => $now,
         ]));
+        self::invalidate_cache();
         return (int) $wpdb->insert_id;
     }
 
@@ -298,22 +444,25 @@ class Redirect_Store
     {
         global $wpdb;
         $fields['updated_at'] = current_time('mysql', true);
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; undo is handled by Safe_Mutation at the tool layer (see block comment above).
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; undo is handled by Safe_Mutation at the tool layer (see block comment above). Caching: no cached copy survives the write; invalidate_cache() below retires the front-end lookup cache.
         $wpdb->update(self::table_name(), $fields, ['id' => $id]);
+        self::invalidate_cache();
     }
 
     public static function delete(int $id): void
     {
         global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; undo is handled by Safe_Mutation at the tool layer (see block comment above).
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; undo is handled by Safe_Mutation at the tool layer (see block comment above). Caching: no cached copy survives the write; invalidate_cache() below retires the front-end lookup cache.
         $wpdb->delete(self::table_name(), ['id' => $id], ['%d']);
+        self::invalidate_cache();
     }
 
     public static function delete_by_source(string $source_path): void
     {
         global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; undo is handled by Safe_Mutation at the tool layer (see block comment above).
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; undo is handled by Safe_Mutation at the tool layer (see block comment above). Caching: no cached copy survives the write; invalidate_cache() below retires the front-end lookup cache.
         $wpdb->delete(self::table_name(), ['source_path' => self::normalize_path($source_path)], ['%s']);
+        self::invalidate_cache();
     }
 
     /**
@@ -326,8 +475,9 @@ class Redirect_Store
     public static function insert_raw(array $row): void
     {
         global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_redirects is this plugin's own table; this IS the rollback path, resurrecting a captured row verbatim.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_redirects is this plugin's own table; this IS the rollback path, resurrecting a captured row verbatim. Caching: no cached copy survives the write; invalidate_cache() below retires the front-end lookup cache.
         $wpdb->insert(self::table_name(), self::writable_columns($row));
+        self::invalidate_cache();
     }
 
     /**
@@ -341,8 +491,9 @@ class Redirect_Store
         global $wpdb;
         $fields = self::writable_columns($row);
         unset($fields['id']);
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; this IS the rollback path, restoring a captured row's values.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; this IS the rollback path, restoring a captured row's values. Caching: no cached copy survives the write; invalidate_cache() below retires the front-end lookup cache.
         $wpdb->update(self::table_name(), $fields, ['id' => $id]);
+        self::invalidate_cache();
     }
 
     /**
@@ -354,7 +505,7 @@ class Redirect_Store
     public static function record_hit(int $id): void
     {
         global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; atomic hit-counter increment on the front-end hot path (see docblock).
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_redirects is this plugin's own table; atomic hit-counter increment on the front-end hot path (see docblock). Not cached and deliberately does not invalidate: the cached front-end lookup never reads hits/last_hit_at, and a cache bump per visit would defeat it.
         $wpdb->query($wpdb->prepare(
             'UPDATE %i SET hits = hits + 1, last_hit_at = %s WHERE id = %d',
             self::table_name(),
