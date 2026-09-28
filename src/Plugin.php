@@ -229,6 +229,7 @@ use WPMCP\Tools\Backup\Run_Backup_Job;
 use WPMCP\Tools\Backup\Get_Backup_Manifest;
 use WPMCP\Tools\Backup\Delete_Backup_Archive;
 use WPMCP\Tools\Backup\Restore_Site_Backup;
+use WPMCP\Tools\Migration\Find_Replace_Content;
 use WPMCP\Tools\Migration\Rewrite_Site_Urls;
 use WPMCP\Tools\Sync\Apply_Change_Set;
 use WPMCP\Tools\Sync\Build_Change_Set;
@@ -4734,6 +4735,46 @@ final class Plugin
                 'required'   => [ 'from_url', 'to_url' ],
             ],
             [$rewrite_site_urls, 'handle'],
+            'manage_options',
+            'migration',
+            'update',
+            false,
+            true,
+            false
+        ));
+
+        // Snapshot-backed, unlike rewrite-site-urls: every changed post goes
+        // through Safe_Mutation under one returned session_id. Annotated like
+        // its sibling (destructive, not idempotent: a replacement containing
+        // the search text matches again on a second run).
+        $find_replace_content = new Find_Replace_Content();
+
+        $registrar->register(new Ability(
+            'wpmcp/find-replace-content',
+            'free',
+            'Serialization-safe find and replace in post content, titles, excerpts or meta. dry_run (default) previews; apply returns a rollback-session id; over 10 posts needs confirm:true',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'search'         => [ 'type' => 'string' ],
+                    'replace'        => [ 'type' => 'string' ],
+                    'regex'          => [ 'type' => 'boolean' ],
+                    'case_sensitive' => [ 'type' => 'boolean' ],
+                    'fields'         => [
+                        'type'  => 'array',
+                        'items' => [ 'type' => 'string', 'enum' => ['content', 'title', 'excerpt', 'meta'] ],
+                    ],
+                    'meta_keys'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'post_types'     => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'statuses'       => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'post_ids'       => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
+                    'max_matches'    => [ 'type' => 'integer' ],
+                    'dry_run'        => [ 'type' => 'boolean' ],
+                    'confirm'        => [ 'type' => 'boolean' ],
+                ],
+                'required'   => [ 'search', 'replace' ],
+            ],
+            [$find_replace_content, 'handle'],
             'manage_options',
             'migration',
             'update',

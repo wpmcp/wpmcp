@@ -719,7 +719,10 @@ class Rollback_Service
             $current = get_post($object_id, ARRAY_A);
             if ($current && self::is_same_post($current, $snapshot['data']['post'])) {
                 $postarr = array_merge(['ID' => $object_id], self::restore_columns($snapshot['data']['post'], false));
-                wp_update_post($postarr);
+                // wp_update_post() unslashes its input; the snapshot holds
+                // the raw stored columns, so they are slashed first or every
+                // backslash (block JSON escapes such as \u003c) is lost.
+                wp_update_post(wp_slash($postarr));
             } else {
                 self::resurrect($object_id, $snapshot['data']['post'], $snapshot['data']['comments'] ?? []);
             }
@@ -738,7 +741,8 @@ class Rollback_Service
         foreach ($snapshotted_meta as $key => $values) {
             delete_post_meta($object_id, $key);
             foreach ((array) $values as $v) {
-                add_post_meta($object_id, $key, maybe_unserialize($v));
+                // add_post_meta() unslashes too; slash so the value lands byte-for-byte.
+                add_post_meta($object_id, $key, wp_slash(maybe_unserialize($v)));
             }
         }
 
@@ -1648,7 +1652,7 @@ class Rollback_Service
     private static function resurrect(int $object_id, array $post_columns, array $comments): void
     {
         $postarr = array_merge(['import_id' => $object_id], self::restore_columns($post_columns, true));
-        $result  = wp_insert_post($postarr, true);
+        $result  = wp_insert_post(wp_slash($postarr), true);
 
         if (is_wp_error($result)) {
             throw new Mutation_Failed('Rollback failed to resurrect post ' . (int) $object_id . ': ' . esc_html($result->get_error_message()));
