@@ -109,7 +109,7 @@ class Get_Page_Snapshot
     private const OPT_IN_SECTIONS = ['global_tokens', 'responsive_overrides'];
 
     /** Builders whose page body is not stored in post_content. */
-    private const OFF_CONTENT_BUILDERS = ['elementor', 'bricks', 'beaver-builder'];
+    private const OFF_CONTENT_BUILDERS = ['elementor', 'bricks', 'beaver-builder', 'breakdance'];
 
     /**
      * Sections derived from the extracted content, as paths into the digest.
@@ -421,15 +421,36 @@ class Get_Page_Snapshot
     }
 
     /**
+     * The builder's stored tree as it sits in postmeta. Breakdance nests its
+     * tree as a JSON string inside a JSON row, so for it this returns the
+     * root's children re-encoded, which keeps the root node out of counts.
+     *
+     * @return mixed
+     */
+    private function builder_tree_raw(int $post_id, string $builder)
+    {
+        if ('elementor' === $builder) {
+            return get_post_meta($post_id, '_elementor_data', true);
+        }
+
+        if ('breakdance' === $builder) {
+            $outer = json_decode((string) get_post_meta($post_id, '_breakdance_data', true), true);
+            $tree  = is_array($outer) && is_string($outer['tree_json_string'] ?? null) ? json_decode($outer['tree_json_string'], true) : null;
+
+            return is_array($tree['root']['children'] ?? null) ? wp_json_encode($tree['root']['children']) : null;
+        }
+
+        return get_post_meta($post_id, '_bricks_page_content_2', true);
+    }
+
+    /**
      * Element count read off the builder's own stored tree, which is the one
      * structural number available for a page whose body is not in
      * post_content. Null when the tree is missing or unparseable.
      */
     private function builder_element_count(int $post_id, string $builder): ?int
     {
-        $raw = 'elementor' === $builder
-            ? get_post_meta($post_id, '_elementor_data', true)
-            : get_post_meta($post_id, '_bricks_page_content_2', true);
+        $raw = $this->builder_tree_raw($post_id, $builder);
 
         $tree = is_string($raw) ? json_decode($raw, true) : $raw;
         if (! is_array($tree)) {
@@ -494,9 +515,7 @@ class Get_Page_Snapshot
 
         $haystack = (string) $post->post_content;
         if (in_array($builder, self::OFF_CONTENT_BUILDERS, true)) {
-            $meta = 'elementor' === $builder
-                ? get_post_meta($post->ID, '_elementor_data', true)
-                : get_post_meta($post->ID, '_bricks_page_content_2', true);
+            $meta = $this->builder_tree_raw($post->ID, $builder);
             $haystack .= is_string($meta) ? $meta : wp_json_encode($meta);
         }
 
@@ -576,9 +595,7 @@ class Get_Page_Snapshot
             ];
         }
 
-        $raw = 'elementor' === $builder
-            ? get_post_meta($post_id, '_elementor_data', true)
-            : get_post_meta($post_id, '_bricks_page_content_2', true);
+        $raw = $this->builder_tree_raw($post_id, $builder);
         $tree = is_string($raw) ? json_decode($raw, true) : $raw;
 
         if (! is_array($tree)) {
@@ -611,6 +628,11 @@ class Get_Page_Snapshot
             if (is_string($key) && preg_match('/_(mobile|mobile_extra|tablet|tablet_extra|laptop|widescreen)$/', $key, $m)) {
                 $counts[$m[1]] = ($counts[$m[1]] ?? 0) + 1;
             } elseif (is_string($key) && preg_match('/:(desktop|tablet_portrait|tablet_landscape|mobile_portrait|mobile_landscape)$/', $key, $m)) {
+                $counts[$m[1]] = ($counts[$m[1]] ?? 0) + 1;
+            } elseif (is_string($key) && preg_match('/^breakpoint_(tablet_landscape|tablet_portrait|phone_landscape|phone_portrait)$/', $key, $m)) {
+                // Breakdance keys each value by breakpoint inside the
+                // property (`breakpoint_phone_portrait`); `breakpoint_base`
+                // is the default, not an override.
                 $counts[$m[1]] = ($counts[$m[1]] ?? 0) + 1;
             }
             if (is_array($value)) {

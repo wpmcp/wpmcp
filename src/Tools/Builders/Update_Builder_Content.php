@@ -20,13 +20,16 @@ if (! defined('ABSPATH')) {
  * Beaver Builder: either a whole node tree as a JSON string, or one
  * operation addressed by node id, written to its layout meta (see
  * Beaver_Builder_Content::save).
+ * Breakdance: either a whole node tree as a JSON string, or one operation
+ * addressed by node id, written to `_breakdance_data` (see
+ * Breakdance_Content::save).
  * Elementor/gutenberg/classic posts are out of scope for this tool (use
  * update-element for Elementor) and return a WP_Error.
  *
  * All writes go through Safe_Mutation::run() with object_type='post':
  * Bricks' JSON lives in ordinary postmeta and Divi's shortcodes live in
  * ordinary post_content (as do WPBakery's shortcodes and meta, and Beaver
- * Builder's layout meta), all of which
+ * Builder's and Breakdance's layout meta), all of which
  * are already part of the full post
  * row + postmeta the existing post snapshot captures and restores, so no
  * safety-core change is needed for either edit to be undoable.
@@ -63,10 +66,103 @@ class Update_Builder_Content
             return $this->update_beaver_builder($post_id, $args);
         }
 
+        if ('breakdance' === $builder) {
+            return $this->update_breakdance($post_id, $args);
+        }
+
         return new \WP_Error(
             'unsupported_builder',
-            "update-builder-content only supports 'bricks', 'divi', 'wpbakery' and 'beaver-builder'; got '{$builder}'."
+            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'beaver-builder' and 'breakdance'; got '{$builder}'."
         );
+    }
+
+    private function update_breakdance(int $post_id, array $args)
+    {
+        $operation = (string) ($args['operation'] ?? '');
+        $detected  = Builder_Detector::detect($post_id);
+        $blank     = 'classic' === $detected && '' === trim((string) get_post($post_id)->post_content);
+
+        if ('breakdance' !== $detected && ! $blank) {
+            return new \WP_Error(
+                'unsupported_builder',
+                "This post was detected as '{$detected}', not a Breakdance page."
+            );
+        }
+
+        $doc  = Breakdance_Content::get_document($post_id) ?? Breakdance_Tree::blank();
+        $path = null;
+        try {
+            if ('' === $operation) {
+                $content = $args['content'] ?? null;
+                $list    = is_string($content) ? json_decode($content) : null;
+                if (! is_array($list)) {
+                    throw new \InvalidArgumentException(esc_html('Breakdance content must be a JSON array of nodes, or pass an operation.'));
+                }
+                $doc = Breakdance_Tree::replace($doc, $list);
+            } else {
+                [$doc, $path] = $this->apply_breakdance_operation($doc, $operation, $args);
+            }
+        } catch (\InvalidArgumentException $e) {
+            return new \WP_Error('invalid_breakdance_request', $e->getMessage());
+        }
+
+        $out = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $post_id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-builder-content',
+                'args'        => $args,
+            ],
+            function () use ($post_id, $doc) {
+                Breakdance_Content::save($post_id, $doc);
+                return true;
+            }
+        );
+
+        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'breakdance'];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Apply one Breakdance node operation; `path` and `to` are node ids.
+     *
+     * @return array{0:object,1:?string} new document, and the node id when
+     *                                    the operation has one
+     */
+    private function apply_breakdance_operation(object $doc, string $operation, array $args): array
+    {
+        $path  = (string) ($args['path'] ?? '');
+        $to    = (string) ($args['to'] ?? '');
+        $index = isset($args['index']) ? (int) $args['index'] : null;
+
+        switch ($operation) {
+            case 'update':
+                $attrs = $args['attrs'] ?? null;
+                if (! is_array($attrs)) {
+                    throw new \InvalidArgumentException(esc_html('update needs attrs: the properties to merge (null removes a key).'));
+                }
+                return [Breakdance_Tree::update($doc, $path, $attrs), $path];
+
+            case 'add':
+                $element = $args['element'] ?? null;
+                if (! is_array($element)) {
+                    throw new \InvalidArgumentException(esc_html('add needs an element object: {type, properties?, children?}.'));
+                }
+                return Breakdance_Tree::add($doc, $to, $index, $element);
+
+            case 'remove':
+                return [Breakdance_Tree::remove($doc, $path), null];
+
+            case 'move':
+                return [Breakdance_Tree::move($doc, $path, $to, $index), $path];
+        }
+
+        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove or move."));
     }
 
     private function update_beaver_builder(int $post_id, array $args)

@@ -21,7 +21,9 @@ if (! defined('ABSPATH')) {
  * Checked in priority order: Elementor's `_elementor_edit_mode` flag,
  * Bricks' `_bricks_page_content_2` postmeta, Divi's `_et_pb_use_builder`
  * flag, WPBakery's `_wpb_vc_js_status` = 'true' editor flag, Beaver
- * Builder's `_fl_builder_enabled` flag, Gutenberg's
+ * Builder's `_fl_builder_enabled` flag, a Breakdance `_breakdance_data`
+ * row holding a valid tree (a root with id, data and children inside its
+ * `tree_json_string`), Gutenberg's
  * `<!-- wp: -->` block comment markers in post_content, then a
  * WPBakery `[vc_row]` or `[vc_section]` shortcode in post_content (a
  * WPBakery page saved with its backend editor off), falling back to
@@ -53,6 +55,10 @@ class Builder_Detector
             return 'beaver-builder';
         }
 
+        if (self::has_breakdance_tree($post_id)) {
+            return 'breakdance';
+        }
+
         $post = get_post($post_id);
         $content = $post ? (string) $post->post_content : '';
 
@@ -65,5 +71,23 @@ class Builder_Detector
         }
 
         return 'classic';
+    }
+
+    /**
+     * Whether `_breakdance_data` holds a tree Breakdance would render: the
+     * same root check its own reader makes.
+     */
+    private static function has_breakdance_tree(int $post_id): bool
+    {
+        $raw = get_post_meta($post_id, '_breakdance_data', true);
+        if (! is_string($raw) || '' === $raw) {
+            return false;
+        }
+
+        $outer = json_decode($raw, true);
+        $tree  = is_array($outer) && is_string($outer['tree_json_string'] ?? null) ? json_decode($outer['tree_json_string'], true) : null;
+        $root  = is_array($tree) ? ($tree['root'] ?? null) : null;
+
+        return is_array($root) && array_key_exists('id', $root) && array_key_exists('data', $root) && is_array($root['children'] ?? null);
     }
 }
