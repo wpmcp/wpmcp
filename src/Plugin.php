@@ -338,6 +338,9 @@ use WPMCP\Tools\WooCommerce\List_Tax_Rates;
 use WPMCP\Tools\WooCommerce\Create_Tax_Rate;
 use WPMCP\Tools\WooCommerce\Update_Tax_Rate;
 use WPMCP\Tools\WooCommerce\Delete_Tax_Rate;
+use WPMCP\Tools\WooCommerce\Catalog\Woo_Ops;
+use WPMCP\Tools\WooCommerce\Catalog\Woo_Read;
+use WPMCP\Tools\WooCommerce\Catalog\Woo_Write;
 use WPMCP\Tools\Menus\List_Menus;
 use WPMCP\Tools\Menus\Get_Menu;
 use WPMCP\Tools\Menus\List_Menu_Locations;
@@ -6576,7 +6579,8 @@ final class Plugin
     }
 
     /**
-     * Register the WooCommerce store tools as free-tier abilities.
+     * Register the WooCommerce store tools: the simple store tools plus the
+     * deep operations catalog (woo-ops, woo-read, woo-write, issue #68).
      *
      * These are registered unconditionally (matching every other tool group):
      * a caller only reaches a handler by invoking the ability, and each handler
@@ -6587,6 +6591,18 @@ final class Plugin
      * engine. Writes require manage_woocommerce; order writes require
      * edit_shop_orders. The destructive delete-product tool is disabled by
      * default behind the wpmcp_enable_delete_product filter and needs confirm.
+     *
+     * The catalog is the deep surface over the store's own wc/v3 REST API:
+     * woo-ops lists the named ops, woo-read and woo-write dispatch one
+     * in-process. All three carry manage_woocommerce at the ability layer;
+     * the dispatchers then enforce per-op governance and the SAME per-op
+     * capability split as the simple tools above (edit_shop_orders for
+     * orders, notes and refunds, list_users to read customers, edit_users /
+     * create_users to write them) before dispatching, so the catalog is never
+     * looser than the tool covering the same data. They refuse to dispatch at
+     * all when WooCommerce is inactive, returning a structured
+     * integration_unavailable error rather than a bare rest_no_route 404.
+     * woo-write routes every change to existing state through Safe_Mutation.
      *
      * Issue #195 depth: variation create/delete and bulk updates, coupons
      * (shop_coupon posts, 'post' snapshots) and tax rates (custom tables, the
@@ -7175,6 +7191,86 @@ final class Plugin
             'manage_woocommerce',
             'woocommerce',
             'delete'
+        ));
+
+        // Deep WooCommerce operations catalog (issue #68). The tools above
+        // stay the simple surface; the catalog dispatchers template internal
+        // wc/v3 REST routes through their own in-process dispatch
+        // (Wc_Rest_Dispatch for reads, Wc_Rest_Write_Dispatch for writes,
+        // both free of any dependency on src/Tools/Rest or src/Integrations,
+        // which the vertical wpmcp-for-woocommerce build prunes), so
+        // authorization is the target endpoint's own permission_callback
+        // running as the current user, on top of per-op governance and the
+        // per-op capability (Op_Guard). woo-write snapshots every change to
+        // existing state through Safe_Mutation, keeps destructive ops off
+        // until a site opts in and behind confirm:true, and batches by
+        // running each item through the same gates.
+        // The handlers are constructed inline so the directory build's strip,
+        // which deletes these registrations whole, leaves the catalog classes
+        // unreferenced and sweeps them out of that zip.
+        $registrar->register(new Ability(
+            'wpmcp/woo-ops',
+            'pro',
+            'List the WooCommerce ops catalog (e.g. products.update) by domain: products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks, settings. Each op gives mode, route, path params, capability, confirm, enabled, snapshot type and full-rollback flag. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'domain' => [ 'type' => 'string' ],
+                ],
+            ],
+            [new Woo_Ops(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/woo-read',
+            'pro',
+            'Run one read op from woo-ops as an in-process wc/v3 request as the current user, gated by op capability and governance (wpmcp/woo-{op}, dots as dashes). Path params fill the route, the rest are query params. Returns the raw wc/v3 body (may include personal data; webhook secrets redacted); lists 20 per page, max 50. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'op'     => [ 'type' => 'string' ],
+                    'params' => [ 'type' => 'object' ],
+                ],
+                'required'   => [ 'op' ],
+            ],
+            [new Woo_Read(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/woo-write',
+            'pro',
+            'Run one write op from woo-ops, or a batch of up to 25, as in-process wc/v3 requests as the current user, gated like woo-read. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. Refunds are not recoverable and call the gateway only with api_refund:true. Deletes and refunds are off until the wpmcp_woo_op_enabled filter allows them, and need confirm:true. A batch prechecks every item, refuses whole on any failure, and shares one session_id for rollback-session',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'op'         => [ 'type' => 'string' ],
+                    'params'     => [ 'type' => 'object' ],
+                    'batch'      => [
+                        'type'  => 'array',
+                        'items' => [
+                            'type'       => 'object',
+                            'properties' => [
+                                'op'     => [ 'type' => 'string' ],
+                                'params' => [ 'type' => 'object' ],
+                            ],
+                            'required'   => [ 'op' ],
+                        ],
+                    ],
+                    'confirm'    => [ 'type' => 'boolean' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+            ],
+            [new Woo_Write(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'update',
+            null,
+            true,
+            false
         ));
     }
 

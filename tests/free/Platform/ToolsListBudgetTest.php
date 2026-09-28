@@ -110,9 +110,15 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  pay for it. Raised 198000 -> 199000 when get-rendered-html met that
      *  main: 198264 bytes over 368 tools, with its description already cut
      *  to 72 characters and get-page-snapshot's tightened alongside to pay
-     *  for part of it; the rest is its six-property input schema. Compact
-     *  tool mode keeps clients with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 199000;
+     *  for part of it; the rest is its six-property input schema. Raised
+     *  199000 -> 201000 for the WooCommerce operations catalog (#68: woo-ops,
+     *  woo-read, woo-write) when it met that main: 200344 bytes over 371
+     *  tools. The three catalog descriptions were already trimmed twice to
+     *  the op model, the gates and the rollback contract; what remains is
+     *  the destructive-op opt-in, confirm, refund and batch rollback rules an
+     *  agent must see before it writes to a store. Compact tool mode keeps
+     *  clients with tool caps at ~2.8KB regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 201000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

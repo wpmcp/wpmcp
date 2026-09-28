@@ -122,6 +122,7 @@ return [
         // that stopped applying in this build would be worse than not
         // shipping it.
         'src/Tools/Memory',
+        'src/Tools/WooCommerce/Catalog',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the
         // two handlers, the sanitizer, the store and the front-end renderer
         // all go. Named file by file rather than by directory because
