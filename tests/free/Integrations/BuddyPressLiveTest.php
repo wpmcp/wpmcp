@@ -216,6 +216,57 @@ class BuddyPressLiveTest extends \WP_UnitTestCase
         $this->assertNotEmpty(groups_check_for_membership_request($asker, $group), 'the request is pending again');
     }
 
+    /**
+     * Issue #372: a row another request adds while the write runs is not
+     * the write's, so its rollback leaves it. The other request is played
+     * from inside one of BuddyPress's own hooks during the write, writing
+     * straight to the tables as a separate request would, so nothing in this
+     * request reports those rows.
+     */
+    public function test_rollback_keeps_rows_another_request_added_while_the_write_ran(): void
+    {
+        global $wpdb;
+        $group     = groups_create_group([ 'creator_id' => $this->admin, 'name' => 'Busy Club', 'description' => 'Lively', 'status' => 'public' ]);
+        $member    = self::factory()->user->create();
+        $elsewhere = groups_create_group([ 'creator_id' => $member, 'name' => 'Elsewhere', 'description' => 'Another group', 'status' => 'public' ]);
+        $before    = $this->dump();
+
+        $foreign = [];
+        $during  = function () use ($member, $elsewhere, &$foreign): void {
+            global $wpdb;
+            if ([] !== $foreign) {
+                return;
+            }
+            $now = bp_core_current_time();
+            $wpdb->insert($this->table('bp_activity'), [ 'user_id' => $member, 'component' => 'groups', 'type' => 'activity_update', 'action' => 'A member posted in Elsewhere', 'content' => 'Posted meanwhile', 'primary_link' => '', 'item_id' => $elsewhere, 'secondary_item_id' => 0, 'date_recorded' => $now, 'hide_sitewide' => 0, 'mptt_left' => 0, 'mptt_right' => 0, 'is_spam' => 0 ]);
+            $foreign['bp_activity'] = (int) $wpdb->insert_id;
+            $wpdb->insert($this->table('bp_activity_meta'), [ 'activity_id' => $foreign['bp_activity'], 'meta_key' => 'note', 'meta_value' => 'theirs' ]);
+            $foreign['bp_activity_meta'] = (int) $wpdb->insert_id;
+            $wpdb->insert($this->table('bp_notifications'), [ 'user_id' => $member, 'item_id' => $elsewhere, 'secondary_item_id' => 0, 'component_name' => 'groups', 'component_action' => 'membership_request_accepted', 'date_notified' => $now, 'is_new' => 1 ]);
+            $foreign['bp_notifications'] = (int) $wpdb->insert_id;
+        };
+        add_action('groups_details_updated', $during);
+        try {
+            $out = $this->write('buddypress-update-group', [ 'id' => $group, 'name' => 'Busier Club' ]);
+        } finally {
+            remove_action('groups_details_updated', $during);
+        }
+        $this->assertCount(3, $foreign, 'the other request ran during the write');
+
+        // What rollback must leave: the tables as before, plus the other
+        // request's rows exactly as it wrote them.
+        $expected = $before;
+        foreach ($foreign as $name => $id) {
+            $table              = $this->table($name);
+            $expected[ $table ][] = $wpdb->get_row($wpdb->prepare('SELECT * FROM %i WHERE id = %d', $table, $id), ARRAY_A);
+        }
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame($expected, $this->dump(), "the edit is undone and the other request's rows survive");
+        $this->assertSame('Busy Club', groups_get_group($group)->name);
+        $this->assertSame([], Rollback_Service::take_warnings());
+    }
+
     public function test_updating_a_profile_field_saves_it_through_buddypress_and_keeps_its_options(): void
     {
         $filter = static fn (): array => [ 1 => 'Red', 2 => 'Blue' ];

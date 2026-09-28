@@ -679,6 +679,107 @@ class BuddyPressPackTest extends \WP_UnitTestCase
         $this->assertSame($before['bp_groups_members'], $after['bp_groups_members']);
     }
 
+    // ---------------------------------------------------------------
+    // Only rows the write created are removed (issue #372)
+    // ---------------------------------------------------------------
+
+    /**
+     * Run $during once, from inside the next group update, before its UPDATE
+     * reaches bp_groups: code that runs while the write is under way, as
+     * BuddyPress's hooks and other requests do.
+     */
+    private function during_group_update(callable $during): callable
+    {
+        global $wpdb;
+        $table  = $wpdb->base_prefix . 'bp_groups';
+        $done   = false;
+        $filter = static function (string $query) use ($table, $during, &$done): string {
+            if (! $done && 0 === stripos(ltrim($query), 'UPDATE') && false !== strpos($query, $table)) {
+                $done = true;
+                $during();
+            }
+            return $query;
+        };
+        add_filter('query', $filter);
+        return static function () use ($filter): void {
+            remove_filter('query', $filter);
+        };
+    }
+
+    /** @return array<string, int> what the write's own hooks saved, table => id */
+    private function hook_rows(int $group): array
+    {
+        $activity = wpmcp_test_bp_activity($this->admin, '', [ 'component' => 'groups', 'type' => 'group_details_updated', 'item_id' => $group ]);
+        do_action('bp_activity_after_save', (object) [ 'id' => $activity ]);
+        $meta = wpmcp_test_bp_insert('bp_activity_meta', [ 'activity_id' => $activity, 'meta_key' => 'note', 'meta_value' => 'x' ]);
+        do_action('added_activity_meta', $meta, $activity, 'note', 'x');
+        $notice = wpmcp_test_bp_insert('bp_notifications', [ 'user_id' => $this->admin, 'item_id' => $group, 'secondary_item_id' => 0, 'component_name' => 'groups', 'component_action' => 'group_details_updated', 'date_notified' => '2026-01-02 03:04:05', 'is_new' => 1 ]);
+        do_action('bp_notification_after_save', (object) [ 'id' => $notice ]);
+        return [ 'bp_activity' => $activity, 'bp_activity_meta' => $meta, 'bp_notifications' => $notice ];
+    }
+
+    public function test_rollback_keeps_rows_another_request_added_while_the_write_ran(): void
+    {
+        $id        = wpmcp_test_bp_group('Hikers');
+        $member    = self::factory()->user->create();
+        $elsewhere = wpmcp_test_bp_group('Elsewhere', 'public', $member);
+        $before    = wpmcp_test_bp_dump();
+        $mine      = [];
+        $foreign   = [];
+
+        $stop = $this->during_group_update(function () use ($id, $member, $elsewhere, &$mine, &$foreign): void {
+            $mine = $this->hook_rows($id);
+            // Another request, meanwhile: a member posts an update and is
+            // notified about another group. Nothing reports those rows to
+            // this write.
+            $foreign['bp_activity']      = wpmcp_test_bp_activity($member, 'Posted meanwhile', [ 'component' => 'groups', 'item_id' => $elsewhere ]);
+            $foreign['bp_activity_meta'] = wpmcp_test_bp_insert('bp_activity_meta', [ 'activity_id' => $foreign['bp_activity'], 'meta_key' => 'note', 'meta_value' => 'theirs' ]);
+            $foreign['bp_notifications'] = wpmcp_test_bp_insert('bp_notifications', [ 'user_id' => $member, 'item_id' => $elsewhere, 'secondary_item_id' => 0, 'component_name' => 'groups', 'component_action' => 'membership_request_accepted', 'date_notified' => '2026-01-02 03:04:05', 'is_new' => 1 ]);
+        });
+        $out = $this->write('buddypress-update-group', [ 'id' => $id, 'name' => 'Trail Hikers' ]);
+        $stop();
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $this->assertNotSame([], $mine, 'the write ran its hooks');
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $after = wpmcp_test_bp_dump();
+        $this->assertSame($before['bp_groups'], $after['bp_groups'], 'the edit is undone');
+        foreach ($foreign as $table => $row) {
+            $this->assertSame([ (string) $row ], array_column($after[ $table ], 'id'), "the write's own $table row is gone and the one another request added is kept");
+        }
+        $this->assertSame([], Rollback_Service::take_warnings());
+    }
+
+    public function test_rollback_skips_and_reports_a_recorded_row_whose_owner_changed(): void
+    {
+        global $wpdb;
+        $id     = wpmcp_test_bp_group('Hikers');
+        $member = self::factory()->user->create();
+        $before = wpmcp_test_bp_dump();
+        $mine   = [];
+
+        $stop = $this->during_group_update(function () use ($id, &$mine): void {
+            $mine = $this->hook_rows($id);
+        });
+        $out = $this->write('buddypress-update-group', [ 'id' => $id, 'name' => 'Trail Hikers' ]);
+        $stop();
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+
+        // The notification the write created has since been handed to
+        // another member: it is no longer the write's to remove.
+        $wpdb->update($wpdb->base_prefix . 'bp_notifications', [ 'user_id' => $member ], [ 'id' => $mine['bp_notifications'] ]);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $after = wpmcp_test_bp_dump();
+        $this->assertSame($before['bp_groups'], $after['bp_groups']);
+        $this->assertSame([], $after['bp_activity'], 'rows still owned as recorded are removed');
+        $this->assertSame([], $after['bp_activity_meta']);
+        $this->assertSame([ (string) $mine['bp_notifications'] ], array_column($after['bp_notifications'], 'id'), 'the reassigned row is left in place');
+        $warnings = implode("\n", Rollback_Service::take_warnings());
+        $this->assertStringContainsString('bp_notifications', $warnings);
+        $this->assertStringContainsString((string) $mine['bp_notifications'], $warnings);
+    }
+
     public function test_buddypress_rows_is_a_restorable_type(): void
     {
         $this->assertContains('buddypress_rows', Rollback_Service::restorable_object_types());
