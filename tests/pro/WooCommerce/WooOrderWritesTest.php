@@ -270,7 +270,8 @@ class WooOrderWritesTest extends \WP_UnitTestCase
 
     public function test_orders_create_never_charges_a_gateway_and_refuses_payment_params(): void
     {
-        $mug = $this->product();
+        $mug      = $this->product();
+        $payments = did_action('woocommerce_pre_payment_complete') + did_action('woocommerce_payment_complete');
 
         $out = $this->write('orders.create', [
             'line_items'           => [['product_id' => $mug, 'quantity' => 1]],
@@ -280,7 +281,13 @@ class WooOrderWritesTest extends \WP_UnitTestCase
         ]);
         $this->assertSame(201, $out['status'], wp_json_encode($out));
         $order = wc_get_order((int) $out['body']['id']);
-        $this->assertNull($order->get_date_paid(), 'Creating an order must never run payment_complete');
+        // WooCommerce stamps date_paid itself when an order reaches its
+        // paid status; what must never happen is the payment flow.
+        $this->assertSame(
+            $payments,
+            did_action('woocommerce_pre_payment_complete') + did_action('woocommerce_payment_complete'),
+            'Creating an order must never run payment_complete'
+        );
         $this->assertSame('', $order->get_transaction_id());
 
         foreach (['set_paid' => true, 'transaction_id' => 'ch_123', 'meta_data' => [['key' => 'x', 'value' => 'y']]] as $key => $value) {
@@ -439,21 +446,32 @@ class WooOrderWritesTest extends \WP_UnitTestCase
         $this->assertSame($before, $this->state($id));
     }
 
-    public function test_rolling_back_an_edit_restores_exactly_on_the_legacy_post_store_too(): void
+    public function test_rolling_back_an_edit_restores_exactly_on_the_other_order_store_too(): void
     {
         if (! class_exists(OrderUtil::class)) {
             $this->markTestSkipped('This WooCommerce predates the order storage switch.');
         }
-        $hpos = OrderUtil::custom_orders_table_usage_is_enabled();
-        update_option('woocommerce_custom_orders_table_enabled', $hpos ? 'no' : 'yes');
-        if ($hpos === OrderUtil::custom_orders_table_usage_is_enabled()) {
-            $this->markTestSkipped('The order storage mode could not be switched in this environment.');
-        }
 
+        // Flip the authoritative store for this test only. The option is
+        // filtered rather than updated: WooCommerce refuses an update while
+        // any order is out of sync, and this test only needs every order it
+        // creates to live in the other store.
+        $hpos   = OrderUtil::custom_orders_table_usage_is_enabled();
+        $switch = static fn () => $hpos ? 'no' : 'yes';
+        add_filter('pre_option_woocommerce_custom_orders_table_enabled', $switch);
         try {
+            if ($hpos === OrderUtil::custom_orders_table_usage_is_enabled()) {
+                $this->markTestSkipped('The order storage mode could not be switched in this environment.');
+            }
+            $probe = $this->existing_order()->get_id();
+            $this->assertSame(
+                $hpos ? 'shop_order' : 'shop_order_placehold',
+                get_post_type($probe),
+                'Orders must now live in the other store'
+            );
             $this->test_rolling_back_an_edit_restores_the_order_exactly();
         } finally {
-            update_option('woocommerce_custom_orders_table_enabled', $hpos ? 'yes' : 'no');
+            remove_filter('pre_option_woocommerce_custom_orders_table_enabled', $switch);
         }
     }
 
@@ -503,7 +521,7 @@ class WooOrderWritesTest extends \WP_UnitTestCase
         $order = $this->existing_order();
         $order->set_transaction_id('ch_live_secret_txn');
         $order->update_meta_data('_stripe_customer_id', 'cus_secret_value');
-        $order->update_meta_data('_payment_tokens', 'tok_secret_value');
+        $order->update_meta_data('_gateway_token_ref', 'tok_secret_value');
         $order->save();
 
         $out  = $this->write('orders.update', ['id' => $order->get_id(), 'customer_note' => 'safe']);

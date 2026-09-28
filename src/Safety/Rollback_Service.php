@@ -93,6 +93,12 @@ class Rollback_Service
     /** The capability this snapshot demands, or null when it holds no PII. */
     private static function restore_capability(array $snapshot): ?string
     {
+        // Order snapshots hold the customer's addresses and put a whole
+        // order back (or trash one), so restoring one takes the capability
+        // the order writes themselves require (issue #292).
+        if (in_array($snapshot['object_type'] ?? '', [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE ], true)) {
+            return 'manage_woocommerce';
+        }
         if ('post' !== ($snapshot['object_type'] ?? '')) {
             return null;
         }
@@ -263,6 +269,12 @@ class Rollback_Service
         // edit-comment in the same session cannot bring it back from the trash.
         if (Comment_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
             return 'comment:' . $snapshot['object_id'];
+        }
+        // And for an order orders.create made (issue #292): keyed like the
+        // order's full snapshots, so a session that created and then edited
+        // an order unwinds to "did not exist yet" and trashes it.
+        if (Wc_Order_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
+            return Wc_Order_Snapshot::TYPE . ':' . $snapshot['object_id'];
         }
         // And for a product or variation an import created: its oldest
         // state is "did not exist yet", whatever later edits followed.
@@ -678,6 +690,8 @@ class Rollback_Service
             'user',
             'comment',
             'wc_order',
+            'wc_order_full',
+            'wc_order_create',
             'db_rows',
             'redirect',
             'term',
@@ -777,6 +791,24 @@ class Rollback_Service
 
         if ('wc_order' === $snapshot['object_type']) {
             self::apply_wc_order_snapshot($snapshot);
+            return;
+        }
+
+        // Wc_Order_Snapshot::TYPE and ::CREATE_TYPE, spelled as literals so
+        // the restorable-types parity test sees them.
+        if ('wc_order_full' === $snapshot['object_type']) {
+            $warning = Wc_Order_Snapshot::restore($snapshot);
+            if (null !== $warning) {
+                self::warn($warning);
+            }
+            return;
+        }
+
+        if ('wc_order_create' === $snapshot['object_type']) {
+            $warning = Wc_Order_Snapshot::undo_creation($snapshot);
+            if (null !== $warning) {
+                self::warn($warning);
+            }
             return;
         }
 

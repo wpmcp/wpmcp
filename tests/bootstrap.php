@@ -76,6 +76,18 @@ tests_add_filter( 'muplugins_loaded', function () {
 tests_add_filter( 'setup_theme', function () {
     if ( class_exists( 'WC_Install' ) ) {
         WC_Install::install();
+
+        // Also create the HPOS order tables (issue #292), here for the same
+        // DDL-commits-the-transaction reason as the snapshots table above.
+        // The authoritative order store stays whatever the install chose;
+        // the tables only let a test switch stores for its own duration.
+        $synchronizer = 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer';
+        if ( function_exists( 'wc_get_container' ) && class_exists( $synchronizer ) ) {
+            $sync = wc_get_container()->get( $synchronizer );
+            if ( ! $sync->check_orders_table_exists() ) {
+                $sync->create_database_tables();
+            }
+        }
     }
 } );
 
