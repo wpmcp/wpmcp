@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 399,
-    'free'      => 267,
+    'total'     => 401,
+    'free'      => 269,
     'pro'       => 132,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -170,6 +170,7 @@ return [
         'wpmcp/get-comment' => 'free',
         'wpmcp/get-connection-info' => 'free',
         'wpmcp/get-coupon' => 'free',
+        'wpmcp/get-crawler-files' => 'free',
         'wpmcp/get-custom-block' => 'pro',
         'wpmcp/get-custom-css' => 'pro',
         'wpmcp/get-custom-widget' => 'pro',
@@ -375,6 +376,7 @@ return [
         'wpmcp/update-builder-content' => 'pro',
         'wpmcp/update-container' => 'pro',
         'wpmcp/update-coupon' => 'free',
+        'wpmcp/update-crawler-files' => 'free',
         'wpmcp/update-custom-block' => 'pro',
         'wpmcp/update-custom-widget' => 'pro',
         'wpmcp/update-element' => 'pro',
