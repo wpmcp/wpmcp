@@ -7,9 +7,9 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * A validation refusal inside Order_Ops, carried to its prepare() boundary
- * and turned into the dispatcher's structured error there. Never escapes
- * Order_Ops.
+ * A validation refusal inside Order_Ops, Shipping_Ops or Webhook_Ops,
+ * carried to that class's prepare() boundary and turned into the
+ * dispatcher's structured error there. Never escapes those classes.
  */
 final class Order_Op_Refused extends \RuntimeException
 {

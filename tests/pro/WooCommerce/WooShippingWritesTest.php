@@ -113,15 +113,17 @@ class WooShippingWritesTest extends \WP_UnitTestCase
             $options[ $name ] = $wpdb->get_row($wpdb->prepare("SELECT option_value, autoload FROM {$wpdb->options} WHERE option_name = %s", $name), ARRAY_A);
         }
         // phpcs:enable WordPress.DB.DirectDatabaseQuery
+        $gone = null === $zone && 0 !== $zone_id;
 
         return [
             'zone'      => $zone,
             'locations' => $locations,
             'methods'   => $methods,
             'options'   => $options,
-            // Read back through WooCommerce as well, so a stale cache shows.
-            'wc_name'   => null === $zone && 0 !== $zone_id ? null : (new \WC_Shipping_Zone($zone_id))->get_zone_name('edit'),
-            'wc_count'  => count((new \WC_Shipping_Zone($zone_id))->get_shipping_methods()),
+            // Read back through WooCommerce as well, so a stale cache shows
+            // (a deleted zone cannot be loaded at all).
+            'wc_name'   => $gone ? null : (new \WC_Shipping_Zone($zone_id))->get_zone_name('edit'),
+            'wc_count'  => $gone ? null : count((new \WC_Shipping_Zone($zone_id))->get_shipping_methods()),
         ];
     }
 

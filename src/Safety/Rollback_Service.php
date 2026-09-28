@@ -41,6 +41,13 @@ class Rollback_Service
         self::$warnings[] = $message;
     }
 
+    private static function warn_if(?string $message): void
+    {
+        if (null !== $message) {
+            self::warn($message);
+        }
+    }
+
     public static function restore_operation(string $operation_id): bool
     {
         self::$warnings = [];
@@ -97,6 +104,12 @@ class Rollback_Service
         // order back (or trash one), so restoring one takes the capability
         // the order writes themselves require (issue #292).
         if (in_array($snapshot['object_type'] ?? '', [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE ], true)) {
+            return 'manage_woocommerce';
+        }
+        // Shipping zone and webhook snapshots are store configuration, and a
+        // webhook snapshot holds its signing secret, so restoring either takes
+        // the capability their writes require (issue #292).
+        if (in_array($snapshot['object_type'] ?? '', [ Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE, Wc_Webhook_Snapshot::TYPE, Wc_Webhook_Snapshot::CREATE_TYPE ], true)) {
             return 'manage_woocommerce';
         }
         if ('post' !== ($snapshot['object_type'] ?? '')) {
@@ -275,6 +288,14 @@ class Rollback_Service
         // an order unwinds to "did not exist yet" and trashes it.
         if (Wc_Order_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
             return Wc_Order_Snapshot::TYPE . ':' . $snapshot['object_id'];
+        }
+        // Likewise for a zone or webhook a woo-write op created: a session
+        // that created and then edited one unwinds to "did not exist yet".
+        if (Wc_Shipping_Zone_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
+            return Wc_Shipping_Zone_Snapshot::TYPE . ':' . $snapshot['object_id'];
+        }
+        if (Wc_Webhook_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
+            return Wc_Webhook_Snapshot::TYPE . ':' . $snapshot['object_id'];
         }
         // And for a product or variation an import created: its oldest
         // state is "did not exist yet", whatever later edits followed.
@@ -716,6 +737,10 @@ class Rollback_Service
             'wc_order',
             'wc_order_full',
             'wc_order_create',
+            'wc_shipping_zone',
+            'wc_shipping_zone_create',
+            'wc_webhook',
+            'wc_webhook_create',
             'db_rows',
             'redirect',
             'term',
@@ -833,6 +858,28 @@ class Rollback_Service
             if (null !== $warning) {
                 self::warn($warning);
             }
+            return;
+        }
+
+        // Wc_Shipping_Zone_Snapshot and Wc_Webhook_Snapshot types, spelled
+        // as literals for the restorable-types parity test (issue #292).
+        if ('wc_shipping_zone' === $snapshot['object_type']) {
+            self::warn_if(Wc_Shipping_Zone_Snapshot::restore($snapshot));
+            return;
+        }
+
+        if ('wc_shipping_zone_create' === $snapshot['object_type']) {
+            self::warn_if(Wc_Shipping_Zone_Snapshot::undo_creation($snapshot));
+            return;
+        }
+
+        if ('wc_webhook' === $snapshot['object_type']) {
+            self::warn_if(Wc_Webhook_Snapshot::restore($snapshot));
+            return;
+        }
+
+        if ('wc_webhook_create' === $snapshot['object_type']) {
+            self::warn_if(Wc_Webhook_Snapshot::undo_creation($snapshot));
             return;
         }
 
