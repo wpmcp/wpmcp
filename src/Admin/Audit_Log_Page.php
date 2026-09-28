@@ -19,7 +19,8 @@ if (! defined('ABSPATH')) {
  *  - Requests (issue #134): the MCP request outcome log, every ability call
  *    including reads, with duration and error code, and a link straight from
  *    a row to its undo point on the History screen when the call took a
- *    snapshot.
+ *    snapshot. Filterable by date, user, tool and outcome, with a redacted
+ *    CSV export of the filtered rows (issue #303).
  *
  * Gated at manage_options, matching History_Page and Restore_Controller.
  * get_operations()/get_requests() are the testable seams: they return data
@@ -36,6 +37,12 @@ class Audit_Log_Page
     /** Rows shown on the Requests tab. */
     private const REQUEST_ROWS = 100;
 
+    /** admin-post action and nonce action of the request log CSV export. */
+    public const EXPORT_ACTION = 'wpmcp_export_request_log';
+
+    /** Query-string filters the Requests tab and its export accept. */
+    private const REQUEST_FILTERS = [ 'date_from', 'date_to', 'user_id', 'tool', 'outcome' ];
+
     /**
      * @param array<string, mixed> $filters Same shape as wpmcp/list-operations'
      *                                       input_schema (user_id, tool_name,
@@ -48,13 +55,52 @@ class Audit_Log_Page
     }
 
     /**
-     * Newest-first MCP request outcome rows.
+     * Newest-first MCP request outcome rows matching $filters (see
+     * Request_Log::query()).
      *
+     * @param array<string, mixed> $filters
      * @return array<int, array<string, mixed>>
      */
-    public function get_requests(int $limit = self::REQUEST_ROWS): array
+    public function get_requests(int $limit = self::REQUEST_ROWS, array $filters = []): array
     {
-        return Request_Log::list($limit);
+        return Request_Log::query($filters, $limit);
+    }
+
+    /**
+     * admin-post handler: the filtered request log as a redacted CSV
+     * download. Needs manage_options and the export nonce. $sender is the
+     * test seam; it receives the CSV and file name instead of the response.
+     *
+     * @return \WP_Error|null
+     */
+    public function export_requests(?callable $sender = null)
+    {
+        $nonce      = is_string($_GET['_wpnonce'] ?? null) ? sanitize_text_field(wp_unslash($_GET['_wpnonce'])) : '';
+        $authorized = current_user_can('manage_options')
+            && '' !== $nonce
+            && wp_verify_nonce($nonce, self::EXPORT_ACTION);
+
+        if (! $authorized) {
+            if (null !== $sender) {
+                return new \WP_Error('wpmcp_forbidden', __('You are not allowed to export the request log.', 'wpmcp'));
+            }
+            wp_die(esc_html__('You are not allowed to export the request log.', 'wpmcp'), 403);
+        }
+
+        $csv      = Request_Log::to_csv(Request_Log::query($this->request_filters(), Request_Log::cap()));
+        $filename = 'wpmcp-request-log-' . gmdate('Ymd-His') . '.csv';
+
+        if (null !== $sender) {
+            $sender($csv, $filename);
+            return null;
+        }
+
+        nocache_headers();
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- a text/csv attachment built by Request_Log::to_csv(), redacted and formula-safe; HTML escaping would corrupt it.
+        echo $csv;
+        exit;
     }
 
     public function render(): void
@@ -145,7 +191,8 @@ class Audit_Log_Page
 
     private function render_requests(): void
     {
-        $rows = $this->get_requests();
+        $filters = $this->request_filters();
+        $rows    = $this->get_requests(self::REQUEST_ROWS, $filters);
 
         printf(
             '<p class="description">%s</p>',
@@ -155,6 +202,8 @@ class Audit_Log_Page
                     : __('Tool arguments are not recorded. Enable the wpmcp_request_log_capture_args option or filter to capture redacted payloads while debugging.', 'wpmcp')
             )
         );
+
+        $this->render_request_filter_form($filters);
 
         echo '<table class="widefat"><thead><tr>'
             . '<th>' . esc_html__('When', 'wpmcp') . '</th>'
@@ -212,6 +261,61 @@ class Audit_Log_Page
             esc_url(admin_url('admin.php?page=wpmcp') . '#' . History_Page::row_anchor($operation_id)),
             esc_html__('View in History', 'wpmcp')
         );
+    }
+
+    /** @return array<string, string> the Requests tab filters present in the query string */
+    private function request_filters(): array
+    {
+        $filters = [];
+        foreach (self::REQUEST_FILTERS as $key) {
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter; the export verifies its own nonce before using these.
+            $value = isset($_GET[ $key ]) ? sanitize_text_field(wp_unslash($_GET[ $key ])) : '';
+            if ('' !== $value) {
+                $filters[ $key ] = $value;
+            }
+        }
+        return $filters;
+    }
+
+    /** @param array<string, string> $filters */
+    private function render_request_filter_form(array $filters): void
+    {
+        echo '<form method="get">';
+        printf('<input type="hidden" name="page" value="%s" />', esc_attr(self::SLUG));
+        printf('<input type="hidden" name="tab" value="%s" />', esc_attr(self::TAB_REQUESTS));
+        printf(
+            '<input type="date" name="date_from" value="%s" aria-label="%s" />',
+            esc_attr($filters['date_from'] ?? ''),
+            esc_attr__('From date (UTC)', 'wpmcp')
+        );
+        printf(
+            '<input type="date" name="date_to" value="%s" aria-label="%s" />',
+            esc_attr($filters['date_to'] ?? ''),
+            esc_attr__('To date (UTC)', 'wpmcp')
+        );
+        printf(
+            '<input type="number" name="user_id" placeholder="%s" value="%s" />',
+            esc_attr__('User ID', 'wpmcp'),
+            esc_attr($filters['user_id'] ?? '')
+        );
+        printf(
+            '<input type="text" name="tool" placeholder="%s" value="%s" />',
+            esc_attr__('Tool', 'wpmcp'),
+            esc_attr($filters['tool'] ?? '')
+        );
+        $outcome = $filters['outcome'] ?? '';
+        echo '<select name="outcome">';
+        foreach ([ '' => __('Any outcome', 'wpmcp'), 'ok' => __('OK', 'wpmcp'), 'error' => __('Error', 'wpmcp') ] as $value => $label) {
+            printf('<option value="%s"%s>%s</option>', esc_attr($value), selected($outcome, $value, false), esc_html($label));
+        }
+        echo '</select> ';
+        printf('<button type="submit" class="button">%s</button> ', esc_html__('Filter', 'wpmcp'));
+        printf(
+            '<a class="button" href="%s">%s</a>',
+            esc_url(wp_nonce_url(add_query_arg(array_merge([ 'action' => self::EXPORT_ACTION ], $filters), admin_url('admin-post.php')), self::EXPORT_ACTION)),
+            esc_html__('Export CSV', 'wpmcp')
+        );
+        echo '</form>';
     }
 
     /** @return array<string, mixed> */
