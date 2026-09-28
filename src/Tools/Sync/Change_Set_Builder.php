@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Sync;
 
+use WPMCP\Safety\Post_Creation_Snapshot;
 use WPMCP\Safety\Snapshot;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Elementor\Global_Classes_Store;
@@ -91,12 +92,13 @@ class Change_Set_Builder
     private const POST_KINDS = [
         'post'         => 'post',
         'page_build'   => 'post',
+        'post_create'  => 'post',
         'attachment'   => 'attachment',
         'media_import' => 'attachment',
     ];
 
     /** Ledger rows whose before-image is "did not exist yet". */
-    private const CREATION_KINDS = ['page_build', 'media_import'];
+    private const CREATION_KINDS = ['page_build', 'media_import', 'post_create'];
 
     /**
      * Which block attribute holds an attachment id, per core media block.
@@ -158,6 +160,17 @@ class Change_Set_Builder
             }
 
             $key = null;
+            if (Post_Creation_Snapshot::OBJECT_TYPE === $type) {
+                // One creation row can cover several posts (duplicate-post
+                // with include_children); every one of them is an object the
+                // session touched.
+                $snapshot = $this->blob($row, $blobs);
+                $ids      = is_array($snapshot) ? Post_Creation_Snapshot::post_ids($snapshot) : [(int) $row['object_id']];
+                foreach ($ids as $created_id) {
+                    $oldest[ 'post:' . $created_id ] = $row;
+                }
+                continue;
+            }
             if (isset(self::POST_KINDS[ $type ])) {
                 $key = 'post:' . (int) $row['object_id'];
             } elseif ('option' === $type || 'term' === $type) {

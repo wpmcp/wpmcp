@@ -295,11 +295,12 @@ class CustomBlockBuilderTest extends \WP_UnitTestCase
             $abilities[ $ability->name ] = $ability;
         }
 
-        foreach (['update-custom-block', 'set-block-status', 'delete-custom-block'] as $name) {
+        // create-custom-block records a creation row (issue #192), so it
+        // takes a session_id like every other block write.
+        foreach (['create-custom-block', 'update-custom-block', 'set-block-status', 'delete-custom-block'] as $name) {
             $this->assertArrayHasKey('wpmcp/' . $name, $abilities);
             $this->assertArrayHasKey('session_id', $abilities[ 'wpmcp/' . $name ]->input_schema['properties'], $name);
         }
-        $this->assertArrayNotHasKey('session_id', $abilities['wpmcp/create-custom-block']->input_schema['properties']);
         $this->assertSame(
             ['publish', 'draft'],
             $abilities['wpmcp/set-block-status']->input_schema['properties']['status']['enum']

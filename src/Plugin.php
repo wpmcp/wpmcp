@@ -1103,8 +1103,9 @@ final class Plugin
                     'status'    => [ 'type' => 'string' ],
                     'slug'      => [ 'type' => 'string' ],
                     'parent'    => [ 'type' => 'integer' ],
-                    'terms'     => [ 'type' => 'object' ],
-                    'meta'      => [ 'type' => 'object' ],
+                    'terms'      => [ 'type' => 'object' ],
+                    'meta'       => [ 'type' => 'object' ],
+                    'session_id' => [ 'type' => 'string' ],
                 ],
             ],
             [$create_post, 'handle'],
@@ -1208,6 +1209,7 @@ final class Plugin
                     'title'            => [ 'type' => 'string' ],
                     'status'           => [ 'type' => 'string', 'enum' => ['draft', 'pending', 'private', 'publish'] ],
                     'include_children' => [ 'type' => 'boolean' ],
+                    'session_id'       => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'post_id' ],
             ],
@@ -3061,10 +3063,10 @@ final class Plugin
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
-            // Snapshotted writes (update/delete) group under a caller's
-            // session_id so rollback-session can undo them together. Creates
-            // take no snapshot, so they do not advertise one.
-            if (in_array($op, ['update', 'delete'], true)) {
+            // Every write (create/update/delete) records a ledger row under
+            // a caller's session_id so rollback-session can undo them
+            // together; a create's row is its creation row (issue #192).
+            if (in_array($op, ['create', 'update', 'delete'], true)) {
                 $props['session_id'] = [ 'type' => 'string' ];
             }
             $schema = [ 'type' => 'object', 'properties' => $props ];
@@ -3109,10 +3111,10 @@ final class Plugin
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
-            // Snapshotted writes (update/delete) group under a caller's
-            // session_id so rollback-session can undo them together. Creates
-            // take no snapshot, so they do not advertise one.
-            if (in_array($op, ['update', 'delete'], true)) {
+            // Every write (create/update/delete) records a ledger row under
+            // a caller's session_id so rollback-session can undo them
+            // together; a create's row is its creation row (issue #192).
+            if (in_array($op, ['create', 'update', 'delete'], true)) {
                 $props['session_id'] = [ 'type' => 'string' ];
             }
             $schema = [ 'type' => 'object', 'properties' => $props ];
