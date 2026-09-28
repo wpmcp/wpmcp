@@ -227,6 +227,7 @@ use WPMCP\Tools\Diagnostics\Get_Debug_Config;
 use WPMCP\Tools\Diagnostics\Get_Debug_Log;
 use WPMCP\Tools\Diagnostics\List_Transients;
 use WPMCP\Tools\Diagnostics\Delete_Transient;
+use WPMCP\Tools\Diagnostics\Get_Site_Health;
 use WPMCP\Tools\Cron\List_Cron_Events;
 use WPMCP\Tools\Cron\Schedule_Event;
 use WPMCP\Tools\Cron\Unschedule_Event;
@@ -2306,7 +2307,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-rows',
             'free',
-            'Update rows matching a mandatory equality WHERE via $wpdb->update() (parameterized). Requires confirm:true; refuses protected tables; off by default (wpmcp_enable_db_writes filter). Restorable via rollback-operation when the table has a primary key and the WHERE fits the before-image cap; otherwise recoverable:false with a reason, and the before-image goes to the write audit log',
+            'Update rows matching a mandatory equality WHERE via $wpdb->update() (parameterized). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo via rollback-operation when the table has a primary key and the WHERE fits the before-image cap, else recoverable:false and the before-image goes to the write audit log',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2326,7 +2327,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-rows',
             'free',
-            'Delete rows matching a mandatory equality WHERE via $wpdb->delete() (parameterized). Requires confirm:true; refuses protected tables; off by default (wpmcp_enable_db_writes filter). Snapshot-backed and restorable via rollback-operation (rows reinserted with their original ids) when the table has a primary key and the WHERE fits the before-image cap; otherwise recoverable:false with a reason, and the before-image goes to the write audit log',
+            'Delete rows matching a mandatory equality WHERE via $wpdb->delete() (parameterized). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo via rollback-operation (rows reinserted with their ids) when the table has a primary key and the WHERE fits the before-image cap, else recoverable:false and the before-image goes to the write audit log',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4235,7 +4236,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/call-rest',
             'free',
-            'Run an internal WP REST request (rest_do_request) against any route on this site; returns status and body. The endpoint\'s own permission_callback runs against the current user, so this cannot widen access. GET/HEAD always allowed. POST/PUT/PATCH/DELETE are refused unless the site opts in via the wpmcp_enable_rest_writes filter (off by default) AND confirm:true is passed; writes report recoverable:false since an arbitrary REST write cannot be snapshotted',
+            'Run an internal REST request (rest_do_request) on any route here; returns status and body. The route\'s permission_callback runs as the current user, so access cannot widen. GET/HEAD always allowed; POST/PUT/PATCH/DELETE need the wpmcp_enable_rest_writes filter (off by default) and confirm:true, and report recoverable:false (not snapshotted)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5689,6 +5690,10 @@ final class Plugin
      * 'read' operations; delete-transient is 'update' but, like clear-cache,
      * is not routed through Safe_Mutation: a transient is cache-like data
      * with no meaningful before-image to restore.
+     *
+     * get-site-health (issue #381) runs the Site Health tests and is gated
+     * at view_site_health_checks, the capability core checks for the Site
+     * Health screen itself.
      */
     private function register_diagnostics_abilities(Registrar $registrar): void
     {
@@ -5696,11 +5701,12 @@ final class Plugin
         $get_debug_log    = new Get_Debug_Log();
         $list_transients  = new List_Transients();
         $delete_transient = new Delete_Transient();
+        $get_site_health  = new Get_Site_Health();
 
         $registrar->register(new Ability(
             'wpmcp/get-debug-config',
             'free',
-            'Report the debug-related constants (WP_DEBUG, WP_DEBUG_LOG, WP_DEBUG_DISPLAY, SCRIPT_DEBUG, SAVEQUERIES) and, when logging is on, the resolved debug.log path. Read-only, no secrets',
+            'Debug constants (WP_DEBUG, WP_DEBUG_LOG, WP_DEBUG_DISPLAY, SCRIPT_DEBUG, SAVEQUERIES) and, when logging is on, the debug.log path. No secrets',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -5713,7 +5719,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-debug-log',
             'free',
-            'Return a bounded tail (at most 200 lines / 64KB) of the WordPress debug log, never the whole file. Defaults to WP_CONTENT_DIR/debug.log or the WP_DEBUG_LOG custom path; any path argument is confined to WP_CONTENT_DIR, refusing traversal',
+            'Bounded tail (max 200 lines / 64KB) of the debug log, by default WP_CONTENT_DIR/debug.log or the WP_DEBUG_LOG path. A path argument is confined to WP_CONTENT_DIR',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5729,7 +5735,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-transients',
             'free',
-            'List transients (name, expiry) from the options table, with an optional search substring filter and a capped limit (default 50, hard cap 500)',
+            'List transients (name, expiry) with an optional search substring; limit default 50, max 500',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5745,7 +5751,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-transient',
             'free',
-            'Delete a single named transient via delete_transient(). Not snapshotted: transients are cache-like data with no meaningful before-image to restore, the same reasoning documented for clear-cache',
+            'Delete one named transient. Not snapshotted: transients are cache data with nothing to restore',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5757,6 +5763,23 @@ final class Plugin
             'manage_options',
             'diagnostics',
             'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-site-health',
+            'free',
+            'Run Site Health tests, plugin-added ones included, as plain text. Async tests past timeout seconds (default 10, max 30) report not completed. cached: last full run',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'tests'   => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'timeout' => [ 'type' => 'integer' ],
+                    'cached'  => [ 'type' => 'boolean' ],
+                ],
+            ],
+            [$get_site_health, 'handle'],
+            'view_site_health_checks',
+            'diagnostics',
+            'read'
         ));
     }
 
