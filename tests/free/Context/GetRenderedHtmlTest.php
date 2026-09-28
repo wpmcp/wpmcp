@@ -20,6 +20,9 @@ class GetRenderedHtmlTest extends \WP_UnitTestCase
     /** @var array<int,array> Parsed args of each dispatched request. */
     private array $request_args = [];
 
+    /** @var array<int,int> http_api_curl callback count seen by each dispatched request. */
+    private array $curl_filters = [];
+
     /** @var array<string,array{status:int,body:string,headers?:array}> url => canned response. */
     private array $routes = [];
 
@@ -29,7 +32,11 @@ class GetRenderedHtmlTest extends \WP_UnitTestCase
         $this->requested    = [];
         $this->request_args = [];
         $this->routes       = [];
+        $this->curl_filters = [];
         add_filter('pre_http_request', [$this, 'serve'], 10, 3);
+        // The tool is gated at edit_posts, and a post_id target must also
+        // pass read_post for the caller; an administrator can read anything.
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
     }
 
     protected function tearDown(): void
@@ -42,6 +49,7 @@ class GetRenderedHtmlTest extends \WP_UnitTestCase
     {
         $this->requested[]    = $url;
         $this->request_args[] = $args;
+        $this->curl_filters[] = self::curl_filter_count();
         if (! isset($this->routes[ $url ])) {
             return new \WP_Error('unexpected_dispatch', 'No stub route for ' . $url);
         }
@@ -60,9 +68,27 @@ class GetRenderedHtmlTest extends \WP_UnitTestCase
         $this->routes[ $url ] = ['status' => $status, 'body' => $body] + ($headers ? ['headers' => $headers] : []);
     }
 
-    private function tool(): Get_Rendered_Html
+    private static function curl_filter_count(): int
     {
-        return new Get_Rendered_Html();
+        global $wp_filter;
+        if (! isset($wp_filter['http_api_curl'])) {
+            return 0;
+        }
+        $n = 0;
+        foreach ($wp_filter['http_api_curl']->callbacks as $callbacks) {
+            $n += count($callbacks);
+        }
+        return $n;
+    }
+
+    /**
+     * The DNS resolver is injected so no test ever performs a real lookup
+     * (network-dependent tests were a source of flakes, #323). By default it
+     * resolves nothing, which means no pin is applied.
+     */
+    private function tool(?callable $resolver = null): Get_Rendered_Html
+    {
+        return new Get_Rendered_Html($resolver ?? static fn(string $host): array => []);
     }
 
     private function assert_refused(array $args, string $needle): void
@@ -357,6 +383,217 @@ class GetRenderedHtmlTest extends \WP_UnitTestCase
     }
 
     // ------------------------------------------------------------------
+    // Offset continuation and content hash (#353).
+    // ------------------------------------------------------------------
+
+    public function test_reports_a_sha256_content_hash_that_is_stable_across_chunks(): void
+    {
+        $body = str_repeat('a', 1000) . str_repeat('b', 1000) . str_repeat('c', 500);
+        $this->route(home_url('/'), $body);
+
+        $first  = $this->tool()->handle(['chunk_size' => 1000]);
+        $second = $this->tool()->handle(['chunk_size' => 1000, 'offset' => $first['next_offset']]);
+
+        $this->assertSame(hash('sha256', $body), $first['content_hash']);
+        $this->assertSame($first['content_hash'], $second['content_hash']);
+    }
+
+    public function test_content_hash_changes_when_the_page_changes_between_reads(): void
+    {
+        $this->route(home_url('/'), str_repeat('a', 2500));
+        $before = $this->tool()->handle(['chunk_size' => 1000]);
+
+        $this->route(home_url('/'), str_repeat('a', 2400) . 'edited');
+        $after = $this->tool()->handle(['chunk_size' => 1000, 'offset' => $before['next_offset']]);
+
+        $this->assertNotSame($before['content_hash'], $after['content_hash']);
+    }
+
+    public function test_content_hash_covers_the_reduced_document_that_is_served(): void
+    {
+        $raw = '<p>Keep</p><script>x()</script>';
+        $this->route(home_url('/'), $raw);
+
+        $out = $this->tool()->handle(['strip_scripts' => true]);
+
+        $this->assertSame('<p>Keep</p>', $out['content']);
+        $this->assertSame(hash('sha256', '<p>Keep</p>'), $out['content_hash']);
+    }
+
+    public function test_offset_reads_follow_next_offset_and_reassemble_exactly(): void
+    {
+        $body = str_repeat('0123456789', 250); // 2500 bytes.
+        $this->route(home_url('/'), $body);
+
+        $whole  = '';
+        $offset = 0;
+        $calls  = 0;
+        do {
+            $out = $this->tool()->handle(['offset' => $offset, 'chunk_size' => 1000]);
+            $this->assertSame($offset, $out['offset']);
+            $whole  .= $out['content'];
+            $offset  = $out['next_offset'];
+            $calls++;
+        } while (null !== $offset && $calls < 10);
+
+        $this->assertSame(3, $calls);
+        $this->assertSame($body, $whole);
+        $this->assertNull($out['next_offset'], 'The last read has no continuation.');
+    }
+
+    public function test_offset_reads_never_split_a_multibyte_character(): void
+    {
+        $body = str_repeat('é', 1500); // 3000 bytes, two bytes per character.
+        $this->route(home_url('/'), $body);
+
+        $whole  = '';
+        $offset = 0;
+        $calls  = 0;
+        do {
+            $out = $this->tool()->handle(['offset' => $offset, 'chunk_size' => 1001]);
+            $this->assertTrue(mb_check_encoding($out['content'], 'UTF-8'), "Read at $offset must be valid UTF-8.");
+            $whole  .= $out['content'];
+            $offset  = $out['next_offset'];
+            $calls++;
+        } while (null !== $offset && $calls < 10);
+
+        $this->assertSame($body, $whole);
+    }
+
+    public function test_chunk_reads_also_report_next_offset(): void
+    {
+        $this->route(home_url('/'), str_repeat('x', 2500));
+
+        $first = $this->tool()->handle(['chunk_size' => 1000]);
+        $last  = $this->tool()->handle(['chunk_size' => 1000, 'chunk' => 2]);
+
+        $this->assertSame(0, $first['offset']);
+        $this->assertSame(1000, $first['next_offset']);
+        $this->assertSame(2000, $last['offset']);
+        $this->assertNull($last['next_offset']);
+    }
+
+    public function test_offset_past_the_end_or_negative_is_rejected(): void
+    {
+        $this->route(home_url('/'), 'short');
+
+        foreach ([6, 99999, -1] as $offset) {
+            try {
+                $this->tool()->handle(['offset' => $offset]);
+                $this->fail("offset $offset must be rejected.");
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString('total_bytes 5', $e->getMessage());
+            }
+        }
+    }
+
+    public function test_chunk_and_offset_together_are_rejected_before_any_request(): void
+    {
+        $this->assert_refused(['chunk' => 1, 'offset' => 10], 'not both');
+    }
+
+    // ------------------------------------------------------------------
+    // DNS pin: every hop connects to the address resolved for this site.
+    // ------------------------------------------------------------------
+
+    public function test_pins_every_hop_to_the_resolved_site_address_and_unpins_after(): void
+    {
+        if (! function_exists('curl_init')) {
+            $this->markTestSkipped('The pin needs the curl extension.');
+        }
+        $before = self::curl_filter_count();
+        $home   = (string) wp_parse_url(home_url(), PHP_URL_HOST);
+        $asked  = [];
+        $tool   = $this->tool(static function (string $host) use (&$asked): array {
+            $asked[] = $host;
+            return ['203.0.113.10'];
+        });
+        $this->route(home_url('/old/'), '', 301, ['location' => '/new/']);
+        $this->route(home_url('/new/'), 'new page');
+
+        $out = $tool->handle(['url' => '/old/']);
+
+        $this->assertSame('new page', $out['content']);
+        $this->assertSame([$home], $asked, 'The site host is resolved once and reused for every hop.');
+        $this->assertSame('203.0.113.10', $tool->get_last_pinned_ip());
+        $this->assertSame([$before + 1, $before + 1], $this->curl_filters, 'Each hop runs with the pin in place.');
+        $this->assertSame($before, self::curl_filter_count(), 'The pin is removed after the fetch.');
+    }
+
+    public function test_the_pin_is_removed_even_when_the_fetch_fails(): void
+    {
+        if (! function_exists('curl_init')) {
+            $this->markTestSkipped('The pin needs the curl extension.');
+        }
+        $before = self::curl_filter_count();
+        $tool   = $this->tool(static fn(string $host): array => ['203.0.113.10']);
+
+        try {
+            $tool->handle(['url' => '/no-stub/']);
+            $this->fail('A failed fetch must throw.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('Fetch failed', $e->getMessage());
+        }
+
+        $this->assertSame($before, self::curl_filter_count());
+    }
+
+    public function test_no_pin_when_the_site_host_does_not_resolve(): void
+    {
+        $before = self::curl_filter_count();
+        $this->route(home_url('/'), 'ok');
+        $tool = $this->tool();
+
+        $out = $tool->handle([]);
+
+        $this->assertSame('ok', $out['content']);
+        $this->assertNull($tool->get_last_pinned_ip());
+        $this->assertSame([$before], $this->curl_filters);
+    }
+
+    // ------------------------------------------------------------------
+    // Caller must be able to read the post (#353).
+    // ------------------------------------------------------------------
+
+    public function test_refuses_a_post_the_caller_cannot_read(): void
+    {
+        $admin   = get_current_user_id();
+        $private = self::factory()->post->create(['post_status' => 'private', 'post_author' => $admin]);
+        $draft   = self::factory()->post->create(['post_status' => 'draft', 'post_author' => $admin]);
+        wp_set_current_user(self::factory()->user->create(['role' => 'contributor']));
+
+        $this->assert_refused(['post_id' => $private], 'cannot read');
+        $this->assert_refused(['post_id' => $draft], 'cannot read');
+    }
+
+    public function test_a_readable_draft_is_refused_with_a_credential_free_explanation(): void
+    {
+        $draft = self::factory()->post->create(['post_status' => 'draft']);
+
+        $this->assert_refused(['post_id' => $draft], 'logged-out');
+    }
+
+    public function test_no_cookies_or_auth_are_forwarded_for_a_logged_in_caller(): void
+    {
+        $post_id = self::factory()->post->create(['post_status' => 'publish']);
+        $this->route(get_permalink($post_id), 'ok');
+        $_COOKIE[ LOGGED_IN_COOKIE ] = 'caller-session';
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Basic Y2FsbGVyOnNlY3JldA==';
+
+        try {
+            $this->tool()->handle(['post_id' => $post_id]);
+        } finally {
+            unset($_COOKIE[ LOGGED_IN_COOKIE ], $_SERVER['HTTP_AUTHORIZATION']);
+        }
+
+        $args    = $this->request_args[0];
+        $headers = array_change_key_case((array) $args['headers']);
+        $this->assertEmpty($args['cookies']);
+        $this->assertArrayNotHasKey('cookie', $headers);
+        $this->assertArrayNotHasKey('authorization', $headers);
+    }
+
+    // ------------------------------------------------------------------
     // Registration.
     // ------------------------------------------------------------------
 
@@ -368,6 +605,9 @@ class GetRenderedHtmlTest extends \WP_UnitTestCase
 
         $manifest = require dirname(__DIR__, 2) . '/support/ability-manifest.php';
         $this->assertSame('free', $manifest['abilities'][ self::NAME ] ?? null);
+
+        $props = $abilities[ self::NAME ]->get_input_schema()['properties'] ?? [];
+        $this->assertSame('integer', $props['offset']['type'] ?? null, 'offset must be advertised for continuation reads.');
     }
 
     public function test_denies_a_visitor_and_allows_a_contributor(): void
