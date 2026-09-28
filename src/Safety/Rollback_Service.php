@@ -101,23 +101,73 @@ class Rollback_Service
     /** The capability this snapshot demands, or null when it holds no PII. */
     private static function restore_capability(array $snapshot): ?string
     {
+        $names = array_map(static fn (array $cap): string => $cap[0], self::restore_capabilities($snapshot));
+        return [] === $names ? null : implode('" and "', $names);
+    }
+
+    /**
+     * Every capability this snapshot demands, each as [capability, ...args]
+     * for current_user_can(). Empty when the snapshot holds no PII.
+     *
+     * @return array<int, array<int, mixed>>
+     */
+    private static function restore_capabilities(array $snapshot): array
+    {
+        $type = $snapshot['object_type'] ?? '';
         // Order snapshots hold the customer's addresses and put a whole
         // order back (or trash one), so restoring one takes the capability
         // the order writes themselves require (issue #292).
-        if (in_array($snapshot['object_type'] ?? '', [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE ], true)) {
-            return 'manage_woocommerce';
+        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE ], true)) {
+            return [ [ 'manage_woocommerce' ] ];
         }
         // Shipping zone and webhook snapshots are store configuration, and a
         // webhook snapshot holds its signing secret, so restoring either takes
         // the capability their writes require (issue #292).
-        if (in_array($snapshot['object_type'] ?? '', [ Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE, Wc_Webhook_Snapshot::TYPE, Wc_Webhook_Snapshot::CREATE_TYPE ], true)) {
-            return 'manage_woocommerce';
+        if (in_array($type, [ Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE, Wc_Webhook_Snapshot::TYPE, Wc_Webhook_Snapshot::CREATE_TYPE ], true)) {
+            return [ [ 'manage_woocommerce' ] ];
         }
-        if ('post' !== ($snapshot['object_type'] ?? '')) {
+        // An option snapshot may name the capability its restore needs: a
+        // payment gateway's settings option holds the gateway's credentials,
+        // so restoring it takes the capability its write required (issue #292).
+        if ('option' === $type && is_string($snapshot['data']['restore_capability'] ?? null)) {
+            return [ [ $snapshot['data']['restore_capability'] ] ];
+        }
+        // A comment snapshot holds the whole comment row, author email and
+        // IP included, so restoring one takes moderate_comments, the
+        // capability that reading those fields takes (issue #348). A product
+        // review also takes what the review ops take: edit_product for the
+        // review's product.
+        if ('comment' === $type) {
+            $caps    = [ [ 'moderate_comments' ] ];
+            $product = self::review_product($snapshot);
+            if (null !== $product) {
+                $caps[] = $product > 0 ? [ 'edit_product', $product ] : [ 'edit_products' ];
+            }
+            return $caps;
+        }
+        if ('post' !== $type) {
+            return [];
+        }
+        $post_type  = (string) ($snapshot['data']['post']['post_type'] ?? '');
+        $capability = self::pii_snapshot_capabilities()[ $post_type ] ?? null;
+        return null === $capability ? [] : [ [ $capability ] ];
+    }
+
+    /**
+     * The product a comment snapshot's review belongs to: its id, 0 when the
+     * row is a review whose product is gone, or null when it is no review.
+     */
+    private static function review_product(array $snapshot): ?int
+    {
+        $row = $snapshot['data']['comment'] ?? null;
+        if (! is_array($row)) {
             return null;
         }
-        $post_type = (string) ($snapshot['data']['post']['post_type'] ?? '');
-        return self::pii_snapshot_capabilities()[ $post_type ] ?? null;
+        $post_id = (int) ($row['comment_post_ID'] ?? 0);
+        if ($post_id > 0 && 'product' === get_post_type($post_id)) {
+            return $post_id;
+        }
+        return 'review' === ($row['comment_type'] ?? '') ? 0 : null;
     }
 
     /**
@@ -128,8 +178,12 @@ class Rollback_Service
      */
     private static function may_restore(array $snapshot): bool
     {
-        $capability = self::restore_capability($snapshot);
-        return null === $capability || current_user_can($capability);
+        foreach (self::restore_capabilities($snapshot) as $capability) {
+            if (! current_user_can(...$capability)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static function restore_session(string $session_id): int

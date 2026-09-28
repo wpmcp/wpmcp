@@ -25,8 +25,9 @@ if (! defined('ABSPATH')) {
  *   opt-in (destructive ops are off until the wpmcp_woo_op_enabled filter
  *   enables them) -> confirm:true for destructive ops -> forbidden params
  *   and meta keys -> path params -> handler checks (Order_Ops,
- *   Shipping_Ops, Webhook_Ops, Review_Ops for order_*, shipping_*,
- *   webhook_* and review_* handlers) -> brand checks (Brand_Ops, rows naming a taxonomy) ->
+ *   Shipping_Ops, Webhook_Ops, Review_Ops, Gateway_Ops, Status_Ops for
+ *   order_*, shipping_*, webhook_*, review_*, gateway_* and status_*
+ *   handlers) -> brand checks (Brand_Ops, rows naming a taxonomy) ->
  *   snapshot target resolves -> Safe_Mutation (snapshot first)
  *   -> dispatch, or the row's in-process handler.
  *
@@ -254,16 +255,19 @@ class Woo_Write
             }
         }
 
+        $report  = [];
         $handler = self::handler_class($def);
         if (null !== $handler) {
-            $checked = $handler::prepare((string) $def['handler'], $params);
+            // A handler may need confirm (a status tool that deletes rows)
+            // and may add to the response (why a tool run cannot be undone).
+            $checked = $handler::prepare((string) $def['handler'], $params, $confirm);
             if (isset($checked['error'])) {
                 return $checked;
             }
-            $body = $checked['body'];
+            $body   = $checked['body'];
+            $report = $checked['report'] ?? [];
         }
 
-        $report = [];
         if (null !== $def['taxonomy']) {
             $brand = Brand_Ops::prepare($op, $params, $body);
             if (isset($brand['error'])) {
@@ -344,7 +348,7 @@ class Woo_Write
                 'session_id'  => $session_id,
                 'tool_name'   => 'woo-write',
                 'args'        => [ 'op' => $plan['op'], 'route' => $plan['route'], 'params' => $plan['body'] ],
-            ],
+            ] + (isset($plan['target']['restore_capability']) ? [ 'extra_snapshot_data' => [ 'restore_capability' => $plan['target']['restore_capability'] ] ] : []),
             fn () => $this->run($plan)
         );
 
@@ -381,7 +385,7 @@ class Woo_Write
      * The class a row's in-process handler runs through (issue #292), by the
      * handler's prefix, or null for dispatched rows and brand handlers.
      *
-     * @return class-string<Order_Ops>|class-string<Shipping_Ops>|class-string<Webhook_Ops>|class-string<Review_Ops>|null
+     * @return class-string<Order_Ops>|class-string<Shipping_Ops>|class-string<Webhook_Ops>|class-string<Review_Ops>|class-string<Gateway_Ops>|class-string<Status_Ops>|null
      */
     private static function handler_class(array $def): ?string
     {
@@ -389,7 +393,7 @@ class Woo_Write
         if (! is_string($handler)) {
             return null;
         }
-        foreach ([ 'order_' => Order_Ops::class, 'shipping_' => Shipping_Ops::class, 'webhook_' => Webhook_Ops::class, 'review_' => Review_Ops::class ] as $prefix => $class) {
+        foreach ([ 'order_' => Order_Ops::class, 'shipping_' => Shipping_Ops::class, 'webhook_' => Webhook_Ops::class, 'review_' => Review_Ops::class, 'gateway_' => Gateway_Ops::class, 'status_' => Status_Ops::class ] as $prefix => $class) {
             if (str_starts_with($handler, $prefix)) {
                 return $class;
             }
@@ -476,6 +480,12 @@ class Woo_Write
             // Shipping_Ops already resolved the zone, which may be zone 0
             // ("locations not covered"): it has methods but no zone row.
             return [ 'object_type' => 'wc_shipping_zone', 'object_id' => (int) ($body['zone_id'] ?? 0) ];
+        }
+
+        if ('wc_gateway' === $strategy['type']) {
+            // Gateway_Ops already resolved the gateway and what the write
+            // changes: its settings option, or the gateway order option.
+            return Gateway_Ops::snapshot_target($body);
         }
 
         if ('wc_setting' === $strategy['type']) {

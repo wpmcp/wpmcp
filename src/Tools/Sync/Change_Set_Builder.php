@@ -354,7 +354,9 @@ class Change_Set_Builder
         if (! array_key_exists($op, $cache)) {
             try {
                 $stored        = Snapshot_Store::get_by_operation($op);
-                $cache[ $op ] = $stored ? (array) $stored['snapshot'] : null;
+                // Redacted whoever the caller is: a change set travels to
+                // another site, so comment personal data never rides along.
+                $cache[ $op ] = $stored ? Snapshot::without_personal_data((array) $stored['snapshot']) : null;
             } catch (\RuntimeException $e) {
                 $cache[ $op ] = null;
             }

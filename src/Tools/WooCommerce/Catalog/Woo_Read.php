@@ -66,10 +66,11 @@ class Woo_Read
         $params = isset($args['params']) && is_array($args['params']) ? $args['params'] : [];
         [ $route, $query ] = Op_Catalog::resolve_route($op, $params);
 
-        // Zone reads, review listing and reports (issue #292) run in-process:
-        // zones carry their locations and methods in one call, reviews are
-        // filtered by rating and stripped of reviewer emails, and reports
-        // aggregate over the analytics tables or the order store.
+        // Zone reads, review listing, reports, gateways and system status
+        // (issue #292) run in-process: zones carry their locations and
+        // methods in one call, reviews are filtered by rating and stripped of
+        // reviewer emails, reports aggregate over the analytics tables or the
+        // order store, and gateway settings and the status report are masked.
         $handler = self::handler_class($def);
         if (null !== $handler) {
             $out = $handler::read((string) $def['handler'], $params);
@@ -92,7 +93,7 @@ class Woo_Read
     /**
      * The class an in-process read handler runs through, by its prefix.
      *
-     * @return class-string<Shipping_Ops>|class-string<Review_Ops>|class-string<Report_Ops>|null
+     * @return class-string<Shipping_Ops>|class-string<Review_Ops>|class-string<Report_Ops>|class-string<Gateway_Ops>|class-string<Status_Ops>|null
      */
     private static function handler_class(array $def): ?string
     {
@@ -100,7 +101,7 @@ class Woo_Read
         if (! is_string($handler)) {
             return null;
         }
-        foreach ([ 'shipping_' => Shipping_Ops::class, 'review_' => Review_Ops::class, 'report_' => Report_Ops::class ] as $prefix => $class) {
+        foreach ([ 'shipping_' => Shipping_Ops::class, 'review_' => Review_Ops::class, 'report_' => Report_Ops::class, 'gateway_' => Gateway_Ops::class, 'status_' => Status_Ops::class ] as $prefix => $class) {
             if (str_starts_with($handler, $prefix)) {
                 return $class;
             }
