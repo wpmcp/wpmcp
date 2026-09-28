@@ -10,15 +10,21 @@ use WPMCP\Tools\Backup\Site_Backup_Dir;
 /**
  * The compatibility gate in front of a site restore (issue #190, phase 1).
  *
- * Every test here runs against the dry-run path or the pre-execution
- * refusal, because that is all this build implements. The invariant under
- * test is that nothing is written before the gate has spoken: the
- * maintenance option stays untouched and the archive stays on disk in
- * every case, including the one where a compatible archive is asked to
- * restore for real and is refused as not implemented.
+ * Every test here runs against the dry-run path or a pre-execution
+ * refusal. The invariant under test is that nothing is written before the
+ * gate has spoken: the maintenance option stays untouched and the archive
+ * stays on disk. The execution path is covered by
+ * RestoreSiteBackupExecuteTest.
  */
 class RestoreSiteBackupTest extends \WP_UnitTestCase
 {
+    /**
+     * The smallest dump the importer accepts: two statements, both on the
+     * policy's allowlist. Hand-written archives carry it so the gate's own
+     * checks are what a test exercises, not the dump scan.
+     */
+    private const MINI_DUMP = "SET FOREIGN_KEY_CHECKS = 0;\nSET FOREIGN_KEY_CHECKS = 1;\n";
+
     private array $cleanup = [];
 
     protected function setUp(): void
@@ -58,6 +64,7 @@ class RestoreSiteBackupTest extends \WP_UnitTestCase
     private function write_archive(array $overrides = [], bool $with_db_sql = true): string
     {
         $manifest = $this->build_archive()['manifest'];
+        $manifest['database']['bytes'] = strlen(self::MINI_DUMP);
 
         foreach ($overrides as $dotted => $value) {
             $keys = explode('.', $dotted);
@@ -84,7 +91,7 @@ class RestoreSiteBackupTest extends \WP_UnitTestCase
         $this->assertTrue($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE));
         $zip->addFromString('manifest.json', wp_json_encode($manifest));
         if ($with_db_sql) {
-            $zip->addFromString('db.sql', "-- fixture\n");
+            $zip->addFromString('db.sql', self::MINI_DUMP);
         }
         $zip->close();
         $this->cleanup[] = $path;
@@ -284,22 +291,6 @@ class RestoreSiteBackupTest extends \WP_UnitTestCase
 
         $this->assertFalse(get_option('wpmcp_maintenance'));
         $this->assertFileExists($path);
-    }
-
-    public function test_a_real_restore_of_a_compatible_archive_is_refused_as_not_implemented_without_side_effects(): void
-    {
-        $archive = $this->build_archive();
-
-        try {
-            (new Restore_Site_Backup())->handle(['path' => $archive['file'], 'dry_run' => false]);
-            $this->fail('This build must not execute a restore.');
-        } catch (\RuntimeException $e) {
-            $this->assertStringContainsString('not implemented in this build', $e->getMessage());
-            $this->assertStringNotContainsString('Restore refused', $e->getMessage());
-        }
-
-        $this->assertFalse(get_option('wpmcp_maintenance'), 'The not-implemented refusal must leave maintenance mode alone.');
-        $this->assertFileExists($archive['file']);
     }
 
     public function test_a_non_archive_file_is_refused_before_anything_else(): void

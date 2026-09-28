@@ -19,6 +19,9 @@ class Search_Stock_Images
 {
     private const MAX_PER_PAGE = 30;
 
+    /** Used when the caller names no provider: keyless, so it needs no setup. */
+    public const DEFAULT_PROVIDER = 'openverse';
+
     public function handle(array $args): array
     {
         $query = trim((string) ($args['query'] ?? ''));
@@ -26,7 +29,13 @@ class Search_Stock_Images
             throw new \InvalidArgumentException('A "query" is required.');
         }
 
-        $provider = sanitize_key((string) ($args['provider'] ?? 'openverse'));
+        // Openverse is the default whenever no provider is named, and an empty
+        // or blank value counts as not named (the readme's External services
+        // entry and the registered schema's default both promise this).
+        $provider = sanitize_key((string) ($args['provider'] ?? ''));
+        if ('' === $provider) {
+            $provider = self::DEFAULT_PROVIDER;
+        }
         $page     = max(1, (int) ($args['page'] ?? 1));
         $per_page = min(self::MAX_PER_PAGE, max(1, (int) ($args['per_page'] ?? 20)));
 
