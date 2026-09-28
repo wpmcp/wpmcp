@@ -43,6 +43,9 @@ class Snapshot
         if ('term' === $object_type) {
             return self::capture_term((string) $object_id);
         }
+        if ('wc_tax_rate' === $object_type) {
+            return self::capture_wc_tax_rate((int) $object_id);
+        }
         if ('theme_scaffold' === $object_type) {
             return self::capture_theme_scaffold((string) $object_id);
         }
@@ -257,6 +260,67 @@ class Snapshot
             'object_id'   => $order_id,
             'data'        => [
                 'status' => $order ? $order->get_status() : null,
+            ],
+        ];
+    }
+
+    /**
+     * Capture a WooCommerce tax rate (issue #195). A tax rate is not a post:
+     * it is a row in woocommerce_tax_rates plus its postcode and city rows in
+     * woocommerce_tax_rate_locations, so neither the post nor the option path
+     * can hold it.
+     *
+     * The whole row is captured, tax_rate_id included, so restoring a deleted
+     * rate resurrects the SAME id rather than a copy: order tax line items
+     * record the rate id they were charged under, and a copy at a new id would
+     * leave every past order pointing at a rate that no longer exists. The
+     * locations come along because WC_Tax::_delete_tax_rate() deletes them
+     * with the rate, and a rate restored without its postcode list silently
+     * starts applying to the whole country.
+     *
+     * The row is read through WC_Tax::_get_tax_rate(); the locations have no
+     * WooCommerce getter keyed by rate id, so they are read with one prepared
+     * SELECT. If the rate no longer exists the row is null, matching how
+     * capture_post() records a missing post.
+     */
+    private static function capture_wc_tax_rate(int $tax_rate_id): array
+    {
+        $row       = null;
+        $postcodes = [];
+        $cities    = [];
+
+        if ($tax_rate_id > 0 && class_exists('WC_Tax')) {
+            $found = \WC_Tax::_get_tax_rate($tax_rate_id, ARRAY_A);
+            $row   = is_array($found) && ! empty($found) ? $found : null;
+        }
+
+        if (null !== $row) {
+            global $wpdb;
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- WooCommerce has no getter for one rate's locations; a snapshot must read the live rows, never a cache.
+            $locations = $wpdb->get_results(
+                $wpdb->prepare(
+                    'SELECT location_code, location_type FROM %i WHERE tax_rate_id = %d ORDER BY location_id ASC',
+                    $wpdb->prefix . 'woocommerce_tax_rate_locations',
+                    $tax_rate_id
+                ),
+                ARRAY_A
+            );
+            foreach ((array) $locations as $location) {
+                if ('postcode' === $location['location_type']) {
+                    $postcodes[] = (string) $location['location_code'];
+                } elseif ('city' === $location['location_type']) {
+                    $cities[] = (string) $location['location_code'];
+                }
+            }
+        }
+
+        return [
+            'object_type' => 'wc_tax_rate',
+            'object_id'   => $tax_rate_id,
+            'data'        => [
+                'rate'      => $row,
+                'postcodes' => $postcodes,
+                'cities'    => $cities,
             ],
         ];
     }
