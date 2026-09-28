@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.23
+Stable tag: 0.8.24
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,11 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.24 =
+* Security: MCP OAuth access tokens are now bound to the MCP endpoint and no longer authenticate any other route on the site (the WordPress REST API, admin-ajax and so on). If a connected MCP client stops working after this update, reconnect it.
+* OAuth discovery now names the MCP endpoint as the protected resource, lists the supported scope, is also served at the endpoint-specific well-known address, and unauthenticated MCP responses point clients to it.
+* Refresh token redemption is now atomic, so two simultaneous refreshes with the same token can no longer both succeed.
 
 = 0.8.23 =
 * Deeper SEO support: SEOPress is now detected alongside Yoast, Rank Math, The SEO Framework and SureRank, and SEO edits now require permission to edit the target post.
@@ -213,6 +218,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.24 =
+Security: MCP OAuth access tokens are now bound to the MCP endpoint and no longer authenticate any other route on the site (the WordPress REST API, admin-ajax and so on). If a connected MCP client stops working after this update, reconnect it.
 
 = 0.8.23 =
 Deeper SEO support: SEOPress is now detected alongside Yoast, Rank Math, The SEO Framework and SureRank, and SEO edits now require permission to edit the target post.
