@@ -176,12 +176,13 @@ class Upload_Media
             throw new \InvalidArgumentException(sprintf('The file is about %d bytes, above the %d byte upload limit.', (int) $estimate, (int) $max));
         }
 
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- strict-mode decode of the file bytes the client uploads; the result is written to disk as data and type-checked, never executed.
         $bytes = base64_decode($data, true);
         if (false === $bytes || '' === $bytes) {
             throw new \InvalidArgumentException('The "data" payload is not valid base64.');
         }
         if (strlen($bytes) > $max) {
-            throw new \InvalidArgumentException(sprintf('The file is %d bytes, above the %d byte upload limit.', strlen($bytes), (int) $max));
+            throw new \InvalidArgumentException(sprintf('The file is %d bytes, above the %d byte upload limit.', (int) strlen($bytes), (int) $max));
         }
 
         return $bytes;
@@ -214,7 +215,7 @@ class Upload_Media
             if (! wp_get_image_mime($tmp)) {
                 throw new \InvalidArgumentException('The file is named as an image but its bytes are not a valid image.');
             }
-            $info = @getimagesize($tmp); // phpcs:ignore Generic.PHP.NoSilencedErrors.Discouraged
+            $info = wp_getimagesize($tmp);
             if (is_array($info) && (int) $info[0] * (int) $info[1] > self::MAX_PIXELS) {
                 throw new \InvalidArgumentException('The image dimensions exceed the 50 megapixel limit.');
             }
