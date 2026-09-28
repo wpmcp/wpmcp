@@ -25,11 +25,37 @@ class GetSiteHealthTest extends \WP_UnitTestCase
         delete_transient(Get_Site_Health::CACHE_KEY);
         $this->runs = [];
         add_filter('site_status_tests', [$this, 'fixture_tests']);
+        // Core's direct tests (and plugins' tests) make HTTP requests, which
+        // the suite's network guard blocks; answer them all with a plain 200.
+        add_filter('pre_http_request', [$this, 'fake_http'], 10, 3);
+    }
+
+    public function fake_http($pre, array $args, string $url): array
+    {
+        $body = '{}';
+        if (false !== strpos($url, 'serve-happy')) {
+            $body = (string) wp_json_encode([
+                'recommended_version' => '8.3',
+                'minimum_version'     => '7.4',
+                'is_supported'        => true,
+                'is_secure'           => true,
+                'is_acceptable'       => true,
+            ]);
+        }
+
+        return [
+            'headers'  => [],
+            'body'     => $body,
+            'response' => ['code' => 200, 'message' => 'OK'],
+            'cookies'  => [],
+            'filename' => null,
+        ];
     }
 
     protected function tearDown(): void
     {
         remove_filter('site_status_tests', [$this, 'fixture_tests']);
+        remove_filter('pre_http_request', [$this, 'fake_http'], 10);
         parent::tearDown();
     }
 
@@ -119,7 +145,7 @@ class GetSiteHealthTest extends \WP_UnitTestCase
         $this->assertArrayHasKey('acme_async', $results, 'third-party async tests run');
 
         $this->assertSame('direct', $results['php_version']['type']);
-        $this->assertContains($results['php_version']['status'], ['good', 'recommended', 'critical']);
+        $this->assertContains($results['php_version']['status'], ['good', 'recommended', 'critical'], (string) ($results['php_version']['reason'] ?? ''));
         $this->assertSame('async', $results['acme_async']['type']);
         $this->assertSame('good', $results['acme_async']['status']);
         $this->assertTrue($results['acme_async']['completed']);
