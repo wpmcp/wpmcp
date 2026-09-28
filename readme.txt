@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.29
+Stable tag: 0.8.30
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,11 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.30 =
+* New find-replace-content ability: site-wide find and replace across post content, titles, excerpts and selected post meta, preview-only by default, with every applied pass undoable in one step via rollback-session.
+* Serialized and JSON meta, block attributes and page-builder data are never corrupted; unsafe items are skipped and reported.
+* Fixed: rolling back a post change no longer strips backslashes from content or meta.
 
 = 0.8.29 =
 * New forms tools for Contact Form 7: list forms, fields and mail notifications, and read, trash, restore or delete Flamingo entries, with every status change snapshotted for rollback. Entry deletion needs confirmation and is off by default.
@@ -241,6 +246,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.30 =
+New find-replace-content ability: site-wide find and replace across post content, titles, excerpts and selected post meta, preview-only by default, with every applied pass undoable in one step via rollback-session.
 
 = 0.8.29 =
 New forms tools for Contact Form 7: list forms, fields and mail notifications, and read, trash, restore or delete Flamingo entries, with every status change snapshotted for rollback. Entry deletion needs confirmation and is off by default.
