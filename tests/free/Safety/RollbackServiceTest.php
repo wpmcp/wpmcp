@@ -323,4 +323,70 @@ class RollbackServiceTest extends \WP_UnitTestCase
 
         $this->assertSame('V0', get_post($id)->post_content);
     }
+
+    /**
+     * Put a post's modified timestamps well in the past, so any write after
+     * this lands in a different second and a restore that lets
+     * wp_update_post()/wp_insert_post() stamp "now" is caught every time
+     * rather than only when the clock ticks between write and rollback
+     * (issue #320).
+     */
+    private function backdate_modified(int $id): array
+    {
+        global $wpdb;
+        $stamps = ['post_modified' => '2001-02-03 04:05:06', 'post_modified_gmt' => '2001-02-03 09:05:06'];
+        $wpdb->update($wpdb->posts, $stamps, ['ID' => $id]);
+        clean_post_cache($id);
+        return $stamps;
+    }
+
+    private function modified_columns(int $id): array
+    {
+        clean_post_cache($id);
+        $row = get_post($id, ARRAY_A);
+        return ['post_modified' => $row['post_modified'], 'post_modified_gmt' => $row['post_modified_gmt']];
+    }
+
+    public function test_in_place_restore_puts_post_modified_back_byte_for_byte(): void
+    {
+        $id     = self::factory()->post->create(['post_content' => 'V0']);
+        $stamps = $this->backdate_modified($id);
+        clean_post_cache($id);
+        $before = get_post($id, ARRAY_A);
+
+        $op = $this->edit($id, 'V1', 's320');
+        $this->assertNotSame($stamps, $this->modified_columns($id), 'the write must have moved post_modified');
+
+        $this->assertTrue(Rollback_Service::restore_operation($op['operation_id']));
+
+        $this->assertSame($stamps, $this->modified_columns($id));
+        $this->assertEquals($before, get_post($id, ARRAY_A), 'whole row restored');
+    }
+
+    public function test_resurrect_restore_puts_post_modified_back_byte_for_byte(): void
+    {
+        add_filter('wpmcp_enable_delete_post', '__return_true');
+        $id     = self::factory()->post->create(['post_content' => 'V0']);
+        $stamps = $this->backdate_modified($id);
+
+        $out = (new Delete_Post())->handle(['post_id' => $id, 'force' => true, 'confirm' => true, 'session_id' => 's320r']);
+        $this->assertNull(get_post($id));
+
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+
+        $this->assertSame($stamps, $this->modified_columns($id));
+    }
+
+    public function test_snapshot_without_modified_columns_still_restores(): void
+    {
+        $id       = self::factory()->post->create(['post_content' => 'V0']);
+        $snapshot = Snapshot::capture('post', $id);
+        unset($snapshot['data']['post']['post_modified'], $snapshot['data']['post']['post_modified_gmt']);
+        wp_update_post(['ID' => $id, 'post_content' => 'V1']);
+
+        Rollback_Service::apply_snapshot($snapshot);
+
+        $this->assertSame('V0', get_post($id)->post_content);
+        $this->assertNotSame('0000-00-00 00:00:00', $this->modified_columns($id)['post_modified']);
+    }
 }
