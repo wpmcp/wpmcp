@@ -43,6 +43,11 @@ class Get_Site_Ability
             return $ability;
         }
 
+        $denial = Bridge_Guard::governance_denial($ability);
+        if (null !== $denial) {
+            return Bridge_Guard::governance_error($name, $denial);
+        }
+
         $result = [
             'name'        => $name,
             'plugin'      => Bridge_Guard::owner_of($name),
