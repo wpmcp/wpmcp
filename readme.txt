@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.70
+Stable tag: 0.8.71
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -96,6 +96,11 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.71 =
+* New (Pro): analyze-seo can look up keyword search volume, difficulty, CPC and intent, and backlink counts for a domain or URL, from your own DataForSEO account. Save the credentials once with set-seo-data-key; they are stored encrypted and never returned.
+* Lookups are cached for a day and back off automatically when the provider rate-limits, and without saved credentials nothing is sent.
+* The External services section discloses the new, opt-in call to the DataForSEO API.
 
 = 0.8.70 =
 * New: product review moderation on the WooCommerce ops. List reviews by product, rating and status, approve, hold, mark as spam, trash, edit the text or reply as the store; every change can be rolled back exactly, rating and verified flag included.
@@ -407,6 +412,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.71 =
+New (Pro): analyze-seo can look up keyword search volume, difficulty, CPC and intent, and backlink counts for a domain or URL, from your own DataForSEO account. Save the credentials once with set-seo-data-key; they are stored encrypted and never returned.
 
 = 0.8.70 =
 New: product review moderation on the WooCommerce ops. List reviews by product, rating and status, approve, hold, mark as spam, trash, edit the text or reply as the store; every change can be rolled back exactly, rating and verified flag included.
