@@ -81,8 +81,11 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  review, re-applied on the newer main). The coupon write
      *  schemas are most of it: they list every writable field so an agent
      *  can set limits and restrictions without a schema round trip. Compact
-     *  tool mode keeps clients with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 195000;
+     *  tool mode keeps clients with tool caps at ~2.8KB regardless. *  Raised 195000 -> 196000 when regenerate-elementor-css (#272) met
+     *  upload-media on main: 195107 bytes over 352 tools, with the new
+     *  description already cut to 40 characters.
+     */
+    private const TOOLS_LIST_BYTE_BUDGET = 196000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
