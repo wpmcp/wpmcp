@@ -77,7 +77,8 @@ class PublicTextGuardTest extends TestCase
         $hits = [];
         foreach ($this->tracked_files() as $path => $contents) {
             foreach ($this->lines($contents) as $number => $line) {
-                if (1 === preg_match($pattern, $line)) {
+                // Code that must recognise dashes in user input marks the line.
+                if (1 === preg_match($pattern, $line) && ! str_contains($line, 'dash-guard-ignore')) {
                     $hits[] = $path . ':' . $number;
                 }
             }
