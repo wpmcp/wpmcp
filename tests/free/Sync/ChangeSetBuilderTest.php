@@ -83,7 +83,7 @@ class ChangeSetBuilderTest extends \WP_UnitTestCase
     public function test_live_side_types_are_excluded_by_design_and_gaps_are_not_dressed_up_as_policy(): void
     {
         $this->note('op-1', 'sess', 'wc_order', 7);
-        $this->note('op-2', 'sess', 'term', 0);
+        $this->note('op-2', 'sess', 'redirect', 0);
 
         $set = (new Change_Set_Builder())->build(['session_id' => 'sess']);
 
@@ -93,7 +93,7 @@ class ChangeSetBuilderTest extends \WP_UnitTestCase
         }
 
         $this->assertStringContainsString('by design', $reasons['wc_order']);
-        $this->assertStringContainsString('not implemented', $reasons['term']);
+        $this->assertStringContainsString('not implemented', $reasons['redirect']);
     }
 
     public function test_string_keyed_rows_are_reported_one_per_row_not_collapsed_into_one(): void
@@ -107,7 +107,7 @@ class ChangeSetBuilderTest extends \WP_UnitTestCase
 
         $set = (new Change_Set_Builder())->build(['session_id' => 'sess']);
 
-        $this->assertSame([], $set['objects'], 'Options are not exportable yet, so they must not be counted as objects');
+        $this->assertSame([], $set['objects'], 'An option row whose name cannot be read is not an object');
         $this->assertCount(3, $set['excluded']);
         $this->assertSame(
             ['op-1', 'op-2', 'op-3'],

@@ -45,6 +45,42 @@ class UpdateOptionTest extends \WP_UnitTestCase
         (new Update_Option())->handle(['name' => 'siteurl', 'value' => 'https://evil.example']);
     }
 
+    /**
+     * The custom code store (issue #63) holds page CSS that is printed raw
+     * into <style> and the site JS snippet. Its own tools demand edit_css /
+     * unfiltered_html plus a default-off gate; the generic option tool must
+     * not be a manage_options-only side door around them, and a site filter
+     * trimming the pattern list must not reopen it.
+     *
+     * @dataProvider custom_code_option_names
+     */
+    public function test_refuses_the_custom_code_store_even_when_enabled(string $name): void
+    {
+        add_filter('wpmcp_enable_option_write', '__return_true');
+        add_filter('wpmcp_option_denylist', '__return_empty_array');
+        add_filter('wpmcp_option_denylist_patterns', '__return_empty_array');
+
+        try {
+            (new Update_Option())->handle(['name' => $name, 'value' => '</style><script>alert(1)</script>']);
+            $this->fail("update-option should refuse {$name}.");
+        } catch (\RuntimeException $e) {
+            $this->assertFalse(get_option($name));
+        } finally {
+            remove_all_filters('wpmcp_option_denylist');
+            remove_all_filters('wpmcp_option_denylist_patterns');
+        }
+    }
+
+    /** @return array<string, array{0:string}> */
+    public static function custom_code_option_names(): array
+    {
+        return [
+            'js store'       => ['wpmcp_custom_code'],
+            'page css block' => ['wpmcp_custom_code_post_12'],
+            'mixed case'     => ['WPMCP_Custom_Code_post_12'],
+        ];
+    }
+
     public function test_write_is_snapshotted_and_rollback_restores_prior_value(): void
     {
         add_filter('wpmcp_enable_option_write', '__return_true');

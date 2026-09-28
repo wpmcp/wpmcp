@@ -223,8 +223,12 @@ install_wp_locked() {
 checkout_core() {
 	local dir=$1 core
 	[ -f "$dir/pristine/wp-load.php" ] || with_lock "pristine-$(basename "$dir")" make_pristine "$dir"
-	core="$CACHE/cores/$(printf '%s|%s' "$ROOT" "$dir" | shasum | cut -c1-12)"
+	# Per run, not per checkout: two runs started in the same worktree must not
+	# share a core either. The copy is removed when the run exits, and copies
+	# left by killed runs are pruned after a day.
+	core="$CACHE/cores/$(printf '%s|%s' "$ROOT" "$dir" | shasum | cut -c1-12)-$$"
 	mkdir -p "$CACHE/cores"
+	find "$CACHE/cores" -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 	rm -rf "$core"
 	cp -cR "$dir/pristine" "$core" 2>/dev/null || cp -R "$dir/pristine" "$core"
 	echo "$core"
@@ -248,7 +252,9 @@ make_pristine() {
 # pointing at it. The name hashes the checkout path, so each worktree gets its own.
 db_config() {
 	local dir=$1 version=$2 core=$3 name config
-	name="wpmcp_test_$(printf '%s|%s' "$ROOT" "$version" | shasum | cut -c1-12)"
+	# Per run: parallel runs, even in one checkout, never share a database or
+	# a config. Both are removed when the run exits.
+	name="wpmcp_test_$(printf '%s|%s' "$ROOT" "$version" | shasum | cut -c1-12)_$$"
 	"$BIN/mariadb" --no-defaults --socket="$SOCK" -uroot -e "CREATE DATABASE IF NOT EXISTS \`$name\`"
 	mkdir -p "$CACHE/configs"
 	config="$CACHE/configs/$name.php"
@@ -270,7 +276,9 @@ run_suite() {
 	local version=$1 with_coverage=$2 dir core config
 	dir=$(install_wp "$version")
 	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
 	config=$(db_config "$dir" "$version" "$core")
+	RUN_CONFIGS+=("$config")
 	say "PHPUnit on WordPress $version${ELEMENTOR_VERSION:+ (Elementor $ELEMENTOR_VERSION)}"
 	local args=("${phpunit_args[@]+"${phpunit_args[@]}"}")
 	if [ "$with_coverage" = true ]; then
@@ -286,6 +294,19 @@ run_suite() {
 }
 
 cd "$ROOT"
+
+RUN_CORES=()
+RUN_CONFIGS=()
+cleanup_run() {
+	local c db
+	for c in "${RUN_CORES[@]+"${RUN_CORES[@]}"}"; do rm -rf "$c"; done
+	for c in "${RUN_CONFIGS[@]+"${RUN_CONFIGS[@]}"}"; do
+		db=$(basename "$c" .php)
+		"$BIN/mariadb" --no-defaults --socket="$SOCK" -uroot -e "DROP DATABASE IF EXISTS \`$db\`" 2>/dev/null || true
+		rm -f "$c"
+	done
+}
+trap cleanup_run EXIT
 
 # Point git at the versioned hooks, so the pre-push gate is on in every
 # worktree of this clone once anyone has run the suite.

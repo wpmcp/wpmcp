@@ -43,6 +43,9 @@ class Snapshot
         if ('term' === $object_type) {
             return self::capture_term((string) $object_id);
         }
+        if ('theme_scaffold' === $object_type) {
+            return self::capture_theme_scaffold((string) $object_id);
+        }
         return self::capture_post($object_id);
     }
 
@@ -336,6 +339,59 @@ class Snapshot
                 // destroys comments + commentmeta, which have no equivalent in
                 // the trash/in-place-update paths.
                 'comments' => $post ? self::capture_comments($object_id) : [],
+            ],
+        ];
+    }
+
+    /** Files a child-theme scaffold writes, and therefore the only files its snapshot captures or its rollback touches. */
+    public const THEME_SCAFFOLD_FILES = ['style.css', 'functions.php'];
+
+    /** Largest pre-existing scaffold file captured inline; a scaffold file is a few hundred bytes. */
+    public const THEME_SCAFFOLD_MAX_BYTES = 1048576;
+
+    /**
+     * Capture a child-theme directory under get_theme_root() BEFORE the
+     * create-child-theme scaffolder writes into it, keyed by the directory
+     * slug (known before the write, like a term slug).
+     *
+     * The usual case is "the directory did not exist", and the undo is to
+     * remove the files the scaffold created. The repair case (a marker-bearing
+     * half scaffold being completed) overwrites a file that already exists,
+     * so the prior bytes of each scaffold file are captured inline, base64
+     * encoded so arbitrary bytes survive the JSON blob. A file too large to
+     * capture is recorded as such, and its rollback leaves it alone with a
+     * warning rather than pretending it can restore it.
+     */
+    private static function capture_theme_scaffold(string $slug): array
+    {
+        $clean = sanitize_key($slug);
+        $dir   = ('' !== $clean && $clean === $slug) ? trailingslashit(get_theme_root()) . $clean : '';
+
+        $files     = [];
+        $too_large = [];
+        foreach (self::THEME_SCAFFOLD_FILES as $file) {
+            $path           = $dir . '/' . $file;
+            $files[ $file ] = null;
+            if ('' === $dir || is_link($path) || ! is_file($path)) {
+                continue;
+            }
+            if ((int) filesize($path) > self::THEME_SCAFFOLD_MAX_BYTES) {
+                $too_large[] = $file;
+                continue;
+            }
+            $bytes = file_get_contents($path);
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- keeps arbitrary file bytes intact inside the JSON snapshot blob, not obfuscation.
+            $files[ $file ] = false === $bytes ? null : base64_encode($bytes);
+        }
+
+        return [
+            'object_type' => 'theme_scaffold',
+            'object_id'   => $slug,
+            'data'        => [
+                'slug'        => $clean,
+                'dir_existed' => '' !== $dir && is_dir($dir),
+                'files'       => $files,
+                'too_large'   => $too_large,
             ],
         ];
     }
