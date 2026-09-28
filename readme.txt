@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.2
+Stable tag: 0.8.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.3 =
+* Internal: each local test run now uses its own clean WordPress install, so parallel test runs no longer interfere with each other. No change to the plugin itself.
+
 = 0.8.2 =
 * New PHP snippet store: create, list, get, update and delete PHP snippets as stored, validated objects. Snippets are always created inactive, critical validation findings block creation, and every change is snapshotted and reversible. Activation is a separate, governed Pro operation that never executes code, and rollback always restores a snippet inactive.
 * New theme tools: read the active theme's context (framework, parent and child, block theme support, menus) and write allowlisted theme mods with a snapshot for rollback. Theme writes are off by default.
@@ -122,6 +125,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.3 =
+Internal: each local test run now uses its own clean WordPress install, so parallel test runs no longer interfere with each other. No change to the plugin itself.
 
 = 0.8.2 =
 New PHP snippet store: create, list, get, update and delete PHP snippets as stored, validated objects. Snippets are always created inactive, critical validation findings block creation, and every change is snapshotted and reversible. Activation is a separate, governed Pro operation that never executes code, and rollback always restores a snippet inactive.
