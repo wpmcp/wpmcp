@@ -18,6 +18,7 @@ class PackagesAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/delete-theme',
         'wpmcp/search-plugins',
         'wpmcp/get-plugin-info',
+        'wpmcp/search-themes',
     ];
 
     public function test_all_package_tools_are_registered_as_free_abilities(): void
@@ -85,7 +86,7 @@ class PackagesAbilitiesRegistrationTest extends \WP_UnitTestCase
      */
     public function test_search_abilities_are_gated_by_install_plugins_capability(): void
     {
-        $names = ['wpmcp/search-plugins', 'wpmcp/get-plugin-info'];
+        $names = ['wpmcp/search-plugins', 'wpmcp/get-plugin-info', 'wpmcp/search-themes'];
 
         $abilities = wp_get_abilities();
 

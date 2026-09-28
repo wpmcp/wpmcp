@@ -82,6 +82,15 @@ return [
         'src/Tools/Performance/Curl_Dns_Pin.php',
         // Paid ability whose handler lives inside an otherwise free directory.
         'src/Tools/Media/Stock/Insert_Stock_Image.php',
+        // Installing a plugin or theme from an uploaded ZIP (issue #282).
+        // Guideline 8 forbids installing plugins or themes from anywhere but
+        // WordPress.org, and the directory installers in src/Tools/Packages
+        // stay defensible only because they accept nothing but a directory
+        // slug. The ability is pro, so its registration leaves with the paid
+        // tier; the handler and its archive validator leave here.
+        'src/Tools/Packages/Install_Package_From_Zip.php',
+        'src/Tools/Packages/Package_Archive.php',
+        'src/Tools/Packages/Package_Rejected.php',
         // Cloud settings sync (issue #135). The engine behind the paid
         // cloud-sync-settings / cloud-apply-settings wrappers, and its apply()
         // path is the Pro\Gate entitlement itself. Only src/Tools/Cloud

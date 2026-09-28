@@ -27,10 +27,10 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
 
         // The free forms pairs (issue #66) register only while their host
         // plugin was loaded at boot, which for a harness double depends on
-        // test order, so they are counted apart: 255 free abilities, of which
+        // test order, so they are counted apart: 256 free abilities, of which
         // 8 are the four free forms adapters' pairs.
         $forms = wpmcp_forms_pair_names();
-        $this->assertCount(247, array_diff($names, $forms));
+        $this->assertCount(248, array_diff($names, $forms));
         $this->assertLessThanOrEqual(8, count(array_intersect($names, $forms)));
     }
 

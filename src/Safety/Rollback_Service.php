@@ -621,6 +621,7 @@ class Rollback_Service
             'elementor_global_classes',
             'elementor_global_variables',
             'theme_scaffold',
+            'package_install',
             'acf_structure',
             'acf_options',
         ];
@@ -770,6 +771,11 @@ class Rollback_Service
 
         if ('theme_scaffold' === $snapshot['object_type']) {
             self::apply_theme_scaffold_snapshot($snapshot);
+            return;
+        }
+
+        if ('package_install' === $snapshot['object_type']) {
+            self::apply_package_install_snapshot($snapshot);
             return;
         }
 
@@ -1915,6 +1921,112 @@ class Rollback_Service
         // otherwise wp_get_theme() keeps reporting it as installed.
         wp_get_theme($slug)->cache_delete();
         wp_clean_themes_cache();
+    }
+
+    /**
+     * Undo install-package-from-zip (see Snapshot::capture_package_install()).
+     *
+     * A fresh install is removed. A replaced package is put back from the
+     * archive File_Backup::backup_directory() took of its prior directory,
+     * and only when that archive still exists: without it the current
+     * version is left alone with a warning, because deleting it would leave
+     * less than either version.
+     *
+     * A fresh install that is now active (the plugin, or the theme or its
+     * parent) is left in place with a warning, like a child-theme scaffold:
+     * deleting live code is the opposite of what an undo is for. Deactivate
+     * or switch first (both undoable), then roll back again.
+     */
+    private static function apply_package_install_snapshot(array $snapshot): void
+    {
+        $data = (array) ($snapshot['data'] ?? []);
+        $type = (string) ($data['type'] ?? '');
+        $slug = (string) ($data['slug'] ?? '');
+
+        if (! in_array($type, ['plugin', 'theme'], true) || 1 !== preg_match(Snapshot::PACKAGE_SLUG_PATTERN, $slug)) {
+            self::warn('Package install cannot be rolled back: the snapshot carries no valid package.');
+            return;
+        }
+
+        $label = sprintf('%s "%s"', 'theme' === $type ? 'Theme' : 'Plugin', $slug);
+        $dir   = trailingslashit('theme' === $type ? get_theme_root() : WP_PLUGIN_DIR) . $slug;
+        if (is_link($dir)) {
+            self::warn(sprintf('%s was not rolled back: its directory is now a symlink.', $label));
+            return;
+        }
+
+        $fs = self::direct_filesystem();
+
+        if (empty($data['existed'])) {
+            if (! is_dir($dir)) {
+                return;
+            }
+            if (self::package_is_active($type, $slug)) {
+                self::warn(sprintf('%s is active, so it was left in place. Deactivate it (or switch themes), then roll back again.', $label));
+                return;
+            }
+            if (! $fs->delete($dir, true)) {
+                self::warn(sprintf('%s could not be removed.', $label));
+            }
+            self::clean_package_caches($type, $slug);
+            return;
+        }
+
+        if (! empty($data['was_empty'])) {
+            if (is_dir($dir)) {
+                $fs->delete($dir, true);
+            }
+            wp_mkdir_p($dir);
+            self::clean_package_caches($type, $slug);
+            return;
+        }
+
+        $backup = (string) ($data['backup_operation_id'] ?? '');
+        if ('' === $backup || ! File_Backup::has_directory_backup($backup)) {
+            self::warn(sprintf('%s was not rolled back: the backup of its previous version is no longer available.', $label));
+            return;
+        }
+
+        if (is_dir($dir) && ! $fs->delete($dir, true)) {
+            self::warn(sprintf('%s could not be removed, so its previous version was not restored.', $label));
+            return;
+        }
+        if (! File_Backup::restore_directory($backup, $dir)) {
+            self::warn(sprintf('%s: its previous version could not be fully restored.', $label));
+        }
+        self::clean_package_caches($type, $slug);
+    }
+
+    /** Whether the plugin in $slug (any file of it) or the theme $slug is live. */
+    private static function package_is_active(string $type, string $slug): bool
+    {
+        if ('theme' === $type) {
+            return get_stylesheet() === $slug || get_template() === $slug;
+        }
+
+        if (! function_exists('get_plugins')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+        wp_clean_plugins_cache(false);
+        foreach (array_keys(get_plugins('/' . $slug)) as $file) {
+            if (is_plugin_active($slug . '/' . $file)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function clean_package_caches(string $type, string $slug): void
+    {
+        if ('theme' === $type) {
+            wp_get_theme($slug)->cache_delete();
+            wp_clean_themes_cache();
+            return;
+        }
+        if (! function_exists('wp_clean_plugins_cache')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+        wp_clean_plugins_cache(false);
     }
 
     /**

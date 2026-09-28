@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 383,
-    'free'      => 255,
-    'pro'       => 128,
+    'total'     => 385,
+    'free'      => 256,
+    'pro'       => 129,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -219,6 +219,7 @@ return [
         'wpmcp/insert-pattern' => 'free',
         'wpmcp/insert-row' => 'free',
         'wpmcp/insert-stock-image' => 'pro',
+        'wpmcp/install-package-from-zip' => 'pro',
         'wpmcp/install-plugin' => 'free',
         'wpmcp/install-theme' => 'free',
         'wpmcp/is-multisite' => 'free',
@@ -329,6 +330,7 @@ return [
         'wpmcp/search-files' => 'free',
         'wpmcp/search-plugins' => 'free',
         'wpmcp/search-stock-images' => 'free',
+        'wpmcp/search-themes' => 'free',
         'wpmcp/serialize-blocks' => 'free',
         'wpmcp/set-block-status' => 'pro',
         'wpmcp/set-dynamic-tag' => 'pro',

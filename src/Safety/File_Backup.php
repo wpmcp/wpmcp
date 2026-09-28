@@ -16,6 +16,9 @@ class File_Backup
 {
     public const BACKUP_DIR = '.wpmcp-backups';
 
+    /** File name of a whole-directory backup inside an operation's backup dir. */
+    public const PACKAGE_ARCHIVE = 'package.zip';
+
     /**
      * Absolute path to the per-operation backup directory under uploads,
      * e.g. wp-content/uploads/.wpmcp-backups/&lt;operation_id&gt;/. Does not
@@ -106,6 +109,90 @@ class File_Backup
     }
 
     /**
+     * Back up a whole directory (a plugin or theme about to be replaced by
+     * install-package-from-zip, issue #282) as ONE archive in the
+     * per-operation backup directory.
+     *
+     * An archive rather than a copied tree on purpose: the backup root sits
+     * under uploads, and loose copies of a plugin's PHP files there would be
+     * directly requestable on any server that ignores the .htaccess deny.
+     * Symlinks inside the directory are skipped rather than followed. Returns
+     * false, leaving nothing behind, when the archive could not be written;
+     * an empty directory has nothing to archive and also returns false, so
+     * callers record that case themselves.
+     */
+    public static function backup_directory(string $operation_id, string $source_dir): bool
+    {
+        if (! class_exists('ZipArchive') || ! is_dir($source_dir) || is_link($source_dir)) {
+            return false;
+        }
+
+        $dir = self::operation_dir($operation_id);
+        if (! wp_mkdir_p($dir)) {
+            return false;
+        }
+        self::protect_dir($dir);
+
+        $zip  = new \ZipArchive();
+        $path = $dir . '/' . self::PACKAGE_ARCHIVE;
+        if (true !== $zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE)) {
+            self::delete_backup_dir($operation_id);
+            return false;
+        }
+
+        $base  = strlen(trailingslashit($source_dir));
+        $items = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($source_dir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+        foreach ($items as $item) {
+            if (! $item instanceof \SplFileInfo || $item->isLink()) {
+                continue;
+            }
+            $relative = substr($item->getPathname(), $base);
+            $ok       = $item->isDir() ? $zip->addEmptyDir($relative) : $zip->addFile($item->getPathname(), $relative);
+            if (! $ok) {
+                $zip->close();
+                self::delete_backup_dir($operation_id);
+                return false;
+            }
+        }
+
+        if (! $zip->close() || ! is_file($path)) {
+            self::delete_backup_dir($operation_id);
+            return false;
+        }
+        return true;
+    }
+
+    /** Whether $operation_id holds a directory backup written by backup_directory(). */
+    public static function has_directory_backup(string $operation_id): bool
+    {
+        return is_file(self::operation_dir($operation_id) . '/' . self::PACKAGE_ARCHIVE);
+    }
+
+    /**
+     * Unpack a backup_directory() archive into $target_dir, which the caller
+     * has already emptied. The archive is this plugin's own, written from a
+     * directory on this server, so it is extracted as it stands.
+     */
+    public static function restore_directory(string $operation_id, string $target_dir): bool
+    {
+        $path = self::operation_dir($operation_id) . '/' . self::PACKAGE_ARCHIVE;
+        if (! class_exists('ZipArchive') || ! is_file($path) || ! wp_mkdir_p($target_dir)) {
+            return false;
+        }
+
+        $zip = new \ZipArchive();
+        if (true !== $zip->open($path, \ZipArchive::RDONLY)) {
+            return false;
+        }
+        $ok = $zip->extractTo($target_dir);
+        $zip->close();
+        return $ok;
+    }
+
+    /**
      * Delete a per-operation backup directory and everything in it. Called
      * when a snapshot is pruned (Snapshot_Store::prune()), so backups do
      * not accumulate forever. A no-op if the directory does not exist.
@@ -122,7 +209,8 @@ class File_Backup
                 wp_delete_file($path);
             }
         }
-        self::filesystem()->rmdir($dir);
+        // Recursive, so nothing left inside can keep the directory alive.
+        self::filesystem()->rmdir($dir, true);
     }
 
     /**

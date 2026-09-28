@@ -197,6 +197,8 @@ use WPMCP\Tools\Packages\Install_Theme;
 use WPMCP\Tools\Packages\Update_Theme;
 use WPMCP\Tools\Packages\Delete_Theme;
 use WPMCP\Tools\Packages\Search_Plugins;
+use WPMCP\Tools\Packages\Search_Themes;
+use WPMCP\Tools\Packages\Install_Package_From_Zip;
 use WPMCP\Tools\Packages\Get_Plugin_Info;
 use WPMCP\Tools\Database\List_Tables;
 use WPMCP\Tools\Database\Describe_Table;
@@ -1735,7 +1737,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-comments',
             'free',
-            'List comments as safe summary rows (id, post, author, content, status, date), optionally filtered by post and moderation status, with paging',
+            'List comments, optionally by post and status, with paging',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1753,7 +1755,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-comment',
             'free',
-            'Read one comment\'s detail (post, parent, author fields, content, status, date)',
+            'Read one comment',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1769,7 +1771,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/moderate-comment',
             'free',
-            'Change a comment\'s moderation status: approve, unapprove, spam, trash or untrash. Snapshotted so the change can be rolled back',
+            'Set a comment\'s status: approve, unapprove, spam, trash or untrash. Reversible',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1787,7 +1789,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/edit-comment',
             'free',
-            'Edit a comment\'s content and/or author fields (name, email, url). Snapshotted so the change can be rolled back',
+            'Edit a comment\'s content or author name, email, url. Reversible',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1808,7 +1810,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-comment',
             'free',
-            'Permanently delete a comment. Disabled by default (site must opt in via the wpmcp_enable_delete_comment filter) and requires confirm:true. Routed through the safety snapshot so it can be rolled back, though the resurrected comment gets a new ID',
+            'Permanently delete a comment. Off until the wpmcp_enable_delete_comment filter opts in; needs confirm:true. Rollback restores it under a new ID',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1886,7 +1888,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/install-plugin',
             'free',
-            'Install a plugin from wordpress.org by slug, optionally activating it. The install itself is additive; with activate: true the activation step also requires the activate_plugins capability and is snapshotted, so it returns a rollbackable operation_id',
+            'Install a plugin from wordpress.org by slug. activate: true also needs activate_plugins and returns a rollbackable operation_id',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1971,7 +1973,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/install-theme',
             'free',
-            'Install a theme from wordpress.org by slug, optionally activating it. The install itself is additive; with activate: true the switch also requires the switch_themes capability and snapshots template/stylesheet, so it returns rollbackable operation_ids',
+            'Install a theme from wordpress.org by slug. activate: true also needs switch_themes and returns rollbackable operation_ids',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2060,6 +2062,54 @@ final class Plugin
             'install_plugins',
             'packages',
             'read'
+        ));
+
+        $search_themes = new Search_Themes();
+
+        $registrar->register(new Ability(
+            'wpmcp/search-themes',
+            'free',
+            'Search wordpress.org themes; filters as in search-plugins',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'query'    => [ 'type' => 'string' ],
+                    'per_page' => [ 'type' => 'integer' ],
+                    'tag'      => [ 'type' => 'string' ],
+                    'author'   => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'query' ],
+            ],
+            [$search_themes, 'handle'],
+            'install_themes',
+            'packages',
+            'read'
+        ));
+
+        $install_package_from_zip = new Install_Package_From_Zip();
+
+        $registrar->register(new Ability(
+            'wpmcp/install-package-from-zip',
+            'pro',
+            'Install or replace a plugin/theme from a Media Library ZIP. Off by default (wpmcp_enable_zip_install); needs confirm:true and its sha256. Rollbackable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'attachment_id' => [ 'type' => 'integer' ],
+                    'sha256'        => [ 'type' => 'string' ],
+                    'type'          => [ 'type' => 'string', 'enum' => [ 'plugin', 'theme' ] ],
+                    'confirm'       => [ 'type' => 'boolean' ],
+                    'session_id'    => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'attachment_id', 'sha256', 'type', 'confirm' ],
+            ],
+            [$install_package_from_zip, 'handle'],
+            'install_plugins',
+            'packages',
+            'create',
+            false,
+            true,
+            false
         ));
 
         $list_tables    = new List_Tables();

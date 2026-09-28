@@ -52,6 +52,9 @@ class Snapshot
         if ('theme_scaffold' === $object_type) {
             return self::capture_theme_scaffold((string) $object_id);
         }
+        if ('package_install' === $object_type) {
+            return self::capture_package_install((string) $object_id);
+        }
         if ('acf_structure' === $object_type) {
             return self::capture_acf_structure((string) $object_id);
         }
@@ -676,6 +679,41 @@ class Snapshot
                 'dir_existed' => '' !== $dir && is_dir($dir),
                 'files'       => $files,
                 'too_large'   => $too_large,
+            ],
+        ];
+    }
+
+    /** A package directory name: what install-package-from-zip will create or replace. */
+    public const PACKAGE_SLUG_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9._-]*$/';
+
+    /**
+     * Capture a plugin or theme directory BEFORE install-package-from-zip
+     * writes it (issue #282), keyed "plugin:<dir>" or "theme:<dir>", known
+     * before the write like a term slug.
+     *
+     * Only the facts are captured here: whether the directory existed and
+     * whether it was empty. The prior files themselves are too large for a
+     * snapshot blob, so the tool archives them with
+     * File_Backup::backup_directory() and adds that operation's id to the
+     * snapshot as backup_operation_id.
+     */
+    private static function capture_package_install(string $key): array
+    {
+        [$type, $slug] = array_pad(explode(':', $key, 2), 2, '');
+
+        $valid   = in_array($type, ['plugin', 'theme'], true) && 1 === preg_match(self::PACKAGE_SLUG_PATTERN, $slug);
+        $dir     = $valid ? trailingslashit('theme' === $type ? get_theme_root() : WP_PLUGIN_DIR) . $slug : '';
+        $existed = '' !== $dir && is_dir($dir) && ! is_link($dir);
+
+        return [
+            'object_type' => 'package_install',
+            'object_id'   => $key,
+            'data'        => [
+                'type'                => $type,
+                'slug'                => $slug,
+                'existed'             => $existed,
+                'was_empty'           => $existed && [] === array_diff((array) scandir($dir), ['.', '..']),
+                'backup_operation_id' => '',
             ],
         ];
     }
