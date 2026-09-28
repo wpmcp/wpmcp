@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.75
+Stable tag: 0.8.76
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -97,6 +97,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.76 =
+* Pro: Spectra, Otter Blocks and Blocksy companion blocks join the block suite support. Agents can read their block schemas and insert or update their blocks with correct unique ids, and each suite's cached styles are rebuilt after writes and rollbacks.
+* Pro: Browse block patterns by the block suite they use and import one into a post in a single undoable step. Remote images are brought into the Media Library through the same safe download checks as other remote media.
 
 = 0.8.75 =
 * WooCommerce payment gateways: list and read gateway settings with every key, secret, password and token masked, and change a gateway's enabled state, title, description, order or non-secret settings, with each change snapshotted for exact rollback.
@@ -428,6 +432,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.76 =
+Pro: Spectra, Otter Blocks and Blocksy companion blocks join the block suite support. Agents can read their block schemas and insert or update their blocks with correct unique ids, and each suite's cached styles are rebuilt after writes and rollbacks.
 
 = 0.8.75 =
 WooCommerce payment gateways: list and read gateway settings with every key, secret, password and token masked, and change a gateway's enabled state, title, description, order or non-secret settings, with each change snapshotted for exact rollback.
