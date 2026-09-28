@@ -25,7 +25,7 @@ class Reply_To_Comment
             throw new \RuntimeException('Comment not found.');
         }
         if (in_array((string) $parent->comment_approved, ['spam', 'trash', 'post-trashed'], true)) {
-            throw new \InvalidArgumentException('Comment ' . $id . ' is ' . esc_html((string) $parent->comment_approved) . ' and cannot be replied to.');
+            throw new \InvalidArgumentException('Comment ' . (int) $id . ' is ' . esc_html((string) $parent->comment_approved) . ' and cannot be replied to.');
         }
 
         return (new Create_Comment())->insert($args, (int) $parent->comment_post_ID, $id, 'reply-to-comment');
