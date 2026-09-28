@@ -57,6 +57,13 @@ class FlavorTest extends \WP_UnitTestCase
         $this->assertNotContains('wpmcp/create-custom-widget', $names);
         $this->assertNotContains('wpmcp/create-custom-block', $names);
 
+        // Theme-builder site parts (issue #70): the group is not in
+        // FLAVOR_GROUPS['woocommerce'] and build-woo-release.sh prunes
+        // src/Tools/ThemeBuilder, so the gate and the artifact stay in sync.
+        $this->assertNotContains('wpmcp/create-site-part', $names);
+        $this->assertNotContains('wpmcp/resolve-site-part', $names);
+        $this->assertNotContains('wpmcp/delete-site-part', $names);
+
         // Guarded execution: no eval()/proc_open call sites may ship at all.
         $this->assertNotContains('wpmcp/run-php-snippet', $names);
         $this->assertNotContains('wpmcp/run-wp-cli', $names);
@@ -71,6 +78,69 @@ class FlavorTest extends \WP_UnitTestCase
         $this->assertNotContains('wpmcp/memory-recall', $names);
         $this->assertNotContains('wpmcp/memory-propose', $names);
         $this->assertNotContains('wpmcp/memory-save-summary', $names);
+
+        // Stored custom CSS/JS (issue #63): scripts/build-woo-release.sh
+        // deletes the handlers, the sanitizer, the store and the renderer
+        // from this zip, so registering either ability would name a class the
+        // build does not contain.
+        $this->assertNotContains('wpmcp/add-scoped-css', $names);
+        $this->assertNotContains('wpmcp/add-custom-js', $names);
+    }
+
+    /**
+     * The front-end output side of the same prune. The woo zip has no
+     * Custom_Code_Renderer.php, so nothing may hook wp_head, wp_footer or
+     * deleted_post at it: those hooks fire on every request, and a hook
+     * pointing at a missing class is a fatal on a plain page view rather than
+     * a quietly missing feature.
+     */
+    public function test_custom_code_runtime_hooks_follow_the_flavor(): void
+    {
+        $css     = [\WPMCP\Tools\CustomCode\Custom_Code_Renderer::class, 'print_css'];
+        $js      = [\WPMCP\Tools\CustomCode\Custom_Code_Renderer::class, 'print_js'];
+        $cleanup = [\WPMCP\Tools\CustomCode\Custom_Code_Store::class, 'delete_css'];
+
+        \WPMCP\Tools\CustomCode\Custom_Code_Renderer::reset_for_tests();
+        remove_action('wp_head', $css, 101);
+        remove_action('wp_footer', $js, 101);
+        remove_action('deleted_post', $cleanup);
+
+        Plugin::set_flavor_for_tests('woocommerce');
+        Plugin::instance()->register_custom_code_runtime_hooks();
+        $this->assertFalse(has_action('wp_head', $css));
+        $this->assertFalse(has_action('wp_footer', $js));
+        $this->assertFalse(has_action('deleted_post', $cleanup));
+
+        // Default flavor restores them, which also leaves global state exactly
+        // as the suite bootstrap set it up.
+        Plugin::set_flavor_for_tests(null);
+        Plugin::instance()->register_custom_code_runtime_hooks();
+        $this->assertSame(101, has_action('wp_head', $css));
+        $this->assertSame(101, has_action('wp_footer', $js));
+        $this->assertSame(10, has_action('deleted_post', $cleanup));
+    }
+
+    /**
+     * The renderer is reached through a STRING callable, not a static
+     * reference, for the same reason the widget and block builder branches
+     * are: a build that prunes the file must not name the class. Asserted on
+     * the source because the difference is invisible at runtime on a build
+     * that still has the class.
+     */
+    public function test_the_custom_code_branch_names_the_renderer_as_a_string(): void
+    {
+        $method = new \ReflectionMethod(Plugin::class, 'register_custom_code_runtime_hooks');
+        $source = implode(
+            '',
+            array_slice(
+                file((string) $method->getFileName()),
+                $method->getStartLine() - 1,
+                $method->getEndLine() - $method->getStartLine() + 1
+            )
+        );
+
+        $this->assertStringNotContainsString('Custom_Code_Renderer::boot', $source);
+        $this->assertStringContainsString("Custom_Code_Renderer', 'boot'", $source);
     }
 
     public function test_memory_runtime_hooks_follow_the_flavor(): void
@@ -136,6 +206,8 @@ class FlavorTest extends \WP_UnitTestCase
         $widget_reg  = ['\\WPMCP\\Tools\\WidgetBuilder\\Widget_Registry', 'register'];
         $block_cpt   = ['\\WPMCP\\Tools\\BlockBuilder\\Block_Spec_Store', 'ensure_post_type'];
         $block_reg   = ['\\WPMCP\\Tools\\BlockBuilder\\Block_Registry', 'register'];
+        $theme_cpt   = ['\\WPMCP\\Tools\\ThemeBuilder\\Template_Store', 'ensure_post_type'];
+        $theme_boot  = ['\\WPMCP\\Tools\\ThemeBuilder\\Render\\Adapters', 'boot'];
 
         // Clear what the suite bootstrap's boot() already wired so absence
         // is observable.
@@ -143,6 +215,8 @@ class FlavorTest extends \WP_UnitTestCase
         remove_action('elementor/widgets/register', $widget_reg);
         remove_action('init', $block_cpt, 5);
         remove_action('init', $block_reg, 20);
+        remove_action('init', $theme_cpt);
+        remove_action('wp', $theme_boot);
 
         Plugin::set_flavor_for_tests('woocommerce');
         Plugin::instance()->register_builder_runtime_hooks();
@@ -150,6 +224,8 @@ class FlavorTest extends \WP_UnitTestCase
         $this->assertFalse(has_action('elementor/widgets/register', $widget_reg));
         $this->assertFalse(has_action('init', $block_cpt));
         $this->assertFalse(has_action('init', $block_reg));
+        $this->assertFalse(has_action('init', $theme_cpt));
+        $this->assertFalse(has_action('wp', $theme_boot));
 
         // Default flavor restores the hooks, which also leaves global state
         // exactly as the bootstrap set it up.
@@ -159,6 +235,8 @@ class FlavorTest extends \WP_UnitTestCase
         $this->assertSame(10, has_action('elementor/widgets/register', $widget_reg));
         $this->assertSame(5, has_action('init', $block_cpt));
         $this->assertSame(20, has_action('init', $block_reg));
+        $this->assertSame(10, has_action('init', $theme_cpt));
+        $this->assertSame(10, has_action('wp', $theme_boot));
     }
 
     /** @return string[] declared ability names under the given flavor. */

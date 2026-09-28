@@ -28,6 +28,23 @@ class GetOptionTest extends \WP_UnitTestCase
         (new Get_Option())->handle([]);
     }
 
+    /** The stored JS snippet may embed secrets; its tools never echo it back. */
+    public function test_refuses_the_custom_code_store(): void
+    {
+        update_option('wpmcp_custom_code', ['js' => ['site' => 'const key = "x";']], false);
+        add_filter('wpmcp_option_denylist_patterns', '__return_empty_array');
+
+        try {
+            (new Get_Option())->handle(['name' => 'wpmcp_custom_code']);
+            $this->fail('get-option should refuse the custom code store.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringNotContainsString('const key', $e->getMessage());
+        } finally {
+            remove_all_filters('wpmcp_option_denylist_patterns');
+            delete_option('wpmcp_custom_code');
+        }
+    }
+
     public function test_refuses_a_denylisted_option(): void
     {
         $this->expectException(\RuntimeException::class);

@@ -75,6 +75,7 @@ class Approval_Gate
         $payload = sprintf('%d|%s|%s|%d', $user_id, $encoded_ability, $args_hash, $expiry);
         $sig = hash_hmac('sha256', $payload, $salt);
 
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- transport encoding of an HMAC-signed approval token so it travels as an opaque ASCII string; not code obfuscation; pro-only file, not in the directory build.
         $token = base64_encode($payload . '|' . $sig);
         $token_hash = hash('sha256', $token);
 
@@ -93,6 +94,7 @@ class Approval_Gate
      */
     public function validate_and_consume(string $token, int $expected_user_id, string $expected_ability, array $actual_args): bool
     {
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- strict-mode decode of the signed approval token issued above; the HMAC is verified before any field is trusted; pro-only file, not in the directory build.
         $raw = base64_decode($token, true);
         if (false === $raw) {
             return false;

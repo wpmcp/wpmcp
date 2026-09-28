@@ -53,7 +53,9 @@ only scheduled task is a daily local cleanup of expired OAuth tokens;
 nothing on the schedule ever makes a network request, and neither does
 activation. Every host it can reach is listed under "External services"
 below, and each request happens only while you or your agent are running the
-specific ability that needs it.
+specific ability that needs it, except the cloud announcements check
+described under WP MCP Cloud, which runs only if a cloud connection was
+saved.
 
 == External services ==
 
@@ -64,8 +66,7 @@ against the official checksums for its version, so modified core files can
 be reported. It is contacted only when an administrator or an agent runs
 that ability. What is sent: the WordPress version and the site locale, under
 a `WPMCP-Security-Scanner/1.0` user agent. No content and no personal data.
-Terms of use: https://wordpress.org/about/privacy/ Privacy policy:
-https://wordpress.org/about/privacy/
+Privacy policy: https://wordpress.org/about/privacy/
 
 = WordPress.org plugin directory API, abandoned-plugin check (api.wordpress.org) =
 
@@ -74,9 +75,8 @@ of your active plugins has been closed, so an abandoned plugin can be
 reported. What is sent: the directory slug of each active plugin it looks up
 (a capped number per run, then cached), through WordPress core's own
 `plugins_api()`. Core sends its standard user agent with those requests,
-which contains the WordPress version and this site's address. Terms of use:
-https://wordpress.org/about/privacy/ Privacy policy:
-https://wordpress.org/about/privacy/
+which contains the WordPress version and this site's address. Privacy
+policy: https://wordpress.org/about/privacy/
 
 = WordPress.org plugin and theme directory (api.wordpress.org, downloads.wordpress.org) =
 
@@ -88,13 +88,14 @@ through core's `plugins_api()` and `themes_api()`, with core's standard user
 agent (WordPress version and this site's address). Installs and updates then
 download the package archive from downloads.wordpress.org. Only directory
 slugs are accepted; these abilities cannot be pointed at an arbitrary zip
-URL. Terms of use: https://wordpress.org/about/privacy/ Privacy policy:
-https://wordpress.org/about/privacy/
+URL. Privacy policy: https://wordpress.org/about/privacy/
 
 = Openverse (api.openverse.org) =
 
-Used by the `search-stock-images` ability when the Openverse provider is
-chosen. It is contacted only when you or an agent run that search. What is
+Used by the `search-stock-images` ability. Openverse is the default
+provider, used whenever no other provider is named, and needs no key or
+setup, so it is not opt-in: it is contacted only when you or an agent run
+that search, and running it is what sends the request. What is
 sent: your search terms, the page number and the results-per-page count,
 under a `WPMCP-Stock-Search/1.0` user agent. No key and no account are
 required. Terms of use: https://openverse.org/terms Privacy policy:
@@ -127,10 +128,11 @@ https://unsplash.com/privacy
 `import-stock-image` and `upload-svg` download the file you picked. The
 download target must be on an allowlist, which by default is
 images.pexels.com, images.unsplash.com and plus.unsplash.com (Pexels and
-Unsplash, above), upload.wikimedia.org (Wikimedia Commons,
+Unsplash, above), upload.wikimedia.org (Wikimedia Commons, terms:
+https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use privacy policy:
 https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) and
-staticflickr.com (Flickr, https://www.flickr.com/help/terms and
-https://www.flickr.com/help/privacy), each matched on the host itself or a
+staticflickr.com (Flickr, terms: https://www.flickr.com/help/terms privacy
+policy: https://www.flickr.com/help/privacy), each matched on the host itself or a
 subdomain of it. The site owner can widen or narrow that list with the
 `wpmcp_remote_media_allowed_hosts` filter. Nothing but the file is
 requested; the request carries WordPress's standard user agent, which
@@ -163,13 +165,17 @@ routes when that plugin is active and already connected; this plugin holds
 no analytics credentials of its own and talks to no analytics provider
 directly.
 
-= WP MCP Cloud (inert in this build) =
+= WP MCP Cloud (only if a cloud connection was saved elsewhere) =
 
-The code contains an HTTP client for the author's optional cloud service, but
-this build ships no tool that can configure or connect it: the client only
-ever fires if a cloud URL and key have been saved by the separate add-on
-plugin, and then it reaches only the URL you saved. With this plugin alone,
-nothing is ever sent. Terms and privacy policy: https://wpmcp-pro.com/
+This build ships no tool that can connect to the author's optional cloud
+service, but it keeps the announcements feed, which reads a cloud URL and
+API key if one was saved earlier by the separate add-on plugin on this site.
+Only then, when an administrator opens a WP MCP admin screen, it fetches
+notices from that saved URL, at most once a day, or once an hour after a
+failed fetch. What is sent: a GET request for /announcements with your saved
+API key in the Authorization header; no site content. With no saved
+connection, nothing is sent. Terms: https://wpmcp-pro.com/terms.html
+Privacy policy: https://wpmcp-pro.com/privacy.html
 
 == Installation ==
 
