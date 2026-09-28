@@ -265,6 +265,9 @@ class Theme_Integration extends Integration_Dispatcher
      * Elementor addon suite packs (Elementor_Addon_Packs): paid-tier widget
      * catalog and module toggle ops that answer addon_suite_inactive while
      * their suite is not loaded.
+     * Issue #290 adds the paid-tier dynamic template ops
+     * (Dynamic_Template_Ops): source discovery, preview, and create/update of
+     * single, archive and search templates on the site parts store.
      *
      * @return array<string,array<string,mixed>>
      */
@@ -273,7 +276,8 @@ class Theme_Integration extends Integration_Dispatcher
         return array_merge(
             [ 'create-child-theme' => Child_Theme_Scaffolder::operation() ],
             Theme_Framework_Pack::operations($this->detect_framework()),
-            Elementor_Addon_Packs::operations()
+            Elementor_Addon_Packs::operations(),
+            \WPMCP\Tools\ThemeBuilder\Dynamic\Dynamic_Template_Ops::operations()
         );
     }
 

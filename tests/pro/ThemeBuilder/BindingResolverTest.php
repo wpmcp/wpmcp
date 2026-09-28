@@ -176,6 +176,81 @@ class BindingResolverTest extends \WP_UnitTestCase
         $this->assertStringContainsString(wp_get_attachment_image($attachment, 'large'), $out);
     }
 
+    public function test_site_and_archive_sources_resolve_from_the_live_request(): void
+    {
+        update_option('blogdescription', 'Tag <line>');
+        $logo = (int) self::factory()->attachment->create_upload_object(DIR_TESTDATA . '/images/canola.jpg');
+        set_theme_mod('custom_logo', $logo);
+        $category = self::factory()->category->create(['name' => 'Cat 290', 'description' => 'About <em>cats</em><script>x</script>']);
+        self::factory()->post->create_many(3, ['post_category' => [$category]]);
+        update_option('posts_per_page', 2);
+        $this->go_to(get_category_link($category));
+
+        $out = Binding_Resolver::resolve(
+            '{{site.tagline}}|<a href="{{site.url}}">{{site.logo}}</a>|{{archive.description}}|{{loop.count}}|{{loop.pagination}}',
+            null
+        );
+
+        $this->assertStringContainsString(esc_html(get_bloginfo('description')), $out);
+        $this->assertStringContainsString('href="' . esc_url(home_url('/')) . '"', $out);
+        $this->assertStringContainsString(wp_get_attachment_image($logo, 'large'), $out);
+        $this->assertStringContainsString('<em>cats</em>', $out);
+        $this->assertStringNotContainsString('<script', $out);
+        $this->assertStringContainsString('|3|', $out);
+        $this->assertStringContainsString('page-numbers', $out);
+        remove_theme_mod('custom_logo');
+    }
+
+    public function test_post_content_and_url_sources_resolve(): void
+    {
+        $post = self::factory()->post->create_and_get(['post_content' => 'Body copy 290', 'post_excerpt' => 'Short 290']);
+
+        $out = Binding_Resolver::resolve('{{post.content}}|{{post.excerpt}}|{{post.author_url}}|{{post.featured_image_url}}', $post);
+
+        $this->assertStringContainsString('<p>Body copy 290</p>', $out);
+        $this->assertStringContainsString('Short 290', $out);
+        $this->assertStringContainsString(esc_url(get_author_posts_url((int) $post->post_author)), $out);
+    }
+
+    public function test_the_render_filter_binds_the_queried_post_and_the_main_query_loop(): void
+    {
+        $post = self::factory()->post->create_and_get(['post_title' => 'Queried 290']);
+        $this->go_to(get_permalink($post));
+
+        $this->assertSame('<p>Queried 290</p>', Binding_Resolver::filter_rendered('<p>{{post.title}}</p>', ['part_type' => 'single']));
+        $this->assertSame('<p>static</p>', Binding_Resolver::filter_rendered('<p>static</p>', ['part_type' => 'header']));
+
+        $this->go_to(home_url('/?s=Queried'));
+        $this->assertSame('<i>Queried 290</i>', Binding_Resolver::filter_rendered('{{#loop}}<i>{{post.title}}</i>{{/loop}}', ['part_type' => 'search']));
+    }
+
+    public function test_acf_choice_link_and_boolean_values_print_as_text_or_url(): void
+    {
+        if (! function_exists('acf_add_local_field_group')) {
+            $this->markTestSkipped('ACF not active');
+        }
+        acf_add_local_field_group([
+            'key'      => 'group_wpmcp_290_choice',
+            'title'    => 'Choice 290',
+            'fields'   => [
+                ['key' => 'field_290c_pick', 'label' => 'Pick', 'name' => 'pick_290', 'type' => 'checkbox', 'choices' => ['red' => 'Red', 'blue' => 'Blue']],
+                ['key' => 'field_290c_one', 'label' => 'One', 'name' => 'one_290', 'type' => 'select', 'choices' => ['a' => 'Alpha'], 'return_format' => 'array'],
+                ['key' => 'field_290c_flag', 'label' => 'Flag', 'name' => 'flag_290', 'type' => 'true_false'],
+                ['key' => 'field_290c_link', 'label' => 'Link', 'name' => 'link_290', 'type' => 'link'],
+            ],
+            'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'post']]],
+        ]);
+        $post = self::factory()->post->create_and_get();
+        update_field('field_290c_pick', ['red', 'blue'], $post->ID);
+        update_field('field_290c_one', 'a', $post->ID);
+        update_field('field_290c_flag', 1, $post->ID);
+        update_field('field_290c_link', ['url' => 'https://example.com/290', 'title' => 'x', 'target' => ''], $post->ID);
+
+        $out = Binding_Resolver::resolve('{{acf.pick_290}}|{{acf.one_290}}|{{acf.flag_290}}|{{acf.link_290}}', $post);
+
+        $this->assertSame('red, blue|Alpha|1|https://example.com/290', $out);
+    }
+
     // ---- validating a template on write -------------------------------------
 
     public function test_validate_accepts_known_tokens_and_refuses_unknown_ones(): void

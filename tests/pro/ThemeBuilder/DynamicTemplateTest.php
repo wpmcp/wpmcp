@@ -21,9 +21,13 @@ use WPMCP\Tools\ThemeBuilder\Template_Store;
  */
 class DynamicTemplateTest extends \WP_UnitTestCase
 {
+    /** @var mixed the block canvas content before a test composed one */
+    private $canvas;
+
     protected function setUp(): void
     {
         parent::setUp();
+        $this->canvas = $GLOBALS['_wp_current_template_content'] ?? null;
         Snapshot_Store::install();
         Gate::set_pro_for_tests(true);
         Template_Store::ensure_post_type();
@@ -33,6 +37,7 @@ class DynamicTemplateTest extends \WP_UnitTestCase
     protected function tearDown(): void
     {
         Template_Renderer::set_current_part('');
+        $GLOBALS['_wp_current_template_content'] = $this->canvas;
         Gate::set_pro_for_tests(null);
         parent::tearDown();
     }
@@ -182,10 +187,11 @@ class DynamicTemplateTest extends \WP_UnitTestCase
         $this->assertSame(ABSPATH . WPINC . '/template-canvas.php', $canvas);
         $this->assertStringContainsString('"slug":"header"', (string) $_wp_current_template_content);
         $this->assertStringContainsString('"slug":"footer"', (string) $_wp_current_template_content);
-        $blocks = parse_blocks((string) $_wp_current_template_content);
-        $body   = '';
-        foreach ($blocks as $block) {
-            if ('wpmcp/site-part' === $block['blockName']) {
+        // The body sits inside the theme-layout group that frames it.
+        $body = '';
+        foreach (parse_blocks((string) $_wp_current_template_content) as $block) {
+            if ('core/group' === $block['blockName']) {
+                $this->assertSame('wpmcp/site-part', $block['innerBlocks'][0]['blockName'] ?? null);
                 $body = render_block($block);
             }
         }
@@ -278,6 +284,27 @@ class DynamicTemplateTest extends \WP_UnitTestCase
 
         $this->assertArrayNotHasKey('error', $out, wp_json_encode($out));
         $this->assertStringContainsString('<h1>Preview 290</h1>', $out['result']['html']);
+    }
+
+    public function test_preview_refuses_an_unknown_template_or_post_and_loops_for_an_archive(): void
+    {
+        $header = Template_Store::create('header', 'Header', '<p>h</p>', ['include' => [['type' => 'entire_site']]], 0);
+        $this->assertSame('wpmcp_template_not_found', $this->read('preview-dynamic-template', ['template_id' => $header])['error']['code']);
+
+        $id = $this->create('archive', '{{#loop}}<b>{{post.title}}</b>{{/loop}}', ['include' => [['type' => 'archive']]]);
+        $this->assertSame('wpmcp_post_not_found', $this->read('preview-dynamic-template', ['template_id' => $id, 'post_id' => 999999])['error']['code']);
+
+        self::factory()->post->create(['post_title' => 'Looped 290']);
+        $out = $this->read('preview-dynamic-template', ['template_id' => $id]);
+        $this->assertStringContainsString('<b>Looped 290</b>', $out['result']['html']);
+    }
+
+    public function test_sources_op_refuses_nothing_and_lists_per_context(): void
+    {
+        $out = $this->read('list-dynamic-sources', ['context' => 'search']);
+
+        $this->assertContains('search.query', array_column($out['result']['sources'], 'key'));
+        $this->assertSame('invalid_args', $this->read('list-dynamic-sources', ['context' => 'header'])['error']['code']);
     }
 
     public function test_boot_hooks_template_include_on_the_front_end(): void

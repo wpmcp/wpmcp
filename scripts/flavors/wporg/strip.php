@@ -132,6 +132,10 @@ const REMOVED_METHODS = [
     // out by name, rather than leaving wp_head/wp_footer/deleted_post hooks
     // pointing at a renderer the zip no longer contains.
     'register_custom_code_runtime_hooks',
+    // Same shape for dynamic single, archive and search templates (issue
+    // #290): the front-end wiring of a paid feature whose classes leave by
+    // path (policy.php). Its call site is edited out below.
+    'register_dynamic_template_runtime_hooks',
     // Called only from register_cli_abilities(), which leaves above. Without
     // this it survives as a private method with no caller, and its four
     // `new *_Cli_Job()` instantiations hold the whole async wp-cli package
@@ -939,6 +943,14 @@ $plugin_edits[] = [
     1,
 ];
 
+// The call site of the dynamic template wiring (issue #290), inside the free
+// theme-builder branch. remove_method() above takes the method itself.
+$plugin_edits[] = [
+    "            \$this->register_dynamic_template_runtime_hooks();\n",
+    '',
+    1,
+];
+
 // The call site of the custom-code output wiring. remove_method() above takes
 // the method itself; this is the line that called it, which would otherwise
 // fatal on every front-end request against a method that no longer exists.
@@ -1312,7 +1324,8 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
 $edits['src/Integrations/Theme_Integration.php'] = [
     [
         "            Theme_Framework_Pack::operations(\$this->detect_framework()),\n"
-            . "            Elementor_Addon_Packs::operations()\n",
+            . "            Elementor_Addon_Packs::operations(),\n"
+            . "            \\WPMCP\\Tools\\ThemeBuilder\\Dynamic\\Dynamic_Template_Ops::operations()\n",
         "            Theme_Framework_Pack::operations(\$this->detect_framework())\n",
         1,
     ],
@@ -1320,7 +1333,10 @@ $edits['src/Integrations/Theme_Integration.php'] = [
         "     * catalog only while that family is active. Issue #286 adds the\n"
             . "     * Elementor addon suite packs (Elementor_Addon_Packs): paid-tier widget\n"
             . "     * catalog and module toggle ops that answer addon_suite_inactive while\n"
-            . "     * their suite is not loaded.\n",
+            . "     * their suite is not loaded.\n"
+            . "     * Issue #290 adds the paid-tier dynamic template ops\n"
+            . "     * (Dynamic_Template_Ops): source discovery, preview, and create/update of\n"
+            . "     * single, archive and search templates on the site parts store.\n",
         "     * catalog only while that family is active.\n",
         1,
     ],

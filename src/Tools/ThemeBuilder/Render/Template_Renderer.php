@@ -101,11 +101,17 @@ class Template_Renderer
      * wp_kses_post() on the way into the store, so do_blocks() renders
      * already-safe markup.
      *
+     * The wpmcp_site_part_rendered filter sees the rendered markup once,
+     * after do_blocks(), so a filter that substitutes values runs exactly
+     * one pass over it and what it inserts is never parsed as block markup.
+     *
      * @param array<string,mixed> $template a Template_Store::get() row
      */
     public static function render_template(array $template): string
     {
-        return do_blocks((string) ($template['content'] ?? ''));
+        $html = do_blocks((string) ($template['content'] ?? ''));
+
+        return (string) apply_filters('wpmcp_site_part_rendered', $html, $template);
     }
 
     /**

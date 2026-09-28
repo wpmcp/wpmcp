@@ -162,6 +162,12 @@ return [
         // takes out the line in Theme_Integration that merges them and the
         // rollback hook in Plugin that refreshes one suite's cache.
         'src/Integrations/Elementor_Addon_Packs.php',
+        // Dynamic single, archive and search templates (issue #290): source
+        // discovery, bindings, the theme-pair ops and their front-end wiring,
+        // all paid-tier. strip.php takes out the line in Theme_Integration
+        // that merges the ops and the Plugin method that wires the runtime.
+        // The site parts engine they build on stays.
+        'src/Tools/ThemeBuilder/Dynamic',
         // The block suite packs (issue #287): the pro block-suites pair and
         // its helpers. strip.php removes register_block_suite_abilities(),
         // its call site, and the rollback hook wiring in boot().
