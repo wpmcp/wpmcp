@@ -12,7 +12,7 @@ if (! defined('ABSPATH')) {
 
 /**
  * Builder-dialect composition (PRO): turn a validated build-page node tree
- * (see Page_Spec) into an `_elementor_data` element tree. A pure transform —
+ * (see Page_Spec) into an `_elementor_data` element tree. A pure transform -
  * ids come from Element_Id (Elementor's own 7-char hex format), container
  * settings and widget_settings are carried over verbatim as data (Elementor
  * interprets them when rendering; nothing is evaluated here), and the

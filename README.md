@@ -176,13 +176,13 @@ Every write tool is wrapped in the safety engine, except `sideload-image`, `crea
 
 ## Compact tool surface
 
-wpmcp registers 160+ tools. Some MCP clients cap tool counts outright, and all of them pay token cost for every `tools/list`. **Compact mode** collapses the advertised surface to five tools — `list-tools`, `get-tool-schema`, `call-tool`, plus the connection basics `get-connection-info` and `get-site-context` — while every other tool stays reachable through `call-tool`.
+wpmcp registers 160+ tools. Some MCP clients cap tool counts outright, and all of them pay token cost for every `tools/list`. **Compact mode** collapses the advertised surface to five tools: `list-tools`, `get-tool-schema`, `call-tool`, plus the connection basics `get-connection-info` and `get-site-context`, while every other tool stays reachable through `call-tool`.
 
 Compact mode is exposure-only and off by default. It never changes which abilities are registered and it is not a permission boundary: a dispatched call runs the target tool's own capability check, governance, identity scope, license check, rate limit, input validation, and snapshot/rollback behavior exactly as a direct call would (a conformance suite sweeps the entire surface in both modes to prove it). `call-tool` refuses abilities that were not registered by wpmcp.
 
 Choose the mode site-wide with the `wpmcp_tool_exposure_mode` option (`full` or `compact`), per scoped identity via the identity's `exposure` field (`create-identity` accepts it; it overrides the site setting for that agent), or in code via the `wpmcp_tool_exposure_mode` filter. The `wpmcp_compact_exposed_abilities` filter can add tools to the compact core (the three meta-tools are always included).
 
-Measured `tools/list` payload (test environment, all optional plugins active): **full** 72,897 bytes across 154 tools; **compact** 2,790 bytes across 5 tools — a **96.2% reduction**. The numbers are pinned by a checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) and re-measured on every test run.
+Measured `tools/list` payload (test environment, all optional plugins active): **full** 72,897 bytes across 154 tools; **compact** 2,790 bytes across 5 tools, a **96.2% reduction**. The numbers are pinned by a checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) and re-measured on every test run.
 
 ## Agent project memory (enforced, not advisory)
 

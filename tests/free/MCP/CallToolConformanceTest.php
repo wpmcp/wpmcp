@@ -151,8 +151,8 @@ class CallToolConformanceTest extends \WP_UnitTestCase
      * registered through a private wp_abilities_api_init window (only this
      * test's hook fires; the framework restores all hooks at tearDown)
      * against a temporarily swapped fresh Registrar, so the shared
-     * registrar — which other suites assert has zero pro-tier entries on
-     * an unlicensed install — is never polluted. The live registry entry
+     * registrar - which other suites assert has zero pro-tier entries on
+     * an unlicensed install - is never polluted. The live registry entry
      * is removed again in the finally block.
      */
     public function test_dispatch_honors_the_live_pro_license_check(): void
@@ -208,7 +208,7 @@ class CallToolConformanceTest extends \WP_UnitTestCase
 
         // The single budget unit is spent on the dispatcher shell itself, so
         // the dispatched target's own rate check (the same global per-client
-        // counter) must throttle — the limiter is not bypassable via dispatch.
+        // counter) must throttle - the limiter is not bypassable via dispatch.
         $dispatched = $this->dispatch('wpmcp/get-page', ['id' => $id]);
 
         $this->assertInstanceOf(\WP_Error::class, $dispatched);
@@ -288,7 +288,7 @@ class CallToolConformanceTest extends \WP_UnitTestCase
     /**
      * An ability known to the Registrar but absent from the live Abilities
      * registry (e.g. the Abilities API window never ran for it) must produce
-     * a clean error, not a crash or a raw-handler fallback — the dispatcher
+     * a clean error, not a crash or a raw-handler fallback - the dispatcher
      * has no invocation path other than the live WP_Ability.
      */
     public function test_dispatch_errors_cleanly_when_the_live_registry_entry_is_missing(): void
@@ -340,7 +340,7 @@ class CallToolConformanceTest extends \WP_UnitTestCase
      * The shared conformance sweep, run in BOTH exposure modes: for every
      * registered ability, the dispatcher's permission outcome must equal the
      * direct outcome. Under an identity scoped to the meta domain only,
-     * every non-meta target must deny on both paths — across the entire
+     * every non-meta target must deny on both paths - across the entire
      * surface, in full and compact mode alike (mode is exposure-only and
      * must never alter a permission decision).
      */

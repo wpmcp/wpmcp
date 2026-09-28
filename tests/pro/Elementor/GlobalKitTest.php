@@ -8,7 +8,7 @@ use WPMCP\Tools\Elementor\Update_Global_Typography;
 use WPMCP\Tools\Elementor\List_Global_Classes;
 
 /**
- * Cluster 1 (EMCP parity): the Elementor global Kit surface.
+ * Cluster 1: the Elementor global Kit surface.
  *
  * The active kit is an ordinary post; its design tokens live in the kit's
  * `_elementor_page_settings` meta (system/custom colors + typography), so the

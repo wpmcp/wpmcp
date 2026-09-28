@@ -41,7 +41,7 @@ class Governance
      * The same six-layer walk as is_ability_enabled(), additionally naming
      * WHICH layer decided (issue #78: the ability grid shows "disabled:
      * governance toggle" vs "disabled: wpmcp_domain_enabled filter" instead
-     * of a bare off state). Read-only — this IS the enforcement walk, not a
+     * of a bare off state). Read-only - this IS the enforcement walk, not a
      * parallel one: is_ability_enabled() delegates here, so the two can
      * never disagree.
      *

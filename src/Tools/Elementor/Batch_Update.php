@@ -11,7 +11,7 @@ if (! defined('ABSPATH')) {
  * (issue #58). Every target is validated before anything is written: one
  * unknown element id refuses the whole batch. The single Element_Tree
  * write means one snapshot, one operation_id, and full rollback of the
- * entire batch on any failure — there is no partial application.
+ * entire batch on any failure - there is no partial application.
  */
 class Batch_Update
 {

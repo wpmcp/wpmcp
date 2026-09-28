@@ -16,20 +16,20 @@ if (! defined('ABSPATH')) {
  * One-call declarative page composition (issue #57).
  *
  * The agent submits a single spec (title, sections/blocks tree, media
- * references, menu placement — shape documented on Page_Spec) and gets back
+ * references, menu placement - shape documented on Page_Spec) and gets back
  * a complete page in ONE operation. The pipeline is ordered so nothing is
  * half-created:
  *
- *  1. Page_Spec::validate() — strict structural validation, node-path
+ *  1. Page_Spec::validate() - strict structural validation, node-path
  *     addressed, bounded payload. Pure; a malformed spec has NO side effects.
- *  2. preflight() — referential validation against live state (patterns
+ *  2. preflight() - referential validation against live state (patterns
  *     registered, attachments exist, menu exists, Elementor widgets known),
  *     still before any write.
- *  3. compose — deterministic markup / element tree from the spec (pure;
+ *  3. compose - deterministic markup / element tree from the spec (pure;
  *     nothing from the spec is evaluated or executed).
  *  4. The write phase, wrapped as one atomic unit: create the page, attach
- *     media, place the menu item. ANY failure triggers compensation — every
- *     object created so far is deleted — and the error is rethrown, so a
+ *     media, place the menu item. ANY failure triggers compensation - every
+ *     object created so far is deleted - and the error is rethrown, so a
  *     mid-build failure leaves no orphan page/media/menu rows and no
  *     history entry.
  *  5. On success, exactly ONE 'page_build' snapshot row is written under a
@@ -147,7 +147,7 @@ class Build_Page
     }
 
     /**
-     * Referential validation against live site state — everything the spec
+     * Referential validation against live site state - everything the spec
      * points at must exist BEFORE any write happens, path-addressed like the
      * structural checks. The first problem aborts the build; dry_run uses the
      * same inspection but reports the whole list instead of throwing.

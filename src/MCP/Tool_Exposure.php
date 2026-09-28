@@ -28,7 +28,7 @@ if (! defined('ABSPATH')) {
  *    scope + pro-license, audited) if invoked anyway; this class only cuts
  *    token cost, it grants and revokes nothing.
  *
- * Mode resolution, least- to most-specific: the site option (default full —
+ * Mode resolution, least- to most-specific: the site option (default full -
  * compact is opt-in per the issue), then the active identity's stored
  * 'exposure' override (an agent-scoped choice, not only site-wide), then
  * the wpmcp_tool_exposure_mode filter for code-level control. Invalid
@@ -36,7 +36,7 @@ if (! defined('ABSPATH')) {
  *
  * tools/list integration: filter_tools_list() is hooked on the MCP
  * Adapter's mcp_adapter_tools_list filter (same duck-typed pattern as the
- * issue #80 initialize-response integration — the adapter is a separate
+ * issue #80 initialize-response integration - the adapter is a separate
  * plugin, so its DTO classes are never referenced here). In compact mode it
  * removes exactly the tools that are (a) backed by a wpmcp-registered
  * ability and (b) not in the curated core set; tools belonging to other
@@ -51,8 +51,8 @@ class Tool_Exposure
     public const MODE_COMPACT = 'compact';
 
     /**
-     * The dispatcher meta-tools. Always exposed in compact mode — without
-     * them the collapsed surface would be unnavigable — so the curation
+     * The dispatcher meta-tools. Always exposed in compact mode - without
+     * them the collapsed surface would be unnavigable - so the curation
      * filter below can add to the core set but never remove these.
      */
     public const META_ABILITIES = [
@@ -108,7 +108,7 @@ class Tool_Exposure
      * connection basics from) this set, but the meta-tools are always
      * force-included: exposure without a dispatcher is a dead surface.
      *
-     * This is an exposure list, not a permission decision — see the class
+     * This is an exposure list, not a permission decision - see the class
      * docblock.
      *
      * @return string[] ability names (e.g. 'wpmcp/call-tool').
@@ -125,8 +125,8 @@ class Tool_Exposure
      * Callback for the MCP Adapter's mcp_adapter_tools_list filter. In full
      * mode (the default) the list passes through untouched. In compact mode,
      * a tool is removed only when its name maps back to a wpmcp-registered
-     * ability outside the compact core; every other entry — other plugins'
-     * tools, and entries whose name cannot be read — survives, because this
+     * ability outside the compact core; every other entry - other plugins'
+     * tools, and entries whose name cannot be read - survives, because this
      * site-wide filter fires for every adapter server, not only wpmcp's.
      *
      * Duck-typed against the adapter's Tool DTO (getName()), plus plain

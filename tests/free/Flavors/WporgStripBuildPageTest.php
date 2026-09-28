@@ -19,7 +19,7 @@ namespace WPMCP\Tests\Free\Flavors;
  * pure class with no WordPress dependency), because "the constant now reads
  * ['gutenberg']" and "an elementor spec is rejected" are not the same claim.
  * The rest are structural: no paid predicate, no pay-to-unlock copy, and no
- * residue naming a dialect this build does not contain — a docblock counts,
+ * residue naming a dialect this build does not contain - a docblock counts,
  * since the directory reviewer reads those too.
  */
 class WporgStripBuildPageTest extends \WP_UnitTestCase

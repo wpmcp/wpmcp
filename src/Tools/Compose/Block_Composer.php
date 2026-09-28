@@ -8,11 +8,11 @@ if (! defined('ABSPATH')) {
 
 /**
  * Deterministic Gutenberg composition: turn a validated build-page node tree
- * (see Page_Spec) into serialized block markup. A pure transform — no DB
+ * (see Page_Spec) into serialized block markup. A pure transform - no DB
  * writes, and nothing from the spec is ever evaluated or executed; text
  * settings are escaped (a whitelist of inline tags survives), URLs go
  * through esc_url, and code is fully entity-escaped. Only an explicit
- * "html" node passes markup through verbatim, into a core/html block —
+ * "html" node passes markup through verbatim, into a core/html block -
  * exactly the stance the existing convert-html-to-blocks fallback takes.
  *
  * Pattern nodes (top level only, enforced by Page_Spec) inline the

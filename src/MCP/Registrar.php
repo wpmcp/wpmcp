@@ -173,7 +173,7 @@ class Registrar
     /**
      * The full declared surface: every ability register() was handed,
      * including ones the tier gate or governance then dropped. Display-only
-     * (the ability grid, issue #78) — nothing here is registered with the
+     * (the ability grid, issue #78) - nothing here is registered with the
      * Abilities API or reachable over MCP unless it also passed the gates
      * into all().
      *

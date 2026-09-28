@@ -9,10 +9,10 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * Read-only: return one registered tool's full contract — the exact
+ * Read-only: return one registered tool's full contract - the exact
  * input_schema it was registered with (issue #79 acceptance: identical to
  * direct registration, byte for byte), its complete description, MCP
- * annotation hints, and classification — so an agent on the compact surface
+ * annotation hints, and classification - so an agent on the compact surface
  * can fetch a schema on demand instead of paying for 160+ schemas in every
  * tools/list.
  */

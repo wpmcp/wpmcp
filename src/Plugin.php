@@ -806,8 +806,8 @@ final class Plugin
             Snapshot_Retention_Notice::register();
             // Compact tool-surface mode (issue #79): in compact mode the
             // adapter's advertised tools/list collapses to the meta-tools
-            // plus connection basics. Exposure-only — registration and
-            // permissions are untouched — and a no-op unless the adapter
+            // plus connection basics. Exposure-only - registration and
+            // permissions are untouched - and a no-op unless the adapter
             // (which owns this filter) is installed, and while the mode
             // resolves to 'full' (the default).
             add_filter('mcp_adapter_tools_list', [new Tool_Exposure(), 'filter_tools_list'], 10, 2);
@@ -919,7 +919,7 @@ final class Plugin
 
         // Handshake instructions (issue #80): the text on this screen is
         // broadcast to every connecting MCP client at initialize, so editing
-        // it is a site-wide trust decision — manage_options, like the rest.
+        // it is a site-wide trust decision - manage_options, like the rest.
         add_submenu_page(
             'wpmcp',
             self::page_title(__('Handshake Instructions', 'wpmcp')),
@@ -931,7 +931,7 @@ final class Plugin
 
         // Connection manager (issue #76): provisions Application Passwords,
         // reveals them exactly once alongside filled client configs, serves
-        // the desktop bundle, and hosts the master exposure switch — all
+        // the desktop bundle, and hosts the master exposure switch - all
         // site-wide trust decisions, so manage_options like the rest.
         add_submenu_page(
             'wpmcp',
@@ -943,7 +943,7 @@ final class Plugin
         );
 
         // Ability toggle grid (issue #78): sees and narrows the full MCP
-        // ability surface — a site-wide trust decision, so manage_options
+        // ability surface - a site-wide trust decision, so manage_options
         // like the rest.
         add_submenu_page(
             'wpmcp',
@@ -1016,7 +1016,7 @@ final class Plugin
      * The full declared ability surface (pre-gating; see
      * Registrar::declared()) for admin display. Lazily replays
      * register_abilities() when the registration hook has not fired in this
-     * request — outside a wp_abilities_api_init window Registrar only fills
+     * request - outside a wp_abilities_api_init window Registrar only fills
      * its internal maps, so the replay never touches the Abilities API.
      *
      * @return \WPMCP\MCP\Ability[]
@@ -3226,7 +3226,7 @@ final class Plugin
     }
 
     /**
-     * The data-driven custom Gutenberg block builder (EMCP parity, no eval):
+     * The data-driven custom Gutenberg block builder (no eval):
      * store/validate/list block specs that a register_block_type render_callback
      * renders at runtime. All PRO, manage_options, domain 'blocks'.
      *
@@ -3276,7 +3276,7 @@ final class Plugin
     }
 
     /**
-     * The data-driven custom Elementor widget builder (EMCP parity, no eval):
+     * The data-driven custom Elementor widget builder (no eval):
      * store/validate/list widget specs that Dynamic_Widget renders at runtime.
      * All PRO, gated on manage_options, domain 'elementor'. That is site-wide
      * markup authoring, but manage_options is not unfiltered_html (a multisite
@@ -5855,7 +5855,7 @@ final class Plugin
      * Elementor's own widgets manager plus the curated widget catalog and
      * never touch post content), so neither is routed through the safety
      * core. The catalog itself is pure data (Widget_Catalog), so widget
-     * coverage grows without growing this advertised tool surface — pinned
+     * coverage grows without growing this advertised tool surface - pinned
      * by tests/free/Platform/ToolsListBudgetTest.php.
      */
     private function register_elementor_abilities(Registrar $registrar): void
@@ -6645,8 +6645,8 @@ final class Plugin
      * swatches, the four system typography tokens, an optional logo
      * reference) stored as data: bundled presets in Brand_Kit_Store plus
      * anything a site adds through the `wpmcp_brand_kits` option or filter.
-     * Growing the library therefore never grows the advertised tool surface
-     * — pinned by tests/free/Platform/ToolsListBudgetTest.php.
+     * Growing the library therefore never grows the advertised tool surface,
+     * as pinned by tests/free/Platform/ToolsListBudgetTest.php.
      *
      * apply-brand-kit folds the entire kit into ONE
      * `_elementor_page_settings` patch handed to Elementor_Kit_Data::write(),
@@ -6747,9 +6747,9 @@ final class Plugin
      * Elementor's own global classes repository, so they keep working across
      * the 4.2 storage change (classes moved from the kit's
      * `_elementor_global_classes` meta into their own post type). Every write
-     * requires expected_hash — the whole items map is rewritten on each call,
+     * requires expected_hash - the whole items map is rewritten on each call,
      * so without an optimistic lock a stale caller would silently drop a class
-     * another agent just added — and is snapshotted as a dedicated
+     * another agent just added - and is snapshotted as a dedicated
      * 'elementor_global_classes' operation holding the COMPLETE prior class
      * set, which is what makes rollback-operation able to resurrect a deleted
      * class rather than merely un-edit a surviving one.
@@ -6993,7 +6993,7 @@ final class Plugin
      * when available (canonical data, Post_CSS regeneration, document cache
      * invalidation) with a raw-meta fallback that clears the generated-CSS
      * cache explicitly; and every write is snapshot-first with a verify
-     * step, so any failure — including any single entry of a batch-update —
+     * step, so any failure - including any single entry of a batch-update -
      * rolls the whole operation back and every success is undoable via
      * rollback-operation. find-element is the one read-only tool in the
      * suite and never touches the safety core.
@@ -8935,7 +8935,7 @@ final class Plugin
     }
 
     /**
-     * Connection-info tooling for the EMCP admin/connection area (issue #18).
+     * Connection-info tooling for the admin connection area (issue #18).
      * get-connection-info is read-only and returns only a placeholder
      * Authorization value, never a real credential, so it needs no
      * Safe_Mutation snapshot/rollback and does not touch the safety core.
@@ -9070,8 +9070,8 @@ final class Plugin
     /**
      * The compact-surface meta-tools (issue #79), registered UNCONDITIONALLY
      * in both exposure modes: compact mode is exposure-only, so the
-     * registered ability surface — and with it the ability-manifest drift
-     * guard — never varies with the mode. In full mode these three simply
+     * registered ability surface - and with it the ability-manifest drift
+     * guard - never varies with the mode. In full mode these three simply
      * ride along as ordinary tools; in compact mode they ARE the surface.
      *
      * call-tool is deliberately classified domain=dispatch, operation=update
@@ -9081,7 +9081,7 @@ final class Plugin
      * identity that should dispatch must include domain 'dispatch' and
      * operation 'update'; AND-of-narrowing, no special bypass). The REAL
      * authorization decision for a dispatched call is made by the target
-     * ability's own permission callback — see Call_Tool's docblock, and the
+     * ability's own permission callback - see Call_Tool's docblock, and the
      * call-rest precedent for a gateway tool whose floor capability is
      * edit_posts while every target enforces its own gate.
      */

@@ -14,8 +14,8 @@ use WPMCP\Safety\Snapshot_Store;
  * loss on a real-world configuration:
  *
  *  1. Snapshot::serialize() gzips to raw binary. WordPress's SQLite
- *     integration — which WordPress Studio uses by default, and which core's
- *     own first-party SQLite support makes increasingly common — rejects
+ *     integration - which WordPress Studio uses by default, and which core's
+ *     own first-party SQLite support makes increasingly common - rejects
  *     that payload from $wpdb->insert() with "Processing the value for the
  *     following field failed: before_blob". Real MySQL's LONGBLOB accepts
  *     it, so the bug is invisible on the maintainer's machine and on CI.
@@ -27,7 +27,7 @@ use WPMCP\Safety\Snapshot_Store;
  * Together: update-post returned a real-looking operation_id, the write
  * landed, the snapshot row was never written, list-operations came back
  * empty and rollback-operation answered {"restored": false} with no error.
- * The write succeeded and the undo silently did not exist — the exact
+ * The write succeeded and the undo silently did not exist - the exact
  * failure mode a plugin selling recoverability cannot have.
  *
  * Safe_Mutation's own comment already states the invariant these tests
@@ -49,8 +49,8 @@ class SnapshotPersistenceTest extends \WP_UnitTestCase
 
     /**
      * The stored payload must survive a backend that only accepts text.
-     * Asserting the round trip alone is not enough — that passes on MySQL
-     * while still being unstorable on SQLite — so this pins the wire format
+     * Asserting the round trip alone is not enough - that passes on MySQL
+     * while still being unstorable on SQLite - so this pins the wire format
      * as ASCII-safe, which is the property that actually makes it portable.
      */
     public function test_serialized_snapshot_is_ascii_safe_for_a_text_column(): void

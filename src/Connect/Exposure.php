@@ -17,8 +17,8 @@ if (! defined('ABSPATH')) {
  * Governance's AND-of-narrowing chain), so a disabled switch makes
  * Governance::is_ability_enabled() return false for every ability. Because
  * Registrar's permission_callback re-evaluates that check on every request,
- * already-registered abilities start denying on the very next call — no
- * cache flush or re-registration needed — and every denial lands in the
+ * already-registered abilities start denying on the very next call - no
+ * cache flush or re-registration needed - and every denial lands in the
  * governance audit log exactly like any other governance decision. Being a
  * narrowing layer, the switch can only take away: turning it ON never
  * re-enables an ability some other governance layer disabled.

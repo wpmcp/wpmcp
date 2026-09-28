@@ -849,7 +849,7 @@ class Database_Guard
     /**
      * Append a structured write to the capped audit log. Every structured
      * write lands here regardless of recoverability; for the honestly
-     * non-recoverable cases (no primary key, cap exceeded, binary values —
+     * non-recoverable cases (no primary key, cap exceeded, binary values -
      * see recoverability_probe()) the before-image captured here is the only
      * trail a human has to manually reconstruct a change if needed.
      */

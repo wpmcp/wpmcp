@@ -7,7 +7,7 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * Create a layout element — container (default), section, or column — at
+ * Create a layout element - container (default), section, or column - at
  * the top level or nested under a parent, at an optional position among
  * its siblings (issue #58). Columns must live inside a parent; widgets are
  * never valid parents. Hash-guarded and snapshot-first via Element_Tree.

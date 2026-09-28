@@ -10,13 +10,13 @@ use WPMCP\Tools\Backup\Site_Archive_Builder;
  *
  * The dump paginated with LIMIT/OFFSET and no ORDER BY. MySQL guarantees no
  * row order across separate statements, and each batch here is a separate
- * statement with no enclosing transaction — so on a live site (the only kind
+ * statement with no enclosing transaction - so on a live site (the only kind
  * anyone backs up) a concurrent INSERT or DELETE shifts the offset window
  * and rows are duplicated or skipped. Nothing reports it: the archive is
  * well-formed, the manifest counts what was read, and the loss only surfaces
  * on restore.
  *
- * The existing DbDumperTest cannot catch it — its tables are far below
+ * The existing DbDumperTest cannot catch it - its tables are far below
  * Db_Dumper::BATCH, so the loop never iterates twice and the ordering
  * question never arises.
  */
@@ -33,7 +33,7 @@ class DbDumperPaginationTest extends \WP_UnitTestCase
         $this->table = $wpdb->prefix . 'wpmcp_dump_probe';
 
         // The suite rewrites CREATE TABLE to CREATE TEMPORARY TABLE, and a
-        // temporary table is invisible to SHOW TABLES — which is exactly how
+        // temporary table is invisible to SHOW TABLES - which is exactly how
         // Db_Dumper enumerates what to dump, so the probe table would never
         // be seen. Drop the rewrite for these two statements only.
         $this->without_temporary_table_rewrite(function () use ($wpdb) {

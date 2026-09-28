@@ -11,7 +11,7 @@ if (! defined('ABSPATH')) {
 /**
  * Generate a valid Elementor widget element (id, elType='widget',
  * widgetType, and a real settings object) from the curated widget catalog
- * (Widget_Catalog, issue #59 — any cataloged type, replacing the original
+ * (Widget_Catalog, issue #59 - any cataloged type, replacing the original
  * 4-type limit) and insert it into a target post's `_elementor_data`, as a
  * child of a given parent element or at the top level when no parent_id is
  * given. Reads `_elementor_data`, mutates the tree, and writes it back

@@ -25,7 +25,7 @@ if (! defined('ABSPATH')) {
  *    request's response array, rendered once. It is never stored, logged,
  *    audited, or echoed on any later render.
  *  - The persisted ledger (self::OPTION) holds only user_id, uuid, name,
- *    and a timestamp — enough to list and revoke, never enough to connect.
+ *    and a timestamp - enough to list and revoke, never enough to connect.
  *  - Revocation calls the core WP_Application_Passwords API, so the hashed
  *    credential is deleted and the connected client is cut off immediately.
  *
@@ -166,7 +166,7 @@ class Connection_Page
     /**
      * admin_post handler for the desktop bundle download. GET + nonce (the
      * download link is nonce'd) + manage_options. The bundle is secret-free
-     * (see Bundle_Builder), so serving it discloses only the endpoint URL —
+     * (see Bundle_Builder), so serving it discloses only the endpoint URL -
      * the same fact this screen already shows.
      *
      * @param callable|null $sender Test seam: receives the built bundle path

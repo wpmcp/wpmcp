@@ -277,7 +277,7 @@ class Rollback_Service
         if ('option' === $snapshot['object_type']) {
             return 'option:' . $snapshot['data']['name'];
         }
-        // A page_build snapshot IS the oldest possible state of its page —
+        // A page_build snapshot IS the oldest possible state of its page -
         // "did not exist yet". Keying it as post:<id> lets restore_session's
         // oldest-first dedup pick it over any later 'post' snapshot of the
         // same page, so a session rollback deletes the created page instead
@@ -1278,7 +1278,7 @@ class Rollback_Service
      * single row is touched:
      *  - the table must still exist (Database_Guard::valid_table() resolves
      *    the exact real name, which is then bound with %i);
-     *  - the table must not be protected (users/usermeta by default) — a
+     *  - the table must not be protected (users/usermeta by default) - a
      *    legitimate snapshot can never reference one, because the write
      *    tools refuse protected tables before capturing anything;
      *  - a non-empty primary key must be declared in the snapshot, and every
@@ -1292,16 +1292,16 @@ class Rollback_Service
      *
      * Per row, the restore is an upsert keyed on the primary key: if a row
      * exists at the captured PK it is updated back to the captured values
-     * ($wpdb->update(), parameterized); if not, the full captured row —
-     * INCLUDING its original PK values — is reinserted ($wpdb->insert()),
+     * ($wpdb->update(), parameterized); if not, the full captured row -
+     * INCLUDING its original PK values - is reinserted ($wpdb->insert()),
      * which is what preserves auto-increment ids across a delete + rollback.
      * (Caveat: the table's auto-increment counter itself is not rewound, so
      * ids handed out between the delete and the rollback are simply skipped.)
      *
      * Conflict detection compares the CURRENT row against what the operation
      * left behind (before-image overlaid with the update's 'set' map, or
-     * absence for a delete). Any drift — a third-party edit, a vanished row,
-     * a reclaimed PK — is reported via warn() but does not stop the restore:
+     * absence for a delete). Any drift - a third-party edit, a vanished row,
+     * a reclaimed PK - is reported via warn() but does not stop the restore:
      * the captured before-image always wins, matching the safety invariant
      * that a restored object equals its pre-mutation state exactly.
      */
@@ -1310,7 +1310,7 @@ class Rollback_Service
         global $wpdb;
 
         // Every database tool is gated at manage_options (raw table access is
-        // phpMyAdmin-level power), but the rollback tools are — and must stay —
+        // phpMyAdmin-level power), but the rollback tools are - and must stay -
         // edit_posts, so lower-privileged identities can undo their own content
         // writes. Without this check, an edit_posts caller could mutate raw
         // tables by replaying an administrator's operation through
@@ -1423,7 +1423,7 @@ class Rollback_Service
      * (recorded after the mutation, since the ids cannot exist before it),
      * so its restore is a deletion: the created page's pre-operation state
      * was nonexistence. The menu items placed by the build go first, then
-     * the page itself — force-deleted, matching how resurrect() treats
+     * the page itself - force-deleted, matching how resurrect() treats
      * force-deletion as the true inverse of creation.
      *
      * The page is only deleted if it is plausibly still the page the build
@@ -1463,7 +1463,7 @@ class Rollback_Service
      * Undo a media import (issue #64: import-stock-image / upload-svg).
      * Same creation-snapshot semantics as 'page_build': the snapshot records
      * the attachment the tool CREATED, so restoring it means deleting that
-     * attachment again — wp_delete_attachment(force) removes both the post
+     * attachment again - wp_delete_attachment(force) removes both the post
      * row and the physical files, the true inverse of the import. The same
      * post_date_gmt identity check protects an unrelated post that has since
      * reclaimed the id, and a non-attachment at the id is likewise left
@@ -2019,9 +2019,7 @@ class Rollback_Service
         }
         clean_post_cache($kit_id);
 
-        if (class_exists('\\Elementor\\Plugin') && isset(\Elementor\Plugin::instance()->files_manager)) {
-            \Elementor\Plugin::instance()->files_manager->clear_cache();
-        }
+        Elementor_Cache::clear_all();
     }
 
     /**

@@ -4,6 +4,7 @@ namespace WPMCP\Tests\Pro\Elementor;
 
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\Builders\Elementor_Cache;
 use WPMCP\Tools\Elementor\Create_Global_Variable;
 use WPMCP\Tools\Elementor\Delete_Global_Variable;
 use WPMCP\Tools\Elementor\Global_Variable_Schema;
@@ -30,6 +31,12 @@ class GlobalVariablesWriteTest extends Structural_Harness
         if (! Global_Variables_Store::is_supported()) {
             $this->markTestSkipped('Elementor v4 global variables are not available');
         }
+    }
+
+    protected function tearDown(): void
+    {
+        Elementor_Cache::set_available_for_tests(null);
+        parent::tearDown();
     }
 
     // ---- helpers ------------------------------------------------------------
@@ -603,5 +610,38 @@ class GlobalVariablesWriteTest extends Structural_Harness
         update_post_meta($kit, '_elementor_css', ['status' => 'stale-probe']);
         Rollback_Service::restore_operation($out['operation_id']);
         $this->assertSame('', get_post_meta($kit, '_elementor_css', true), 'A rollback must clear the generated CSS.');
+    }
+
+    /**
+     * The write and the rollback both purge through Elementor_Cache, the one
+     * place wpmcp invalidates Elementor's derived caches. With the helper
+     * reporting Elementor unavailable, it is a no-op, so the probe survives
+     * only when nothing clears the CSS on its own.
+     */
+    public function test_write_and_rollback_clear_the_css_through_the_shared_helper(): void
+    {
+        $kit = $this->kit_id();
+        Elementor_Cache::set_available_for_tests(false);
+
+        update_post_meta($kit, '_elementor_css', ['status' => 'stale-probe']);
+        $out = (new Create_Global_Variable())->handle([
+            'expected_hash' => $this->state_hash(),
+            'label'         => 'via-helper',
+            'type'          => 'color',
+            'value'         => '#000000',
+        ]);
+        $this->assertIsArray($out, is_wp_error($out) ? $out->get_error_message() : '');
+        $this->assertSame(
+            ['status' => 'stale-probe'],
+            get_post_meta($kit, '_elementor_css', true),
+            'The write must purge through Elementor_Cache::clear_all(), not inline.'
+        );
+
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assertSame(
+            ['status' => 'stale-probe'],
+            get_post_meta($kit, '_elementor_css', true),
+            'The rollback must purge through Elementor_Cache::clear_all(), not inline.'
+        );
     }
 }

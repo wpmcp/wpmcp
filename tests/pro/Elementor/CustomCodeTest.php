@@ -11,11 +11,11 @@ use WPMCP\Tools\Elementor\List_Code_Snippets;
 use WPMCP\Tools\Elementor\Delete_Code_Snippet;
 
 /**
- * Cluster 6 (EMCP parity): custom code.
+ * Cluster 6: custom code.
  *
  * add-custom-css / get-custom-css operate on WordPress core Additional CSS
  * (wp_update_custom_css_post), so they work on ANY site, not just Elementor Pro
- * (an improvement over EMCP, which gates custom CSS behind Pro). Code snippets
+ * (rather than gating custom CSS behind Pro). Code snippets
  * are stored as `elementor_snippet` posts (Elementor Pro's Custom Code storage);
  * management works everywhere, rendering needs Pro.
  */

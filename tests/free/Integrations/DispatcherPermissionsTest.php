@@ -36,7 +36,7 @@ class DispatcherPermissionsTest extends \WP_UnitTestCase
     public function test_per_op_capability_override_denies_even_when_dispatcher_level_gate_allows(): void
     {
         // Editors hold edit_posts, the dispatcher-level capability, so the
-        // ability itself is permitted — but guarded-op demands manage_options.
+        // ability itself is permitted - but guarded-op demands manage_options.
         $this->assertTrue(current_user_can($this->integration->capability()));
 
         $out = $this->integration->handle_write([ 'operation' => 'guarded-op' ]);

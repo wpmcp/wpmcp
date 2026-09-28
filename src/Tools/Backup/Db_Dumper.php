@@ -29,7 +29,7 @@ if (! defined('ABSPATH')) {
  * (see dump_table()'s keyset pagination), which is the larger half of the
  * problem; closing the rest needs START TRANSACTION WITH CONSISTENT SNAPSHOT
  * around the whole dump, which is InnoDB-specific and commits any
- * transaction already open on the connection — so it needs its own change
+ * transaction already open on the connection - so it needs its own change
  * with its own tests rather than being smuggled in here.
  *
  * KNOWN LIMIT, deliberately not papered over: values are emitted as escaped

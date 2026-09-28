@@ -9,7 +9,7 @@ use WPMCP\Tools\Media\Stock\Stock_Key_Store;
  * search-stock-images (issue #64): openly-licensed stock search across
  * providers, returning provider-attributed, license-carrying results in one
  * normalized shape. Openverse is keyless; Pexels/Unsplash are BYO-key.
- * All transport is mocked via pre_http_request — no network in CI.
+ * All transport is mocked via pre_http_request - no network in CI.
  */
 class SearchStockImagesTest extends \WP_UnitTestCase
 {
