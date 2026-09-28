@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.14
+Stable tag: 0.8.15
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.15 =
+* Hardened the release checks: an exception message that includes unescaped data now fails the automated plugin review, so this class of issue cannot return unnoticed.
+
 = 0.8.14 =
 * Internal: local test runs are now fully isolated from each other, even when two run in the same checkout. No change to the plugin itself.
 
@@ -173,6 +176,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.15 =
+Hardened the release checks: an exception message that includes unescaped data now fails the automated plugin review, so this class of issue cannot return unnoticed.
 
 = 0.8.14 =
 Internal: local test runs are now fully isolated from each other, even when two run in the same checkout. No change to the plugin itself.
