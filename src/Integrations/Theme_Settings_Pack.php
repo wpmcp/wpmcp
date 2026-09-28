@@ -202,14 +202,29 @@ final class Theme_Settings_Pack
             update_option($name, 'json_option' === $def['type'] ? wp_json_encode($data) : $data);
         }
 
-        $family = (string) $spec['family'];
+        self::refresh($spec);
+
+        return [ 'framework' => (string) $spec['family'], 'settings' => (array) $plan['written'] ];
+    }
+
+    /** Run the theme's own CSS cache refresh, after a write or a rollback of one. */
+    public static function refresh(array $spec): void
+    {
         if (isset($spec['refresh']) && is_callable($spec['refresh'])) {
             ($spec['refresh'])();
         }
         /** This action is documented in Theme_Framework_Pack::refresh_framework_cache(). */
-        do_action('wpmcp_theme_framework_cache_refresh', $family);
+        do_action('wpmcp_theme_framework_cache_refresh', (string) $spec['family']);
+    }
 
-        return [ 'framework' => $family, 'settings' => (array) $plan['written'] ];
+    /**
+     * Every option a spec's stores live in, as a write snapshots them.
+     *
+     * @return string[]
+     */
+    public static function option_names(array $spec): array
+    {
+        return array_values(array_map(static fn ($store): string => self::option_name((array) $store), (array) $spec['stores']));
     }
 
     /**

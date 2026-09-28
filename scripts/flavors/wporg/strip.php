@@ -1275,10 +1275,10 @@ $edits['src/Integrations/ACF_Integration.php'] = [
 $edits['src/Integrations/Theme_Framework_Pack.php'] = [
     [
         "        if ('generatepress' === \$framework) {\n"
-            . "            return Theme_Pack_GeneratePress::operations();\n"
+            . "            return Theme_Pack_GeneratePress::spec();\n"
             . "        }\n"
             . "        if ('blocksy' === \$framework) {\n"
-            . "            return Theme_Pack_Blocksy::operations();\n"
+            . "            return Theme_Pack_Blocksy::spec();\n"
             . "        }\n",
         '',
         1,

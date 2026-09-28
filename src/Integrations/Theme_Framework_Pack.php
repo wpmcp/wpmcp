@@ -20,7 +20,7 @@ if (! defined('ABSPATH')) {
  * frameworks). Kadence, GeneratePress and Blocksy (issue #288) keep their
  * settings in nested theme storage, so each is a declarative spec built
  * by Theme_Settings_Pack; a further family adds another case to
- * operations().
+ * spec().
  */
 final class Theme_Framework_Pack
 {
@@ -50,16 +50,50 @@ final class Theme_Framework_Pack
         if ('astra' === $framework) {
             return self::astra_pack();
         }
+        $spec = self::spec($framework);
+        return null === $spec ? [] : Theme_Settings_Pack::operations($spec);
+    }
+
+    /**
+     * The declarative spec of a Theme_Settings_Pack family, or null.
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function spec(?string $framework): ?array
+    {
         if ('kadence' === $framework) {
-            return Theme_Pack_Kadence::operations();
+            return Theme_Pack_Kadence::spec();
         }
         if ('generatepress' === $framework) {
-            return Theme_Pack_GeneratePress::operations();
+            return Theme_Pack_GeneratePress::spec();
         }
         if ('blocksy' === $framework) {
-            return Theme_Pack_Blocksy::operations();
+            return Theme_Pack_Blocksy::spec();
         }
-        return [];
+        return null;
+    }
+
+    /**
+     * After a rollback restored options (issue #316), refresh the ACTIVE
+     * family's generated CSS when one of them is that family's settings
+     * store, exactly as the forward write does. A family that is not the
+     * active theme is never refreshed.
+     *
+     * @param string[] $names options the rollback restored
+     */
+    public static function refresh_after_restore(array $names): void
+    {
+        $family = (string) get_template();
+        if ('astra' === $family) {
+            if (in_array('astra-settings', $names, true)) {
+                self::refresh_framework_cache('astra');
+            }
+            return;
+        }
+        $spec = self::spec($family);
+        if (null !== $spec && [] !== array_intersect(Theme_Settings_Pack::option_names($spec), $names)) {
+            Theme_Settings_Pack::refresh($spec);
+        }
     }
 
     /**
