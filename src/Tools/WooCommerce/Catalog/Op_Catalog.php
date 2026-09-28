@@ -50,7 +50,11 @@ if (! defined('ABSPATH')) {
  *  - ['type' => 'wc_setting']: the wp_options row backing the setting,
  *    resolved from WooCommerce's own settings registry;
  *  - ['type' => 'wc_order', 'param' => P]: only the order status is
- *    captured, so rows using it are flagged recoverable:false.
+ *    captured, so rows using it are flagged recoverable:false;
+ *  - ['type' => 'term', 'param' => P] or ['type' => 'term', 'create' => true]:
+ *    one term of the row's taxonomy, keyed by (taxonomy, slug) with its meta
+ *    and object assignments, so an update, a delete or a create (whose slug
+ *    Brand_Ops derives before the write) rolls back exactly.
  * A row with no snapshot must be a POST that creates a new object: there is
  * no prior state to capture, the same exemption create-post and
  * create-product carry, and the response names the op that undoes it.
@@ -83,6 +87,9 @@ class Op_Catalog
      */
     private const PRIVILEGE_META = '/(capabilities|user_level|session_tokens)$/i';
 
+    /** WooCommerce's native brands taxonomy (issue #293). */
+    private const BRAND_TAXONOMY = 'product_brand';
+
     /**
      * op name => [method, route template, domain, capability, summary, mode?, snapshot?, extra?].
      * mode defaults to 'read' and snapshot to null. extra carries per-op
@@ -91,8 +98,11 @@ class Op_Catalog
      * (a regex; a meta_data entry whose key matches is refused),
      * 'guard_variations' (refuse a delete, or a type change, of a product
      * that still has variations, which its snapshot would not cover), 'defaults'
-     * (injected unless the caller sets them), 'undo_op' (for creates) and
-     * 'redact' (top-level keys of each returned record that are masked).
+     * (injected unless the caller sets them), 'undo_op' (for creates),
+     * 'redact' (top-level keys of each returned record that are masked),
+     * 'taxonomy' (the op is unavailable unless it is registered, and a term
+     * snapshot targets it) and 'handler' (the op runs in-process through
+     * Brand_Ops instead of dispatching its route).
      * Keep op names domain.kebab-case and route templates rooted at /wc/v3.
      */
     private const OPS = [
@@ -156,6 +166,19 @@ class Op_Catalog
         'customers.create'    => [ 'POST', '/wc/v3/customers', 'customers', self::CAP_ADD_CUSTOMERS, 'Create a customer account (email required; billing and shipping optional)', 'write', null, [ 'undo_op' => null, 'forbidden_meta' => self::PRIVILEGE_META ] ],
         'customers.update'    => [ 'PUT', '/wc/v3/customers/{id}', 'customers', self::CAP_EDIT_CUSTOMERS, 'Update a customer\'s name, email, billing and shipping profile. Password changes are refused: they could not be rolled back', 'write', [ 'type' => 'user', 'param' => 'id' ], [ 'forbidden_params' => [ 'password' ], 'forbidden_meta' => self::PRIVILEGE_META ] ],
 
+        // Brands (issue #293): WooCommerce's product_brand taxonomy. Brand
+        // writes are term-snapshotted; images must be media images or pass
+        // the remote media guard. assign and unassign run in-process (the
+        // products endpoint ignores an empty brands list, so it could not
+        // remove a last brand) under a snapshot of the product.
+        'brands.list'         => [ 'GET', '/wc/v3/products/brands', 'brands', self::CAP_STORE, 'Product brands', 'read', null, [ 'taxonomy' => self::BRAND_TAXONOMY ] ],
+        'brands.get'          => [ 'GET', '/wc/v3/products/brands/{id}', 'brands', self::CAP_STORE, 'One product brand', 'read', null, [ 'taxonomy' => self::BRAND_TAXONOMY ] ],
+        'brands.create'       => [ 'POST', '/wc/v3/products/brands', 'brands', self::CAP_STORE, 'Create a brand (name, slug, parent, description, image {id} or allowlisted {src})', 'write', [ 'type' => 'term', 'create' => true ], [ 'taxonomy' => self::BRAND_TAXONOMY, 'undo_op' => 'brands.delete' ] ],
+        'brands.update'       => [ 'PUT', '/wc/v3/products/brands/{id}', 'brands', self::CAP_STORE, 'Update a brand, image included', 'write', [ 'type' => 'term', 'param' => 'id' ], [ 'taxonomy' => self::BRAND_TAXONOMY ] ],
+        'brands.delete'       => [ 'DELETE', '/wc/v3/products/brands/{id}', 'brands', self::CAP_STORE, 'Delete a brand; the refusal without confirm says how many products use it', 'destructive', [ 'type' => 'term', 'param' => 'id' ], [ 'taxonomy' => self::BRAND_TAXONOMY, 'defaults' => [ 'force' => true ] ] ],
+        'brands.assign'       => [ 'PUT', '/wc/v3/products/{product_id}', 'brands', self::CAP_STORE, 'Add brands (a list of brand ids) to a product', 'write', [ 'type' => 'post', 'param' => 'product_id' ], [ 'taxonomy' => self::BRAND_TAXONOMY, 'handler' => 'assign' ] ],
+        'brands.unassign'     => [ 'PUT', '/wc/v3/products/{product_id}', 'brands', self::CAP_STORE, 'Remove brands (a list of brand ids) from a product', 'write', [ 'type' => 'post', 'param' => 'product_id' ], [ 'taxonomy' => self::BRAND_TAXONOMY, 'handler' => 'unassign' ] ],
+
         // Shipping.
         'shipping.zones'        => [ 'GET', '/wc/v3/shipping/zones', 'shipping', self::CAP_STORE, 'Configured shipping zones' ],
         'shipping.zone-methods' => [ 'GET', '/wc/v3/shipping/zones/{zone_id}/methods', 'shipping', self::CAP_STORE, 'Shipping methods enabled in one zone' ],
@@ -177,7 +200,7 @@ class Op_Catalog
     ];
 
     /**
-     * @return array<string, array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool}>
+     * @return array<string, array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool, taxonomy: ?string, handler: ?string}>
      */
     public static function ops(): array
     {
@@ -207,13 +230,15 @@ class Op_Catalog
                 'redact'           => $extra['redact'] ?? [],
                 'forbidden_meta'   => $extra['forbidden_meta'] ?? null,
                 'guard_variations' => (bool) ($extra['guard_variations'] ?? false),
+                'taxonomy'         => $extra['taxonomy'] ?? null,
+                'handler'          => $extra['handler'] ?? null,
             ];
         }
         return $out;
     }
 
     /**
-     * @return array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool}
+     * @return array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool, taxonomy: ?string, handler: ?string}
      */
     public static function get(string $op): array
     {

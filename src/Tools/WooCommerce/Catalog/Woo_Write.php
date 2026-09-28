@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\WooCommerce\Catalog;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Snapshot;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -19,11 +20,13 @@ if (! defined('ABSPATH')) {
  * short-circuits into a structured error and a refused call has no side
  * effects and writes no snapshot:
  *
- *   op is a write or destructive row -> WooCommerce available ->
- *   op-level governance -> per-op capability -> opt-in (destructive ops are
- *   off until the wpmcp_woo_op_enabled filter enables them) -> confirm:true
- *   for destructive ops -> forbidden params and meta keys -> path params -> snapshot
- *   target resolves -> Safe_Mutation (snapshot first) -> dispatch.
+ *   op is a write or destructive row -> WooCommerce (and the row's
+ *   taxonomy) available -> op-level governance -> per-op capability ->
+ *   opt-in (destructive ops are off until the wpmcp_woo_op_enabled filter
+ *   enables them) -> confirm:true for destructive ops -> forbidden params
+ *   and meta keys -> path params -> brand checks (Brand_Ops, rows naming a
+ *   taxonomy) -> snapshot target resolves -> Safe_Mutation (snapshot first)
+ *   -> dispatch, or the row's in-process handler.
  *
  * Ops that change or remove existing state always run inside
  * Safe_Mutation::run(), so the response carries an operation_id that
@@ -202,9 +205,14 @@ class Woo_Write
         }
 
         if ('destructive' === $def['mode'] && ! $confirm) {
+            $context = null !== $def['taxonomy'] ? Brand_Ops::confirm_context($params) : [];
+            $usage   = isset($context['products_using'])
+                ? " It is used by {$context['products_using']} products, which would lose it."
+                : '';
             return Op_Guard::error(
                 'confirmation_required',
-                "Op \"{$op}\" is destructive and requires confirm:true."
+                "Op \"{$op}\" is destructive and requires confirm:true.{$usage}",
+                $context
             );
         }
 
@@ -244,9 +252,19 @@ class Woo_Write
             }
         }
 
+        $report = [];
+        if (null !== $def['taxonomy']) {
+            $brand = Brand_Ops::prepare($op, $params, $body);
+            if (isset($brand['error'])) {
+                return $brand;
+            }
+            $body   = $brand['body'];
+            $report = $brand['report'];
+        }
+
         $target = null;
         if (null !== $def['snapshot']) {
-            $target = $this->snapshot_target($def['snapshot'], $params);
+            $target = $this->snapshot_target($def['snapshot'], $params, $body, $def['taxonomy']);
             if (isset($target['error'])) {
                 return $target;
             }
@@ -267,6 +285,7 @@ class Woo_Write
             'route'  => $route,
             'body'   => $body,
             'target' => $target,
+            'report' => $report,
         ];
     }
 
@@ -277,12 +296,20 @@ class Woo_Write
     {
         $def = $plan['def'];
 
+        // A brand image given as a URL is fetched now, through the remote
+        // media guard, and recorded as its own undoable import.
+        $media_op = null;
+        if (null !== $def['taxonomy']) {
+            [ $plan['body'], $media_op ] = Brand_Ops::materialize_image($plan['body'], $session_id);
+        }
+        $extra = $plan['report'] + (null !== $media_op ? [ 'media_operation_id' => $media_op ] : []);
+
         if (null === $plan['target']) {
             $out = $this->dispatch->send($def['method'], $plan['route'], $plan['body']);
             return $this->result($plan, $out) + [
                 'recoverable' => false,
                 'undo_op'     => $def['undo_op'],
-            ];
+            ] + $extra;
         }
 
         $mutation = Safe_Mutation::run(
@@ -293,13 +320,15 @@ class Woo_Write
                 'tool_name'   => 'woo-write',
                 'args'        => [ 'op' => $plan['op'], 'route' => $plan['route'], 'params' => $plan['body'] ],
             ],
-            fn () => $this->dispatch->send($def['method'], $plan['route'], $plan['body'])
+            fn () => null !== $def['handler']
+                ? Brand_Ops::apply_assignment($def['handler'], (int) $plan['target']['object_id'], $plan['body']['brands'])
+                : $this->dispatch->send($def['method'], $plan['route'], $plan['body'])
         );
 
         return $this->result($plan, $mutation['result']) + [
             'operation_id' => $mutation['operation_id'],
             'recoverable'  => $def['recoverable'],
-        ];
+        ] + $extra;
     }
 
     /**
@@ -349,12 +378,29 @@ class Woo_Write
      * Resolve a row's snapshot strategy into a Safe_Mutation target, or a
      * structured error when it cannot be resolved (nothing is written then).
      *
-     * @param array{type: string, param?: string} $strategy
-     * @param array<string, mixed>                $params
+     * @param array{type: string, param?: string, create?: bool} $strategy
+     * @param array<string, mixed>                               $params
+     * @param array<string, mixed>                               $body     the body to dispatch (a create's derived slug)
      * @return array<string, mixed>
      */
-    private function snapshot_target(array $strategy, array $params): array
+    private function snapshot_target(array $strategy, array $params, array $body, ?string $taxonomy): array
     {
+        if ('term' === $strategy['type']) {
+            // Keyed by (taxonomy, slug), as create-term and delete-term are:
+            // a create's slug was derived before the write (Brand_Ops), an
+            // existing term's is read from the term itself.
+            if (! empty($strategy['create'])) {
+                $slug = (string) ($body['slug'] ?? '');
+            } else {
+                $term = get_term((int) ($params[ (string) ($strategy['param'] ?? '') ] ?? 0), (string) $taxonomy);
+                $slug = $term instanceof \WP_Term ? (string) $term->slug : '';
+            }
+            if ('' === $slug || null === $taxonomy) {
+                return Op_Guard::error('invalid_params', 'The term this op writes could not be resolved.');
+            }
+            return [ 'object_type' => 'term', 'object_id' => Snapshot::term_key($taxonomy, $slug) ];
+        }
+
         if ('wc_setting' === $strategy['type']) {
             $option = $this->setting_option((string) ($params['group_id'] ?? ''), (string) ($params['id'] ?? ''));
             if (null === $option) {

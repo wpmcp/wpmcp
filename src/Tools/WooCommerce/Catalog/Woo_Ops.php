@@ -11,7 +11,8 @@ if (! defined('ABSPATH')) {
  * lists every op with its mode (read, write, destructive), method, wc/v3
  * route template, required path params, the capability the dispatcher
  * checks before dispatch, whether it needs confirm:true, whether it is
- * switched on for this site, which snapshot type backs it and whether a
+ * switched on for this site (a row whose taxonomy is not registered, such
+ * as the brand ops on an older WooCommerce, reports false), which snapshot type backs it and whether a
  * rollback can fully undo it, plus a one-line summary, grouped by domain and
  * optionally filtered to one domain.
  * Read-only; touches nothing but the static catalog, so it answers even when
@@ -41,7 +42,8 @@ class Woo_Ops
                 'path_params'      => $def['path_params'],
                 'capability'       => $def['capability'],
                 'requires_confirm' => 'destructive' === $def['mode'],
-                'enabled'          => 'read' === $def['mode'] || Woo_Write::is_op_enabled($name, $def),
+                'enabled'          => Op_Guard::taxonomy_available($def)
+                    && ('read' === $def['mode'] || Woo_Write::is_op_enabled($name, $def)),
                 'snapshot'         => $def['snapshot']['type'] ?? null,
                 'recoverable'      => $def['recoverable'],
                 'summary'          => $def['summary'],
