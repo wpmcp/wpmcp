@@ -49,18 +49,31 @@ finishes a product or variation restore with a WooCommerce refresh
 and the lookup-driven sorting follow the restored values. This also fixes
 the same gap for `update-product` rollbacks.
 
-Remaining for phase 1:
+Phase 1 follow-up (this PR):
 
-- [ ] `create-variation` and `delete-variation` (delete behind an opt-in
-      filter plus `confirm`, like `delete-product`)
-- [ ] Bulk variation update with per-item outcome reporting
+- [x] `create-variation` and `delete-variation` (delete behind the
+      `wpmcp_enable_delete_variation` filter plus `confirm`). A delete is
+      always permanent (WooCommerce has no variation trash) and rolls back
+      through the `post` snapshot: `CreateDeleteVariationTest` asserts the
+      resurrected variation is attached to its parent and the parent's
+      children list and price range follow.
+- [x] `bulk-update-products`: up to 50 products or variations, each item
+      dispatched to update-product / update-variation with their rules and
+      re-checked against that ability's own gates, per-item outcome, one
+      session_id so rollback-session undoes the batch.
+- [x] `update-product` accepts `stock_status` (unmanaged stock, non-variable
+      products only) and rejects a null `stock_quantity`.
 - [ ] Product attribute / attribute-term tools (needed to create variable
       products end to end)
 
 ## Phase 2: coupons and customers
 
-- Coupons are `shop_coupon` posts: CRUD rides the `post` snapshot type.
-  Add validate-coupon (read) and usage stats.
+- [x] Coupons (this PR): list-coupons, get-coupon, create-coupon,
+  update-coupon, delete-coupon, validate-coupon. `shop_coupon` posts ride
+  the `post` snapshot type; `Rollback_Service` now also invalidates
+  WooCommerce's `coupons` cache group after restoring a coupon, so a
+  rolled-back code change resolves correctly at checkout.
+- [ ] Coupon usage stats, empty trash.
 - Customers: CRUD, purchase history, lifetime value. Customer rows are
   users + usermeta; scope whether the existing user snapshot covers them.
 
@@ -74,9 +87,13 @@ Remaining for phase 1:
 
 ## Phase 4: store config
 
-- Shipping zones/methods, tax classes/rates, payment gateway read/update,
-  webhooks, settings, system status. New snapshot types required for the
-  non-post objects (same pattern as `redirect` and `term`).
+- [x] Tax rates (this PR): list-tax-rates (with classes), create, update,
+  delete, on the new `wc_tax_rate` snapshot type (row plus postcode and
+  city locations; a deleted rate is resurrected at its original id).
+- [ ] Tax class CRUD.
+- [ ] Shipping zones/methods, payment gateway read/update, webhooks,
+  settings, system status. New snapshot types required for shipping zones
+  and webhooks (same pattern as `wc_tax_rate`).
 
 ## Phase 5: reports breadth
 

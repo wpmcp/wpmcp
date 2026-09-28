@@ -96,4 +96,58 @@ class UpdateProductTest extends \WP_UnitTestCase
         $this->expectException(\RuntimeException::class);
         (new Update_Product())->handle(['id' => 999999, 'regular_price' => '1.00']);
     }
+
+    public function test_stock_status_is_writable_while_stock_is_unmanaged_and_rolls_back(): void
+    {
+        if (! wpmcp_woocommerce_active()) {
+            $this->markTestSkipped('WooCommerce not active');
+        }
+
+        $id  = $this->product('20.00', 10);
+        $out = (new Update_Product())->handle([
+            'id'           => $id,
+            'manage_stock' => false,
+            'stock_status' => 'onbackorder',
+        ]);
+        $this->assertSame('onbackorder', $this->fresh($id)->get_stock_status());
+
+        (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+
+        $restored = $this->fresh($id);
+        $this->assertTrue($restored->get_manage_stock());
+        $this->assertSame(10, $restored->get_stock_quantity());
+        $this->assertSame('instock', $restored->get_stock_status());
+    }
+
+    public function test_stock_status_is_refused_where_woocommerce_would_overwrite_it(): void
+    {
+        if (! wpmcp_woocommerce_active()) {
+            $this->markTestSkipped('WooCommerce not active');
+        }
+
+        $id = $this->product('20.00', 10);
+        foreach (
+            [
+            ['stock_status' => 'outofstock'],
+            ['stock_status' => 'sold-out', 'manage_stock' => false],
+            ['stock_quantity' => null],
+            ] as $bad
+        ) {
+            try {
+                (new Update_Product())->handle(array_merge(['id' => $id], $bad));
+                $this->fail('Expected a refusal for ' . wp_json_encode($bad));
+            } catch (\InvalidArgumentException $e) {
+                $this->assertNotSame('', $e->getMessage());
+            }
+        }
+        $this->assertSame(10, $this->fresh($id)->get_stock_quantity());
+
+        $variable = new \WC_Product_Variable();
+        $variable->set_name('Parent');
+        $variable_id     = $variable->save();
+        $this->created[] = $variable_id;
+
+        $this->expectException(\InvalidArgumentException::class);
+        (new Update_Product())->handle(['id' => $variable_id, 'stock_status' => 'outofstock']);
+    }
 }

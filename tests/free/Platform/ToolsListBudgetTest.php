@@ -73,13 +73,20 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  include/exclude semantics stated once instead of on both conditions
      *  schemas, which brought it to 185172; the rest is the rule schema
      *  (type enum plus value) that create and update both need so an agent
-     *  can build a valid conditions object from tools/list alone. The widget
-     *  compiler (#72) fits under 186000 without a raise: compile-custom-widget
-     *  was trimmed from 569 characters (it keeps the opt-in filter and the
-     *  edit_files and DISALLOW_FILE_EDIT refusals), and the other widget
-     *  builder descriptions were tightened (186013 -> under budget). Compact
-     *  tool mode keeps clients with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 186000;
+     *  can build a valid conditions object from tools/list alone. Raised
+     *  186000 -> 195000 for the WooCommerce depth cluster (#195: variation
+     *  create and delete, bulk-update-products, six coupon tools, four
+     *  tax-rate tools): 194455 bytes over 349 tools after trimming their
+     *  descriptions, about 8.5KB for the 13 tools (the raise approved in
+     *  review, re-applied on the newer main). The coupon write
+     *  schemas are most of it: they list every writable field so an agent
+     *  can set limits and restrictions without a schema round trip. The widget
+     *  compiler (#72) adds compile-custom-widget, trimmed from 569 characters
+     *  (it keeps the opt-in filter and the edit_files and DISALLOW_FILE_EDIT
+     *  refusals), with the other widget builder descriptions tightened to
+     *  pay for it. Compact tool mode keeps clients with tool caps at ~2.8KB
+     *  regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 195000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
