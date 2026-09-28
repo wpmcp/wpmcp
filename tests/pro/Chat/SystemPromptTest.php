@@ -26,7 +26,7 @@ class SystemPromptTest extends \WP_UnitTestCase
         $this->assertStringContainsString('Safe_Mutation', $prompt);
         $this->assertStringContainsString('<site_context>', $prompt);
         $this->assertStringContainsString('Site Name: Standard Acme Site', $prompt);
-        $this->assertStringContainsString('Active User Identity: `chat:test_admin_user`', $prompt);
+        $this->assertStringContainsString('Active chat identity: wpmcp-chat', $prompt);
     }
 
     public function test_prompt_injection_via_site_title_is_sanitized(): void
