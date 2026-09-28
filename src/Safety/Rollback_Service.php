@@ -784,62 +784,72 @@ class Rollback_Service
         $operation = (string) ($data['operation'] ?? '');
         $set       = (array) ($data['set'] ?? []);
 
-        foreach ($rows as $row) {
-            $row = (array) $row;
+        // The restore is as raw a write as the operation it undoes, so the
+        // same caches are stale afterwards (issue #182): without the
+        // invalidation, get_option() and friends keep serving the value the
+        // rollback just overwrote. It runs in `finally` so that a
+        // Mutation_Failed on a later row still invalidates the rows already
+        // restored.
+        $attempted = [];
+        try {
+            foreach ($rows as $row) {
+                $row = (array) $row;
 
-            foreach (array_keys($row) as $column) {
-                if (! in_array((string) $column, $live_columns, true)) {
-                    throw new Mutation_Failed('Rollback refused: captured column "' . esc_html((string) $column) . '" is not a column of "' . esc_html($table) . '".');
+                foreach (array_keys($row) as $column) {
+                    if (! in_array((string) $column, $live_columns, true)) {
+                        throw new Mutation_Failed('Rollback refused: captured column "' . esc_html((string) $column) . '" is not a column of "' . esc_html($table) . '".');
+                    }
                 }
-            }
 
-            $where = [];
-            foreach ($primary_key as $column) {
-                if (! isset($row[ $column ])) {
-                    throw new Mutation_Failed('Rollback refused: a captured row is missing primary-key value "' . esc_html($column) . '".');
+                $where = [];
+                foreach ($primary_key as $column) {
+                    if (! isset($row[ $column ])) {
+                        throw new Mutation_Failed('Rollback refused: a captured row is missing primary-key value "' . esc_html($column) . '".');
+                    }
+                    $where[ $column ] = $row[ $column ];
                 }
-                $where[ $column ] = $row[ $column ];
-            }
 
-            $current = \WPMCP\Tools\Database\Database_Guard::before_image($table, $where, 1)[0] ?? null;
-            $pk_desc = self::describe_pk($where);
+                $current = \WPMCP\Tools\Database\Database_Guard::before_image($table, $where, 1)[0] ?? null;
+                $pk_desc = self::describe_pk($where);
 
-            if ('delete' === $operation) {
-                if (null !== $current) {
-                    self::warn("Row {$pk_desc} in \"{$table}\" was recreated after the delete; it was overwritten with the captured before-image.");
+                if ('delete' === $operation) {
+                    if (null !== $current) {
+                        self::warn("Row {$pk_desc} in \"{$table}\" was recreated after the delete; it was overwritten with the captured before-image.");
+                    }
+                } else {
+                    if (null === $current) {
+                        self::warn("Row {$pk_desc} in \"{$table}\" was deleted after the operation; the captured before-image was reinserted.");
+                    } elseif (! self::row_matches($current, array_merge($row, $set))) {
+                        self::warn("Row {$pk_desc} in \"{$table}\" changed after the operation; the captured before-image was restored over it.");
+                    }
                 }
-            } else {
+
+                // Recorded before the write: a write that fails part-way may
+                // still have changed the row, so it is invalidated too.
+                $attempted[] = $row;
+
                 if (null === $current) {
-                    self::warn("Row {$pk_desc} in \"{$table}\" was deleted after the operation; the captured before-image was reinserted.");
-                } elseif (! self::row_matches($current, array_merge($row, $set))) {
-                    self::warn("Row {$pk_desc} in \"{$table}\" changed after the operation; the captured before-image was restored over it.");
+                    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- reinserts a captured before-image row into the Database_Guard-validated table it was deleted from; no WP API covers raw table rows.
+                    if (false === $wpdb->insert($table, $row)) {
+                        throw new Mutation_Failed('Rollback failed to reinsert row ' . esc_html($pk_desc) . ' into "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'insert failed'));
+                    }
+                    continue;
+                }
+
+                $restore = array_diff_key($row, array_flip($primary_key));
+                if ([] === $restore) {
+                    continue; // PK-only table: existing row is already the before-image.
+                }
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- restores a captured before-image row in the Database_Guard-validated table; undo-critical write, no WP API covers raw table rows. Not cached: the object caches over this table are invalidated right after via Database_Guard::invalidate_caches().
+                if (false === $wpdb->update($table, $restore, $where)) {
+                    throw new Mutation_Failed('Rollback failed to restore row ' . esc_html($pk_desc) . ' in "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'update failed'));
                 }
             }
-
-            if (null === $current) {
-                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- reinserts a captured before-image row into the Database_Guard-validated table it was deleted from; no WP API covers raw table rows.
-                if (false === $wpdb->insert($table, $row)) {
-                    throw new Mutation_Failed('Rollback failed to reinsert row ' . esc_html($pk_desc) . ' into "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'insert failed'));
-                }
-                continue;
-            }
-
-            $restore = array_diff_key($row, array_flip($primary_key));
-            if ([] === $restore) {
-                continue; // PK-only table: existing row is already the before-image.
-            }
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- restores a captured before-image row in the Database_Guard-validated table; undo-critical write, no WP API covers raw table rows.
-            if (false === $wpdb->update($table, $restore, $where)) {
-                throw new Mutation_Failed('Rollback failed to restore row ' . esc_html($pk_desc) . ' in "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'update failed'));
+        } finally {
+            if ([] !== $attempted) {
+                Database_Guard::invalidate_caches($table, ['rows' => $attempted]);
             }
         }
-
-        // The restore is as raw a write as the operation it undoes, so the
-        // same caches are stale now (issue #182): without this, get_option()
-        // and friends keep serving the value the rollback just overwrote.
-        Database_Guard::invalidate_caches($table, [
-            'rows' => array_map(static fn($row) => (array) $row, $rows),
-        ]);
     }
 
     /**
@@ -1065,7 +1075,7 @@ class Rollback_Service
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Restoring a deleted term at its original id; no core API preserves term_id or term_taxonomy_id.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Restoring a deleted term at its original id; no core API preserves term_id or term_taxonomy_id. Not cached: clean_term_cache() runs once both rows are back.
         $wpdb->insert($wpdb->terms, [
             'term_id'    => $term_id,
             'name'       => (string) ($captured['name'] ?? ''),
@@ -1085,7 +1095,7 @@ class Rollback_Service
             $row['term_taxonomy_id'] = $term_taxonomy_id;
         }
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- See above; term_taxonomy_id is what wp_term_relationships joins on.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- See above; term_taxonomy_id is what wp_term_relationships joins on. clean_term_cache() below invalidates.
         $wpdb->insert($wpdb->term_taxonomy, $row);
 
         clean_term_cache([$term_id], $taxonomy);

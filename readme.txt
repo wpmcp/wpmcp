@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.17
+Stable tag: 0.8.20
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,20 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.20 =
+* New: upload-media adds a file to the Media Library straight from base64 bytes, for agents that hold the file itself rather than a URL. Supports title, alt text, caption and a parent post.
+* The file type is checked from the actual bytes against the site's allowed upload types, executables and SVG are refused, and the size is capped at the site upload limit (filterable with wpmcp_upload_media_max_bytes). Rolling the operation back deletes the upload and its files.
+
+= 0.8.19 =
+* Front-end redirects now read from the object cache instead of querying the database on every page view, and the cache refreshes automatically whenever a redirect is added, changed, removed or rolled back.
+* Rolling back a set of database rows now refreshes the cache for every row it restored, even when a later row fails.
+* Every remaining direct database query in the plugin now carries a documented reason, clearing the last WordPress coding standards warnings for direct and slow queries.
+
+= 0.8.18 =
+* The WooCommerce edition now ships the same WordPress.org-ready build as the main directory plugin, with no upgrade or licensing code in the package.
+* Fixed a fatal error at boot in the WooCommerce edition caused by a missing cloud client class.
+* The WooCommerce edition readme now discloses the optional cloud connection under External services.
 
 = 0.8.17 =
 * New: WooCommerce variations can be created and deleted, and up to 50 products or variations can be updated in one call, with the whole batch undoable as a single session.
@@ -186,6 +200,15 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.20 =
+New: upload-media adds a file to the Media Library straight from base64 bytes, for agents that hold the file itself rather than a URL. Supports title, alt text, caption and a parent post.
+
+= 0.8.19 =
+Front-end redirects now read from the object cache instead of querying the database on every page view, and the cache refreshes automatically whenever a redirect is added, changed, removed or rolled back.
+
+= 0.8.18 =
+The WooCommerce edition now ships the same WordPress.org-ready build as the main directory plugin, with no upgrade or licensing code in the package.
 
 = 0.8.17 =
 New: WooCommerce variations can be created and deleted, and up to 50 products or variations can be updated in one call, with the whole batch undoable as a single session.
