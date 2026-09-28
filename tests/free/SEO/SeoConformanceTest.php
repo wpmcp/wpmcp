@@ -27,14 +27,14 @@ use WPMCP\Tools\SEO\SEO_Adapter;
 class SeoConformanceTest extends \WP_UnitTestCase
 {
     /** Every plugin the adapter claims to write the neutral field set on. */
-    private const ADAPTERS = ['yoast', 'rankmath', 'seopress', 'seoframework', 'surerank'];
+    private const ADAPTERS = ['yoast', 'rankmath', 'seopress', 'seoframework', 'surerank', 'slimseo'];
 
     /**
      * Adapters whose plugin has no per-post focus keyword field at all. They
      * are expected to differ on that one field and only that one: the schema
      * still accepts it, the value simply has nowhere to go.
      */
-    private const NO_FOCUS_KEYWORD = ['seoframework', 'surerank'];
+    private const NO_FOCUS_KEYWORD = ['seoframework', 'surerank', 'slimseo'];
 
     private const INPUT = [
         'title'         => 'Conformance title',

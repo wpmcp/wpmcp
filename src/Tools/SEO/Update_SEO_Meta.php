@@ -17,8 +17,9 @@ if (! defined('ABSPATH')) {
  * with the existing object_type 'post' and the post id: the existing post
  * snapshot already captures the full postmeta map (including the active
  * plugin's SEO keys) before the mutation, and a rollback-operation restores
- * it exactly, through the same engine that already covers posts. No
- * SEO-specific snapshot logic is needed.
+ * it exactly, through the same engine that already covers posts. A plugin
+ * that keeps SEO in its own table (All in One SEO) snapshots that row
+ * instead ('aioseo_row'); SEO_Adapter::post_snapshot_target() decides.
  */
 class Update_SEO_Meta
 {
@@ -37,10 +38,12 @@ class Update_SEO_Meta
             throw new \InvalidArgumentException('At least one SEO field is required.');
         }
 
+        $snapshot = SEO_Adapter::post_snapshot_target($post_id);
+
         $out = Safe_Mutation::run(
             [
-                'object_type' => 'post',
-                'object_id'   => $post_id,
+                'object_type' => $snapshot['object_type'],
+                'object_id'   => $snapshot['object_id'],
                 'session_id'  => (string) ($args['session_id'] ?? 'default'),
                 'tool_name'   => 'update-seo-meta',
                 'args'        => $args,

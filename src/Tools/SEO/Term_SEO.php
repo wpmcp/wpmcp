@@ -27,6 +27,11 @@ if (! defined('ABSPATH')) {
  *   focus keyword on terms.
  * - The SEO Framework packs everything into one serialized term meta array,
  *   `autodescription-term-settings`, noindex/nofollow as 1. No focus keyword.
+ * - Slim SEO keeps the same `slim_seo` array it uses on posts in term meta
+ *   (title, description, canonical, noindex as 1). No focus keyword or
+ *   nofollow.
+ * - All in One SEO keeps a row per term in its `aioseo_terms` table, which
+ *   only the paid AIOSEO creates; without it terms answer "unsupported".
  * - SureRank's term storage is not mapped, so it answers "unsupported".
  *
  * A field the active plugin does not store on terms is reported in
@@ -96,6 +101,10 @@ class Term_SEO
                 return array_keys(self::SEOPRESS_KEYS);
             case 'seoframework':
                 return array_keys(self::SEOFRAMEWORK_KEYS);
+            case 'slimseo':
+                return ['title', 'description', 'canonical', 'noindex'];
+            case 'aioseo':
+                return Aioseo_Store::term_fields();
             default:
                 return [];
         }
@@ -221,18 +230,37 @@ class Term_SEO
                 }
                 update_term_meta($term_id, self::SEOFRAMEWORK_META, wp_slash($data));
                 return;
+
+            case 'slimseo':
+                $data = get_term_meta($term_id, SEO_Adapter::SLIM_SEO_META, true);
+                $data = SEO_Adapter::slim_seo_apply(is_array($data) ? $data : [], $fields);
+                if ([] === $data) {
+                    delete_term_meta($term_id, SEO_Adapter::SLIM_SEO_META);
+                    return;
+                }
+                update_term_meta($term_id, SEO_Adapter::SLIM_SEO_META, wp_slash($data));
+                return;
+
+            case 'aioseo':
+                Aioseo_Store::update_term($term_id, $fields);
+                return;
         }
     }
 
     /**
      * What Safe_Mutation must snapshot before a write to this term: its row
-     * inside the Yoast option (all term SEO lives there), or the term itself,
+     * in the AIOSEO terms table, its row inside the Yoast option (all term
+     * SEO lives there), or the term itself,
      * whose snapshot carries its full meta map and restores it exactly.
      *
      * @return array{object_type: string, object_id: string}
      */
     public static function snapshot_target(\WP_Term $term): array
     {
+        if ('aioseo' === SEO_Adapter::active_plugin()) {
+            return Aioseo_Store::snapshot_target('term', (int) $term->term_id);
+        }
+
         if ('yoast' === SEO_Adapter::active_plugin()) {
             // Only this term's row inside the shared option, so a rollback
             // cannot revert other terms' SEO edits made since.
@@ -295,6 +323,12 @@ class Term_SEO
                         : (is_scalar($value) ? (string) $value : '');
                 }
                 return $out;
+
+            case 'slimseo':
+                return SEO_Adapter::slim_seo_fields(get_term_meta($term_id, SEO_Adapter::SLIM_SEO_META, true));
+
+            case 'aioseo':
+                return Aioseo_Store::get_term($term_id);
         }
 
         return [];
