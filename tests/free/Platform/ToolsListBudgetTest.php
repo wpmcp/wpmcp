@@ -66,9 +66,16 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  #69): main itself measured 180308 bytes over 326 tools once #85 and #262
      *  had both landed, and the theme-read/theme-write pair adds about 820
      *  bytes that are almost all the shared dispatcher text, so no
-     *  theme-specific trim could make it fit. Compact tool mode keeps clients
-     *  with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 185000;
+     *  theme-specific trim could make it fit. Raised 185000 -> 186000 when
+     *  the theme-builder site parts (#70: create/list/resolve/update/
+     *  set-status/delete-site-part) met that main: 185484 bytes over 334
+     *  tools. The six site-part descriptions were trimmed first and the
+     *  include/exclude semantics stated once instead of on both conditions
+     *  schemas, which brought it to 185172; the rest is the rule schema
+     *  (type enum plus value) that create and update both need so an agent
+     *  can build a valid conditions object from tools/list alone. Compact
+     *  tool mode keeps clients with tool caps at ~2.8KB regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 186000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
