@@ -33,8 +33,10 @@ if (! defined('ABSPATH')) {
  *    (Block_Suite::refresh_after_restore on wpmcp_rollback_post_restored).
  *
  * list-patterns and import-pattern also reach the WordPress.org Pattern
- * Directory (source "directory", names "directory:<id>"), through the
- * guarded and cached client in Block_Suite_Pattern_Directory (issue #364).
+ * Directory (source "directory", names "directory:<id>") and Spectra's
+ * remote library (source "spectra", names "spectra:<id>"), through the
+ * guarded and cached clients in Block_Suite_Pattern_Directory and
+ * Block_Suite_Spectra_Library (issue #364).
  *
  * import-pattern inserts a registered pattern's blocks the same way, in one
  * snapshot, with two differences: attributes are not refused (a suite's own
@@ -153,11 +155,11 @@ final class Block_Suites_Integration extends Integration_Dispatcher
             'list-patterns'     => [
                 'mode'         => 'read',
                 'tier'         => 'pro',
-                'description'  => 'Browse registered block patterns (core, theme and suite): name, title, categories, the suites whose blocks each uses and its remote image count. Filter by suite, category or search (name or title); paged by limit and offset. source:"directory" browses the WordPress.org Pattern Directory instead (core blocks only, no suite filter, category is a directory slug, limit up to 100, cached an hour); its names are directory:<id>',
+                'description'  => 'Browse registered block patterns (core, theme and suite): name, title, categories, the suites whose blocks each uses and its remote image count. Filter by suite, category or search (name or title); paged by limit and offset. source:"directory" browses the WordPress.org Pattern Directory instead (core blocks only, no suite filter, category is a directory slug, limit up to 100, cached an hour); its names are directory:<id>. source:"spectra" browses Spectra\'s remote library while Spectra is active (free Gutenberg block patterns only, category is a library slug, limit up to 100, cached a day); its names are spectra:<id>',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
-                        'source'   => [ 'type' => 'string', 'enum' => [ 'registry', Block_Suite_Pattern_Directory::SOURCE ] ],
+                        'source'   => [ 'type' => 'string', 'enum' => [ 'registry', Block_Suite_Pattern_Directory::SOURCE, Block_Suite_Spectra_Library::SOURCE ] ],
                         'suite'    => $suite_prop,
                         'category' => [ 'type' => 'string' ],
                         'search'   => [ 'type' => 'string' ],
@@ -165,14 +167,14 @@ final class Block_Suites_Integration extends Integration_Dispatcher
                         'offset'   => [ 'type' => 'integer', 'minimum' => 0 ],
                     ],
                 ],
-                'validate'     => [ Block_Suite_Pattern_Directory::class, 'refuse_suite_filter' ],
+                'validate'     => [ Block_Suite_Patterns::class, 'refuse_remote' ],
                 'handler'      => [ Block_Suite_Patterns::class, 'list_patterns' ],
             ],
             'import-pattern'    => [
                 'mode'              => 'write',
                 'tier'              => 'pro',
                 'self_snapshotting' => true,
-                'description'       => 'Insert registered pattern name (or a directory:<id> from the Pattern Directory) AT path in post id (expected_hash from parse-blocks). Suite unique ids are made unique in the post as insert-block does. Remote images are sideloaded through the remote media host allowlist and their urls (and attachment ids) rewritten; others are kept and reported. sideload_images:false keeps all. One snapshot; rollback-operation restores the post (sideloaded media stays)',
+                'description'       => 'Insert registered pattern name (or a directory:<id> or spectra:<id> from list-patterns) AT path in post id (expected_hash from parse-blocks). Suite unique ids are made unique in the post as insert-block does. Remote images are sideloaded through the remote media host allowlist and their urls (and attachment ids) rewritten; others are kept and reported. sideload_images:false keeps all. One snapshot; rollback-operation restores the post (sideloaded media stays)',
                 'input_schema'      => [
                     'type'       => 'object',
                     'properties' => $location + [
@@ -348,7 +350,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
     }
 
     /**
-     * Insert a registered or Pattern Directory pattern's blocks at path in
+     * Insert a registered or remote pattern's blocks at path in
      * one snapshot: refuse a stale hash before anything is fetched and an
      * unknown pattern before anything is written, then
      * sideload its remote images, id its suite blocks, write, and refresh the
@@ -366,9 +368,8 @@ final class Block_Suites_Integration extends Integration_Dispatcher
         $content = Block_Suite_Patterns::content($name);
 
         $sideload = false !== ($args['sideload_images'] ?? true);
-        $images   = Block_Suite_Pattern_Directory::owns($name)
-            ? Block_Suite_Patterns::import_images($content, $post_id, $sideload, Block_Suite_Pattern_Directory::image_hosts(), 'wpmcp_pattern_directory_image_hosts')
-            : Block_Suite_Patterns::import_images($content, $post_id, $sideload);
+        [ $hosts, $filter ] = Block_Suite_Patterns::image_source($name);
+        $images             = Block_Suite_Patterns::import_images($content, $post_id, $sideload, $hosts, $filter);
         $media  = array_filter(array_column($images['images'], 'media_id'));
         try {
             $nodes = array_values(array_filter(

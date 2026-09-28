@@ -21,9 +21,10 @@ if (! defined('ABSPATH')) {
  * redirects, size caps and a byte-level image check. An image the guard
  * refuses is left at its URL and reported, never fetched another way.
  *
- * The WordPress.org Pattern Directory is a second source (issue #364):
- * list-patterns with source "directory" and "directory:<id>" names are
- * handed to Block_Suite_Pattern_Directory.
+ * Two remote sources sit beside the registry (issue #364): the WordPress.org
+ * Pattern Directory (source "directory", names "directory:<id>", handled by
+ * Block_Suite_Pattern_Directory) and Spectra's pattern library (source
+ * "spectra", names "spectra:<id>", handled by Block_Suite_Spectra_Library).
  */
 final class Block_Suite_Patterns
 {
@@ -38,6 +39,9 @@ final class Block_Suite_Patterns
     {
         if (Block_Suite_Pattern_Directory::SOURCE === ($args['source'] ?? '')) {
             return Block_Suite_Pattern_Directory::list_patterns($args);
+        }
+        if (Block_Suite_Spectra_Library::SOURCE === ($args['source'] ?? '')) {
+            return Block_Suite_Spectra_Library::list_patterns($args);
         }
 
         $suite    = (string) ($args['suite'] ?? '');
@@ -78,11 +82,20 @@ final class Block_Suite_Patterns
         ];
     }
 
-    /** A registered or Pattern Directory pattern's content, or an unknown_pattern refusal. */
+    /** Refuse, before any request, a list-patterns call a remote source cannot serve. */
+    public static function refuse_remote(array $args): ?array
+    {
+        return Block_Suite_Pattern_Directory::refuse_suite_filter($args) ?? Block_Suite_Spectra_Library::refuse($args);
+    }
+
+    /** A registered or remote pattern's content, or a refusal. */
     public static function content(string $name): string
     {
         if (Block_Suite_Pattern_Directory::owns($name)) {
             return Block_Suite_Pattern_Directory::content($name);
+        }
+        if (Block_Suite_Spectra_Library::owns($name)) {
+            return Block_Suite_Spectra_Library::content($name);
         }
         $pattern = \WP_Block_Patterns_Registry::get_instance()->get_registered($name);
         if (! $pattern) {
@@ -108,6 +121,23 @@ final class Block_Suite_Patterns
             }
         }
         return $suites;
+    }
+
+    /**
+     * The image hosts and the filter that extends them for a pattern name:
+     * a remote source's own list, or null for the remote media list.
+     *
+     * @return array{0:string[]|null,1:string}
+     */
+    public static function image_source(string $name): array
+    {
+        if (Block_Suite_Pattern_Directory::owns($name)) {
+            return [ Block_Suite_Pattern_Directory::image_hosts(), 'wpmcp_pattern_directory_image_hosts' ];
+        }
+        if (Block_Suite_Spectra_Library::owns($name)) {
+            return [ Block_Suite_Spectra_Library::image_hosts(), 'wpmcp_spectra_library_image_hosts' ];
+        }
+        return [ null, 'wpmcp_remote_media_allowed_hosts' ];
     }
 
     /**
