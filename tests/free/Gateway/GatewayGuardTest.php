@@ -158,11 +158,19 @@ class GatewayGuardTest extends \WP_UnitTestCase
         $client = Client_Store::create(['Some MCP Client'], ['https://example.test/cb'], 'dcr');
         $token  = Token_Store::issue($client['client_id'], $this->admin_id, 'openid');
 
-        wp_set_current_user($this->present($token, '/wp-json/wp/v2/users'));
+        // Every OAuth token is bound to the MCP endpoint (audience binding),
+        // so the guard's job is only to leave an ordinary token alone there:
+        // neither the early check nor the parse_request re-check may refuse it.
+        wp_set_current_user($this->present($token, '/wp-json/mcp/wpmcp-server'));
+        $this->assertSame($this->admin_id, get_current_user_id());
+        $this->assertNull(Identity_Context::current(), 'an ordinary token must not pick up a gateway identity');
+
+        $this->parse(['rest_route' => '/mcp/wpmcp-server']);
         $this->assertSame($this->admin_id, get_current_user_id());
 
-        $this->parse(['rest_route' => '/wp/v2/users']);
-        $this->assertSame($this->admin_id, get_current_user_id());
+        // Off the MCP endpoint the refusal is audience binding's, not the
+        // guard's, and it holds for ordinary tokens and gateway tokens alike.
+        $this->assertSame(0, $this->present($token, '/wp-json/wp/v2/users'));
     }
 
     // ------------------------------------------------------ identity binding

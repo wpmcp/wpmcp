@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Migration;
 
+use WPMCP\Tools\Backup\Safety_Archive;
 use WPMCP\Tools\Backup\Url_Rewriter;
 use WPMCP\Tools\Database\Database_Guard;
 
@@ -50,14 +51,16 @@ if (! defined('ABSPATH')) {
  * change per table (rows_matched, rows_skipped_object) without writing a
  * byte. Applying requires dry_run:false AND confirm:true.
  *
- * Recoverability: an applied pass is NOT snapshot-backed. The per-object
- * Safety\Snapshot model does not fit a full-DB rewrite, so the response
- * reports recoverable:false with a reason, every table write is recorded in
- * Database_Guard's audit log, and rollback-operation cannot undo it.
- * TODO(#191): snapshot-first. The definition of done requires the whole
- * pass to be recoverable: the apply path must first produce a database
- * backup archive (Backup\Trigger_Backup, type=database) and refuse to run
- * until that job completes.
+ * Snapshot first: the per-object Safety\Snapshot model does not fit a
+ * full-database rewrite, so an applied pass is preceded by a database-scope
+ * safety archive (Backup\Safety_Archive) and refuses to run when that
+ * archive cannot be produced. The response reports the archive's job id and
+ * how to restore it; restoring it puts every table back as it was. A caller
+ * that already holds such an archive (the migration receiver, which has
+ * just taken a pre-restore archive of the whole database) passes it as the
+ * recovery point instead of paying for a second dump. Every table write is
+ * also recorded in Database_Guard's audit log.
+ *
  * TODO(#191): time-bounded batching with a resumable cursor for very large
  * tables (currently the pass runs to completion within the request).
  */
@@ -65,7 +68,20 @@ class Rewrite_Site_Urls
 {
     private const BATCH_SIZE = 200;
 
-    public const RECOVERABLE_REASON = 'Not snapshot-backed: a site-wide rewrite of six core tables does not fit the per-object snapshot model; take a database backup (trigger-backup type=database) before applying. rollback-operation cannot undo this pass.';
+    public const SAFETY_PURPOSE = 'pre-rewrite safety archive';
+
+    /** @var callable|null Run_Backup_Job producer for the safety archive. */
+    private $safety_producer;
+
+    /**
+     * @param callable|null $safety_producer How the pre-rewrite safety
+     *        archive is produced; null builds a real database-scope archive.
+     *        Injectable for the same reason Run_Backup_Job's producer is.
+     */
+    public function __construct(?callable $safety_producer = null)
+    {
+        $this->safety_producer = $safety_producer;
+    }
 
     /**
      * Options this pass never rewrites. wpmcp_php_snippets (issue #85) holds
@@ -90,7 +106,13 @@ class Rewrite_Site_Urls
         'comments' => ['table' => 'comments', 'pk' => 'comment_ID', 'columns' => ['comment_content', 'comment_author_url']],
     ];
 
-    public function handle(array $args): array
+    /**
+     * @param array{job_id: int, file: string}|null $recovery_point A
+     *        whole-database archive the caller took immediately before this
+     *        call. Internal only: the ability passes one argument, so an MCP
+     *        caller always gets a fresh safety archive.
+     */
+    public function handle(array $args, ?array $recovery_point = null): array
     {
         $from_url = isset($args['from_url']) ? untrailingslashit((string) $args['from_url']) : '';
         $to_url   = isset($args['to_url']) ? untrailingslashit((string) $args['to_url']) : '';
@@ -127,6 +149,15 @@ class Rewrite_Site_Urls
         }
 
         global $wpdb;
+
+        // Snapshot first: every validation above has passed, nothing has
+        // been written, and nothing will be unless this archive exists.
+        $safety = null;
+        if (! $dry_run) {
+            $safety = null !== $recovery_point
+                ? ['job_id' => (int) $recovery_point['job_id'], 'file' => (string) $recovery_point['file']]
+                : Safety_Archive::take(self::SAFETY_PURPOSE, $this->safety_producer);
+        }
 
         $rewriter    = new Url_Rewriter();
         $report      = [];
@@ -166,9 +197,10 @@ class Rewrite_Site_Urls
             'tables'   => $report,
         ];
 
-        if (! $dry_run) {
-            $out['recoverable']        = false;
-            $out['recoverable_reason'] = self::RECOVERABLE_REASON;
+        if (null !== $safety) {
+            $out['recoverable']    = true;
+            $out['safety_archive'] = $safety;
+            $out['undo']           = Safety_Archive::undo_hint($safety['job_id']);
         }
 
         return $out;
@@ -214,7 +246,7 @@ class Rewrite_Site_Urls
         while (true) {
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table/column names come from the const map above, not input.
             $sql  = "SELECT `{$pk}`, {$col_list} FROM `{$table}` WHERE `{$pk}` > %d AND ({$where_any}){$exclude_sql} ORDER BY `{$pk}` ASC LIMIT %d";
-            // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- table/column names come from the const map above; every value is bound by prepare().
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, PluginCheck.Security.DirectDB.UnescapedDBParameter -- direct: no core API selects rows by a substring of their value across options/posts/postmeta/termmeta/usermeta/comments, and this is a keyset-paginated batch scan. Not cached: each batch must see the live rows it is about to rewrite, and every row is read once. Table/column names come from the const map above; every value is bound by prepare().
             $rows = $wpdb->get_results(
                 // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql is the literal-plus-const-map string built two lines above; every value is bound here.
                 $wpdb->prepare($sql, array_merge([$last], array_fill(0, count($columns), $like), $exclude_values, [self::BATCH_SIZE])),
@@ -272,6 +304,7 @@ class Rewrite_Site_Urls
                     continue;
                 }
 
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- direct: the rewritten value is already in its final stored form (serialized payloads re-encoded by Url_Rewriter), and update_option()/update_metadata() would run maybe_serialize() over it again and fire per-object hooks for a mechanical site-wide rewrite. Caches: handle() calls wp_cache_flush() once after the pass whenever any row changed.
                 $result = $wpdb->update($table, $updates, [ $pk => $row[ $pk ] ]);
                 if (false === $result) {
                     $failed++;

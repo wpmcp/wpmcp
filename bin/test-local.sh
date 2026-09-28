@@ -8,11 +8,17 @@
 #   1. Starts a private MariaDB server under the cache directory, if one is not
 #      already running. It never touches a system MySQL or MariaDB.
 #   2. Installs WordPress, its test library and the pinned test plugins once per
-#      WordPress version into the cache, and reinstalls them only when
-#      bin/install-wp-tests.sh or bin/install-test-plugins.sh changes.
+#      WordPress version into the cache. The install directory is keyed on a
+#      hash of bin/install-wp-tests.sh and bin/install-test-plugins.sh, so a
+#      branch that edits either script gets its own install instead of wiping
+#      one that other worktrees are running against. Stale installs are left
+#      behind; delete wp-* under the cache when nothing is running.
 #   3. Gives this checkout its own database, so worktrees can run side by side.
 #   4. Runs composer lint, composer drift:check, then the suite. The default
 #      leg also enforces the coverage floor when pcov is loaded.
+#   5. Runs the live forms group (issue #66): the Contact Form 7 adapter
+#      against a real Contact Form 7 and Flamingo, on a separate install,
+#      because the harness doubles stand down once the real classes load.
 #
 # MariaDB, not MySQL: the WordPress harness turns every CREATE TABLE into a
 # TEMPORARY table, and WooCommerce's order-sync query reads one of them twice
@@ -24,6 +30,7 @@
 #   bin/test-local.sh --all           the same, then the suite on every other WordPress below
 #   bin/test-local.sh --wp 6.9        the suite on one WordPress version
 #   bin/test-local.sh --no-coverage   skip the coverage run and floor
+#   bin/test-local.sh --live-forms    only the live forms group (real Contact Form 7 + Flamingo)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments; skips lint, drift and coverage
 #   bin/test-local.sh --stop-db       stop the private MariaDB server and exit
 #
@@ -62,6 +69,7 @@ die() { printf '\033[31m[test-local]\033[0m %s\n' "$*" >&2; exit 1; }
 
 run_all=false
 only_wp=""
+only_live_forms=false
 coverage=true
 phpunit_args=()
 while [ $# -gt 0 ]; do
@@ -69,6 +77,7 @@ while [ $# -gt 0 ]; do
 		--all) run_all=true ;;
 		--wp) shift; only_wp=${1:-}; [ -n "$only_wp" ] || die "--wp needs a version" ;;
 		--no-coverage) coverage=false ;;
+		--live-forms) only_live_forms=true ;;
 		--stop-db) stop_db=true ;;
 		--) shift; phpunit_args=("$@"); break ;;
 		-h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
@@ -185,6 +194,9 @@ start_db_locked() {
 install_wp() {
 	local version=$1 flavor="" dir hash
 	[ "${ELEMENTOR_VERSION:-}" = latest ] && flavor="-elementor-latest"
+	# WPMCP_LIVE_FORMS=1 makes bin/install-test-plugins.sh install Contact
+	# Form 7 and Flamingo INSTEAD of the usual set, so it gets its own install.
+	[ "${WPMCP_LIVE_FORMS:-}" = 1 ] && flavor="-forms-live"
 	# The installers' hash is part of the directory, not a stamp inside it:
 	# branches carrying different installers (a moved plugin pin, say) get
 	# separate installs, so one run never deletes an install another run is
@@ -223,8 +235,12 @@ install_wp_locked() {
 checkout_core() {
 	local dir=$1 core
 	[ -f "$dir/pristine/wp-load.php" ] || with_lock "pristine-$(basename "$dir")" make_pristine "$dir"
-	core="$CACHE/cores/$(printf '%s|%s' "$ROOT" "$dir" | shasum | cut -c1-12)"
+	# Per run, not per checkout: two runs started in the same worktree must not
+	# share a core either. The copy is removed when the run exits, and copies
+	# left by killed runs are pruned after a day.
+	core="$CACHE/cores/$(printf '%s|%s' "$ROOT" "$dir" | shasum | cut -c1-12)-$$"
 	mkdir -p "$CACHE/cores"
+	find "$CACHE/cores" -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 	rm -rf "$core"
 	cp -cR "$dir/pristine" "$core" 2>/dev/null || cp -R "$dir/pristine" "$core"
 	echo "$core"
@@ -248,7 +264,9 @@ make_pristine() {
 # pointing at it. The name hashes the checkout path, so each worktree gets its own.
 db_config() {
 	local dir=$1 version=$2 core=$3 name config
-	name="wpmcp_test_$(printf '%s|%s' "$ROOT" "$version" | shasum | cut -c1-12)"
+	# Per run: parallel runs, even in one checkout, never share a database or
+	# a config. Both are removed when the run exits.
+	name="wpmcp_test_$(printf '%s|%s' "$ROOT" "$version" | shasum | cut -c1-12)_$$"
 	"$BIN/mariadb" --no-defaults --socket="$SOCK" -uroot -e "CREATE DATABASE IF NOT EXISTS \`$name\`"
 	mkdir -p "$CACHE/configs"
 	config="$CACHE/configs/$name.php"
@@ -270,7 +288,9 @@ run_suite() {
 	local version=$1 with_coverage=$2 dir core config
 	dir=$(install_wp "$version")
 	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
 	config=$(db_config "$dir" "$version" "$core")
+	RUN_CONFIGS+=("$config")
 	say "PHPUnit on WordPress $version${ELEMENTOR_VERSION:+ (Elementor $ELEMENTOR_VERSION)}"
 	local args=("${phpunit_args[@]+"${phpunit_args[@]}"}")
 	if [ "$with_coverage" = true ]; then
@@ -285,7 +305,35 @@ run_suite() {
 	fi
 }
 
+# The live forms group (issue #66) on its own install and database. It runs
+# with --fail-on-skipped: the test skips itself when the real plugins are
+# missing, and a skip here would mean the check never ran.
+run_live_forms() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_FORMS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	config=$(db_config "$dir" "$version-forms-live" "$core")
+	say "PHPUnit live forms group on WordPress $version (real Contact Form 7 + Flamingo)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group forms-live --fail-on-skipped
+	unset WPMCP_LIVE_FORMS
+}
+
 cd "$ROOT"
+
+RUN_CORES=()
+RUN_CONFIGS=()
+cleanup_run() {
+	local c db
+	for c in "${RUN_CORES[@]+"${RUN_CORES[@]}"}"; do rm -rf "$c"; done
+	for c in "${RUN_CONFIGS[@]+"${RUN_CONFIGS[@]}"}"; do
+		db=$(basename "$c" .php)
+		"$BIN/mariadb" --no-defaults --socket="$SOCK" -uroot -e "DROP DATABASE IF EXISTS \`$db\`" 2>/dev/null || true
+		rm -f "$c"
+	done
+}
+trap cleanup_run EXIT
 
 # Point git at the versioned hooks, so the pre-push gate is on in every
 # worktree of this clone once anyone has run the suite.
@@ -325,7 +373,9 @@ if [ "$coverage" = true ] && [ "$targeted" = false ]; then
 	fi
 fi
 
-if [ -n "$only_wp" ]; then
+if [ "$only_live_forms" = true ]; then
+	run_live_forms "${only_wp:-$default_wp}"
+elif [ -n "$only_wp" ]; then
 	run_suite "$only_wp" false
 else
 	run_suite "$default_wp" "$want_coverage"
@@ -334,6 +384,7 @@ else
 			run_suite "$version" false
 		done
 	fi
+	[ "$targeted" = true ] || run_live_forms "$default_wp"
 fi
 
 say "All green."

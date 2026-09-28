@@ -42,22 +42,44 @@ class Identity_Store
      */
     public static function create(string $name, array $fields): array
     {
-        $exposure = $fields['exposure'] ?? '';
-
-        $record = [
-            'name'       => $name,
-            'domains'    => array_values(array_map('strval', $fields['domains'] ?? [])),
-            'operations' => array_values(array_map('strval', $fields['operations'] ?? [])),
-            'abilities'  => array_values(array_map('strval', $fields['abilities'] ?? [])),
-            'mode'       => 'deny' === ($fields['mode'] ?? 'allow') ? 'deny' : 'allow',
-            'exposure'   => in_array($exposure, ['full', 'compact'], true) ? $exposure : '',
-        ];
+        $record = self::normalize($name, $fields);
 
         $stored          = self::load();
         $stored[ $name ] = $record;
         self::save($stored);
 
         return $record;
+    }
+
+    /**
+     * The canonical identity record for $name built from $fields: exactly the
+     * six fields Governance and Tool_Exposure read, and nothing else. Shared
+     * by create() and Cloud\Settings_Sync (issue #135) so a record written
+     * here and one arriving from another site cannot drift in shape. Unknown
+     * fields are dropped, scope lists keep their scalar entries as strings,
+     * and mode/exposure fall back to their defaults when not recognized.
+     *
+     * @param string|int $name Identity names are option-map keys, and PHP
+     *                         turns a digits-only key into an int.
+     */
+    public static function normalize($name, array $fields): array
+    {
+        $list = static function ($items): array {
+            if (! is_array($items)) {
+                return [];
+            }
+            return array_values(array_map('strval', array_filter($items, 'is_scalar')));
+        };
+        $exposure = $fields['exposure'] ?? '';
+
+        return [
+            'name'       => (string) $name,
+            'domains'    => $list($fields['domains'] ?? []),
+            'operations' => $list($fields['operations'] ?? []),
+            'abilities'  => $list($fields['abilities'] ?? []),
+            'mode'       => 'deny' === ($fields['mode'] ?? 'allow') ? 'deny' : 'allow',
+            'exposure'   => in_array($exposure, ['full', 'compact'], true) ? $exposure : '',
+        ];
     }
 
     /** Fetch an identity by name, or null if it does not exist. */

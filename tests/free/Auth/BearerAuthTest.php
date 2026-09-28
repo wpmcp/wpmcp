@@ -23,12 +23,19 @@ use WPMCP\Governance\Governance_Audit_Log;
  */
 class BearerAuthTest extends \WP_UnitTestCase
 {
+    private $original_request_uri;
+
     protected function setUp(): void
     {
         parent::setUp();
         delete_option(Token_Store::OPTION);
         delete_option(Governance_Audit_Log::OPTION);
         unset($_SERVER['HTTP_AUTHORIZATION']);
+        $this->original_request_uri = $_SERVER['REQUEST_URI'] ?? null;
+        // Tokens are honoured only on requests to the MCP endpoint they are
+        // bound to (AudienceBindingTest covers every other route), so these
+        // tests present them the way a real MCP client does.
+        $_SERVER['REQUEST_URI'] = '/wp-json/mcp/wpmcp-server';
     }
 
     protected function tearDown(): void
@@ -36,6 +43,11 @@ class BearerAuthTest extends \WP_UnitTestCase
         delete_option(Token_Store::OPTION);
         delete_option(Governance_Audit_Log::OPTION);
         unset($_SERVER['HTTP_AUTHORIZATION']);
+        if (null === $this->original_request_uri) {
+            unset($_SERVER['REQUEST_URI']);
+        } else {
+            $_SERVER['REQUEST_URI'] = $this->original_request_uri;
+        }
         remove_all_filters('wpmcp_oauth_enabled');
         remove_all_filters('wpmcp_bearer_token_accepted');
         Bearer_Auth::reset_for_tests();

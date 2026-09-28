@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Build the wp.org vertical zip: dist/wpmcp-for-woocommerce-<version>.zip
 #
-# Same tree as the full plugin, flavor-gated at runtime (WPMCP_FLAVOR in the
-# main file, see Plugin::FLAVOR_GROUPS) and pruned at build time. The prune
-# list here MUST stay in sync with the 'woocommerce' whitelist in Plugin.php:
-# every excluded group's files leave the zip, and the two remote-execution
-# call sites (eval in Php_Snippet_Runner, proc_open in Wp_Cli_Executor) must
-# never ship in this build at all.
+# Same tree as the directory cut, flavor-gated at runtime (WPMCP_FLAVOR in the
+# main file, see Plugin::FLAVOR_GROUPS) and pruned at build time. Guideline 5
+# applies to this zip exactly as it does to the directory cut, so the paid
+# tier is removed by the same strip (scripts/flavors/wporg/strip.php and its
+# shared policy.php, issue #257); scripts/flavors/woocommerce/manifest.php
+# then prunes the groups this flavor never registers. That manifest MUST stay
+# in sync with the 'woocommerce' whitelist in Plugin.php, and the two
+# remote-execution call sites (eval in Php_Snippet_Runner, proc_open in
+# Wp_Cli_Executor) must never ship in this build at all.
 #
 # Read that whitelist narrowly: it gates ONLY the deferred group callbacks in
 # the $groups map at the end of Plugin::register_abilities(). Everything
@@ -40,15 +43,14 @@ sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/readme.txt" > 
 # Name gate. This build stages its own header/readme pair out of
 # scripts/flavors/woocommerce/, so neither the source-tree compliance run
 # (which reads the root main file) nor build-wporg-release.sh's engine run can
-# see it. The whole engine cannot run here yet (the vertical still carries the
-# paid-state gating the wporg build strips), so this runs the two rules that
-# cover the name against the staged tree, via the same classes
-# tools/compliance/bin/compliance.php loads: the header/readme parse comes from
-# the engine and Trademark_Rule is the rule WPORG-17-TRADEMARK enforces, with
-# nothing re-implemented in shell. A header/title mismatch ships as Plugin
-# Check's mismatched_plugin_name; a restricted term in the name or slug is
-# its Trademarks_Check. Tag findings are left to ReleaseHeadersTest, which
-# knows the for-use exception for the "woocommerce" tag.
+# see it. The whole engine runs over the extracted zip at the end; this runs
+# the two rules that cover the name first, against the staged tree, so a
+# naming mistake fails before the composer steps: the header/readme parse
+# comes from the engine and Trademark_Rule is the rule WPORG-17-TRADEMARK
+# enforces, with nothing re-implemented in shell. A header/title mismatch
+# ships as Plugin Check's mismatched_plugin_name; a restricted term in the
+# name or slug is its Trademarks_Check. Tag findings are left to the engine
+# run at the end and to ReleaseHeadersTest.
 php -r '
 require $argv[2] . "/vendor/autoload.php";
 $context = WPMCP\Compliance\Rule_Context::for_path($argv[1], WPMCP\Compliance\Profile::wporg_free());
@@ -75,119 +77,71 @@ foreach ((new WPMCP\Compliance\Rules\Trademark_Rule())->check($context) as $find
 if ($errors) { fwrite(STDERR, implode("\n", $errors) . "\n"); exit(1); }
 ' "$STAGE" "$ROOT" || { echo "ERROR: the staged $SLUG name fails the WPORG-17-TRADEMARK / mismatched_plugin_name gate" >&2; exit 1; }
 
-# Prune the domains the 'woocommerce' flavor never registers.
-rm -rf \
-  "$STAGE/src/Tools/Elementor" \
-  "$STAGE/src/Tools/ACF" \
-  "$STAGE/src/Tools/I18n" \
-  "$STAGE/src/Tools/Rest" \
-  "$STAGE/src/Tools/Analytics" \
-  "$STAGE/src/Tools/Multisite" \
-  "$STAGE/src/Tools/Dispatch" \
-  "$STAGE/src/Tools/Bridge" \
-  "$STAGE/src/Tools/WidgetBuilder" \
-  "$STAGE/src/Tools/BlockBuilder" \
-  "$STAGE/src/Tools/Cloud" \
-  "$STAGE/src/Tools/Search" \
-  "$STAGE/src/Cloud" \
-  "$STAGE/src/Tools/Memory" \
-  "$STAGE/src/Tools/Sync" \
-  "$STAGE/src/Integrations"
-
-# src/Tools/Builders is NOT removed by path, for the same reason the wp.org
-# strip stopped removing it: Builder_Detector is a plain postmeta reader with
-# no paid gating in it, and a kept group reads through it (the free
-# get-page-snapshot in the 'context' group, issue #81). Removing the
-# directory whole left get-page-snapshot registered in this zip and fatal
-# with a class-not-found on its first call. The paid part is the ability
-# wrappers, which go below along with the content readers that only those
-# wrappers and the pruned search index use.
-rm -f \
-  "$STAGE/src/Tools/Builders/Detect_Builder.php" \
-  "$STAGE/src/Tools/Builders/Get_Builder_Content.php" \
-  "$STAGE/src/Tools/Builders/Update_Builder_Content.php" \
-  "$STAGE/src/Tools/Builders/Bricks_Content.php" \
-  "$STAGE/src/Tools/Builders/Divi_Content.php"
-
+# The shared wp.org strip, then this flavor's manifest. The strip removes the
+# paid tier (src/Pro, src/Freemius, every paid predicate and pro-tier
+# registration, the pay-to-unlock copy) and the execution call sites with
+# count-validated exact-string edits that fail the build when upstream code
+# moves; the manifest removes the ability groups this flavor never registers.
+#
 # NOTE: src/Memory and src/Admin/Memory_Page.php deliberately STAY. The three
-# agent-facing memory tools are dropped with the group above, but published
+# agent-facing memory tools leave with the shared strip, but published
 # guardrails are enforced in Registrar::is_permitted() on every build, and the
 # handshake reads the approved entries; those call sites are unconditional, so
 # the store must ship. With the group off the post type is never registered
 # and Memory_Store::block_rules() short-circuits to an empty rule set.
-
-# Guarded-execution: the guards stay (Governance\Opt_In_Gates references
-# them), the runners and their call sites do not.
 #
-# Php_Snippet_Store.php deliberately STAYS, for the same reason the guards
-# do. It is a pure option store with no validation, no capability check and
-# no execution, and src/Safety/Snapshot.php and src/Safety/Rollback_Service.php
-# name it unconditionally from the always-loaded safety core. Dropping it
-# built green and fataled at runtime on any pre-existing php_snippet snapshot
-# row: wp_wpmcp_snapshots survives a site swapping the full plugin for this
-# flavor. Gate 4 below now catches that class of mistake instead of trusting
-# this list.
-#
-# Deactivate_Php_Snippet goes with the rest of the snippet tools, unlike the
-# wp.org build which keeps it. This flavor drops the whole 'code' ability
-# group at runtime (Plugin::FLAVOR_GROUPS), so the class would ship with no
-# registration path into it. A leftover 'active' flag here is inert: no
-# executor ships, and rollback always restores a snippet inactive.
-rm -f \
-  "$STAGE/src/Tools/Cli/Run_Wp_Cli.php" \
-  "$STAGE/src/Tools/Cli/Wp_Cli_Executor.php" \
-  "$STAGE/src/Tools/Code/Run_Php_Snippet.php" \
-  "$STAGE/src/Tools/Code/Php_Snippet_Runner.php" \
-  "$STAGE/src/Tools/Code/Php_Snippet_Validator.php" \
-  "$STAGE/src/Tools/Code/Validate_Php_Snippet.php" \
-  "$STAGE/src/Tools/Code/Create_Php_Snippet.php" \
-  "$STAGE/src/Tools/Code/List_Php_Snippets.php" \
-  "$STAGE/src/Tools/Code/Get_Php_Snippet.php" \
-  "$STAGE/src/Tools/Code/Update_Php_Snippet.php" \
-  "$STAGE/src/Tools/Code/Delete_Php_Snippet.php" \
-  "$STAGE/src/Tools/Code/Activate_Php_Snippet.php" \
-  "$STAGE/src/Tools/Code/Deactivate_Php_Snippet.php"
+# src/Cloud stays for the same reason it stays in the directory cut: it is a
+# plain HTTP seam with no paid gating, and Admin\Announcements, which boots
+# unconditionally, constructs a Cloud_Client.
+php "$ROOT/scripts/flavors/wporg/strip.php" "$STAGE" "$ROOT/scripts/flavors/woocommerce/manifest.php"
 
-# This build never calls Freemius (free-only, no license checks needed;
-# Pro\Gate fails closed without the SDK).
+# A textual transform that produces an unparsable file must never reach a zip,
+# so the stage is linted after every transform (the strip here, the
+# text-domain rewrite below), the way build-wporg-release.sh does.
+lint_stage() {
+  local file
+  while IFS= read -r file; do
+    php -l "$file" > /dev/null || { echo "ERROR: syntax error in $file $1" >&2; exit 1; }
+  done < <(find "$STAGE/src" "$STAGE/$SLUG.php" -name '*.php')
+}
+lint_stage "after the strip"
+
+# The free-tier invariants the directory cut is held to, re-derived from this
+# stage by the same script build-wporg-release.sh runs (registrar names no
+# tier, every Ability literally 'free', no licence-gating prose, no withheld
+# registration method referenced, no orphaned register_* method). No ability
+# manifest is passed: tests/support/ability-manifest.php pins the full
+# surface, and this flavor drops whole groups by design, so its "no free
+# ability went missing" half does not apply here.
+php "$ROOT/scripts/flavors/wporg/assert-free-tier.php" "$STAGE" \
+  || { echo "ERROR: the $SLUG build fails the free-tier invariants" >&2; exit 1; }
+
+# The licensing SDK leaves composer.json too, not just vendor/. Plugin Check's
+# File_Type_Check errors on a vendor/ directory with no composer.json beside
+# it, so the pruned manifest ships, as it does in the directory cut; the lock
+# file does not (it is a development artifact).
 composer install --working-dir="$STAGE" --no-dev --optimize-autoloader --quiet --no-interaction
 composer remove freemius/wordpress-sdk --working-dir="$STAGE" --update-no-dev --quiet --no-interaction
 composer dump-autoload --working-dir="$STAGE" --optimize --quiet --no-interaction
-rm -f "$STAGE/composer.json" "$STAGE/composer.lock"
-
-# wp.org's text-domain sniff wants the i18n domain to match the slug. Two
-# forms occur: the domain inline as the last argument, and the domain alone
-# on its own line as the last argument of a wrapped i18n call. The second
-# form is matched by "own line, no trailing comma", which is what separates
-# it from the admin menu slug argument (src/Plugin.php), also the literal
-# 'wpmcp' but always followed by a comma. The menu slug is deliberately left
-# alone: it is a WordPress-derived identifier that screen ids are built from
-# (see Admin/Announcements.php), so rewriting it breaks those lookups.
-#
-# src/flavor-guard.php is excluded. It carries no i18n call (the stand-down
-# notice lives in the main file, which is staged from scripts/flavors/ with
-# the right domain already), but it does compare active plugin basenames
-# against the literal 'wpmcp' as a filename prefix, and that argument matches
-# the first sed form. Rewriting it to '$SLUG' made the guard skip every
-# sibling named wpmcp.php, so the vertical never deferred to the full plugin
-# and the full plugin was the one that stood down. The gate below pins the
-# shipped guard to the source tree byte for byte.
-# In-place sed differs between BSD (macOS, needs the empty suffix argument)
-# and GNU (CI's ubuntu, where '' would be read as the script).
-if sed --version >/dev/null 2>&1; then SED_INPLACE=(sed -i); else SED_INPLACE=(sed -i ''); fi
-find "$STAGE/src" -name '*.php' -not -name 'flavor-guard.php' -exec "${SED_INPLACE[@]}" \
-  "s/, 'wpmcp' )/, '$SLUG' )/g; s/, 'wpmcp')/, '$SLUG')/g; s/^\([[:space:]]*\)'wpmcp'$/\1'$SLUG'/" {} +
-
-# Belt and braces: fail the build if any i18n call kept the 'wpmcp' domain.
-# The two seds above are line-based, so a future call wrapped differently
-# would silently ship the wrong domain and fail the wp.org sniff instead.
-LEFTOVER_DOMAIN="$(grep -rn --include='*.php' --exclude='flavor-guard.php' -E \
-  "(^[[:space:]]*'wpmcp'[[:space:]]*$)|(, ?'wpmcp' ?\))" "$STAGE/src" || true)"
-if [ -n "$LEFTOVER_DOMAIN" ]; then
-  echo "ERROR: 'wpmcp' text domain survived the rewrite in the $SLUG build:" >&2
-  echo "$LEFTOVER_DOMAIN" >&2
-  exit 1
+rm -f "$STAGE/composer.lock"
+if [ -d "$STAGE/vendor/freemius" ]; then
+  echo "ERROR: the licensing SDK is still vendored in the $SLUG build" >&2; exit 1
 fi
+if grep -q 'freemius' "$STAGE/composer.json"; then
+  echo "ERROR: the $SLUG build's composer.json still requires the licensing SDK" >&2; exit 1
+fi
+
+# wp.org's text-domain sniff wants the i18n domain to match the slug. The
+# rewrite, its two matched forms, why the admin menu slug and
+# src/flavor-guard.php are left alone, and the leftover check that fails the
+# build are all in scripts/flavors/woocommerce/text-domain.php, which
+# FlavorBuildBlockersTest runs too so the pinned tree is the built one.
+php "$ROOT/scripts/flavors/woocommerce/text-domain.php" "$STAGE" "$SLUG" \
+  || { echo "ERROR: the text-domain rewrite failed in the $SLUG build" >&2; exit 1; }
+
+# Lint again: the rewrite is the second textual transform over src/, and an
+# unparsable file must not reach the zip whichever transform produced it.
+lint_stage "after the text-domain rewrite"
 
 # Coexistence with the full plugin is handled at bootstrap, not by rewriting
 # identifiers. src/flavor-guard.php ranks the active WP MCP builds by the
@@ -250,6 +204,16 @@ case "$gate_status" in
   *) echo "ERROR: the exec gate failed unexpectedly (exit $gate_status)" >&2; exit 1 ;;
 esac
 
+# Belt and braces: fail the build if the prune list left a dangling
+# inheritance edge. The flavor gate is a RUNTIME check, so a class that a
+# still-registered group instantiates (register_woocommerce_abilities, say)
+# fatals with "Class not found" the moment it is autoloaded, and nothing
+# catches that. Lazy `use` imports are fine and stay quiet; only extends /
+# implements edges are checked. See the script header for the issue #68 case
+# this exists to prevent.
+php "$ROOT/scripts/lib/check-dangling-inheritance.php" "$STAGE/src" \
+  || { echo "ERROR: dangling inheritance edge to a pruned domain in the $SLUG build" >&2; exit 1; }
+
 # Every WPMCP class the ALWAYS-LOADED SAFETY CORE names must still exist.
 # Scoped to src/Safety on purpose: unlike the wp.org build, this one does not
 # rewrite Plugin.php, it gates at runtime through Plugin::FLAVOR_GROUPS, so
@@ -275,20 +239,13 @@ rm -f "$ZIP"
 # this gate since it was written; this build is a wp.org submission too, and
 # without it nothing ever checked the woocommerce artifact. It is what catches
 # a missing or unrecognised ABSPATH guard (issue #170) in the shipped bytes.
-#
-# Scoped to the network, code and security packs. This flavor still gates the
-# paid tier at runtime (Pro\Gate, the Freemius bootstrap, the pro-tier
-# registrations) instead of stripping it the way build-wporg-release.sh does,
-# so the licensing, listing and packaging packs report the same findings
-# issues #158 to #165 fix for the directory build. Widen the pack list once
-# scripts/flavors/wporg/strip.php's policy is applied to this stage too.
+# Every pack runs, the same as for the directory cut (issue #257).
 BUILD_DIR="$ROOT/build/woocommerce"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 unzip -q "$ZIP" -d "$BUILD_DIR"
 php "$ROOT/tools/compliance/bin/compliance.php" \
   --profile=wporg-free --artifact --path="$BUILD_DIR/$SLUG" \
-  --pack=network,code,security \
   || { echo "ERROR: the compliance engine found blockers in $ZIP" >&2; exit 1; }
 # The execution files themselves are absent from the artifact, checked on the
 # zip listing rather than on the staging directory: the rm list, the staging

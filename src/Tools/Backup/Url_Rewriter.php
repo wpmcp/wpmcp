@@ -85,6 +85,32 @@ class Url_Rewriter
             return $value;
         }
 
+        return $this->transform(
+            $value,
+            static fn (string $leaf): string => strtr($leaf, $map),
+            true,
+            $depth
+        );
+    }
+
+    /**
+     * Walk $value exactly as the URL rewrite does (arrays, nested
+     * PHP-serialized strings, object refusal, depth bound) and hand every
+     * leaf string to $leaf. The serialization-safe core shared by the URL
+     * rewrite and content find-and-replace, so there is one implementation
+     * of the part that corrupts data when it is wrong.
+     *
+     * $keys controls whether string array keys are passed through $leaf
+     * too. The URL rewrite does (a URL used as a map key is still a URL);
+     * a free-text replace does not, because code reads those keys back by
+     * name.
+     *
+     * @param mixed                   $value
+     * @param callable(string):string $leaf
+     * @return mixed The transformed value, of the same shape as the input.
+     */
+    public function transform($value, callable $leaf, bool $keys = true, int $depth = 0)
+    {
         if ($depth > self::MAX_DEPTH) {
             return $value;
         }
@@ -92,8 +118,8 @@ class Url_Rewriter
         if (is_array($value)) {
             $out = [];
             foreach ($value as $key => $item) {
-                $new_key         = is_string($key) ? $this->rewrite_map($key, $map, $depth + 1) : $key;
-                $out[ $new_key ] = $this->rewrite_map($item, $map, $depth + 1);
+                $new_key         = ($keys && is_string($key)) ? $this->transform($key, $leaf, $keys, $depth + 1) : $key;
+                $out[ $new_key ] = $this->transform($item, $leaf, $keys, $depth + 1);
             }
             return $out;
         }
@@ -121,10 +147,11 @@ class Url_Rewriter
                 return $value;
             }
 
-            return serialize($this->rewrite_map($decoded, $map, $depth + 1));
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- re-encodes a value that was read in PHP-serialized form (object-free, checked above) so the stored option/meta keeps WP's own format; maybe_serialize() would leave a rewritten scalar unserialized and JSON is not readable by maybe_unserialize().
+            return serialize($this->transform($decoded, $leaf, $keys, $depth + 1));
         }
 
-        return strtr($value, $map);
+        return $leaf($value);
     }
 
     /**

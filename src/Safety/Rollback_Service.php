@@ -7,6 +7,7 @@
 namespace WPMCP\Safety;
 
 use WPMCP\Tools\Database\Database_Guard;
+use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -46,8 +47,68 @@ class Rollback_Service
         if (! $row) {
             return false;
         }
+        if (! self::may_restore($row['snapshot'])) {
+            self::warn(sprintf(
+                'operation %s refused: its snapshot holds personal data and restoring it requires the "%s" capability.',
+                $operation_id,
+                (string) self::restore_capability($row['snapshot'])
+            ));
+            return false;
+        }
         self::apply_snapshot($row['snapshot']);
         return true;
+    }
+
+    /**
+     * Post types whose snapshots hold personal data, mapped to the capability
+     * a caller must hold to restore one.
+     *
+     * Deleting a form submission is snapshotted so it can be undone, which
+     * means a verbatim plaintext copy of the submission (name, email, remote
+     * IP, message body) sits in wpmcp_snapshots until it is pruned. The forms
+     * adapters gate reading and deleting a submission behind an
+     * administrator-only capability, but wpmcp/rollback-operation and
+     * wpmcp/rollback-session are registered at edit_posts, so without this the
+     * gate is one-way: anyone who can edit posts could resurrect a submission
+     * they are not allowed to read. Keyed on the snapshotted post type rather
+     * than on the adapter, because the snapshot outlives the adapter call and
+     * every entry-bearing adapter needs the same protection.
+     *
+     * @return array<string, string> post type => required capability
+     */
+    private static function pii_snapshot_capabilities(): array
+    {
+        return (array) apply_filters('wpmcp_pii_snapshot_capabilities', [
+            // Contact Form 7 via Flamingo; edit_users is the cap Flamingo maps
+            // every inbound-message capability to.
+            'flamingo_inbound' => 'edit_users',
+            'metform-entry'    => 'manage_options',
+            // Ninja Forms submissions (issue #66): the adapter's status change
+            // snapshots the whole nf_sub post, submitted values included.
+            'nf_sub'           => 'manage_options',
+        ]);
+    }
+
+    /** The capability this snapshot demands, or null when it holds no PII. */
+    private static function restore_capability(array $snapshot): ?string
+    {
+        if ('post' !== ($snapshot['object_type'] ?? '')) {
+            return null;
+        }
+        $post_type = (string) ($snapshot['data']['post']['post_type'] ?? '');
+        return self::pii_snapshot_capabilities()[ $post_type ] ?? null;
+    }
+
+    /**
+     * Whether the CURRENT user may restore this snapshot. Only the two
+     * agent-facing entry points below consult it: Safe_Mutation's own unwind
+     * of a mutation that threw is an internal integrity operation, already
+     * behind the op's capability, and must never be blocked half way through.
+     */
+    private static function may_restore(array $snapshot): bool
+    {
+        $capability = self::restore_capability($snapshot);
+        return null === $capability || current_user_can($capability);
     }
 
     public static function restore_session(string $session_id): int
@@ -80,6 +141,22 @@ class Rollback_Service
                 $count++;
                 continue;
             }
+            // Compiled-widget manifest changes (issue #72) are unwound the
+            // same way, newest first, every one of them. A compile snapshot
+            // holds ONE widget's entry and bytes, and a status or spec update
+            // holds one widget's enabled flag, so several of them touch the
+            // same widget in different ways; only a reverse-chronological
+            // unwind lands on the pre-session manifest.
+            if (self::is_compiled_widget_snapshot($snapshot)) {
+                self::apply_snapshot($snapshot);
+                $count++;
+                continue;
+            }
+            if (is_array($snapshot['data']['compiled_widget_entry'] ?? null)) {
+                self::restore_compiled_widget_entry($snapshot['data']['compiled_widget_entry']);
+                // The post half still goes through the oldest-first pass.
+                unset($snapshot['data']['compiled_widget_entry']);
+            }
             $legacy[] = $snapshot;
         }
 
@@ -87,8 +164,9 @@ class Rollback_Service
         // restoring the OLDEST snapshot per object (its pre-session state).
         // Runs after the db_rows pass so that when both kinds touched the
         // same underlying rows, the exact whole-object restore wins.
-        $legacy = array_reverse($legacy); // oldest first, so we can unwind to the earliest
-        $seen   = [];
+        $legacy   = array_reverse($legacy); // oldest first, so we can unwind to the earliest
+        $seen     = [];
+        $deferred = [];
         foreach ($legacy as $snapshot) {
             $key = self::object_identity($snapshot);
             if (isset($seen[ $key ])) {
@@ -96,6 +174,28 @@ class Rollback_Service
                 continue;
             }
             $seen[ $key ] = true;
+            if (! self::may_restore($snapshot)) {
+                // One refused snapshot must not abort the rest of the unwind,
+                // but it must be visible and must NOT be counted as restored.
+                self::warn(sprintf(
+                    'snapshot %s skipped: it holds personal data and restoring it requires the "%s" capability.',
+                    $key,
+                    (string) self::restore_capability($snapshot)
+                ));
+                continue;
+            }
+            // A child-theme scaffold is undone LAST: its restore refuses to
+            // delete the active theme, so the stylesheet/template options a
+            // later switch-theme in the same session changed must be put back
+            // first, or the session rollback would leave the scaffold behind.
+            if ('theme_scaffold' === $snapshot['object_type']) {
+                $deferred[] = $snapshot;
+                continue;
+            }
+            self::apply_snapshot($snapshot);
+            $count++;
+        }
+        foreach ($deferred as $snapshot) {
             self::apply_snapshot($snapshot);
             $count++;
         }
@@ -114,6 +214,12 @@ class Rollback_Service
      */
     private static function object_identity(array $snapshot): string
     {
+        // Every compile snapshot is an 'option' snapshot of the ONE shared
+        // manifest option, but it only ever describes one widget. Keyed by the
+        // option name, all compiles in a session collapsed onto one identity.
+        if (self::is_compiled_widget_snapshot($snapshot)) {
+            return 'compiled_widget:' . (int) ($snapshot['data']['compiled_widget']['spec_id'] ?? 0);
+        }
         if ('option' === $snapshot['object_type']) {
             return 'option:' . $snapshot['data']['name'];
         }
@@ -137,6 +243,32 @@ class Rollback_Service
         return $snapshot['object_type'] . ':' . $snapshot['object_id'];
     }
 
+    /** A compile-custom-widget snapshot: one widget's manifest entry plus bytes. */
+    private static function is_compiled_widget_snapshot(array $snapshot): bool
+    {
+        return 'option' === $snapshot['object_type']
+            && is_array($snapshot['data']['compiled_widget'] ?? null);
+    }
+
+    private static function restore_compiled_widget_entry(array $state): void
+    {
+        $manifest = self::compiled_widget_manifest();
+        if (null !== $manifest) {
+            $manifest::restore_entry($state);
+        }
+    }
+
+    /**
+     * The compiled-widget manifest class, when this build ships it. The only
+     * place Rollback_Service names it, so a build without the compiler has
+     * exactly one thing to remove.
+     */
+    private static function compiled_widget_manifest(): ?string
+    {
+        $class = '\\WPMCP\\Tools\\WidgetBuilder\\Compiler\\Compiled_Widget_Manifest';
+        return class_exists($class) ? $class : null;
+    }
+
     /**
      * Restore a WordPress option to its pre-mutation state. Unlike a post,
      * an option has no trash/soft-delete; the only two prior states a
@@ -147,11 +279,96 @@ class Rollback_Service
      */
     private static function apply_option_snapshot(array $snapshot): void
     {
+        // A compiled-widget snapshot carries the single manifest entry it
+        // changed plus the generated file's previous bytes. Restoring those
+        // together is the only correct undo: putting the whole option back
+        // would revert every other widget compiled since, and putting the old
+        // hash back against the new bytes would leave the widget inert.
+        $manifest = self::compiled_widget_manifest();
+        if (null !== $manifest && self::is_compiled_widget_snapshot($snapshot)) {
+            $manifest::restore($snapshot['data']['compiled_widget']);
+            return;
+        }
+
         $name = (string) $snapshot['data']['name'];
         if ($snapshot['data']['existed']) {
             update_option($name, $snapshot['data']['value']);
         } else {
             delete_option($name);
+        }
+    }
+
+    /**
+     * Put back ONE term's row inside Yoast's `wpseo_taxonomy_meta` option
+     * (see Snapshot::capture_yoast_term_seo()), leaving every other term's
+     * row as it is now. Goes through write_yoast_term_seo_row(), the same
+     * path the write took, which handles Yoast's re-validation of the option
+     * and refreshes the term's indexable.
+     */
+    private static function apply_yoast_term_seo_snapshot(array $snapshot): void
+    {
+        $data     = (array) $snapshot['data'];
+        $taxonomy = (string) ($data['taxonomy'] ?? '');
+        $term_id  = (int) ($data['term_id'] ?? 0);
+        if ('' === $taxonomy || $term_id <= 0) {
+            return;
+        }
+
+        $row = ! empty($data['existed']) && is_array($data['row'] ?? null) ? (array) $data['row'] : null;
+
+        self::write_yoast_term_seo_row($taxonomy, $term_id, $row);
+    }
+
+    /**
+     * Replace one term's row inside Yoast's `wpseo_taxonomy_meta` option,
+     * or remove it when $row is null. Used by the term SEO write (issue #67)
+     * and by the rollback of a 'yoast_term_seo' snapshot, so the write and
+     * its undo take one path. Lives here, in the safety layer, so the
+     * restore has no dependency on the paid SEO classes.
+     *
+     * With Yoast loaded every save of the option is re-validated through its
+     * sanitize_option filter, and that validation keeps the previously
+     * stored value for any key missing from the new row. Yoast also drops a
+     * key whose value is its default ('default' for noindex), so a cleared
+     * flag would be missing and the old 'noindex' would silently survive.
+     * The row is therefore removed in one save (leaving no old value to
+     * keep) and written in a second. Both run inside the caller's single
+     * Safe_Mutation, after its snapshot.
+     *
+     * Yoast renders from its indexables table and rebuilds a term's
+     * indexable only on `edited_term`, so that core action is fired after
+     * the save, or the page would keep showing the old values.
+     */
+    public static function write_yoast_term_seo_row(string $taxonomy, int $term_id, ?array $row): void
+    {
+        $yoast_loaded = class_exists('WPSEO_Taxonomy_Meta');
+
+        $option = get_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, []);
+        $option = is_array($option) ? $option : [];
+
+        if ($yoast_loaded || null === $row) {
+            unset($option[$taxonomy][$term_id]);
+            if (isset($option[$taxonomy]) && [] === $option[$taxonomy]) {
+                unset($option[$taxonomy]);
+            }
+            update_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, $option);
+        }
+
+        if (null !== $row) {
+            $option = get_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, []);
+            $option = is_array($option) ? $option : [];
+            if (! isset($option[$taxonomy]) || ! is_array($option[$taxonomy])) {
+                $option[$taxonomy] = [];
+            }
+            $option[$taxonomy][$term_id] = $row;
+            update_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, $option);
+        }
+
+        $term = get_term($term_id, $taxonomy);
+        if ($yoast_loaded && $term instanceof \WP_Term) {
+            clean_term_cache($term_id, $taxonomy);
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core hook, fired so Yoast rebuilds the term indexable.
+            do_action('edited_term', $term_id, (int) $term->term_taxonomy_id, $taxonomy, []);
         }
     }
 
@@ -352,10 +569,14 @@ class Rollback_Service
             'db_rows',
             'redirect',
             'term',
+            'yoast_term_seo',
+            'wc_tax_rate',
             'php_snippet',
             'page_build',
             'media_import',
             'elementor_global_classes',
+            'elementor_global_variables',
+            'theme_scaffold',
         ];
     }
 
@@ -407,6 +628,18 @@ class Rollback_Service
      */
     public static function apply_snapshot(array $snapshot): void
     {
+        // A post snapshot that also carries a compiled widget's enabled flag
+        // (set-widget-status, update-custom-widget): restore the post first,
+        // then the flag, so the undo brings back the spec AND the compiled
+        // path it was rendering through.
+        if (is_array($snapshot['data']['compiled_widget_entry'] ?? null)) {
+            $entry = $snapshot['data']['compiled_widget_entry'];
+            unset($snapshot['data']['compiled_widget_entry']);
+            self::apply_snapshot($snapshot);
+            self::restore_compiled_widget_entry($entry);
+            return;
+        }
+
         if ('option' === $snapshot['object_type']) {
             self::apply_option_snapshot($snapshot);
             return;
@@ -442,6 +675,16 @@ class Rollback_Service
             return;
         }
 
+        if ('yoast_term_seo' === $snapshot['object_type']) {
+            self::apply_yoast_term_seo_snapshot($snapshot);
+            return;
+        }
+
+        if ('wc_tax_rate' === $snapshot['object_type']) {
+            self::apply_wc_tax_rate_snapshot($snapshot);
+            return;
+        }
+
         if ('php_snippet' === $snapshot['object_type']) {
             self::apply_php_snippet_snapshot($snapshot);
             return;
@@ -462,6 +705,16 @@ class Rollback_Service
             return;
         }
 
+        if ('elementor_global_variables' === $snapshot['object_type']) {
+            self::apply_elementor_global_variables_snapshot($snapshot);
+            return;
+        }
+
+        if ('theme_scaffold' === $snapshot['object_type']) {
+            self::apply_theme_scaffold_snapshot($snapshot);
+            return;
+        }
+
         if ('post' !== $snapshot['object_type']) {
             return;
         }
@@ -472,7 +725,10 @@ class Rollback_Service
             $current = get_post($object_id, ARRAY_A);
             if ($current && self::is_same_post($current, $snapshot['data']['post'])) {
                 $postarr = array_merge(['ID' => $object_id], self::restore_columns($snapshot['data']['post'], false));
-                wp_update_post($postarr);
+                // wp_update_post() unslashes its input; the snapshot holds
+                // the raw stored columns, so they are slashed first or every
+                // backslash (block JSON escapes such as \u003c) is lost.
+                wp_update_post(wp_slash($postarr));
             } else {
                 self::resurrect($object_id, $snapshot['data']['post'], $snapshot['data']['comments'] ?? []);
             }
@@ -480,6 +736,7 @@ class Rollback_Service
 
         $snapshotted_meta = (array) $snapshot['data']['meta'];
         $current_meta     = get_post_meta($object_id);
+        $is_elementor     = self::is_elementor_document($snapshotted_meta) || self::is_elementor_document($current_meta);
 
         // Purge any meta key that didn't exist at snapshot time (newly added by the mutation).
         foreach (array_keys(array_diff_key($current_meta, $snapshotted_meta)) as $key) {
@@ -490,7 +747,8 @@ class Rollback_Service
         foreach ($snapshotted_meta as $key => $values) {
             delete_post_meta($object_id, $key);
             foreach ((array) $values as $v) {
-                add_post_meta($object_id, $key, maybe_unserialize($v));
+                // add_post_meta() unslashes too; slash so the value lands byte-for-byte.
+                add_post_meta($object_id, $key, wp_slash(maybe_unserialize($v)));
             }
         }
 
@@ -503,7 +761,112 @@ class Rollback_Service
 
         self::restore_files($snapshot['data']['files'] ?? null);
 
+        if ($is_elementor) {
+            self::refresh_elementor_caches($object_id, $snapshotted_meta);
+        }
+
         self::refresh_woocommerce_product($object_id);
+        self::refresh_woocommerce_coupon($object_id);
+    }
+
+    /**
+     * Drop WooCommerce's coupon lookups after a raw restore of a shop_coupon
+     * post (issue #195). WooCommerce resolves a code to a coupon id through
+     * an object-cache entry keyed by the code, and its own save path only
+     * clears the entry for the code it is saving. A rollback of a code change
+     * writes wp_posts directly, so without this the NEW code would keep
+     * resolving to the coupon after it has been put back to the old one.
+     * Invalidating the whole 'coupons' group is what WooCommerce itself does
+     * when coupon data changes in bulk; it costs one cache prefix bump.
+     *
+     * No-op when WooCommerce is absent or the post is not a coupon.
+     */
+    private static function refresh_woocommerce_coupon(int $object_id): void
+    {
+        if (! class_exists('WC_Cache_Helper') || 'shop_coupon' !== get_post_type($object_id)) {
+            return;
+        }
+        \WC_Cache_Helper::invalidate_cache_group('coupons');
+    }
+
+    /**
+     * Restore a WooCommerce tax rate captured by Snapshot::capture_wc_tax_rate()
+     * (issue #195): update it in place when it still exists, or re-insert it
+     * at its original id when it was deleted, then put its postcode and city
+     * rows back exactly.
+     *
+     * Every write goes through WC_Tax's own internal CRUD helpers, so the
+     * 'taxes' cache group is invalidated and the woocommerce_tax_rate_added /
+     * _updated actions fire exactly as they do for an edit in wp-admin. The
+     * resurrection passes tax_rate_id through _insert_tax_rate(), which
+     * forwards unknown keys to $wpdb->insert() unchanged; the returned id is
+     * then checked, and a mismatch (the id was somehow taken) is a loud
+     * Mutation_Failed rather than a "restored" rate at the wrong id.
+     *
+     * Restoring store tax configuration is itself a store-settings write, so,
+     * like the redirect restore, it re-checks the capability the write tools
+     * require instead of trusting whoever reached the rollback.
+     */
+    private static function apply_wc_tax_rate_snapshot(array $snapshot): void
+    {
+        $data = (array) ($snapshot['data'] ?? []);
+        $row  = $data['rate'] ?? null;
+        if (! is_array($row) || ! class_exists('WC_Tax')) {
+            return;
+        }
+
+        if (! current_user_can('manage_woocommerce')) {
+            throw new Mutation_Failed('Rollback refused: restoring a tax rate requires the manage_woocommerce capability.');
+        }
+
+        $tax_rate_id = (int) $snapshot['object_id'];
+        if ($tax_rate_id <= 0) {
+            return;
+        }
+
+        $fields = array_diff_key($row, ['tax_rate_id' => true]);
+        $live   = \WC_Tax::_get_tax_rate($tax_rate_id, ARRAY_A);
+
+        if (is_array($live) && ! empty($live)) {
+            \WC_Tax::_update_tax_rate($tax_rate_id, $fields);
+        } else {
+            $inserted = (int) \WC_Tax::_insert_tax_rate(array_merge(['tax_rate_id' => $tax_rate_id], $fields));
+            if ($inserted !== $tax_rate_id) {
+                throw new Mutation_Failed(sprintf(
+                    'Rollback failed to restore tax rate %d at its original id (got %d).',
+                    (int) $tax_rate_id,
+                    (int) $inserted
+                ));
+            }
+        }
+
+        \WC_Tax::_update_tax_rate_postcodes($tax_rate_id, array_map('strval', (array) ($data['postcodes'] ?? [])));
+        \WC_Tax::_update_tax_rate_cities($tax_rate_id, array_map('strval', (array) ($data['cities'] ?? [])));
+    }
+
+    /** Whether a post meta map (get_post_meta() shape) carries Elementor document data. */
+    private static function is_elementor_document(array $meta): bool
+    {
+        return isset($meta['_elementor_data']) || isset($meta['_elementor_page_settings']);
+    }
+
+    /**
+     * Drop Elementor's derived caches after a raw post restore.
+     *
+     * The meta restore above puts back whatever `_elementor_css` and render
+     * cache the snapshot held, while the CSS file on disk was regenerated for
+     * the content being rolled back, so the page would be served that CSS for
+     * the restored data. A kit's settings feed every document's CSS, so
+     * restoring the kit purges site-wide.
+     */
+    private static function refresh_elementor_caches(int $object_id, array $snapshotted_meta): void
+    {
+        Elementor_Cache::invalidate_document($object_id);
+
+        $type = $snapshotted_meta['_elementor_template_type'][0] ?? get_post_meta($object_id, '_elementor_template_type', true);
+        if ('kit' === maybe_unserialize($type)) {
+            Elementor_Cache::clear_all();
+        }
     }
 
     /**
@@ -652,62 +1015,72 @@ class Rollback_Service
         $operation = (string) ($data['operation'] ?? '');
         $set       = (array) ($data['set'] ?? []);
 
-        foreach ($rows as $row) {
-            $row = (array) $row;
+        // The restore is as raw a write as the operation it undoes, so the
+        // same caches are stale afterwards (issue #182): without the
+        // invalidation, get_option() and friends keep serving the value the
+        // rollback just overwrote. It runs in `finally` so that a
+        // Mutation_Failed on a later row still invalidates the rows already
+        // restored.
+        $attempted = [];
+        try {
+            foreach ($rows as $row) {
+                $row = (array) $row;
 
-            foreach (array_keys($row) as $column) {
-                if (! in_array((string) $column, $live_columns, true)) {
-                    throw new Mutation_Failed('Rollback refused: captured column "' . esc_html((string) $column) . '" is not a column of "' . esc_html($table) . '".');
+                foreach (array_keys($row) as $column) {
+                    if (! in_array((string) $column, $live_columns, true)) {
+                        throw new Mutation_Failed('Rollback refused: captured column "' . esc_html((string) $column) . '" is not a column of "' . esc_html($table) . '".');
+                    }
                 }
-            }
 
-            $where = [];
-            foreach ($primary_key as $column) {
-                if (! isset($row[ $column ])) {
-                    throw new Mutation_Failed('Rollback refused: a captured row is missing primary-key value "' . esc_html($column) . '".');
+                $where = [];
+                foreach ($primary_key as $column) {
+                    if (! isset($row[ $column ])) {
+                        throw new Mutation_Failed('Rollback refused: a captured row is missing primary-key value "' . esc_html($column) . '".');
+                    }
+                    $where[ $column ] = $row[ $column ];
                 }
-                $where[ $column ] = $row[ $column ];
-            }
 
-            $current = \WPMCP\Tools\Database\Database_Guard::before_image($table, $where, 1)[0] ?? null;
-            $pk_desc = self::describe_pk($where);
+                $current = \WPMCP\Tools\Database\Database_Guard::before_image($table, $where, 1)[0] ?? null;
+                $pk_desc = self::describe_pk($where);
 
-            if ('delete' === $operation) {
-                if (null !== $current) {
-                    self::warn("Row {$pk_desc} in \"{$table}\" was recreated after the delete; it was overwritten with the captured before-image.");
+                if ('delete' === $operation) {
+                    if (null !== $current) {
+                        self::warn("Row {$pk_desc} in \"{$table}\" was recreated after the delete; it was overwritten with the captured before-image.");
+                    }
+                } else {
+                    if (null === $current) {
+                        self::warn("Row {$pk_desc} in \"{$table}\" was deleted after the operation; the captured before-image was reinserted.");
+                    } elseif (! self::row_matches($current, array_merge($row, $set))) {
+                        self::warn("Row {$pk_desc} in \"{$table}\" changed after the operation; the captured before-image was restored over it.");
+                    }
                 }
-            } else {
+
+                // Recorded before the write: a write that fails part-way may
+                // still have changed the row, so it is invalidated too.
+                $attempted[] = $row;
+
                 if (null === $current) {
-                    self::warn("Row {$pk_desc} in \"{$table}\" was deleted after the operation; the captured before-image was reinserted.");
-                } elseif (! self::row_matches($current, array_merge($row, $set))) {
-                    self::warn("Row {$pk_desc} in \"{$table}\" changed after the operation; the captured before-image was restored over it.");
+                    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- reinserts a captured before-image row into the Database_Guard-validated table it was deleted from; no WP API covers raw table rows.
+                    if (false === $wpdb->insert($table, $row)) {
+                        throw new Mutation_Failed('Rollback failed to reinsert row ' . esc_html($pk_desc) . ' into "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'insert failed'));
+                    }
+                    continue;
+                }
+
+                $restore = array_diff_key($row, array_flip($primary_key));
+                if ([] === $restore) {
+                    continue; // PK-only table: existing row is already the before-image.
+                }
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- restores a captured before-image row in the Database_Guard-validated table; undo-critical write, no WP API covers raw table rows. Not cached: the object caches over this table are invalidated right after via Database_Guard::invalidate_caches().
+                if (false === $wpdb->update($table, $restore, $where)) {
+                    throw new Mutation_Failed('Rollback failed to restore row ' . esc_html($pk_desc) . ' in "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'update failed'));
                 }
             }
-
-            if (null === $current) {
-                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- reinserts a captured before-image row into the Database_Guard-validated table it was deleted from; no WP API covers raw table rows.
-                if (false === $wpdb->insert($table, $row)) {
-                    throw new Mutation_Failed('Rollback failed to reinsert row ' . esc_html($pk_desc) . ' into "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'insert failed'));
-                }
-                continue;
-            }
-
-            $restore = array_diff_key($row, array_flip($primary_key));
-            if ([] === $restore) {
-                continue; // PK-only table: existing row is already the before-image.
-            }
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- restores a captured before-image row in the Database_Guard-validated table; undo-critical write, no WP API covers raw table rows.
-            if (false === $wpdb->update($table, $restore, $where)) {
-                throw new Mutation_Failed('Rollback failed to restore row ' . esc_html($pk_desc) . ' in "' . esc_html($table) . '": ' . (esc_html($wpdb->last_error) ?: 'update failed'));
+        } finally {
+            if ([] !== $attempted) {
+                Database_Guard::invalidate_caches($table, ['rows' => $attempted]);
             }
         }
-
-        // The restore is as raw a write as the operation it undoes, so the
-        // same caches are stale now (issue #182): without this, get_option()
-        // and friends keep serving the value the rollback just overwrote.
-        Database_Guard::invalidate_caches($table, [
-            'rows' => array_map(static fn($row) => (array) $row, $rows),
-        ]);
     }
 
     /**
@@ -933,7 +1306,7 @@ class Rollback_Service
     {
         global $wpdb;
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Restoring a deleted term at its original id; no core API preserves term_id or term_taxonomy_id.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Restoring a deleted term at its original id; no core API preserves term_id or term_taxonomy_id. Not cached: clean_term_cache() runs once both rows are back.
         $wpdb->insert($wpdb->terms, [
             'term_id'    => $term_id,
             'name'       => (string) ($captured['name'] ?? ''),
@@ -953,7 +1326,7 @@ class Rollback_Service
             $row['term_taxonomy_id'] = $term_taxonomy_id;
         }
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- See above; term_taxonomy_id is what wp_term_relationships joins on.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- See above; term_taxonomy_id is what wp_term_relationships joins on. clean_term_cache() below invalidates.
         $wpdb->insert($wpdb->term_taxonomy, $row);
 
         clean_term_cache([$term_id], $taxonomy);
@@ -1121,6 +1494,141 @@ class Rollback_Service
         } catch (\Throwable $e) {
             self::warn('Elementor refused the global classes restore: ' . $e->getMessage());
         }
+
+        // Class styles are compiled into generated CSS across the site.
+        Elementor_Cache::clear_all();
+    }
+
+    /**
+     * Undo an Elementor 4 global variables write (create / update / delete a
+     * design token).
+     *
+     * Elementor keeps every variable in one JSON record on the kit and bumps a
+     * watermark on each save, so replaying the change through its service
+     * could never reproduce the prior record. The snapshot holds the record's
+     * raw bytes instead (or that there was none), and the undo puts exactly
+     * those back, which also revives a soft-deleted variable. The generated
+     * CSS is cleared so the restored tokens render on the next view.
+     */
+    private static function apply_elementor_global_variables_snapshot(array $snapshot): void
+    {
+        $data   = (array) ($snapshot['data'] ?? []);
+        $kit_id = (int) ($data['kit_id'] ?? $snapshot['object_id'] ?? 0);
+
+        if ($kit_id <= 0 || ! get_post($kit_id)) {
+            self::warn('Elementor global variables cannot be restored: the kit they belonged to no longer exists.');
+            return;
+        }
+
+        // Written here, not through the Elementor tool layer, so the safety
+        // layer can restore without depending on the tool that wrote.
+        if (! empty($data['exists'])) {
+            update_post_meta($kit_id, '_elementor_global_variables', wp_slash((string) ($data['raw'] ?? '')));
+        } else {
+            delete_post_meta($kit_id, '_elementor_global_variables');
+        }
+        clean_post_cache($kit_id);
+
+        if (class_exists('\\Elementor\\Plugin') && isset(\Elementor\Plugin::instance()->files_manager)) {
+            \Elementor\Plugin::instance()->files_manager->clear_cache();
+        }
+    }
+
+    /**
+     * Undo a create-child-theme scaffold (see Snapshot::capture_theme_scaffold()).
+     *
+     * Only the scaffold's own files are touched: each is put back to its
+     * captured bytes, or deleted when it did not exist before. The directory
+     * is removed only when the scaffold created it AND nothing else has been
+     * added to it since; anything a person added afterwards is left in place
+     * with a warning, never deleted as collateral.
+     *
+     * A scaffold that is currently the active theme (or the parent of it) is
+     * left alone with a warning: deleting the active theme's files would take
+     * the front end down, which is the opposite of what an undo is for.
+     * Switch themes first (itself an undoable operation), then roll back.
+     */
+    private static function apply_theme_scaffold_snapshot(array $snapshot): void
+    {
+        $data = (array) ($snapshot['data'] ?? []);
+        $slug = (string) ($data['slug'] ?? '');
+
+        if ('' === $slug || sanitize_key($slug) !== $slug) {
+            self::warn('Child theme scaffold cannot be restored: the snapshot carries no valid theme slug.');
+            return;
+        }
+
+        $dir = trailingslashit(get_theme_root()) . $slug;
+        if (is_link($dir)) {
+            self::warn(sprintf('Child theme "%s" was not rolled back: its directory is now a symlink.', $slug));
+            return;
+        }
+        if (! is_dir($dir)) {
+            if (! empty($data['dir_existed'])) {
+                self::warn(sprintf('Child theme "%s" was not rolled back: its directory no longer exists.', $slug));
+            }
+            return;
+        }
+        if (get_stylesheet() === $slug || get_template() === $slug) {
+            self::warn(sprintf('Child theme "%s" is the active theme, so its files were left in place. Switch to another theme, then roll back again.', $slug));
+            return;
+        }
+
+        $fs        = self::direct_filesystem();
+        $too_large = (array) ($data['too_large'] ?? []);
+        foreach (Snapshot::THEME_SCAFFOLD_FILES as $file) {
+            $path = $dir . '/' . $file;
+            if (in_array($file, $too_large, true)) {
+                self::warn(sprintf('Child theme "%s": %s was too large to capture and was left as it is.', $slug, $file));
+                continue;
+            }
+            if (is_link($path)) {
+                self::warn(sprintf('Child theme "%s": %s is now a symlink and was left as it is.', $slug, $file));
+                continue;
+            }
+            $before = $data['files'][ $file ] ?? null;
+            if (null === $before) {
+                if (is_file($path)) {
+                    $fs->delete($path);
+                }
+                continue;
+            }
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- decodes the file bytes Snapshot::capture_theme_scaffold() encoded, not obfuscation.
+            $bytes = base64_decode((string) $before, true);
+            if (false === $bytes || ! $fs->put_contents($path, $bytes, 0644)) {
+                self::warn(sprintf('Child theme "%s": %s could not be restored.', $slug, $file));
+            }
+        }
+
+        if (empty($data['dir_existed'])) {
+            $left = array_diff((array) scandir($dir), ['.', '..']);
+            if ([] === $left) {
+                $fs->rmdir($dir);
+            } else {
+                self::warn(sprintf('Child theme "%s": the scaffold files were removed, but the directory was kept because it holds files the scaffold did not create.', $slug));
+            }
+        }
+
+        // WP_Theme caches parsed headers per directory, and
+        // wp_clean_themes_cache() only flushes themes it still finds on disk,
+        // so the removed child's own entry is dropped explicitly first;
+        // otherwise wp_get_theme() keeps reporting it as installed.
+        wp_get_theme($slug)->cache_delete();
+        wp_clean_themes_cache();
+    }
+
+    /**
+     * A direct-method WP_Filesystem for the theme scaffold restore. Plugin
+     * Check promotes WordPress.WP.AlternativeFunctions to an error, so file
+     * writes and deletes go through WP_Filesystem; the direct transport is
+     * used explicitly because a rollback cannot stop to prompt for FTP
+     * credentials, and the scaffold being undone was written the same way.
+     */
+    private static function direct_filesystem(): \WP_Filesystem_Direct
+    {
+        require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-base.php';
+        require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-direct.php';
+        return new \WP_Filesystem_Direct(null);
     }
 
     /** Human-readable "pk=value" description of a row's primary-key values, for warnings and errors. */
@@ -1185,7 +1693,7 @@ class Rollback_Service
     private static function resurrect(int $object_id, array $post_columns, array $comments): void
     {
         $postarr = array_merge(['import_id' => $object_id], self::restore_columns($post_columns, true));
-        $result  = wp_insert_post($postarr, true);
+        $result  = wp_insert_post(wp_slash($postarr), true);
 
         if (is_wp_error($result)) {
             throw new Mutation_Failed('Rollback failed to resurrect post ' . (int) $object_id . ': ' . esc_html($result->get_error_message()));

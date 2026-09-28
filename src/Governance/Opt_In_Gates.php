@@ -5,12 +5,14 @@ namespace WPMCP\Governance;
 use WPMCP\Tools\Bridge\Bridge_Guard;
 use WPMCP\Tools\Cli\Wp_Cli_Guard;
 use WPMCP\Tools\Code\Php_Snippet_Guard;
+use WPMCP\Tools\CustomCode\Custom_Js_Guard;
 use WPMCP\Tools\Database\Delete_Rows;
 use WPMCP\Tools\Database\Insert_Row;
 use WPMCP\Tools\Database\Update_Rows;
 use WPMCP\Tools\Filesystem\Delete_File;
 use WPMCP\Tools\Filesystem\Edit_File;
 use WPMCP\Tools\Filesystem\Write_File;
+use WPMCP\Tools\Migration\Migration_Guard;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -61,6 +63,12 @@ class Opt_In_Gates
             'wpmcp/insert-row'      => ['filter' => 'wpmcp_enable_db_writes', 'is_open' => [Insert_Row::class, 'is_enabled']],
             'wpmcp/update-rows'     => ['filter' => 'wpmcp_enable_db_writes', 'is_open' => [Update_Rows::class, 'is_enabled']],
             'wpmcp/delete-rows'     => ['filter' => 'wpmcp_enable_db_writes', 'is_open' => [Delete_Rows::class, 'is_enabled']],
+            // Stored custom JS (issue #63) is the same shape of gate: an
+            // XSS-class surface that is default-off behind its own filter.
+            // Its sibling wpmcp/add-scoped-css is NOT listed: CSS is
+            // sanitized reject-not-clean and has no opt-in filter to open,
+            // and marking it dangerous would blunt the warning.
+            'wpmcp/add-custom-js'   => ['filter' => 'wpmcp_allow_js_injection', 'is_open' => [Custom_Js_Guard::class, 'is_enabled']],
             'wpmcp/write-file'      => ['filter' => 'wpmcp_enable_fs_writes', 'is_open' => [Write_File::class, 'is_enabled']],
             'wpmcp/edit-file'       => ['filter' => 'wpmcp_enable_fs_writes', 'is_open' => [Edit_File::class, 'is_enabled']],
             'wpmcp/delete-file'     => ['filter' => 'wpmcp_enable_fs_writes', 'is_open' => [Delete_File::class, 'is_enabled']],
@@ -73,6 +81,10 @@ class Opt_In_Gates
             'wpmcp/list-site-abilities'  => ['filter' => 'wpmcp_enable_ability_bridge', 'is_open' => [Bridge_Guard::class, 'is_enabled']],
             'wpmcp/get-site-ability'     => ['filter' => 'wpmcp_enable_ability_bridge', 'is_open' => [Bridge_Guard::class, 'is_enabled']],
             'wpmcp/execute-site-ability' => ['filter' => 'wpmcp_enable_ability_bridge', 'is_open' => [Bridge_Guard::class, 'is_enabled']],
+            // Site-to-site migration (issue #191): receiving replaces this
+            // site's database, sending ships its secrets to another host.
+            'wpmcp/receive-site-archive' => ['filter' => 'wpmcp_accept_incoming_migrations', 'is_open' => [Migration_Guard::class, 'accepts_incoming']],
+            'wpmcp/push-site-archive'    => ['filter' => 'wpmcp_allow_outgoing_migrations', 'is_open' => [Migration_Guard::class, 'allows_outgoing']],
         ];
     }
 

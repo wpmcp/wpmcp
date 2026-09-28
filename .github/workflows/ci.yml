@@ -95,8 +95,9 @@ jobs:
   # not by this job.
   #
   # Hard gate. The first run's findings were triaged (#185) into two places:
-  # the WordPressCS codes into the ignore-codes list below, where the per-sniff
-  # ratchet in .phpcs-baseline.json already counts every site, and the codes
+  # the WordPressCS codes into an ignore-codes list, where the per-sniff
+  # ratchet in .phpcs-baseline.json already counts every site (that list is
+  # now empty: #174 and #173 drove both codes to zero), and the codes
   # that only Plugin Check runs (its own DirectDB sniff, the VIP
   # suppress_filters sniff) into per-site `phpcs:ignore` annotations in the
   # source, which strip.php keeps. Plugin Check runs phpcs, so it honours the
@@ -126,17 +127,21 @@ jobs:
         uses: wordpress/plugin-check-action@v1
         with:
           build-dir: ./build/wporg/wpmcp
-          # Pre-existing WordPressCS findings, carried here so the job is a
-          # hard gate for everything else. Both codes are counted per sniff in
-          # .phpcs-baseline.json and `composer lint:wpcs` ratchets them down;
-          # remove a code from this list once its count reaches zero. The
-          # counts Plugin Check would report are not the baseline's: it scans
-          # the stripped build with the stock WordPress ruleset config.
-          # Single line, no spaces: the action splits this value unquoted.
-          #   EscapeOutput.ExceptionNotEscaped   exception messages, never echoed
-          # PreparedSQL.NotPrepared left this list with #174: the identifiers
-          # are bound with %i and the baseline pins the code at zero.
-          ignore-codes: WordPress.Security.EscapeOutput.ExceptionNotEscaped
+          # No ignore-codes. Both WordPressCS codes this job used to ignore
+          # have been driven to zero, so none are ignored any more and an
+          # error-level finding under either one fails this job:
+          #   PreparedSQL.NotPrepared           left with #174 (identifiers bound with %i)
+          #   EscapeOutput.ExceptionNotEscaped   left with #173 (operands escaped, remaining
+          #                                      sites carry a justified phpcs:ignore)
+          # This job and `composer lint:wpcs` are two separate gates and their
+          # counts can disagree. .phpcs-baseline.json pins each code for the
+          # WordPressCS ratchet, which runs phpcs-wporg.xml.dist over the
+          # source tree. Plugin Check does not read that baseline: it scans the
+          # stripped build with the stock WordPress ruleset config and its own
+          # bundled WordPressCS, so it can report sites the baseline never
+          # counted, or miss ones it did.
+          # To ignore a code here again, pass it as `ignore-codes:` on a single
+          # line with no spaces: the action splits that value unquoted.
       # continue-on-error above keeps Plugin Check running when only the final
       # compliance gate (step 6 of the build script) regresses. A build that
       # died earlier, before it produced a tree, would otherwise skip Plugin

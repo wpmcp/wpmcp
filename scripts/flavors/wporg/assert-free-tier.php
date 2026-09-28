@@ -73,6 +73,7 @@ const WITHHELD_METHODS = [
     'register_cli_abilities',
     'register_cli_job_abilities',
     'register_global_class_write_abilities',
+    'register_global_variable_abilities',
     'register_php_exec_abilities',
     'register_widget_builder_abilities',
     'register_block_builder_abilities',
@@ -81,6 +82,8 @@ const WITHHELD_METHODS = [
     'register_elementor_structural_abilities',
     'register_brand_kit_abilities',
     'register_memory_abilities',
+    'register_custom_code_abilities',
+    'register_custom_code_runtime_hooks',
 ];
 
 /** Directories never inspected: third-party code is not this build's prose. */

@@ -4,9 +4,10 @@
 # parity areas can be exercised by the integration suite.
 #
 # Installs Elementor, WooCommerce, Advanced Custom Fields, Yoast SEO, and
-# Polylang from the wordpress.org plugin repository. The script is idempotent:
-# plugins already present are left untouched, so it is safe to run repeatedly
-# both locally and from CI.
+# Polylang from the wordpress.org plugin repository or, with WPMCP_LIVE_FORMS=1,
+# Contact Form 7 and Flamingo only (bin/test-local.sh --live-forms). The script
+# is idempotent: plugins already present are left untouched, so it is safe to
+# run repeatedly both locally and from CI.
 #
 # Elementor is pinned (ELEMENTOR_VERSION, default below) because the suite
 # asserts against its live atomic-widget schema and runs alongside its own
@@ -44,6 +45,18 @@ PLUGINS=(
 	"wordpress-seo:wp-seo.php"
 	"polylang:polylang.php"
 )
+
+# The live forms job (issue #66) runs the Contact Form 7 adapter against the
+# real Contact Form 7 and Flamingo instead of the harness doubles. The two sets
+# are exclusive on purpose: with the real plugins loaded the doubles stand
+# down (real classes always win), so the stub-backed suite cannot share a run
+# with them.
+if [ "${WPMCP_LIVE_FORMS:-}" = "1" ]; then
+	PLUGINS=(
+		"contact-form-7:wp-contact-form-7.php"
+		"flamingo:flamingo.php"
+	)
+fi
 
 download() {
 	if command -v curl >/dev/null 2>&1; then
