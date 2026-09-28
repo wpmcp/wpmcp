@@ -133,6 +133,9 @@ class BlockSuitesLiveTest extends \WP_UnitTestCase
                 $property->setValue(null, []);
             }
         }
+        if (function_exists('uagb')) {
+            uagb()->post_assets_objs = [];
+        }
         update_option('generateblocks_dynamic_css_time', time() - 10);
         wp_set_current_user(0);
         $this->go_to((string) get_permalink($id));

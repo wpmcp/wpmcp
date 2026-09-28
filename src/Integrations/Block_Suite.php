@@ -62,6 +62,20 @@ final class Block_Suite
     private const OTTER_FILE   = '_themeisle_gutenberg_block_stylesheet';
     private const OTTER_STYLES = '_themeisle_gutenberg_block_styles';
 
+    /**
+     * The Spectra blocks whose editor sets classMigrate, and childMigrate,
+     * when it gives a block a new block_id (its addInitialAttr). Without
+     * classMigrate Spectra keys the block's CSS on a legacy #uagb-... id the
+     * current markup does not carry.
+     */
+    private const SPECTRA_CLASS_MIGRATE = [
+        'advanced-heading', 'blockquote', 'buttons', 'call-to-action', 'column', 'columns', 'icon-list',
+        'marketing-button', 'image-gallery', 'info-box', 'lottie', 'restaurant-menu', 'section',
+        'social-share', 'content-timeline', 'table-of-contents', 'team', 'testimonial', 'instagram-feed',
+        'login', 'register',
+    ];
+    private const SPECTRA_CHILD_MIGRATE = [ 'buttons', 'icon-list', 'restaurant-menu', 'social-share', 'content-timeline', 'instagram-feed' ];
+
     /** @var array<string,array<string,mixed>> Spectra attributes.php path => defaults, read once per request. */
     private static array $spectra_files = [];
 
@@ -191,6 +205,22 @@ final class Block_Suite
             }
         } while (isset($taken[ $id ]));
         return $id;
+    }
+
+    /**
+     * The attributes the suite's editor sets alongside a new unique id:
+     * Spectra's classMigrate and childMigrate (see SPECTRA_CLASS_MIGRATE).
+     *
+     * @return array<string,bool>
+     */
+    public static function new_id_attributes(string $suite, string $block_name): array
+    {
+        if (self::SPECTRA !== $suite || 0 !== strpos($block_name, 'uagb/')) {
+            return [];
+        }
+        $short = substr($block_name, 5);
+        $flags = in_array($short, self::SPECTRA_CLASS_MIGRATE, true) ? [ 'classMigrate' => true ] : [];
+        return $flags + (in_array($short, self::SPECTRA_CHILD_MIGRATE, true) ? [ 'childMigrate' => true ] : []);
     }
 
     /**
