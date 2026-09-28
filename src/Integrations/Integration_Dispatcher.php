@@ -6,6 +6,7 @@ use WPMCP\Governance\Governance;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
 use WPMCP\MCP\Ability;
+use WPMCP\MCP\Registrar;
 use WPMCP\Safety\Safe_Mutation;
 
 if (! defined('ABSPATH')) {
@@ -65,7 +66,25 @@ if (! defined('ABSPATH')) {
  *                           Safe_Mutation (snapshot first, operation_id out,
  *                           restorable via rollback-operation); when absent
  *                           the op runs directly and the response carries
- *                           recoverable:false so the caller knows
+ *                           recoverable:false so the caller knows. The
+ *                           target is also handed to the handler as
+ *                           $context['target'], so a create whose key is
+ *                           chosen in the snapshot callable writes under
+ *                           exactly the key that was captured
+ *      'self_snapshotting'  write ops only: true when the op touches several
+ *                           objects and runs its own Safe_Mutation per
+ *                           object. The handler is called as
+ *                           handler($args, $context) with
+ *                           $context['session_id'] (the caller's session_id,
+ *                           or a fresh one) and returns ['result' => ...,
+ *                           'operation_ids' => [...]]; the response carries
+ *                           the session_id, so one rollback-session undoes
+ *                           the whole call
+ *      'tier'               'free' (default) or another tier. An op whose
+ *                           tier Registrar::tier_permitted() refuses on this
+ *                           install is left out of the catalog and of
+ *                           dispatch, the op-level mirror of how Registrar
+ *                           drops a whole ability
  *
  * Dispatch order (each step short-circuits into a structured
  * ['error' => ['code', 'message', 'data']] payload, and the op handler is
@@ -223,7 +242,7 @@ abstract class Integration_Dispatcher
     public function catalog(): array
     {
         $ops = [];
-        foreach ($this->operations() as $name => $def) {
+        foreach ($this->permitted_operations() as $name => $def) {
             $ops[] = [
                 'name'             => $name,
                 'mode'             => (string) ($def['mode'] ?? ''),
@@ -347,7 +366,7 @@ abstract class Integration_Dispatcher
                 return $this->ok($op, ($def['handler'])($op_args));
             }
 
-            return $this->run_write($op, $def, $op_args, (string) ($args['session_id'] ?? 'default'));
+            return $this->run_write($op, $def, $op_args, isset($args['session_id']) ? (string) $args['session_id'] : null);
         } catch (Operation_Error $e) {
             // A handler-raised refusal belongs on the SAME top-level error
             // channel as the dispatcher's own guards. Returning it inside the
@@ -371,12 +390,32 @@ abstract class Integration_Dispatcher
      * snapshotable target. Ops without a target run directly and are
      * honestly flagged recoverable:false.
      */
-    private function run_write(string $op, array $def, array $op_args, string $session_id): array
+    private function run_write(string $op, array $def, array $op_args, ?string $session_id): array
     {
-        $target = isset($def['snapshot']) ? ($def['snapshot'])($op_args) : null;
+        if (! empty($def['self_snapshotting'])) {
+            // A multi-object op gets its own session unless the caller named
+            // one, so rollback-session undoes exactly this call and nothing
+            // else that happened to share the 'default' session.
+            $session_id = $session_id ?? wp_generate_uuid4();
+            $out        = ($def['handler'])($op_args, [
+                'session_id' => $session_id,
+                'tool_name'  => sprintf('%s-write', $this->integration()),
+                'operation'  => $op,
+            ]);
+            $ids        = array_values((array) ($out['operation_ids'] ?? []));
+
+            return $this->ok($op, $out['result'] ?? null) + [
+                'operation_ids' => $ids,
+                'session_id'    => $session_id,
+                'recoverable'   => [] !== $ids,
+            ];
+        }
+
+        $session_id = $session_id ?? 'default';
+        $target     = isset($def['snapshot']) ? ($def['snapshot'])($op_args) : null;
 
         if (null === $target) {
-            return $this->ok($op, ($def['handler'])($op_args)) + [ 'recoverable' => false ];
+            return $this->ok($op, ($def['handler'])($op_args, [ 'session_id' => $session_id, 'target' => null ])) + [ 'recoverable' => false ];
         }
 
         $context = [
@@ -393,7 +432,7 @@ abstract class Integration_Dispatcher
             $context['extra_snapshot_data'] = $target['extra_snapshot_data'];
         }
 
-        $out = Safe_Mutation::run($context, fn () => ($def['handler'])($op_args));
+        $out = Safe_Mutation::run($context, fn () => ($def['handler'])($op_args, [ 'session_id' => $session_id, 'target' => $target ]));
 
         return $this->ok($op, $out['result']) + [
             'operation_id' => $out['operation_id'],
@@ -436,11 +475,20 @@ abstract class Integration_Dispatcher
         return true === $out ? true : (array) $out;
     }
 
+    /** Ops this install may run: every op whose tier the registrar permits. */
+    private function permitted_operations(): array
+    {
+        return array_filter(
+            $this->operations(),
+            static fn (array $def): bool => Registrar::tier_permitted((string) ($def['tier'] ?? 'free'))
+        );
+    }
+
     /** Ops visible to one dispatcher half; write sees write + destructive. */
     private function channel_operations(string $channel): array
     {
         $out = [];
-        foreach ($this->operations() as $name => $def) {
+        foreach ($this->permitted_operations() as $name => $def) {
             $mode = $def['mode'] ?? '';
             if (! in_array($mode, self::MODES, true) || ! isset($def['handler'])) {
                 continue; // Malformed definitions are simply not exposed.

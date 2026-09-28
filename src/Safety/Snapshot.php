@@ -52,7 +52,189 @@ class Snapshot
         if ('theme_scaffold' === $object_type) {
             return self::capture_theme_scaffold((string) $object_id);
         }
+        if ('acf_structure' === $object_type) {
+            return self::capture_acf_structure((string) $object_id);
+        }
+        if ('acf_options' === $object_type) {
+            return self::capture_acf_options((string) $object_id);
+        }
         return self::capture_post($object_id);
+    }
+
+    /** Post types ACF stores its own structure in, keyed by the prefix of the ACF key that names one. */
+    public const ACF_STRUCTURE_POST_TYPES = [
+        'group_'     => 'acf-field-group',
+        'post_type_' => 'acf-post-type',
+        'taxonomy_'  => 'acf-taxonomy',
+    ];
+
+    /**
+     * Capture one piece of ACF structure (a field group, an ACF post type or
+     * an ACF taxonomy, issue #291), keyed by its ACF key rather than by post
+     * ID for the same reason terms are keyed by slug: the key is known BEFORE
+     * a create, the post ID is not, so a create runs through Safe_Mutation
+     * like any other write and its undo is "delete whatever now owns the key".
+     *
+     * A field group is more than its own post: every field (and every sub
+     * field of a group, repeater or flexible content field) is an acf-field
+     * post parented under it. An update can add, change and delete those, so
+     * the whole tree is captured as ordinary post snapshots, and the restore
+     * puts back exactly that tree and removes anything the write added.
+     */
+    private static function capture_acf_structure(string $key): array
+    {
+        $root  = self::acf_structure_root_id($key);
+        $posts = [];
+        foreach (null === $root ? [] : self::acf_structure_tree($root) as $id) {
+            $posts[ (string) $id ] = self::capture_post($id)['data'];
+        }
+
+        return [
+            'object_type' => 'acf_structure',
+            'object_id'   => $key,
+            'data'        => [
+                'key'     => $key,
+                'existed' => null !== $root,
+                'root_id' => $root,
+                'posts'   => $posts,
+            ],
+        ];
+    }
+
+    /**
+     * The database post that holds an ACF key, or null. Read from the live
+     * table rather than through ACF's lookups, which cache key-to-ID answers
+     * in the object cache: a snapshot must see the row, not a memo of it.
+     */
+    public static function acf_structure_root_id(string $key): ?int
+    {
+        $post_type = null;
+        foreach (self::ACF_STRUCTURE_POST_TYPES as $prefix => $type) {
+            if (str_starts_with($key, $prefix)) {
+                $post_type = $type;
+                break;
+            }
+        }
+        if (null === $post_type) {
+            return null;
+        }
+
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a snapshot must read the live row; ACF memoizes key lookups in the object cache.
+        $id = $wpdb->get_var($wpdb->prepare(
+            'SELECT ID FROM %i WHERE post_name = %s AND post_type = %s ORDER BY ID ASC LIMIT 1',
+            $wpdb->posts,
+            $key,
+            $post_type
+        ));
+
+        return null === $id ? null : (int) $id;
+    }
+
+    /**
+     * $root plus every acf-field post beneath it, parents before children.
+     *
+     * @return int[]
+     */
+    public static function acf_structure_tree(int $root): array
+    {
+        global $wpdb;
+        $all      = [ $root ];
+        $frontier = [ $root ];
+        while ([] !== $frontier) {
+            $next = [];
+            foreach ($frontier as $parent) {
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a snapshot must read the live rows; ACF memoizes field lists in the object cache.
+                $children = $wpdb->get_col($wpdb->prepare("SELECT ID FROM %i WHERE post_type = 'acf-field' AND post_parent = %d ORDER BY ID ASC", $wpdb->posts, $parent));
+                foreach ((array) $children as $child) {
+                    if (! in_array((int) $child, $all, true)) {
+                        $all[]  = (int) $child;
+                        $next[] = (int) $child;
+                    }
+                }
+            }
+            $frontier = $next;
+        }
+        return $all;
+    }
+
+    /**
+     * Capture the option rows an ACF options page write can touch (issue
+     * #291). $id is "<acf post_id>|<field name>,<field name>", for example
+     * "options|hero_title,hero_items". ACF stores a value as the option
+     * "<post_id>_<name>" plus a hidden "_<post_id>_<name>" reference to the
+     * field key, and a repeater or group also writes "<post_id>_<name>_*"
+     * rows for its sub values, so every row under those prefixes is captured.
+     * The restore removes rows the write added and puts every captured row
+     * back, which is exact where an 'option' snapshot per name could not be:
+     * the set of rows a repeater write produces is not known in advance.
+     */
+    private static function capture_acf_options(string $id): array
+    {
+        [ $post_id, $names ] = self::split_acf_options_id($id);
+
+        $rows = [];
+        foreach (self::acf_option_names($post_id, $names) as $name) {
+            $rows[ $name ] = get_option($name);
+        }
+
+        return [
+            'object_type' => 'acf_options',
+            'object_id'   => $id,
+            'data'        => [
+                'post_id' => $post_id,
+                'names'   => $names,
+                'rows'    => $rows,
+            ],
+        ];
+    }
+
+    /** Build the acf_options snapshot id for a set of field names on one options post_id. */
+    public static function acf_options_id(string $post_id, array $names): string
+    {
+        $names = array_values(array_unique(array_map('strval', $names)));
+        sort($names);
+        return $post_id . '|' . implode(',', $names);
+    }
+
+    /** @return array{0: string, 1: string[]} */
+    public static function split_acf_options_id(string $id): array
+    {
+        $parts = explode('|', $id, 2);
+        $names = array_values(array_filter(explode(',', (string) ($parts[1] ?? '')), 'strlen'));
+        return [ (string) $parts[0], $names ];
+    }
+
+    /**
+     * Every option row currently stored for these ACF field names under an
+     * options post_id: the value row, its hidden reference row, and any sub
+     * value rows beneath either.
+     *
+     * @return string[]
+     */
+    public static function acf_option_names(string $post_id, array $names): array
+    {
+        if ('' === $post_id || [] === $names) {
+            return [];
+        }
+
+        global $wpdb;
+        $found = [];
+        foreach ($names as $name) {
+            foreach ([ "{$post_id}_{$name}", "_{$post_id}_{$name}" ] as $base) {
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a snapshot must enumerate the live rows under a prefix; no options API lists by prefix.
+                $rows = $wpdb->get_col($wpdb->prepare(
+                    'SELECT option_name FROM %i WHERE option_name = %s OR option_name LIKE %s ORDER BY option_name ASC',
+                    $wpdb->options,
+                    $base,
+                    $wpdb->esc_like($base . '_') . '%'
+                ));
+                foreach ((array) $rows as $row) {
+                    $found[ (string) $row ] = true;
+                }
+            }
+        }
+        return array_keys($found);
     }
 
     /**

@@ -1256,6 +1256,14 @@ $edits['src/MCP/Server.php'] = [
     ],
 ];
 
+// The ACF pair's multi-post batch write (issue #291) is the one op in that
+// otherwise free catalog the paid tier adds. Its definition and handler live
+// in their own file, which policy.php removes, so all that leaves the
+// integration is the single line that merges it in.
+$edits['src/Integrations/ACF_Integration.php'] = [
+    ["            'batch-update-fields' => ACF_Batch_Update::definition(),\n", '', 1],
+];
+
 $edits['src/MCP/Tool_Exposure.php'] = [
     [
         " *    scope + pro-license, audited) if invoked anyway; this class only cuts\n",

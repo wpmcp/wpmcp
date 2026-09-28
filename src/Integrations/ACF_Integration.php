@@ -27,6 +27,16 @@ if (! defined('ABSPATH')) {
  * absent), the dispatcher pair registers unconditionally: availability is a
  * call-time concern for dispatchers, and a missing host plugin yields a
  * clean integration_unavailable error instead of an absent tool.
+ *
+ * Schema authoring (issue #291) lives here too rather than in new tools, so
+ * the tools/list surface stays at the one pair: field groups and their
+ * fields, ACF post types and taxonomies, options page values, field type
+ * discovery and value validation (see ACF_Schema
+ * and ACF_Options). Every structure write is an upsert by
+ * ACF key, needs ACF's own capability setting (manage_options by default),
+ * follows the same wpmcp_enable_acf_write opt-in as update-fields, and is
+ * snapshotted as an 'acf_structure' (field group, post type, taxonomy) or
+ * 'acf_options' target, so rollback-operation restores it exactly.
  */
 class ACF_Integration extends Integration_Dispatcher
 {
@@ -44,7 +54,7 @@ class ACF_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'Advanced Custom Fields (field groups and per-post field values)';
+        return 'Advanced Custom Fields (field groups, post types, taxonomies, options and field values)';
     }
 
     protected function operations(): array
@@ -96,6 +106,135 @@ class ACF_Integration extends Integration_Dispatcher
                     'object_id'   => (int) $args['post_id'],
                 ],
             ],
+            'batch-update-fields' => ACF_Batch_Update::definition(),
+        ] + $this->schema_operations();
+    }
+
+    /** Schema authoring ops (issue #291): structure reads, validation, and snapshotted structure writes. */
+    private function schema_operations(): array
+    {
+        $key       = [ 'type' => 'string', 'minLength' => 1 ];
+        $keyed     = [
+            'type'       => 'object',
+            'properties' => [ 'key' => $key ],
+            'required'   => [ 'key' ],
+        ];
+        $writes_on = (bool) apply_filters('wpmcp_enable_acf_write', false);
+        $cap       = ACF_Schema::capability();
+        $write     = fn (string $kind, string $description, array $properties, array $extra = []) => $extra + [
+            'mode'               => 'write',
+            'description'        => $description . ' Upsert by key (omit key to create). Snapshotted; rollback-operation restores it exactly. Disabled by default (wpmcp_enable_acf_write filter)',
+            'capability'         => $cap,
+            'enabled_by_default' => $writes_on,
+            'input_schema'       => [
+                'type'       => 'object',
+                'properties' => [ 'key' => $key ] + $properties,
+            ],
+            'validate'           => fn (array $args) => 'field_group' === $kind
+                ? ACF_Schema::validate_field_group($args)
+                : ACF_Schema::validate_internal($kind, $args),
+            'snapshot'           => fn (array $args) => ACF_Schema::target($kind, $args),
+            'handler'            => fn (array $args, array $context) => 'field_group' === $kind
+                ? ACF_Schema::save_field_group($args, $context)
+                : ACF_Schema::save_internal($kind, $args, $context),
+        ];
+        $registration = [ 'requires' => [ ACF_Schema::class, 'registration_requirement' ] ];
+        $labels       = [ 'type' => 'object' ];
+
+        return [
+            'get-field-group'   => [
+                'mode'         => 'read',
+                'description'  => 'Read one field group by key with every setting and its full field tree',
+                'input_schema' => $keyed,
+                'handler'      => fn (array $args) => ACF_Schema::get_field_group((string) $args['key']),
+            ],
+            'list-field-types'  => [
+                'mode'         => 'read',
+                'description'  => 'List the field types this ACF install offers (name, label, category)',
+                'input_schema' => [ 'type' => 'object', 'properties' => [] ],
+                'handler'      => fn (array $args) => ACF_Schema::field_types(),
+            ],
+            'list-post-types'   => [
+                'mode'         => 'read',
+                'description'  => 'List ACF-registered post types: key, title, post_type slug, active, local',
+                'input_schema' => [ 'type' => 'object', 'properties' => [] ],
+                'handler'      => fn (array $args) => ACF_Schema::list_internal('post_type'),
+            ] + $registration,
+            'get-post-type'     => [
+                'mode'         => 'read',
+                'description'  => 'Read one ACF post type by key with every setting',
+                'input_schema' => $keyed,
+                'handler'      => fn (array $args) => ACF_Schema::get_internal('post_type', (string) $args['key']),
+            ] + $registration,
+            'list-taxonomies'   => [
+                'mode'         => 'read',
+                'description'  => 'List ACF-registered taxonomies: key, title, taxonomy slug, active, local',
+                'input_schema' => [ 'type' => 'object', 'properties' => [] ],
+                'handler'      => fn (array $args) => ACF_Schema::list_internal('taxonomy'),
+            ] + $registration,
+            'get-taxonomy'      => [
+                'mode'         => 'read',
+                'description'  => 'Read one ACF taxonomy by key with every setting',
+                'input_schema' => $keyed,
+                'handler'      => fn (array $args) => ACF_Schema::get_internal('taxonomy', (string) $args['key']),
+            ] + $registration,
+            'validate-fields'   => [
+                'mode'         => 'read',
+                'description'  => 'Check values against their fields with ACF\'s own validation (required, number range, email, URL, custom rules) without writing. Pass post_id so field names resolve by that post\'s groups',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'post_id' => [ 'type' => 'integer', 'minimum' => 1 ],
+                        'fields'  => [ 'type' => 'object', 'minProperties' => 1 ],
+                    ],
+                    'required'   => [ 'fields' ],
+                ],
+                'handler'      => fn (array $args) => ACF_Schema::validate_values((array) $args['fields'], isset($args['post_id']) ? (int) $args['post_id'] : false),
+            ],
+            'get-options'       => [
+                'mode'         => 'read',
+                'description'  => 'List options pages, or read one page\'s field values when page (its menu slug) is given. Needs ACF Pro',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [ 'page' => [ 'type' => 'string', 'minLength' => 1 ] ],
+                ],
+                'requires'     => [ ACF_Options::class, 'requirement' ],
+                'handler'      => fn (array $args) => ACF_Options::get($args),
+            ],
+            'update-options'    => [
+                'mode'               => 'write',
+                'description'        => 'Set field values on an options page via update_field(). Snapshotted; rollback-operation restores the prior rows exactly. Needs ACF Pro. Disabled by default (wpmcp_enable_acf_write filter)',
+                'capability'         => $cap,
+                'enabled_by_default' => $writes_on,
+                'requires'           => [ ACF_Options::class, 'requirement' ],
+                'input_schema'       => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'page'   => [ 'type' => 'string', 'minLength' => 1 ],
+                        'fields' => [ 'type' => 'object', 'minProperties' => 1 ],
+                    ],
+                    'required'   => [ 'page', 'fields' ],
+                ],
+                'validate'           => fn (array $args) => ACF_Options::validate($args),
+                'snapshot'           => fn (array $args) => ACF_Options::target($args),
+                'handler'            => fn (array $args) => ACF_Options::update($args),
+            ],
+            'save-field-group'  => $write('field_group', 'Create or update a field group. fields (optional) replaces the field list: keep a field by passing its key, omit it to delete it; each needs label, name and a type from list-field-types, and may nest sub_fields.', [
+                'title'    => [ 'type' => 'string' ],
+                'fields'   => [ 'type' => 'array', 'items' => [ 'type' => 'object' ] ],
+                'location' => [ 'type' => 'array' ],
+            ]),
+            'save-post-type'    => $write('post_type', 'Create or update an ACF post type (registered by ACF on the next request). New ones need post_type (slug, max 20) and title (plural label); other ACF settings pass through.', [
+                'post_type' => [ 'type' => 'string' ],
+                'title'     => [ 'type' => 'string' ],
+                'labels'    => $labels,
+            ], $registration),
+            'save-taxonomy'     => $write('taxonomy', 'Create or update an ACF taxonomy (registered by ACF on the next request). New ones need taxonomy (slug, max 32) and title (plural label); object_type lists post types.', [
+                'taxonomy'    => [ 'type' => 'string' ],
+                'title'       => [ 'type' => 'string' ],
+                'labels'      => $labels,
+                'object_type' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+            ], $registration),
         ];
     }
 }
