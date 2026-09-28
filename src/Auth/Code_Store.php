@@ -10,7 +10,9 @@ if (! defined('ABSPATH')) {
  * Issues and redeems OAuth 2.1 authorization codes (RFC 6749 4.1, PKCE-bound
  * per RFC 7636). Backed by a single wpmcp_oauth_codes option, a map of a
  * SHA-256 hash of the code to its bound record: { client_id, user_id,
- * redirect_uri, code_challenge, code_challenge_method, scope, issued_at }.
+ * redirect_uri, code_challenge, code_challenge_method, scope, resource,
+ * issued_at }. resource is the RFC 8707 audience (Mcp_Resource) the code,
+ * and every token minted from it, is bound to.
  *
  * Security properties:
  *  - the code itself is never stored in plaintext (only its hash), matching
@@ -55,7 +57,7 @@ class Code_Store
     }
 
     /** Bounded retry count for the consume() compare-and-swap loop. */
-    private const MAX_CAS_ATTEMPTS = 10;
+    private const MAX_CAS_ATTEMPTS = Atomic_Option::MAX_ATTEMPTS;
 
     private static function load(): array
     {
@@ -70,7 +72,8 @@ class Code_Store
 
     /**
      * @param array $fields client_id, user_id, redirect_uri, code_challenge,
-     *                      code_challenge_method, scope.
+     *                      code_challenge_method, scope, resource
+     *                      (defaults to Mcp_Resource::canonical()).
      * @return string The plaintext code, returned exactly once.
      */
     public static function issue(array $fields): string
@@ -85,6 +88,7 @@ class Code_Store
             'code_challenge'        => (string) ($fields['code_challenge'] ?? ''),
             'code_challenge_method' => (string) ($fields['code_challenge_method'] ?? ''),
             'scope'                 => (string) ($fields['scope'] ?? ''),
+            'resource'              => (string) ($fields['resource'] ?? Mcp_Resource::canonical()),
             'issued_at'             => self::now(),
         ];
         self::save($stored);
@@ -136,86 +140,24 @@ class Code_Store
 
     /**
      * Read the store straight off the options row, bypassing the object
-     * cache (issue #182).
-     *
-     * consume() cannot use get_option() here. wpmcp_oauth_codes is
-     * autoloaded, so get_option() serves it from the in-process `alloptions`
-     * blob; every retry in the CAS loop would then compare the same stale
-     * snapshot, no attempt could ever match the row another process just
-     * rewrote, and a valid unredeemed code would be rejected after
-     * MAX_CAS_ATTEMPTS. The compare-and-swap is defined against the row's
-     * real current value, so the read that feeds it has to come from the row.
+     * cache (issue #182); see Atomic_Option::read().
      *
      * @return array The decoded store, or [] when the row is absent.
      */
     private static function read_uncached(): array
     {
-        global $wpdb;
-
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Deliberately uncached: this read is the compare half of a compare-and-swap and must observe the row as other processes left it, which the autoloaded-options cache cannot show.
-        $value = $wpdb->get_var(
-            $wpdb->prepare(
-                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                self::OPTION
-            )
-        );
-
-        if (null === $value) {
-            return [];
-        }
-
-        $stored = maybe_unserialize($value);
-
-        return is_array($stored) ? $stored : [];
+        return Atomic_Option::read(self::OPTION) ?? [];
     }
 
     /**
-     * Atomically replace the wpmcp_oauth_codes option's value from $before
-     * to $after, but ONLY if the row still holds exactly $before at write
-     * time. Returns true if this caller's write won (rows-affected === 1),
-     * false if another caller changed the row first (rows-affected === 0),
-     * in which case the caller must re-read and retry.
-     *
-     * Deliberately bypasses update_option() (which is unconditional
-     * last-write-wins) in favor of a direct $wpdb UPDATE ... WHERE
-     * option_value = <expected>, which MySQL executes under a row lock: at
-     * most one concurrent caller's UPDATE can match the WHERE clause and
-     * affect a row, which is exactly the "redeemable at most once"
-     * guarantee consume() needs.
+     * Atomically replace the store from $before to $after, but ONLY if the
+     * row still holds exactly $before; see Atomic_Option::swap(). At most
+     * one concurrent consume() can win, which is the single-redemption
+     * guarantee.
      */
     private static function compare_and_swap(array $before, array $after): bool
     {
-        global $wpdb;
-
-        $before_value = maybe_serialize($before);
-        $after_value  = maybe_serialize($after);
-
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- update_option() is unconditional last-write-wins and cannot express "write only if the row still holds what I read". This conditional UPDATE takes a MySQL row lock, so at most one concurrent consume() affects a row, which is the single-redemption guarantee. The caches it invalidates are cleared on the winning path below.
-        $affected = $wpdb->query(
-            $wpdb->prepare(
-                "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
-                $after_value,
-                self::OPTION,
-                $before_value
-            )
-        );
-
-        if (false === $affected) {
-            return false;
-        }
-
-        if ($affected > 0) {
-            // The row moved behind get_option()'s back. Clearing only the
-            // per-option key is not enough: this option is autoloaded, so
-            // get_option() reads it from the `alloptions` blob, and leaving
-            // that blob stale lets the next issue()/gc() load-modify-save
-            // write the redeemed code straight back into wp_options.
-            wp_cache_delete(self::OPTION, 'options');
-            wp_cache_delete('alloptions', 'options');
-            return true;
-        }
-
-        return false;
+        return Atomic_Option::swap(self::OPTION, $before, $after);
     }
 
     /**

@@ -50,6 +50,11 @@ if (! defined('ABSPATH')) {
  * model (fresh / in grace / burned) -- the short version is that a
  * dropped-response retry is forgiven for a couple of minutes, and a reuse
  * after that revokes the whole chain, access tokens included.
+ *
+ * AUDIENCE (RFC 8707). Codes, access tokens and refresh tokens are all bound
+ * to the MCP endpoint (Mcp_Resource). A `resource` parameter naming anything
+ * else is refused with 'invalid_target' before any state changes, and a
+ * refresh carries the redeemed record's audience forward unchanged.
  */
 class Token_Grant
 {
@@ -72,6 +77,15 @@ class Token_Grant
         if (! Client_Store::verify_secret($client_id, $client_secret)) {
             self::audit(false, $client_id);
             return new \WP_Error('invalid_client', 'Client authentication failed.');
+        }
+
+        // RFC 8707: a resource sent to the token endpoint must name the
+        // audience the grant is bound to. Every grant this server issues is
+        // bound to the MCP endpoint, so anything else is refused up front,
+        // before a code is spent or a refresh token rotated.
+        if (array_key_exists('resource', $params) && null === Mcp_Resource::resolve_requested($params['resource'])) {
+            self::audit(false, $client_id);
+            return self::invalid_target();
         }
 
         // Opportunistic, throttled housekeeping (issue #133). Runs after
@@ -128,13 +142,21 @@ class Token_Grant
             return self::deny($client_id);
         }
 
+        $resource = (string) ($record['resource'] ?? Mcp_Resource::canonical());
+        if (! Mcp_Resource::matches($resource)) {
+            self::audit(false, $client_id);
+            return self::invalid_target();
+        }
+
         self::audit(true, $client_id);
 
         return self::mint(
             $client_id,
             (int) $record['user_id'],
             (string) $record['scope'],
-            Refresh_Token_Store::new_chain_id()
+            Refresh_Token_Store::new_chain_id(),
+            false,
+            $resource
         );
     }
 
@@ -161,6 +183,9 @@ class Token_Grant
             return self::invalid_grant();
         }
 
+        // Everything else, including 'race_lost' (a concurrent redemption
+        // of the same token already minted this rotation's pair), is a flat
+        // invalid_grant.
         if ('ok' !== $status && 'grace' !== $status) {
             return self::deny($client_id);
         }
@@ -194,9 +219,16 @@ class Token_Grant
             return self::deny($client_id);
         }
 
+        // The audience is carried forward unchanged along the chain.
+        $resource = (string) ($record['resource'] ?? Mcp_Resource::canonical());
+        if (! Mcp_Resource::matches($resource)) {
+            self::audit(false, $client_id);
+            return self::invalid_target();
+        }
+
         self::audit(true, $client_id);
 
-        return self::mint($client_id, $user_id, (string) $record['scope'], $chain_id, $is_gateway_chain);
+        return self::mint($client_id, $user_id, (string) $record['scope'], $chain_id, $is_gateway_chain, $resource);
     }
 
     /**
@@ -206,14 +238,14 @@ class Token_Grant
      *
      * @return array{access_token: string, token_type: string, expires_in: int, scope: string, refresh_token: string}
      */
-    private static function mint(string $client_id, int $user_id, string $scope, string $chain_id, bool $gateway = false): array
+    private static function mint(string $client_id, int $user_id, string $scope, string $chain_id, bool $gateway, string $resource): array
     {
         return [
-            'access_token'  => Token_Store::issue($client_id, $user_id, $scope, $chain_id, $gateway),
+            'access_token'  => Token_Store::issue($client_id, $user_id, $scope, $chain_id, $gateway, $resource),
             'token_type'    => 'Bearer',
             'expires_in'    => Token_Store::TTL_SECONDS,
             'scope'         => $scope,
-            'refresh_token' => Refresh_Token_Store::issue($client_id, $user_id, $scope, $chain_id, $gateway),
+            'refresh_token' => Refresh_Token_Store::issue($client_id, $user_id, $scope, $chain_id, $gateway, $resource),
         ];
     }
 
@@ -222,6 +254,11 @@ class Token_Grant
         self::audit(false, $client_id);
 
         return self::invalid_grant();
+    }
+
+    private static function invalid_target(): \WP_Error
+    {
+        return new \WP_Error('invalid_target', 'The requested resource is not served by this authorization server.');
     }
 
     private static function invalid_grant(): \WP_Error
