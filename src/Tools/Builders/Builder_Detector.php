@@ -27,7 +27,12 @@ if (! defined('ABSPATH')) {
  * `fusion_builder_status` = 'active' flag, Thrive Architect's
  * `tcb_editor_enabled` flag or `tve_landing_page` template (checked before
  * block markers, since the plain-text copy Thrive keeps in post_content
- * preserves them), Gutenberg's `<!-- wp: -->` block
+ * preserves them), a classic Oxygen (4.x and earlier) layout row under
+ * either key layout (`_ct_builder_json` / `ct_builder_json` holding a tree
+ * with elements, or a non-empty `_ct_builder_shortcodes` /
+ * `ct_builder_shortcodes`, Oxygen's own test for a page it renders; checked
+ * before block markers, since Oxygen leaves post_content as it was),
+ * Gutenberg's `<!-- wp: -->` block
  * comment markers in post_content, then a WPBakery `[vc_row]` or
  * `[vc_section]` shortcode in post_content (a WPBakery page saved with its
  * backend editor off) or an Avada `[fusion_builder_container]` (an Avada
@@ -78,6 +83,10 @@ class Builder_Detector
             return 'thrive';
         }
 
+        if (self::has_classic_oxygen_layout($post_id)) {
+            return 'oxygen-classic';
+        }
+
         $post = get_post($post_id);
         $content = $post ? (string) $post->post_content : '';
 
@@ -94,6 +103,30 @@ class Builder_Detector
         }
 
         return 'classic';
+    }
+
+    /**
+     * Whether a page holds a classic Oxygen layout Oxygen would render: a
+     * tree with elements, or a shortcode copy (all a page saved before
+     * Oxygen 4 has). Oxygen 4.8.3 moved these rows to `_ct_` keys; earlier
+     * versions and unmigrated sites keep the `ct_` keys.
+     */
+    private static function has_classic_oxygen_layout(int $post_id): bool
+    {
+        foreach (['_ct_builder_json', 'ct_builder_json'] as $key) {
+            $tree = json_decode((string) get_post_meta($post_id, $key, true), true);
+            if (is_array($tree) && is_array($tree['children'] ?? null) && [] !== $tree['children']) {
+                return true;
+            }
+        }
+        foreach (['_ct_builder_shortcodes', 'ct_builder_shortcodes'] as $key) {
+            $shortcodes = get_post_meta($post_id, $key, true);
+            if (is_string($shortcodes) && '' !== trim($shortcodes)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

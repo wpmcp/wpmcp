@@ -19,7 +19,10 @@ if (! defined('ABSPATH')) {
  * engine) return their node tree (the node ids operations address), the
  * next node id and whether the plugin is loaded; Thrive Architect returns
  * its layout HTML, the path tree parsed from it, the landing page template
- * and whether the plugin is loaded.
+ * and whether the plugin is loaded; classic Oxygen (4.x and earlier) returns
+ * its stored JSON tree (or the shortcodes of a page in the pre-4.0 format),
+ * the path tree parsed from it, which of the two it is, whether it can be
+ * written now and whether the plugin is loaded.
  * Elementor/Gutenberg/classic posts are out of scope for this tool (use
  * get-elementor-data for Elementor) and return a WP_Error. Never mutates
  * anything, so this is not routed through the safety core.
@@ -73,13 +76,17 @@ class Get_Builder_Content
             return Thrive_Content::read($post_id);
         }
 
+        if ('oxygen-classic' === $builder) {
+            return Oxygen_Classic_Content::read($post_id);
+        }
+
         if ('breakdance' === $builder || 'oxygen' === $builder) {
             return Breakdance_Content::read($post_id, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen' and 'thrive'; this post was detected as '{$builder}'."
+            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic' and 'thrive'; this post was detected as '{$builder}'."
         );
     }
 }

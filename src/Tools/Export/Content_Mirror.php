@@ -3,7 +3,7 @@
 namespace WPMCP\Tools\Export;
 
 use WPMCP\Safety\Safe_Mutation;
-use WPMCP\Tools\Builders\{Avada_Content, Beaver_Builder_Content, Beaver_Builder_Nodes, Breakdance_Content, Breakdance_Tree, Bricks_Content, Builder_Detector, Divi_Content, Thrive_Content, Thrive_Html, WPBakery_Content};
+use WPMCP\Tools\Builders\{Avada_Content, Beaver_Builder_Content, Beaver_Builder_Nodes, Breakdance_Content, Breakdance_Tree, Bricks_Content, Builder_Detector, Divi_Content, Oxygen_Classic_Content, Oxygen_Classic_Json, Thrive_Content, Thrive_Html, WPBakery_Content};
 use WPMCP\Tools\Content\Content_Guard;
 use WPMCP\Tools\Elementor\Elementor_Page_Data;
 use WPMCP\Tools\Filesystem\Filesystem_Guard;
@@ -23,7 +23,9 @@ if (! defined('ABSPATH')) {
  * bytes change, so a checkout of the directory diffs cleanly. Content held in
  * post_content (Gutenberg blocks, Divi, WPBakery and Avada shortcodes) is
  * written as an array of lines, as is a Thrive Architect layout (HTML in
- * postmeta), so a one-line edit is a one-line diff.
+ * postmeta), so a one-line edit is a one-line diff. A classic Oxygen page is
+ * written as its JSON tree (or, for a page still in the pre-4.0 format, its
+ * shortcodes as lines, which a restore refuses: only Oxygen can sign them).
  *
  * restore() reads a page's file back and writes it through that builder's
  * storage adapter inside Safe_Mutation::run(), so the restore is snapshotted
@@ -253,6 +255,28 @@ class Content_Mirror
             };
         }
 
+        if ('oxygen-classic' === $builder) {
+            if (! is_object($data)) {
+                throw new \RuntimeException(esc_html("The mirror file for post {$post_id} holds classic Oxygen shortcodes from before Oxygen 4, which only Oxygen can sign; it cannot be restored here."));
+            }
+            $json = (string) wp_json_encode($data, JSON_UNESCAPED_UNICODE);
+            try {
+                Oxygen_Classic_Json::validate($json);
+                $json = (Oxygen_Classic_Content::signer())($json);
+            } catch (\InvalidArgumentException $e) {
+                throw new \RuntimeException(esc_html($e->getMessage()));
+            }
+            if ('' !== trim(Oxygen_Classic_Content::get_shortcodes($post_id)) && ! Oxygen_Classic_Content::can_regenerate()) {
+                throw new \RuntimeException('Oxygen keeps a signed shortcode copy of this page beside its JSON, and only Oxygen can sign it; activate Oxygen to restore this page.');
+            }
+            $shortcodes = Oxygen_Classic_Content::shortcodes_for($json);
+
+            return static function () use ($post_id, $json, $shortcodes) {
+                Oxygen_Classic_Content::save($post_id, $json, $shortcodes);
+                return true;
+            };
+        }
+
         if ('beaver-builder' === $builder) {
             if (Beaver_Builder_Content::draft_pending($post_id)) {
                 throw new \RuntimeException('This page has unpublished Beaver Builder edits; publish or discard them in the editor first.');
@@ -311,6 +335,12 @@ class Content_Mirror
 
             case 'thrive':
                 return explode("\n", Thrive_Content::get_content($post_id));
+
+            case 'oxygen-classic':
+                if ('json' === Oxygen_Classic_Content::format($post_id)) {
+                    return json_decode(Oxygen_Classic_Content::get_json($post_id));
+                }
+                return explode("\n", Oxygen_Classic_Content::get_shortcodes($post_id));
         }
 
         $raw   = get_post_meta($post_id, Breakdance_Content::data_key($builder), true);
@@ -369,6 +399,7 @@ class Content_Mirror
             'breakdance'     => Breakdance_Content::class,
             'oxygen'         => Breakdance_Content::class,
             'thrive'         => Thrive_Content::class,
+            'oxygen-classic' => Oxygen_Classic_Content::class,
         ];
         if (! array_key_exists($builder, $adapters)) {
             return false;

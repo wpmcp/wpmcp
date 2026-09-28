@@ -159,8 +159,8 @@ class Handshake_Instructions
      * Site-level builder detection, reusing the same markers the builder
      * tools check: Elementor's plugin class, then the Bricks and Divi theme
      * constants/templates, then the WPBakery, Beaver Builder, Breakdance
-     * engine (Breakdance or Oxygen 6), Avada builder and Thrive Architect
-     * plugin constants, falling back to gutenberg (the WP default).
+     * engine (Breakdance or Oxygen 6), classic Oxygen, Avada builder and
+     * Thrive Architect plugin constants, falling back to gutenberg (the WP default).
      */
     public function active_builder(): string
     {
@@ -185,6 +185,9 @@ class Handshake_Instructions
         if (defined('__BREAKDANCE_VERSION')) {
             // Oxygen 6 is the same engine, run with BREAKDANCE_MODE 'oxygen'.
             return defined('BREAKDANCE_MODE') && 'oxygen' === constant('BREAKDANCE_MODE') ? 'oxygen' : 'breakdance';
+        }
+        if (defined('CT_VERSION')) {
+            return 'oxygen-classic';
         }
         if (defined('FUSION_BUILDER_VERSION')) {
             return 'avada';

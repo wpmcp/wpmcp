@@ -263,6 +263,16 @@ class ContentMirrorTest extends \WP_UnitTestCase
                     update_post_meta($id, '_oxygen_data', wp_slash(self::breakdance_meta('Edited')));
                 },
             ],
+            'oxygen-classic' => [
+                static function (self $t): int {
+                    $id = $t->page('<p>Left over</p>');
+                    $t->raw_meta($id, '_ct_builder_json', '{"id":0,"name":"root","depth":0,"children":[{"id":1,"name":"ct_section","options":{"ct_id":1,"ct_parent":0,"selector":"section-1-9","original":{"padding-top":"80"},"nicename":"Hero","activeselector":false},"depth":1,"children":[{"id":2,"name":"ct_headline","options":{"ct_id":2,"ct_parent":1,"selector":"headline-2-9","original":{"tag":"h1"},"ct_content":"Welcome to C:\\\\Sites\\\\oxygen, \\"hi\\" <\\/b> Café"},"depth":2}]}]}');
+                    return $id;
+                },
+                static function (self $t, int $id): void {
+                    update_post_meta($id, '_ct_builder_json', wp_slash('{"id":0,"name":"root","depth":0,"children":[{"id":1,"name":"ct_section","options":{"ct_id":1,"ct_parent":0,"selector":"section-1-9","original":{}},"depth":1}]}'));
+                },
+            ],
             'thrive'         => [
                 static function (self $t): int {
                     $id = $t->page('<h1>Welcome</h1>');
