@@ -8,6 +8,11 @@ use WPMCP\Compliance\Severity;
 /**
  * WordPress.Security.ValidatedSanitizedInput: superglobal reads must be
  * unslashed and sanitized before use.
+ *
+ * Matches code tokens only (Source_File::grep_code()): a superglobal named
+ * in a comment or docblock is not a read, and a sanitizer named there does
+ * not sanitize anything (issue #347). The phpcs:ignore check still reads the
+ * raw line, because that annotation lives in a comment.
  */
 final class Input_Sanitization_Rule extends Base_Rule
 {
@@ -52,7 +57,7 @@ final class Input_Sanitization_Rule extends Base_Rule
         $pattern = '/\$(' . implode('|', self::SUPERGLOBALS) . ')\s*\[/';
         $findings = [];
         foreach ($context->php_files() as $file) {
-            foreach ($file->grep($pattern) as $hit) {
+            foreach ($file->grep_code($pattern) as $hit) {
                 if ($this->is_handled($hit['text'])) {
                     continue;
                 }
