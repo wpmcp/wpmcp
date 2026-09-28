@@ -32,6 +32,10 @@ if (! defined('ABSPATH')) {
  *  - then drops the suite's cached per-post CSS, as a rollback does too
  *    (Block_Suite::refresh_after_restore on wpmcp_rollback_post_restored).
  *
+ * list-patterns and import-pattern also reach the WordPress.org Pattern
+ * Directory (source "directory", names "directory:<id>"), through the
+ * guarded and cached client in Block_Suite_Pattern_Directory (issue #364).
+ *
  * import-pattern inserts a registered pattern's blocks the same way, in one
  * snapshot, with two differences: attributes are not refused (a suite's own
  * pattern may carry attributes its current schema dropped, and the editor
@@ -149,10 +153,11 @@ final class Block_Suites_Integration extends Integration_Dispatcher
             'list-patterns'     => [
                 'mode'         => 'read',
                 'tier'         => 'pro',
-                'description'  => 'Browse registered block patterns (core, theme and suite): name, title, categories, the suites whose blocks each uses and its remote image count. Filter by suite, category or search (name or title); paged by limit and offset',
+                'description'  => 'Browse registered block patterns (core, theme and suite): name, title, categories, the suites whose blocks each uses and its remote image count. Filter by suite, category or search (name or title); paged by limit and offset. source:"directory" browses the WordPress.org Pattern Directory instead (core blocks only, no suite filter, category is a directory slug, limit up to 100, cached an hour); its names are directory:<id>',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
+                        'source'   => [ 'type' => 'string', 'enum' => [ 'registry', Block_Suite_Pattern_Directory::SOURCE ] ],
                         'suite'    => $suite_prop,
                         'category' => [ 'type' => 'string' ],
                         'search'   => [ 'type' => 'string' ],
@@ -160,13 +165,14 @@ final class Block_Suites_Integration extends Integration_Dispatcher
                         'offset'   => [ 'type' => 'integer', 'minimum' => 0 ],
                     ],
                 ],
+                'validate'     => [ Block_Suite_Pattern_Directory::class, 'refuse_suite_filter' ],
                 'handler'      => [ Block_Suite_Patterns::class, 'list_patterns' ],
             ],
             'import-pattern'    => [
                 'mode'              => 'write',
                 'tier'              => 'pro',
                 'self_snapshotting' => true,
-                'description'       => 'Insert registered pattern name AT path in post id (expected_hash from parse-blocks). Suite unique ids are made unique in the post as insert-block does. Remote images are sideloaded through the remote media host allowlist and their urls (and attachment ids) rewritten; others are kept and reported. sideload_images:false keeps all. One snapshot; rollback-operation restores the post (sideloaded media stays)',
+                'description'       => 'Insert registered pattern name (or a directory:<id> from the Pattern Directory) AT path in post id (expected_hash from parse-blocks). Suite unique ids are made unique in the post as insert-block does. Remote images are sideloaded through the remote media host allowlist and their urls (and attachment ids) rewritten; others are kept and reported. sideload_images:false keeps all. One snapshot; rollback-operation restores the post (sideloaded media stays)',
                 'input_schema'      => [
                     'type'       => 'object',
                     'properties' => $location + [
@@ -342,8 +348,9 @@ final class Block_Suites_Integration extends Integration_Dispatcher
     }
 
     /**
-     * Insert a registered pattern's blocks at path in one snapshot: refuse
-     * an unknown pattern or a stale hash before anything is fetched, then
+     * Insert a registered or Pattern Directory pattern's blocks at path in
+     * one snapshot: refuse a stale hash before anything is fetched and an
+     * unknown pattern before anything is written, then
      * sideload its remote images, id its suite blocks, write, and refresh the
      * CSS of every suite the pattern uses. Media sideloaded for a write that
      * then fails is deleted again.
@@ -352,11 +359,16 @@ final class Block_Suites_Integration extends Integration_Dispatcher
      */
     public static function import_pattern(array $args, array $context): array
     {
-        $content = Block_Suite_Patterns::content((string) $args['name']);
+        // The freshness proof first, so a stale hash costs no remote request.
         [ $post_id, $blocks ] = self::load($args);
-        $path = self::path($args);
+        $path    = self::path($args);
+        $name    = (string) $args['name'];
+        $content = Block_Suite_Patterns::content($name);
 
-        $images = Block_Suite_Patterns::import_images($content, $post_id, false !== ($args['sideload_images'] ?? true));
+        $sideload = false !== ($args['sideload_images'] ?? true);
+        $images   = Block_Suite_Pattern_Directory::owns($name)
+            ? Block_Suite_Patterns::import_images($content, $post_id, $sideload, Block_Suite_Pattern_Directory::image_hosts(), 'wpmcp_pattern_directory_image_hosts')
+            : Block_Suite_Patterns::import_images($content, $post_id, $sideload);
         $media  = array_filter(array_column($images['images'], 'media_id'));
         try {
             $nodes = array_values(array_filter(
