@@ -129,8 +129,15 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  budget, and the pair adds 1149 bytes (204121 over 380 tools). Both
      *  row schemas are already a plain object array and both descriptions
      *  were trimmed twice to the row fields, the plan_hash handshake, the
-     *  confirm rule and the rollback-session undo. */
-    private const TOOLS_LIST_BYTE_BUDGET = 205000;
+     *  confirm rule and the rollback-session undo. Raised 205000 -> 206000
+     *  for the multi-site gateway (#130: cloud-gateway-provision,
+     *  cloud-gateway-status, cloud-connect's gateway_consent), which adds
+     *  1026 bytes after its three descriptions were cut from 1082 to 446
+     *  characters. What remains is the consent and replace gates, the
+     *  MCP-only and identity-only reach, and the once-only secrets, since
+     *  an agent that misses those can upload a credential without consent
+     *  or kill a live one. */
+    private const TOOLS_LIST_BYTE_BUDGET = 206000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

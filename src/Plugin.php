@@ -688,6 +688,12 @@ final class Plugin
             // checks work for OAuth callers with no change to Registrar
             // itself. Also a no-op unless OAuth_Config::is_enabled().
             (new Bearer_Auth())->register();
+
+            // Confines the gateway credential (#142) to the MCP connection and
+            // binds it to its scoped Identity (issue #130), plus the
+            // `wp wpmcp gateway-revoke` kill switch. src/Gateway ships on every
+            // flavor, so this is unconditional.
+            \WPMCP\Gateway\Gateway_Guard::register();
             // Handshake context injection (issue #80): swap the MCP
             // Adapter's initialize `instructions` for the admin-authored
             // text plus the permission-gated site summary. A no-op unless
@@ -2756,7 +2762,7 @@ final class Plugin
     private function register_cloud_abilities(Registrar $registrar): void
     {
         $tools = [
-            ['cloud-connect', 'update', new \WPMCP\Tools\Cloud\Cloud_Connect(), 'Connect this site to WP MCP Cloud: store the cloud url + api key and verify them by fetching the account. Returns the account on success', ['url' => ['type' => 'string'], 'key' => ['type' => 'string']], ['url', 'key']],
+            ['cloud-connect', 'update', new \WPMCP\Tools\Cloud\Cloud_Connect(), 'Connect this site to WP MCP Cloud: store the cloud url + api key and verify them by fetching the account. Returns the account on success. gateway_consent (default false) permits a gateway credential upload; false withdraws it and kills any the cloud holds', ['url' => ['type' => 'string'], 'key' => ['type' => 'string'], 'gateway_consent' => ['type' => 'boolean', 'default' => false]], ['url', 'key']],
             ['cloud-status', 'read', new \WPMCP\Tools\Cloud\Cloud_Status(), 'Report whether this site is connected to WP MCP Cloud, and where. Read-only', [], []],
             ['cloud-list-assets', 'read', new \WPMCP\Tools\Cloud\Cloud_List_Assets(), 'List the assets (widget/block specs) in this site\'s WP MCP Cloud account. Read-only', [], []],
             ['cloud-push-assets', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Assets(), 'Push this site\'s custom widget and block specs up to WP MCP Cloud (backup + reuse across sites). Optionally filter by type (widget|block)', ['types' => ['type' => 'array']], []],
@@ -2766,6 +2772,8 @@ final class Plugin
             ['cloud-apply-settings', 'update', new \WPMCP\Tools\Cloud\Cloud_Apply_Settings(), 'Apply a posture: a cloud-sync-settings map, or (settings omitted) the last pushed one. Re-filtered to the allowlist; toggles and identities merge, scope fields only; never changes the MCP exposure switch or disables rollback-operation. Paid. Each write snapshotted; applied[i] pairs with operation_ids[i]; matching options listed as unchanged', ['settings' => ['type' => 'object'], 'session_id' => ['type' => 'string']], []],
             ['cloud-marketplace-browse', 'read', new \WPMCP\Tools\Cloud\Cloud_Marketplace_Browse(), 'Browse WP MCP Cloud marketplace widget and block specs, optionally by type and search. Read-only', ['type' => ['type' => 'string', 'enum' => ['widget', 'block']], 'search' => ['type' => 'string']], []],
             ['cloud-marketplace-install', 'create', new \WPMCP\Tools\Cloud\Cloud_Marketplace_Install(), 'Install a WP MCP Cloud marketplace listing by slug: validated like validate-widget-spec / validate-block-spec, template run through wp_kses_post, lands INACTIVE until set-widget-status / set-block-status. Refuses a name colliding with a local spec', ['slug' => ['type' => 'string']], ['slug']],
+            ['cloud-gateway-provision', 'create', new \WPMCP\Tools\Cloud\Cloud_Gateway_Provision(), 'Mint the gateway credential bound to a scoped identity (MCP connection, that allowlist only) and upload it. Needs consent=true; replace=true kills a live one. Upload needs cloud-connect gateway_consent. Secrets shown ONCE. Revoke: gateway-revoke', ['identity' => ['type' => 'string'], 'consent' => ['type' => 'boolean'], 'replace' => ['type' => 'boolean'], 'upload' => ['type' => 'boolean']], ['identity', 'consent']],
+            ['cloud-gateway-status', 'read', new \WPMCP\Tools\Cloud\Cloud_Gateway_Status(), 'Gateway credential\'s bound identity, upload and consent state. No secrets. Read-only', [], []],
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
