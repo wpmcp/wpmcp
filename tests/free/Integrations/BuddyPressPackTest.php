@@ -765,19 +765,18 @@ class BuddyPressPackTest extends \WP_UnitTestCase
         $stop();
         $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
 
-        // The notification the write created has since been handed to
+        // The activity item the write created has since been handed to
         // another member: it is no longer the write's to remove.
-        $wpdb->update($wpdb->base_prefix . 'bp_notifications', [ 'user_id' => $member ], [ 'id' => $mine['bp_notifications'] ]);
+        $wpdb->update($wpdb->base_prefix . 'bp_activity', [ 'user_id' => $member ], [ 'id' => $mine['bp_activity'] ]);
 
         $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
         $after = wpmcp_test_bp_dump();
         $this->assertSame($before['bp_groups'], $after['bp_groups']);
-        $this->assertSame([], $after['bp_activity'], 'rows still owned as recorded are removed');
-        $this->assertSame([], $after['bp_activity_meta']);
-        $this->assertSame([ (string) $mine['bp_notifications'] ], array_column($after['bp_notifications'], 'id'), 'the reassigned row is left in place');
+        $this->assertSame([ (string) $mine['bp_activity'] ], array_column($after['bp_activity'], 'id'), 'the reassigned row is left in place');
+        $this->assertSame([], $after['bp_activity_meta'], 'rows still owned as recorded are removed');
+        $this->assertSame([], $after['bp_notifications']);
         $warnings = implode("\n", Rollback_Service::take_warnings());
-        $this->assertStringContainsString('bp_notifications', $warnings);
-        $this->assertStringContainsString((string) $mine['bp_notifications'], $warnings);
+        $this->assertStringContainsString('bp_activity #' . $mine['bp_activity'], $warnings);
     }
 
     public function test_buddypress_rows_is_a_restorable_type(): void
