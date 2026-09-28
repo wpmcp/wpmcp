@@ -103,8 +103,12 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  196000 -> 198000 when the five cloud settings sync and marketplace
      *  tools (#135) met that main: 197816 bytes over 366 tools, after their
      *  descriptions were trimmed twice without dropping the never-syncs,
-     *  merge, never-disable-rollback or inactive-install rules.
-     *  Compact tool mode keeps clients with tool caps at ~2.8KB regardless. */
+     *  merge, never-disable-rollback or inactive-install rules. The widget
+     *  compiler (#72) adds compile-custom-widget, trimmed from 569 characters
+     *  (it keeps the opt-in filter and the edit_files and DISALLOW_FILE_EDIT
+     *  refusals), with the other widget builder descriptions tightened to
+     *  pay for it. Compact tool mode keeps clients with tool caps at ~2.8KB
+     *  regardless. */
     private const TOOLS_LIST_BYTE_BUDGET = 198000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
@@ -165,9 +169,12 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
         // consumed by a FIXED generic set, so adding a cataloged widget must
         // never add a tool. New tools here are per-feature, never per-widget,
         // and stay well under the catalog size. Raised 64 -> 65 for
-        // regenerate-elementor-css, a per-feature cache tool.
+        // regenerate-elementor-css, a per-feature cache tool, and 65 -> 66
+        // for compile-custom-widget (issue #72: one ability compiles ANY
+        // stored spec, so the count stays independent of how many widgets
+        // exist, cataloged or custom).
         $this->assertLessThanOrEqual(
-            65,
+            66,
             count($elementor),
             'The Elementor tool surface must stay a fixed set of generic, per-feature tools; '
             . 'widgets belong in the catalog data, not in new per-widget abilities.'

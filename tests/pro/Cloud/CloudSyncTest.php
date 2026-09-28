@@ -57,6 +57,14 @@ class CloudSyncTest extends \WP_UnitTestCase
                     'controls' => [['name' => 'text', 'type' => 'text', 'label' => 'Text']],
                     'template' => '<div>{{text}}</div>',
                 ]],
+                // Pushed under older, looser widget rules: the control name
+                // only became valid through sanitize_key(). Skipped on pull,
+                // and the pull result must say which asset and why.
+                ['id' => 'r3', 'type' => 'widget', 'name' => 'legacy-card', 'title' => 'Legacy Card', 'spec' => [
+                    'name' => 'legacy-card', 'title' => 'Legacy Card',
+                    'controls' => [['name' => 'My Heading', 'type' => 'text', 'label' => 'Heading']],
+                    'template' => '<h3>{{myheading}}</h3>',
+                ]],
                 ['id' => 'r2', 'type' => 'block', 'name' => 'wpmcp/cloud-note', 'title' => 'Cloud Note', 'spec' => [
                     'name' => 'cloud-note', 'title' => 'Cloud Note',
                     'attributes' => [['name' => 'body', 'type' => 'string', 'label' => 'Body']],
@@ -162,6 +170,10 @@ class CloudSyncTest extends \WP_UnitTestCase
         $out = (new Cloud_Pull_Assets())->handle([]);
 
         $this->assertSame(2, $out['pulled']);
+        $this->assertCount(1, $out['skipped'], 'a spec the site refuses must be reported, not silently dropped');
+        $this->assertSame('legacy-card', $out['skipped'][0]['name']);
+        $this->assertSame('widget', $out['skipped'][0]['type']);
+        $this->assertStringContainsString('Control names', $out['skipped'][0]['reason']);
         $widgets = array_column(Widget_Spec_Store::all(), 'name');
         $blocks  = array_column(Block_Spec_Store::all(), 'name');
         $this->assertContains('cloud-hero', $widgets);

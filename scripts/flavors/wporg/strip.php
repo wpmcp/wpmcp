@@ -893,6 +893,8 @@ $plugin_edits[] = [
         . "        if (\$this->group_enabled('widget_builder')) {\n"
         . "            add_action('init', ['\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Widget_Spec_Store', 'ensure_post_type']);\n"
         . "            add_action('elementor/widgets/register', ['\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Widget_Registry', 'register']);\n"
+        . "            // A permanently deleted spec must not leave generated PHP behind.\n"
+        . "            add_action('before_delete_post', ['\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Widget_Registry', 'purge_on_delete'], 10, 2);\n"
         . "        }\n"
         . "        // Data-driven custom Gutenberg block builder: register the wpmcp_block\n"
         . "        // CPT and register active specs as real blocks via register_block_type.\n"
@@ -1184,6 +1186,23 @@ $edits['src/Tools/Connect/List_Tool_Catalog.php'] = [
     ],
 ];
 
+// ----------------------------------------------------------- Rollback_Service
+// The compiled-widget undo helpers resolve the compiler's manifest class,
+// which leaves with src/Tools/WidgetBuilder. The lookup is guarded by
+// class_exists() so it could never succeed here, but the class-reference gate
+// in the build script rejects any name the zip does not ship, guarded or not.
+// Every compiled-widget branch in Rollback_Service goes through this one
+// helper, so returning null here makes all of them inert.
+$edits['src/Safety/Rollback_Service.php'] = [
+    [
+        "        \$class = '\\\\WPMCP\\\\Tools\\\\WidgetBuilder\\\\Compiler\\\\Compiled_Widget_Manifest';\n"
+            . "        return class_exists(\$class) ? \$class : null;\n",
+        "        // The widget compiler is part of the off-directory add-on, so no\n"
+            . "        // snapshot in this build carries a compiled-widget payload.\n"
+            . "        return null;\n",
+        1,
+    ],
+];
 
 // ------------------------------------------------- prose the strip falsifies
 // Deleting the Registrar tier branch makes a set of statements elsewhere in

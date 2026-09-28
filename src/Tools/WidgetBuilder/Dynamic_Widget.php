@@ -94,8 +94,9 @@ if (class_exists('\\Elementor\\Widget_Base')) {
             if ([] === $spec) {
                 return;
             }
-            // Every {{name}} placeholder is escaped by control type inside the renderer
-            // (text/textarea -> esc_html, wysiwyg -> wp_kses_post, url/image -> esc_url,
+            // Every {{name}} placeholder is escaped by control type inside the renderer,
+            // with the escaper Widget_Spec::CONTROL_TYPES declares for it (wysiwyg ->
+            // wp_kses_post, url/image -> esc_url, icon/color/switcher -> esc_attr,
             // anything else -> esc_html). What surrounds them is the spec's own template:
             // author-supplied HTML written through the capability-gated
             // create-custom-widget / update-custom-widget abilities, and wp_kses_post'd on

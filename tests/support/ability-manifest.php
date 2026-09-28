@@ -15,9 +15,9 @@
  */
 
 return [
-    'total'     => 366,
+    'total'     => 367,
     'free'      => 258,
-    'pro'       => 108,
+    'pro'       => 109,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
         'wpmcp/acf-write' => 'free',
@@ -62,6 +62,7 @@ return [
         'wpmcp/cloud-push-settings' => 'pro',
         'wpmcp/cloud-status' => 'pro',
         'wpmcp/cloud-sync-settings' => 'pro',
+        'wpmcp/compile-custom-widget' => 'pro',
         'wpmcp/contactform7-read' => 'free',
         'wpmcp/contactform7-write' => 'free',
         'wpmcp/convert-html-to-blocks' => 'free',
