@@ -36,6 +36,10 @@ class RegenerateElementorCssTest extends \WP_UnitTestCase
     protected function tearDown(): void
     {
         Elementor_Cache::set_available_for_tests(null);
+        // Building the default kit boots Elementor far enough to instantiate
+        // the global REST server; drop it so a later test gets a fresh server
+        // with every route registered.
+        $GLOBALS['wp_rest_server'] = null;
         parent::tearDown();
     }
 
