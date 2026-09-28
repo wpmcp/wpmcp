@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.1
+Stable tag: 0.8.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -57,6 +57,7 @@ The plugin collects nothing about you and sends nothing to us. Its only schedule
 * api.pexels.com - search-stock-images, when the Pexels provider is used and you have saved a Pexels key. Sends the search terms, paging and your key, under the same pinned user agent. Terms: https://www.pexels.com/terms-of-service/ Privacy policy: https://www.pexels.com/privacy-policy/
 * api.unsplash.com - search-stock-images, when the Unsplash provider is used and you have saved an Unsplash key. Sends the search terms, paging and your key, under the same pinned user agent. Terms: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
 * api.freemius.com - licensing through the Freemius SDK. This is the one entry not tied to a tool. On activation the SDK shows its stock opt-in screen, which defaults to off and carries a Skip link; skip or decline it and the SDK sends nothing. Once you have opted in, there or later from the WP MCP > Account page, the SDK talks to Freemius during admin page loads and its own periodic sync. One path is independent of that choice: the optional deactivation feedback form on the Plugins screen. If you submit it, the reason you enter is stored locally and sent here when the plugin is deleted (uninstalled), whether or not you opted in; if you also untick "anonymous feedback" on that form, the SDK's opt-in call sends your display name and email along with the site details the opt-in screen lists. Terms: https://freemius.com/terms/ Privacy policy: https://freemius.com/privacy/
+* api.anthropic.com - the in-admin AI chat (Pro), opt-in and bring-your-own-key. Nothing is sent until an administrator saves their own Anthropic API key on the WP MCP > Chat screen and sends a message; there is no shared or built-in key. Each chat step sends, from this server, that administrator's key, a system prompt carrying the site name, site URL, their username and the names of the tools the chat may use, the tool schemas it has loaded, and the conversation so far: their messages, the assistant's replies, and the results of the tools it ran, which can include site content those tools read. The key is stored encrypted per user and is never sent to the browser. Terms: https://www.anthropic.com/legal/commercial-terms Privacy policy: https://www.anthropic.com/legal/privacy
 * WP MCP Cloud - widget and block spec sync, only after you run cloud-connect with a url and key you supply. Sends the specs you push. Terms and privacy policy: https://wpmcp-pro.com/
 * Allowlisted media hosts - import-stock-image and upload-svg download the file you picked from a default allowlist of images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org (Wikimedia Commons) and staticflickr.com (Flickr), matched on the host or a subdomain of it. The site owner can change that list with the wpmcp_remote_media_allowed_hosts filter. The download carries WordPress's standard user agent.
 * Any host you name yourself - sideload-image passes the URL you or your agent supply to core's media_sideload_image(), so it can fetch an image from anywhere. It is not covered by the allowlist above; disable the ability if you do not want that reach.
@@ -93,6 +94,26 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.5 =
+* New in-admin AI chat (Pro): talk to your site from wp-admin using your own Anthropic API key, stored encrypted per user and never sent to the browser. Chat runs every tool through the same permission, governance, rate-limit and snapshot path as any MCP client, under its own scoped identity that admins can narrow.
+* Any chat action that is not a pure read is shown as a proposal with its exact arguments and runs only after you approve it, with a single-use, server-verified approval bound to that call.
+* The External services section discloses the chat's call to the Anthropic API, which happens only when an admin opts in and sends a message.
+
+= 0.8.4 =
+* New child theme scaffolding in the theme tools: create a child of the active theme with one confirmed call. It is off by default, never activates the child, and is fully reversible from the rollback history.
+* New Astra settings in the theme tools: read and update Astra's core colors and content width when Astra is the active theme, with a snapshot before every change.
+* Session rollback undoes a child theme scaffold only after reverting any theme switch made in the same session.
+
+= 0.8.3 =
+* Internal: each local test run now uses its own clean WordPress install, so parallel test runs no longer interfere with each other. No change to the plugin itself.
+
+= 0.8.2 =
+* New PHP snippet store: create, list, get, update and delete PHP snippets as stored, validated objects. Snippets are always created inactive, critical validation findings block creation, and every change is snapshotted and reversible. Activation is a separate, governed Pro operation that never executes code, and rollback always restores a snippet inactive.
+* New theme tools: read the active theme's context (framework, parent and child, block theme support, menus) and write allowlisted theme mods with a snapshot for rollback. Theme writes are off by default.
+* Elementor atomic elements follow Elementor 4.3's schema, and the Elementor version the test suite installs is pinned.
+* Option names are matched the way the database matches them, so case, accent and invisible-character variants cannot reach a protected option.
+* The full test suite now runs locally before every push, on WordPress 7.1 and the 6.9 minimum, with a coverage floor.
+
 = 0.8.1 =
 * Snapshot retention is now one flat number for every install (`Snapshot_Store::DEFAULT_HISTORY_LIMIT`, 20), raisable or lowerable for free through the new `wpmcp_snapshot_history_limit` filter (any whole number of 1 or more; anything else falls back to 20). The paid unlimited-history branch is gone.
 * Upgrading sites keep the history they already have. If your snapshot table is deeper than 20, nothing is deleted until you either set the filter or use the "trim history" button in the admin notice.
@@ -115,6 +136,18 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.5 =
+New in-admin AI chat (Pro): talk to your site from wp-admin using your own Anthropic API key, stored encrypted per user and never sent to the browser. Chat runs every tool through the same permission, governance, rate-limit and snapshot path as any MCP client, under its own scoped identity that admins can narrow.
+
+= 0.8.4 =
+New child theme scaffolding in the theme tools: create a child of the active theme with one confirmed call. It is off by default, never activates the child, and is fully reversible from the rollback history.
+
+= 0.8.3 =
+Internal: each local test run now uses its own clean WordPress install, so parallel test runs no longer interfere with each other. No change to the plugin itself.
+
+= 0.8.2 =
+New PHP snippet store: create, list, get, update and delete PHP snippets as stored, validated objects. Snippets are always created inactive, critical validation findings block creation, and every change is snapshotted and reversible. Activation is a separate, governed Pro operation that never executes code, and rollback always restores a snippet inactive.
 
 = 0.8.1 =
 Snapshot history is now the same 20 operations on every install, free and Pro alike. Nothing is deleted on upgrade: a site that already has a deeper history keeps it until you choose, either through the admin notice or the filter:
