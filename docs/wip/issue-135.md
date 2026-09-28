@@ -1,4 +1,4 @@
-# Issue #135: EMCP parity, cloud phase B (OAuth connect, settings sync, marketplace)
+# Issue #135: cloud phase B (OAuth connect, settings sync, marketplace)
 
 The delivery plan on #135 splits phase B into four phases:
 

@@ -21,7 +21,7 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
     /** Max JSON bytes for the full tools/list payload of every registered ability.
      *  Raised 100000 -> 110000 in review for the forms integration cluster
      *  (Gravity Forms, Formidable, Contact Form 7, WPForms); raised 110000 ->
-     *  135000 in review for the EMCP Elementor parity expansion (global Kit,
+     *  135000 in review for the Elementor parity expansion (global Kit,
      *  templates, theme builder, atomic elements, popups, dynamic tags);
      *  raised 135000 -> 140000 in review for the forms breadth cluster
      *  (Forminator, SureForms, MetForm), which put the payload at 135470
@@ -202,7 +202,7 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
             static fn ($ability) => 'elementor' === $ability->domain
         );
 
-        // Ceiling raised from 25 -> 60 in review for the EMCP Elementor parity
+        // Ceiling raised from 25 -> 60 in review for the Elementor parity
         // expansion (global Kit, templates, theme builder, atomic elements,
         // popups, dynamic tags); raised 60 -> 62 in review for the atomic
         // system-slot replace tools (replace-system-colors,

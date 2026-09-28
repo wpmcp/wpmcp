@@ -10,7 +10,7 @@ use WPMCP\Tools\Elementor\Atomic_Prop_Schema;
 use WPMCP\Tools\Elementor\Update_Atomic_Widget;
 
 /**
- * Cluster 4 (EMCP parity): Elementor 4.0+ atomic elements.
+ * Cluster 4: Elementor 4.0+ atomic elements.
  *
  * Atomic containers use elType e-flexbox / e-div-block; atomic widgets are
  * elType widget with an e-* widgetType (e-heading, e-paragraph, ...). Their

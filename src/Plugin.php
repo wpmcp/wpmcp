@@ -3226,7 +3226,7 @@ final class Plugin
     }
 
     /**
-     * The data-driven custom Gutenberg block builder (EMCP parity, no eval):
+     * The data-driven custom Gutenberg block builder (no eval):
      * store/validate/list block specs that a register_block_type render_callback
      * renders at runtime. All PRO, manage_options, domain 'blocks'.
      *
@@ -3276,7 +3276,7 @@ final class Plugin
     }
 
     /**
-     * The data-driven custom Elementor widget builder (EMCP parity, no eval):
+     * The data-driven custom Elementor widget builder (no eval):
      * store/validate/list widget specs that Dynamic_Widget renders at runtime.
      * All PRO, gated on manage_options, domain 'elementor'. That is site-wide
      * markup authoring, but manage_options is not unfiltered_html (a multisite
@@ -8934,7 +8934,7 @@ final class Plugin
     }
 
     /**
-     * Connection-info tooling for the EMCP admin/connection area (issue #18).
+     * Connection-info tooling for the admin connection area (issue #18).
      * get-connection-info is read-only and returns only a placeholder
      * Authorization value, never a real credential, so it needs no
      * Safe_Mutation snapshot/rollback and does not touch the safety core.
