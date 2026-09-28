@@ -170,6 +170,7 @@ use WPMCP\Tools\Media\Delete_Media;
 use WPMCP\Tools\Media\Sideload_Image;
 use WPMCP\Tools\Media\Upload_Media;
 use WPMCP\Tools\Media\List_Media;
+use WPMCP\Tools\Media\Find_Unused_Media;
 use WPMCP\Tools\Media\Resize_Media;
 use WPMCP\Tools\Media\Upload_Svg;
 use WPMCP\Tools\Media\Stock\Set_Stock_Key;
@@ -1535,6 +1536,7 @@ final class Plugin
         ));
 
         $list_media          = new List_Media();
+        $find_unused_media   = new Find_Unused_Media();
         $resize_media        = new Resize_Media();
         $upload_svg          = new Upload_Svg();
         $set_stock_key       = new Set_Stock_Key();
@@ -1558,6 +1560,24 @@ final class Plugin
                 ],
             ],
             [$list_media, 'handle'],
+            'edit_posts',
+            'media',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/find-unused-media',
+            'free',
+            'Attachments nothing references (featured image, site logo/icon, content, builder data, post/term meta, options) with size on disk and checks run. Pass next_cursor as cursor until done; unattached:true lists parent-0 ones apart',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'cursor'     => [ 'type' => 'integer' ],
+                    'per_page'   => [ 'type' => 'integer' ],
+                    'type'       => [ 'type' => 'string' ],
+                    'unattached' => [ 'type' => 'boolean' ],
+                ],
+            ],
+            [$find_unused_media, 'handle'],
             'edit_posts',
             'media',
             'read'
@@ -3012,7 +3032,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/search-content',
             'free',
-            'Search all site text at once, including what post_content search misses: Elementor and Bricks settings, block attributes, template parts, reusable blocks and nav menus. Each hit returns an addressable location (block path, element id or menu item id) and a snippet. Read-only; hits are re-checked against read_post. Run reindex-search if the index is empty',
+            'Search all site text at once, including what post_content search misses: Elementor and Bricks settings, block attributes, template parts, reusable blocks and nav menus. Each hit gives an addressable location (block path, element id or menu item id) and a snippet, re-checked against read_post. Read-only. Run reindex-search if the index is empty',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3669,7 +3689,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/run-wp-cli',
             'pro',
-            'Run an allowlisted wp-cli subcommand (e.g. "core version", "plugin list") and return stdout, stderr and exit code. Off by default (WPMCP_ALLOW_WP_CLI constant or wpmcp_allow_wp_cli filter); refused on production without a separate override; only subcommands on the wpmcp_wp_cli_allowlist filter run; shell metacharacters are rejected before anything runs',
+            'Run an allowlisted wp-cli subcommand (e.g. "core version", "plugin list"); returns stdout, stderr and exit code. Off by default (WPMCP_ALLOW_WP_CLI constant or wpmcp_allow_wp_cli filter); refused on production without a separate override; only subcommands on the wpmcp_wp_cli_allowlist filter run; shell metacharacters are rejected first',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3814,7 +3834,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/run-php-snippet',
             'pro',
-            'Run a guarded, arbitrary PHP snippet; returns its return value, echoed output and any thrown error. THIS IS REMOTE CODE EXECUTION: off by default (WPMCP_ALLOW_PHP_EXEC constant or wpmcp_allow_php_exec filter); refused on production or any unrecognized environment unless WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION is also set; snippets the static validator flags are rejected first, as a speed-bump, not a security boundary. Its effects are not snapshotted and cannot be undone.',
+            'Run a guarded arbitrary PHP snippet; returns its return value, echoed output and any thrown error. REMOTE CODE EXECUTION: off by default (WPMCP_ALLOW_PHP_EXEC constant or wpmcp_allow_php_exec filter); refused on production or any unrecognized environment unless WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION is also set; snippets the static validator flags are rejected first (a speed-bump, not a security boundary). Effects are not snapshotted and cannot be undone.',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4080,7 +4100,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/disable-maintenance',
             'free',
-            'Turn maintenance mode off: sets enabled=false on the wpmcp_maintenance option (message and retry_after are preserved for a later re-enable). Snapshotted via object_type option (the wpmcp_maintenance option); rollback-operation restores the prior state',
+            'Turn maintenance mode off: sets enabled=false on the wpmcp_maintenance option (message and retry_after are preserved for a later re-enable). Snapshotted; rollback-operation restores the prior state',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4408,7 +4428,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-block',
             'free',
-            'Surgically update ONE block in place by "path" (array of zero-based indexes into the parse-blocks tree, descending innerBlocks): replace its attributes ("attrs", full replacement) and/or its inner HTML ("inner_html", leaf blocks only, target a container\'s children by their own paths). Requires expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first; every other block stays byte-identical',
+            'Update ONE block in place by "path" (zero-based indexes into the parse-blocks tree, descending innerBlocks): replace "attrs" (full replacement) and/or "inner_html" (leaf blocks only; target a container\'s children by their own paths). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; every other block stays byte-identical',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5040,7 +5060,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Restore this site in place from a site-backup archive (job_id or path). dry_run defaults to TRUE: a report checking format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false first takes a database safety archive (job id returned; no restore if it fails), holds maintenance mode, imports statement by statement, and on failure reports the statement and rolls back. preserve_session (default true) keeps the caller signed in. include_files (default false, scope all) stages and swaps in wp-content. Paths outside the site-backup directory are refused',
+            'Restore this site in place from a site-backup archive (job_id or path). dry_run (default true) checks format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and parses all of db.sql (truncated dumps refused). dry_run=false first takes a database safety archive (job id returned; no restore if it fails), holds maintenance mode, imports per statement, and on failure reports the statement and rolls back. preserve_session (default true) keeps the caller signed in; include_files (default false, scope all) stages and swaps in wp-content. Paths outside the site-backup directory are refused',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6014,7 +6034,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-element',
             'pro',
-            'Update an Elementor element\'s settings by id, merging the given settings into its existing settings. Reads and writes the page\'s _elementor_data; undoable via rollback-operation since _elementor_data is ordinary postmeta captured by the existing post snapshot',
+            'Update an Elementor element\'s settings by id, merging the given settings into its existing settings. Writes the page\'s _elementor_data, snapshot-first; undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6146,7 +6166,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-global-colors',
             'pro',
-            'Update the active Elementor kit\'s global colors. system_colors entries patch the four system tokens by _id (color/title); custom_colors entries update a custom color by _id or append a new one. Colors are validated as hex. Requires expected_hash from get-global-settings. Undoable via rollback-operation since the kit\'s _elementor_page_settings is captured by the post snapshot',
+            'Update the active Elementor kit\'s global colors. system_colors entries patch the four system tokens by _id (color/title); custom_colors entries update a custom color by _id or append a new one. Colors are validated as hex. Requires expected_hash from get-global-settings. Snapshot-first; undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6266,7 +6286,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/save-as-template',
             'pro',
-            'Save a page\'s Elementor content as a reusable elementor_library template of the given template_type (page, section, container, header, footer, single, archive, popup, ...; defaults to page). Creating a template destroys nothing, so it is not snapshotted; remove it with delete-post',
+            'Save a page\'s Elementor content as a reusable elementor_library template of the given template_type (page, section, container, header, footer, single, archive, popup, ...; defaults to page). Not snapshotted (a create destroys nothing); remove with delete-post',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6311,7 +6331,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/import-template',
             'pro',
-            'Create an elementor_library template from a portable export structure (the envelope export-page and export-template produce), so a design can be round-tripped into a reusable template, including across sites. Element ids are regenerated, and the envelope\'s page_settings and display conditions are applied when present. Not snapshotted (a create destroys nothing); remove with delete-post',
+            'Create an elementor_library template from a portable export structure (the envelope export-page and export-template produce) (round-trips a design, also across sites). Element ids are regenerated, and the envelope\'s page_settings and display conditions are applied when present. Not snapshotted (a create destroys nothing); remove with delete-post',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7919,7 +7939,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-write',
             'pro',
-            'Run one write op from woo-ops, or a batch of up to 25, as in-process wc/v3 requests as the current user, gated like woo-read. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. Refunds are not recoverable and call the gateway only with api_refund:true. Deletes and refunds are off until the wpmcp_woo_op_enabled filter allows them, and need confirm:true. A batch prechecks every item, refuses whole on any failure, shares one session_id for rollback-session',
+            'Run one woo-ops write op, or a batch of up to 25, as in-process wc/v3 requests as the current user, gated like woo-read. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. Refunds are not recoverable and call the gateway only with api_refund:true. Deletes and refunds need the wpmcp_woo_op_enabled filter and confirm:true. A batch prechecks every item, refuses whole on any failure, and shares one session_id for rollback-session',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7986,7 +8006,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/build-page',
             'free',
-            'Compose a complete page from ONE declarative spec: title, a recursive sections/blocks tree, media references (existing attachment ids), and optional menu placement. The whole composition is a single atomic, recoverable operation: the spec is strictly validated (node-path-addressed errors, bounded size/nodes/depth) before any write, a mid-build failure automatically removes everything it created, and on success one operation_id is returned whose rollback-operation removes the page and its menu placement entirely. Markup is composed deterministically from the spec; nothing in the spec is evaluated or executed. dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree. Set dry_run=true to validate and compose WITHOUT writing: the reply reports element counts per node type, nesting depth, markup size, unknown widget types, atomic props that had to be coerced, and every referential problem at once',
+            'Build a complete page from ONE declarative spec (title, recursive sections/blocks tree, existing attachment ids as media, optional menu placement) as one atomic, recoverable operation. The spec is strictly validated (node-path-addressed errors; bounded size, nodes and depth) before any write; a failed build removes everything it created; success returns one operation_id whose rollback-operation removes the page and its menu placement. Markup is composed deterministically; nothing in the spec is evaluated or executed. dialect "gutenberg" (default, free) writes block markup, "elementor" (PRO, needs Elementor) an _elementor_data tree. dry_run=true validates and composes WITHOUT writing, reporting element counts per node type, nesting depth, markup size, unknown widget types, coerced atomic props and every referential problem at once',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9177,7 +9197,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/call-tool',
             'free',
-            'Invoke any wpmcp-registered tool by name with the given arguments object, the dispatch path for tools hidden from tools/list by compact mode. The target tool\'s own permission checks (capability, governance, identity scope, license), rate limit, input validation, and snapshot/rollback safety behavior all apply exactly as if it were called directly; this tool can never widen access. Refuses tools not registered by wpmcp and the meta-tools themselves',
+            'Invoke any wpmcp-registered tool by name with an arguments object; the dispatch path for tools compact mode hides from tools/list. The target\'s own permission checks (capability, governance, identity scope, license), rate limit, input validation and snapshot/rollback safety all apply as if called directly, so this can never widen access. Refuses tools not registered by wpmcp and the meta-tools themselves',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9253,7 +9273,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/execute-site-ability',
             'free',
-            'Invoke one third-party ability by name with the given arguments object. The target ability\'s own permission callback always runs (no bypass exists), plus wpmcp governance, identity scope and rate limiting on this shell. Results are reversible:false: bridged writes are NOT covered by the wpmcp snapshot/rollback guarantee. Refuses wpmcp\'s own abilities; requires the site-level bridge opt-in (default off)',
+            'Invoke one third-party ability by name with an arguments object. Its own permission callback always runs (no bypass exists), plus wpmcp governance, identity scope and rate limiting on this tool. Results are reversible:false: bridged writes are NOT covered by wpmcp snapshot/rollback. Refuses wpmcp\'s own abilities; needs the site-level bridge opt-in (default off)',
             [
                 'type'       => 'object',
                 'properties' => [
