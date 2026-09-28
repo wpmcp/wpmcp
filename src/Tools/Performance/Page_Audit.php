@@ -240,6 +240,20 @@ class Page_Audit
     }
 
     /**
+     * A scoped http_api_curl callback pinning $host:$port to $ip, or null
+     * when no pin is possible: curl is unavailable, or this build dropped
+     * Curl_Dns_Pin. Shared with Get_Rendered_Html so the curl half of the
+     * SSRF defence stays in this namespace behind one class_exists() check.
+     */
+    public static function dns_pin(string $host, int $port, string $ip): ?callable
+    {
+        if (! function_exists('curl_init') || ! class_exists(Curl_Dns_Pin::class)) {
+            return null;
+        }
+        return Curl_Dns_Pin::filter(sprintf('%s:%d:%s', $host, $port, $ip));
+    }
+
+    /**
      * Build a single CURLOPT_RESOLVE entry ("host:port:ip") that tells curl
      * to connect to $ip for any request to $host on $port, bypassing curl's
      * own DNS resolution for that host+port combination.

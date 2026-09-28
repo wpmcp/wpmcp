@@ -2,7 +2,7 @@
 
 namespace WPMCP\Tools\Context;
 
-use WPMCP\Tools\Performance\Curl_Dns_Pin;
+use WPMCP\Tools\Performance\Page_Audit;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -33,8 +33,8 @@ if (! defined('ABSPATH')) {
  * which core's wp_http_validate_url() also allows for the home host.
  *
  * DNS pin. The site host is resolved once per call and, when curl is the
- * transport, every hop is pinned to that address with Curl_Dns_Pin (the
- * same CURLOPT_RESOLVE helper Page_Audit uses), so the host cannot be
+ * transport, every hop is pinned to that address through
+ * Page_Audit::dns_pin() (the same CURLOPT_RESOLVE pin), so the host cannot be
  * re-resolved somewhere else between the check and a later hop. Unlike
  * Page_Audit the resolved address is not required to be public, for the
  * local and intranet reason above. When the host does not resolve, or curl
@@ -263,12 +263,12 @@ class Get_Rendered_Html
     }
 
     /**
-     * A Curl_Dns_Pin filter for the URL's host and port, or null when curl
-     * is unavailable, the host is an IP literal, or it does not resolve.
+     * A DNS pin filter for the URL's host and port, or null when curl is
+     * unavailable, the host is an IP literal, or it does not resolve.
      */
     private function pin_filter(string $url): ?callable
     {
-        if (! function_exists('curl_init') || ! class_exists(Curl_Dns_Pin::class)) {
+        if (! function_exists('curl_init')) {
             return null;
         }
         $parts = (array) wp_parse_url($url);
@@ -287,9 +287,11 @@ class Get_Rendered_Html
             return null;
         }
         $port = (int) ($parts['port'] ?? ('https' === strtolower((string) ($parts['scheme'] ?? '')) ? 443 : 80));
-
-        $this->last_pinned_ip = $ip;
-        return Curl_Dns_Pin::filter(sprintf('%s:%d:%s', $host, $port, $ip));
+        $pin  = Page_Audit::dns_pin($host, $port, $ip);
+        if (null !== $pin) {
+            $this->last_pinned_ip = $ip;
+        }
+        return $pin;
     }
 
     /**
