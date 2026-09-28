@@ -74,14 +74,21 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  schemas, which brought it to 185172; the rest is the rule schema
      *  (type enum plus value) that create and update both need so an agent
      *  can build a valid conditions object from tools/list alone. Raised
-     *  186000 -> 188000 for the WooCommerce operations catalog (#68: woo-ops,
-     *  woo-read, woo-write) when it met that main: 187927 bytes over 339
-     *  tools. Its three descriptions had already been cut to the op model,
-     *  the gates and the rollback contract, and were trimmed again to 187723;
-     *  what remains is the destructive-op opt-in, confirm, refund and batch
-     *  rollback rules an agent must see before it writes to a store. Compact
-     *  tool mode keeps clients with tool caps at ~2.8KB regardless. */
-    private const TOOLS_LIST_BYTE_BUDGET = 188000;
+     *  186000 -> 195000 for the WooCommerce depth cluster (#195: variation
+     *  create and delete, bulk-update-products, six coupon tools, four
+     *  tax-rate tools): 194455 bytes over 349 tools after trimming their
+     *  descriptions, about 8.5KB for the 13 tools (the raise approved in
+     *  review, re-applied on the newer main). The coupon write
+     *  schemas are most of it: they list every writable field so an agent
+     *  can set limits and restrictions without a schema round trip. Raised
+     *  195000 -> 197000 for the WooCommerce operations catalog (#68: woo-ops,
+     *  woo-read, woo-write) when it met that main: 196626 bytes over 353
+     *  tools. The three catalog descriptions were already trimmed twice to
+     *  the op model, the gates and the rollback contract; what remains is
+     *  the destructive-op opt-in, confirm, refund and batch rollback rules an
+     *  agent must see before it writes to a store. Compact tool mode keeps
+     *  clients with tool caps at ~2.8KB regardless. */
+    private const TOOLS_LIST_BYTE_BUDGET = 197000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

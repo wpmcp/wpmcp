@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.15
+Stable tag: 0.8.19
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -58,7 +58,7 @@ The plugin collects nothing about you and sends nothing to us. Its only schedule
 * api.unsplash.com - search-stock-images, when the Unsplash provider is used and you have saved an Unsplash key. Sends the search terms, paging and your key, under the same pinned user agent. Terms: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
 * api.freemius.com - licensing through the Freemius SDK. This is the one entry not tied to a tool. On activation the SDK shows its stock opt-in screen, which defaults to off and carries a Skip link; skip or decline it and the SDK sends nothing. Once you have opted in, there or later from the WP MCP > Account page, the SDK talks to Freemius during admin page loads and its own periodic sync. One path is independent of that choice: the optional deactivation feedback form on the Plugins screen. If you submit it, the reason you enter is stored locally and sent here when the plugin is deleted (uninstalled), whether or not you opted in; if you also untick "anonymous feedback" on that form, the SDK's opt-in call sends your display name and email along with the site details the opt-in screen lists. Terms: https://freemius.com/terms/ Privacy policy: https://freemius.com/privacy/
 * api.anthropic.com - the in-admin AI chat (Pro), opt-in and bring-your-own-key. Nothing is sent until an administrator saves their own Anthropic API key on the WP MCP > Chat screen and sends a message; there is no shared or built-in key. Each chat step sends, from this server, that administrator's key, a system prompt carrying the site name, site URL, their username and the names of the tools the chat may use, the tool schemas it has loaded, and the conversation so far: their messages, the assistant's replies, and the results of the tools it ran, which can include site content those tools read. The key is stored encrypted per user and is never sent to the browser. Terms: https://www.anthropic.com/legal/commercial-terms Privacy policy: https://www.anthropic.com/legal/privacy
-* WP MCP Cloud (the cloud URL you configure) - nothing is sent until you run cloud-connect with a cloud URL and API key you supply, and every request after that goes only to that URL with your API key in the Authorization header. cloud-connect verifies the key by fetching your account, cloud-push-assets sends the widget and block specs you push, and cloud-list-assets and cloud-pull-assets fetch the specs saved in your account. The announcements feed also fetches notices (GET /announcements, no site content) when an administrator opens a WP MCP admin screen, at most once a day, or once an hour after a failed fetch. Terms: https://wpmcp-pro.com/terms.html Privacy policy: https://wpmcp-pro.com/privacy.html
+* WP MCP Cloud (the cloud URL you configure) - nothing is sent until you run cloud-connect with a cloud URL and API key you supply, and every request after that goes only to that URL with your API key in the Authorization header. cloud-connect verifies the key by fetching your account, cloud-push-assets sends the widget and block specs you push, and cloud-list-assets and cloud-pull-assets fetch the specs saved in your account. The announcements feed also fetches notices (GET /announcements, no site content) when an administrator opens a WP MCP admin screen, at most once a day, or once an hour after a failed fetch. Once connected, it also renews its sign-in token with that same URL over https. Terms: https://wpmcp-pro.com/terms.html Privacy policy: https://wpmcp-pro.com/privacy.html
 * Allowlisted media hosts - import-stock-image and upload-svg download the file you picked from a default allowlist of images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org (Wikimedia Commons, terms: https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use privacy policy: https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) and staticflickr.com (Flickr, terms: https://www.flickr.com/help/terms privacy policy: https://www.flickr.com/help/privacy), matched on the host or a subdomain of it. The site owner can change that list with the wpmcp_remote_media_allowed_hosts filter. The download carries WordPress's standard user agent.
 * Any host you name yourself - sideload-image passes the URL you or your agent supply to core's media_sideload_image(), so it can fetch an image from anywhere. It is not covered by the allowlist above; disable the ability if you do not want that reach.
 * Any URL you measure - analyze-performance fetches the URL you give it under a WPMCP-Performance-Analyzer/1.0 user agent, refusing private, loopback and reserved addresses and following no redirects.
@@ -93,6 +93,26 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.19 =
+* Front-end redirects now read from the object cache instead of querying the database on every page view, and the cache refreshes automatically whenever a redirect is added, changed, removed or rolled back.
+* Rolling back a set of database rows now refreshes the cache for every row it restored, even when a later row fails.
+* Every remaining direct database query in the plugin now carries a documented reason, clearing the last WordPress coding standards warnings for direct and slow queries.
+
+= 0.8.18 =
+* The WooCommerce edition now ships the same WordPress.org-ready build as the main directory plugin, with no upgrade or licensing code in the package.
+* Fixed a fatal error at boot in the WooCommerce edition caused by a missing cloud client class.
+* The WooCommerce edition readme now discloses the optional cloud connection under External services.
+
+= 0.8.17 =
+* New: WooCommerce variations can be created and deleted, and up to 50 products or variations can be updated in one call, with the whole batch undoable as a single session.
+* New: manage WooCommerce coupons (list, get, create, update, delete, and validate against store rules) and tax rates (list, create, update, delete), with snapshots so every change can be rolled back.
+* Deletes of variations, coupons and tax rates stay off until the site opts in, and always require confirmation.
+
+= 0.8.16 =
+* Cloud credentials are now stored encrypted: the cloud URL, API key and tokens are sealed in one authenticated-encryption vault keyed to your site's salts, existing plaintext settings are migrated automatically, and nothing is ever stored unencrypted if encryption is unavailable.
+* Cloud access tokens refresh safely: refreshes are serialized across requests, a lost race never discards a working token, and cloud-status now reports a read-only token status.
+* Secrets are scrubbed from cloud and transport error messages before they reach an MCP client, and every cloud option is protected from generic option writes.
 
 = 0.8.15 =
 * Hardened the release checks: an exception message that includes unescaped data now fails the automated plugin review, so this class of issue cannot return unnoticed.
@@ -176,6 +196,18 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.19 =
+Front-end redirects now read from the object cache instead of querying the database on every page view, and the cache refreshes automatically whenever a redirect is added, changed, removed or rolled back.
+
+= 0.8.18 =
+The WooCommerce edition now ships the same WordPress.org-ready build as the main directory plugin, with no upgrade or licensing code in the package.
+
+= 0.8.17 =
+New: WooCommerce variations can be created and deleted, and up to 50 products or variations can be updated in one call, with the whole batch undoable as a single session.
+
+= 0.8.16 =
+Cloud credentials are now stored encrypted: the cloud URL, API key and tokens are sealed in one authenticated-encryption vault keyed to your site's salts, existing plaintext settings are migrated automatically, and nothing is ever stored unencrypted if encryption is unavailable.
 
 = 0.8.15 =
 Hardened the release checks: an exception message that includes unescaped data now fails the automated plugin review, so this class of issue cannot return unnoticed.
