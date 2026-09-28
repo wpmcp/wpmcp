@@ -139,7 +139,10 @@ class Rollback_Service
             // An acf_options snapshot is partial in the same way: it covers
             // the rows under the field names ONE write named, and two writes
             // to one options page can name overlapping sets.
-            if ('db_rows' === $snapshot['object_type'] || 'acf_options' === $snapshot['object_type']) {
+            // And so is an option_set snapshot (classic widget writes): each
+            // covers sidebars_widgets plus ONE widget type's option, so two
+            // writes share sidebars_widgets but not the rest.
+            if (in_array($snapshot['object_type'], [ 'db_rows', 'acf_options', 'option_set' ], true)) {
                 self::apply_snapshot($snapshot);
                 $count++;
                 continue;
@@ -631,6 +634,7 @@ class Rollback_Service
             'package_install',
             'acf_structure',
             'acf_options',
+            'option_set',
         ];
     }
 
@@ -799,6 +803,11 @@ class Rollback_Service
 
         if ('acf_options' === $snapshot['object_type']) {
             self::apply_acf_options_snapshot($snapshot);
+            return;
+        }
+
+        if ('option_set' === $snapshot['object_type']) {
+            self::apply_option_set_snapshot($snapshot);
             return;
         }
 
@@ -1847,6 +1856,23 @@ class Rollback_Service
             $instance = acf_get_store($store);
             if ($instance) {
                 $instance->reset();
+            }
+        }
+    }
+
+    /**
+     * Restore every option an option_set snapshot captured (issue #285), each
+     * the way apply_option_snapshot() restores one: the captured value goes
+     * back, or the option is deleted when the write created it.
+     */
+    private static function apply_option_set_snapshot(array $snapshot): void
+    {
+        foreach ((array) ($snapshot['data']['options'] ?? []) as $name => $state) {
+            $state = (array) $state;
+            if (! empty($state['existed'])) {
+                update_option((string) $name, $state['value'] ?? null);
+            } else {
+                delete_option((string) $name);
             }
         }
     }

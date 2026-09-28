@@ -436,6 +436,17 @@ class GetPageSnapshotTest extends \WP_UnitTestCase
         $this->assertContains('seo_lite', $snap['content_coverage']['unmeasured']);
     }
 
+    public function test_wpbakery_coverage_is_partial_like_divi(): void
+    {
+        $id = $this->post(['post_content' => '[vc_row][vc_column][vc_column_text]<p>Hi</p>[/vc_column_text][/vc_column][/vc_row]']);
+
+        $snap = $this->tool->handle(['post_id' => $id]);
+
+        $this->assertSame('wpbakery', $snap['builder']);
+        $this->assertFalse($snap['content_coverage']['complete']);
+        $this->assertStringStartsWith('WPBakery stores its layout', $snap['content_coverage']['note']);
+    }
+
     // -------------------------------------------------------- read gate
 
     public function test_a_published_post_of_a_non_public_type_still_needs_the_read_gate(): void

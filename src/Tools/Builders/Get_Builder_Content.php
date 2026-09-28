@@ -9,7 +9,10 @@ if (! defined('ABSPATH')) {
 /**
  * Read-only: return the raw builder structure for a post. Bricks returns
  * the decoded `_bricks_page_content_2` postmeta JSON as an array; Divi
- * returns the post_content shortcode string plus the use-builder flag.
+ * returns the post_content shortcode string plus the use-builder flag;
+ * WPBakery returns the shortcode string, its parsed element tree (the dotted
+ * paths update-builder-content operations address), its two meta rows and
+ * whether the plugin is loaded.
  * Elementor/Gutenberg/classic posts are out of scope for this tool (use
  * get-elementor-data for Elementor) and return a WP_Error. Never mutates
  * anything, so this is not routed through the safety core.
@@ -47,9 +50,13 @@ class Get_Builder_Content
             ];
         }
 
+        if ('wpbakery' === $builder) {
+            return WPBakery_Content::read($post_id);
+        }
+
         return new \WP_Error(
             'unsupported_builder',
-            "get-builder-content only supports 'bricks' and 'divi'; this post was detected as '{$builder}'."
+            "get-builder-content only supports 'bricks', 'divi' and 'wpbakery'; this post was detected as '{$builder}'."
         );
     }
 }

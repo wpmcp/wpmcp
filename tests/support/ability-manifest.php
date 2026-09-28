@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 387,
-    'free'      => 258,
+    'total'     => 389,
+    'free'      => 260,
     'pro'       => 129,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -71,7 +71,6 @@ return [
         'wpmcp/convert-html-to-blocks' => 'free',
         'wpmcp/count-content' => 'free',
         'wpmcp/create-code-snippet' => 'pro',
-        'wpmcp/create-comment' => 'free',
         'wpmcp/create-coupon' => 'free',
         'wpmcp/create-custom-block' => 'pro',
         'wpmcp/create-custom-widget' => 'pro',
@@ -84,6 +83,7 @@ return [
         'wpmcp/create-post' => 'free',
         'wpmcp/create-product' => 'free',
         'wpmcp/create-redirect' => 'free',
+        'wpmcp/create-sidebar-widget' => 'free',
         'wpmcp/create-site-part' => 'free',
         'wpmcp/create-tax-rate' => 'free',
         'wpmcp/create-term' => 'free',
@@ -110,6 +110,7 @@ return [
         'wpmcp/delete-product' => 'free',
         'wpmcp/delete-redirect' => 'free',
         'wpmcp/delete-rows' => 'free',
+        'wpmcp/delete-sidebar-widget' => 'free',
         'wpmcp/delete-site-part' => 'free',
         'wpmcp/delete-tax-rate' => 'free',
         'wpmcp/delete-term' => 'free',
@@ -292,6 +293,7 @@ return [
         'wpmcp/moderate-comment' => 'free',
         'wpmcp/move-block' => 'free',
         'wpmcp/move-element' => 'pro',
+        'wpmcp/move-sidebar-widget' => 'free',
         'wpmcp/ninjaforms-read' => 'pro',
         'wpmcp/ninjaforms-write' => 'pro',
         'wpmcp/parse-blocks' => 'free',
@@ -312,7 +314,6 @@ return [
         'wpmcp/reorder-global-classes' => 'pro',
         'wpmcp/replace-system-colors' => 'pro',
         'wpmcp/replace-system-typography' => 'pro',
-        'wpmcp/reply-to-comment' => 'free',
         'wpmcp/resize-media' => 'free',
         'wpmcp/resolve-site-part' => 'free',
         'wpmcp/resolve-theme-template' => 'pro',
@@ -386,6 +387,7 @@ return [
         'wpmcp/update-rows' => 'free',
         'wpmcp/update-seo-meta' => 'free',
         'wpmcp/update-settings' => 'free',
+        'wpmcp/update-sidebar-widget' => 'free',
         'wpmcp/update-site-part' => 'free',
         'wpmcp/update-tax-rate' => 'free',
         'wpmcp/update-term' => 'free',

@@ -41,6 +41,10 @@ use WPMCP\Tools\Structure\List_Shortcodes;
 use WPMCP\Tools\Structure\Render_Shortcode;
 use WPMCP\Tools\Structure\List_Sidebars;
 use WPMCP\Tools\Structure\List_Sidebar_Widgets;
+use WPMCP\Tools\Structure\Create_Sidebar_Widget;
+use WPMCP\Tools\Structure\Update_Sidebar_Widget;
+use WPMCP\Tools\Structure\Move_Sidebar_Widget;
+use WPMCP\Tools\Structure\Delete_Sidebar_Widget;
 use WPMCP\Tools\Export\Export_Content;
 use WPMCP\Tools\Export\List_Exports;
 use WPMCP\Tools\Export\Import_Content;
@@ -4589,6 +4593,86 @@ final class Plugin
             'structure',
             'read'
         ));
+
+        // Classic widget writes (issue #285). Each snapshots widget_{id_base}
+        // and sidebars_widgets as one undo point; see Sidebar_Widget_Store.
+        $widget_id = [ 'type' => 'string' ];
+        $position  = [ 'type' => 'integer' ];
+        $session   = [ 'type' => 'string' ];
+        $registrar->register(new Ability(
+            'wpmcp/create-sidebar-widget',
+            'free',
+            'Add a classic widget (registered id_base, incl. block) to a sidebar at a 0-based position, sanitized by its update(). Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'sidebar_id' => [ 'type' => 'string' ],
+                    'id_base'    => [ 'type' => 'string' ],
+                    'instance'   => [ 'type' => 'object' ],
+                    'position'   => $position,
+                    'session_id' => $session,
+                ],
+                'required'   => [ 'sidebar_id', 'id_base' ],
+            ],
+            [new Create_Sidebar_Widget(), 'handle'],
+            'edit_theme_options',
+            'structure',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-sidebar-widget',
+            'free',
+            'Merge settings into a classic widget (id like text-2) via its update(). Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'widget_id'  => $widget_id,
+                    'instance'   => [ 'type' => 'object' ],
+                    'session_id' => $session,
+                ],
+                'required'   => [ 'widget_id', 'instance' ],
+            ],
+            [new Update_Sidebar_Widget(), 'handle'],
+            'edit_theme_options',
+            'structure',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/move-sidebar-widget',
+            'free',
+            'Move a classic widget to a sidebar or wp_inactive_widgets at a 0-based position. Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'widget_id'  => $widget_id,
+                    'sidebar_id' => [ 'type' => 'string' ],
+                    'position'   => $position,
+                    'session_id' => $session,
+                ],
+                'required'   => [ 'widget_id', 'sidebar_id' ],
+            ],
+            [new Move_Sidebar_Widget(), 'handle'],
+            'edit_theme_options',
+            'structure',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/delete-sidebar-widget',
+            'free',
+            'Delete a classic widget instance. Undoable',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'widget_id'  => $widget_id,
+                    'session_id' => $session,
+                ],
+                'required'   => [ 'widget_id' ],
+            ],
+            [new Delete_Sidebar_Widget(), 'handle'],
+            'edit_theme_options',
+            'structure',
+            'delete'
+        ));
     }
 
     /**
@@ -8770,7 +8854,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-builder',
             'pro',
-            'Detect which builder authored a post (elementor / bricks / divi / gutenberg / classic) from _elementor_edit_mode, _bricks_page_content_2, _et_pb_use_builder or block comments, falling back to classic. Read-only',
+            'Detect a post\'s page builder: elementor, bricks, divi, wpbakery, gutenberg or classic. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8789,7 +8873,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-builder-content',
             'pro',
-            'Return the raw builder structure for a post: for Bricks, the decoded _bricks_page_content_2 postmeta JSON; for Divi, the post_content shortcode string plus the use-builder flag. Returns a WP_Error for posts detected as elementor, gutenberg, or classic. Read-only',
+            'Return a post\'s builder structure: the Bricks element array, or the Divi or WPBakery shortcode string (WPBakery adds an element tree with dotted paths). Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8808,15 +8892,22 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-builder-content',
             'pro',
-            'Replace a post\'s builder structure. Bricks: the string must be JSON decoding to an array, written to _bricks_page_content_2. Divi: a string written to post_content, with _et_pb_use_builder on. Undoable via rollback-operation (post snapshot)',
+            'Write a post\'s builder structure. Bricks: JSON array string. Divi or WPBakery: shortcode string, or for WPBakery an operation update (path, attrs, text), add (to, index, element), remove (path) or move (path, to, index); to "" is top level. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'post_id' => [ 'type' => 'integer' ],
-                    'builder' => [ 'type' => 'string' ],
-                    'content' => [ 'type' => 'string' ],
+                    'post_id'   => [ 'type' => 'integer' ],
+                    'builder'   => [ 'type' => 'string' ],
+                    'content'   => [ 'type' => 'string' ],
+                    'operation' => [ 'type' => 'string' ],
+                    'path'      => [ 'type' => 'string' ],
+                    'to'        => [ 'type' => 'string' ],
+                    'index'     => [ 'type' => 'integer' ],
+                    'attrs'     => [ 'type' => 'object' ],
+                    'text'      => [ 'type' => 'string' ],
+                    'element'   => [ 'type' => 'object' ],
                 ],
-                'required'   => [ 'post_id', 'builder', 'content' ],
+                'required'   => [ 'post_id', 'builder' ],
             ],
             [$update_builder_content, 'handle'],
             'edit_posts',

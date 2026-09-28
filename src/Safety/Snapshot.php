@@ -61,6 +61,9 @@ class Snapshot
         if ('acf_options' === $object_type) {
             return self::capture_acf_options((string) $object_id);
         }
+        if ('option_set' === $object_type) {
+            return self::capture_option_set((string) $object_id);
+        }
         return self::capture_post($object_id);
     }
 
@@ -190,6 +193,46 @@ class Snapshot
                 'rows'    => $rows,
             ],
         ];
+    }
+
+    /**
+     * Capture several named options as ONE undo point (issue #285). A classic
+     * widget write changes the widget_{id_base} option holding the instance
+     * AND the sidebars_widgets option placing it; two separate 'option'
+     * snapshots would let a rollback restore one without the other and leave
+     * a placed widget with no settings, or settings nobody placed. $id is the
+     * comma-joined option names from option_set_id(). Each option is captured
+     * exactly as capture_option() would, existence included.
+     */
+    private static function capture_option_set(string $id): array
+    {
+        $options = [];
+        foreach (self::split_option_set_id($id) as $name) {
+            $options[ $name ] = [
+                'value'   => get_option($name),
+                'existed' => self::option_exists($name),
+            ];
+        }
+
+        return [
+            'object_type' => 'option_set',
+            'object_id'   => $id,
+            'data'        => [ 'options' => $options ],
+        ];
+    }
+
+    /** Build the option_set snapshot id for a list of option names. */
+    public static function option_set_id(array $names): string
+    {
+        $names = array_values(array_unique(array_filter(array_map('strval', $names), 'strlen')));
+        sort($names);
+        return implode(',', $names);
+    }
+
+    /** @return string[] */
+    public static function split_option_set_id(string $id): array
+    {
+        return array_values(array_filter(explode(',', $id), 'strlen'));
     }
 
     /** Build the acf_options snapshot id for a set of field names on one options post_id. */
