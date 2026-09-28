@@ -124,6 +124,31 @@ class WporgStripTest extends \WP_UnitTestCase
     }
 
     /**
+     * Issue #282: installing an uploaded ZIP puts code from outside the
+     * directory on the site, which guideline 8 does not allow in the
+     * directory cut. The ability is pro, so its registration leaves with the
+     * rest of the paid tier; its handler and archive validator must leave
+     * too, rather than ship unreachable.
+     */
+    public function test_zip_package_install_is_absent_from_the_cut(): void
+    {
+        $stage = self::stripped_stage();
+
+        $this->assertNotContains('wpmcp/install-package-from-zip', self::registered_in_cut());
+        foreach (['Install_Package_From_Zip', 'Package_Archive', 'Package_Rejected'] as $class) {
+            $this->assertFileDoesNotExist($stage . '/src/Tools/Packages/' . $class . '.php');
+            $this->assertFileExists(self::repo_root() . '/src/Tools/Packages/' . $class . '.php');
+        }
+        $this->assertStringNotContainsString(
+            'Install_Package_From_Zip',
+            (string) file_get_contents($stage . '/src/Plugin.php')
+        );
+
+        // The read-only theme search is not an installer and stays.
+        $this->assertContains('wpmcp/search-themes', self::registered_in_cut());
+    }
+
+    /**
      * The other half of issue #163's definition of done: the ability is only
      * absent from the directory cut, not deleted. Asserted through the
      * Registrar rather than by grepping Plugin.php, so re-tiering it or

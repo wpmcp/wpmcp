@@ -941,6 +941,11 @@ $plugin_edits[] = [
 // the local it was assigned to.
 $plugin_edits[] = ["        \$insert_stock_image  = new Insert_Stock_Image();\n", '', 1];
 
+// Same shape for install-package-from-zip (issue #282): a pro ability
+// registered inline among the free package tools. remove_pro_abilities()
+// takes the registration; this is the local its handler was assigned to.
+$plugin_edits[] = ["\n        \$install_package_from_zip = new Install_Package_From_Zip();\n", '', 1];
+
 // Every ability in this build is free and Registrar refuses a pro-tier one
 // outright, so offering the agent a free/pro split to filter on describes a
 // product that is not in the zip.
