@@ -18,6 +18,10 @@ require_once dirname( __DIR__ ) . '/vendor/autoload.php';
 require $_tests_dir . '/includes/functions.php';
 
 require __DIR__ . '/support/plugins.php';
+require __DIR__ . '/support/network-guard.php';
+
+// No test may reach the network (issue #323). See tests/support/network-guard.php.
+\WPMCP\Tests\Support\Network_Guard::register();
 
 tests_add_filter( 'muplugins_loaded', function () {
     require dirname( __DIR__ ) . '/wpmcp.php';
