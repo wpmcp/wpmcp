@@ -121,6 +121,7 @@ class Url_Rewriter
                 return $value;
             }
 
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- re-encodes a value that was read in PHP-serialized form (object-free, checked above) so the stored option/meta keeps WP's own format; maybe_serialize() would leave a rewritten scalar unserialized and JSON is not readable by maybe_unserialize().
             return serialize($this->rewrite_map($decoded, $map, $depth + 1));
         }
 
