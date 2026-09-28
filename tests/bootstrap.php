@@ -53,6 +53,36 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'ultimate-addons-for-gutenberg/ultimate-addons-for-gutenberg.php' );
         wpmcp_maybe_require_plugin( 'otter-blocks/otter-blocks.php' );
     }
+
+    // The live BuddyPress job (issue #363, WPMCP_LIVE_BUDDYPRESS=1) runs the
+    // BuddyPress ops through the real BuddyPress, so its hooks fire. Loaded
+    // only on request: the stub-backed BuddyPress tests exercise the direct
+    // table path, which only runs while BuddyPress's functions are absent.
+    // Groups is off in a new install, so the components a site would switch
+    // on are named here, before BuddyPress reads them.
+    if ( getenv( 'WPMCP_LIVE_BUDDYPRESS' ) ) {
+        add_filter( 'pre_option_bp-active-components', 'wpmcp_test_buddypress_components' );
+        wpmcp_maybe_require_plugin( 'buddypress/bp-loader.php' );
+    }
+} );
+
+if ( ! function_exists( 'wpmcp_test_buddypress_components' ) ) {
+    /** The BuddyPress components the live BuddyPress job runs with. */
+    function wpmcp_test_buddypress_components(): array {
+        return array_fill_keys( [ 'members', 'settings', 'xprofile', 'activity', 'notifications', 'groups' ], '1' );
+    }
+}
+
+// The live BuddyPress job's tables, built from BuddyPress's own schema once
+// per run, before any test transaction starts (DDL commits implicitly). A
+// no-op everywhere else.
+tests_add_filter( 'setup_theme', function () {
+    if ( ! getenv( 'WPMCP_LIVE_BUDDYPRESS' ) || ! function_exists( 'buddypress' ) ) {
+        return;
+    }
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    require_once buddypress()->plugin_dir . 'bp-core/admin/bp-core-admin-schema.php';
+    bp_core_install( wpmcp_test_buddypress_components() );
 } );
 
 // Recreate the wpmcp snapshots table once per run, BEFORE any test

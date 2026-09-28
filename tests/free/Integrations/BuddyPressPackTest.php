@@ -3,7 +3,9 @@
 namespace WPMCP\Tests\Free\Integrations;
 
 use WPMCP\Integrations\Plugin_Data_Integration;
+use WPMCP\Safety\BuddyPress_Rows_Snapshot;
 use WPMCP\Safety\Rollback_Service;
+use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Snapshot_Store;
 
 require_once __DIR__ . '/../../support/buddypress-tables.php';
@@ -558,6 +560,119 @@ class BuddyPressPackTest extends \WP_UnitTestCase
         $this->assertFalse(Rollback_Service::restore_operation((string) $out['operation_id']));
         global $wpdb;
         $this->assertSame('Renamed', $wpdb->get_var($wpdb->prepare('SELECT name FROM %i WHERE id = %d', $wpdb->base_prefix . 'bp_groups', $id)));
+    }
+
+    // ---------------------------------------------------------------
+    // Rows a write's hooks create (issue #363)
+    // ---------------------------------------------------------------
+
+    public function test_rollback_also_removes_rows_the_write_and_its_hooks_created(): void
+    {
+        $id     = wpmcp_test_bp_group('Hikers');
+        $before = wpmcp_test_bp_dump();
+        $marks  = BuddyPress_Rows_Snapshot::watermarks();
+
+        $out = $this->write('buddypress-update-group', [ 'id' => $id, 'name' => 'Trail Hikers' ]);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+
+        // What BuddyPress's hooks add around a write: an activity item with
+        // its meta, and a notification.
+        $activity = wpmcp_test_bp_activity($this->admin, '', [ 'component' => 'groups', 'type' => 'group_details_updated', 'item_id' => $id ]);
+        $meta     = wpmcp_test_bp_insert('bp_activity_meta', [ 'activity_id' => $activity, 'meta_key' => 'note', 'meta_value' => 'x' ]);
+        $notice   = wpmcp_test_bp_insert('bp_notifications', [ 'user_id' => $this->admin, 'item_id' => $id, 'secondary_item_id' => 0, 'component_name' => 'groups', 'component_action' => 'group_details_updated', 'date_notified' => '2026-01-02 03:04:05', 'is_new' => 1 ]);
+
+        $created = BuddyPress_Rows_Snapshot::created_since($marks);
+        $this->assertSame([ 'bp_activity' => [ $activity ], 'bp_activity_meta' => [ $meta ], 'bp_notifications' => [ $notice ] ], $created);
+        BuddyPress_Rows_Snapshot::record_created((string) $out['operation_id'], $created);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame($before, wpmcp_test_bp_dump(), 'the edit is undone and every row created with it is gone');
+    }
+
+    public function test_a_group_snapshot_covers_its_membership_requests_and_nothing_of_another_component(): void
+    {
+        global $wpdb;
+        $id      = wpmcp_test_bp_group('Quiet Club', 'private');
+        $asker   = self::factory()->user->create();
+        $request = wpmcp_test_bp_insert('bp_invitations', [ 'user_id' => $asker, 'inviter_id' => 0, 'class' => 'BP_Groups_Invitation_Manager', 'item_id' => $id, 'type' => 'request', 'content' => '', 'date_modified' => '2026-01-02 03:04:05' ]);
+        $other   = wpmcp_test_bp_insert('bp_invitations', [ 'user_id' => $asker, 'inviter_id' => 0, 'class' => 'Some_Other_Manager', 'item_id' => $id, 'type' => 'invite', 'content' => '', 'date_modified' => '2026-01-02 03:04:05' ]);
+        $before  = wpmcp_test_bp_dump();
+        $marks   = BuddyPress_Rows_Snapshot::watermarks();
+
+        $out = $this->write('buddypress-update-group', [ 'id' => $id, 'status' => 'public' ]);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+
+        // BuddyPress accepts pending requests when a private group goes public.
+        $table = $wpdb->base_prefix . 'bp_invitations';
+        $wpdb->update($table, [ 'accepted' => 1 ], [ 'id' => $request ]);
+        wpmcp_test_bp_member($id, $asker);
+        BuddyPress_Rows_Snapshot::record_created((string) $out['operation_id'], BuddyPress_Rows_Snapshot::created_since($marks));
+        $wpdb->update($table, [ 'accepted' => 1 ], [ 'id' => $other ]);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $after = wpmcp_test_bp_dump();
+        $this->assertSame($before['bp_groups'], $after['bp_groups']);
+        $this->assertSame($before['bp_groups_members'], $after['bp_groups_members'], 'the accepted membership is removed');
+        $rows = array_column($after['bp_invitations'], null, 'id');
+        $this->assertSame('0', $rows[ $request ]['accepted'], 'the request is pending again');
+        $this->assertSame('1', $rows[ $other ]['accepted'], "another component's invitation is not the group's to restore");
+    }
+
+    public function test_an_activity_snapshot_covers_its_whole_thread_and_its_notifications(): void
+    {
+        global $wpdb;
+        $user   = self::factory()->user->create();
+        $root   = wpmcp_test_bp_activity($user, 'Root', [ 'mptt_left' => 1, 'mptt_right' => 8 ]);
+        $reply  = wpmcp_test_bp_activity($user, 'Reply', [ 'type' => 'activity_comment', 'item_id' => $root, 'secondary_item_id' => $root, 'mptt_left' => 2, 'mptt_right' => 5 ]);
+        $nested = wpmcp_test_bp_activity($user, 'Nested', [ 'type' => 'activity_comment', 'item_id' => $root, 'secondary_item_id' => $reply, 'mptt_left' => 3, 'mptt_right' => 4 ]);
+        $sister = wpmcp_test_bp_activity($user, 'Sister', [ 'type' => 'activity_comment', 'item_id' => $root, 'secondary_item_id' => $root, 'mptt_left' => 6, 'mptt_right' => 7 ]);
+        $notice = wpmcp_test_bp_insert('bp_notifications', [ 'user_id' => $user, 'item_id' => $reply, 'secondary_item_id' => $this->admin, 'component_name' => 'activity', 'component_action' => 'update_reply', 'date_notified' => '2026-01-02 03:04:05', 'is_new' => 1 ]);
+        $before = wpmcp_test_bp_dump();
+
+        $out = $this->write('buddypress-delete-activity', [ 'id' => $reply ], true);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $this->assertSame([ $reply, $nested ], $out['result']['deleted']);
+
+        // BuddyPress renumbers the rest of the thread and drops the reply's
+        // notification when it deletes a reply.
+        $wpdb->update($wpdb->base_prefix . 'bp_activity', [ 'mptt_right' => 4 ], [ 'id' => $root ]);
+        $wpdb->update($wpdb->base_prefix . 'bp_activity', [ 'mptt_left' => 2, 'mptt_right' => 3 ], [ 'id' => $sister ]);
+        $wpdb->delete($wpdb->base_prefix . 'bp_notifications', [ 'id' => $notice ]);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame($before, wpmcp_test_bp_dump());
+    }
+
+    public function test_a_create_is_undone_on_the_group_the_write_actually_produced(): void
+    {
+        $before   = wpmcp_test_bp_dump();
+        $reserved = 900001;
+        $op       = wp_generate_uuid4();
+        $actual   = 0;
+
+        // BuddyPress assigns a new group's id itself, so the group it writes
+        // can sit at another id than the one reserved for the snapshot, and
+        // another group can take the reserved one.
+        Safe_Mutation::run([
+            'operation_id'        => $op,
+            'object_type'         => BuddyPress_Rows_Snapshot::TYPE,
+            'object_id'           => BuddyPress_Rows_Snapshot::key('group_created', $reserved),
+            'session_id'          => 'default',
+            'tool_name'           => 'plugin-data-write',
+            'extra_snapshot_data' => [ 'created' => [ 'slug' => 'actual' ] ],
+        ], function () use ($op, &$actual): void {
+            $marks  = BuddyPress_Rows_Snapshot::watermarks();
+            $actual = wpmcp_test_bp_group('Actual', 'public', $this->admin);
+            wpmcp_test_bp_member($actual, $this->admin, [ 'is_admin' => 1 ]);
+            BuddyPress_Rows_Snapshot::record_created($op, BuddyPress_Rows_Snapshot::created_since($marks), [ 'id' => $actual, 'slug' => 'actual' ]);
+        });
+        $this->assertNotSame($reserved, $actual);
+        $foreign = wpmcp_test_bp_group('Foreign', 'public', $this->admin, [ 'id' => $reserved ]);
+
+        $this->assertTrue(Rollback_Service::restore_operation($op));
+        $after = wpmcp_test_bp_dump();
+        $this->assertSame([ (string) $foreign ], array_column($after['bp_groups'], 'id'), 'the created group is removed and the group at the reserved id is left');
+        $this->assertSame($before['bp_groups_members'], $after['bp_groups_members']);
     }
 
     public function test_buddypress_rows_is_a_restorable_type(): void
