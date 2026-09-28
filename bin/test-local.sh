@@ -213,10 +213,41 @@ install_wp_locked() {
 	touch "$dir/.ready"
 }
 
+# Gives this run its own copy of the WordPress install and prints its path.
+# Tests write into wp-content (uploads, backups, filesystem fixtures), so
+# parallel runs from several worktrees must not share one core, and each run
+# starts from a clean one the way a CI job would. The copy comes from a
+# pristine source that no run ever uses directly (its wp-content keeps only
+# what an install ships), and on APFS it is a copy-on-write clone: instant,
+# and it takes no space until a file is written.
+checkout_core() {
+	local dir=$1 core
+	[ -f "$dir/pristine/wp-load.php" ] || with_lock "pristine-$(basename "$dir")" make_pristine "$dir"
+	core="$CACHE/cores/$(printf '%s|%s' "$ROOT" "$dir" | shasum | cut -c1-12)"
+	mkdir -p "$CACHE/cores"
+	rm -rf "$core"
+	cp -cR "$dir/pristine" "$core" 2>/dev/null || cp -R "$dir/pristine" "$core"
+	echo "$core"
+}
+
+make_pristine() {
+	local dir=$1 entry
+	[ -f "$dir/pristine/wp-load.php" ] && return 0
+	rm -rf "$dir/pristine.tmp"
+	cp -cR "$dir/wordpress" "$dir/pristine.tmp" 2>/dev/null || cp -R "$dir/wordpress" "$dir/pristine.tmp"
+	for entry in "$dir/pristine.tmp/wp-content/"*; do
+		case "$(basename "$entry")" in
+			plugins | themes | languages | mu-plugins | db.php | index.php) ;;
+			*) rm -rf "$entry" ;;
+		esac
+	done
+	mv "$dir/pristine.tmp" "$dir/pristine"
+}
+
 # Creates this checkout's database for <install dir> and prints a tests config
 # pointing at it. The name hashes the checkout path, so each worktree gets its own.
 db_config() {
-	local dir=$1 version=$2 name config
+	local dir=$1 version=$2 core=$3 name config
 	name="wpmcp_test_$(printf '%s|%s' "$ROOT" "$version" | shasum | cut -c1-12)"
 	"$BIN/mariadb" --no-defaults --socket="$SOCK" -uroot -e "CREATE DATABASE IF NOT EXISTS \`$name\`"
 	mkdir -p "$CACHE/configs"
@@ -226,17 +257,20 @@ db_config() {
 		-e "s/define\( *'DB_USER', *'[^']*' *\)/define( 'DB_USER', '$DB_USER' )/" \
 		-e "s/define\( *'DB_PASSWORD', *'[^']*' *\)/define( 'DB_PASSWORD', '$DB_PASS' )/" \
 		-e "s/define\( *'DB_HOST', *'[^']*' *\)/define( 'DB_HOST', '127.0.0.1:$PORT' )/" \
+		-e "s#define\( *'ABSPATH', *'[^']*' *\)#define( 'ABSPATH', '$core/' )#" \
 		"$dir/wordpress-tests-lib/wp-tests-config.php" >"$config"
 	grep -q "'$name'" "$config" || die "could not write the DB name into $config"
+	grep -q "'ABSPATH', '$core/'" "$config" || die "could not write ABSPATH into $config"
 	echo "$config"
 }
 
 # ---------------------------------------------------------------- run
 
 run_suite() {
-	local version=$1 with_coverage=$2 dir config
+	local version=$1 with_coverage=$2 dir core config
 	dir=$(install_wp "$version")
-	config=$(db_config "$dir" "$version")
+	core=$(checkout_core "$dir")
+	config=$(db_config "$dir" "$version" "$core")
 	say "PHPUnit on WordPress $version${ELEMENTOR_VERSION:+ (Elementor $ELEMENTOR_VERSION)}"
 	local args=("${phpunit_args[@]+"${phpunit_args[@]}"}")
 	if [ "$with_coverage" = true ]; then
@@ -244,7 +278,7 @@ run_suite() {
 	fi
 	# WP_CORE_DIR is read at run time too: tests/support/plugins.php finds the
 	# optional plugins through it.
-	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$dir/wordpress/" \
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
 		"$PHP" vendor/bin/phpunit "${args[@]+"${args[@]}"}"
 	if [ "$with_coverage" = true ]; then
 		"$PHP" bin/check-coverage.php coverage/clover.xml "$COVERAGE_FLOOR"
