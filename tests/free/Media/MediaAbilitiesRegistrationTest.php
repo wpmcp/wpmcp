@@ -16,6 +16,7 @@ class MediaAbilitiesRegistrationTest extends \WP_UnitTestCase
             'wpmcp/list-media',
             'wpmcp/resize-media',
             'wpmcp/upload-svg',
+            'wpmcp/upload-media',
             'wpmcp/set-stock-key',
             'wpmcp/search-stock-images',
             'wpmcp/import-stock-image',

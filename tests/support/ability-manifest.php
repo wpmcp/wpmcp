@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 353,
-    'free'      => 256,
+    'total'     => 355,
+    'free'      => 258,
     'pro'       => 97,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -278,6 +278,7 @@ return [
         'wpmcp/pmpro-write' => 'free',
         'wpmcp/query' => 'free',
         'wpmcp/read-file' => 'free',
+        'wpmcp/regenerate-elementor-css' => 'free',
         'wpmcp/reindex-search' => 'free',
         'wpmcp/remove-block' => 'free',
         'wpmcp/remove-element' => 'pro',
@@ -364,6 +365,7 @@ return [
         'wpmcp/update-user' => 'free',
         'wpmcp/update-variation' => 'free',
         'wpmcp/update-widget' => 'pro',
+        'wpmcp/upload-media' => 'free',
         'wpmcp/upload-svg' => 'free',
         'wpmcp/validate-block-spec' => 'pro',
         'wpmcp/validate-coupon' => 'free',

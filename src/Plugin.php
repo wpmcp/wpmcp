@@ -154,6 +154,7 @@ use WPMCP\Tools\Media\Get_Media;
 use WPMCP\Tools\Media\Update_Media;
 use WPMCP\Tools\Media\Delete_Media;
 use WPMCP\Tools\Media\Sideload_Image;
+use WPMCP\Tools\Media\Upload_Media;
 use WPMCP\Tools\Media\List_Media;
 use WPMCP\Tools\Media\Resize_Media;
 use WPMCP\Tools\Media\Upload_Svg;
@@ -241,6 +242,7 @@ use WPMCP\Tools\Identity\List_Identities;
 use WPMCP\Tools\Identity\Delete_Identity;
 use WPMCP\Tools\Elementor\List_Widgets;
 use WPMCP\Tools\Elementor\Get_Widget_Schema;
+use WPMCP\Tools\Elementor\Regenerate_Elementor_Css;
 use WPMCP\Tools\Elementor\Get_Elementor_Data;
 use WPMCP\Tools\Elementor\Update_Element;
 use WPMCP\Tools\Elementor\Update_Widget;
@@ -1298,11 +1300,12 @@ final class Plugin
         $update_media   = new Update_Media();
         $delete_media   = new Delete_Media();
         $sideload_image = new Sideload_Image();
+        $upload_media   = new Upload_Media();
 
         $registrar->register(new Ability(
             'wpmcp/get-media',
             'free',
-            'Read full detail for a Media Library attachment: title, URL, every registered image size, dimensions, mime type, alt text, caption, and description',
+            'Read a Media Library attachment: title, URL, every registered size, dimensions, mime type, alt text, caption and description',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1318,7 +1321,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-media',
             'free',
-            'Update a Media Library attachment\'s title, alt text, caption, and/or description',
+            'Update an attachment\'s title, alt text, caption or description',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1339,7 +1342,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-media',
             'free',
-            'Delete a Media Library attachment. Disabled by default (site must opt in via the wpmcp_enable_delete_media filter) and requires confirm:true. force:true permanently deletes, routed through the safety snapshot so it can be rolled back',
+            'Delete a Media Library attachment. Off until the wpmcp_enable_delete_media filter opts in; needs confirm:true. force:true deletes permanently, snapshotted so it can be rolled back',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1358,7 +1361,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/sideload-image',
             'free',
-            'Download an image from a URL and add it to the Media Library as a new attachment',
+            'Add an image from a URL to the Media Library as a new attachment',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1374,6 +1377,29 @@ final class Plugin
             'media',
             'create'
         ));
+        $registrar->register(new Ability(
+            'wpmcp/upload-media',
+            'free',
+            'Upload a file to the Media Library from base64 data. Type is sniffed from the bytes, not mime_type; executables and SVG refused; capped at the upload limit. Rollback deletes it',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'filename'   => [ 'type' => 'string' ],
+                    'data'       => [ 'type' => 'string' ],
+                    'mime_type'  => [ 'type' => 'string' ],
+                    'title'      => [ 'type' => 'string' ],
+                    'alt'        => [ 'type' => 'string' ],
+                    'caption'    => [ 'type' => 'string' ],
+                    'post_id'    => [ 'type' => 'integer' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'filename', 'data' ],
+            ],
+            [$upload_media, 'handle'],
+            'upload_files',
+            'media',
+            'create'
+        ));
 
         $list_media          = new List_Media();
         $resize_media        = new Resize_Media();
@@ -1386,7 +1412,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-media',
             'free',
-            'List Media Library attachments with type ("image" or an exact mime like "image/png"), date-range (after/before), and search filters, paged newest first with a total/pages envelope',
+            'List Media Library attachments, filtered by type ("image" or a mime like "image/png"), after/before dates and search, paged newest first with total/pages',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1406,7 +1432,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/resize-media',
             'free',
-            'Regenerate the specified registered image sizes for an attachment from its original file and report each resulting file (name, dimensions, URL). Snapshot-first with a physical-file backup, so the operation is rollbackable',
+            'Regenerate the given registered image sizes of an attachment from its original and report each file (name, dimensions, URL). Snapshot-first with a file backup, so it can be rolled back',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1424,7 +1450,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/upload-svg',
             'free',
-            'Add an SVG to the Media Library from raw markup or an allowlisted URL. Every SVG passes a bundled fail-closed sanitizer (script/foreignObject/event handlers/external references are rejected outright); only the sanitized markup is stored. Rollback deletes the upload',
+            'Add an SVG to the Media Library from markup or an allowlisted URL. A fail-closed sanitizer rejects script, foreignObject, event handlers and external references; only sanitized markup is stored. Rollback deletes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1444,7 +1470,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-stock-key',
             'free',
-            'Store (or clear, by passing an empty api_key) a bring-your-own stock-provider API key for pexels or unsplash. Keys are encrypted at rest with a site-salt-derived key and are never echoed back',
+            'Store (or clear with an empty api_key) your own pexels or unsplash API key. Keys are encrypted at rest with a site-salt-derived key and never echoed back',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1461,7 +1487,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/search-stock-images',
             'free',
-            'Search openly-licensed stock images. Providers: openverse (keyless, Creative Commons results), pexels and unsplash (bring-your-own key via set-stock-key). Results are provider-attributed with license, license_url, attribution, and source_url, ready to pass to import-stock-image',
+            'Search openly-licensed stock images: openverse (keyless, Creative Commons), pexels and unsplash (own key via set-stock-key). Results carry license, license_url, attribution and source_url for import-stock-image',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5333,6 +5359,27 @@ final class Plugin
             'edit_posts',
             'elementor',
             'read'
+        ));
+
+        // A cache operation, not a content write: like clear-cache it is not
+        // snapshotted, since generated CSS has no before-image worth restoring.
+        $regenerate_elementor_css = new Regenerate_Elementor_Css();
+
+        $registrar->register(new Ability(
+            'wpmcp/regenerate-elementor-css',
+            'free',
+            'Rebuild Elementor CSS; all needs confirm',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id' => [ 'type' => 'integer' ],
+                    'confirm' => [ 'type' => 'boolean' ],
+                ],
+            ],
+            [$regenerate_elementor_css, 'handle'],
+            'edit_posts',
+            'elementor',
+            'update'
         ));
 
         $this->register_elementor_pro_abilities($registrar);

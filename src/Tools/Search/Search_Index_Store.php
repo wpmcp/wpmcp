@@ -129,7 +129,7 @@ class Search_Index_Store
     public static function purge_object(string $object_type, int $object_id): void
     {
         global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_search_index is this plugin's own derived-index table; WP has no API for it and a delete has nothing to cache.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_search_index is this plugin's own derived-index table; WP has no API for it, and nothing caches this table, so a delete has no cache to invalidate.
         $wpdb->delete(self::table_name(), [
             'object_type' => $object_type,
             'object_id'   => $object_id,

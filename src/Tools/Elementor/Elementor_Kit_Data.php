@@ -5,6 +5,7 @@ namespace WPMCP\Tools\Elementor;
 use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -204,9 +205,7 @@ class Elementor_Kit_Data
                 ],
                 function () use ($kit_id, $merged) {
                     update_post_meta($kit_id, '_elementor_page_settings', $merged);
-                    if (class_exists('\\Elementor\\Plugin') && isset(\Elementor\Plugin::instance()->files_manager)) {
-                        \Elementor\Plugin::instance()->files_manager->clear_cache();
-                    }
+                    Elementor_Cache::clear_all();
                     return true;
                 },
                 function () use ($kit_id, $patch) {
