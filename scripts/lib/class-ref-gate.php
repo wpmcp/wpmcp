@@ -276,15 +276,16 @@ final class Class_Ref_Gate
     {
         foreach ($conditions as $condition) {
             $text = $condition['text'];
-            if (false === strpos($text, '||')
-                && preg_match('/(?<!!)\bclass_exists\(/', str_replace(' ', '', $text))
-                && ! preg_match('/!\s*class_exists/', $text)
-                && in_array(strtolower($class), array_map('strtolower', $condition['classes']), true)) {
+            // A positive class_exists() on this very class, not negated and
+            // not one side of an `or`.
+            $names_class = in_array(strtolower($class), array_map('strtolower', $condition['classes']), true);
+            $checks_it   = false !== strpos($text, 'class_exists(') && ! preg_match('/!\s*class_exists/', $text);
+            if ($names_class && $checks_it && false === strpos($text, '||')) {
                 return true;
             }
-            if (null !== $live_groups
-                && preg_match('/^\(\s*\$this->group_enabled\(\s*[\'"]([a-z0-9_]+)[\'"]\s*\)\s*\)$/', $text, $m)
-                && ! in_array($m[1], $live_groups, true)) {
+            // A branch for an ability group this flavor never enables.
+            $group = preg_match('/^\(\s*\$this->group_enabled\(\s*[\'"]([a-z0-9_]+)[\'"]\s*\)\s*\)$/', $text, $m) ? $m[1] : null;
+            if (null !== $live_groups && null !== $group && ! in_array($group, $live_groups, true)) {
                 return true;
             }
         }
