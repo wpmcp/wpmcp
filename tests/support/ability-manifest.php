@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 371,
-    'free'      => 249,
+    'total'     => 373,
+    'free'      => 251,
     'pro'       => 122,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -40,6 +40,7 @@ return [
         'wpmcp/analyze-seo' => 'pro',
         'wpmcp/apply-brand-kit' => 'pro',
         'wpmcp/apply-change-set' => 'free',
+        'wpmcp/apply-product-import' => 'free',
         'wpmcp/apply-template' => 'pro',
         'wpmcp/assign-menu-to-location' => 'free',
         'wpmcp/batch-update' => 'pro',
@@ -285,6 +286,7 @@ return [
         'wpmcp/ninjaforms-read' => 'pro',
         'wpmcp/ninjaforms-write' => 'pro',
         'wpmcp/parse-blocks' => 'free',
+        'wpmcp/plan-product-import' => 'free',
         'wpmcp/pmpro-read' => 'free',
         'wpmcp/pmpro-write' => 'free',
         'wpmcp/query' => 'free',
