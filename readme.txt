@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.25
+Stable tag: 0.8.26
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.26 =
+* New custom widget builder (Pro): describe an Elementor widget as a data spec and the plugin compiles it into a real widget class. The generated PHP is linted against a closed allowlist before it touches disk, and it loads only from a hardened sandbox through a hash-verified manifest, so a tampered file stops loading.
+* Compiling is opt-in through a filter and refuses without the edit_files capability or when DISALLOW_FILE_EDIT is set. Every control type escapes the same way in compiled and runtime rendering.
 
 = 0.8.25 =
 * New: sync your governance, exposure, skills and identity settings with WP MCP Cloud, with every synced change recorded and undoable through rollback.
@@ -222,6 +226,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.26 =
+New custom widget builder (Pro): describe an Elementor widget as a data spec and the plugin compiles it into a real widget class. The generated PHP is linted against a closed allowlist before it touches disk, and it loads only from a hardened sandbox through a hash-verified manifest, so a tampered file stops loading.
 
 = 0.8.25 =
 New: sync your governance, exposure, skills and identity settings with WP MCP Cloud, with every synced change recorded and undoable through rollback.
