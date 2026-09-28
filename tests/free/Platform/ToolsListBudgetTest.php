@@ -122,8 +122,15 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  (list/create/update/delete-global-variable) when it met that main:
      *  202840 bytes over 376 tools. The four descriptions were trimmed
      *  first; the create description keeps the per-type value rules because
-     *  an agent that reads them does not burn a call on a refusal. */
-    private const TOOLS_LIST_BYTE_BUDGET = 203000;
+     *  an agent that reads them does not burn a call on a refusal. Raised
+     *  203000 -> 205000 for the two-step product import
+     *  (plan-product-import, apply-product-import) when it met that main:
+     *  main measured 202972 bytes over 378 tools, 28 bytes under the
+     *  budget, and the pair adds 1149 bytes (204121 over 380 tools). Both
+     *  row schemas are already a plain object array and both descriptions
+     *  were trimmed twice to the row fields, the plan_hash handshake, the
+     *  confirm rule and the rollback-session undo. */
+    private const TOOLS_LIST_BYTE_BUDGET = 205000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

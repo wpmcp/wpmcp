@@ -346,6 +346,8 @@ use WPMCP\Tools\WooCommerce\List_Tax_Rates;
 use WPMCP\Tools\WooCommerce\Create_Tax_Rate;
 use WPMCP\Tools\WooCommerce\Update_Tax_Rate;
 use WPMCP\Tools\WooCommerce\Delete_Tax_Rate;
+use WPMCP\Tools\WooCommerce\Plan_Product_Import;
+use WPMCP\Tools\WooCommerce\Apply_Product_Import;
 use WPMCP\Tools\WooCommerce\Catalog\Woo_Ops;
 use WPMCP\Tools\WooCommerce\Catalog\Woo_Read;
 use WPMCP\Tools\WooCommerce\Catalog\Woo_Write;
@@ -7445,6 +7447,42 @@ final class Plugin
             'manage_woocommerce',
             'woocommerce',
             'delete'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/plan-product-import',
+            'free',
+            'Plan a product import; writes nothing. Rows: sku, name, type (simple/variable), regular_price, sale_price, stock, categories, attributes, variations, images (media ids or https URLs), status. Per row: create, update (diff), skip or error; plus a plan_hash',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'rows' => [ 'type' => 'array', 'items' => [ 'type' => 'object' ] ],
+                    'mode' => [ 'type' => 'string', 'enum' => [ 'upsert', 'create', 'update' ] ],
+                ],
+                'required'   => [ 'rows' ],
+            ],
+            [new Plan_Product_Import(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/apply-product-import',
+            'free',
+            'Apply a plan-product-import plan: same rows and mode plus its plan_hash. Refused if the store or rows changed; confirm:true above the threshold. rollback-session on its session_id undoes it',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'rows' => [ 'type' => 'array', 'items' => [ 'type' => 'object' ] ],
+                    'mode' => [ 'type' => 'string', 'enum' => [ 'upsert', 'create', 'update' ] ],
+                    'plan_hash' => [ 'type' => 'string' ],
+                    'confirm' => [ 'type' => 'boolean' ],
+                ],
+                'required'   => [ 'rows', 'plan_hash' ],
+            ],
+            [new Apply_Product_Import(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'create'
         ));
 
         // Deep WooCommerce operations catalog (issue #68). The tools above

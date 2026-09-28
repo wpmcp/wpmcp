@@ -38,6 +38,28 @@ class Snapshot_Store
      */
     public const HISTORY_FLOOR_OPTION = 'wpmcp_snapshot_history_floor';
 
+    /** Open hold_pruning() scopes; prune() is a no-op while any is open. */
+    private static int $prune_holds = 0;
+
+    /**
+     * Run $work with pruning suspended, so one multi-write operation keeps
+     * every undo point it writes. Without the hold, an import that writes
+     * more rows than history_limit() would prune its own oldest snapshots
+     * mid-run and rollback-session would then undo only part of it. The
+     * next write outside the hold prunes to the normal cap as usual.
+     *
+     * @return mixed Whatever $work returns.
+     */
+    public static function hold_pruning(callable $work)
+    {
+        self::$prune_holds++;
+        try {
+            return $work();
+        } finally {
+            self::$prune_holds--;
+        }
+    }
+
     public static function table_name(): string
     {
         global $wpdb;
@@ -390,6 +412,10 @@ class Snapshot_Store
      */
     public static function prune(?int $keep = null): int
     {
+        if (self::$prune_holds > 0) {
+            return 0;
+        }
+
         global $wpdb;
         $t = self::table_name();
 
