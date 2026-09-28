@@ -225,7 +225,9 @@ class Install_Package_From_Zip
 
         $skin     = new \Automatic_Upgrader_Skin();
         $upgrader = 'plugin' === $type ? new \Plugin_Upgrader($skin) : new \Theme_Upgrader($skin);
-        $result   = $upgrader->install($package, ['overwrite_package' => $overwrite]);
+        $result   = self::without_update_checks(
+            static fn () => $upgrader->install($package, ['overwrite_package' => $overwrite])
+        );
 
         if (is_wp_error($result)) {
             $this->upgrader_error = $result->get_error_message();
@@ -241,6 +243,39 @@ class Install_Package_From_Zip
             $this->plugin_file = (string) $upgrader->plugin_info();
         }
         return true;
+    }
+
+    /**
+     * Core hooks its wordpress.org update checks onto upgrader_process_complete,
+     * so every upgrader run would make up to three outbound requests before
+     * returning. The package here is local, and the upgrader already clears
+     * the update transients, so core refreshes them on its own schedule; the
+     * install (and the snapshot a rollback depends on) must not wait on, or
+     * fail with, wordpress.org (issue #323). The checks are unhooked for this
+     * run only and put back afterwards, even when the install throws.
+     *
+     * @template T
+     * @param callable(): T $run
+     * @return T
+     */
+    private static function without_update_checks(callable $run)
+    {
+        $unhooked = [];
+        foreach (['wp_version_check', 'wp_update_plugins', 'wp_update_themes'] as $check) {
+            $priority = has_action('upgrader_process_complete', $check);
+            if (false !== $priority) {
+                remove_action('upgrader_process_complete', $check, $priority);
+                $unhooked[ $check ] = $priority;
+            }
+        }
+
+        try {
+            return $run();
+        } finally {
+            foreach ($unhooked as $check => $priority) {
+                add_action('upgrader_process_complete', $check, $priority, 0);
+            }
+        }
     }
 
     /** The attachment's file, when it is an existing .zip. */

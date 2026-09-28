@@ -99,4 +99,16 @@ tests_add_filter( 'init', function () {
     remove_all_actions( 'update_option_blogdescription' );
 }, 999 );
 
+// Elementor fetches its remote info feed (https://my.elementor.com/api/v2/info/)
+// the first time widgets register in a process, so whichever Elementor test
+// happens to run first would reach the network (issue #323). Mock it for the
+// whole run as the feed being unreachable, which Elementor already handles by
+// caching the failure and carrying on. No test depends on the feed's content.
+tests_add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
+    if ( false === $pre && 0 === strpos( (string) $url, 'https://my.elementor.com/api/' ) ) {
+        return new WP_Error( 'http_request_failed', 'Elementor remote API is mocked as unreachable in the test suite.' );
+    }
+    return $pre;
+}, 10, 3 );
+
 require $_tests_dir . '/includes/bootstrap.php';
