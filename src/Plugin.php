@@ -68,6 +68,7 @@ use WPMCP\Tools\Cli\Cancel_Cli_Job;
 use WPMCP\Tools\Cli\Run_Cli_Job;
 use WPMCP\Tools\Analysis\Extract_Content;
 use WPMCP\Tools\Analysis\Analyze_Seo;
+use WPMCP\Tools\Analysis\SeoData\Set_Seo_Data_Key;
 use WPMCP\Tools\Analysis\Analyze_Accessibility;
 use WPMCP\Tools\Analysis\Fix_Color_Contrast;
 use WPMCP\Tools\Analysis\Add_Alt_Text_From_Context;
@@ -3811,7 +3812,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/run-php-snippet',
             'pro',
-            'Run a guarded, arbitrary PHP snippet and return its return value, echoed output, and any thrown error. THIS IS REMOTE CODE EXECUTION: disabled by default (opt in via the WPMCP_ALLOW_PHP_EXEC constant or wpmcp_allow_php_exec filter); refuses to run on a production environment or any unrecognized environment unless a separate WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION override is also set; snippets flagged unsafe by the static validator are rejected before execution as a usability speed-bump only, not a security boundary. Its effects are not captured by this plugin\'s snapshot/rollback system and cannot be undone.',
+            'Run a guarded, arbitrary PHP snippet; returns its return value, echoed output and any thrown error. THIS IS REMOTE CODE EXECUTION: off by default (WPMCP_ALLOW_PHP_EXEC constant or wpmcp_allow_php_exec filter); refused on production or any unrecognized environment unless WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION is also set; snippets the static validator flags are rejected first, a usability speed-bump only, not a security boundary. Its effects are not snapshotted and cannot be undone.',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8341,7 +8342,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/generate-schema-markup',
             'pro',
-            'Generate schema.org JSON-LD for a post (Article, WebPage, LocalBusiness or Product) from its title, dates, author, excerpt or SEO description, featured image, permalink and, for Product, its WooCommerce record. Proposal only: writes nothing',
+            'Generate schema.org JSON-LD (Article, WebPage, LocalBusiness or Product) for a post from its title, dates, author, excerpt or SEO description, featured image, permalink and, for Product, its WooCommerce record. Proposal only: writes nothing',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8392,7 +8393,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-social-meta',
             'pro',
-            'Read a post\'s OpenGraph and Twitter overrides (title, description, image) from the active SEO plugin\'s postmeta as one neutral field set. Plugins whose per-post social storage is not mapped return a structured unsupported response',
+            'Read a post\'s OpenGraph and Twitter overrides (title, description, image) from the active SEO plugin as one field set. Plugins with unmapped social storage return a structured unsupported response',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8430,7 +8431,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-term-seo-meta',
             'pro',
-            'Read a term\'s SEO fields (same set as get-seo-meta) by taxonomy plus term_id or slug. Fields the plugin lacks on terms are listed in unsupported_fields; plugins without term storage return supported:false',
+            'Read a term\'s SEO fields (as get-seo-meta) by taxonomy plus term_id or slug. Fields the plugin lacks on terms are in unsupported_fields; no term storage returns supported:false',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8449,7 +8450,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-term-seo-meta',
             'pro',
-            'Set a term\'s SEO fields (same set as update-seo-meta) by taxonomy plus term_id or slug. Snapshotted; rollback-operation undoes it. Fields the plugin lacks on terms come back in skipped_fields',
+            'Set a term\'s SEO fields (as update-seo-meta) by taxonomy plus term_id or slug. Snapshotted; rollback-operation undoes it. Fields the plugin lacks on terms return in skipped_fields',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8793,7 +8794,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/extract-content',
             'pro',
-            'Extract a post\'s readable plain text and a structural summary (headings, word count, link and image counts) from its stored content. keywords=N adds the top N ranked terms and 2-3 word phrases, title and headings weighted. Read-only',
+            'A post\'s plain text and structure (headings, word count, link and image counts). keywords=N adds the top N terms and 2-3 word phrases, title and headings weighted. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8813,19 +8814,40 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/analyze-seo',
             'pro',
-            'Score a post\'s on-page SEO (0-100) with severity-tagged findings: title and meta-description length, H1 and heading structure, word count, image alt coverage, internal/external link counts, focus-keyword density, and a Flesch reading-ease readability score. Read-only',
+            'op score (default; post_id): on-page SEO 0-100 with findings (title/meta length, headings, words, alt, links, keyword density, readability). op keywords (keywords[]): volume, difficulty, CPC, intent. op backlinks (target domain or URL): link counts. Both call your SEO data provider (set-seo-data-key), cached. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
+                    'op'            => [ 'type' => 'string', 'enum' => Analyze_Seo::OPS ],
                     'post_id'       => [ 'type' => 'integer' ],
                     'focus_keyword' => [ 'type' => 'string' ],
+                    'keywords'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'target'        => [ 'type' => 'string' ],
+                    'location_code' => [ 'type' => 'integer' ],
+                    'language_code' => [ 'type' => 'string' ],
                 ],
-                'required'   => [ 'post_id' ],
             ],
             [$analyze_seo, 'handle'],
             'edit_posts',
             'analysis',
             'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/set-seo-data-key',
+            'pro',
+            'Store (empty api_key clears) your SEO data provider credentials for analyze-seo; dataforseo takes "login:password". Encrypted, never echoed',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'provider' => [ 'type' => 'string', 'enum' => [ 'dataforseo' ] ],
+                    'api_key'  => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'provider', 'api_key' ],
+            ],
+            [new Set_Seo_Data_Key(), 'handle'],
+            'manage_options',
+            'analysis',
+            'update'
         ));
 
         $analyze_accessibility = new Analyze_Accessibility();
@@ -8833,7 +8855,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/analyze-accessibility',
             'pro',
-            'Scan a post\'s stored HTML for common WCAG issues (images missing alt text, heading order jumps, empty or non-descriptive link text, and form controls without labels) and return scored findings with the offending element locations. Read-only',
+            'Scan a post\'s HTML for WCAG issues (missing alt text, heading jumps, empty or vague link text, unlabeled form controls): scored findings with element locations. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8852,7 +8874,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/check-contrast',
             'pro',
-            'Compute the WCAG contrast ratio between a foreground and background hex color and report AA/AAA pass/fail for normal and large text. Read-only',
+            'WCAG contrast ratio of a foreground/background hex pair, with AA/AAA pass/fail for normal and large text. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8872,7 +8894,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/fix-color-contrast',
             'pro',
-            'Raise failing inline text/background color pairs in a post to a target WCAG ratio by moving lightness only, keeping the hue. Reports before/after color, ratio and level per pair. Dry run unless apply=true; one snapshot, one rollback',
+            'Raise failing inline text/background color pairs in a post to a target WCAG ratio by lightness only (hue kept); before/after color, ratio, level per pair. Dry run unless apply=true; one snapshot, one rollback',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8895,7 +8917,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-alt-text-from-context',
             'pro',
-            'Write missing alt text for a post\'s images from the filename, nearest heading or post title. Existing alt text is kept unless overwrite_existing=true; decorative images are never touched. Dry run unless apply=true; one snapshot, one rollback',
+            'Write missing image alt text in a post from filename, nearest heading or title. Keeps existing alt unless overwrite_existing=true; skips decorative images. Dry run unless apply=true; one snapshot, one rollback',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8917,7 +8939,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/fix-link-text',
             'pro',
-            'Replace empty or generic anchor text ("click here", "read more") on internal links with the destination title, fixing WCAG 2.4.4 and weak SEO anchors. External links and anchors with markup are skipped. Dry run unless apply=true; one snapshot, one rollback',
+            'Replace empty or generic internal link text ("click here", "read more") with the destination title (WCAG 2.4.4, SEO). Skips external links and anchors with markup. Dry run unless apply=true; one snapshot, one rollback',
             [
                 'type'       => 'object',
                 'properties' => [

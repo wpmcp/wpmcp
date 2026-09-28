@@ -175,7 +175,7 @@ class SetSeoDataKeyTest extends \WP_UnitTestCase
         }
 
         $this->assertCount(1, $this->requested);
-        $log = (string) wp_json_encode(get_option(Request_Log::OPTION));
+        $log = (string) wp_json_encode(get_option(Request_Log::OPTION), JSON_UNESCAPED_SLASHES);
         $this->assertStringContainsString('wpmcp/set-seo-data-key', $log);
         $this->assertStringContainsString('wpmcp/analyze-seo', $log);
         $this->assertStringNotContainsString('s3cr3t-Pa55word', $log);
