@@ -316,6 +316,19 @@ use WPMCP\Tools\WooCommerce\Get_Sales_Report;
 use WPMCP\Tools\WooCommerce\List_Variations;
 use WPMCP\Tools\WooCommerce\Update_Variation;
 use WPMCP\Tools\WooCommerce\List_Low_Stock_Products;
+use WPMCP\Tools\WooCommerce\Create_Variation;
+use WPMCP\Tools\WooCommerce\Delete_Variation;
+use WPMCP\Tools\WooCommerce\Bulk_Update_Products;
+use WPMCP\Tools\WooCommerce\List_Coupons;
+use WPMCP\Tools\WooCommerce\Get_Coupon;
+use WPMCP\Tools\WooCommerce\Create_Coupon;
+use WPMCP\Tools\WooCommerce\Update_Coupon;
+use WPMCP\Tools\WooCommerce\Delete_Coupon;
+use WPMCP\Tools\WooCommerce\Validate_Coupon;
+use WPMCP\Tools\WooCommerce\List_Tax_Rates;
+use WPMCP\Tools\WooCommerce\Create_Tax_Rate;
+use WPMCP\Tools\WooCommerce\Update_Tax_Rate;
+use WPMCP\Tools\WooCommerce\Delete_Tax_Rate;
 use WPMCP\Tools\Menus\List_Menus;
 use WPMCP\Tools\Menus\Get_Menu;
 use WPMCP\Tools\Menus\List_Menu_Locations;
@@ -571,6 +584,12 @@ final class Plugin
             Default_Seeder::seed();
             // Self-hosted translations from languages/ (issue #184).
             add_action('init', [$this, 'load_textdomain']);
+            // Seal any phase A plaintext cloud credentials on the first page
+            // load after an update (issue #141); a no-op query-wise otherwise.
+            // The class is absent from flavors that strip src/Cloud.
+            if (class_exists(\WPMCP\Cloud\Cloud_Credentials::class)) {
+                add_action('init', [\WPMCP\Cloud\Cloud_Credentials::class, 'maybe_migrate_on_boot']);
+            }
             $hook = function_exists('wp_register_ability') ? 'wp_abilities_api_init' : 'init';
             add_action($hook, [$this, 'register_abilities']);
             if (function_exists('wp_register_ability_category')) {
@@ -6421,6 +6440,12 @@ final class Plugin
      * engine. Writes require manage_woocommerce; order writes require
      * edit_shop_orders. The destructive delete-product tool is disabled by
      * default behind the wpmcp_enable_delete_product filter and needs confirm.
+     *
+     * Issue #195 depth: variation create/delete and bulk updates, coupons
+     * (shop_coupon posts, 'post' snapshots) and tax rates (custom tables, the
+     * dedicated 'wc_tax_rate' snapshot type). Each delete tool has its own
+     * opt-in filter (wpmcp_enable_delete_variation, _coupon, _tax_rate) and
+     * needs confirm:true. All free: the WooCommerce listing depends on it.
      */
     private function register_woocommerce_abilities(Registrar $registrar): void
     {
@@ -6502,7 +6527,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-product',
             'free',
-            'Update a WooCommerce product\'s fields (price, stock, description, etc.). A product is a post, so this is snapshotted via object_type post and rollback-operation restores the prior price and stock exactly',
+            'Update a WooCommerce product\'s fields (price, stock, description, etc.). stock_status is accepted only while stock is unmanaged and never on a variable product. A product is a post, so this is snapshotted via object_type post and rollback-operation restores the prior price and stock exactly',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6516,6 +6541,7 @@ final class Plugin
                     'status'            => [ 'type' => 'string' ],
                     'manage_stock'      => [ 'type' => 'boolean' ],
                     'stock_quantity'    => [ 'type' => 'integer' ],
+                    'stock_status'      => [ 'type' => 'string' ],
                     'session_id'        => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'id' ],
@@ -6703,6 +6729,305 @@ final class Plugin
             'manage_woocommerce',
             'woocommerce',
             'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/create-variation',
+            'free',
+            'Add a variation to a variable product. attributes maps each variation attribute to one of its options ("" or omitted = any); unknown attributes or options are refused. Prices, sku, status and stock follow update-variation\'s rules. Undo with delete-variation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'product_id' => [ 'type' => 'integer' ],
+                    'attributes' => [ 'type' => 'object' ],
+                    'description' => [ 'type' => 'string' ],
+                    'regular_price' => [ 'type' => 'string' ],
+                    'sale_price' => [ 'type' => 'string' ],
+                    'sku' => [ 'type' => 'string' ],
+                    'status' => [ 'type' => 'string' ],
+                    'manage_stock' => [ 'type' => 'boolean' ],
+                    'stock_quantity' => [ 'type' => 'integer' ],
+                    'stock_status' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'product_id' ],
+            ],
+            [new Create_Variation(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/delete-variation',
+            'free',
+            'Permanently delete a product variation (there is no variation trash). Disabled until the site opts in via the wpmcp_enable_delete_variation filter; requires confirm:true. Snapshotted: rollback-operation resurrects it at the same id, attached to its parent',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id' => [ 'type' => 'integer' ],
+                    'confirm' => [ 'type' => 'boolean' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id', 'confirm' ],
+            ],
+            [new Delete_Variation(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'delete'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/bulk-update-products',
+            'free',
+            'Update up to 50 products and variations in one call; each item is {id, ...fields} as update-product or update-variation takes them, with the same rules and permission checks. Reports ok, operation_id or error per item; one failure does not stop the rest. rollback-session on the returned session_id undoes the batch',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'items' => [
+                        'type'     => 'array',
+                        'maxItems' => 50,
+                        'items'    => [
+                            'type'       => 'object',
+                            'properties' => [ 'id' => [ 'type' => 'integer' ] ],
+                            'required'   => [ 'id' ],
+                        ],
+                    ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'items' ],
+            ],
+            [new Bulk_Update_Products(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/list-coupons',
+            'free',
+            'List coupons as summary rows (id, code, status, type, amount, usage, expiry), with code search, status filter and paging. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'search' => [ 'type' => 'string' ],
+                    'status' => [ 'type' => 'string' ],
+                    'per_page' => [ 'type' => 'integer' ],
+                    'page' => [ 'type' => 'integer' ],
+                ],
+            ],
+            [new List_Coupons(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/get-coupon',
+            'free',
+            'Read one coupon\'s full settings by id or code (limits, restrictions, usage). Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id' => [ 'type' => 'integer' ],
+                    'code' => [ 'type' => 'string' ],
+                ],
+            ],
+            [new Get_Coupon(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/create-coupon',
+            'free',
+            'Create a coupon. Refuses a code already in use, an unknown discount_type, a percent over 100 or an invalid email restriction. Status defaults to draft. Undo with delete-coupon',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'code' => [ 'type' => 'string' ],
+                    'discount_type' => [ 'type' => 'string' ],
+                    'amount' => [ 'type' => [ 'string', 'number' ] ],
+                    'description' => [ 'type' => 'string' ],
+                    'date_expires' => [ 'type' => [ 'string', 'null' ] ],
+                    'individual_use' => [ 'type' => 'boolean' ],
+                    'free_shipping' => [ 'type' => 'boolean' ],
+                    'exclude_sale_items' => [ 'type' => 'boolean' ],
+                    'minimum_amount' => [ 'type' => [ 'string', 'number' ] ],
+                    'maximum_amount' => [ 'type' => [ 'string', 'number' ] ],
+                    'usage_limit' => [ 'type' => [ 'integer', 'null' ] ],
+                    'usage_limit_per_user' => [ 'type' => [ 'integer', 'null' ] ],
+                    'limit_usage_to_x_items' => [ 'type' => [ 'integer', 'null' ] ],
+                    'product_ids' => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
+                    'excluded_product_ids' => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
+                    'product_categories' => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
+                    'excluded_product_categories' => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
+                    'email_restrictions' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'status' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'code' ],
+            ],
+            [new Create_Coupon(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-coupon',
+            'free',
+            'Update a coupon\'s fields with the same checks as create-coupon. Snapshotted: rollback-operation restores every setting and usage history',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id' => [ 'type' => 'integer' ],
+                    'code' => [ 'type' => 'string' ],
+                    'discount_type' => [ 'type' => 'string' ],
+                    'amount' => [ 'type' => [ 'string', 'number' ] ],
+                    'description' => [ 'type' => 'string' ],
+                    'date_expires' => [ 'type' => [ 'string', 'null' ] ],
+                    'individual_use' => [ 'type' => 'boolean' ],
+                    'free_shipping' => [ 'type' => 'boolean' ],
+                    'exclude_sale_items' => [ 'type' => 'boolean' ],
+                    'minimum_amount' => [ 'type' => [ 'string', 'number' ] ],
+                    'maximum_amount' => [ 'type' => [ 'string', 'number' ] ],
+                    'usage_limit' => [ 'type' => [ 'integer', 'null' ] ],
+                    'usage_limit_per_user' => [ 'type' => [ 'integer', 'null' ] ],
+                    'limit_usage_to_x_items' => [ 'type' => [ 'integer', 'null' ] ],
+                    'product_ids' => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
+                    'excluded_product_ids' => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
+                    'product_categories' => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
+                    'excluded_product_categories' => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
+                    'email_restrictions' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'status' => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [new Update_Coupon(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/delete-coupon',
+            'free',
+            'Delete a coupon (trash by default, force for permanent). Disabled until the site opts in via the wpmcp_enable_delete_coupon filter; requires confirm:true. Snapshotted: rollback-operation restores it at the same id',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id' => [ 'type' => 'integer' ],
+                    'confirm' => [ 'type' => 'boolean' ],
+                    'force' => [ 'type' => 'boolean' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id', 'confirm' ],
+            ],
+            [new Delete_Coupon(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'delete'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/validate-coupon',
+            'free',
+            'Check whether a coupon code would be accepted: published, expiry, usage limits, and (when email or subtotal is given) per-customer limit, email allow-list and spend rules. Each rule reports pass, fail or skipped; cart-dependent rules are flagged. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'code' => [ 'type' => 'string' ],
+                    'email' => [ 'type' => 'string' ],
+                    'subtotal' => [ 'type' => [ 'string', 'number' ] ],
+                ],
+                'required'   => [ 'code' ],
+            ],
+            [new Validate_Coupon(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/list-tax-rates',
+            'free',
+            'List the store\'s tax classes and tax rates, filterable by class or country, with paging. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'class' => [ 'type' => 'string' ],
+                    'country' => [ 'type' => 'string' ],
+                    'per_page' => [ 'type' => 'integer' ],
+                    'page' => [ 'type' => 'integer' ],
+                ],
+            ],
+            [new List_Tax_Rates(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/create-tax-rate',
+            'free',
+            'Create a tax rate. rate is a percentage from 0 to 100; country must be a known ISO code or "" for all; class must be standard or an existing class. Undo with delete-tax-rate',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'country' => [ 'type' => 'string' ],
+                    'state' => [ 'type' => 'string' ],
+                    'postcodes' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'cities' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'rate' => [ 'type' => [ 'string', 'number' ] ],
+                    'name' => [ 'type' => 'string' ],
+                    'priority' => [ 'type' => 'integer' ],
+                    'compound' => [ 'type' => 'boolean' ],
+                    'shipping' => [ 'type' => 'boolean' ],
+                    'order' => [ 'type' => 'integer' ],
+                    'class' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'rate' ],
+            ],
+            [new Create_Tax_Rate(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-tax-rate',
+            'free',
+            'Update a tax rate with the same checks as create-tax-rate; postcodes and cities replace the whole list. Snapshotted: rollback-operation restores the row and its locations',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id' => [ 'type' => 'integer' ],
+                    'country' => [ 'type' => 'string' ],
+                    'state' => [ 'type' => 'string' ],
+                    'postcodes' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'cities' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'rate' => [ 'type' => [ 'string', 'number' ] ],
+                    'name' => [ 'type' => 'string' ],
+                    'priority' => [ 'type' => 'integer' ],
+                    'compound' => [ 'type' => 'boolean' ],
+                    'shipping' => [ 'type' => 'boolean' ],
+                    'order' => [ 'type' => 'integer' ],
+                    'class' => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id' ],
+            ],
+            [new Update_Tax_Rate(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/delete-tax-rate',
+            'free',
+            'Delete a tax rate. Disabled until the site opts in via the wpmcp_enable_delete_tax_rate filter; requires confirm:true. Snapshotted: rollback-operation restores it at the same id',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id' => [ 'type' => 'integer' ],
+                    'confirm' => [ 'type' => 'boolean' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id', 'confirm' ],
+            ],
+            [new Delete_Tax_Rate(), 'handle'],
+            'manage_woocommerce',
+            'woocommerce',
+            'delete'
         ));
     }
 

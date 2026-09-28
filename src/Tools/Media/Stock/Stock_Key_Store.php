@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Media\Stock;
 
+use WPMCP\Crypto\Secret_Box;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -12,24 +14,38 @@ if (! defined('ABSPATH')) {
  * (XSalsa20-Poly1305, authenticated) under a key derived from this site's
  * auth salt, so the persisted option never contains the plaintext and a
  * copied database without the site's wp-config salts cannot recover keys.
- * Decryption failures (tampered blob, rotated salts) return null — the
- * caller treats that as "not configured" rather than using a corrupt key.
+ * Decryption failures (tampered blob, rotated salts) return null, which the
+ * caller treats as "not configured" rather than using a corrupt key.
+ *
+ * The seal itself is Crypto\Secret_Box (shared with the cloud credential
+ * vault, issue #141) under the 'wpmcp-stock-keys' label, which derives the
+ * same key and wire format this class always used, so stored keys keep
+ * opening. When no sodium implementation is usable, set() stores nothing
+ * rather than a plaintext key.
  */
 class Stock_Key_Store
 {
     public const OPTION = 'wpmcp_stock_keys';
 
+    /** Secret_Box domain label; changing it would orphan every stored key. */
+    private const LABEL = 'wpmcp-stock-keys';
+
     public static function set(string $provider, string $key): void
     {
+        $sealed = Secret_Box::seal($key, self::LABEL);
+        if (null === $sealed) {
+            // Fail closed: never store a provider key unsealed.
+            return;
+        }
         $keys = self::all();
-        $keys[ sanitize_key($provider) ] = self::encrypt($key);
+        $keys[ sanitize_key($provider) ] = $sealed;
         update_option(self::OPTION, $keys, false);
     }
 
     public static function get(string $provider): ?string
     {
         $blob = self::all()[ sanitize_key($provider) ] ?? null;
-        return is_string($blob) ? self::decrypt($blob) : null;
+        return is_string($blob) ? Secret_Box::open($blob, self::LABEL) : null;
     }
 
     public static function clear(string $provider): void
@@ -56,30 +72,5 @@ class Stock_Key_Store
     {
         $keys = get_option(self::OPTION, []);
         return is_array($keys) ? $keys : [];
-    }
-
-    private static function encrypt(string $plaintext): string
-    {
-        $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
-        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- makes the binary sodium nonce+ciphertext safe to store in the options table; not obfuscation.
-        return base64_encode($nonce . sodium_crypto_secretbox($plaintext, $nonce, self::key()));
-    }
-
-    private static function decrypt(string $blob): ?string
-    {
-        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- decodes the storage encoding written by encrypt(); not obfuscation.
-        $raw = base64_decode($blob, true);
-        if (false === $raw || strlen($raw) <= SODIUM_CRYPTO_SECRETBOX_NONCEBYTES) {
-            return null;
-        }
-        $nonce  = substr($raw, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
-        $cipher = substr($raw, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
-        $plain  = sodium_crypto_secretbox_open($cipher, $nonce, self::key());
-        return false === $plain ? null : $plain;
-    }
-
-    private static function key(): string
-    {
-        return sodium_crypto_generichash('wpmcp-stock-keys|' . wp_salt('auth'), '', SODIUM_CRYPTO_SECRETBOX_KEYBYTES);
     }
 }
