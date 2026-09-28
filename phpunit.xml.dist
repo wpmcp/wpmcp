@@ -4,6 +4,10 @@
     <testsuite name="free"><directory>tests/free</directory></testsuite>
     <testsuite name="pro"><directory>tests/pro</directory></testsuite>
   </testsuites>
+  <listeners>
+    <!-- Fails any test that makes an unmocked HTTP request (issue #323). -->
+    <listener class="WPMCP\Tests\Support\Network_Guard_Listener"/>
+  </listeners>
   <coverage processUncoveredFiles="true">
     <include>
       <directory suffix=".php">src</directory>
