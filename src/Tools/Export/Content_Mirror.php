@@ -3,7 +3,7 @@
 namespace WPMCP\Tools\Export;
 
 use WPMCP\Safety\Safe_Mutation;
-use WPMCP\Tools\Builders\{Beaver_Builder_Content, Beaver_Builder_Nodes, Breakdance_Content, Breakdance_Tree, Bricks_Content, Builder_Detector, Divi_Content, WPBakery_Content};
+use WPMCP\Tools\Builders\{Avada_Content, Beaver_Builder_Content, Beaver_Builder_Nodes, Breakdance_Content, Breakdance_Tree, Bricks_Content, Builder_Detector, Divi_Content, Thrive_Content, Thrive_Html, WPBakery_Content};
 use WPMCP\Tools\Content\Content_Guard;
 use WPMCP\Tools\Elementor\Elementor_Page_Data;
 use WPMCP\Tools\Filesystem\Filesystem_Guard;
@@ -21,8 +21,9 @@ if (! defined('ABSPATH')) {
  * builder's own write path takes. Output is stable: the same stored content
  * always gives byte-identical files, and a file is only rewritten when its
  * bytes change, so a checkout of the directory diffs cleanly. Content held in
- * post_content (Gutenberg blocks, Divi and WPBakery shortcodes) is written as
- * an array of lines, so a one-line edit is a one-line diff.
+ * post_content (Gutenberg blocks, Divi, WPBakery and Avada shortcodes) is
+ * written as an array of lines, as is a Thrive Architect layout (HTML in
+ * postmeta), so a one-line edit is a one-line diff.
  *
  * restore() reads a page's file back and writes it through that builder's
  * storage adapter inside Safe_Mutation::run(), so the restore is snapshotted
@@ -48,7 +49,7 @@ class Content_Mirror
     private const JSON_FLAGS = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION;
 
     /** Builders whose data is post_content, mirrored as an array of lines. */
-    private const LINE_BUILDERS = ['gutenberg', 'divi', 'wpbakery'];
+    private const LINE_BUILDERS = ['gutenberg', 'divi', 'wpbakery', 'avada'];
 
     private const STATUSES = ['publish', 'future', 'draft', 'pending', 'private'];
 
@@ -203,6 +204,12 @@ class Content_Mirror
                     return true;
                 };
             }
+            if ('avada' === $builder) {
+                return static function () use ($post_id, $content) {
+                    Avada_Content::save($post_id, $content);
+                    return true;
+                };
+            }
 
             return static function () use ($post_id, $content) {
                 wp_update_post(['ID' => $post_id, 'post_content' => wp_slash($content)]);
@@ -227,6 +234,25 @@ class Content_Mirror
             };
         }
 
+        if ('thrive' === $builder) {
+            if (! is_array($assoc) || ! array_is_list($assoc) || [] !== array_filter($assoc, static fn ($line) => ! is_string($line))) {
+                throw new \RuntimeException(esc_html("The mirror file for post {$post_id} must hold its layout as an array of lines."));
+            }
+            $content = implode("\n", $assoc);
+            try {
+                Thrive_Html::assert_balanced($content);
+                Thrive_Html::tree($content);
+                $before_more = Thrive_Content::before_more($post_id, Thrive_Content::get_content($post_id), $content);
+            } catch (\InvalidArgumentException $e) {
+                throw new \RuntimeException(esc_html($e->getMessage()));
+            }
+
+            return static function () use ($post_id, $content, $before_more) {
+                Thrive_Content::save($post_id, $content, $before_more);
+                return true;
+            };
+        }
+
         if ('beaver-builder' === $builder) {
             if (Beaver_Builder_Content::draft_pending($post_id)) {
                 throw new \RuntimeException('This page has unpublished Beaver Builder edits; publish or discard them in the editor first.');
@@ -243,14 +269,15 @@ class Content_Mirror
             };
         }
 
-        // Breakdance, the last builder available() admits.
+        // Breakdance or Oxygen 6 (the same engine), the last builders
+        // available() admits.
         $tree = is_object($data) ? Breakdance_Tree::decode((string) wp_json_encode($data)) : null;
         if (null === $tree) {
-            throw new \RuntimeException(esc_html("The Breakdance data in the mirror file for post {$post_id} is not a document with a root node."));
+            throw new \RuntimeException(esc_html("The {$builder} data in the mirror file for post {$post_id} is not a document with a root node."));
         }
 
-        return static function () use ($post_id, $tree) {
-            Breakdance_Content::save($post_id, $tree);
+        return static function () use ($post_id, $tree, $builder) {
+            Breakdance_Content::save($post_id, $tree, $builder);
             return true;
         };
     }
@@ -281,9 +308,12 @@ class Content_Mirror
 
             case 'beaver-builder':
                 return Beaver_Builder_Nodes::tree(Beaver_Builder_Content::get_nodes($post_id));
+
+            case 'thrive':
+                return explode("\n", Thrive_Content::get_content($post_id));
         }
 
-        $raw   = get_post_meta($post_id, Breakdance_Content::DATA_META_KEY, true);
+        $raw   = get_post_meta($post_id, Breakdance_Content::data_key($builder), true);
         $outer = is_string($raw) ? json_decode($raw, true) : null;
         $tree  = is_array($outer) && is_string($outer['tree_json_string'] ?? null) ? json_decode($outer['tree_json_string']) : null;
 
@@ -334,8 +364,11 @@ class Content_Mirror
             'bricks'         => Bricks_Content::class,
             'divi'           => Divi_Content::class,
             'wpbakery'       => WPBakery_Content::class,
+            'avada'          => Avada_Content::class,
             'beaver-builder' => Beaver_Builder_Content::class,
             'breakdance'     => Breakdance_Content::class,
+            'oxygen'         => Breakdance_Content::class,
+            'thrive'         => Thrive_Content::class,
         ];
         if (! array_key_exists($builder, $adapters)) {
             return false;

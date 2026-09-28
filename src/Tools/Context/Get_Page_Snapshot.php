@@ -346,6 +346,16 @@ class Get_Page_Snapshot
             ];
         }
 
+        if ('thrive' === $builder) {
+            return [
+                'source'             => 'post_content',
+                'complete'           => false,
+                'unmeasured'         => self::CONTENT_SECTIONS,
+                'stale_post_content' => false,
+                'note'               => 'Thrive Architect renders this page from its layout in postmeta; post_content holds the plain-text copy Thrive keeps of it, so the element inventory is partial.',
+            ];
+        }
+
         if (in_array($builder, ['divi', 'wpbakery', 'avada'], true)) {
             return [
                 'source'             => 'post_content',
