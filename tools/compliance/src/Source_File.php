@@ -416,6 +416,41 @@ final class Source_File
         return $hits;
     }
 
+    /**
+     * Regex matches over the code only: every comment and docblock is
+     * blanked through the tokenizer before matching, so a superglobal or a
+     * function name mentioned in prose can neither report nor excuse
+     * anything (issue #347). Newlines and column positions are kept, so line
+     * numbers match grep(), and each hit's text is the code-only line.
+     *
+     * Use this where a rule reads code; keep grep() for checks that mirror a
+     * file-content scan, which sees comments too, and for annotations such
+     * as phpcs:ignore that live in comments.
+     *
+     * @return array<int,array{line:int,text:string,match:string}>
+     */
+    public function grep_code(string $pattern): array
+    {
+        if (! $this->is_php()) {
+            return $this->grep($pattern);
+        }
+        $code = '';
+        foreach ($this->tokens() as $token) {
+            if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                $code .= preg_replace('/[^\r\n]/', ' ', $token[1]);
+                continue;
+            }
+            $code .= is_array($token) ? $token[1] : $token;
+        }
+        $hits = [];
+        foreach (preg_split('/\r\n|\r|\n/', $code) ?: [] as $index => $text) {
+            if (preg_match($pattern, $text, $matches)) {
+                $hits[] = ['line' => $index + 1, 'text' => $text, 'match' => $matches[0]];
+            }
+        }
+        return $hits;
+    }
+
     public function contains(string $needle, bool $case_insensitive = true): bool
     {
         return $case_insensitive
