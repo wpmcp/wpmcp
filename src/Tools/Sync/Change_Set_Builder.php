@@ -81,7 +81,7 @@ class Change_Set_Builder
      * Ledger object types excluded BY DESIGN: the live-side rows a sync
      * must never carry.
      */
-    private const NON_SYNCABLE_BY_DESIGN = ['user', 'comment', 'wc_order', 'db_rows'];
+    private const NON_SYNCABLE_BY_DESIGN = ['user', 'comment', 'comment_create', 'wc_order', 'db_rows'];
 
     /**
      * Ledger object_type => export kind for post-backed rows. `page_build`

@@ -187,6 +187,8 @@ use WPMCP\Tools\Users\Update_User;
 use WPMCP\Tools\Comments\List_Comments;
 use WPMCP\Tools\Comments\Get_Comment;
 use WPMCP\Tools\Comments\Moderate_Comment;
+use WPMCP\Tools\Comments\Create_Comment;
+use WPMCP\Tools\Comments\Reply_To_Comment;
 use WPMCP\Tools\Comments\Edit_Comment;
 use WPMCP\Tools\Comments\Delete_Comment;
 use WPMCP\Tools\Packages\List_Plugins;
@@ -1737,6 +1739,8 @@ final class Plugin
         $moderate_comment  = new Moderate_Comment();
         $edit_comment      = new Edit_Comment();
         $delete_comment    = new Delete_Comment();
+        $create_comment    = new Create_Comment();
+        $reply_to_comment  = new Reply_To_Comment();
 
         $registrar->register(new Ability(
             'wpmcp/list-comments',
@@ -1828,6 +1832,44 @@ final class Plugin
             'edit_comments',
             'comments',
             'delete'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/create-comment',
+            'free',
+            'Comment on a post as you. status: approved (moderate_comments) or unapproved. Reversible',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'post_id'    => [ 'type' => 'integer' ],
+                    'content'    => [ 'type' => 'string' ],
+                    'status'     => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'post_id', 'content' ],
+            ],
+            [$create_comment, 'handle'],
+            'edit_posts',
+            'comments',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/reply-to-comment',
+            'free',
+            'Reply to comment id; as create-comment',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'id'         => [ 'type' => 'integer' ],
+                    'content'    => [ 'type' => 'string' ],
+                    'status'     => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'id', 'content' ],
+            ],
+            [$reply_to_comment, 'handle'],
+            'edit_posts',
+            'comments',
+            'create'
         ));
 
         $list_plugins      = new List_Plugins();
@@ -2364,7 +2406,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/scan-security',
             'free',
-            'Scan this site for security and malware problems: PHP malware heuristics (uploads plus active plugins/themes; deep=true for the whole tree), core file integrity against wordpress.org checksums, configuration hardening (file editor, debug output, admin username, XML-RPC, version disclosure, HTTPS, security headers) and outdated or abandoned software. Returns a 0-100 score with an A-F grade, severities and ranked recommendations. Read-only; scans this site only',
+            'Scan this site for malware (deep=true for the whole tree), core file integrity, hardening gaps and outdated software. Returns a 0-100 score, A-F grade and ranked fixes. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4649,7 +4691,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-content',
             'free',
-            'Generate a WXR export of site content with the native exporter (export_wp()). Optional content (all/post/page/attachment/a custom post type), author, start_date, end_date and status narrow it. Writes the XML to a protected directory under uploads and returns path, size and item count. Read-only. export_wp() can run only once per PHP process (a core limitation), so a second call in the same process is refused instead of fataling',
+            'WXR export via core export_wp(), narrowed by content, author, start_date, end_date, status. Writes to a protected uploads directory; returns path, size, count. Once per PHP process (core limit). Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5712,7 +5754,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-global-settings',
             'free',
-            'Read the active Elementor kit\'s global design tokens: system and custom colors and typography (the four system tokens filled from defaults on an untouched kit), plus spacing (space_between_widgets, container_padding) and layout (container_width, viewport_lg, viewport_md). Returns a settings_hash for a guarded write via update-global-colors / update-global-typography / replace-system-colors / replace-system-typography. Read-only',
+            'Read the Elementor kit\'s global colors, typography, spacing and layout. Returns the settings_hash the global color and typography writes require. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
