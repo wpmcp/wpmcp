@@ -103,7 +103,7 @@ class WooWriteTest extends \WP_UnitTestCase
         ksort($covered);
 
         $this->assertSame(
-            ['brands', 'coupons', 'customers', 'orders', 'products', 'refunds', 'settings', 'shipping', 'taxes', 'variations', 'webhooks'],
+            ['brands', 'coupons', 'customers', 'orders', 'products', 'refunds', 'reports', 'reviews', 'settings', 'shipping', 'taxes', 'variations', 'webhooks'],
             array_keys($covered)
         );
     }

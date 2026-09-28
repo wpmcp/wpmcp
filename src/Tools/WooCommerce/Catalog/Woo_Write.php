@@ -25,8 +25,8 @@ if (! defined('ABSPATH')) {
  *   opt-in (destructive ops are off until the wpmcp_woo_op_enabled filter
  *   enables them) -> confirm:true for destructive ops -> forbidden params
  *   and meta keys -> path params -> handler checks (Order_Ops,
- *   Shipping_Ops, Webhook_Ops for order_*, shipping_* and webhook_*
- *   handlers) -> brand checks (Brand_Ops, rows naming a taxonomy) ->
+ *   Shipping_Ops, Webhook_Ops, Review_Ops for order_*, shipping_*,
+ *   webhook_* and review_* handlers) -> brand checks (Brand_Ops, rows naming a taxonomy) ->
  *   snapshot target resolves -> Safe_Mutation (snapshot first)
  *   -> dispatch, or the row's in-process handler.
  *
@@ -315,8 +315,9 @@ class Woo_Write
         }
         $extra = $plan['report'] + (null !== $media_op ? [ 'media_operation_id' => $media_op ] : []);
 
-        // An order, zone or webhook create has no prior state; its handler
-        // records the creation row itself once the object exists (issue #292).
+        // An order, zone, webhook or review reply create has no prior state;
+        // its handler records the creation row itself once the object exists
+        // (issue #292).
         if (null !== $plan['target'] && ! empty($plan['target']['creation'])) {
             $made = self::handler_class($def)::create($plan['body'], $session_id, $plan['op']);
             if (isset($made['error'])) {
@@ -380,7 +381,7 @@ class Woo_Write
      * The class a row's in-process handler runs through (issue #292), by the
      * handler's prefix, or null for dispatched rows and brand handlers.
      *
-     * @return class-string<Order_Ops>|class-string<Shipping_Ops>|class-string<Webhook_Ops>|null
+     * @return class-string<Order_Ops>|class-string<Shipping_Ops>|class-string<Webhook_Ops>|class-string<Review_Ops>|null
      */
     private static function handler_class(array $def): ?string
     {
@@ -388,7 +389,7 @@ class Woo_Write
         if (! is_string($handler)) {
             return null;
         }
-        foreach ([ 'order_' => Order_Ops::class, 'shipping_' => Shipping_Ops::class, 'webhook_' => Webhook_Ops::class ] as $prefix => $class) {
+        foreach ([ 'order_' => Order_Ops::class, 'shipping_' => Shipping_Ops::class, 'webhook_' => Webhook_Ops::class, 'review_' => Review_Ops::class ] as $prefix => $class) {
             if (str_starts_with($handler, $prefix)) {
                 return $class;
             }
@@ -466,7 +467,7 @@ class Woo_Write
             return [ 'object_type' => 'term', 'object_id' => Snapshot::term_key($taxonomy, $slug) ];
         }
 
-        if (in_array($strategy['type'], [ 'wc_order_create', 'wc_shipping_zone_create', 'wc_webhook_create' ], true)) {
+        if (in_array($strategy['type'], [ 'wc_order_create', 'wc_shipping_zone_create', 'wc_webhook_create', 'comment_create' ], true)) {
             // Nothing exists to capture yet; execute() records the creation.
             return [ 'object_type' => $strategy['type'], 'object_id' => 0, 'creation' => true ];
         }

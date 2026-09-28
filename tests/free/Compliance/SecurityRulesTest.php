@@ -358,4 +358,96 @@ class SecurityRulesTest extends Compliance_Test_Case
 
         $this->assert_clean($findings);
     }
+
+    /**
+     * Issue #347: a superglobal named in a comment is not a read. The same
+     * unsanitized $_GET text is flagged in code and ignored in a line
+     * comment, a hash comment, a block comment and a docblock.
+     */
+    public function test_an_unsanitized_read_in_code_is_reported_but_the_same_text_in_comments_is_not(): void
+    {
+        $read = "\$page = \$_GET['page'];";
+        $body = "<?php\nif ( ! defined( 'ABSPATH' ) ) { exit; }\n\n";
+        $body .= "/**\n * Docblock: {$read}\n */\nfunction example_page() {\n";
+        $body .= "    // Line comment: {$read}\n";
+        $body .= "    # Hash comment: {$read}\n";
+        $body .= "    /* Block comment: {$read} */\n";
+        $body .= "    /*\n     * Multi-line block comment:\n     * {$read}\n     */\n";
+        $body .= "    {$read}\n";
+        $body .= "    return \$page;\n}\n";
+
+        $findings = $this->findings(new Input_Sanitization_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/handler.php' => $body,
+        ]);
+
+        $this->assertSame(['includes/handler.php:15'], $this->locations($findings), implode("\n", $this->messages($findings)));
+        $this->assert_reports($findings, '$_GET read without wp_unslash()');
+    }
+
+    public function test_a_file_that_mentions_a_superglobal_only_in_comments_is_clean(): void
+    {
+        $body = "<?php\nif ( ! defined( 'ABSPATH' ) ) { exit; }\n\n";
+        $body .= "/**\n * Never reads \$_GET['page'] or \$_POST['value'] directly.\n */\nfunction example_form() {\n";
+        $body .= "    // The slug is fixed, so \$_GET['page'] is not round-tripped here.\n";
+        $body .= "    /* \$_REQUEST['tab'] is read by the router, not here. */\n";
+        $body .= "    return 'example';\n}\n";
+
+        $findings = $this->findings(new Input_Sanitization_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/form.php' => $body,
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    /**
+     * A sanitizer named only in a trailing comment does not sanitize the
+     * read on that line.
+     */
+    public function test_a_sanitizer_named_only_in_a_comment_does_not_excuse_a_read(): void
+    {
+        $body = "<?php\nif ( ! defined( 'ABSPATH' ) ) { exit; }\nfunction example_page() {\n";
+        $body .= "    \$page = \$_GET['page']; // TODO: sanitize_key() this.\n";
+        $body .= "    return \$page;\n}\n";
+
+        $findings = $this->findings(new Input_Sanitization_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/handler.php' => $body,
+        ]);
+
+        $this->assertSame(['includes/handler.php:4'], $this->locations($findings));
+    }
+
+    public function test_a_justified_phpcs_ignore_still_suppresses_a_real_read(): void
+    {
+        $body = "<?php\nif ( ! defined( 'ABSPATH' ) ) { exit; }\nfunction example_page() {\n";
+        $body .= "    // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- nonce and capability are verified by the caller.\n";
+        $body .= "    \$raw = \$_POST['payload'];\n";
+        $body .= "    \$page = \$_GET['page']; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- compared to a constant only.\n";
+        $body .= "    return [\$raw, \$page];\n}\n";
+
+        $findings = $this->findings(new Input_Sanitization_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/handler.php' => $body,
+        ]);
+
+        $this->assert_clean($findings);
+    }
+
+    public function test_a_write_superglobal_named_only_in_comments_needs_no_nonce_or_capability(): void
+    {
+        $body = "<?php\nif ( ! defined( 'ABSPATH' ) ) { exit; }\n\n";
+        $body .= "/**\n * Renders the form; the \$_POST['value'] it submits is handled elsewhere.\n */\nfunction example_form() {\n";
+        $body .= "    // Posts \$_POST['value'] and \$_FILES['upload'] to admin-post.php.\n";
+        $body .= "    /* \$_REQUEST['action'] routes it. */\n";
+        $body .= "    return '<form method=\"post\"></form>';\n}\n";
+
+        $findings = $this->findings(new Nonce_Capability_Rule(), [
+            'example-toolkit.php' => $this->main_file(),
+            'includes/form.php' => $body,
+        ]);
+
+        $this->assert_clean($findings);
+    }
 }
