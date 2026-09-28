@@ -2004,9 +2004,7 @@ class Rollback_Service
         }
         clean_post_cache($kit_id);
 
-        if (class_exists('\\Elementor\\Plugin') && isset(\Elementor\Plugin::instance()->files_manager)) {
-            \Elementor\Plugin::instance()->files_manager->clear_cache();
-        }
+        Elementor_Cache::clear_all();
     }
 
     /**

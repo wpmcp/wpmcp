@@ -4,6 +4,7 @@ namespace WPMCP\Tools\Elementor;
 
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -195,7 +196,8 @@ class Global_Variables_Store
             return self::error_from($e);
         }
 
-        self::clear_cache();
+        // Elementor regenerates the kit CSS (where the custom properties live) on next view.
+        Elementor_Cache::clear_all();
 
         $after = self::read();
         if (is_wp_error($after) || ! $verify($after, $result)) {
@@ -212,14 +214,6 @@ class Global_Variables_Store
             'state_hash'   => self::state_hash($after),
             'result'       => $result,
         ];
-    }
-
-    /** Elementor regenerates the kit CSS (where the custom properties live) on next view. */
-    public static function clear_cache(): void
-    {
-        if (class_exists('\\Elementor\\Plugin') && isset(\Elementor\Plugin::instance()->files_manager)) {
-            \Elementor\Plugin::instance()->files_manager->clear_cache();
-        }
     }
 
     /** Elementor's service bound to the given kit. */
