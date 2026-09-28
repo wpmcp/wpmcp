@@ -24,7 +24,8 @@ if (! defined('ABSPATH')) {
  *   taxonomy) available -> op-level governance -> per-op capability ->
  *   opt-in (destructive ops are off until the wpmcp_woo_op_enabled filter
  *   enables them) -> confirm:true for destructive ops -> forbidden params
- *   and meta keys -> path params -> order checks (Order_Ops, order_*
+ *   and meta keys -> path params -> handler checks (Order_Ops,
+ *   Shipping_Ops, Webhook_Ops for order_*, shipping_* and webhook_*
  *   handlers) -> brand checks (Brand_Ops, rows naming a taxonomy) ->
  *   snapshot target resolves -> Safe_Mutation (snapshot first)
  *   -> dispatch, or the row's in-process handler.
@@ -253,12 +254,13 @@ class Woo_Write
             }
         }
 
-        if (self::is_order_handler($def)) {
-            $order = Order_Ops::prepare((string) $def['handler'], $params);
-            if (isset($order['error'])) {
-                return $order;
+        $handler = self::handler_class($def);
+        if (null !== $handler) {
+            $checked = $handler::prepare((string) $def['handler'], $params);
+            if (isset($checked['error'])) {
+                return $checked;
             }
-            $body = $order['body'];
+            $body = $checked['body'];
         }
 
         $report = [];
@@ -313,10 +315,10 @@ class Woo_Write
         }
         $extra = $plan['report'] + (null !== $media_op ? [ 'media_operation_id' => $media_op ] : []);
 
-        // An order create has no prior state; Order_Ops records the creation
-        // row itself once the order exists (issue #292).
+        // An order, zone or webhook create has no prior state; its handler
+        // records the creation row itself once the object exists (issue #292).
         if (null !== $plan['target'] && ! empty($plan['target']['creation'])) {
-            $made = Order_Ops::create($plan['body'], $session_id, $plan['op']);
+            $made = self::handler_class($def)::create($plan['body'], $session_id, $plan['op']);
             if (isset($made['error'])) {
                 return [ 'op' => $plan['op'], 'applied' => false ] + $made;
             }
@@ -360,9 +362,13 @@ class Woo_Write
      */
     private function run(array $plan): array
     {
-        $def = $plan['def'];
-        if (self::is_order_handler($def)) {
+        $def     = $plan['def'];
+        $handler = self::handler_class($def);
+        if (Order_Ops::class === $handler) {
             return Order_Ops::update((int) $plan['target']['object_id'], $plan['body']);
+        }
+        if (null !== $handler) {
+            return $handler::apply((string) $def['handler'], (int) $plan['target']['object_id'], $plan['body']);
         }
         if (null !== $def['handler']) {
             return Brand_Ops::apply_assignment($def['handler'], (int) $plan['target']['object_id'], $plan['body']['brands']);
@@ -370,10 +376,24 @@ class Woo_Write
         return $this->dispatch->send($def['method'], $plan['route'], $plan['body']);
     }
 
-    /** Whether a row runs through Order_Ops (issue #292). */
-    private static function is_order_handler(array $def): bool
+    /**
+     * The class a row's in-process handler runs through (issue #292), by the
+     * handler's prefix, or null for dispatched rows and brand handlers.
+     *
+     * @return class-string<Order_Ops>|class-string<Shipping_Ops>|class-string<Webhook_Ops>|null
+     */
+    private static function handler_class(array $def): ?string
     {
-        return is_string($def['handler'] ?? null) && str_starts_with($def['handler'], 'order_');
+        $handler = $def['handler'] ?? null;
+        if (! is_string($handler)) {
+            return null;
+        }
+        foreach ([ 'order_' => Order_Ops::class, 'shipping_' => Shipping_Ops::class, 'webhook_' => Webhook_Ops::class ] as $prefix => $class) {
+            if (str_starts_with($handler, $prefix)) {
+                return $class;
+            }
+        }
+        return null;
     }
 
     /**
@@ -446,9 +466,15 @@ class Woo_Write
             return [ 'object_type' => 'term', 'object_id' => Snapshot::term_key($taxonomy, $slug) ];
         }
 
-        if ('wc_order_create' === $strategy['type']) {
+        if (in_array($strategy['type'], [ 'wc_order_create', 'wc_shipping_zone_create', 'wc_webhook_create' ], true)) {
             // Nothing exists to capture yet; execute() records the creation.
-            return [ 'object_type' => 'wc_order_create', 'object_id' => 0, 'creation' => true ];
+            return [ 'object_type' => $strategy['type'], 'object_id' => 0, 'creation' => true ];
+        }
+
+        if ('wc_shipping_zone' === $strategy['type']) {
+            // Shipping_Ops already resolved the zone, which may be zone 0
+            // ("locations not covered"): it has methods but no zone row.
+            return [ 'object_type' => 'wc_shipping_zone', 'object_id' => (int) ($body['zone_id'] ?? 0) ];
         }
 
         if ('wc_setting' === $strategy['type']) {
