@@ -19,6 +19,19 @@ class WooCommerceAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/list-variations',
         'wpmcp/update-variation',
         'wpmcp/list-low-stock-products',
+        'wpmcp/create-variation',
+        'wpmcp/delete-variation',
+        'wpmcp/bulk-update-products',
+        'wpmcp/list-coupons',
+        'wpmcp/get-coupon',
+        'wpmcp/create-coupon',
+        'wpmcp/update-coupon',
+        'wpmcp/delete-coupon',
+        'wpmcp/validate-coupon',
+        'wpmcp/list-tax-rates',
+        'wpmcp/create-tax-rate',
+        'wpmcp/update-tax-rate',
+        'wpmcp/delete-tax-rate',
     ];
 
     public function test_all_woocommerce_tools_are_registered_as_free_abilities(): void

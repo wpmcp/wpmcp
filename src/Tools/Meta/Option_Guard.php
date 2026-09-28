@@ -63,6 +63,13 @@ class Option_Guard
         'private_key',
         'access_token',
         'credential',
+        // Every WP MCP Cloud option (issue #141): the sealed vault, the phase
+        // A plaintext key until it is migrated, a legacy URL whose import
+        // would replace the vault, and the refresh health marker, whose write
+        // would pin the connection in a rejection backoff. A pattern rather
+        // than exact names, because it is matched case-insensitively and the
+        // options table collation is too.
+        'wpmcp_cloud_',
     ];
 
     /**
