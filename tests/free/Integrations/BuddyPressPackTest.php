@@ -779,6 +779,144 @@ class BuddyPressPackTest extends \WP_UnitTestCase
         $this->assertStringContainsString('bp_activity #' . $mine['bp_activity'], $warnings);
     }
 
+    // ---------------------------------------------------------------
+    // Saved rows are restored by id (issue #375)
+    // ---------------------------------------------------------------
+
+    /** One row of a BuddyPress table, as the dump holds it. */
+    private function bp_row(string $table, int $id): array
+    {
+        global $wpdb;
+        return (array) $wpdb->get_row($wpdb->prepare('SELECT * FROM %i WHERE id = %d', $wpdb->base_prefix . $table, $id), ARRAY_A);
+    }
+
+    /**
+     * A private group goes public: BuddyPress accepts one pending request,
+     * deletes another and marks the admin's notification read. After the
+     * write, another member asks to join. $age rewrites the stored snapshot
+     * into an older shape before the rollback. Returns [before, the late
+     * request's rows, the operation].
+     *
+     * @return array{0: array, 1: array<string, int>, 2: string}
+     */
+    private function status_change_then_a_late_request(?callable $age = null): array
+    {
+        global $wpdb;
+        $id      = wpmcp_test_bp_group('Quiet Club', 'private');
+        $asker   = self::factory()->user->create();
+        $leaver  = self::factory()->user->create();
+        $late    = self::factory()->user->create();
+        $request = [ 'inviter_id' => 0, 'class' => 'BP_Groups_Invitation_Manager', 'item_id' => $id, 'type' => 'request', 'content' => '', 'date_modified' => '2026-01-02 03:04:05' ];
+        $notice  = [ 'user_id' => $this->admin, 'item_id' => $id, 'component_name' => 'groups', 'component_action' => 'new_membership_request', 'date_notified' => '2026-01-02 03:04:05', 'is_new' => 1 ];
+        $pending = wpmcp_test_bp_insert('bp_invitations', [ 'user_id' => $asker ] + $request);
+        $dropped = wpmcp_test_bp_insert('bp_invitations', [ 'user_id' => $leaver ] + $request);
+        $read    = wpmcp_test_bp_insert('bp_notifications', [ 'secondary_item_id' => $asker ] + $notice);
+        $before  = wpmcp_test_bp_dump();
+        $marks   = BuddyPress_Rows_Snapshot::watermarks();
+
+        $out = $this->write('buddypress-update-group', [ 'id' => $id, 'status' => 'public' ]);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $op = (string) $out['operation_id'];
+        $wpdb->update($wpdb->base_prefix . 'bp_invitations', [ 'accepted' => 1 ], [ 'id' => $pending ]);
+        $wpdb->delete($wpdb->base_prefix . 'bp_invitations', [ 'id' => $dropped ]);
+        $wpdb->update($wpdb->base_prefix . 'bp_notifications', [ 'is_new' => 0 ], [ 'id' => $read ]);
+        wpmcp_test_bp_member($id, $asker);
+        BuddyPress_Rows_Snapshot::record_created($op, BuddyPress_Rows_Snapshot::created_since($marks));
+        if (null !== $age) {
+            $row = Snapshot_Store::get_by_operation($op);
+            Snapshot_Store::update_snapshot($op, $age((array) $row['snapshot']));
+        }
+
+        // After the write, another member asks to join the same group and
+        // the admin is notified. Nothing of this is the write's.
+        $later = [
+            'bp_invitations'   => wpmcp_test_bp_insert('bp_invitations', [ 'user_id' => $late ] + $request),
+            'bp_notifications' => wpmcp_test_bp_insert('bp_notifications', [ 'secondary_item_id' => $late ] + $notice),
+        ];
+        return [ $before, $later, $op ];
+    }
+
+    public function test_a_membership_request_sent_after_the_write_survives_rollback_and_the_changed_rows_are_restored(): void
+    {
+        [$before, $later, $op] = $this->status_change_then_a_late_request();
+        $expected              = $before;
+        foreach ($later as $table => $id) {
+            $expected[ $table ][] = $this->bp_row($table, $id);
+        }
+
+        $this->assertTrue(Rollback_Service::restore_operation($op));
+        $this->assertSame($expected, wpmcp_test_bp_dump(), 'the accepted request is pending again, the deleted one is back at its id, the notification is unread, and the late request and its notification are kept');
+        $this->assertSame([], Rollback_Service::take_warnings());
+    }
+
+    public function test_a_snapshot_recorded_with_bare_created_ids_is_restored_by_id_too(): void
+    {
+        // Snapshots recorded on v0.8.86 and v0.8.87 hold created rows as bare ids.
+        [$before, $later, $op] = $this->status_change_then_a_late_request(static function (array $snapshot): array {
+            foreach ((array) $snapshot['data']['created_rows'] as $table => $entries) {
+                $snapshot['data']['created_rows'][ $table ] = array_map('intval', array_column((array) $entries, 'id'));
+            }
+            return $snapshot;
+        });
+        $expected = $before;
+        foreach ($later as $table => $id) {
+            $expected[ $table ][] = $this->bp_row($table, $id);
+        }
+
+        $this->assertTrue(Rollback_Service::restore_operation($op));
+        $this->assertSame($expected, wpmcp_test_bp_dump());
+    }
+
+    public function test_a_snapshot_without_created_rows_still_clears_its_sets(): void
+    {
+        // Snapshots recorded before v0.8.86 track no created rows, so what the
+        // write added inside a set is only removed by clearing that set.
+        $id     = wpmcp_test_bp_group('Hikers');
+        $before = wpmcp_test_bp_dump();
+        $out    = $this->write('buddypress-update-group', [ 'id' => $id, 'name' => 'Trail Hikers' ]);
+        $op     = (string) $out['operation_id'];
+        wpmcp_test_bp_insert('bp_notifications', [ 'user_id' => $this->admin, 'item_id' => $id, 'secondary_item_id' => 0, 'component_name' => 'groups', 'component_action' => 'group_details_updated', 'date_notified' => '2026-01-02 03:04:05', 'is_new' => 1 ]);
+        $row      = Snapshot_Store::get_by_operation($op);
+        $snapshot = (array) $row['snapshot'];
+        unset($snapshot['data']['created_rows']);
+        Snapshot_Store::update_snapshot($op, $snapshot);
+
+        $this->assertTrue(Rollback_Service::restore_operation($op));
+        $this->assertSame($before, wpmcp_test_bp_dump());
+    }
+
+    public function test_a_reply_posted_after_the_write_survives_rollback_and_the_thread_is_renumbered(): void
+    {
+        global $wpdb;
+        $user   = self::factory()->user->create();
+        $late   = self::factory()->user->create();
+        $root   = wpmcp_test_bp_activity($user, 'Root', [ 'mptt_left' => 1, 'mptt_right' => 4 ]);
+        $reply  = wpmcp_test_bp_activity($user, 'Reply', [ 'type' => 'activity_comment', 'item_id' => $root, 'secondary_item_id' => $root, 'mptt_left' => 2, 'mptt_right' => 3 ]);
+        $before = wpmcp_test_bp_dump();
+
+        $out = $this->write('buddypress-hide-activity', [ 'id' => $root ]);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+
+        // After the write another member replies to the post: BuddyPress
+        // threads the reply in, renumbers the thread and notifies the author.
+        $answer = wpmcp_test_bp_activity($late, 'Late reply', [ 'type' => 'activity_comment', 'item_id' => $root, 'secondary_item_id' => $root, 'mptt_left' => 4, 'mptt_right' => 5 ]);
+        $wpdb->update($wpdb->base_prefix . 'bp_activity', [ 'mptt_right' => 6 ], [ 'id' => $root ]);
+        $notice = wpmcp_test_bp_insert('bp_notifications', [ 'user_id' => $user, 'item_id' => $root, 'secondary_item_id' => $late, 'component_name' => 'activity', 'component_action' => 'update_reply', 'date_notified' => '2026-01-02 03:04:05', 'is_new' => 1 ]);
+
+        $expected = $before;
+        foreach ($expected['bp_activity'] as $i => $row) {
+            if ((int) $row['id'] === $root) {
+                $expected['bp_activity'][ $i ]['mptt_right'] = '6';
+            }
+        }
+        $expected['bp_activity'][]      = $this->bp_row('bp_activity', $answer);
+        $expected['bp_notifications'][] = $this->bp_row('bp_notifications', $notice);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame($expected, wpmcp_test_bp_dump(), 'the post is shown again, the late reply and its notification are kept, and the thread is numbered around the reply');
+        $this->assertSame([ (string) $root, (string) $reply, (string) $answer ], array_column(wpmcp_test_bp_dump()['bp_activity'], 'id'));
+    }
+
     public function test_buddypress_rows_is_a_restorable_type(): void
     {
         $this->assertContains('buddypress_rows', Rollback_Service::restorable_object_types());

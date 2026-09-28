@@ -3,6 +3,7 @@
 namespace WPMCP\Tests\Free\Integrations;
 
 use WPMCP\Integrations\Plugin_Data_Integration;
+use WPMCP\Safety\BuddyPress_Rows_Snapshot;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
 
@@ -265,6 +266,103 @@ class BuddyPressLiveTest extends \WP_UnitTestCase
         $this->assertSame($expected, $this->dump(), "the edit is undone and the other request's rows survive");
         $this->assertSame('Busy Club', groups_get_group($group)->name);
         $this->assertSame([], Rollback_Service::take_warnings());
+    }
+
+    /**
+     * The rows of $now that $then does not hold, per table, id order.
+     *
+     * @param array<string, array<int, array<string, string|null>>> $then
+     * @param array<string, array<int, array<string, string|null>>> $now
+     * @return array<string, array<int, array<string, string|null>>>
+     */
+    private function added(array $then, array $now): array
+    {
+        $out = [];
+        foreach ($now as $table => $rows) {
+            $old = array_column($then[ $table ] ?? [], 'id');
+            $new = array_values(array_filter($rows, static fn (array $row): bool => ! in_array($row['id'], $old, true)));
+            if ([] !== $new) {
+                $out[ $table ] = $new;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Issue #375: a membership request another member sends after a status
+     * change is not the write's, so rolling the change back keeps it, and
+     * the notification BuddyPress sent the admin about it.
+     */
+    public function test_a_membership_request_sent_after_a_status_change_survives_its_rollback(): void
+    {
+        $group  = groups_create_group([ 'creator_id' => $this->admin, 'name' => 'Open Club', 'description' => 'Anyone can join', 'status' => 'public' ]);
+        $member = self::factory()->user->create();
+        $before = $this->dump();
+
+        $out = $this->write('buddypress-update-group', [ 'id' => $group, 'status' => 'private' ]);
+        $this->assertSame('private', groups_get_group($group)->status);
+
+        // Now that the group is private, another member asks to join.
+        $then = $this->dump();
+        $this->assertNotEmpty(groups_send_membership_request([ 'user_id' => $member, 'group_id' => $group ]));
+        $later = $this->added($then, $this->dump());
+        $this->assertNotEmpty($later[ $this->table('bp_invitations') ] ?? [], 'BuddyPress recorded the request');
+        $this->assertNotEmpty($later[ $this->table('bp_notifications') ] ?? [], 'BuddyPress notified the admin');
+        $expected = $before;
+        foreach ($later as $table => $rows) {
+            $expected[ $table ] = array_merge($expected[ $table ], $rows);
+        }
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame($expected, $this->dump(), 'the group is public again and the later request and its notification are kept');
+        $this->assertSame('public', groups_get_group($group)->status);
+        $this->assertNotEmpty(groups_check_for_membership_request($member, $group));
+        $this->assertSame([], Rollback_Service::take_warnings());
+    }
+
+    /**
+     * Issue #375: a reply posted after the write is kept by its rollback, and
+     * the thread's nested-set numbering around it stays the one BuddyPress
+     * gives it.
+     */
+    public function test_a_reply_posted_after_hiding_survives_rollback_and_the_thread_stays_numbered(): void
+    {
+        $other = self::factory()->user->create();
+        $late  = self::factory()->user->create();
+        $root  = bp_activity_add([ 'user_id' => $this->admin, 'component' => 'activity', 'type' => 'activity_update', 'content' => 'Root post' ]);
+        $this->assertIsInt(bp_activity_new_comment([ 'activity_id' => $root, 'parent_id' => $root, 'content' => 'A reply', 'user_id' => $other ]));
+        $before = $this->dump();
+
+        $out = $this->write('buddypress-hide-activity', [ 'id' => $root ]);
+
+        // After the write, another member replies to the post: BuddyPress
+        // renumbers the thread and notifies the author.
+        $answer = bp_activity_new_comment([ 'activity_id' => $root, 'parent_id' => $root, 'content' => 'A later reply', 'user_id' => $late ]);
+        $this->assertIsInt($answer);
+
+        // What rollback must leave: everything as it is now, less the rows
+        // the write created, with the post shown again.
+        $expected = $this->dump();
+        $snapshot = Snapshot_Store::get_by_operation((string) $out['operation_id'])['snapshot'];
+        foreach ((array) ($snapshot['data']['created_rows'] ?? []) as $name => $entries) {
+            $ids                = array_map('strval', array_column((array) $entries, 'id'));
+            $table              = BuddyPress_Rows_Snapshot::table((string) $name);
+            $expected[ $table ] = array_values(array_filter($expected[ $table ], static fn (array $row): bool => ! in_array($row['id'], $ids, true)));
+        }
+        $activity = $this->table('bp_activity');
+        $shown    = array_column($before[ $activity ], 'hide_sitewide', 'id')[ (string) $root ];
+        foreach ($expected[ $activity ] as $i => $row) {
+            if ((int) $row['id'] === $root) {
+                $expected[ $activity ][ $i ]['hide_sitewide'] = $shown;
+            }
+        }
+        $this->assertContains((string) $answer, array_column($expected[ $activity ], 'id'));
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $after = $this->dump();
+        $this->assertSame($expected, $after, 'the post is shown again and the later reply, its notification and its numbering are kept');
+        \BP_Activity_Activity::rebuild_activity_comment_tree($root);
+        $this->assertSame($after, $this->dump(), 'the thread is numbered exactly as BuddyPress numbers it');
     }
 
     public function test_updating_a_profile_field_saves_it_through_buddypress_and_keeps_its_options(): void
