@@ -467,6 +467,24 @@ class GetPageSnapshotTest extends \WP_UnitTestCase
         $this->assertSame(['phone_portrait' => 2, 'tablet_portrait' => 1], $snap['responsive_overrides']['breakpoints']);
     }
 
+    public function test_oxygen_body_is_read_from_its_stored_tree(): void
+    {
+        $id   = $this->post(['post_content' => '<p>Left over from before Oxygen</p>']);
+        $tree = '{"root":{"id":0,"data":{"type":"root","properties":{}},"children":['
+            . '{"id":1,"data":{"type":"OxygenElements\\\\Container","properties":{"design":{"layout":{"gap":{"breakpoint_base":"20px","breakpoint_phone_portrait":"8px"}}}}},"children":['
+            . '{"id":2,"data":{"type":"OxygenElements\\\\Text","properties":{"content":{"content":{"text":"Hi"}},"settings":{"advanced":{"tag":"h1"}}}},"children":[],"_parentId":1}'
+            . '],"_parentId":0}]},"_nextNodeId":3,"exportedLookupTable":{},"status":"exported"}';
+        update_post_meta($id, '_oxygen_data', wp_slash((string) wp_json_encode(['tree_json_string' => $tree])));
+
+        $snap = $this->tool->handle(['post_id' => $id, 'sections' => ['responsive_overrides']]);
+
+        $this->assertSame('oxygen', $snap['builder']);
+        $this->assertFalse($snap['content_coverage']['complete']);
+        $this->assertTrue($snap['content_coverage']['stale_post_content']);
+        $this->assertSame(2, $snap['structure']['element_count']);
+        $this->assertSame(['phone_portrait' => 1], $snap['responsive_overrides']['breakpoints']);
+    }
+
     public function test_wpbakery_coverage_is_partial_like_divi(): void
     {
         $id = $this->post(['post_content' => '[vc_row][vc_column][vc_column_text]<p>Hi</p>[/vc_column_text][/vc_column][/vc_row]']);
