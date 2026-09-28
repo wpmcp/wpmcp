@@ -170,6 +170,80 @@ class Rollback_Service
     }
 
     /**
+     * Put back ONE term's row inside Yoast's `wpseo_taxonomy_meta` option
+     * (see Snapshot::capture_yoast_term_seo()), leaving every other term's
+     * row as it is now. Goes through write_yoast_term_seo_row(), the same
+     * path the write took, which handles Yoast's re-validation of the option
+     * and refreshes the term's indexable.
+     */
+    private static function apply_yoast_term_seo_snapshot(array $snapshot): void
+    {
+        $data     = (array) $snapshot['data'];
+        $taxonomy = (string) ($data['taxonomy'] ?? '');
+        $term_id  = (int) ($data['term_id'] ?? 0);
+        if ('' === $taxonomy || $term_id <= 0) {
+            return;
+        }
+
+        $row = ! empty($data['existed']) && is_array($data['row'] ?? null) ? (array) $data['row'] : null;
+
+        self::write_yoast_term_seo_row($taxonomy, $term_id, $row);
+    }
+
+    /**
+     * Replace one term's row inside Yoast's `wpseo_taxonomy_meta` option,
+     * or remove it when $row is null. Used by the term SEO write (issue #67)
+     * and by the rollback of a 'yoast_term_seo' snapshot, so the write and
+     * its undo take one path. Lives here, in the safety layer, so the
+     * restore has no dependency on the paid SEO classes.
+     *
+     * With Yoast loaded every save of the option is re-validated through its
+     * sanitize_option filter, and that validation keeps the previously
+     * stored value for any key missing from the new row. Yoast also drops a
+     * key whose value is its default ('default' for noindex), so a cleared
+     * flag would be missing and the old 'noindex' would silently survive.
+     * The row is therefore removed in one save (leaving no old value to
+     * keep) and written in a second. Both run inside the caller's single
+     * Safe_Mutation, after its snapshot.
+     *
+     * Yoast renders from its indexables table and rebuilds a term's
+     * indexable only on `edited_term`, so that core action is fired after
+     * the save, or the page would keep showing the old values.
+     */
+    public static function write_yoast_term_seo_row(string $taxonomy, int $term_id, ?array $row): void
+    {
+        $yoast_loaded = class_exists('WPSEO_Taxonomy_Meta');
+
+        $option = get_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, []);
+        $option = is_array($option) ? $option : [];
+
+        if ($yoast_loaded || null === $row) {
+            unset($option[$taxonomy][$term_id]);
+            if (isset($option[$taxonomy]) && [] === $option[$taxonomy]) {
+                unset($option[$taxonomy]);
+            }
+            update_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, $option);
+        }
+
+        if (null !== $row) {
+            $option = get_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, []);
+            $option = is_array($option) ? $option : [];
+            if (! isset($option[$taxonomy]) || ! is_array($option[$taxonomy])) {
+                $option[$taxonomy] = [];
+            }
+            $option[$taxonomy][$term_id] = $row;
+            update_option(\WPMCP\Safety\Snapshot::YOAST_TAXONOMY_META_OPTION, $option);
+        }
+
+        $term = get_term($term_id, $taxonomy);
+        if ($yoast_loaded && $term instanceof \WP_Term) {
+            clean_term_cache($term_id, $taxonomy);
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core hook, fired so Yoast rebuilds the term indexable.
+            do_action('edited_term', $term_id, (int) $term->term_taxonomy_id, $taxonomy, []);
+        }
+    }
+
+    /**
      * Restore a WooCommerce order's prior status.
      *
      * update-order-status only ever changes the status, so the undo is simply
@@ -366,6 +440,7 @@ class Rollback_Service
             'db_rows',
             'redirect',
             'term',
+            'yoast_term_seo',
             'wc_tax_rate',
             'php_snippet',
             'page_build',
@@ -455,6 +530,11 @@ class Rollback_Service
 
         if ('term' === $snapshot['object_type']) {
             self::apply_term_snapshot($snapshot);
+            return;
+        }
+
+        if ('yoast_term_seo' === $snapshot['object_type']) {
+            self::apply_yoast_term_seo_snapshot($snapshot);
             return;
         }
 
