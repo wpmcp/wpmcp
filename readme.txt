@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.12
+Stable tag: 0.8.13
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,11 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.13 =
+* New: selective local-to-live sync. Build a change set of chosen pages, templates, patterns, menus and theme mods with their media, terms and template dependencies, inspect it, then apply it to another site with a dry run by default.
+* Apply is snapshot-first and conflict-aware: objects changed on both sides are reported and left untouched unless explicitly forced, live-only data such as orders is never touched, and a whole sync can be undone with one session rollback.
+* Objects created during a session (for example with create-post or duplicate-post) are not yet picked up automatically; list them explicitly when building the change set.
+
 = 0.8.12 =
 * Site backups can now be restored, not just checked: a real restore takes a safety archive first, puts the site in maintenance mode, validates every SQL statement before anything is written, and rolls back to the safety archive automatically if the import fails.
 * Restores keep the acting administrator signed in when the same account exists in the restored database, can optionally swap in the backup's wp-content with a journalled rollback, and refuse to run twice at once.
@@ -165,6 +170,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.13 =
+New: selective local-to-live sync. Build a change set of chosen pages, templates, patterns, menus and theme mods with their media, terms and template dependencies, inspect it, then apply it to another site with a dry run by default.
 
 = 0.8.12 =
 Site backups can now be restored, not just checked: a real restore takes a safety archive first, puts the site in maintenance mode, validates every SQL statement before anything is written, and rolls back to the safety archive automatically if the import fails.
