@@ -3,6 +3,9 @@
 namespace WPMCP\Tests\Free\Sync;
 
 use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\Content\Create_Post;
+use WPMCP\Tools\Content\Duplicate_Post;
+use WPMCP\Tools\Content\Update_Post;
 use WPMCP\Tools\Sync\Change_Set_Builder;
 
 /**
@@ -48,6 +51,45 @@ class ChangeSetBuilderTest extends \WP_UnitTestCase
         $this->assertCount(1, $set['objects']);
         $this->assertSame($mine, $set['objects'][0]['object_id']);
         $this->assertSame('Touched', $set['objects'][0]['data']['post_title']);
+    }
+
+    /**
+     * Definition of done item 1, end to end through the real tools rather
+     * than hand-written ledger rows: creations (create-post, duplicate-post
+     * with a child) are listed next to edits, as created objects with no
+     * base revision, and nothing outside the session is.
+     */
+    public function test_a_build_session_change_set_lists_created_and_edited_objects_and_nothing_else(): void
+    {
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        $edited = self::factory()->post->create(['post_title' => 'Before']);
+        $source = self::factory()->post->create(['post_type' => 'page', 'post_title' => 'Source']);
+        self::factory()->post->create(['post_type' => 'page', 'post_parent' => $source]);
+        $bystander = self::factory()->post->create();
+
+        $created = (new Create_Post())->handle(['title' => 'Created', 'session_id' => 'build']);
+        (new Update_Post())->handle(['post_id' => $edited, 'title' => 'After', 'session_id' => 'build']);
+        (new Update_Post())->handle(['post_id' => $created['post_id'], 'title' => 'Created, then edited', 'session_id' => 'build']);
+        $dup = (new Duplicate_Post())->handle(['post_id' => $source, 'include_children' => true, 'session_id' => 'build']);
+        (new Update_Post())->handle(['post_id' => $bystander, 'title' => 'Other session', 'session_id' => 'elsewhere']);
+
+        $set = (new Change_Set_Builder())->build(['session_id' => 'build']);
+
+        $by_id = [];
+        foreach ($set['objects'] as $object) {
+            $by_id[ (int) $object['object_id'] ] = $object;
+        }
+        $expected = [$created['post_id'], $edited, $dup['post_id'], $dup['children'][0]];
+        sort($expected);
+        $actual = array_keys($by_id);
+        sort($actual);
+
+        $this->assertSame($expected, $actual, 'Exactly the objects the session touched, creations included');
+        $this->assertSame('present', $by_id[ $edited ]['base']['state']);
+        $this->assertSame('absent', $by_id[ $created['post_id'] ]['base']['state'], 'A created post is new to the target, even after a later edit');
+        $this->assertSame('absent', $by_id[ $dup['post_id'] ]['base']['state']);
+        $this->assertSame('absent', $by_id[ $dup['children'][0] ]['base']['state']);
+        $this->assertSame('Created, then edited', $by_id[ $created['post_id'] ]['data']['post_title']);
     }
 
     public function test_repeated_writes_to_one_object_produce_one_entry(): void

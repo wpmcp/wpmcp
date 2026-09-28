@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\WidgetBuilder;
 
+use WPMCP\Safety\Post_Creation_Snapshot;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -11,7 +13,9 @@ if (! defined('ABSPATH')) {
  * The spec is validated, then stored as a wpmcp_widget post and registered as
  * a real Elementor widget at runtime by the data-driven Dynamic_Widget (no code
  * generation, no eval). Creating destroys nothing; remove with
- * delete-custom-widget.
+ * delete-custom-widget. The creation is recorded as a 'post_create' ledger
+ * row under the caller's session_id (issue #192): rolling it back
+ * deactivates the widget (post status draft) rather than deleting it.
  *
  * The response carries `template_filtered`: true means the caller lacks
  * `unfiltered_html`, Widget_Spec_Store ran the template through wp_kses_post
@@ -33,7 +37,9 @@ class Create_Custom_Widget
             return $id;
         }
 
-        return self::response($id, $spec);
+        $operation_id = Post_Creation_Snapshot::record('create-custom-widget', [$id], $args, (string) ($args['session_id'] ?? 'default'));
+
+        return ['operation_id' => $operation_id] + self::response($id, $spec);
     }
 
     /** Shared with Update_Custom_Widget: the stored identity plus the kses-gate outcome. */
