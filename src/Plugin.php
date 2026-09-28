@@ -1446,7 +1446,7 @@ final class Plugin
                 'type'       => 'object',
                 'properties' => [
                     'query'    => [ 'type' => 'string' ],
-                    'provider' => [ 'type' => 'string', 'enum' => [ 'openverse', 'pexels', 'unsplash' ] ],
+                    'provider' => [ 'type' => 'string', 'enum' => [ 'openverse', 'pexels', 'unsplash' ], 'default' => 'openverse' ],
                     'page'     => [ 'type' => 'integer' ],
                     'per_page' => [ 'type' => 'integer' ],
                 ],
