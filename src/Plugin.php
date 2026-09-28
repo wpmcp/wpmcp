@@ -3680,7 +3680,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-page-snapshot',
             'free',
-            'One-call page digest for a post: structure counts, outline, media and link inventory, builder detection and SEO-lite signals. Built from stored post_content (content_coverage flags what builder pages hide). Heavy sections (global_tokens, responsive_overrides) are opt-in via sections. Size-capped. Read-only',
+            'One-call page digest: structure counts, outline, media and link inventory, builder detection, SEO-lite signals, from stored post_content (content_coverage flags gaps on builder pages). Heavy sections (global_tokens, responsive_overrides) are opt-in via sections. Size-capped. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3712,7 +3712,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-rendered-html',
             'free',
-            'A page of this site as logged-out visitors get it (post_id or url/path): status, final URL, chunked HTML. Read-only',
+            'Visitor-view HTML of a site page (post_id or url/path), chunked. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
