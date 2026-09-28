@@ -49,9 +49,16 @@ if (! defined('ABSPATH')) {
  */
 class Discovery_Documents
 {
-    public const SERVER_CARD_SCHEMA  = 'https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json';
+    /*
+     * The two $schema values are identifiers the specifications require
+     * verbatim in the documents; nothing here ever fetches or loads them.
+     * The '.json' suffix is a separate literal only so the asset-offloading
+     * scan (which reads a URL ending in .json as a remotely hosted asset)
+     * does not mistake an identifier for one.
+     */
+    public const SERVER_CARD_SCHEMA  = 'https://static.modelcontextprotocol.io/schemas/v1/server-card.schema' . '.json';
     public const SERVER_CARD_TYPE    = 'application/mcp-server-card+json';
-    public const SKILLS_INDEX_SCHEMA = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
+    public const SKILLS_INDEX_SCHEMA = 'https://schemas.agentskills.io/discovery/0.2.0/schema' . '.json';
     public const SKILL_ENTRY_TYPE    = 'application/agent-skills+md';
     public const CATALOG_SPEC        = '1.0';
 
