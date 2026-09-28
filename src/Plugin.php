@@ -486,6 +486,13 @@ final class Plugin
             add_action('init', ['\\WPMCP\\Tools\\BlockBuilder\\Block_Spec_Store', 'ensure_post_type'], 5);
             add_action('init', ['\\WPMCP\\Tools\\BlockBuilder\\Block_Registry', 'register'], 20);
         }
+        // Theme-builder site parts (issue #70): register the wpmcp_template
+        // CPT on init and boot the render adapters on wp, once the main query
+        // exists and the winning template for this request can be resolved.
+        if ($this->group_enabled('theme_builder')) {
+            add_action('init', ['\\WPMCP\\Tools\\ThemeBuilder\\Template_Store', 'ensure_post_type']);
+            add_action('wp', ['\\WPMCP\\Tools\\ThemeBuilder\\Render\\Adapters', 'boot']);
+        }
         // Content search index (issue #83): keep it correct incrementally on
         // every save/delete so search-content never reads stale copy. Gated
         // with its ability group so a flavor that drops the group also drops
@@ -2325,6 +2332,7 @@ final class Plugin
             'integration'    => fn () => $this->register_integration_abilities($registrar),
             'widget_builder' => fn () => $this->register_widget_builder_abilities($registrar),
             'block_builder'  => fn () => $this->register_block_builder_abilities($registrar),
+            'theme_builder'  => fn () => $this->register_theme_builder_abilities($registrar),
             'cloud'          => fn () => $this->register_cloud_abilities($registrar),
             'search'         => fn () => $this->register_search_abilities($registrar),
             'skills'         => fn () => $this->register_skills_abilities($registrar),
@@ -2715,6 +2723,180 @@ final class Plugin
     }
 
     /**
+     * Theme-builder site parts (issue #70): templates for header, footer, and
+     * 404 assignable to contexts by include/exclude conditions, with
+     * deterministic winner resolution (specificity > priority > id), rendered
+     * into classic and block themes by the Render adapters.
+     *
+     * Named `site-part` rather than `template` on purpose: the Elementor
+     * group already owns create-theme-template / resolve-theme-template /
+     * apply-template for Elementor library documents, and an agent holding
+     * both surfaces has to be able to tell them apart from the tool name
+     * alone. These parts need no page builder.
+     *
+     * Engine is free with a cap of one template per part type, read from
+     * Template_Store::cap_per_type(); unlimited templates and the granular
+     * term / user_role rules lift on a licensed site. manage_options across
+     * the group: these templates render site-wide markup, and the CPT is on
+     * Content_Guard's internal list so the edit_posts content tools cannot
+     * reach it either. Every write to an existing template is snapshot-first
+     * through Safe_Mutation.
+     */
+    private function register_theme_builder_abilities(Registrar $registrar): void
+    {
+        $part_type         = [
+            'type' => 'string',
+            'enum' => \WPMCP\Tools\ThemeBuilder\Template_Store::PART_TYPES,
+        ];
+        $rule_schema       = [
+            'type'       => 'object',
+            'properties' => [
+                'type'  => [
+                    'type' => 'string',
+                    'enum' => array_keys(\WPMCP\Tools\ThemeBuilder\Condition_Schema::RULE_TYPES),
+                ],
+                // Post type slug for post_type, post id for singular (omit
+                // for any singular), term id for term, role slug for
+                // user_role. The other rule types take no value.
+                'value' => ['type' => ['string', 'integer']],
+            ],
+            'required'   => ['type'],
+        ];
+        // The include/exclude semantics are stated once, in the create
+        // description, rather than repeated on both schemas (tools/list budget).
+        $conditions_schema = [
+            'type'       => 'object',
+            'properties' => [
+                'include' => ['type' => 'array', 'items' => $rule_schema],
+                'exclude' => ['type' => 'array', 'items' => $rule_schema],
+            ],
+            'required'   => ['include'],
+        ];
+        $context_schema    = [
+            'type'       => 'object',
+            'properties' => [
+                'is_front_page' => ['type' => 'boolean'],
+                'is_404'        => ['type' => 'boolean'],
+                'is_search'     => ['type' => 'boolean'],
+                'is_archive'    => ['type' => 'boolean'],
+                'is_singular'   => ['type' => 'boolean'],
+                'post_type'     => ['type' => 'string'],
+                'post_id'       => ['type' => 'integer'],
+                'term_ids'      => ['type' => 'array', 'items' => ['type' => 'integer']],
+                'user_roles'    => ['type' => 'array', 'items' => ['type' => 'string']],
+            ],
+        ];
+        $template_id       = ['type' => 'integer'];
+        $create            = new \WPMCP\Tools\ThemeBuilder\Create_Site_Part();
+        $list              = new \WPMCP\Tools\ThemeBuilder\List_Site_Parts();
+        $resolve           = new \WPMCP\Tools\ThemeBuilder\Resolve_Site_Part();
+        $update            = new \WPMCP\Tools\ThemeBuilder\Update_Site_Part();
+        $set_status        = new \WPMCP\Tools\ThemeBuilder\Set_Site_Part_Status();
+        $delete            = new \WPMCP\Tools\ThemeBuilder\Delete_Site_Part();
+
+        $registrar->register(new Ability(
+            'wpmcp/create-site-part',
+            'free',
+            'Create a header, footer or 404 site part, shown where an include rule matches and no exclude rule does; not the Elementor theme-template tools. Capped per part type; wpmcp/delete-site-part frees a slot',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'part_type'  => $part_type,
+                    'title'      => ['type' => 'string'],
+                    // Block markup; filtered with wp_kses_post on save.
+                    'content'    => ['type' => 'string'],
+                    'conditions' => $conditions_schema,
+                    // Tie-break between equally specific matches; higher wins.
+                    'priority'   => ['type' => 'integer'],
+                ],
+                'required'   => ['part_type', 'title', 'conditions'],
+            ],
+            [$create, 'handle'],
+            'manage_options',
+            'theme',
+            'create'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/list-site-parts',
+            'free',
+            'List site parts with their conditions and status, optionally by part_type. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => ['part_type' => $part_type],
+            ],
+            [$list, 'handle'],
+            'manage_options',
+            'theme',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/resolve-site-part',
+            'free',
+            'Which site part wins for a context (most specific, then priority), with every candidate and why. post_id alone fills post_type and term_ids. Read-only',
+            [
+                'type'       => 'object',
+                'properties' => ['part_type' => $part_type, 'context' => $context_schema],
+                'required'   => ['part_type'],
+            ],
+            [$resolve, 'handle'],
+            'manage_options',
+            'theme',
+            'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/update-site-part',
+            'free',
+            'Edit a site part; omitted fields are kept, part_type is fixed. Snapshot-first: operation_id rolls it back',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'template_id' => $template_id,
+                    'title'       => ['type' => 'string'],
+                    'content'     => ['type' => 'string'],
+                    'conditions'  => $conditions_schema,
+                    'priority'    => ['type' => 'integer'],
+                ],
+                'required'   => ['template_id'],
+            ],
+            [$update, 'handle'],
+            'manage_options',
+            'theme',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/set-site-part-status',
+            'free',
+            'Activate (publish) or deactivate (draft) a site part; only active parts resolve. Snapshot-first',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'template_id' => $template_id,
+                    'status'      => ['type' => 'string', 'enum' => ['publish', 'draft']],
+                ],
+                'required'   => ['template_id', 'status'],
+            ],
+            [$set_status, 'handle'],
+            'manage_options',
+            'theme',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/delete-site-part',
+            'free',
+            'Trash a site part, freeing its per-part-type slot. Snapshot-first: operation_id rolls it back',
+            [
+                'type'       => 'object',
+                'properties' => ['template_id' => $template_id],
+                'required'   => ['template_id'],
+            ],
+            [$delete, 'handle'],
+            'manage_options',
+            'theme',
+            'delete'
+        ));
+    }
+
+    /**
      * The data-driven custom Gutenberg block builder (EMCP parity, no eval):
      * store/validate/list block specs that a register_block_type render_callback
      * renders at runtime. All PRO, manage_options, domain 'blocks'.
@@ -2730,16 +2912,22 @@ final class Plugin
 
         $tools = [
             ['create-custom-block', 'create', new \WPMCP\Tools\BlockBuilder\Create_Custom_Block(), 'Create a custom Gutenberg block from a data spec (title, attributes, template with {{name}} placeholders). Validated, stored as a wpmcp_block post, and registered via register_block_type at runtime with a render_callback that interprets the template (no code generation, no eval). Remove with delete-custom-block', ['spec' => $spec_schema], ['spec']],
-            ['update-custom-block', 'update', new \WPMCP\Tools\BlockBuilder\Update_Custom_Block(), 'Replace a custom block\'s spec by id (re-validated before it is stored)', ['block_id' => ['type' => 'integer'], 'spec' => $spec_schema], ['block_id', 'spec']],
+            ['update-custom-block', 'update', new \WPMCP\Tools\BlockBuilder\Update_Custom_Block(), 'Replace a custom block\'s spec by id (re-validated before it is stored). Snapshotted: returns an operation_id for rollback-operation', ['block_id' => ['type' => 'integer'], 'spec' => $spec_schema], ['block_id', 'spec']],
             ['get-custom-block', 'read', new \WPMCP\Tools\BlockBuilder\Get_Custom_Block(), 'Read one custom block\'s stored spec by id. Read-only', ['block_id' => ['type' => 'integer']], ['block_id']],
             ['list-custom-blocks', 'read', new \WPMCP\Tools\BlockBuilder\List_Custom_Blocks(), 'List the custom blocks on this site (id, name, title, active/inactive). Read-only', [], []],
-            ['delete-custom-block', 'delete', new \WPMCP\Tools\BlockBuilder\Delete_Custom_Block(), 'Delete a custom block by moving it to the trash (reversible via restore-post)', ['block_id' => ['type' => 'integer']], ['block_id']],
-            ['set-block-status', 'update', new \WPMCP\Tools\BlockBuilder\Set_Block_Status(), 'Enable (publish) or disable (draft) a custom block by id', ['block_id' => ['type' => 'integer'], 'status' => ['type' => 'string']], ['block_id', 'status']],
+            ['delete-custom-block', 'delete', new \WPMCP\Tools\BlockBuilder\Delete_Custom_Block(), 'Delete a custom block by moving it to the trash. Snapshotted: returns an operation_id for rollback-operation (restore-post also works)', ['block_id' => ['type' => 'integer']], ['block_id']],
+            ['set-block-status', 'update', new \WPMCP\Tools\BlockBuilder\Set_Block_Status(), 'Enable (publish) or disable (draft) a custom block by id. Snapshotted: returns an operation_id for rollback-operation; a no-op status change writes nothing', ['block_id' => ['type' => 'integer'], 'status' => ['type' => 'string', 'enum' => \WPMCP\Tools\BlockBuilder\Set_Block_Status::STATUSES]], ['block_id', 'status']],
             ['validate-block-spec', 'read', new \WPMCP\Tools\BlockBuilder\Validate_Block_Spec(), 'Statically validate a custom-block spec (title, attributes, template) without storing it. Read-only', ['spec' => $spec_schema], ['spec']],
             ['list-block-control-types', 'read', new \WPMCP\Tools\BlockBuilder\List_Block_Control_Types(), 'List the attribute types a custom-block spec may use and the block.json type each maps to. Read-only', [], []],
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
+            // Snapshotted writes (update/delete) group under a caller's
+            // session_id so rollback-session can undo them together. Creates
+            // take no snapshot, so they do not advertise one.
+            if (in_array($op, ['update', 'delete'], true)) {
+                $props['session_id'] = [ 'type' => 'string' ];
+            }
             $schema = [ 'type' => 'object', 'properties' => $props ];
             if ([] !== $required) {
                 $schema['required'] = $required;
@@ -2781,6 +2969,12 @@ final class Plugin
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
+            // Snapshotted writes (update/delete) group under a caller's
+            // session_id so rollback-session can undo them together. Creates
+            // take no snapshot, so they do not advertise one.
+            if (in_array($op, ['update', 'delete'], true)) {
+                $props['session_id'] = [ 'type' => 'string' ];
+            }
             $schema = [ 'type' => 'object', 'properties' => $props ];
             if ([] !== $required) {
                 $schema['required'] = $required;
