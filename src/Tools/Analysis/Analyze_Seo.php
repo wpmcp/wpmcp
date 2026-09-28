@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Analysis;
 
+use WPMCP\Tools\Analysis\SeoData\Seo_Data_Lookup;
 use WPMCP\Tools\Content\Content_Extractor;
 use WPMCP\Tools\SEO\SEO_Adapter;
 
@@ -18,10 +19,37 @@ if (! defined('ABSPATH')) {
  * structure (headings, links, images, word count, plain text) comes from
  * Content_Extractor, and the scoring itself is delegated to Seo_Analyzer.
  * Reads have nothing to roll back, so this never touches Safe_Mutation.
+ *
+ * op selects what is analyzed (issue #304): 'score' (the default) is the
+ * on-page score above and never leaves the site; 'keywords' and 'backlinks'
+ * are read-only lookups against the SEO data provider whose credentials an
+ * administrator saved with set-seo-data-key, delegated to Seo_Data_Lookup.
  */
 class Analyze_Seo
 {
+    public const OPS = ['score', 'keywords', 'backlinks'];
+
     public function handle(array $args): array
+    {
+        $op = sanitize_key((string) ($args['op'] ?? ''));
+        switch ($op) {
+            case '':
+            case 'score':
+                return $this->score($args);
+            case 'keywords':
+                return (new Seo_Data_Lookup())->keywords($args);
+            case 'backlinks':
+                return (new Seo_Data_Lookup())->backlinks($args);
+            default:
+                throw new \InvalidArgumentException(sprintf(
+                    'Unknown op "%s". Supported: %s.',
+                    esc_html($op),
+                    esc_html(implode(', ', self::OPS))
+                ));
+        }
+    }
+
+    private function score(array $args): array
     {
         $post_id = (int) ($args['post_id'] ?? 0);
         if ($post_id <= 0) {
