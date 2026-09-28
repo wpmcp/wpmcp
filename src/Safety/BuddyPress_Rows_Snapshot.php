@@ -47,12 +47,20 @@ if (! defined('ABSPATH')) {
  * left and reported. A create is also re-keyed on the id BuddyPress assigned,
  * when that is not the one reserved for the snapshot.
  *
- * Every captured row is kept verbatim (NULLs and ids included), and the
- * restore deletes every row the capture's predicates match and re-inserts
- * what was there, so an edit goes back in place, a deleted thread returns at
- * its own ids, and a created group is removed. The tables are always built
- * from BuddyPress's table prefix and a fixed allowlist of names, so a key can
- * never reach any other table.
+ * Every captured row is kept verbatim (NULLs and ids included) and put back
+ * by id (issue #375): a saved row that still exists is set back to its saved
+ * values, and one that is gone is re-inserted at its own id, so an edit goes
+ * back in place and a deleted thread returns at its own ids. A row a set now
+ * also matches that was neither saved nor created by the write, such as a
+ * membership request another member sent since, is left alone. When such a
+ * reply sits in a restored activity thread, the thread is renumbered the way
+ * BuddyPress numbers it, since the saved nested-set values would overlap it.
+ * Two shapes still clear each set and re-insert the saved rows: a created
+ * group, which did not exist before, so every row keyed on it goes with it,
+ * and a snapshot recorded before created rows were tracked (no
+ * 'created_rows'), whose own rows only that clearing removes. The tables are
+ * always built from BuddyPress's table prefix and a fixed allowlist of names,
+ * so a key can never reach any other table.
  *
  * Undoing a create removes the group only while it is still the group the
  * create wrote (same slug, recorded as 'created'); otherwise it is left and
@@ -319,7 +327,6 @@ final class BuddyPress_Rows_Snapshot
             }
         }
 
-        global $wpdb;
         $touched = [];
         $skipped = [];
 
@@ -351,20 +358,28 @@ final class BuddyPress_Rows_Snapshot
             $touched[ $name ][] = self::rows($set);
             self::delete($set);
         }
-        foreach ($sets as $set) {
-            $set                                 = (array) $set;
-            $touched[ (string) $set['table'] ][] = self::rows($set);
-            self::delete($set);
-        }
-        foreach ($sets as $set) {
-            $set = (array) $set;
-            foreach ((array) ($set['rows'] ?? []) as $row) {
-                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- BuddyPress's own table; rows restored verbatim.
-                if (false === $wpdb->insert(self::table((string) $set['table']), (array) $row)) {
-                    throw new Mutation_Failed('Could not restore a BuddyPress row: ' . esc_html($wpdb->last_error));
-                }
+        if ('group_created' !== $kind && array_key_exists('created_rows', $data)) {
+            foreach ($sets as $set) {
+                $set                                 = (array) $set;
+                $touched[ (string) $set['table'] ][] = self::put_back($set);
             }
-            $touched[ (string) $set['table'] ][] = (array) ($set['rows'] ?? []);
+            if ('activity' === $kind) {
+                $saved                    = array_map('intval', array_column((array) (((array) $sets[0])['rows'] ?? []), 'id'));
+                $touched['bp_activity'][] = self::renumber_thread($id, $saved);
+            }
+        } else {
+            foreach ($sets as $set) {
+                $set                                 = (array) $set;
+                $touched[ (string) $set['table'] ][] = self::rows($set);
+                self::delete($set);
+            }
+            foreach ($sets as $set) {
+                $set = (array) $set;
+                foreach ((array) ($set['rows'] ?? []) as $row) {
+                    self::insert((string) $set['table'], (array) $row);
+                }
+                $touched[ (string) $set['table'] ][] = (array) ($set['rows'] ?? []);
+            }
         }
 
         $ids = (array) (((array) $sets[0])['ids'] ?? [ $id ]);
@@ -393,6 +408,105 @@ final class BuddyPress_Rows_Snapshot
             }
         }
         return true;
+    }
+
+    /** Insert one saved row verbatim, at its own id. */
+    private static function insert(string $name, array $row): void
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- BuddyPress's own table; rows restored verbatim.
+        if (false === $wpdb->insert(self::table($name), $row)) {
+            throw new Mutation_Failed('Could not restore a BuddyPress row: ' . esc_html($wpdb->last_error));
+        }
+    }
+
+    /**
+     * Put one set's saved rows back by id: a row that still exists is set
+     * back to its saved values, one that is gone is re-inserted at its id.
+     * Nothing else the set matches is touched.
+     *
+     * @return array<int, array<string, mixed>> the rows as they were and as restored, for the cache flush
+     */
+    private static function put_back(array $set): array
+    {
+        global $wpdb;
+
+        $name  = (string) $set['table'];
+        $saved = [];
+        foreach ((array) ($set['rows'] ?? []) as $row) {
+            $row = (array) $row;
+            if ((int) ($row['id'] ?? 0) > 0) {
+                $saved[ (int) $row['id'] ] = $row;
+            }
+        }
+        if ([] === $saved) {
+            return [];
+        }
+
+        $current = array_column(self::rows([ 'table' => $name, 'column' => 'id', 'ids' => array_keys($saved), 'object_type' => null ]), null, 'id');
+        foreach ($saved as $row_id => $row) {
+            if (! isset($current[ $row_id ])) {
+                self::insert($name, $row);
+                continue;
+            }
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- BuddyPress's own table; a saved row set back verbatim.
+            if (false === $wpdb->update(self::table($name), $row, [ 'id' => $row_id ])) {
+                throw new Mutation_Failed('Could not restore a BuddyPress row: ' . esc_html($wpdb->last_error));
+            }
+        }
+        return array_merge(array_values($current), array_values($saved));
+    }
+
+    /**
+     * Renumber the thread an activity item belongs to when it holds items the
+     * snapshot did not save, such as a reply posted since: the saved
+     * nested-set values would overlap theirs. Otherwise the saved values are
+     * exact and stay.
+     *
+     * @param int[] $saved the thread's saved ids
+     * @return array<int, array{id: int}> the renumbered items, for the cache flush
+     */
+    private static function renumber_thread(int $item, array $saved): array
+    {
+        $root   = self::thread_root($item);
+        $thread = self::activity_thread($root);
+        if ([] === array_diff($thread, $saved)) {
+            return [];
+        }
+        $seen = [];
+        self::number_thread($root, 1, $seen);
+        return array_map(static fn (int $id): array => [ 'id' => $id ], $thread);
+    }
+
+    /**
+     * Number one item and the replies below it, the way BuddyPress does
+     * (BP_Activity_Activity::rebuild_activity_comment_tree()): a reply's left
+     * value follows its parent's, its children come in id order, and its
+     * right value closes them. Returns the next free value.
+     *
+     * @param array<int, true> $seen items already numbered, so a malformed thread cannot loop
+     */
+    private static function number_thread(int $parent, int $left, array &$seen): int
+    {
+        global $wpdb;
+
+        $seen[ $parent ] = true;
+        $table           = self::table('bp_activity');
+        $right           = $left + 1;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- BuddyPress's own table, read live while renumbering.
+        $children = array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT id FROM %i WHERE type = 'activity_comment' AND secondary_item_id = %d ORDER BY id ASC", $table, $parent)));
+        foreach ($children as $child) {
+            if (! isset($seen[ $child ])) {
+                $right = self::number_thread($child, $right, $seen);
+            }
+        }
+        $where = 1 === $left ? 'id = %d' : "type = 'activity_comment' AND id = %d";
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; $where is one of two literals holding one placeholder.
+        if (false === $wpdb->query($wpdb->prepare('UPDATE %i SET mptt_left = %d, mptt_right = %d WHERE ' . $where, $table, $left, $right, $parent))) {
+            throw new Mutation_Failed('Could not renumber a BuddyPress activity thread.');
+        }
+        return $right + 1;
     }
 
     /** Delete the rows one set matches. */
