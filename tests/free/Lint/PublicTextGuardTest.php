@@ -67,6 +67,25 @@ class PublicTextGuardTest extends TestCase
         $this->assertSame([], $hits, 'Replace each em/en-dash with a comma, colon, period or plain hyphen.');
     }
 
+    /**
+     * Encoded dashes reach users just the same: HTML entities, numeric
+     * references and escape sequences all render as an em- or en-dash.
+     */
+    public function test_no_tracked_file_contains_an_encoded_em_or_en_dash(): void
+    {
+        $pattern = '/&[mn]dash;|&#(?:821[12]|x201[34]);|\\\\(?:u\\{?|x\\{)201[34]\\}?/i';
+        $hits = [];
+        foreach ($this->tracked_files() as $path => $contents) {
+            foreach ($this->lines($contents) as $number => $line) {
+                if (1 === preg_match($pattern, $line)) {
+                    $hits[] = $path . ':' . $number;
+                }
+            }
+        }
+
+        $this->assertSame([], $hits, 'Replace each encoded em/en-dash with a plain hyphen or reword.');
+    }
+
     public function test_no_tracked_file_names_a_listed_third_party_product(): void
     {
         $hits = [];
