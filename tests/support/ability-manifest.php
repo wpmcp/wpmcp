@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 385,
-    'free'      => 256,
+    'total'     => 387,
+    'free'      => 258,
     'pro'       => 129,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -71,6 +71,7 @@ return [
         'wpmcp/convert-html-to-blocks' => 'free',
         'wpmcp/count-content' => 'free',
         'wpmcp/create-code-snippet' => 'pro',
+        'wpmcp/create-comment' => 'free',
         'wpmcp/create-coupon' => 'free',
         'wpmcp/create-custom-block' => 'pro',
         'wpmcp/create-custom-widget' => 'pro',
@@ -311,6 +312,7 @@ return [
         'wpmcp/reorder-global-classes' => 'pro',
         'wpmcp/replace-system-colors' => 'pro',
         'wpmcp/replace-system-typography' => 'pro',
+        'wpmcp/reply-to-comment' => 'free',
         'wpmcp/resize-media' => 'free',
         'wpmcp/resolve-site-part' => 'free',
         'wpmcp/resolve-theme-template' => 'pro',

@@ -254,6 +254,12 @@ class Rollback_Service
         if (Post_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
             return 'post:' . $snapshot['object_id'];
         }
+        // And for a comment create-comment or reply-to-comment posted
+        // (issue #284): keyed as comment:<id> so a later moderate-comment or
+        // edit-comment in the same session cannot bring it back from the trash.
+        if (Comment_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
+            return 'comment:' . $snapshot['object_id'];
+        }
         // And for a product or variation an import created: its oldest
         // state is "did not exist yet", whatever later edits followed.
         if ('wc_product_create' === $snapshot['object_type']) {
@@ -618,6 +624,7 @@ class Rollback_Service
             'media_import',
             'wc_product_create',
             Post_Creation_Snapshot::OBJECT_TYPE,
+            Comment_Creation_Snapshot::OBJECT_TYPE,
             'elementor_global_classes',
             'elementor_global_variables',
             'theme_scaffold',
@@ -756,6 +763,12 @@ class Rollback_Service
         // every other branch here, so the restorable-types parity test sees it.
         if ('post_create' === $snapshot['object_type']) {
             self::apply_post_create_snapshot($snapshot);
+            return;
+        }
+
+        // Comment_Creation_Snapshot::OBJECT_TYPE, spelled as a literal for the same reason.
+        if ('comment_create' === $snapshot['object_type']) {
+            self::apply_comment_create_snapshot($snapshot);
             return;
         }
 
@@ -1347,6 +1360,35 @@ class Rollback_Service
             if (! wp_trash_post($post_id)) {
                 self::warn("Post {$post_id} created by this operation could not be moved to the trash; it was left in place.");
             }
+        }
+    }
+
+    /**
+     * Undo a comment creation recorded by Comment_Creation_Snapshot
+     * (create-comment, reply-to-comment; issue #284). Non-destructive like
+     * the post creation undo: the comment is moved to the trash, where it can
+     * be restored. The identity check (post and comment_date_gmt, both fixed
+     * at creation) keeps a comment that has since reclaimed the id untouched.
+     */
+    private static function apply_comment_create_snapshot(array $snapshot): void
+    {
+        $comment_id = (int) $snapshot['object_id'];
+        $current    = $comment_id > 0 ? get_comment($comment_id) : null;
+        if (! $current) {
+            return; // Already gone; nothing left to undo.
+        }
+
+        $data = (array) ($snapshot['data'] ?? []);
+        if ((int) ($data['comment_post_ID'] ?? 0) !== (int) $current->comment_post_ID || ($data['comment_date_gmt'] ?? null) !== $current->comment_date_gmt) {
+            self::warn("Comment {$comment_id} is not the comment this operation created (the id was reclaimed); it was left untouched.");
+            return;
+        }
+
+        if ('trash' === $current->comment_approved) {
+            return;
+        }
+        if (! wp_trash_comment($comment_id)) {
+            self::warn("Comment {$comment_id} created by this operation could not be moved to the trash; it was left in place.");
         }
     }
 
