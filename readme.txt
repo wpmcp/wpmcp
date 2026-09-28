@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.81
+Stable tag: 0.8.83
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -63,6 +63,7 @@ The plugin collects nothing about you and sends nothing to us. Its only schedule
 * api.freemius.com - licensing through the Freemius SDK. This is the one entry not tied to a tool. On activation the SDK shows its stock opt-in screen, which defaults to off and carries a Skip link; skip or decline it and the SDK sends nothing. Once you have opted in, there or later from the WP MCP > Account page, the SDK talks to Freemius during admin page loads and its own periodic sync. One path is independent of that choice: the optional deactivation feedback form on the Plugins screen. If you submit it, the reason you enter is stored locally and sent here when the plugin is deleted (uninstalled), whether or not you opted in; if you also untick "anonymous feedback" on that form, the SDK's opt-in call sends your display name and email along with the site details the opt-in screen lists. Terms: https://freemius.com/terms/ Privacy policy: https://freemius.com/privacy/
 * api.anthropic.com - the in-admin AI chat (Pro), opt-in and bring-your-own-key. Nothing is sent until an administrator saves their own Anthropic API key on the WP MCP > Chat screen and sends a message; there is no shared or built-in key. Each chat step sends, from this server, that administrator's key, a system prompt carrying the site name, site URL, their username and the names of the tools the chat may use, the tool schemas it has loaded, and the conversation so far: their messages, the assistant's replies, and the results of the tools it ran, which can include site content those tools read. The key is stored encrypted per user and is never sent to the browser. Terms: https://www.anthropic.com/legal/commercial-terms Privacy policy: https://www.anthropic.com/legal/privacy
 * api.dataforseo.com - keyword and backlink data (Pro), opt-in and bring-your-own-key. Nothing is sent until an administrator saves their own DataForSEO API login and password with set-seo-data-key; there is no shared or built-in account. After that, the analyze-seo keywords op sends the keywords you ask about with the location and language codes, and the backlinks op sends the domain or URL you name, each with your credentials in the Authorization header under a WPMCP-SEO-Data/1.0 user agent. Answers are cached on this site for a day (filterable with wpmcp_seo_data_cache_ttl), so a repeat lookup sends nothing. The credentials are stored encrypted and never returned by any tool. Terms: https://dataforseo.com/terms-of-service Privacy policy: https://dataforseo.com/privacy-policy
+* api.wordpress.org/patterns and wordpress.org/patterns/wp-json, the WordPress.org Pattern Directory (Pro) - the block-suites list-patterns and import-pattern ops. Nothing is sent unless you or your agent ask for this source: list-patterns with source "directory" sends the search terms, category, paging and your locale, and turns a category name into its directory id with one lookup of the directory's category list on wordpress.org/patterns/wp-json; import-pattern with a directory:<id> name fetches that one pattern. Requests go out under a WPMCP-Pattern-Directory/1.0 user agent, so your site address is not sent, and answers are cached on this site for an hour (filterable with wpmcp_pattern_directory_cache_ttl), so a repeat browse or import sends nothing. A directory import also downloads the pattern's images from pd.w.org and s.w.org (WordPress.org's pattern image hosts) or from the allowlisted media hosts below; images on any other host are left at their URLs and reported. Add hosts with the wpmcp_pattern_directory_image_hosts filter. Privacy policy: https://wordpress.org/about/privacy/
 * WP MCP Cloud (the cloud URL you configure) - nothing is sent until you run cloud-connect with a cloud URL and API key you supply, and every request after that goes only to that URL with your API key in the Authorization header. cloud-connect verifies the key by fetching your account, cloud-push-assets sends the widget and block specs you push, and cloud-list-assets and cloud-pull-assets fetch the specs saved in your account. cloud-push-settings sends this site's governance, exposure and skills settings and identity scopes (never passwords, keys or tokens), cloud-apply-settings fetches the settings saved in your account, cloud-marketplace-browse fetches marketplace listings, and cloud-marketplace-install fetches the one listing you install. The announcements feed also fetches notices (GET /announcements, no site content) when an administrator opens a WP MCP admin screen, at most once a day, or once an hour after a failed fetch. Once connected, it also renews its sign-in token with that same URL over https. Terms: https://wpmcp-pro.com/terms.html Privacy policy: https://wpmcp-pro.com/privacy.html
 * Your own migration target - push-site-archive sends a site-backup archive (the full database, including password hashes, and wp-content if the archive has it) to the target_url you or your agent supply, signed in with credentials for that site, and only after you have allowed outgoing migrations with WPMCP_ALLOW_OUTGOING_MIGRATIONS. It contacts no other host. The receiving site must allow incoming migrations itself, and its owner's terms and privacy policy apply to what it stores.
 * Allowlisted media hosts - import-stock-image and upload-svg download the file you picked from a default allowlist of images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org (Wikimedia Commons, terms: https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use privacy policy: https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) and staticflickr.com (Flickr, terms: https://www.flickr.com/help/terms privacy policy: https://www.flickr.com/help/privacy), matched on the host or a subdomain of it. The site owner can change that list with the wpmcp_remote_media_allowed_hosts filter. The download carries WordPress's standard user agent.
@@ -99,6 +100,13 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.83 =
+* Pro: Browse and import patterns from the WordPress.org Pattern Directory through the block suite pattern tools. Each import is one undoable write, and its images are brought into the Media Library through the same guarded download as other remote media.
+* The Pattern Directory is contacted only when an agent asks for it. Answers are cached for an hour, and the site address is not sent. See External services in the readme.
+
+= 0.8.82 =
+* Security: rolling back a deleted post no longer restores commenters' email addresses, IP addresses or user agents for users without the moderate_comments capability. The post and its comments still come back, with those fields blank, and the rollback response says so.
 
 = 0.8.81 =
 * New: Oxygen 6 pages can be read and edited through the builder tools: detection, a node tree read, and node updates, adds, removes and moves or a whole-layout write, each undoable with rollback.
@@ -455,6 +463,12 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.83 =
+Pro: Browse and import patterns from the WordPress.org Pattern Directory through the block suite pattern tools. Each import is one undoable write, and its images are brought into the Media Library through the same guarded download as other remote media.
+
+= 0.8.82 =
+Security: rolling back a deleted post no longer restores commenters' email addresses, IP addresses or user agents for users without the moderate_comments capability. The post and its comments still come back, with those fields blank, and the rollback response says so.
 
 = 0.8.81 =
 New: Oxygen 6 pages can be read and edited through the builder tools: detection, a node tree read, and node updates, adds, removes and moves or a whole-layout write, each undoable with rollback.
