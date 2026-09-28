@@ -220,6 +220,7 @@ use WPMCP\Tools\Backup\Run_Backup_Job;
 use WPMCP\Tools\Backup\Get_Backup_Manifest;
 use WPMCP\Tools\Backup\Delete_Backup_Archive;
 use WPMCP\Tools\Backup\Restore_Site_Backup;
+use WPMCP\Tools\Migration\Find_Replace_Content;
 use WPMCP\Tools\Migration\Rewrite_Site_Urls;
 use WPMCP\Tools\Sync\Build_Change_Set;
 use WPMCP\Tools\Sync\Get_Change_Set;
@@ -4509,7 +4510,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/rewrite-site-urls',
             'free',
-            'Rewrite every embedded URL in the database from one site URL to another, serialization-aware: walks wp_options, wp_postmeta, wp_posts, wp_termmeta, wp_usermeta and wp_comments in batches through the plugin\'s serialization-aware Url_Rewriter, replacing plain, JSON-escaped, percent-encoded and scheme-relative forms in one pass without corrupting PHP-serialized values, and refusing (and reporting) any value whose decoded structure contains an object rather than risk mangling it. This is the pass that fixes broken images, widgets and theme mods after a site is restored under a different URL. dry_run defaults to true and only reports per-table counts; applying requires dry_run:false and confirm:true. Not snapshotted: an applied pass reports recoverable:false and is not rollback-able via rollback-operation, so take a database backup (trigger-backup type=database) first. Tables protected by wpmcp_db_protected_tables (usermeta by default) are reported as skipped, not written. Post GUIDs are never rewritten',
+            'Rewrite embedded URLs from one site URL to another across core tables after a restore, serialization-safe in plain, JSON-escaped, encoded and scheme-relative forms; object values are reported, not rewritten. dry_run defaults to true; apply needs confirm:true. Not snapshotted (recoverable:false): run trigger-backup type=database first. GUIDs never change',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4528,6 +4529,46 @@ final class Plugin
                 'required'   => [ 'from_url', 'to_url' ],
             ],
             [$rewrite_site_urls, 'handle'],
+            'manage_options',
+            'migration',
+            'update',
+            false,
+            true,
+            false
+        ));
+
+        // Snapshot-backed, unlike rewrite-site-urls: every changed post goes
+        // through Safe_Mutation under one returned session_id. Annotated like
+        // its sibling (destructive, not idempotent: a replacement containing
+        // the search text matches again on a second run).
+        $find_replace_content = new Find_Replace_Content();
+
+        $registrar->register(new Ability(
+            'wpmcp/find-replace-content',
+            'free',
+            'Find and replace in post content, titles, excerpts or named meta, serialization-safe. dry_run (default) returns counts and snippets; apply snapshots each post under one session_id for rollback-session, and over 10 posts needs confirm:true. Builder content and JSON-breaking edits are skipped',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'search'         => [ 'type' => 'string' ],
+                    'replace'        => [ 'type' => 'string' ],
+                    'regex'          => [ 'type' => 'boolean' ],
+                    'case_sensitive' => [ 'type' => 'boolean' ],
+                    'fields'         => [
+                        'type'  => 'array',
+                        'items' => [ 'type' => 'string', 'enum' => ['content', 'title', 'excerpt', 'meta'] ],
+                    ],
+                    'meta_keys'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'post_types'     => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'statuses'       => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'post_ids'       => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
+                    'max_matches'    => [ 'type' => 'integer' ],
+                    'dry_run'        => [ 'type' => 'boolean' ],
+                    'confirm'        => [ 'type' => 'boolean' ],
+                ],
+                'required'   => [ 'search', 'replace' ],
+            ],
+            [$find_replace_content, 'handle'],
             'manage_options',
             'migration',
             'update',
