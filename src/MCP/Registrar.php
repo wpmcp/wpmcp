@@ -313,6 +313,7 @@ class Registrar
                 'ok'          => true,
                 'duration_ms' => $duration_ms,
                 'args'        => isset($args[0]) && is_array($args[0]) ? $args[0] : [],
+                'secret_args' => Request_Log::secret_fields($a->input_schema),
             ];
 
             if ($outcome instanceof \Throwable) {
