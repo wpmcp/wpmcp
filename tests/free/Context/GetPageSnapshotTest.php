@@ -508,6 +508,20 @@ class GetPageSnapshotTest extends \WP_UnitTestCase
         $this->assertStringStartsWith('Avada stores its layout', $snap['content_coverage']['note']);
     }
 
+    public function test_thrive_coverage_is_partial_and_says_post_content_is_a_copy(): void
+    {
+        $id = $this->post(['post_content' => '<h1>Welcome</h1><p>Plain-text copy</p>']);
+        update_post_meta($id, 'tcb2_ready', '1');
+        update_post_meta($id, 'tcb_editor_enabled', '1');
+        update_post_meta($id, 'tve_updated_post', '<div class="thrv_wrapper thrv_text_element"><h1>Welcome</h1></div>');
+
+        $snap = $this->tool->handle(['post_id' => $id]);
+
+        $this->assertSame('thrive', $snap['builder']);
+        $this->assertFalse($snap['content_coverage']['complete']);
+        $this->assertStringStartsWith('Thrive Architect renders this page', $snap['content_coverage']['note']);
+    }
+
     // -------------------------------------------------------- read gate
 
     public function test_a_published_post_of_a_non_public_type_still_needs_the_read_gate(): void
