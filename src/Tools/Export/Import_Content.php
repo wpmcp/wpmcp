@@ -39,6 +39,13 @@ class Import_Content
 
     public function handle(array $args): array
     {
+        // Restoring a page from its mirror file (issue #298) is a single
+        // snapshotted write that rollback-operation undoes, so neither the
+        // bulk-import opt-in nor confirm applies to it.
+        if (! empty($args['mirror'])) {
+            return (new Content_Mirror())->restore($args);
+        }
+
         if (! self::is_enabled()) {
             throw new \RuntimeException('The import-content tool is disabled. Enable it with the wpmcp_enable_import filter.');
         }

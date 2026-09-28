@@ -35,7 +35,7 @@ class Divi_Content
     {
         wp_update_post([
             'ID'           => $post_id,
-            'post_content' => $content,
+            'post_content' => wp_slash($content),
         ]);
         update_post_meta($post_id, self::USE_BUILDER_META_KEY, 'on');
     }
