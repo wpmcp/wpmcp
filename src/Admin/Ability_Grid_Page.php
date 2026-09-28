@@ -394,7 +394,7 @@ class Ability_Grid_Page
                                 <?php elseif ($row['destructive']) : ?>
                                     <?php echo esc_html__('destructive', 'wpmcp'); ?>
                                 <?php else : ?>
-                                    &mdash;
+                                    -
                                 <?php endif; ?>
                             </td>
                             <td>
