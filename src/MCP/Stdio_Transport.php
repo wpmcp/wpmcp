@@ -66,10 +66,7 @@ class Stdio_Transport
      * is not loaded. Kept equal to the newest version the adapter's
      * McpVersionNegotiator supports so both transports agree.
      */
-    public const FALLBACK_PROTOCOL_VERSION = '2025-11-25';
-
-    /** The adapter class that owns protocol-version negotiation. */
-    private const NEGOTIATOR = '\\WP\\MCP\\Core\\McpVersionNegotiator';
+    public const FALLBACK_PROTOCOL_VERSION = Protocol_Revision::LEGACY;
 
     /** Registers the WP-CLI command. No-op outside WP-CLI. */
     public static function register(): void
@@ -189,6 +186,74 @@ class Stdio_Transport
         $id     = $request['id'];
         $params = is_array($request['params'] ?? null) ? $request['params'] : [];
 
+        // Either revision, per line (issue #386). A request naming
+        // 2026-07-28 in its _meta, and server/discover (the call a client
+        // makes before it knows any revision), take the 2026 path;
+        // everything else is the 2025 session lifecycle, unchanged.
+        $requested = Protocol_Revision::requested($params);
+        if ('server/discover' === $method || Protocol_Revision::MODERN === $requested) {
+            return $this->handle_modern($id, $method, $params, $requested);
+        }
+        if (null !== $requested && ! Protocol_Revision::is_servable($requested)) {
+            return Protocol_Revision::unsupported_version_error($id, $requested);
+        }
+
+        return $this->dispatch($id, $method, $params);
+    }
+
+    /**
+     * One 2026-07-28 request: the revision's own method set, its required
+     * client capabilities, and its result fields, around the same handlers
+     * the 2025 path uses.
+     *
+     * @param mixed               $id        Request id.
+     * @param array<string,mixed> $params    Request params.
+     * @param string|null         $requested The revision named in _meta.
+     * @return array<string,mixed>
+     */
+    private function handle_modern($id, string $method, array $params, ?string $requested): array
+    {
+        // A bare server/discover probe names no revision; anything that
+        // does name one must name one this server serves.
+        if (null !== $requested && Protocol_Revision::MODERN !== $requested) {
+            if (! Protocol_Revision::is_servable($requested)) {
+                return Protocol_Revision::unsupported_version_error($id, $requested);
+            }
+        } elseif (null !== $requested && ! Protocol_Revision::has_client_capabilities($params)) {
+            return self::error_response($id, Protocol_Revision::INVALID_PARAMS, '2026-07-28 requests require clientCapabilities in _meta.');
+        }
+
+        if (! in_array($method, Protocol_Revision::MODERN_METHODS, true)) {
+            return self::error_response($id, Protocol_Revision::METHOD_NOT_FOUND, sprintf('Method not found: %s', $method));
+        }
+
+        $response = 'server/discover' === $method
+            ? self::result_response($id, Protocol_Revision::discover_result(self::capabilities()))
+            : $this->dispatch($id, $method, $params);
+
+        if (isset($response['error'])) {
+            // 2026-07-28 reports a missing resource as invalid params.
+            if (Protocol_Revision::RESOURCE_NOT_FOUND === ($response['error']['code'] ?? null)) {
+                $response['error']['code'] = Protocol_Revision::INVALID_PARAMS;
+            }
+            return $response;
+        }
+
+        $result = $response['result'] ?? [];
+        $response['result'] = Protocol_Revision::complete($method, is_array($result) ? $result : (array) $result);
+
+        return $response;
+    }
+
+    /**
+     * The revision-neutral method table both paths share.
+     *
+     * @param mixed               $id     Request id.
+     * @param array<string,mixed> $params Request params.
+     * @return array<string,mixed>
+     */
+    private function dispatch($id, string $method, array $params): array
+    {
         switch ($method) {
             case 'initialize':
                 return self::result_response($id, $this->initialize_result($params));
@@ -224,12 +289,7 @@ class Stdio_Transport
     {
         $result = [
             'protocolVersion' => self::negotiate_protocol_version($params),
-            // Same capability set the adapter advertises on the HTTP route.
-            'capabilities'    => [
-                'prompts'   => [ 'listChanged' => false ],
-                'resources' => [ 'subscribe' => false, 'listChanged' => false ],
-                'tools'     => [ 'listChanged' => false ],
-            ],
+            'capabilities'    => self::capabilities(),
             'serverInfo'      => [
                 // The name the adapter is handed in Server::create_server(),
                 // not the server id: clients key config and display off
@@ -252,6 +312,21 @@ class Stdio_Transport
     }
 
     /**
+     * Same capability set the adapter advertises on the HTTP route, shared
+     * by the 2025 initialize result and the 2026 server/discover result.
+     *
+     * @return array<string,mixed>
+     */
+    public static function capabilities(): array
+    {
+        return [
+            'prompts'   => [ 'listChanged' => false ],
+            'resources' => [ 'subscribe' => false, 'listChanged' => false ],
+            'tools'     => [ 'listChanged' => false ],
+        ];
+    }
+
+    /**
      * Echoes the client's protocol version when the adapter supports it,
      * otherwise the newest supported version. No hardcoded version: the
      * adapter validates the MCP-Protocol-Version header against this exact
@@ -263,12 +338,7 @@ class Stdio_Transport
     {
         $requested = isset($params['protocolVersion']) ? (string) $params['protocolVersion'] : '';
 
-        if (class_exists(self::NEGOTIATOR)) {
-            $negotiator = self::NEGOTIATOR;
-            return (string) $negotiator::negotiate($requested);
-        }
-
-        return self::FALLBACK_PROTOCOL_VERSION;
+        return Protocol_Revision::negotiate_initialize($requested);
     }
 
     /**

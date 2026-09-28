@@ -6,7 +6,6 @@ use WPMCP\Auth\Mcp_Resource;
 use WPMCP\Auth\OAuth_Config;
 use WPMCP\Governance\Governance;
 use WPMCP\Plugin;
-use WP\MCP\Core\McpVersionNegotiator;
 use WPMCP\Skills\Skill_Library;
 
 if (! defined('ABSPATH')) {
@@ -119,9 +118,10 @@ class Discovery_Documents
             'type' => 'streamable-http',
             'url'  => Mcp_Resource::canonical(),
         ];
-        if (class_exists(McpVersionNegotiator::class)) {
-            $remote['supportedProtocolVersions'] = array_values(McpVersionNegotiator::SUPPORTED_PROTOCOL_VERSIONS);
-        }
+        // Every revision the endpoint answers, whichever adapter copy
+        // mounts it: 2026-07-28 is served by WP MCP when the adapter
+        // predates it (issue #386).
+        $remote['supportedProtocolVersions'] = Protocol_Revision::advertised_versions();
 
         $oauth = OAuth_Config::is_enabled();
         if ($oauth) {

@@ -169,6 +169,22 @@ class ProtocolRevisionHttpTest extends \WP_UnitTestCase
         $this->assertSame('HTTP Revision Trip', $body['result']['structuredContent']['title'] ?? null);
     }
 
+    /**
+     * The 2026 path answers only after the route's own permission check,
+     * so a sessionless request is never a way around authentication.
+     */
+    public function test_modern_requests_still_require_an_authenticated_user(): void
+    {
+        wp_set_current_user(0);
+
+        foreach (['server/discover', 'tools/list'] as $method) {
+            [ $status, $body ] = $this->modern($method);
+
+            $this->assertContains($status, [401, 403], $method . ': ' . wp_json_encode($body));
+            $this->assertArrayNotHasKey('result', $body);
+        }
+    }
+
     public function test_a_method_header_that_disagrees_with_the_body_is_rejected(): void
     {
         [ $status, $body ] = $this->modern('tools/list', [], [ 'Mcp-Method' => 'prompts/list' ]);

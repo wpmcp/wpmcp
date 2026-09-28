@@ -100,6 +100,12 @@ echo -n "your-username:xxxx xxxx xxxx xxxx xxxx xxxx" | base64
 
 The same endpoint works with Cursor, Claude Desktop, and any MCP-compatible client.
 
+### Protocol revisions and the MCP adapter
+
+Both transports (the HTTP endpoint above and `wp mcp-stdio serve`) speak MCP `2026-07-28` and `2025-11-25`. A `2025-11-25` client runs the usual `initialize` session; a `2026-07-28` client calls the sessionless `server/discover` and then tags each request with the revision, with no session at all. `server/discover` lists both revisions and returns the same handshake instructions `initialize` does.
+
+The HTTP route is mounted by the official [WordPress MCP adapter](https://github.com/WordPress/mcp-adapter). wpmcp bundles adapter 0.6.x so it works on its own, and prefers the canonical MCP Adapter plugin when that is active: the bundled copy is only a fallback and never shadows another copy's classes (see `src/adapter-guard.php`). Adapter 0.7.0 and later answer `2026-07-28` requests natively; with the bundled 0.6.x, wpmcp answers them itself, so clients see the same behavior either way.
+
 ## Available tools
 
 | Tool | Type | What it does |
@@ -271,6 +277,7 @@ bin/test-local.sh                       # default WordPress leg with the coverag
 bin/test-local.sh --all                 # also the `Requires at least` WordPress
 bin/test-local.sh -- --filter SnapshotTest   # a targeted PHPUnit run
 ELEMENTOR_VERSION=latest bin/test-local.sh   # check for drift against the newest Elementor
+WPMCP_TEST_ADAPTER_PLUGIN=/path/to/mcp-adapter/mcp-adapter.php bin/test-local.sh   # against a canonical MCP Adapter build, e.g. its trunk after composer install --no-dev
 bin/test-local.sh --live-forms          # only the Contact Form 7 + Flamingo live group
 bin/test-local.sh --live-blocks         # only the block suites live group (Kadence Blocks, GenerateBlocks, Spectra, Otter Blocks)
 bin/test-local.sh --live-buddypress     # only the BuddyPress live group
