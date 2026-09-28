@@ -631,6 +631,9 @@ final class Plugin
             $this->register_builder_runtime_hooks();
             add_action('admin_menu', [$this, 'register_admin_menu']);
             add_action('wp_ajax_wpmcp_restore', [new Restore_Controller(), 'handle']);
+            // A rollback of a theme framework pack write rebuilds the active
+            // theme's generated CSS, as the write did (issue #316).
+            add_action('wpmcp_rollback_options_restored', [\WPMCP\Integrations\Theme_Framework_Pack::class, 'refresh_after_restore']);
             // The WP-Cron executor for trigger-backup's scheduled events: runs
             // the queued job (producing a backup artifact) and flips its
             // status to completed/failed. See Run_Backup_Job's docblock.

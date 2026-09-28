@@ -25,14 +25,8 @@ final class Theme_Pack_Kadence
         '#FfFfFf', '#13612e', '#1159af', '#b82105', '#f7630c', '#f5a524',
     ];
 
-    /** @return array<string,array<string,mixed>> */
-    public static function operations(): array
-    {
-        return Theme_Settings_Pack::operations(self::spec());
-    }
-
     /** @return array<string,mixed> */
-    private static function spec(): array
+    public static function spec(): array
     {
         // Kadence color fields take a palette slug (palette4) as well as a
         // literal color; the palette entries themselves must be literal.

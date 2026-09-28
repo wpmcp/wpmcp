@@ -26,14 +26,8 @@ if (! defined('ABSPATH')) {
  */
 final class Theme_Pack_GeneratePress
 {
-    /** @return array<string,array<string,mixed>> */
-    public static function operations(): array
-    {
-        return Theme_Settings_Pack::operations(self::spec());
-    }
-
     /** @return array<string,mixed> */
-    private static function spec(): array
+    public static function spec(): array
     {
         // Color settings take a global color reference such as var(--accent).
         $color    = [ 'rule' => 'color', 'var' => '/^var\(--[a-z0-9-]{1,40}\)$/' ];

@@ -25,14 +25,8 @@ if (! defined('ABSPATH')) {
  */
 final class Theme_Pack_Blocksy
 {
-    /** @return array<string,array<string,mixed>> */
-    public static function operations(): array
-    {
-        return Theme_Settings_Pack::operations(self::spec());
-    }
-
     /** @return array<string,mixed> */
-    private static function spec(): array
+    public static function spec(): array
     {
         $color    = [ 'rule' => 'color', 'var' => '/^var\(--theme-palette-color-\d{1,2}\)$/' ];
         $settings = [];

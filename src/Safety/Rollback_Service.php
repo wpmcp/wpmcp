@@ -327,6 +327,20 @@ class Rollback_Service
         } else {
             delete_option($name);
         }
+        self::options_restored([ $name ]);
+    }
+
+    /**
+     * Announce the options a rollback just put back (issue #316), so code
+     * that derives state from them (a theme's generated CSS) can rebuild it
+     * instead of serving what the undone write produced.
+     *
+     * @param string[] $names
+     */
+    private static function options_restored(array $names): void
+    {
+        /** Action: options restored by a rollback, as a list of option names. */
+        do_action('wpmcp_rollback_options_restored', $names);
     }
 
     /**
@@ -1896,6 +1910,7 @@ class Rollback_Service
                 delete_option((string) $name);
             }
         }
+        self::options_restored(array_map('strval', array_keys((array) ($snapshot['data']['options'] ?? []))));
     }
 
     /**
