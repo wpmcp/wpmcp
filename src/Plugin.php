@@ -222,6 +222,7 @@ use WPMCP\Tools\Backup\Get_Backup_Manifest;
 use WPMCP\Tools\Backup\Delete_Backup_Archive;
 use WPMCP\Tools\Backup\Restore_Site_Backup;
 use WPMCP\Tools\Migration\Rewrite_Site_Urls;
+use WPMCP\Tools\Sync\Apply_Change_Set;
 use WPMCP\Tools\Sync\Build_Change_Set;
 use WPMCP\Tools\Sync\Get_Change_Set;
 use WPMCP\Tools\Governance\Get_Governance_Settings;
@@ -570,6 +571,12 @@ final class Plugin
             Default_Seeder::seed();
             // Self-hosted translations from languages/ (issue #184).
             add_action('init', [$this, 'load_textdomain']);
+            // Seal any phase A plaintext cloud credentials on the first page
+            // load after an update (issue #141); a no-op query-wise otherwise.
+            // The class is absent from flavors that strip src/Cloud.
+            if (class_exists(\WPMCP\Cloud\Cloud_Credentials::class)) {
+                add_action('init', [\WPMCP\Cloud\Cloud_Credentials::class, 'maybe_migrate_on_boot']);
+            }
             $hook = function_exists('wp_register_ability') ? 'wp_abilities_api_init' : 'init';
             add_action($hook, [$this, 'register_abilities']);
             if (function_exists('wp_register_ability_category')) {
@@ -3861,7 +3868,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/serialize-blocks',
             'free',
-            'Serialize a block tree (as produced by parse-blocks, or any array shaped the same way) back into valid block markup via serialize_blocks(). A pure transform, not a database write: it never touches a post. To write the resulting markup to a post use the existing update-blocks tool',
+            'Serialize a block tree (parse-blocks shape) back into block markup via serialize_blocks(). A pure transform that never touches a post; write the result with update-blocks',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4038,7 +4045,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/insert-pattern',
             'free',
-            'Insert a registered block pattern\'s parsed blocks into a post starting at "path" (same path semantics as add-block; pure-whitespace filler nodes are dropped). Requires expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first; every pre-existing block stays byte-identical',
+            'Insert a registered block pattern\'s blocks into a post at "path" (add-block\'s path semantics; whitespace filler dropped). Requires expected_hash (content_hash from parse-blocks); stale reads are refused. Snapshot-first; existing blocks stay byte-identical',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4375,10 +4382,11 @@ final class Plugin
      * through Safe_Mutation either: a whole-database replace is outside the
      * per-object model Snapshot_Store captures, so a snapshot could not
      * undo it. Its rollback mechanism is the pre-restore database safety
-     * archive the execution path takes before writing (issue #190). It is
-     * registered with destructive=true and dry_run defaulting to true; in
-     * this build only the dry_run compatibility report is implemented and
-     * a real restore is refused.
+     * archive it takes, unconditionally, before writing anything (issue
+     * #190); a failed import is rolled back from that archive
+     * automatically. It is registered with destructive=true and dry_run
+     * defaulting to true, so an unconfirmed call only ever returns the
+     * compatibility report.
      */
     private function register_backup_abilities(Registrar $registrar): void
     {
@@ -4491,14 +4499,15 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Compatibility check for restoring a site-backup archive (job_id or path) onto this site. dry_run defaults to TRUE and returns a report without touching anything: manifest format and format_version, archive scope (only all or database archives carry a dump), table prefix, multisite, WordPress version, BLOB-table warnings. This release implements only the dry_run report: dry_run=false runs the same gate and is then refused as not implemented (the execution path with pre-restore safety archive, maintenance mode and statement-by-statement import has not shipped). include_files (default false) is refused unless the archive scope is all. Paths outside the site-backup directory are refused',
+            'Restore this site in place from a site-backup archive (job_id or path). dry_run defaults to TRUE: a report only, checking format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full parse of db.sql (truncated dumps are refused). dry_run=false takes a database safety archive first (job id in the result; no restore if it fails), holds maintenance mode, imports statement by statement, and on failure reports the statement and rolls back. preserve_session (default true) keeps the caller signed in. include_files (default false, scope all) stages wp-content and swaps it in. Paths outside the site-backup directory are refused',
             [
                 'type'       => 'object',
                 'properties' => [
                     'job_id'        => [ 'type' => 'integer' ],
                     'path'          => [ 'type' => 'string' ],
-                    'include_files' => [ 'type' => 'boolean' ],
-                    'dry_run'       => [ 'type' => 'boolean' ],
+                    'include_files'    => [ 'type' => 'boolean' ],
+                    'dry_run'          => [ 'type' => 'boolean' ],
+                    'preserve_session' => [ 'type' => 'boolean' ],
                 ],
             ],
             [$restore_site_backup, 'handle'],
@@ -4566,35 +4575,41 @@ final class Plugin
     }
 
     /**
-     * Local-live sync, phase 1 (issue #192): change-set export derived from
-     * the snapshot ledger. The unit of sync is a set of explicitly selected
-     * objects touched during a build session, never the whole database, so
-     * live-side data the local copy has never seen (orders, comments, form
-     * entries) is left alone by construction.
+     * Local-live sync (issue #192): change-set export derived from the
+     * snapshot ledger, inspection, and apply. The unit of sync is a set of
+     * explicitly selected objects, never the whole database, so live-side
+     * data the local copy has never seen (orders, comments, form entries) is
+     * left alone by construction.
      *
-     * Both tools are read-only with respect to user content (build writes
+     * build-change-set and get-change-set only read site data (build writes
      * one artifact file into the protected site-backup dir), so neither is
-     * routed through Safe_Mutation. The phase 2 apply side is the mutating
-     * half and will go snapshot-first through Rollback_Service on the
-     * target. Gated at manage_options like the backup group it builds on.
+     * routed through Safe_Mutation. apply-change-set is the mutating half:
+     * every update is snapshot-first through Safe_Mutation, every creation
+     * records a creation row, all under one session so rollback-session
+     * undoes a whole sync. It defaults to dry_run and is advertised as
+     * destructive because it can overwrite live content (never without a
+     * snapshot). Gated at manage_options like the backup group it builds on.
      * Free/Pro placement is an open question on the issue; registered free
-     * here so the WIP is exercisable, revisit before release.
+     * so the feature is exercisable, revisit before release.
      */
     private function register_sync_abilities(Registrar $registrar): void
     {
         $build_change_set = new Build_Change_Set();
         $get_change_set   = new Get_Change_Set();
+        $apply_change_set = new Apply_Change_Set();
 
         $registrar->register(new Ability(
             'wpmcp/build-change-set',
             'free',
-            'Derive a local-live sync change set from the snapshot ledger for one marker (session_id, operation_id or since_id) into an inspectable JSON artifact in the site-backup dir. Export only: deletions are reported, never applied, and nothing is pushed',
+            'Build a local-live sync change set (objects, media bytes, terms, templates, global classes, base revisions) from a ledger marker (session_id, operation_id or since_id) and/or objects refs (post:ID, option:theme_mods_X, term:TAX:SLUG) into a JSON artifact in the site-backup dir. dry_run lists it without writing',
             [
                 'type'       => 'object',
                 'properties' => [
                     'session_id'   => [ 'type' => 'string' ],
                     'operation_id' => [ 'type' => 'string' ],
                     'since_id'     => [ 'type' => 'integer' ],
+                    'objects'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'dry_run'      => [ 'type' => 'boolean' ],
                 ],
             ],
             [$build_change_set, 'handle'],
@@ -4605,12 +4620,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-change-set',
             'free',
-            'Inspect a change-set artifact before it is applied: origin, objects, attachments, exclusions, truncation. include_objects=true adds full data. Read-only; site-backup dir only',
+            'Inspect a change-set artifact before it is applied: origin, objects, dependencies, exclusions, truncation. include_objects=true adds full data; raw=true returns the artifact to pass to apply-change-set on the target. Read-only; site-backup dir only',
             [
                 'type'       => 'object',
                 'properties' => [
                     'path'            => [ 'type' => 'string' ],
                     'include_objects' => [ 'type' => 'boolean' ],
+                    'raw'             => [ 'type' => 'boolean' ],
                 ],
                 'required'   => [ 'path' ],
             ],
@@ -4618,6 +4634,28 @@ final class Plugin
             'manage_options',
             'sync',
             'read'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/apply-change-set',
+            'free',
+            'Apply a change set (change_set from get-change-set raw=true, or path) here. dry_run defaults to true. Only selected objects are written, snapshot-first; media, terms and templates are only added; objects changed here since the base are refused unless keyed in force; deletions never apply. rollback-session undoes it',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'change_set' => [ 'type' => 'object' ],
+                    'path'       => [ 'type' => 'string' ],
+                    'dry_run'    => [ 'type' => 'boolean' ],
+                    'force'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+            ],
+            [$apply_change_set, 'handle'],
+            'manage_options',
+            'sync',
+            'update',
+            false,
+            true,
+            true
         ));
     }
 
@@ -5143,7 +5181,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-option',
             'free',
-            'Update a single wp_options value by name. Refuses the same denylist as get-option, and is disabled by default until a site opts in with the wpmcp_enable_option_write filter. Snapshotted via object_type option; rollback-operation restores the prior value (or removes the option if it did not exist before)',
+            'Update one wp_options value by name. Refuses get-option\'s denylist; off until the wpmcp_enable_option_write filter opts in. Snapshotted; rollback-operation restores the prior value or removes a new option',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5595,7 +5633,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-template',
             'pro',
-            'Export an elementor_library template to a portable structure (content element tree + page_settings + conditions + type + version), the envelope import-template accepts and re-applies, so a saved template round-trips as JSON between sites with its page settings and display conditions intact. Read-only',
+            'Export an elementor_library template as the portable envelope import-template accepts (element tree, page_settings, conditions, type, version), so it round-trips between sites intact. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6274,7 +6312,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/reorder-elements',
             'pro',
-            'Reorder the children of one Elementor parent element (or the top level when parent_id is omitted) to an explicit id order. The order must be an exact permutation of the current children; anything else is refused before any write. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Reorder the children of one Elementor parent (or the top level without parent_id) to an explicit id order, which must be an exact permutation of the current children. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6499,7 +6537,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-product',
             'free',
-            'Delete a WooCommerce product (trash by default, force for permanent). Disabled by default (site must opt in via the wpmcp_enable_delete_product filter) and requires confirm:true. Snapshotted so it can be rolled back: force-delete resurrects the product at its original id with its price, stock, and terms',
+            'Delete a WooCommerce product (trash by default, force for permanent). Off until the wpmcp_enable_delete_product filter opts in; requires confirm:true. Snapshotted: rollback resurrects a force-deleted product at its id with price, stock and terms',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6661,7 +6699,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-low-stock-products',
             'free',
-            'List products and variations whose managed stock is at or below a threshold (default: the store\'s own low-stock setting) or that are marked out of stock, as summary rows whose ids feed update-product/update-variation for restocking. total and has_more count matches, so page while has_more is true. Read-only',
+            'List products and variations at or below a managed-stock threshold (default: the store\'s low-stock setting) or out of stock, as rows whose ids feed update-product/update-variation. Page while has_more is true. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7145,7 +7183,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/link-post-translations',
             'free',
-            'Link a set of posts as translations of one another, given a list of {language, post_id} pairs, via the active multilingual plugin (Polylang or WPML). The relationship spans multiple posts but only the primary (first) post is snapshotted, so rollback restores only the primary post, not the other linked posts',
+            'Link posts as translations of one another from {language, post_id} pairs via Polylang or WPML. Only the primary (first) post is snapshotted, so rollback restores that post, not the others',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7345,7 +7383,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/find-broken-links',
             'free',
-            'Scan published content for internal links that are dead, point at a post that is not public yet, or go through a redirect instead of straight to its target. Call with background:true to queue a batched scan, then with scan_id to poll its progress and findings. Read-only: it proposes fixes and changes nothing',
+            'Scan published content for internal links that are dead, point at a non-public post or go through a redirect. background:true queues a batched scan; poll it with scan_id. Read-only: proposes fixes, changes nothing',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7494,7 +7532,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-alt-text-from-context',
             'pro',
-            'Write alt text for a post\'s images that have none, from the filename, nearest heading, or post title. Never overwrites existing alt text unless overwrite_existing=true, and never touches images marked decorative. Dry run unless apply=true; applying writes the pass under one snapshot that one rollback reverts',
+            'Write missing alt text for a post\'s images from the filename, nearest heading or post title. Existing alt text is kept unless overwrite_existing=true; decorative images are never touched. Dry run unless apply=true; one snapshot, one rollback',
             [
                 'type'       => 'object',
                 'properties' => [
