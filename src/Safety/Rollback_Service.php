@@ -1041,6 +1041,13 @@ class Rollback_Service
 
         self::refresh_woocommerce_product($object_id);
         self::refresh_woocommerce_coupon($object_id);
+
+        /**
+         * Action: a post was put back by a rollback (issue #287), so code that
+         * caches output derived from its content (a block suite's per-post
+         * stylesheet) can rebuild it instead of serving the undone write's.
+         */
+        do_action('wpmcp_rollback_post_restored', $object_id);
     }
 
     /**

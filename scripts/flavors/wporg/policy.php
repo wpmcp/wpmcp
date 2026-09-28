@@ -157,6 +157,12 @@ return [
         // build them; the Kadence pack and the shared builder stay.
         'src/Integrations/Theme_Pack_GeneratePress.php',
         'src/Integrations/Theme_Pack_Blocksy.php',
+        // The block suite packs (issue #287): the pro block-suites pair and
+        // its helpers. strip.php removes register_block_suite_abilities(),
+        // its call site, and the rollback hook wiring in boot().
+        'src/Integrations/Block_Suites_Integration.php',
+        'src/Integrations/Block_Suite.php',
+        'src/Integrations/Block_Suite_Styles.php',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the
         // two handlers, the sanitizer, the store and the front-end renderer
         // all go. Named file by file rather than by directory because
