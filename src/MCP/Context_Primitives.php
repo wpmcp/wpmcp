@@ -177,6 +177,12 @@ class Context_Primitives
         return $resources;
     }
 
+    /** The ability backing one resource URI, or null for an unknown URI. */
+    public static function resource_ability(string $uri): ?string
+    {
+        return self::resource_catalog()[ $uri ]['ability'] ?? null;
+    }
+
     /** Whether a URI is one resources() currently offers. */
     public static function has_resource(string $uri): bool
     {
