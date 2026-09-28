@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Meta;
 
+use WPMCP\Tools\Content\Content_Guard;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -20,7 +22,7 @@ class Get_Post_Meta
     {
         $post_id = (int) ($args['post_id'] ?? 0);
         $post    = $post_id ? get_post($post_id) : null;
-        if (! $post) {
+        if (! $post || ! Content_Guard::is_agent_readable_post_type((string) $post->post_type)) {
             throw new \InvalidArgumentException('Post not found');
         }
 

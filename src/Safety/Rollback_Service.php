@@ -87,8 +87,9 @@ class Rollback_Service
         // restoring the OLDEST snapshot per object (its pre-session state).
         // Runs after the db_rows pass so that when both kinds touched the
         // same underlying rows, the exact whole-object restore wins.
-        $legacy = array_reverse($legacy); // oldest first, so we can unwind to the earliest
-        $seen   = [];
+        $legacy   = array_reverse($legacy); // oldest first, so we can unwind to the earliest
+        $seen     = [];
+        $deferred = [];
         foreach ($legacy as $snapshot) {
             $key = self::object_identity($snapshot);
             if (isset($seen[ $key ])) {
@@ -96,6 +97,18 @@ class Rollback_Service
                 continue;
             }
             $seen[ $key ] = true;
+            // A child-theme scaffold is undone LAST: its restore refuses to
+            // delete the active theme, so the stylesheet/template options a
+            // later switch-theme in the same session changed must be put back
+            // first, or the session rollback would leave the scaffold behind.
+            if ('theme_scaffold' === $snapshot['object_type']) {
+                $deferred[] = $snapshot;
+                continue;
+            }
+            self::apply_snapshot($snapshot);
+            $count++;
+        }
+        foreach ($deferred as $snapshot) {
             self::apply_snapshot($snapshot);
             $count++;
         }
@@ -357,6 +370,7 @@ class Rollback_Service
             'page_build',
             'media_import',
             'elementor_global_classes',
+            'theme_scaffold',
         ];
     }
 
@@ -465,6 +479,11 @@ class Rollback_Service
 
         if ('elementor_global_classes' === $snapshot['object_type']) {
             self::apply_elementor_global_classes_snapshot($snapshot);
+            return;
+        }
+
+        if ('theme_scaffold' === $snapshot['object_type']) {
+            self::apply_theme_scaffold_snapshot($snapshot);
             return;
         }
 
@@ -1203,6 +1222,103 @@ class Rollback_Service
         } catch (\Throwable $e) {
             self::warn('Elementor refused the global classes restore: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Undo a create-child-theme scaffold (see Snapshot::capture_theme_scaffold()).
+     *
+     * Only the scaffold's own files are touched: each is put back to its
+     * captured bytes, or deleted when it did not exist before. The directory
+     * is removed only when the scaffold created it AND nothing else has been
+     * added to it since; anything a person added afterwards is left in place
+     * with a warning, never deleted as collateral.
+     *
+     * A scaffold that is currently the active theme (or the parent of it) is
+     * left alone with a warning: deleting the active theme's files would take
+     * the front end down, which is the opposite of what an undo is for.
+     * Switch themes first (itself an undoable operation), then roll back.
+     */
+    private static function apply_theme_scaffold_snapshot(array $snapshot): void
+    {
+        $data = (array) ($snapshot['data'] ?? []);
+        $slug = (string) ($data['slug'] ?? '');
+
+        if ('' === $slug || sanitize_key($slug) !== $slug) {
+            self::warn('Child theme scaffold cannot be restored: the snapshot carries no valid theme slug.');
+            return;
+        }
+
+        $dir = trailingslashit(get_theme_root()) . $slug;
+        if (is_link($dir)) {
+            self::warn(sprintf('Child theme "%s" was not rolled back: its directory is now a symlink.', $slug));
+            return;
+        }
+        if (! is_dir($dir)) {
+            if (! empty($data['dir_existed'])) {
+                self::warn(sprintf('Child theme "%s" was not rolled back: its directory no longer exists.', $slug));
+            }
+            return;
+        }
+        if (get_stylesheet() === $slug || get_template() === $slug) {
+            self::warn(sprintf('Child theme "%s" is the active theme, so its files were left in place. Switch to another theme, then roll back again.', $slug));
+            return;
+        }
+
+        $fs        = self::direct_filesystem();
+        $too_large = (array) ($data['too_large'] ?? []);
+        foreach (Snapshot::THEME_SCAFFOLD_FILES as $file) {
+            $path = $dir . '/' . $file;
+            if (in_array($file, $too_large, true)) {
+                self::warn(sprintf('Child theme "%s": %s was too large to capture and was left as it is.', $slug, $file));
+                continue;
+            }
+            if (is_link($path)) {
+                self::warn(sprintf('Child theme "%s": %s is now a symlink and was left as it is.', $slug, $file));
+                continue;
+            }
+            $before = $data['files'][ $file ] ?? null;
+            if (null === $before) {
+                if (is_file($path)) {
+                    $fs->delete($path);
+                }
+                continue;
+            }
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- decodes the file bytes Snapshot::capture_theme_scaffold() encoded, not obfuscation.
+            $bytes = base64_decode((string) $before, true);
+            if (false === $bytes || ! $fs->put_contents($path, $bytes, 0644)) {
+                self::warn(sprintf('Child theme "%s": %s could not be restored.', $slug, $file));
+            }
+        }
+
+        if (empty($data['dir_existed'])) {
+            $left = array_diff((array) scandir($dir), ['.', '..']);
+            if ([] === $left) {
+                $fs->rmdir($dir);
+            } else {
+                self::warn(sprintf('Child theme "%s": the scaffold files were removed, but the directory was kept because it holds files the scaffold did not create.', $slug));
+            }
+        }
+
+        // WP_Theme caches parsed headers per directory, and
+        // wp_clean_themes_cache() only flushes themes it still finds on disk,
+        // so the removed child's own entry is dropped explicitly first;
+        // otherwise wp_get_theme() keeps reporting it as installed.
+        wp_get_theme($slug)->cache_delete();
+        wp_clean_themes_cache();
+    }
+
+    /**
+     * A direct-method WP_Filesystem for the theme scaffold restore. Plugin
+     * Check promotes WordPress.WP.AlternativeFunctions to an error, so file
+     * writes and deletes go through WP_Filesystem; the direct transport is
+     * used explicitly because a rollback cannot stop to prompt for FTP
+     * credentials, and the scaffold being undone was written the same way.
+     */
+    private static function direct_filesystem(): \WP_Filesystem_Direct
+    {
+        require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-base.php';
+        require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-direct.php';
+        return new \WP_Filesystem_Direct(null);
     }
 
     /** Human-readable "pk=value" description of a row's primary-key values, for warnings and errors. */
