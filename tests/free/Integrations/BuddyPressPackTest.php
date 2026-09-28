@@ -596,15 +596,18 @@ class BuddyPressPackTest extends \WP_UnitTestCase
         $asker   = self::factory()->user->create();
         $request = wpmcp_test_bp_insert('bp_invitations', [ 'user_id' => $asker, 'inviter_id' => 0, 'class' => 'BP_Groups_Invitation_Manager', 'item_id' => $id, 'type' => 'request', 'content' => '', 'date_modified' => '2026-01-02 03:04:05' ]);
         $other   = wpmcp_test_bp_insert('bp_invitations', [ 'user_id' => $asker, 'inviter_id' => 0, 'class' => 'Some_Other_Manager', 'item_id' => $id, 'type' => 'invite', 'content' => '', 'date_modified' => '2026-01-02 03:04:05' ]);
+        $notice  = wpmcp_test_bp_insert('bp_notifications', [ 'user_id' => $this->admin, 'item_id' => $id, 'secondary_item_id' => $asker, 'component_name' => 'groups', 'component_action' => 'new_membership_request', 'date_notified' => '2026-01-02 03:04:05', 'is_new' => 1 ]);
         $before  = wpmcp_test_bp_dump();
         $marks   = BuddyPress_Rows_Snapshot::watermarks();
 
         $out = $this->write('buddypress-update-group', [ 'id' => $id, 'status' => 'public' ]);
         $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
 
-        // BuddyPress accepts pending requests when a private group goes public.
+        // BuddyPress accepts pending requests when a private group goes
+        // public, and marks the admins' notification of each request read.
         $table = $wpdb->base_prefix . 'bp_invitations';
         $wpdb->update($table, [ 'accepted' => 1 ], [ 'id' => $request ]);
+        $wpdb->update($wpdb->base_prefix . 'bp_notifications', [ 'is_new' => 0 ], [ 'id' => $notice ]);
         wpmcp_test_bp_member($id, $asker);
         BuddyPress_Rows_Snapshot::record_created((string) $out['operation_id'], BuddyPress_Rows_Snapshot::created_since($marks));
         $wpdb->update($table, [ 'accepted' => 1 ], [ 'id' => $other ]);
@@ -616,6 +619,7 @@ class BuddyPressPackTest extends \WP_UnitTestCase
         $rows = array_column($after['bp_invitations'], null, 'id');
         $this->assertSame('0', $rows[ $request ]['accepted'], 'the request is pending again');
         $this->assertSame('1', $rows[ $other ]['accepted'], "another component's invitation is not the group's to restore");
+        $this->assertSame($before['bp_notifications'], $after['bp_notifications'], 'the request notification is unread again');
     }
 
     public function test_an_activity_snapshot_covers_its_whole_thread_and_its_notifications(): void
