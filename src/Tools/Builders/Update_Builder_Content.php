@@ -17,6 +17,9 @@ if (! defined('ABSPATH')) {
  * string, or one element operation (update / add / remove / move) addressed
  * by the dotted paths get-builder-content returns, written to post_content
  * with the WPBakery meta kept in step (see WPBakery_Content::save).
+ * Avada: the same two forms over its shortcodes, written to post_content
+ * with its builder flag set and its dynamic CSS invalidated (see
+ * Avada_Content::save).
  * Beaver Builder: either a whole node tree as a JSON string, or one
  * operation addressed by node id, written to its layout meta (see
  * Beaver_Builder_Content::save).
@@ -62,6 +65,10 @@ class Update_Builder_Content
             return $this->update_wpbakery($post_id, $args);
         }
 
+        if ('avada' === $builder) {
+            return $this->update_avada($post_id, $args);
+        }
+
         if ('beaver-builder' === $builder) {
             return $this->update_beaver_builder($post_id, $args);
         }
@@ -72,7 +79,7 @@ class Update_Builder_Content
 
         return new \WP_Error(
             'unsupported_builder',
-            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'beaver-builder', 'breakdance' and 'oxygen'; got '{$builder}'."
+            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance' and 'oxygen'; got '{$builder}'."
         );
     }
 
@@ -286,7 +293,7 @@ class Update_Builder_Content
             }
 
             try {
-                [$content, $path] = $this->apply_operation(WPBakery_Content::get_content($post_id), $operation, $args);
+                [$content, $path] = $this->apply_operation(WPBakery_Shortcodes::class, WPBakery_Content::get_content($post_id), $operation, $args);
             } catch (\InvalidArgumentException $e) {
                 return new \WP_Error('invalid_wpbakery_operation', $e->getMessage());
             }
@@ -315,12 +322,63 @@ class Update_Builder_Content
     }
 
     /**
-     * Apply one element operation to the shortcode string.
+     * Avada pages: whole shortcode content or one element operation, only on
+     * a page detected as Avada or as plain classic content.
+     */
+    private function update_avada(int $post_id, array $args)
+    {
+        $operation = (string) ($args['operation'] ?? '');
+        $content   = $args['content'] ?? null;
+        $path      = null;
+
+        if ('' === $operation && ! is_string($content)) {
+            return new \WP_Error('invalid_avada_content', 'Avada content must be a shortcode string, or pass an operation.');
+        }
+
+        $detected = Builder_Detector::detect($post_id);
+        if (! in_array($detected, ['avada', 'classic'], true)) {
+            return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not an Avada page.");
+        }
+
+        if ('' !== $operation) {
+            try {
+                [$content, $path] = $this->apply_operation(Avada_Shortcodes::class, Avada_Content::get_content($post_id), $operation, $args);
+            } catch (\InvalidArgumentException $e) {
+                return new \WP_Error('invalid_avada_operation', $e->getMessage());
+            }
+        }
+
+        $out = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $post_id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-builder-content',
+                'args'        => $args,
+            ],
+            function () use ($post_id, $content) {
+                Avada_Content::save($post_id, $content);
+                return true;
+            }
+        );
+
+        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'avada'];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Apply one element operation to a shortcode string, through the parser
+     * of that builder's dialect.
      *
+     * @param class-string<WPBakery_Shortcodes> $parser
      * @return array{0:string,1:?string} new content, and the element's new
      *                                    path when the operation knows it
      */
-    private function apply_operation(string $content, string $operation, array $args): array
+    private function apply_operation(string $parser, string $content, string $operation, array $args): array
     {
         $path  = (string) ($args['path'] ?? '');
         $to    = (string) ($args['to'] ?? '');
@@ -336,20 +394,20 @@ class Update_Builder_Content
                 if (null !== $text && ! is_string($text)) {
                     throw new \InvalidArgumentException(esc_html('text must be a string.'));
                 }
-                return [WPBakery_Shortcodes::update($content, $path, $attrs, $text), $path];
+                return [$parser::update($content, $path, $attrs, $text), $path];
 
             case 'add':
                 $element = $args['element'] ?? null;
                 if (! is_array($element)) {
                     throw new \InvalidArgumentException(esc_html('add needs an element object: {tag, attrs?, text? | children?}.'));
                 }
-                return WPBakery_Shortcodes::add($content, $to, $index, $element);
+                return $parser::add($content, $to, $index, $element);
 
             case 'remove':
-                return [WPBakery_Shortcodes::remove($content, $path), null];
+                return [$parser::remove($content, $path), null];
 
             case 'move':
-                return [WPBakery_Shortcodes::move($content, $path, $to, $index), null];
+                return [$parser::move($content, $path, $to, $index), null];
         }
 
         throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove or move."));
