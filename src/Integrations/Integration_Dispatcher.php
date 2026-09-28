@@ -47,6 +47,14 @@ if (! defined('ABSPATH')) {
  *                           (flagged dependency_met:false) so list-operations still
  *                           documents it, but the handler is never reached and
  *                           no snapshot is written
+ *      'validate'           callable(array $args) returning null to proceed or
+ *                           ['code', 'message', 'data'] to refuse. Runs after
+ *                           schema validation and BEFORE the handler and
+ *                           before any snapshot is captured, so an op's own
+ *                           preconditions refuse with no side effects. A
+ *                           handler may also throw Operation_Refused for a
+ *                           failure only discoverable mid-write; both surface
+ *                           as the ordinary top-level error envelope
  *      'snapshot'           write/destructive ops only: callable(array $args)
  *                           returning ['object_type' => ..., 'object_id' => ...]
  *                           (plus optional 'extra_snapshot_data', merged into
@@ -65,7 +73,7 @@ if (! defined('ABSPATH')) {
  * effects and writes no snapshot):
  *   availability -> op exists in this channel -> enabled flag/filter ->
  *   op-level governance -> per-op capability -> per-op 'requires' dependency ->
- *   destructive confirm:true -> schema validation -> handler.
+ *   destructive confirm:true -> schema validation -> per-op validate() -> handler.
  *
  * Layering with the platform gates: the pair's own capability, Governance,
  * identity scope, and pro-tier gates all apply unchanged through
@@ -318,6 +326,22 @@ abstract class Integration_Dispatcher
             ]);
         }
 
+        // Pre-dispatch refusal hook: an op whose own preconditions (an
+        // allowlist, a filesystem gate, a slug that will not confine) can be
+        // decided from the args alone rejects HERE, before any handler runs
+        // and, crucially, before run_write() captures a snapshot. That keeps
+        // the guarantee above literally true rather than nearly true.
+        if (isset($def['validate'])) {
+            $refusal = ($def['validate'])($op_args);
+            if (is_array($refusal) && isset($refusal['code'])) {
+                return $this->error(
+                    (string) $refusal['code'],
+                    (string) ($refusal['message'] ?? ''),
+                    (array) ($refusal['data'] ?? [])
+                );
+            }
+        }
+
         try {
             if ('read' === $channel) {
                 return $this->ok($op, ($def['handler'])($op_args));
@@ -334,6 +358,11 @@ abstract class Integration_Dispatcher
                 $e->getMessage(),
                 $e->error_data() + [ 'operation' => $op ]
             );
+        } catch (Operation_Refused $e) {
+            // Mid-write failures (mkdir, file write) surface as the same
+            // top-level envelope as every other refusal, never as a
+            // successful result carrying an 'error' key.
+            return $this->error($e->error_code(), $e->getMessage(), $e->error_data());
         }
     }
 
