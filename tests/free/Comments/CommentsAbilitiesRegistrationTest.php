@@ -10,6 +10,8 @@ class CommentsAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/moderate-comment',
         'wpmcp/edit-comment',
         'wpmcp/delete-comment',
+        'wpmcp/create-comment',
+        'wpmcp/reply-to-comment',
     ];
 
     public function test_all_comment_tools_are_registered_as_free_abilities(): void
