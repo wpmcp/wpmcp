@@ -4329,7 +4329,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/parse-blocks',
             'free',
-            'Parse block markup into its block tree via parse_blocks(). Accepts either "blocks" (raw markup) or "id" (an existing post, parses its post_content). Each node reports blockName, attrs, recursively parsed innerBlocks, and an innerHTML summary. Read-only',
+            'Parse block markup into its block tree via parse_blocks(). Takes "blocks" (raw markup) or "id" (parses that post\'s post_content). Each node reports blockName, attrs, recursively parsed innerBlocks, and an innerHTML summary. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5631,7 +5631,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-analytics-summary',
             'free',
-            'Read-only sessions/users/pageviews summary over a date range (Y-m-d, defaulting to a trailing 28-day window ending yesterday) via the connected analytics provider. Returns an error when no provider is connected',
+            'Read-only sessions/users/pageviews summary over a date range (Y-m-d; default the 28 days ending yesterday) from the connected analytics provider. Errors when no provider is connected',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5648,7 +5648,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-top-pages',
             'free',
-            'Read-only list of top pages by pageviews over a date range (Y-m-d, defaulting to a trailing 28-day window ending yesterday) via the connected analytics provider, with optional limit (default 10, capped at 100). Returns an error when no provider is connected',
+            'Read-only list of top pages by pageviews over a date range (Y-m-d; default the 28 days ending yesterday) from the connected analytics provider; limit default 10, max 100. Errors when no provider is connected',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5666,7 +5666,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-search-console-summary',
             'free',
-            'Read-only clicks/impressions/ctr/position summary over a date range (Y-m-d, defaulting to a trailing 28-day window ending yesterday) via the connected Search Console provider. Returns an error when no provider is connected',
+            'Read-only clicks/impressions/ctr/position summary over a date range (Y-m-d; default the 28 days ending yesterday) from the connected Search Console provider. Errors when no provider is connected',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5683,7 +5683,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-search-console-queries',
             'free',
-            'Read-only list of top search queries by clicks over a date range (Y-m-d, defaulting to a trailing 28-day window ending yesterday) via the connected Search Console provider, with optional limit (default 10, capped at 100). Returns an error when no provider is connected',
+            'Read-only list of top search queries by clicks over a date range (Y-m-d; default the 28 days ending yesterday) from the connected Search Console provider; limit default 10, max 100. Errors when no provider is connected',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8006,7 +8006,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/build-page',
             'free',
-            'Build a complete page from ONE declarative spec (title, recursive sections/blocks tree, existing attachment ids as media, optional menu placement) as one atomic, recoverable operation. The spec is strictly validated (node-path-addressed errors; bounded size, nodes and depth) before any write; a failed build removes everything it created; success returns one operation_id whose rollback-operation removes the page and its menu placement. Markup is composed deterministically; nothing in the spec is evaluated or executed. dialect "gutenberg" (default, free) writes block markup, "elementor" (PRO, needs Elementor) an _elementor_data tree. dry_run=true validates and composes WITHOUT writing, reporting element counts per node type, nesting depth, markup size, unknown widget types, coerced atomic props and every referential problem at once',
+            'Compose a complete page from ONE declarative spec: title, a recursive sections/blocks tree, media references (existing attachment ids), and optional menu placement. The whole composition is a single atomic, recoverable operation: the spec is strictly validated (node-path-addressed errors, bounded size/nodes/depth) before any write, a mid-build failure automatically removes everything it created, and on success one operation_id is returned whose rollback-operation removes the page and its menu placement entirely. Markup is composed deterministically from the spec; nothing in the spec is evaluated or executed. dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree. Set dry_run=true to validate and compose WITHOUT writing: the reply reports element counts per node type, nesting depth, markup size, unknown widget types, atomic props that had to be coerced, and every referential problem at once',
             [
                 'type'       => 'object',
                 'properties' => [
