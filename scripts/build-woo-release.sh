@@ -87,6 +87,7 @@ rm -rf \
   "$STAGE/src/Tools/Bridge" \
   "$STAGE/src/Tools/WidgetBuilder" \
   "$STAGE/src/Tools/BlockBuilder" \
+  "$STAGE/src/Tools/ThemeBuilder" \
   "$STAGE/src/Tools/Cloud" \
   "$STAGE/src/Tools/Search" \
   "$STAGE/src/Cloud" \
@@ -146,7 +147,17 @@ rm -f \
   "$STAGE/src/Tools/Code/Update_Php_Snippet.php" \
   "$STAGE/src/Tools/Code/Delete_Php_Snippet.php" \
   "$STAGE/src/Tools/Code/Activate_Php_Snippet.php" \
-  "$STAGE/src/Tools/Code/Deactivate_Php_Snippet.php"
+  "$STAGE/src/Tools/Code/Deactivate_Php_Snippet.php" \
+  "$STAGE/src/Tools/CustomCode/Add_Scoped_Css.php" \
+  "$STAGE/src/Tools/CustomCode/Add_Custom_Js.php" \
+  "$STAGE/src/Tools/CustomCode/Css_Sanitizer.php" \
+  "$STAGE/src/Tools/CustomCode/Custom_Code_Store.php" \
+  "$STAGE/src/Tools/CustomCode/Custom_Code_Renderer.php"
+
+# Same split for custom code (issue #63): the custom_code group is absent
+# from this flavor's FLAVOR_GROUPS allowlist, so the tools and the renderer
+# are dead weight here, but Custom_Js_Guard stays because Opt_In_Gates
+# references it exactly as it references the wp-cli and PHP-snippet guards.
 
 # The in-admin chat (issue #73) is a paid feature this free-only build can
 # never run: Pro\Gate fails closed here, so its routes and screen are never
