@@ -44,12 +44,25 @@ class SiteTemplatesTest extends \WP_UnitTestCase
     {
         add_filter('stylesheet', [$this, 'block_theme_slug']);
         add_filter('template', [$this, 'block_theme_slug']);
+        $this->forget_theme_data();
     }
 
     private function use_classic_theme(): void
     {
         remove_filter('stylesheet', [$this, 'block_theme_slug']);
         remove_filter('template', [$this, 'block_theme_slug']);
+        $this->forget_theme_data();
+    }
+
+    /**
+     * Part areas come from the theme's theme.json, which core memoizes per
+     * request. switch_theme() clears that cache; switching through filters
+     * does not, so an earlier test's theme data would otherwise leak in.
+     */
+    private function forget_theme_data(): void
+    {
+        \WP_Theme_JSON_Resolver::clean_cached_data();
+        wp_clean_theme_json_cache();
     }
 
     public function block_theme_slug(): string
