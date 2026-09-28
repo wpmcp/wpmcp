@@ -148,6 +148,30 @@ class Snapshot_Store
         return (int) $wpdb->insert_id;
     }
 
+    /**
+     * Rewrite a persisted undo point, for a write that only learns after it
+     * ran what its undo must also cover (the rows a host plugin's hooks
+     * added, the id the host assigned). Loud on failure, like save().
+     *
+     * @throws Mutation_Failed When the snapshot row could not be rewritten.
+     */
+    public static function update_snapshot(string $operation_id, array $snapshot): void
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
+        $written = $wpdb->update(self::table_name(), [
+            'object_id'   => self::db_object_id($snapshot),
+            'before_blob' => Snapshot::serialize($snapshot),
+        ], [ 'operation_id' => $operation_id ]);
+
+        if (false === $written) {
+            throw new Mutation_Failed(
+                'The change was made, but its undo point could not be completed'
+                    . ($wpdb->last_error ? ' (' . esc_html($wpdb->last_error) . ')' : '') . '.'
+            );
+        }
+    }
+
     public static function get_by_operation(string $operation_id): ?array
     {
         global $wpdb;

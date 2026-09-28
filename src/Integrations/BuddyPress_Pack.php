@@ -19,16 +19,22 @@ if (! defined('ABSPATH')) {
  * list_users; a membership request's message and activity meta (where an IP
  * or other personal data can sit) are never returned. Activity content is.
  *
- * Writes run at manage_options and are prepared SQL on BuddyPress's own
- * tables, in the shape its models write, followed by the cache flushes its
- * models do. They skip BuddyPress's action hooks (no activity item or
- * notification for a new group). Each is snapshotted first as a
- * 'buddypress_rows' image of every row it touches, so rollback-operation
- * restores exactly: a created group is removed with its meta and the
- * creator's membership, and a deleted activity item returns with its whole
- * reply thread and meta at their own ids. Presence is filterable through
- * wpmcp_buddypress_active; an op whose component tables are missing answers
- * buddypress_component_inactive.
+ * Writes run at manage_options. While BuddyPress is loaded they run through
+ * its own API (issue #363), the way its screens do, so its hooks fire: a new
+ * group gets its "created the group" activity item, a group edit fires
+ * groups_details_updated and groups_settings_updated, a profile field is
+ * saved through BP_XProfile_Field, and activity is hidden and deleted through
+ * BP_Activity_Activity and bp_activity_delete(). Without BuddyPress's
+ * functions they fall back to prepared SQL on its tables, in the shape its
+ * models write, followed by the cache flushes its models do.
+ *
+ * Each write is snapshotted first as a 'buddypress_rows' image of every row
+ * it touches, and records every row it and its hooks created, so
+ * rollback-operation restores exactly: a created group is removed with its
+ * meta, the creator's membership and its activity item, and a deleted
+ * activity item returns with its whole reply thread and meta at their own
+ * ids. Presence is filterable through wpmcp_buddypress_active; an op whose
+ * component tables are missing answers buddypress_component_inactive.
  */
 final class BuddyPress_Pack
 {
@@ -180,7 +186,7 @@ final class BuddyPress_Pack
                 'requires'     => $groups,
                 'validate'     => static fn (array $args): ?array => self::group_refusal((int) $args['id']) ?? self::name_refusal($args),
                 'snapshot'     => $row('group'),
-                'handler'      => static fn (array $args): array => self::update_group($args),
+                'handler'      => static fn (array $args, array $context): array => self::update_group($args, (string) ($context['operation_id'] ?? '')),
             ],
             'buddypress-update-profile-field' => [
                 'mode'         => 'write',
@@ -201,7 +207,7 @@ final class BuddyPress_Pack
                 'requires'     => $xprofile,
                 'validate'     => static fn (array $args): ?array => self::field_refusal((int) $args['id']) ?? self::name_refusal($args),
                 'snapshot'     => $row('xprofile_field'),
-                'handler'      => static fn (array $args): array => self::update_field($args),
+                'handler'      => static fn (array $args, array $context): array => self::update_field($args, (string) ($context['operation_id'] ?? '')),
             ],
             'buddypress-hide-activity'        => [
                 'mode'         => 'write',
@@ -218,7 +224,7 @@ final class BuddyPress_Pack
                 'requires'     => $activity,
                 'validate'     => static fn (array $args): ?array => self::activity_refusal((int) $args['id']),
                 'snapshot'     => $row('activity'),
-                'handler'      => static fn (array $args): array => self::hide_activity((int) $args['id'], (bool) ($args['hidden'] ?? true)),
+                'handler'      => static fn (array $args, array $context): array => self::hide_activity((int) $args['id'], (bool) ($args['hidden'] ?? true), (string) ($context['operation_id'] ?? '')),
             ],
             'buddypress-delete-activity'      => [
                 'mode'         => 'destructive',
@@ -228,7 +234,7 @@ final class BuddyPress_Pack
                 'requires'     => $activity,
                 'validate'     => static fn (array $args): ?array => self::activity_refusal((int) $args['id']),
                 'snapshot'     => $row('activity'),
-                'handler'      => static fn (array $args): array => self::delete_activity((int) $args['id']),
+                'handler'      => static fn (array $args, array $context): array => self::delete_activity((int) $args['id'], (string) ($context['operation_id'] ?? '')),
             ],
         ];
     }
@@ -449,42 +455,97 @@ final class BuddyPress_Pack
 
     private static function create_group(array $args, array $context): array
     {
-        global $wpdb;
-
-        $target = (array) ($context['target'] ?? []);
-        $id     = BuddyPress_Rows_Snapshot::parse((string) ($target['object_id'] ?? ''))['id'];
-        $slug   = (string) ($target['extra_snapshot_data']['created']['slug'] ?? '');
-        $now    = current_time('mysql', true);
+        $target    = (array) ($context['target'] ?? []);
+        $id        = BuddyPress_Rows_Snapshot::parse((string) ($target['object_id'] ?? ''))['id'];
+        $slug      = (string) ($target['extra_snapshot_data']['created']['slug'] ?? '');
+        $operation = (string) ($context['operation_id'] ?? '');
+        $creator   = (int) ($args['creator_id'] ?? get_current_user_id());
+        $fields    = [
+            'name'        => sanitize_text_field((string) $args['name']),
+            'description' => wp_kses_data((string) ($args['description'] ?? '')),
+            'status'      => (string) ($args['status'] ?? 'public'),
+        ];
 
         try {
             if ($id <= 0 || '' === $slug) {
                 throw new Operation_Refused('write_failed', 'Could not reserve an id for the group.');
             }
-            $creator = (int) ($args['creator_id'] ?? get_current_user_id());
-            // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.SlowDBQuery.slow_db_query_meta_key, WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- BuddyPress's own tables; the id was reserved before the snapshot so the undo removes exactly this group.
-            $ok = $wpdb->insert(BuddyPress_Rows_Snapshot::table('bp_groups'), [
-                'id'           => $id,
-                'creator_id'   => $creator,
-                'name'         => sanitize_text_field((string) $args['name']),
-                'slug'         => $slug,
-                'description'  => wp_kses_data((string) ($args['description'] ?? '')),
-                'status'       => (string) ($args['status'] ?? 'public'),
-                'parent_id'    => 0,
-                'enable_forum' => 0,
-                'date_created' => $now,
-            ]);
-            if (false === $ok) {
-                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-                throw new Operation_Refused('write_failed', 'Could not create the group: ' . $wpdb->last_error);
-            }
-        } catch (\Throwable $e) {
+            $id = BuddyPress_Rows_Snapshot::tracked(
+                $operation,
+                static fn (): array => function_exists('groups_create_group')
+                    ? self::create_group_through_buddypress($fields, $slug, $creator)
+                    : self::create_group_directly($fields, $slug, $creator, $id),
+                true
+            );
+        } catch (Operation_Refused $e) {
             // Nothing was written (another create may have taken the reserved
             // id), but the snapshot is already persisted. Left in place,
             // rolling it back would remove whatever group now holds the id.
-            if ('' !== (string) ($context['operation_id'] ?? '')) {
-                Snapshot_Store::delete_operation((string) $context['operation_id']);
+            if ('' !== $operation) {
+                Snapshot_Store::delete_operation($operation);
             }
             throw $e;
+        }
+
+        return [ 'group' => self::group_view(self::must_group($id), true) ];
+    }
+
+    /**
+     * Create a group the way BuddyPress's group creation screen does
+     * (bp-groups/actions/create.php): groups_create_group(), which adds the
+     * creator as its admin, then the created_group activity item and
+     * groups_group_create_complete once the group is complete.
+     *
+     * @return array{0: int, 1: array{id: int, slug: string}}
+     */
+    private static function create_group_through_buddypress(array $fields, string $slug, int $creator): array
+    {
+        $id = groups_create_group([
+            'creator_id'   => $creator,
+            'name'         => $fields['name'],
+            'description'  => $fields['description'],
+            'slug'         => $slug,
+            'status'       => $fields['status'],
+            'date_created' => bp_core_current_time(),
+        ]);
+        if (! is_numeric($id) || (int) $id <= 0) {
+            throw new Operation_Refused('write_failed', 'BuddyPress could not create the group.');
+        }
+        $id = (int) $id;
+        if (function_exists('bp_is_active') && bp_is_active('activity')) {
+            groups_record_activity([ 'type' => 'created_group', 'item_id' => $id, 'user_id' => $creator ]);
+        }
+        /** Fired by BuddyPress's group creation screen once a new group is complete. */
+        do_action('groups_group_create_complete', $id); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- BuddyPress's own hook, fired as its creation screen fires it.
+
+        return [ $id, [ 'id' => $id, 'slug' => (string) (self::group_row($id)['slug'] ?? $slug) ] ];
+    }
+
+    /**
+     * Create a group straight in BuddyPress's tables, at the reserved id.
+     *
+     * @return array{0: int, 1: array{id: int, slug: string}}
+     */
+    private static function create_group_directly(array $fields, string $slug, int $creator, int $id): array
+    {
+        global $wpdb;
+
+        $now = current_time('mysql', true);
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.SlowDBQuery.slow_db_query_meta_key, WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- BuddyPress's own tables; the id was reserved before the snapshot so the undo removes exactly this group.
+        $ok = $wpdb->insert(BuddyPress_Rows_Snapshot::table('bp_groups'), [
+            'id'           => $id,
+            'creator_id'   => $creator,
+            'name'         => $fields['name'],
+            'slug'         => $slug,
+            'description'  => $fields['description'],
+            'status'       => $fields['status'],
+            'parent_id'    => 0,
+            'enable_forum' => 0,
+            'date_created' => $now,
+        ]);
+        if (false === $ok) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
+            throw new Operation_Refused('write_failed', 'Could not create the group: ' . $wpdb->last_error);
         }
 
         // The creator becomes the first member and admin, as
@@ -509,13 +570,11 @@ final class BuddyPress_Pack
         // phpcs:enable
         BuddyPress_Rows_Snapshot::flush('group_created', [ $id ]);
 
-        return [ 'group' => self::group_view(self::must_group($id), true) ];
+        return [ $id, [ 'id' => $id, 'slug' => $slug ] ];
     }
 
-    private static function update_group(array $args): array
+    private static function update_group(array $args, string $operation): array
     {
-        global $wpdb;
-
         $id     = (int) $args['id'];
         $fields = [];
         if (isset($args['name'])) {
@@ -527,14 +586,67 @@ final class BuddyPress_Pack
         if (isset($args['status'])) {
             $fields['status'] = (string) $args['status'];
         }
+
+        BuddyPress_Rows_Snapshot::tracked(
+            $operation,
+            static function () use ($id, $fields): void {
+                if (function_exists('groups_edit_base_group_details') && function_exists('groups_edit_group_settings')) {
+                    self::update_group_through_buddypress($id, $fields);
+                } else {
+                    self::update_group_directly($id, $fields);
+                }
+            }
+        );
+
+        return [ 'group' => self::group_view(self::must_group($id), true), 'changed' => array_keys($fields) ];
+    }
+
+    /**
+     * Edit a group the way the group admin screens do: name and description
+     * through groups_edit_base_group_details() (without notifying members),
+     * status through groups_edit_group_settings(), which also accepts the
+     * pending membership requests when a private group goes public.
+     */
+    private static function update_group_through_buddypress(int $id, array $fields): void
+    {
+        if (isset($fields['name']) || isset($fields['description'])) {
+            // BuddyPress never writes an empty description through this
+            // function, so an emptied one is saved on the group first.
+            if ('' === ($fields['description'] ?? null)) {
+                $group              = groups_get_group($id);
+                $group->description = '';
+                if (! $group->save()) {
+                    throw new Operation_Refused('write_failed', 'BuddyPress could not update the group.');
+                }
+            }
+            $ok = groups_edit_base_group_details([
+                'group_id'       => $id,
+                'name'           => $fields['name'] ?? null,
+                'description'    => '' === ($fields['description'] ?? '') ? null : $fields['description'],
+                'notify_members' => false,
+            ]);
+            if (! $ok) {
+                throw new Operation_Refused('write_failed', 'BuddyPress could not update the group.');
+            }
+        }
+        if (isset($fields['status'])) {
+            $group = groups_get_group($id);
+            if (! groups_edit_group_settings($id, (int) $group->enable_forum, $fields['status'])) {
+                throw new Operation_Refused('write_failed', 'BuddyPress could not update the group settings.');
+            }
+        }
+    }
+
+    private static function update_group_directly(int $id, array $fields): void
+    {
+        global $wpdb;
+
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- BuddyPress's own table; snapshotted by the dispatcher first.
         if ([] !== $fields && false === $wpdb->update(BuddyPress_Rows_Snapshot::table('bp_groups'), $fields, [ 'id' => $id ])) {
             // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
             throw new Operation_Refused('write_failed', 'Could not update the group: ' . $wpdb->last_error);
         }
         BuddyPress_Rows_Snapshot::flush('group', [ $id ]);
-
-        return [ 'group' => self::group_view(self::must_group($id), true), 'changed' => array_keys($fields) ];
     }
 
     /** A slug no other group has, from the name, the way groups_check_slug() makes one. */
@@ -644,7 +756,51 @@ final class BuddyPress_Pack
         return [ 'total' => $total, 'activity' => $items ];
     }
 
-    private static function hide_activity(int $id, bool $hidden): array
+    private static function hide_activity(int $id, bool $hidden, string $operation): array
+    {
+        BuddyPress_Rows_Snapshot::tracked(
+            $operation,
+            static function () use ($id, $hidden): void {
+                if (class_exists('BP_Activity_Activity')) {
+                    self::hide_activity_through_buddypress($id, $hidden);
+                } else {
+                    self::hide_activity_directly($id, $hidden);
+                }
+            }
+        );
+
+        $users = [];
+        return [ 'activity' => self::activity_view((array) self::activity_row($id), $users) ];
+    }
+
+    /**
+     * Save the item's hide_sitewide flag through BP_Activity_Activity, so
+     * bp_activity_before_save and bp_activity_after_save fire. The @mention
+     * pass is held off for this save: it would link the mentions a second
+     * time and notify the mentioned members again for a visibility change.
+     */
+    private static function hide_activity_through_buddypress(int $id, bool $hidden): void
+    {
+        $activity                = new \BP_Activity_Activity($id);
+        $activity->hide_sitewide = $hidden ? 1 : 0;
+
+        $mentions = has_action('bp_activity_before_save', 'bp_activity_at_name_filter_updates');
+        if (false !== $mentions) {
+            remove_action('bp_activity_before_save', 'bp_activity_at_name_filter_updates', (int) $mentions);
+        }
+        try {
+            $ok = $activity->save();
+        } finally {
+            if (false !== $mentions) {
+                add_action('bp_activity_before_save', 'bp_activity_at_name_filter_updates', (int) $mentions);
+            }
+        }
+        if (! $ok) {
+            throw new Operation_Refused('write_failed', 'BuddyPress could not change the activity item.');
+        }
+    }
+
+    private static function hide_activity_directly(int $id, bool $hidden): void
     {
         global $wpdb;
 
@@ -654,17 +810,48 @@ final class BuddyPress_Pack
             throw new Operation_Refused('write_failed', 'Could not change the activity item: ' . $wpdb->last_error);
         }
         BuddyPress_Rows_Snapshot::flush('activity', [ $id ]);
-
-        $users = [];
-        return [ 'activity' => self::activity_view((array) self::activity_row($id), $users) ];
     }
 
-    private static function delete_activity(int $id): array
+    private static function delete_activity(int $id, string $operation): array
+    {
+        $ids = BuddyPress_Rows_Snapshot::activity_thread($id);
+        BuddyPress_Rows_Snapshot::tracked(
+            $operation,
+            static function () use ($id, $ids): void {
+                if (function_exists('bp_activity_delete') && function_exists('bp_activity_delete_comment')) {
+                    self::delete_activity_through_buddypress($id);
+                } else {
+                    self::delete_activity_directly($ids);
+                }
+            }
+        );
+
+        return [ 'deleted' => $ids ];
+    }
+
+    /**
+     * Delete the way BuddyPress does: a reply through
+     * bp_activity_delete_comment(), which takes the replies below it and
+     * renumbers the thread, anything else through bp_activity_delete(), which
+     * takes its replies and meta with it.
+     */
+    private static function delete_activity_through_buddypress(int $id): void
+    {
+        $row = (array) self::activity_row($id);
+        $ok  = 'activity_comment' === ($row['type'] ?? '') && (int) $row['item_id'] > 0
+            ? bp_activity_delete_comment((int) $row['item_id'], $id)
+            : bp_activity_delete([ 'id' => $id ]);
+        if (! $ok) {
+            throw new Operation_Refused('write_failed', 'BuddyPress could not delete the activity item.');
+        }
+    }
+
+    /** @param int[] $ids the item and every reply under it */
+    private static function delete_activity_directly(array $ids): void
     {
         global $wpdb;
 
-        $ids = BuddyPress_Rows_Snapshot::activity_thread($id);
-        $in  = implode(',', array_fill(0, count($ids), '%d'));
+        $in = implode(',', array_fill(0, count($ids), '%d'));
         foreach ([ 'bp_activity_meta' => 'activity_id', 'bp_activity' => 'id' ] as $table => $column) {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own tables; every row was snapshotted by the dispatcher first and $in holds only %d placeholders.
             if (false === $wpdb->query($wpdb->prepare("DELETE FROM %i WHERE {$column} IN ($in)", BuddyPress_Rows_Snapshot::table($table), ...$ids))) {
@@ -673,8 +860,6 @@ final class BuddyPress_Pack
             }
         }
         BuddyPress_Rows_Snapshot::flush('activity', $ids);
-
-        return [ 'deleted' => $ids ];
     }
 
     // -----------------------------------------------------------------
@@ -770,7 +955,7 @@ final class BuddyPress_Pack
             : null;
     }
 
-    private static function update_field(array $args): array
+    private static function update_field(array $args, string $operation): array
     {
         global $wpdb;
 
@@ -788,27 +973,21 @@ final class BuddyPress_Pack
         if (isset($args['field_order'])) {
             $fields['field_order'] = (int) $args['field_order'];
         }
+        $visibility = isset($args['default_visibility']) ? (string) $args['default_visibility'] : null;
 
-        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.SlowDBQuery.slow_db_query_meta_key, WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- BuddyPress's own tables (meta rows keyed by object, not a meta query); snapshotted by the dispatcher first.
-        if ([] !== $fields && false === $wpdb->update(BuddyPress_Rows_Snapshot::table('bp_xprofile_fields'), $fields, [ 'id' => $id ])) {
-            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-            throw new Operation_Refused('write_failed', 'Could not update the profile field: ' . $wpdb->last_error);
-        }
-        if (isset($args['default_visibility'])) {
-            $meta     = BuddyPress_Rows_Snapshot::table('bp_xprofile_meta');
-            $existing = $wpdb->get_var($wpdb->prepare('SELECT id FROM %i WHERE object_id = %d AND object_type = %s AND meta_key = %s ORDER BY id ASC LIMIT 1', $meta, $id, 'field', 'default_visibility'));
-            $value    = (string) $args['default_visibility'];
-            $ok       = null === $existing
-                ? $wpdb->insert($meta, [ 'object_id' => $id, 'object_type' => 'field', 'meta_key' => 'default_visibility', 'meta_value' => $value ])
-                : $wpdb->update($meta, [ 'meta_value' => $value ], [ 'id' => (int) $existing ]);
-            if (false === $ok) {
-                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-                throw new Operation_Refused('write_failed', 'Could not update the profile field visibility: ' . $wpdb->last_error);
+        BuddyPress_Rows_Snapshot::tracked(
+            $operation,
+            static function () use ($id, $fields, $visibility): void {
+                if (class_exists('BP_XProfile_Field') && function_exists('bp_xprofile_update_field_meta')) {
+                    self::update_field_through_buddypress($id, $fields, $visibility);
+                } else {
+                    self::update_field_directly($id, $fields, $visibility);
+                }
             }
-            $fields['default_visibility'] = $value;
+        );
+        if (null !== $visibility) {
+            $fields['default_visibility'] = $visibility;
         }
-        // phpcs:enable
-        BuddyPress_Rows_Snapshot::flush('xprofile_field', [ $id ]);
 
         $row = (array) self::field_row($id);
         wp_cache_delete((int) $row['group_id'], 'bp_xprofile_groups');
@@ -817,6 +996,91 @@ final class BuddyPress_Pack
         $options = (array) $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE parent_id = %d ORDER BY option_order ASC, id ASC', BuddyPress_Rows_Snapshot::table('bp_xprofile_fields'), $id), ARRAY_A);
 
         return [ 'field' => self::field_view($row, $options, self::visibilities()), 'changed' => array_keys($fields) ];
+    }
+
+    /**
+     * Save a field the way the profile fields screen does: through
+     * BP_XProfile_Field::save(), then its default visibility as field meta,
+     * then xprofile_fields_saved_field. BuddyPress rebuilds a field's options
+     * from the submitted form on every save, so the field's current options
+     * (and which are defaults) are handed to it as that submission, and they
+     * come back in their order under new ids, as a save from the screen
+     * leaves them.
+     */
+    private static function update_field_through_buddypress(int $id, array $fields, ?string $visibility): void
+    {
+        $field = new \BP_XProfile_Field($id);
+        if ([] !== $fields) {
+            foreach ($fields as $key => $value) {
+                $field->$key = $value;
+            }
+            [$names, $defaults] = self::current_options($id);
+            $give_options       = static fn (): array => $names;
+            $give_defaults      = static fn (): array => $defaults;
+            add_filter('xprofile_field_options_before_save', $give_options, 0);
+            add_filter('xprofile_field_default_before_save', $give_defaults, 0);
+            try {
+                $ok = $field->save();
+            } finally {
+                remove_filter('xprofile_field_options_before_save', $give_options, 0);
+                remove_filter('xprofile_field_default_before_save', $give_defaults, 0);
+            }
+            if (! $ok) {
+                throw new Operation_Refused('write_failed', 'BuddyPress could not save the profile field.');
+            }
+        }
+        if (null !== $visibility) {
+            bp_xprofile_update_field_meta($id, 'default_visibility', $visibility);
+        }
+        /** Fired by BuddyPress's profile fields screen after a field is saved. */
+        do_action('xprofile_fields_saved_field', $field); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- BuddyPress's own hook, fired as its screen fires it.
+    }
+
+    /**
+     * A field's options as its edit form submits them: names keyed from 1 in
+     * option order, and the keys of the default ones.
+     *
+     * @return array{0: array<int, string>, 1: array<int, int>}
+     */
+    private static function current_options(int $id): array
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- BuddyPress's own table, read live.
+        $rows     = (array) $wpdb->get_results($wpdb->prepare('SELECT name, is_default_option FROM %i WHERE parent_id = %d ORDER BY option_order ASC, id ASC', BuddyPress_Rows_Snapshot::table('bp_xprofile_fields'), $id), ARRAY_A);
+        $names    = [];
+        $defaults = [];
+        foreach (array_values($rows) as $i => $row) {
+            $names[ $i + 1 ] = (string) $row['name'];
+            if (1 === (int) $row['is_default_option']) {
+                $defaults[ $i + 1 ] = 1;
+            }
+        }
+        return [ $names, $defaults ];
+    }
+
+    private static function update_field_directly(int $id, array $fields, ?string $visibility): void
+    {
+        global $wpdb;
+
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.SlowDBQuery.slow_db_query_meta_key, WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- BuddyPress's own tables (meta rows keyed by object, not a meta query); snapshotted by the dispatcher first.
+        if ([] !== $fields && false === $wpdb->update(BuddyPress_Rows_Snapshot::table('bp_xprofile_fields'), $fields, [ 'id' => $id ])) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
+            throw new Operation_Refused('write_failed', 'Could not update the profile field: ' . $wpdb->last_error);
+        }
+        if (null !== $visibility) {
+            $meta     = BuddyPress_Rows_Snapshot::table('bp_xprofile_meta');
+            $existing = $wpdb->get_var($wpdb->prepare('SELECT id FROM %i WHERE object_id = %d AND object_type = %s AND meta_key = %s ORDER BY id ASC LIMIT 1', $meta, $id, 'field', 'default_visibility'));
+            $ok       = null === $existing
+                ? $wpdb->insert($meta, [ 'object_id' => $id, 'object_type' => 'field', 'meta_key' => 'default_visibility', 'meta_value' => $visibility ])
+                : $wpdb->update($meta, [ 'meta_value' => $visibility ], [ 'id' => (int) $existing ]);
+            if (false === $ok) {
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
+                throw new Operation_Refused('write_failed', 'Could not update the profile field visibility: ' . $wpdb->last_error);
+            }
+        }
+        // phpcs:enable
+        BuddyPress_Rows_Snapshot::flush('xprofile_field', [ $id ]);
     }
 
     // -----------------------------------------------------------------

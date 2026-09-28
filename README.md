@@ -273,9 +273,10 @@ bin/test-local.sh -- --filter SnapshotTest   # a targeted PHPUnit run
 ELEMENTOR_VERSION=latest bin/test-local.sh   # check for drift against the newest Elementor
 bin/test-local.sh --live-forms          # only the Contact Form 7 + Flamingo live group
 bin/test-local.sh --live-blocks         # only the block suites live group (Kadence Blocks, GenerateBlocks, Spectra, Otter Blocks)
+bin/test-local.sh --live-buddypress     # only the BuddyPress live group
 ```
 
-It starts a private MariaDB server under `~/.cache/wpmcp-tests`, installs each WordPress version there once per version of the install scripts, and gives every worktree its own database, so worktrees can run side by side. The default run ends with two live groups, each on its own install: the live forms group (the Contact Form 7 adapter against the real Contact Form 7 and Flamingo) and the live blocks group (blocks inserted through the block-suites tools, rendered with the real Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks). MySQL does not work: the harness makes every table TEMPORARY and MySQL cannot reopen one inside a query, which WooCommerce does. Skip the gate for one push with `WPMCP_SKIP_LOCAL_TESTS=1 git push`.
+It starts a private MariaDB server under `~/.cache/wpmcp-tests`, installs each WordPress version there once per version of the install scripts, and gives every worktree its own database, so worktrees can run side by side. The default run ends with three live groups, each on its own install: the live forms group (the Contact Form 7 adapter against the real Contact Form 7 and Flamingo), the live blocks group (blocks inserted through the block-suites tools, rendered with the real Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks) and the live BuddyPress group (the BuddyPress ops run through the real BuddyPress, its hooks firing, and rolled back). MySQL does not work: the harness makes every table TEMPORARY and MySQL cannot reopen one inside a query, which WooCommerce does. Skip the gate for one push with `WPMCP_SKIP_LOCAL_TESTS=1 git push`.
 
 ## Contributing
 
