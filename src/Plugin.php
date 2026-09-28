@@ -1301,7 +1301,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-media',
             'free',
-            'Update a Media Library attachment\'s title, alt text, caption, and/or description',
+            'Update an attachment\'s title, alt text, caption or description',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1360,7 +1360,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/upload-media',
             'free',
-            'Add a file to the Media Library from base64 data. Type is sniffed from the bytes (mime_type is a hint) and must be an allowed upload; executables and SVG refused. Capped at the upload limit. Rollback deletes it',
+            'Upload a file to the Media Library from base64 data. Type is sniffed from the bytes, not mime_type; executables and SVG refused; capped at the upload limit. Rollback deletes it',
             [
                 'type'       => 'object',
                 'properties' => [
