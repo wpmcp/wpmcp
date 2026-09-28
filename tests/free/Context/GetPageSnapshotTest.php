@@ -485,6 +485,34 @@ class GetPageSnapshotTest extends \WP_UnitTestCase
         $this->assertSame(['phone_portrait' => 1], $snap['responsive_overrides']['breakpoints']);
     }
 
+    public function test_classic_oxygen_body_is_counted_from_its_json_tree(): void
+    {
+        $id   = $this->post(['post_content' => '<p>Left over from before Oxygen</p>']);
+        $tree = '{"id":0,"name":"root","depth":0,"children":[{"id":1,"name":"ct_section","options":{"ct_id":1,"ct_parent":0,"selector":"section-1-9","original":{}},"depth":1,"children":['
+            . '{"id":2,"name":"ct_headline","options":{"ct_id":2,"ct_parent":1,"selector":"headline-2-9","original":{"tag":"h1"},"ct_content":"Hi"},"depth":2},'
+            . '{"id":3,"name":"ct_text_block","options":{"ct_id":3,"ct_parent":1,"selector":"text_block-3-9","original":{},"ct_content":"There"},"depth":2}]}]}';
+        update_post_meta($id, '_ct_builder_json', wp_slash($tree));
+
+        $snap = $this->tool->handle(['post_id' => $id]);
+
+        $this->assertSame('oxygen-classic', $snap['builder']);
+        $this->assertFalse($snap['content_coverage']['complete']);
+        $this->assertTrue($snap['content_coverage']['stale_post_content']);
+        $this->assertSame(3, $snap['structure']['element_count']);
+    }
+
+    public function test_classic_oxygen_legacy_shortcodes_are_not_counted_as_a_tree(): void
+    {
+        $id = $this->post(['post_content' => '']);
+        update_post_meta($id, 'ct_builder_shortcodes', "[ct_section ct_sign_sha256='0b40' ct_options='{\"ct_id\":1,\"ct_parent\":0}'][/ct_section]");
+
+        $snap = $this->tool->handle(['post_id' => $id]);
+
+        $this->assertSame('oxygen-classic', $snap['builder']);
+        $this->assertFalse($snap['content_coverage']['complete']);
+        $this->assertNull($snap['structure']['element_count']);
+    }
+
     public function test_wpbakery_coverage_is_partial_like_divi(): void
     {
         $id = $this->post(['post_content' => '[vc_row][vc_column][vc_column_text]<p>Hi</p>[/vc_column_text][/vc_column][/vc_row]']);
