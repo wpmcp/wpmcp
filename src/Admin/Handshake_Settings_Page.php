@@ -12,7 +12,7 @@ if (! defined('ABSPATH')) {
 /**
  * Admin screen for the handshake instructions option (issue #80): a single
  * textarea whose contents are served, merged with the auto-generated site
- * summary, in the MCP initialize response's `instructions` field — i.e. to
+ * summary, in the MCP initialize response's `instructions` field - i.e. to
  * EVERY agent that connects, before authorization-gated context is added.
  * Gated at manage_options like the other wpmcp admin screens.
  *

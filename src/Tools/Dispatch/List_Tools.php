@@ -24,7 +24,7 @@ if (! defined('ABSPATH')) {
  *
  * The listing reflects the REGISTERED surface: abilities disabled by
  * Governance or gated off by tier never registered, so they never appear.
- * It deliberately does not pre-filter by the caller's per-tool permissions —
+ * It deliberately does not pre-filter by the caller's per-tool permissions -
  * tool names and descriptions are static product surface, not site data,
  * and the real permission decision is made (and audited) when a tool is
  * actually invoked.

@@ -12,7 +12,7 @@ if (! defined('ABSPATH')) {
  * setting survives. Guarded by expected_hash over the settings meta (the
  * settings_hash reported by get-elementor-data), so a stale read is
  * refused before anything is written. Post fields (title, status,
- * template, ...) are refused — Elementor's settings manager would apply
+ * template, ...) are refused - Elementor's settings manager would apply
  * them to the post itself, which belongs to the post tools, not here.
  */
 class Update_Page_Settings

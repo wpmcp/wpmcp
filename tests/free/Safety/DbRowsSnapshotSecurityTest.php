@@ -27,8 +27,8 @@ class DbRowsSnapshotSecurityTest extends \WP_UnitTestCase
     }
 
     /**
-     * Every database tool requires manage_options, so the restore path —
-     * which performs the same class of raw table writes — must too. Without
+     * Every database tool requires manage_options, so the restore path -
+     * which performs the same class of raw table writes - must too. Without
      * this, an edit_posts-level caller could mutate raw tables by replaying
      * an administrator's operation through rollback-operation (gated at
      * edit_posts, as it must stay for content rollbacks).

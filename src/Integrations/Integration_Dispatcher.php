@@ -91,7 +91,7 @@ if (! defined('ABSPATH')) {
  *
  * Dispatch order (each step short-circuits into a structured
  * ['error' => ['code', 'message', 'data']] payload, and the op handler is
- * only ever reached after ALL of them pass — a rejected call has no side
+ * only ever reached after ALL of them pass - a rejected call has no side
  * effects and writes no snapshot):
  *   availability -> op exists in this channel -> enabled flag/filter ->
  *   op-level governance -> per-op capability -> per-op 'requires' dependency ->

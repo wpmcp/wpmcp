@@ -6,7 +6,7 @@ use WPMCP\Connect\Bundle_Builder;
 
 /**
  * Issue #76: the downloadable Claude Desktop bundle (.mcpb). The bundle is
- * fully self-contained — a manifest plus an embedded Node stdio-to-HTTP
+ * fully self-contained - a manifest plus an embedded Node stdio-to-HTTP
  * proxy that runs on Claude Desktop's own bundled runtime, so connecting
  * needs no PATH, npx, or package install. It is also secret-free by
  * construction: build() takes only the endpoint; credentials are requested
@@ -41,7 +41,7 @@ class BundleBuilderTest extends \WP_UnitTestCase
 
         $this->assertNotFalse($manifest_json, 'Bundle must contain manifest.json.');
         $this->assertNotFalse($proxy, 'Bundle must contain the embedded proxy at server/index.js.');
-        $this->assertSame(2, $count, 'Bundle contains exactly the manifest and the proxy — nothing else.');
+        $this->assertSame(2, $count, 'Bundle contains exactly the manifest and the proxy - nothing else.');
 
         $manifest = json_decode($manifest_json, true);
         $this->assertIsArray($manifest, 'manifest.json must be valid JSON.');
@@ -60,7 +60,7 @@ class BundleBuilderTest extends \WP_UnitTestCase
         $this->assertSame('server/index.js', $manifest['server']['entry_point']);
 
         $mcp_config = $manifest['server']['mcp_config'];
-        $this->assertSame('node', $mcp_config['command'], 'Runs on the host runtime directly — no npx.');
+        $this->assertSame('node', $mcp_config['command'], 'Runs on the host runtime directly - no npx.');
         $this->assertContains('${__dirname}/server/index.js', $mcp_config['args']);
         $this->assertSame(self::ENDPOINT, $mcp_config['env']['WPMCP_ENDPOINT']);
     }

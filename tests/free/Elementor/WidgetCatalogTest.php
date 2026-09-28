@@ -9,7 +9,7 @@ use WPMCP\Tools\Elementor\Widget_Catalog;
  * entry must be well formed (typed params, defaults, categories, tier
  * requirements), the catalog must cover at least all free core Elementor
  * widgets, and the settings builder must map curated params onto Elementor's
- * real control value shapes. None of these tests need Elementor loaded —
+ * real control value shapes. None of these tests need Elementor loaded -
  * the catalog is pure data and the builder is pure code.
  */
 class WidgetCatalogTest extends \WP_UnitTestCase

@@ -12,7 +12,7 @@ use WPMCP\MCP\Handshake_Instructions;
  * the get-site-context tool it is derived from: a connecting identity (or
  * an under-capable/anonymous user, or a governance disable) that could not
  * call the tool itself must not receive the site-derived context in the
- * initialize instructions — only the generic safety one-liner.
+ * initialize instructions - only the generic safety one-liner.
  */
 class HandshakeInstructionsScopeTest extends \WP_UnitTestCase
 {

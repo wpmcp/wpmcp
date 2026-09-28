@@ -12,7 +12,7 @@ if (! defined('ABSPATH')) {
  * image_url, preview_url, dimensions, license, license_url, attribution,
  * source_url). Openverse is keyless; Pexels and Unsplash use BYO keys from
  * the encrypted Stock_Key_Store. Read-only: this tool only ever calls the
- * providers' documented search APIs — importing bytes is import-stock-image's
+ * providers' documented search APIs - importing bytes is import-stock-image's
  * job, behind Remote_Image_Guard.
  */
 class Search_Stock_Images

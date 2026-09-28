@@ -97,8 +97,8 @@ class Svg_Sanitizer
                 throw new \InvalidArgumentException(sprintf('SVG element <%s> is not allowed.', esc_html($element->localName)));
             }
 
-            // Attributes are vetted on EVERY element — including ones about
-            // to be stripped — so a dangerous payload (onload, javascript:
+            // Attributes are vetted on EVERY element - including ones about
+            // to be stripped - so a dangerous payload (onload, javascript:
             // href) rejects the document even when it rides on an element
             // outside the allowlist. Strip-then-accept would silently launder
             // such input into an "accepted" file.

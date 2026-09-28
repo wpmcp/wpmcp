@@ -9,7 +9,7 @@ if (! defined('ABSPATH')) {
 /**
  * Reorder the children of one parent (or the top level) to an explicit id
  * order (issue #58). The order must be an exact permutation of the current
- * children — a missing, foreign, or duplicated id refuses the whole
+ * children - a missing, foreign, or duplicated id refuses the whole
  * operation before any write. Hash-guarded and snapshot-first.
  */
 class Reorder_Elements

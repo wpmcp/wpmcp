@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Registered-ability manifest — the drift guard for the plugin's MCP surface.
+ * Registered-ability manifest: the drift guard for the plugin's MCP surface.
  *
  * GENERATED FILE: do not hand-edit. Regenerate deliberately with
  * `composer manifest:regenerate` after intentionally adding, removing,

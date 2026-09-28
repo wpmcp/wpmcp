@@ -18,9 +18,9 @@ if (! defined('ABSPATH')) {
  * protected tables (users/usermeta by default).
  *
  * Recoverability (issue #82): when an exact restore can genuinely be
- * promised — the table has a PRIMARY KEY, the WHERE matched no more rows
+ * promised - the table has a PRIMARY KEY, the WHERE matched no more rows
  * than the before-image cap, and the captured values survive JSON encoding
- * losslessly (no raw binary) — the write routes through Safe_Mutation like
+ * losslessly (no raw binary) - the write routes through Safe_Mutation like
  * every other recoverable tool: the matched rows' full before-images are
  * snapshotted to the operation history FIRST, the response reports
  * recoverable:true with an operation_id, and rollback-operation /

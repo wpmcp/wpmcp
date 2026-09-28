@@ -17,7 +17,7 @@ if (! defined('ABSPATH')) {
  * widgets remain insertable through the raw `settings` escape hatch; when
  * both are given, built params win over raw settings key-by-key. Cataloged
  * widgets that need Elementor Pro refuse cleanly when the real Pro widget is
- * not installed — free Elementor's promotion placeholders never count.
+ * not installed - free Elementor's promotion placeholders never count.
  *
  * Writes go through the Element_Tree engine (issue #58): `expected_hash`
  * concurrency guard, snapshot-first Safe_Mutation write with verify and

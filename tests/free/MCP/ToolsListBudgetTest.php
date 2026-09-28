@@ -10,7 +10,7 @@ use WPMCP\Plugin;
  * The checked-in tools/list byte budget (issue #79).
  *
  * Approximates the adapter's tools/list serialization (name, description,
- * inputSchema, annotations per tool — the token-relevant payload) for both
+ * inputSchema, annotations per tool - the token-relevant payload) for both
  * exposure modes and pins byte ceilings. The compact ceiling is absolute:
  * the core surface is static, so it must stay small no matter how many
  * long-tail tools the plugin grows. The full-mode assertion pins the

@@ -11,8 +11,8 @@ use WPMCP\Plugin;
  * Compact mode is EXPOSURE-ONLY: the filter hides long-tail wpmcp tools from
  * the advertised tools/list, but never unregisters anything and never touches
  * tools that do not belong to this plugin's registered ability surface.
- * Hiding is not a permission boundary — a hidden tool called directly still
- * runs the full permission chain — it exists purely to cut tools/list token
+ * Hiding is not a permission boundary - a hidden tool called directly still
+ * runs the full permission chain - it exists purely to cut tools/list token
  * cost for constrained clients.
  */
 class ToolExposureToolsListFilterTest extends \WP_UnitTestCase

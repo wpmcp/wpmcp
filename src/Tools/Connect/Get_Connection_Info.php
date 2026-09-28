@@ -16,8 +16,8 @@ if (! defined('ABSPATH')) {
  * The endpoint is this site's REST base plus the route the WordPress 6.9+
  * Abilities/MCP integration mounts for a plugin named "wpmcp"
  * (wp-json/mcp/wpmcp-server), matching what this plugin's own README
- * documents as the connection URL. The route lives in one place —
- * Client_Config_Generator::ROUTE — shared with the Connection admin screen.
+ * documents as the connection URL. The route lives in one place -
+ * Client_Config_Generator::ROUTE - shared with the Connection admin screen.
  *
  * Authorization is always a WordPress Application Password sent as HTTP
  * Basic auth (base64 of "username:application-password"); this tool never

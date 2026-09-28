@@ -72,7 +72,7 @@
       "type": "object"
     },
     "KeyValueInput": {
-      "description": "A named {@link Input} — used for HTTP headers — whose `value` may reference\nvariables for substitution.",
+      "description": "A named {@link Input} - used for HTTP headers - whose `value` may reference\nvariables for substitution.",
       "properties": {
         "choices": {
           "description": "Allowed values for the input. If provided, the user must select one.",
@@ -127,7 +127,7 @@
     },
     "MetaObject": {
       "additionalProperties": {},
-      "description": "Represents the contents of a `_meta` field, which clients and servers use to attach additional metadata to their interactions.\n\nCertain key names are reserved by MCP for protocol-level metadata; implementations MUST NOT make assumptions about values at these keys. Additionally, specific schema definitions may reserve particular names for purpose-specific metadata, as declared in those definitions.\n\nValid keys have two segments:\n\n**Prefix:**\n- Optional — if specified, MUST be a series of _labels_ separated by dots (`.`), followed by a slash (`/`).\n- Labels MUST start with a letter and end with a letter or digit. Interior characters may be letters, digits, or hyphens (`-`).\n- Any prefix consisting of zero or more labels, followed by `modelcontextprotocol` or `mcp`, followed by any label, is **reserved** for MCP use. For example: `modelcontextprotocol.io/`, `mcp.dev/`, `api.modelcontextprotocol.org/`, and `tools.mcp.com/` are all reserved.\n\n**Name:**\n- Unless empty, MUST start and end with an alphanumeric character (`[a-z0-9A-Z]`).\n- Interior characters may be alphanumeric, hyphens (`-`), underscores (`_`), or dots (`.`).",
+      "description": "Represents the contents of a `_meta` field, which clients and servers use to attach additional metadata to their interactions.\n\nCertain key names are reserved by MCP for protocol-level metadata; implementations MUST NOT make assumptions about values at these keys. Additionally, specific schema definitions may reserve particular names for purpose-specific metadata, as declared in those definitions.\n\nValid keys have two segments:\n\n**Prefix:**\n- Optional - if specified, MUST be a series of _labels_ separated by dots (`.`), followed by a slash (`/`).\n- Labels MUST start with a letter and end with a letter or digit. Interior characters may be letters, digits, or hyphens (`-`).\n- Any prefix consisting of zero or more labels, followed by `modelcontextprotocol` or `mcp`, followed by any label, is **reserved** for MCP use. For example: `modelcontextprotocol.io/`, `mcp.dev/`, `api.modelcontextprotocol.org/`, and `tools.mcp.com/` are all reserved.\n\n**Name:**\n- Unless empty, MUST start and end with an alphanumeric character (`[a-z0-9A-Z]`).\n- Interior characters may be alphanumeric, hyphens (`-`), underscores (`_`), or dots (`.`).",
       "type": "object"
     },
     "Remote": {
@@ -172,7 +172,7 @@
       "description": "Repository metadata for the MCP server source code. Enables users and\nsecurity experts to inspect the code, improving transparency.",
       "properties": {
         "id": {
-          "description": "Repository identifier from the hosting service (e.g., GitHub repo ID).\nOwned and determined by the source forge. Should remain stable across\nrepository renames and may be used to detect repository resurrection\nattacks — if a repository is deleted and recreated, the ID should change.",
+          "description": "Repository identifier from the hosting service (e.g., GitHub repo ID).\nOwned and determined by the source forge. Should remain stable across\nrepository renames and may be used to detect repository resurrection\nattacks - if a repository is deleted and recreated, the ID should change.",
           "type": "string"
         },
         "source": {
@@ -193,7 +193,7 @@
       "type": "object"
     },
     "ServerCard": {
-      "description": "A static metadata document describing a remote MCP server, suitable for\npre-connection discovery. A Server Card may be hosted at any unreserved URI;\nMCP reserves `GET <streamable-http-url>/server-card` as the recommended\nlocation. Clients learn a card's URL from an [AI Catalog](https://github.com/Agent-Card/ai-catalog)\nrather than guessing it.\n\nServer Cards describe only what is needed to discover and connect to a remote server:\nidentity, transport, and protocol versions.\n\nThey do not enumerate primitives (tools, resources, prompts) — those remain\nsubject to runtime listing via the protocol's standard list operations.\n\nThe fields a Server Card does declare (identity, transport, protocol\nversions) are advisory, not authoritative: they should be consistent with\nthe server's `server/discover` response, and clients must not treat them as\nauthoritative for security decisions. See \"Consistency with Runtime\nBehavior\" in docs/discovery.md for the normative requirement.",
+      "description": "A static metadata document describing a remote MCP server, suitable for\npre-connection discovery. A Server Card may be hosted at any unreserved URI;\nMCP reserves `GET <streamable-http-url>/server-card` as the recommended\nlocation. Clients learn a card's URL from an [AI Catalog](https://github.com/Agent-Card/ai-catalog)\nrather than guessing it.\n\nServer Cards describe only what is needed to discover and connect to a remote server:\nidentity, transport, and protocol versions.\n\nThey do not enumerate primitives (tools, resources, prompts) - those remain\nsubject to runtime listing via the protocol's standard list operations.\n\nThe fields a Server Card does declare (identity, transport, protocol\nversions) are advisory, not authoritative: they should be consistent with\nthe server's `server/discover` response, and clients must not treat them as\nauthoritative for security decisions. See \"Consistency with Runtime\nBehavior\" in docs/discovery.md for the normative requirement.",
       "properties": {
         "$schema": {
           "description": "The Server Card JSON Schema URI that this document conforms to. Required.\n\nMust be the `/v1/` Server Card schema URL under\n`static.modelcontextprotocol.io/schemas/` (i.e.,\n`https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json`).\nSchema URLs are versioned by the `vN` segment rather than by date; a\nbreaking revision of the Server Card shape publishes a new `vN` family.",

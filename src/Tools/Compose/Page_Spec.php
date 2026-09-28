@@ -21,7 +21,7 @@ if (! defined('ABSPATH')) {
  *   status   'draft' | 'publish' (default 'draft')
  *   slug     string, optional
  *   dialect  'gutenberg' (default, free) | 'elementor' (PRO)
- *   content  node[], required, non-empty — the sections tree
+ *   content  node[], required, non-empty - the sections tree
  *   media    { featured: attachment_id } optional
  *   menu     { menu_id: int required, title?: string, position?: int, parent?: int } optional
  *
@@ -37,7 +37,7 @@ if (! defined('ABSPATH')) {
  *
  * Elementor dialect node types:
  *   containers: container, section, column (settings passed through to the
- *               element verbatim — Elementor's settings vocabulary is its own)
+ *               element verbatim - Elementor's settings vocabulary is its own)
  *   leaf:       widget{widget: string, widget_settings?: object}
  *
  * Bounds (no unbounded payloads): MAX_BYTES on the JSON-encoded spec,

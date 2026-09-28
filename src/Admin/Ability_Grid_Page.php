@@ -19,14 +19,14 @@ if (! defined('ABSPATH')) {
  * registers, grouped by domain, with per-ability and bulk per-domain
  * enable/disable.
  *
- * Sources rows from the Registrar — never a hardcoded list — so the grid can
+ * Sources rows from the Registrar - never a hardcoded list - so the grid can
  * never drift from what this install actually runs. Each row shows tier, risk
  * hints, and the effective state WITH the governance layer that decides it
  * (Governance::explain()).
  *
  * Trust rules:
  *  - Every write goes through Governance::set_ability_toggle() /
- *    set_domain_toggle() — the existing narrowing mechanism, no bypass —
+ *    set_domain_toggle() - the existing narrowing mechanism, no bypass -
  *    and lands in the governance audit log with the acting user.
  *  - The grid shows only what this install would actually register. An
  *    ability this install cannot run has no row at all (issue #161): no lock
@@ -110,7 +110,7 @@ class Ability_Grid_Page
      * Bulk per-domain toggle. Disable writes the single domain-level toggle
      * (the narrowing layer already covers every ability in the domain).
      * Enable clears the domain-level toggle AND writes an explicit enable
-     * per ability — except gate-closed dangerous ones, which are refused
+     * per ability - except gate-closed dangerous ones, which are refused
      * exactly like a per-ability enable would be.
      *
      * The per-ability writes cover only the listed members: an ability this
@@ -118,7 +118,7 @@ class Ability_Grid_Page
      * #161). The domain-level write is domain-wide by construction, which is
      * what a domain control means: it clears the domain layer for the whole
      * domain, including members this install does not list. That is
-     * deliberate and safe here, because the domain layer only ever narrows —
+     * deliberate and safe here, because the domain layer only ever narrows -
      * clearing it grants nothing on its own, and every unlisted member is
      * still refused by Registrar::tier_permitted() at registration and again
      * at execution.

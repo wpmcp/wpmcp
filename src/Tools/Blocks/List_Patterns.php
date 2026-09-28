@@ -9,7 +9,7 @@ if (! defined('ABSPATH')) {
 /**
  * Read-only pattern discovery (issue #56): list the block patterns in
  * WP_Block_Patterns_Registry (name, title, description, categories).
- * Content markup is deliberately omitted — insert-pattern consumes it
+ * Content markup is deliberately omitted - insert-pattern consumes it
  * server-side, so clients never need the raw markup to use a pattern.
  */
 class List_Patterns

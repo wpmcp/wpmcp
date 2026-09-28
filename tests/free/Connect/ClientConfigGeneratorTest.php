@@ -7,7 +7,7 @@ use WPMCP\Connect\Client_Config_Generator;
 /**
  * Issue #76: the pure config generator behind the Connection admin screen.
  * Given a username and a freshly created Application Password (both held in
- * memory only — the generator never reads or writes storage), it produces
+ * memory only - the generator never reads or writes storage), it produces
  * ready-to-paste configs for Claude Code, Claude Desktop, Cursor, VS Code,
  * and a generic MCP JSON block, all pointing at this site's MCP endpoint
  * with HTTP Basic auth.

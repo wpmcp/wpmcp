@@ -8,7 +8,7 @@ use WPMCP\Connect\Client_Config_Generator;
  * The endpoint we tell people to connect to has to exist.
  *
  * README, the Connection screen and the get-connection-info tool have all
- * shipped the same URL — /wp-json/mcp/wpmcp-server — since before there was
+ * shipped the same URL - /wp-json/mcp/wpmcp-server - since before there was
  * any code capable of serving it. It was a guess at a route a future
  * WordPress might provide, never something this plugin mounted, so following
  * the documented setup produced a 404 and an MCP client that connects to
@@ -49,7 +49,7 @@ class McpTransportMountedTest extends \WP_UnitTestCase
      * Clear the adapter singleton so this test gets a real initialisation.
      *
      * McpAdapter::init() is one-shot behind a private static $initialized,
-     * while WP_UnitTestCase restores $wp_filter after every test — so the
+     * while WP_UnitTestCase restores $wp_filter after every test - so the
      * transport's rest_api_init hook, added during whichever earlier test
      * first touched the REST API, is gone by the time this one runs and the
      * adapter refuses to register it again. That interaction is an artefact

@@ -8,7 +8,7 @@ use WPMCP\MCP\Ability;
 
 /**
  * Issue #76: the master exposure switch. A single on/off option that, when
- * off, kills the entire MCP surface instantly — enforced through the existing
+ * off, kills the entire MCP surface instantly - enforced through the existing
  * governance layer (the wpmcp_ability_enabled filter, layer 2 of the
  * AND-of-narrowing chain) so every already-registered ability's
  * permission_callback starts denying on the very next request. Being a

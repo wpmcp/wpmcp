@@ -11,7 +11,7 @@ require_once __DIR__ . '/../../support/forms-adapters.php';
  * Live-registry smoke test (issue #55): every ability in the committed
  * manifest must actually resolve in the WordPress Abilities API registry,
  * not merely be constructed by Plugin::register_abilities(). This catches
- * failures the drift guard cannot see — e.g. a bad category value or invalid
+ * failures the drift guard cannot see - e.g. a bad category value or invalid
  * input schema that makes wp_register_ability() reject an ability at the
  * registry boundary while our own Registrar still lists it.
  *

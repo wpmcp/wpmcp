@@ -7,13 +7,13 @@ use WPMCP\Connect\Exposure;
 use WPMCP\Plugin;
 
 /**
- * Issue #76: the Connection admin screen — the first-ten-minutes experience.
+ * Issue #76: the Connection admin screen - the first-ten-minutes experience.
  * One nonce-protected admin action provisions a core Application Password
  * for a chosen user and returns filled client configs; the same screen
  * revokes it (disconnecting the client), flips the master exposure switch,
  * runs the server-side self-test, and serves the secret-free desktop
  * bundle. manage_options everywhere; the plaintext password exists only in
- * the provision response — the stored ledger holds UUIDs, never secrets.
+ * the provision response - the stored ledger holds UUIDs, never secrets.
  */
 class ConnectionPageTest extends \WP_UnitTestCase
 {

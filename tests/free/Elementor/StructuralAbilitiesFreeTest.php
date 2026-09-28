@@ -5,7 +5,7 @@ namespace WPMCP\Tests\Free\Elementor;
 /**
  * Free-tier refusal for the structural editing suite (issue #58): the live
  * registry is built with the Gate in its free state, so none of the pro
- * structural tools may be exposed to a free-tier site — an agent asking for
+ * structural tools may be exposed to a free-tier site - an agent asking for
  * them simply does not find them.
  */
 class StructuralAbilitiesFreeTest extends \WP_UnitTestCase

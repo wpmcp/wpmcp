@@ -10,8 +10,8 @@ namespace WPMCP\Tests\Free\Platform;
  * payload every MCP client pays for on connect. This test renders the
  * tools/list-shaped payload (name, description, inputSchema, annotations)
  * for every registered ability and pins its JSON size against a checked-in
- * byte budget, so any change that bloats the advertised surface — a
- * per-widget tool, a runaway description — fails CI with a number attached.
+ * byte budget, so any change that bloats the advertised surface - a
+ * per-widget tool, a runaway description - fails CI with a number attached.
  *
  * The budget is a ceiling, not a target: raise it deliberately (with review)
  * when the surface legitimately grows, exactly like the ability manifest.

@@ -60,7 +60,7 @@ class DefaultSeederTest extends \WP_UnitTestCase
         // The admin explicitly re-enables the seeded-off ability.
         Governance::set_ability_toggle('wpmcp/alpha', true);
 
-        // A new plugin version ships more defaults — including one that
+        // A new plugin version ships more defaults - including one that
         // names the ability the admin already decided about.
         Default_Seeder::set_versions_for_tests([
             1 => ['wpmcp/alpha'],
@@ -123,7 +123,7 @@ class DefaultSeederTest extends \WP_UnitTestCase
     {
         // Today's dangerous abilities are already default-off via their
         // execution opt-in filters (wpmcp_enable_db_writes & co.), so the
-        // shipped seeder map intentionally disables nothing — it exists so
+        // shipped seeder map intentionally disables nothing - it exists so
         // FUTURE dangerous abilities can arrive off for upgraders. This
         // also pins "no ability-manifest churn from seeding".
         Default_Seeder::seed();
