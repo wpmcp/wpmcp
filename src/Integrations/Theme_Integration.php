@@ -261,7 +261,10 @@ class Theme_Integration extends Integration_Dispatcher
      * Issue #69 ops layered on the phase 1 pair: create-child-theme
      * (Child_Theme_Scaffolder) and the framework settings pack for the
      * detected theme family (Theme_Framework_Pack), which is present in the
-     * catalog only while that family is active.
+     * catalog only while that family is active. Issue #286 adds the
+     * Elementor addon suite packs (Elementor_Addon_Packs): paid-tier widget
+     * catalog and module toggle ops that answer addon_suite_inactive while
+     * their suite is not loaded.
      *
      * @return array<string,array<string,mixed>>
      */
@@ -269,7 +272,8 @@ class Theme_Integration extends Integration_Dispatcher
     {
         return array_merge(
             [ 'create-child-theme' => Child_Theme_Scaffolder::operation() ],
-            Theme_Framework_Pack::operations($this->detect_framework())
+            Theme_Framework_Pack::operations($this->detect_framework()),
+            Elementor_Addon_Packs::operations()
         );
     }
 

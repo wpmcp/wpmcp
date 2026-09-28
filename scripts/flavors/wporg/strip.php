@@ -1292,6 +1292,34 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
     ],
 ];
 
+// The Elementor addon suite packs (issue #286) are the paid add-on's. Their
+// file is removed by policy.php, so the line that merges their ops into the
+// theme pair, the docblock sentence describing them, and the rollback hook
+// that refreshes one suite's cache all leave with it.
+$edits['src/Integrations/Theme_Integration.php'] = [
+    [
+        "            Theme_Framework_Pack::operations(\$this->detect_framework()),\n"
+            . "            Elementor_Addon_Packs::operations()\n",
+        "            Theme_Framework_Pack::operations(\$this->detect_framework())\n",
+        1,
+    ],
+    [
+        "     * catalog only while that family is active. Issue #286 adds the\n"
+            . "     * Elementor addon suite packs (Elementor_Addon_Packs): paid-tier widget\n"
+            . "     * catalog and module toggle ops that answer addon_suite_inactive while\n"
+            . "     * their suite is not loaded.\n",
+        "     * catalog only while that family is active.\n",
+        1,
+    ],
+];
+$edits['src/Plugin.php'][] = [
+    "            // A rollback of an Elementor addon module toggle drops the suite's\n"
+        . "            // cached module map, as the write did (issue #286).\n"
+        . "            add_action('wpmcp_rollback_options_restored', [\\WPMCP\\Integrations\\Elementor_Addon_Packs::class, 'after_restore']);\n",
+    '',
+    1,
+];
+
 $edits['src/MCP/Tool_Exposure.php'] = [
     [
         " *    scope + pro-license, audited) if invoked anyway; this class only cuts\n",

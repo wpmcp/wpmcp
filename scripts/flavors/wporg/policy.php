@@ -157,6 +157,11 @@ return [
         // build them; the Kadence pack and the shared builder stay.
         'src/Integrations/Theme_Pack_GeneratePress.php',
         'src/Integrations/Theme_Pack_Blocksy.php',
+        // The Elementor addon suite packs (issue #286): widget catalog and
+        // module toggle ops for three addon suites, all paid-tier. strip.php
+        // takes out the line in Theme_Integration that merges them and the
+        // rollback hook in Plugin that refreshes one suite's cache.
+        'src/Integrations/Elementor_Addon_Packs.php',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the
         // two handlers, the sanitizer, the store and the front-end renderer
         // all go. Named file by file rather than by directory because
