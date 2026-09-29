@@ -5,10 +5,12 @@ namespace WPMCP\Tests\Free\Capabilities;
 use WPMCP\Plugin;
 
 /**
- * Capability gating for the Comments domain: list/get/moderate require
- * moderate_comments, while edit/delete require the stronger edit_comments,
- * matching WordPress core's own split between moderating and editing
- * comment content.
+ * Capability gating for the Comments domain. Every comment tool gates on
+ * moderate_comments, the capability core's administrator and editor roles
+ * carry. Editing and deleting a specific comment additionally require the
+ * edit_comment meta capability for that comment inside the handler, the same
+ * per-comment check wp-admin makes (issue #409: these two once asked for
+ * "edit_comments", which WordPress does not define, so nobody could run them).
  */
 class CommentsCapabilityTest extends \WP_UnitTestCase
 {
@@ -23,8 +25,8 @@ class CommentsCapabilityTest extends \WP_UnitTestCase
         'wpmcp/list-comments'    => 'moderate_comments',
         'wpmcp/get-comment'      => 'moderate_comments',
         'wpmcp/moderate-comment' => 'moderate_comments',
-        'wpmcp/edit-comment'     => 'edit_comments',
-        'wpmcp/delete-comment'   => 'edit_comments',
+        'wpmcp/edit-comment'     => 'moderate_comments',
+        'wpmcp/delete-comment'   => 'moderate_comments',
     ];
 
     protected function tearDown(): void
@@ -88,23 +90,44 @@ class CommentsCapabilityTest extends \WP_UnitTestCase
         );
     }
 
-    public function test_delete_ability_denies_subscriber_and_allows_edit_comments(): void
+    /**
+     * @dataProvider provide_edit_and_delete
+     */
+    public function test_administrator_and_editor_pass_the_edit_and_delete_gate(string $name): void
     {
         $abilities = wp_get_abilities();
 
-        $subscriber = self::factory()->user->create(['role' => 'subscriber']);
-        wp_set_current_user($subscriber);
-        $this->assertFalse(
-            $abilities['wpmcp/delete-comment']->check_permissions(),
-            'wpmcp/delete-comment must deny a subscriber'
-        );
+        foreach (['administrator', 'editor'] as $role) {
+            wp_set_current_user(self::factory()->user->create(['role' => $role]));
+            $this->assertTrue(
+                $abilities[ $name ]->check_permissions(),
+                "{$name} must allow an {$role}"
+            );
+        }
+    }
 
-        $user = self::factory()->user->create(['role' => 'subscriber']);
-        get_user_by('id', $user)->add_cap('edit_comments');
-        wp_set_current_user($user);
-        $this->assertTrue(
-            $abilities['wpmcp/delete-comment']->check_permissions(),
-            'wpmcp/delete-comment must allow a user holding edit_comments'
-        );
+    /**
+     * @dataProvider provide_edit_and_delete
+     */
+    public function test_subscriber_and_contributor_fail_the_edit_and_delete_gate(string $name): void
+    {
+        $abilities = wp_get_abilities();
+
+        foreach (['subscriber', 'contributor'] as $role) {
+            wp_set_current_user(self::factory()->user->create(['role' => $role]));
+            $this->assertFalse(
+                $abilities[ $name ]->check_permissions(),
+                "{$name} must deny a {$role}"
+            );
+        }
+    }
+
+    /** @return array<string,array{string}> */
+    public static function provide_edit_and_delete(): array
+    {
+        return [
+            'edit-comment'   => ['wpmcp/edit-comment'],
+            'delete-comment' => ['wpmcp/delete-comment'],
+        ];
     }
 }
