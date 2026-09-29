@@ -30,7 +30,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 200+ abilities across content, structure, media, and site management:
 
 * Posts, pages, custom post types, taxonomies, menus, users, options
-* Gutenberg: surgical block edits, custom block building, full page composition
+* Gutenberg: surgical block edits, custom block building, full page composition, and block theme templates, template parts and navigation
 * Elementor: widgets, templates, theme builder, popups, global styles, custom widget building
 * Bricks and Divi structural editing
 * WooCommerce, ACF, Meta Box, JetEngine, Pods, TranslatePress, Yoast, Rank Math, SEOPress, The SEO Framework, SureRank, Slim SEO, Redirection; with Pro, All in One SEO
