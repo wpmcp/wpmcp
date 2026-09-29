@@ -36,7 +36,7 @@ class Delete_Tax_Rate
             throw new \InvalidArgumentException('Tax rate not found.');
         }
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Deleting a tax rate changes what every checkout charges. Pass confirm:true to proceed.');
+            throw new \WPMCP\MCP\Confirmation_Required('Deleting a tax rate changes what every checkout charges. Pass confirm:true to proceed.');
         }
 
         $out = Safe_Mutation::run(

@@ -86,7 +86,7 @@ class Install_Package_From_Zip
         }
         if (true !== ($args['confirm'] ?? null)) {
             $this->refuse(
-                new \InvalidArgumentException('Installing a package from a ZIP puts its code on the site. Pass confirm:true to proceed.'),
+                new \WPMCP\MCP\Confirmation_Required('Installing a package from a ZIP puts its code on the site. Pass confirm:true to proceed.'),
                 self::REASON_CONFIRM_REQUIRED
             );
         }

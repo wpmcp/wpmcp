@@ -84,7 +84,11 @@ final class Modern_Http_Bridge
         $is_modern = Protocol_Revision::MODERN === $body || Protocol_Revision::MODERN === $header;
         $named     = $body ?? $header;
 
+        // tasks/* belong to the Tasks extension this plugin implements on
+        // its own job stores (issue #387), so they are answered here even
+        // when the adapter speaks 2026-07-28 itself.
         $ours = 'server/discover' === $method
+            || ($is_modern && str_starts_with($method, 'tasks/'))
             || ($is_modern && ! Protocol_Revision::adapter_speaks_modern())
             || (! $is_modern && null !== $named && ! Protocol_Revision::is_servable($named) && ! Protocol_Revision::adapter_speaks_modern());
         if (! $ours) {

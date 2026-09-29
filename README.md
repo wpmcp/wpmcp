@@ -104,6 +104,12 @@ The same endpoint works with Cursor, Claude Desktop, and any MCP-compatible clie
 
 Both transports (the HTTP endpoint above and `wp mcp-stdio serve`) speak MCP `2026-07-28` and `2025-11-25`. A `2025-11-25` client runs the usual `initialize` session; a `2026-07-28` client calls the sessionless `server/discover` and then tags each request with the revision, with no session at all. `server/discover` lists both revisions and returns the same handshake instructions `initialize` does.
 
+Clients that advertise the newer protocol features get them; everyone else keeps the existing contract:
+
+- **Elicitation.** A destructive tool's `confirm: true` gate asks the person instead of refusing when the client supports form elicitation: on `2026-07-28` (both transports) as an `input_required` result the client answers and retries, and on a `2025-11-25` stdio session as an `elicitation/create` request mid-call. The answer is bound to that exact call. Without the capability, and on a `2025-11-25` HTTP session (the adapter's HTTP transport has no server-to-client channel), `confirm: true` works as before, and an agent that passes it is not asked again.
+- **Tasks.** With the `io.modelcontextprotocol/tasks` extension on `2026-07-28`, `trigger-backup` and `dispatch-cli-job` return a task handle, polled with `tasks/get` and withdrawn with `tasks/cancel`. Tasks are the existing job records, so they survive the stateless HTTP route and reconnects.
+- **Output schemas.** Every tool declares an `outputSchema`: the backup and CLI job tools a detailed one, the rest the JSON-object contract every `structuredContent` result meets.
+
 The HTTP route is mounted by the official [WordPress MCP adapter](https://github.com/WordPress/mcp-adapter). wpmcp bundles adapter 0.6.x so it works on its own, and prefers the canonical MCP Adapter plugin when that is active: the bundled copy is only a fallback and never shadows another copy's classes (see `src/adapter-guard.php`). Adapter 0.7.0 and later answer `2026-07-28` requests natively; with the bundled 0.6.x, wpmcp answers them itself, so clients see the same behavior either way.
 
 ## Available tools

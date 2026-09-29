@@ -92,7 +92,7 @@ class Delete_Post
             throw new \RuntimeException('Permanent (force) delete-post is disabled. Enable it with the wpmcp_enable_delete_post filter.');
         }
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Permanently deleting a post is not reversible for the physical record. Pass confirm:true to proceed.');
+            throw new \WPMCP\MCP\Confirmation_Required('Permanently deleting a post is not reversible for the physical record. Pass confirm:true to proceed.');
         }
 
         $out = Safe_Mutation::run(
