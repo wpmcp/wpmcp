@@ -89,7 +89,9 @@ theme in question, through core's `plugins_api()` and `themes_api()`, with
 core's standard user agent (WordPress version and this site's address). Installs and updates then
 download the package archive from downloads.wordpress.org. Only directory
 slugs are accepted; these abilities cannot be pointed at an arbitrary zip
-URL. Privacy policy: https://wordpress.org/about/privacy/
+URL. `manage-updates` with type=core downloads the WordPress package that
+core's own update check offered, from downloads.wordpress.org. Privacy
+policy: https://wordpress.org/about/privacy/
 
 = Openverse (api.openverse.org) =
 

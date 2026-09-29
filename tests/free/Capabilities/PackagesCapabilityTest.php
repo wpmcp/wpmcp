@@ -34,6 +34,7 @@ class PackagesCapabilityTest extends \WP_UnitTestCase
         'wpmcp/install-theme'     => 'install_themes',
         'wpmcp/update-theme'      => 'update_themes',
         'wpmcp/delete-theme'      => 'delete_themes',
+        'wpmcp/manage-updates'    => 'update_core',
     ];
 
     protected function tearDown(): void

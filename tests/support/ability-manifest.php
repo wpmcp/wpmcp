@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 404,
-    'free'      => 272,
+    'total'     => 405,
+    'free'      => 273,
     'pro'       => 132,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -289,6 +289,7 @@ return [
         'wpmcp/list-users' => 'free',
         'wpmcp/list-variations' => 'free',
         'wpmcp/list-widgets' => 'free',
+        'wpmcp/manage-updates' => 'free',
         'wpmcp/mec-read' => 'free',
         'wpmcp/mec-write' => 'free',
         'wpmcp/memory-propose' => 'pro',
