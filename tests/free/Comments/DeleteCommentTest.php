@@ -96,4 +96,56 @@ class DeleteCommentTest extends \WP_UnitTestCase
         $this->assertSame('Please keep me safe', $matches[0]->comment_content);
         $this->assertSame('Grace', $matches[0]->comment_author);
     }
+
+    /**
+     * Deleting needs edit_comment on the specific comment too, the check
+     * wp-admin's own comment delete makes (issue #409).
+     *
+     * @dataProvider provide_users_without_edit_comment
+     */
+    public function test_delete_refuses_a_caller_without_edit_comment_on_that_comment(string $role, bool $grant_moderate): void
+    {
+        $owner   = self::factory()->user->create(['role' => 'author']);
+        $post_id = self::factory()->post->create(['post_author' => $owner, 'post_status' => 'publish']);
+        $id      = self::factory()->comment->create([
+            'comment_post_ID' => $post_id,
+            'comment_content' => 'Not yours',
+        ]);
+        $this->created[] = $id;
+
+        $user = self::factory()->user->create(['role' => $role]);
+        if ($grant_moderate) {
+            get_user_by('id', $user)->add_cap('moderate_comments');
+        }
+        wp_set_current_user($user);
+
+        $refusal = null;
+        try {
+            (new Delete_Comment())->handle(['id' => $id, 'confirm' => true]);
+        } catch (\RuntimeException $e) {
+            $refusal = $e->getMessage();
+        }
+        $this->assertNotNull($refusal, 'Expected a refusal for a caller without edit_comment.');
+        $this->assertStringContainsString('permission', (string) $refusal);
+        $this->assertNotNull(get_comment($id), 'Comment must be untouched.');
+    }
+
+    /** @return array<string,array{string,bool}> */
+    public static function provide_users_without_edit_comment(): array
+    {
+        return [
+            'contributor'                    => ['contributor', false],
+            'subscriber + moderate_comments' => ['subscriber', true],
+        ];
+    }
+
+    public function test_administrator_can_delete_a_comment(): void
+    {
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        $id = $this->comment();
+
+        (new Delete_Comment())->handle(['id' => $id, 'confirm' => true]);
+
+        $this->assertNull(get_comment($id));
+    }
 }

@@ -37,6 +37,12 @@ class Edit_Comment
             throw new \RuntimeException('Comment not found.');
         }
 
+        // The ability gate is moderate_comments; editing this comment also
+        // needs edit_comment on it, which core maps to edit_post on its post.
+        if (! current_user_can('edit_comment', $id)) {
+            throw new \RuntimeException('You do not have permission to edit comment ' . (int) $id . '.');
+        }
+
         $changes = $this->collect_changes($args);
         if ([] === $changes) {
             return ['id' => $id, 'updated' => []];

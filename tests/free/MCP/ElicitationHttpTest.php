@@ -44,16 +44,12 @@ class ElicitationHttpTest extends \WP_UnitTestCase
     }
 
     /**
-     * An administrator who can also delete comments: wpmcp/delete-comment
-     * is gated on the edit_comments primitive, which core's administrator
-     * role does not carry (CommentsCapabilityTest grants it the same way).
+     * A plain administrator: wpmcp/delete-comment gates on moderate_comments,
+     * which core's administrator role carries (issue #409).
      */
     private static function admin(): int
     {
-        $id = self::factory()->user->create(['role' => 'administrator']);
-        get_user_by('id', $id)->add_cap('edit_comments');
-
-        return $id;
+        return self::factory()->user->create(['role' => 'administrator']);
     }
 
     protected function tearDown(): void

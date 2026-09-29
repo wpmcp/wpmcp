@@ -78,6 +78,9 @@ class CommentsInputTest extends \WP_UnitTestCase
     public function test_delete_comment_requires_confirm_when_enabled(): void
     {
         add_filter('wpmcp_enable_delete_comment', '__return_true');
+        // The handler checks edit_comment before confirm (issue #409), so the
+        // caller must be someone allowed to delete this comment at all.
+        wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
         $post_id    = self::factory()->post->create();
         $comment_id = self::factory()->comment->create(['comment_post_ID' => $post_id]);
 
