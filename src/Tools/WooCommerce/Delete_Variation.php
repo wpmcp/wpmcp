@@ -43,7 +43,7 @@ class Delete_Variation
             throw new \InvalidArgumentException('Variation not found.');
         }
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Deleting a variation removes it from the store. Pass confirm:true to proceed.');
+            throw new \WPMCP\MCP\Confirmation_Required('Deleting a variation removes it from the store. Pass confirm:true to proceed.');
         }
 
         $parent_id = $variation->get_parent_id();

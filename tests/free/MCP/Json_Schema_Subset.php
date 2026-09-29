@@ -50,6 +50,23 @@ final class Json_Schema_Subset
         return $errors;
     }
 
+    /**
+     * Validate $data against an in-memory schema (a tool outputSchema, issue
+     * #387) rather than a vendored schema file.
+     *
+     * @param array<string, mixed> $schema
+     * @param mixed                $data
+     * @return string[] Human-readable violations; empty means valid.
+     */
+    public static function validate(array $schema, $data): array
+    {
+        $self   = new self($schema);
+        $errors = [];
+        $self->check($schema, $data, '$', $errors);
+
+        return $errors;
+    }
+
     /** @return array<string, mixed> */
     private function resolve(string $pointer): array
     {

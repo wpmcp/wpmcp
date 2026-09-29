@@ -90,7 +90,7 @@ class Push_Site_Archive
         $apply_timeout = max(60, (int) ($args['apply_timeout'] ?? self::DEFAULT_APPLY_TIMEOUT));
 
         if (! $dry_run && ! $confirm) {
-            throw new \InvalidArgumentException('Pushing an archive requires confirm:true (and apply:true replaces the target\'s database). Run with dry_run:true first.');
+            throw new \WPMCP\MCP\Confirmation_Required('Pushing an archive requires confirm:true (and apply:true replaces the target\'s database). Run with dry_run:true first.');
         }
 
         $archive  = Archive_Locator::resolve($args);

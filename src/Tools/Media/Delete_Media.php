@@ -35,7 +35,7 @@ class Delete_Media
             throw new \InvalidArgumentException('That ID is not a media attachment.');
         }
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Deleting media is permanent. Pass confirm:true to proceed.');
+            throw new \WPMCP\MCP\Confirmation_Required('Deleting media is permanent. Pass confirm:true to proceed.');
         }
 
         $force = ! empty($args['force']);

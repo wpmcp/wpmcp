@@ -28,7 +28,7 @@ class Delete_File
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Deleting a file requires confirm:true.');
+            throw new \WPMCP\MCP\Confirmation_Required('Deleting a file requires confirm:true.');
         }
 
         $gate = Filesystem_Guard::writes_allowed();
