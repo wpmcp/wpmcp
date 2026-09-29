@@ -9281,13 +9281,15 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-builder-content',
             'pro',
-            'Bricks elements; Divi/WPBakery/Avada shortcodes, Thrive HTML, oxygen-classic JSON (last four with paths); Beaver Builder/Breakdance/Oxygen nodes. Read-only',
+            'Bricks elements; Divi/WPBakery/Avada shortcodes, Thrive HTML, oxygen-classic JSON (last four with paths); Beaver Builder/Breakdance/Oxygen nodes. Or scope design_system|templates|catalog (element: its controls) for builder bricks|breakdance|oxygen. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
                     'post_id' => [ 'type' => 'integer' ],
+                    'builder' => [ 'type' => 'string' ],
+                    'scope'   => [ 'type' => 'string' ],
+                    'element' => [ 'type' => 'string' ],
                 ],
-                'required'   => [ 'post_id' ],
             ],
             [$get_builder_content, 'handle'],
             'edit_posts',

@@ -23,6 +23,8 @@ if (! defined('ABSPATH')) {
  * its stored JSON tree (or the shortcodes of a page in the pre-4.0 format),
  * the path tree parsed from it, which of the two it is, whether it can be
  * written now and whether the plugin is loaded.
+ * With `scope` set (design_system, templates or catalog) it reads a
+ * builder's site-wide design data instead of one post; see Builder_Design.
  * Elementor/Gutenberg/classic posts are out of scope for this tool (use
  * get-elementor-data for Elementor) and return a WP_Error. Never mutates
  * anything, so this is not routed through the safety core.
@@ -31,6 +33,10 @@ class Get_Builder_Content
 {
     public function handle(array $args)
     {
+        if (isset($args['scope']) && '' !== $args['scope']) {
+            return Builder_Design::read($args);
+        }
+
         $post_id = (int) ($args['post_id'] ?? 0);
 
         if ($post_id <= 0) {
