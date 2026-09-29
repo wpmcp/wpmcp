@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Security;
 
 use WPMCP\Governance\Governance_Audit_Log;
+use WPMCP\MCP\Confirmation_Required;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -67,7 +68,7 @@ class Incident_Response
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException(sprintf('%s cannot be undone in full and requires confirm:true.', esc_html($action)));
+            throw new Confirmation_Required(sprintf('%s cannot be undone in full and requires confirm:true.', esc_html($action)));
         }
 
         try {
