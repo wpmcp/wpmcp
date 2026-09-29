@@ -34,7 +34,7 @@ class Site_Templates
     public static function post_type(string $entity): string
     {
         if (! isset(self::POST_TYPES[ $entity ])) {
-            throw new \InvalidArgumentException('"entity" must be one of: template, template_part, navigation.');
+            throw new \InvalidArgumentException('"entity" must be one of: template, template_part, navigation, global_styles.');
         }
         return self::POST_TYPES[ $entity ];
     }

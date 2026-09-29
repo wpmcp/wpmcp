@@ -15,6 +15,9 @@ if (! defined('ABSPATH')) {
  * customization exists and, for a part, its area. On a classic theme the
  * lists are empty and a message says why. Reading never writes, not even
  * for a template that only lives in a theme file.
+ *
+ * Entity global_styles (issue #379) reads the theme.json layers instead;
+ * see Global_Styles.
  */
 class Site_Templates_Read
 {
@@ -23,6 +26,9 @@ class Site_Templates_Read
         $entity = (string) ($args['entity'] ?? '');
         $id     = $args['id'] ?? null;
 
+        if ('global_styles' === $entity) {
+            return (new Global_Styles())->read($id);
+        }
         if ('navigation' === $entity) {
             return null === $id || '' === $id ? $this->list_navigation() : $this->read_navigation($id);
         }
