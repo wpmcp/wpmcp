@@ -74,7 +74,7 @@ class Token_Grant
 
         $client_id     = (string) ($params['client_id'] ?? '');
         $client_secret = (string) ($params['client_secret'] ?? '');
-        if (! Client_Store::verify_secret($client_id, $client_secret)) {
+        if (! self::authenticate($client_id, $client_secret)) {
             self::audit(false, $client_id);
             return new \WP_Error('invalid_client', 'Client authentication failed.');
         }
@@ -96,6 +96,23 @@ class Token_Grant
         return 'refresh_token' === $grant_type
             ? self::refresh($params, $client_id)
             : self::authorization_code($params, $client_id);
+    }
+
+    /**
+     * A registered (DCR) client proves itself with its secret. A Client ID
+     * Metadata Document client (issue #388) is public: it presents no
+     * secret, the code it redeems is PKCE-bound, and it must still be
+     * admitted (not denied, and approved when the site requires approval).
+     * A DCR row always wins, so a URL-shaped id can never borrow the public
+     * path to skip a secret it was issued.
+     */
+    private static function authenticate(string $client_id, string $client_secret): bool
+    {
+        if (null !== Client_Store::get($client_id)) {
+            return Client_Store::verify_secret($client_id, $client_secret);
+        }
+
+        return '' === $client_secret && Client_Metadata_Document::is_admitted($client_id);
     }
 
     /** The RFC 6749 4.1.3 authorization_code exchange, PKCE-verified. */

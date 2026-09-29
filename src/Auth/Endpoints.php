@@ -26,7 +26,8 @@ if (! defined('ABSPATH')) {
  *    also at its path-suffixed form for the MCP endpoint
  *    (/.well-known/oauth-protected-resource/wp-json/mcp/wpmcp-server)
  *  - POST /wp-json/wpmcp/v1/oauth/register            (RFC 7591 DCR) via register_rest_route
- *  - POST /wp-json/wpmcp/v1/oauth/authorize             (authorization_code, PKCE)
+ *  - POST /wp-json/wpmcp/v1/oauth/authorize             (authorization_code, PKCE;
+ *    a client_id that is an https URL is a Client ID Metadata Document, #388)
  *  - POST /wp-json/wpmcp/v1/oauth/token                  (authorization_code exchange)
  *
  * permission_callback is '__return_true' on every REST route: each handler
@@ -158,7 +159,11 @@ class Endpoints
         $result = Authorization_Grant::authorize($request->get_params());
 
         if (is_wp_error($result)) {
-            $status = 'login_required' === $result->get_error_code() ? 401 : 400;
+            $status = match ($result->get_error_code()) {
+                'login_required' => 401,
+                'access_denied'  => 403,
+                default          => 400,
+            };
             return self::error_response($result, $status);
         }
 

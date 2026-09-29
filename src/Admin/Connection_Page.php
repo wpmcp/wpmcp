@@ -2,6 +2,8 @@
 
 namespace WPMCP\Admin;
 
+use WPMCP\Auth\Client_Metadata_Document;
+use WPMCP\Auth\OAuth_Config;
 use WPMCP\Connect\Bundle_Builder;
 use WPMCP\Connect\Client_Config_Generator;
 use WPMCP\Connect\Connection_Tester;
@@ -72,6 +74,13 @@ class Connection_Page
                 return ['action' => 'toggle', 'enabled' => Exposure::is_enabled()];
             case 'self_test':
                 return ['action' => 'self_test', 'self_test' => (new Connection_Tester())->test()];
+            case 'oauth_client_approval':
+                Client_Metadata_Document::set_requires_approval('1' === self::str($post['require'] ?? ''));
+                return ['action' => 'oauth_client_approval'];
+            case 'oauth_client_approve':
+            case 'oauth_client_deny':
+            case 'oauth_client_forget':
+                return $this->decide_oauth_client($action, self::str($post['client_id'] ?? ''));
         }
 
         return ['error' => __('Unknown action.', 'wpmcp')];
@@ -123,6 +132,27 @@ class Connection_Page
             'auth_header' => Client_Config_Generator::auth_header($user->user_login, $password),
             'configs'     => (new Client_Config_Generator())->configs($user->user_login, $password),
         ];
+    }
+
+    /**
+     * Approve, deny or forget an OAuth client that connected with a Client
+     * ID Metadata Document (issue #388). Denying also revokes its tokens.
+     */
+    private function decide_oauth_client(string $action, string $client_id): array
+    {
+        // Matched exactly against the registry keys, which are the
+        // validated client_ids themselves, so no sanitizing rewrite here.
+        $done = match ($action) {
+            'oauth_client_approve' => Client_Metadata_Document::approve($client_id),
+            'oauth_client_deny'    => Client_Metadata_Document::deny($client_id),
+            default                => Client_Metadata_Document::forget($client_id),
+        };
+
+        if (! $done) {
+            return ['error' => __('That OAuth client is not known to this site.', 'wpmcp')];
+        }
+
+        return ['action' => $action, 'client_id' => $client_id];
     }
 
     private function revoke(array $post): array
@@ -342,6 +372,8 @@ class Connection_Page
                 </ol>
             <?php endif; ?>
 
+            <?php $this->render_oauth_clients($nonce); ?>
+
             <h2><?php echo esc_html__('Issued application passwords', 'wpmcp'); ?></h2>
             <?php $records = $this->records(); ?>
             <?php if (! $records) : ?>
@@ -376,6 +408,95 @@ class Connection_Page
                 </table>
             <?php endif; ?>
         </div>
+        <?php
+    }
+    /**
+     * OAuth clients that connected with a Client ID Metadata Document
+     * (issue #388), and the switch that holds new ones for approval. Only
+     * shown while OAuth is on. Each client's redirect hosts are listed, and
+     * a client that only redirects to this machine's loopback address is
+     * flagged: its document cannot prove who is really running it.
+     */
+    private function render_oauth_clients(string $nonce): void
+    {
+        if (! OAuth_Config::is_enabled()) {
+            return;
+        }
+
+        $required = Client_Metadata_Document::requires_approval();
+        $clients  = Client_Metadata_Document::clients();
+        $labels   = [
+            'approved' => __('Approved', 'wpmcp'),
+            'denied'   => __('Blocked', 'wpmcp'),
+            'pending'  => __('Waiting for approval', 'wpmcp'),
+            'seen'     => __('Allowed (approval off)', 'wpmcp'),
+        ];
+        ?>
+        <h2><?php echo esc_html__('OAuth clients', 'wpmcp'); ?></h2>
+        <p><?php echo esc_html__('MCP clients that sign in through OAuth with a client metadata document (an https URL as their client ID) are listed here. This site fetches that document to learn the client\'s name and where it may redirect.', 'wpmcp'); ?></p>
+        <form method="post">
+            <input type="hidden" name="wpmcp_connection_action" value="oauth_client_approval">
+            <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($nonce); ?>">
+            <input type="hidden" name="require" value="<?php echo $required ? '0' : '1'; ?>">
+            <?php submit_button(
+                $required ? __('Stop requiring approval', 'wpmcp') : __('Require approval for new clients', 'wpmcp'),
+                'secondary',
+                'submit',
+                false
+            ); ?>
+            <span class="description">
+                <?php echo $required
+                    ? esc_html__('New clients wait here until you approve them.', 'wpmcp')
+                    : esc_html__('New clients can connect as soon as a signed-in user authorizes them. Turning approval on keeps the clients already listed.', 'wpmcp'); ?>
+            </span>
+        </form>
+        <?php if (! $clients) : ?>
+            <p><?php echo esc_html__('No OAuth client has used a client metadata document yet.', 'wpmcp'); ?></p>
+            <?php return; ?>
+        <?php endif; ?>
+        <table class="widefat striped" style="margin-top: 1em;">
+            <thead><tr>
+                <th><?php echo esc_html__('Client', 'wpmcp'); ?></th>
+                <th><?php echo esc_html__('Redirects to', 'wpmcp'); ?></th>
+                <th><?php echo esc_html__('Status', 'wpmcp'); ?></th>
+                <th></th>
+            </tr></thead>
+            <tbody>
+            <?php foreach ($clients as $client) : ?>
+                <?php
+                $hosts    = array_map('strval', (array) ($client['redirect_hosts'] ?? []));
+                $loopback = $hosts && ! array_diff($hosts, ['127.0.0.1', '::1', 'localhost']);
+                $status   = (string) ($client['status'] ?? '');
+                ?>
+                <tr>
+                    <td>
+                        <strong><?php echo esc_html((string) ($client['client_name'] ?? '')); ?></strong><br>
+                        <code><?php echo esc_html((string) $client['client_id']); ?></code>
+                    </td>
+                    <td>
+                        <?php echo esc_html(implode(', ', $hosts)); ?>
+                        <?php if ($loopback) : ?>
+                            <br><span class="description"><?php echo esc_html__('Loopback only: any program on the user\'s computer could present this client ID. Approve it only if you expect this client.', 'wpmcp'); ?></span>
+                        <?php endif; ?>
+                    </td>
+                    <td><?php echo esc_html($labels[ $status ] ?? $status); ?></td>
+                    <td>
+                        <?php foreach (['oauth_client_approve' => __('Approve', 'wpmcp'), 'oauth_client_deny' => __('Block', 'wpmcp'), 'oauth_client_forget' => __('Forget', 'wpmcp')] as $action => $label) : ?>
+                            <?php if (('oauth_client_approve' === $action && 'approved' === $status) || ('oauth_client_deny' === $action && 'denied' === $status)) {
+                                continue;
+                            } ?>
+                            <form method="post" style="display: inline;">
+                                <input type="hidden" name="wpmcp_connection_action" value="<?php echo esc_attr($action); ?>">
+                                <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($nonce); ?>">
+                                <input type="hidden" name="client_id" value="<?php echo esc_attr((string) $client['client_id']); ?>">
+                                <?php submit_button($label, 'oauth_client_deny' === $action ? 'delete small' : 'small', 'submit', false); ?>
+                            </form>
+                        <?php endforeach; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
         <?php
     }
 }
