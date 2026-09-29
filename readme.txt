@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.101
+Stable tag: 0.8.102
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -56,7 +56,7 @@ The plugin collects nothing about you and sends nothing to us. Its only schedule
 
 * api.wordpress.org, core checksums - fetched by scan-security so modified core files can be reported. Sends the WordPress version and site locale under a WPMCP-Security-Scanner/1.0 user agent. Privacy policy: https://wordpress.org/about/privacy/
 * api.wordpress.org, plugin directory - scan-security also asks whether any active plugin has been closed, sending the directory slug of each plugin it looks up (capped per run, then cached) through core's plugins_api(). Core's standard user agent goes with it, which carries the WordPress version and this site's address. Privacy policy: https://wordpress.org/about/privacy/
-* api.wordpress.org and downloads.wordpress.org, plugin and theme directory - search-plugins, get-plugin-info, install-plugin, update-plugin, search-themes, install-theme and update-theme send your search terms or a directory slug through core's plugins_api()/themes_api(), again with core's standard user agent, and installs and updates download the package archive from downloads.wordpress.org. Only directory slugs are accepted, never an arbitrary zip URL. Privacy policy: https://wordpress.org/about/privacy/
+* api.wordpress.org and downloads.wordpress.org, plugin and theme directory - search-plugins, get-plugin-info, install-plugin, update-plugin, search-themes, install-theme and update-theme send your search terms or a directory slug through core's plugins_api()/themes_api(), again with core's standard user agent, and installs and updates download the package archive from downloads.wordpress.org. Only directory slugs are accepted, never an arbitrary zip URL. manage-updates with type=core downloads the WordPress package that core's own update check offered, from downloads.wordpress.org. Privacy policy: https://wordpress.org/about/privacy/
 * api.openverse.org - search-stock-images. Openverse is the default provider, used whenever no other provider is named, and needs no key or setup, so it is not opt-in: running the search is what sends the request. Sends the search terms and paging under a WPMCP-Stock-Search/1.0 user agent. Terms: https://openverse.org/terms Privacy policy: https://openverse.org/privacy
 * api.pexels.com - search-stock-images, when the Pexels provider is used and you have saved a Pexels key. Sends the search terms, paging and your key, under the same pinned user agent. Terms: https://www.pexels.com/terms-of-service/ Privacy policy: https://www.pexels.com/privacy-policy/
 * api.unsplash.com - search-stock-images, when the Unsplash provider is used and you have saved an Unsplash key. Sends the search terms, paging and your key, under the same pinned user agent. Terms: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
@@ -102,6 +102,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.102 =
+* New: manage-updates applies WordPress core updates (and pending database upgrades) only with confirm:true and a fresh full-site backup, with an optional expected-version guard, and toggles plugin and theme auto-updates as undoable changes.
+* New: list-plugins with updates:true lists available core, plugin and theme updates together with their auto-update state.
 
 = 0.8.101 =
 * New: read and restyle block themes through global styles. site-templates-read and site-templates-write take entity global_styles to read the theme, user and merged theme.json layers, patch palette, font, element and block styles by path, apply a style variation or reset, each write undoable.
@@ -540,6 +544,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.102 =
+New: manage-updates applies WordPress core updates (and pending database upgrades) only with confirm:true and a fresh full-site backup, with an optional expected-version guard, and toggles plugin and theme auto-updates as undoable changes.
 
 = 0.8.101 =
 New: read and restyle block themes through global styles. site-templates-read and site-templates-write take entity global_styles to read the theme, user and merged theme.json layers, patch palette, font, element and block styles by path, apply a style variation or reset, each write undoable.

@@ -201,6 +201,7 @@ use WPMCP\Tools\Packages\Activate_Plugin;
 use WPMCP\Tools\Packages\Deactivate_Plugin;
 use WPMCP\Tools\Packages\Install_Plugin;
 use WPMCP\Tools\Packages\Update_Plugin;
+use WPMCP\Tools\Packages\Manage_Updates;
 use WPMCP\Tools\Packages\Delete_Plugin;
 use WPMCP\Tools\Packages\List_Themes;
 use WPMCP\Tools\Packages\Switch_Theme;
@@ -1990,14 +1991,17 @@ final class Plugin
         $install_theme     = new Install_Theme();
         $update_theme      = new Update_Theme();
         $delete_theme      = new Delete_Theme();
+        $manage_updates    = new Manage_Updates();
 
         $registrar->register(new Ability(
             'wpmcp/list-plugins',
             'free',
-            'List installed plugins with active status, protected-package flag, and pending update info',
+            'List installed plugins with active status, protected-package flag, and pending update info; updates:true lists core, plugin and theme updates with auto-update state',
             [
                 'type'       => 'object',
-                'properties' => [],
+                'properties' => [
+                    'updates' => [ 'type' => 'boolean' ],
+                ],
             ],
             [$list_plugins, 'handle'],
             'activate_plugins',
@@ -2177,6 +2181,33 @@ final class Plugin
             'packages',
             'delete'
         ));
+        $registrar->register(new Ability(
+            'wpmcp/manage-updates',
+            'free',
+            'Update WordPress core or set plugin/theme auto-updates. type=core applies the offered core update (or pending DB upgrade); needs confirm:true and a full backup (trigger-backup type=full) under 1h old; refuses if expected_version differs from the offer. A core update cannot be snapshot-rolled-back; restore that backup to revert. type=plugin|theme + item + enabled sets auto-update (undoable)',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'type'             => [
+                        'type' => 'string',
+                        'enum' => ['core', 'plugin', 'theme'],
+                    ],
+                    'item'             => [ 'type' => 'string' ],
+                    'enabled'          => [ 'type' => 'boolean' ],
+                    'expected_version' => [ 'type' => 'string' ],
+                    'confirm'          => [ 'type' => 'boolean' ],
+                    'session_id'       => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'type' ],
+            ],
+            [$manage_updates, 'handle'],
+            'update_core',
+            'packages',
+            'update',
+            false,
+            true,
+            false
+        ));
 
         $search_plugins  = new Search_Plugins();
         $get_plugin_info = new Get_Plugin_Info();
@@ -2338,7 +2369,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-rows',
             'free',
-            'Update rows matching a mandatory equality WHERE via $wpdb->update() (parameterized). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo via rollback-operation when the table has a primary key and the WHERE fits the before-image cap, else recoverable:false and the before-image goes to the write audit log',
+            'Update rows matching a mandatory equality WHERE via $wpdb->update(). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo via rollback-operation if the table has a primary key and the WHERE fits the before-image cap, else recoverable:false with the before-image in the write audit log',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2358,7 +2389,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-rows',
             'free',
-            'Delete rows matching a mandatory equality WHERE via $wpdb->delete() (parameterized). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo via rollback-operation (rows reinserted with their ids) when the table has a primary key and the WHERE fits the before-image cap, else recoverable:false and the before-image goes to the write audit log',
+            'Delete rows matching a mandatory equality WHERE via $wpdb->delete(). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo via rollback-operation (rows reinserted with their ids) if the table has a primary key and the WHERE fits the before-image cap, else recoverable:false with the before-image in the write audit log',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3043,7 +3074,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/search-content',
             'free',
-            'Search all site text, including what post_content search misses: Elementor and Bricks settings, block attributes, template parts, reusable blocks and nav menus. Each hit has an addressable location (block path, element id or menu item id) and a snippet. Read-only; hits are re-checked against read_post. Empty index: run reindex-search',
+            'Search all site text, including what post_content search misses: Elementor and Bricks settings, block attributes, template parts, reusable blocks and nav menus. Each hit has a location (block path, element id or menu item id) and a snippet. Read-only; hits re-checked against read_post. Empty index: run reindex-search',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4267,7 +4298,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/call-rest',
             'free',
-            'Run an internal REST request (rest_do_request) on any route here; returns status and body. The route\'s permission_callback runs as the current user, so access cannot widen. GET/HEAD always allowed; POST/PUT/PATCH/DELETE need the wpmcp_enable_rest_writes filter (off by default) and confirm:true, and report recoverable:false (not snapshotted)',
+            'Run an internal REST request (rest_do_request) on any local route; returns status and body. The route\'s permission_callback runs as the current user, so access cannot widen. GET/HEAD always allowed; writes need the wpmcp_enable_rest_writes filter (off by default) and confirm:true, and report recoverable:false (not snapshotted)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4975,7 +5006,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/import-content',
             'free',
-            'Import a WXR file as new posts (title, content, status, post_type, postmeta). Off by default (wpmcp_enable_import filter), needs confirm:true, not snapshotted (recoverable:false); returns created_post_ids for delete-post. mirror:true with post_id instead restores that page from its export-content mirror, undoable via rollback-operation',
+            'Import a WXR file as new posts (title, content, status, post_type, postmeta). Off by default (wpmcp_enable_import filter), needs confirm:true, not snapshotted (recoverable:false); returns created_post_ids for delete-post. mirror:true + post_id restores that page from its export-content mirror (undoable)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5135,7 +5166,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Restore this site in place from a site-backup archive (job_id or path). dry_run (default TRUE) reports format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false first takes a database safety archive (job id returned; no restore if it fails), holds maintenance mode, imports each statement, and on failure reports it and rolls back. preserve_session (default true) keeps the caller signed in. include_files (default false, scope all) stages and swaps in wp-content. Refuses paths outside the site-backup dir',
+            'Restore this site in place from a site-backup archive (job_id or path; none outside the site-backup dir). dry_run (default true) reports format_version, scope (all/database), prefix, multisite, WP downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false takes a database safety archive first (job id returned; no restore if it fails), holds maintenance mode, imports each statement, and on failure rolls back. preserve_session (default true) keeps the caller signed in; include_files (default false, scope all) swaps in staged wp-content',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5191,7 +5222,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/rewrite-site-urls',
             'free',
-            'Rewrite every embedded URL in the database from one site URL to another (options, postmeta, posts, termmeta, usermeta, comments), serialization-aware across plain, JSON-escaped, percent-encoded and scheme-relative forms; object values are refused and reported. dry_run (default) reports per-table counts; dry_run:false + confirm:true takes a database safety archive first or refuses, and returns its job_id for restore-site-backup to undo. Skips wpmcp_db_protected_tables (usermeta by default); never rewrites GUIDs',
+            'Rewrite embedded URLs in the database from one site URL to another (options, postmeta, posts, termmeta, usermeta, comments), serialization-aware for plain, JSON-escaped, percent-encoded and scheme-relative forms; object values are refused and reported. dry_run (default) reports per-table counts; dry_run:false + confirm:true takes a database safety archive first or refuses, returning its job_id for restore-site-backup. Skips wpmcp_db_protected_tables (usermeta by default); never rewrites GUIDs',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5220,7 +5251,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/push-site-archive',
             'free',
-            'Push a site-backup archive (job_id or path; scope all or database) to another wpmcp site at target_url as its admin (target_user + target_app_password, or target_token). dry_run (default) only checks the target; dry_run:false + confirm:true uploads resumable chunks for max_seconds (call again to go on); apply:true also has the target restore it (safety archive first) and rewrite URLs. Needs the outgoing-migration opt-in here, incoming there',
+            'Push a site-backup archive (job_id or path; scope all or database) to another wpmcp site at target_url as its admin (target_user + target_app_password, or target_token). dry_run (default) only checks the target; dry_run:false + confirm:true uploads resumable chunks for max_seconds (call again to continue); apply:true has the target restore it (safety archive first) and rewrite URLs. Needs the outgoing-migration opt-in here, incoming there',
             [
                 'type'       => 'object',
                 'properties' => [
