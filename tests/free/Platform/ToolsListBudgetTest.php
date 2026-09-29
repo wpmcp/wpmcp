@@ -151,7 +151,13 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  trimmed by 120 characters to pay for part of it, which puts the
      *  payload at 208275 bytes over 393 tools. What remains is the
      *  created-inactive rule, the on_conflict rename opt-in and the
-     *  rollback-session undo. */
+     *  rollback-session undo. Core updates and auto-update settings (#389)
+     *  added one tool (manage-updates) and an updates mode on list-plugins
+     *  with no raise: the shared integration dispatcher read/write
+     *  descriptions and a few long free descriptions (restore-site-backup,
+     *  rewrite-site-urls, update-rows, delete-rows, call-rest and others)
+     *  were reworded without dropping a rule, which puts the payload at
+     *  208815 bytes over 405 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */

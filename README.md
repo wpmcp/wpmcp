@@ -137,13 +137,14 @@ The HTTP route is mounted by the official [WordPress MCP adapter](https://github
 | `get-user` | read | Read one user's profile detail plus an `is_admin` flag derived from live capabilities; never returns the password hash |
 | `create-user` | write | Create a non-admin user; auto-generates a strong password (never returned) and emails the user; rejects admin and unknown roles |
 | `update-user` | write (safe) | Update a non-admin user's profile fields; refuses admin-capable users; never changes role or password |
-| `list-plugins` | read | List installed plugins with active status, protected-package flag, and pending update info |
+| `list-plugins` | read | List installed plugins with active status, protected-package flag, and pending update info; `updates: true` lists available core, plugin and theme updates with auto-update state |
 | `activate-plugin` | write (safe) | Activate an installed plugin; snapshots the prior `active_plugins` option |
 | `deactivate-plugin` | write (safe) | Deactivate a plugin; refuses protected packages (wpmcp, Elementor); snapshots the prior `active_plugins` option |
 | `install-plugin` | write | Install a plugin from wordpress.org by slug, optionally activating it |
 | `search-plugins` | read | Search the wordpress.org plugin directory by keyword, with optional tag/author filters and a capped `per_page` |
 | `get-plugin-info` | read | Fetch full wordpress.org plugin directory info for a slug: version, rating, installs, homepage, download link, and compatibility |
 | `update-plugin` | write (irreversible) | Update an installed plugin from wordpress.org. Disabled by default, requires `confirm: true`; not rollback-able |
+| `manage-updates` | write (core: irreversible) | `type: core` applies the offered WordPress core update (or a pending database upgrade); requires `confirm: true` and a completed full-site backup under an hour old (`wpmcp_core_update_backup_max_age` filter), refuses when `expected_version` no longer matches, and cannot be snapshot-rolled-back (restore the backup instead). `type: plugin` or `theme` with `item` and `enabled` toggles auto-updates, snapshotted and undoable |
 | `delete-plugin` | write (irreversible) | Permanently delete an installed plugin's files. Disabled by default, requires `confirm: true`; refuses protected or active plugins; not rollback-able |
 | `list-themes` | read | List installed themes with active status, parent theme, and pending update info |
 | `switch-theme` | write (safe) | Activate (switch to) an installed theme; snapshots the prior `template`/`stylesheet` options |
