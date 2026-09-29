@@ -79,6 +79,9 @@ class Snapshot
         if ('package_install' === $object_type) {
             return self::capture_package_install((string) $object_id);
         }
+        if (Core_Files_Snapshot::TYPE === $object_type) {
+            return Core_Files_Snapshot::capture((string) $object_id);
+        }
         if ('acf_structure' === $object_type) {
             return self::capture_acf_structure((string) $object_id);
         }

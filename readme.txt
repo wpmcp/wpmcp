@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.103
+Stable tag: 0.8.105
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -55,6 +55,7 @@ The plugin collects nothing about you and sends nothing to us. Its only schedule
 == External services ==
 
 * api.wordpress.org, core checksums - fetched by scan-security so modified core files can be reported. Sends the WordPress version and site locale under a WPMCP-Security-Scanner/1.0 user agent. Privacy policy: https://wordpress.org/about/privacy/
+* api.wordpress.org and downloads.wordpress.org, core file reinstall - incident-response with reinstall-core-files, and only then, fetches the same core checksums and downloads the official WordPress package for this site's version from downloads.wordpress.org through core's download_url(), with core's standard user agent (WordPress version and this site's address). Only the files that match the official checksums are written. Privacy policy: https://wordpress.org/about/privacy/
 * api.wordpress.org, plugin directory - scan-security also asks whether any active plugin has been closed, sending the directory slug of each plugin it looks up (capped per run, then cached) through core's plugins_api(). Core's standard user agent goes with it, which carries the WordPress version and this site's address. Privacy policy: https://wordpress.org/about/privacy/
 * api.wordpress.org and downloads.wordpress.org, plugin and theme directory - search-plugins, get-plugin-info, install-plugin, update-plugin, search-themes, install-theme and update-theme send your search terms or a directory slug through core's plugins_api()/themes_api(), again with core's standard user agent, and installs and updates download the package archive from downloads.wordpress.org. Only directory slugs are accepted, never an arbitrary zip URL. manage-updates with type=core downloads the WordPress package that core's own update check offered, from downloads.wordpress.org. Privacy policy: https://wordpress.org/about/privacy/
 * api.openverse.org - search-stock-images. Openverse is the default provider, used whenever no other provider is named, and needs no key or setup, so it is not opt-in: running the search is what sends the request. Sends the search terms and paging under a WPMCP-Stock-Search/1.0 user agent. Terms: https://openverse.org/terms Privacy policy: https://openverse.org/privacy
@@ -102,6 +103,13 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.105 =
+* New: get-builder-content can read the site-wide design system of Bricks, Breakdance and Oxygen 6: global classes, variables and color palettes, local templates including headers and footers, and the element catalog with each element's control schema.
+
+= 0.8.104 =
+* New: incident response. incident-response lists and revokes application passwords (never showing secrets), ends login sessions for one user or everyone, rotates the keys and salts in wp-config.php with a backup, and reinstalls core files the security scan flags from the checksum-verified official package, undoable with rollback-operation.
+* Every incident-response write needs confirm:true and is recorded in the audit log. Your own session and application password are kept unless you ask, and salt rotation refuses when wp-config.php is not writable or the salts are defined elsewhere.
 
 = 0.8.103 =
 * Destructive tools now ask you to confirm through your MCP client when it supports elicitation, instead of refusing until the agent passes confirm:true; clients without it keep working exactly as before.
@@ -549,6 +557,12 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.105 =
+New: get-builder-content can read the site-wide design system of Bricks, Breakdance and Oxygen 6: global classes, variables and color palettes, local templates including headers and footers, and the element catalog with each element's control schema.
+
+= 0.8.104 =
+New: incident response. incident-response lists and revokes application passwords (never showing secrets), ends login sessions for one user or everyone, rotates the keys and salts in wp-config.php with a backup, and reinstalls core files the security scan flags from the checksum-verified official package, undoable with rollback-operation.
 
 = 0.8.103 =
 Destructive tools now ask you to confirm through your MCP client when it supports elicitation, instead of refusing until the agent passes confirm:true; clients without it keep working exactly as before.
