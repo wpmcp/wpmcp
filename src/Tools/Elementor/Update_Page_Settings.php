@@ -55,6 +55,6 @@ class Update_Page_Settings
         }
         [$post_id, $current] = $read;
 
-        return Element_Tree::write_settings($post_id, array_merge($current, $settings), 'update-page-settings', $args);
+        return Element_Tree::write_settings($post_id, array_merge($current, Classic_Dimensions::normalize($settings)), 'update-page-settings', $args);
     }
 }

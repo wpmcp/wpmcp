@@ -34,7 +34,7 @@ class Add_Container
         [$post_id, $elements] = $read;
 
         $parent_id = (string) ($args['parent_id'] ?? '');
-        $settings  = is_array($args['settings'] ?? null) ? $args['settings'] : [];
+        $settings  = Classic_Dimensions::normalize(is_array($args['settings'] ?? null) ? $args['settings'] : []);
         $position  = isset($args['position']) ? (int) $args['position'] : null;
 
         if ('column' === $el_type && '' === $parent_id) {

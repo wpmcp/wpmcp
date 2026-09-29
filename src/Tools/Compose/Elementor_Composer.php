@@ -4,6 +4,7 @@ namespace WPMCP\Tools\Compose;
 
 use WPMCP\Tools\Elementor\Atomic_Prop_Schema;
 use WPMCP\Tools\Elementor\Atomic_Props;
+use WPMCP\Tools\Elementor\Classic_Dimensions;
 use WPMCP\Tools\Elementor\Element_Id;
 
 if (! defined('ABSPATH')) {
@@ -80,7 +81,7 @@ class Elementor_Composer
                 'id'         => Element_Id::generate(),
                 'elType'     => 'widget',
                 'widgetType' => $widget_type,
-                'settings'   => $settings,
+                'settings'   => Classic_Dimensions::normalize($settings),
                 'elements'   => [],
             ];
         }
@@ -93,7 +94,7 @@ class Elementor_Composer
         return [
             'id'       => Element_Id::generate(),
             'elType'   => $node['type'],
-            'settings' => $node['settings'],
+            'settings' => Classic_Dimensions::normalize($node['settings']),
             'elements' => $children,
         ];
     }
