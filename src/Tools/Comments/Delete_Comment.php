@@ -43,7 +43,7 @@ class Delete_Comment
         // The ability gate is moderate_comments; deleting this comment also
         // needs edit_comment on it, the check wp-admin's own delete makes.
         if (! current_user_can('edit_comment', $id)) {
-            throw new \RuntimeException('You do not have permission to delete comment ' . $id . '.');
+            throw new \RuntimeException('You do not have permission to delete comment ' . (int) $id . '.');
         }
 
         if (true !== ($args['confirm'] ?? null)) {
