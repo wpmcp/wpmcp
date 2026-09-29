@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 405,
-    'free'      => 273,
+    'total'     => 406,
+    'free'      => 274,
     'pro'       => 132,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -226,6 +226,7 @@ return [
         'wpmcp/import-content' => 'free',
         'wpmcp/import-stock-image' => 'free',
         'wpmcp/import-template' => 'pro',
+        'wpmcp/incident-response' => 'free',
         'wpmcp/insert-pattern' => 'free',
         'wpmcp/insert-row' => 'free',
         'wpmcp/insert-stock-image' => 'pro',

@@ -66,7 +66,7 @@ class Integrity_Audit
      */
     public function run(): array
     {
-        $checksums = $this->fetch_checksums();
+        $checksums = $this->checksums();
 
         if (empty($checksums)) {
             return [
@@ -114,10 +114,12 @@ class Integrity_Audit
     /**
      * Fetch the core checksum manifest for the running version over
      * wp_safe_remote_get(). Returns [] on any failure so run() can degrade.
+     * Public so the incident-response core reinstall (issue #382) verifies
+     * against the very same official list the audit reported from.
      *
      * @return array<string,string>
      */
-    private function fetch_checksums(): array
+    public function checksums(): array
     {
         global $wp_version;
         $locale  = function_exists('get_locale') ? get_locale() : 'en_US';
