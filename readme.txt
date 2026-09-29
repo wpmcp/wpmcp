@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.107
+Stable tag: 0.8.108
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -103,6 +103,11 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.108 =
+* Scoped identities can now be pinned to IP addresses and CIDR ranges (IPv4 and IPv6) with the new allowed_ips option on create-identity. Requests from any other address are refused before any tool runs and recorded in the audit log.
+* Client addresses come from REMOTE_ADDR. Forwarded headers are only honored from reverse proxies you list with the new wpmcp_trusted_proxies filter, so they cannot be spoofed.
+* The Connection screen now lists each scoped identity with its allowed addresses.
 
 = 0.8.107 =
 * Site Health can now check mail delivery: it reports how the site sends email (PHP mail, SMTP or a mail service plugin, and the effective From address) without exposing credentials, and can send one confirmed test message to your own address or the site admin email.
@@ -565,6 +570,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.108 =
+Scoped identities can now be pinned to IP addresses and CIDR ranges (IPv4 and IPv6) with the new allowed_ips option on create-identity. Requests from any other address are refused before any tool runs and recorded in the audit log.
 
 = 0.8.107 =
 Site Health can now check mail delivery: it reports how the site sends email (PHP mail, SMTP or a mail service plugin, and the effective From address) without exposing credentials, and can send one confirmed test message to your own address or the site admin email.
