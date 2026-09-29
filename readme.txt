@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.98
+Stable tag: 0.8.99
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -50,7 +50,7 @@ WP MCP Pro adds deep Elementor editing and building, custom widget/block builder
 
 = Privacy =
 
-The plugin collects nothing about you and sends nothing to us. Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing on the schedule ever makes a network request, and neither does activation. Every host it can reach is listed under "External services" below, and each request happens only while you or your agent are running the ability that needs it, with one exception: once you have connected WP MCP Cloud, the announcements feed checks it for notices when an administrator opens a WP MCP screen (see the WP MCP Cloud entry below). Licensing (Freemius) and WP MCP Cloud sync are opt-in and inactive until you connect them. On activation Freemius shows its stock opt-in screen, which defaults to off and carries a Skip link. Skip or decline it and no connection is made, no licence data is exchanged, and the plugin keeps working; the one path that can still reach Freemius afterwards is the optional deactivation feedback form on the Plugins screen: if you submit it, the reason you enter is stored locally and sent to Freemius when the plugin is deleted, and if you untick "anonymous feedback" on that form your display name and email are sent as well. The api.freemius.com entry below spells this out.
+The plugin collects nothing about you and sends nothing to us. Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing on the schedule ever makes a network request, and neither does activation. Every host it can reach is listed under "External services" below, and each request happens only while you or your agent are running the ability that needs it, with two exceptions: once you have connected WP MCP Cloud, the announcements feed checks it for notices when an administrator opens a WP MCP screen (see the WP MCP Cloud entry below), and with OAuth switched on, an MCP client that signs in with a client metadata document has that document fetched from the client's own URL (see the MCP client metadata documents entry below). Licensing (Freemius) and WP MCP Cloud sync are opt-in and inactive until you connect them. On activation Freemius shows its stock opt-in screen, which defaults to off and carries a Skip link. Skip or decline it and no connection is made, no licence data is exchanged, and the plugin keeps working; the one path that can still reach Freemius afterwards is the optional deactivation feedback form on the Plugins screen: if you submit it, the reason you enter is stored locally and sent to Freemius when the plugin is deleted, and if you untick "anonymous feedback" on that form your display name and email are sent as well. The api.freemius.com entry below spells this out.
 
 == External services ==
 
@@ -70,6 +70,7 @@ The plugin collects nothing about you and sends nothing to us. Its only schedule
 * Allowlisted media hosts - import-stock-image and upload-svg download the file you picked from a default allowlist of images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org (Wikimedia Commons, terms: https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use privacy policy: https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) and staticflickr.com (Flickr, terms: https://www.flickr.com/help/terms privacy policy: https://www.flickr.com/help/privacy), matched on the host or a subdomain of it. The site owner can change that list with the wpmcp_remote_media_allowed_hosts filter. The download carries WordPress's standard user agent.
 * Any host you name yourself - sideload-image passes the URL you or your agent supply to core's media_sideload_image(), so it can fetch an image from anywhere. It is not covered by the allowlist above; disable the ability if you do not want that reach.
 * Any URL you measure - analyze-performance fetches the URL you give it under a WPMCP-Performance-Analyzer/1.0 user agent, refusing private, loopback and reserved addresses and following no redirects.
+* MCP client metadata documents (the https URL an OAuth client uses as its client ID) - only when OAuth is switched on (it is off by default) and an MCP client signs in with an https URL as its client ID, a Client ID Metadata Document. While a signed-in user authorizes that client, this site fetches that one URL to read the client's name and allowed redirect addresses. Nothing about your site or its users is sent: it is a plain GET under a WPMCP-OAuth-Client-Metadata/1.0 user agent. Private, loopback and reserved addresses are refused, redirects are not followed, the document is capped at 5 KB, and it is cached per its Cache-Control header (an hour by default), so a repeat sign-in sends nothing. Set the wpmcp_oauth_cimd_enabled filter to false to turn this off, or require approval of new clients on the WP MCP Connection screen. The client's publisher's own terms and privacy policy apply to the document it hosts.
 * This site itself - the connection self-test calls this site's own REST route, scan-security fetches this site's front page to read its security headers, get-rendered-html fetches a page of this site (never another host, and redirects off the site are refused), and the analytics abilities call this site's own URL. These are loopback requests to your own server.
 
 == Installation ==
@@ -101,6 +102,11 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.99 =
+* New: MCP clients can now sign in through OAuth with a client metadata document (an https URL as their client ID), the registration method the MCP authorization spec now prefers. Dynamic client registration keeps working for older clients.
+* The client's document is fetched only while a signed-in user authorizes it, refusing private addresses and redirects, capped in size and cached. See External services in the readme.
+* Site owners can require approval for new OAuth clients, and approve or block them, on the WP MCP Connection screen. Blocking a client revokes its tokens.
 
 = 0.8.98 =
 * New: agents can edit block theme templates, template parts (header, footer and the rest) and navigation menus, with every change undoable.
@@ -527,6 +533,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.99 =
+New: MCP clients can now sign in through OAuth with a client metadata document (an https URL as their client ID), the registration method the MCP authorization spec now prefers. Dynamic client registration keeps working for older clients.
 
 = 0.8.98 =
 New: agents can edit block theme templates, template parts (header, footer and the rest) and navigation menus, with every change undoable.

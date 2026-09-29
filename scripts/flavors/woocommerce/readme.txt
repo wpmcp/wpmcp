@@ -41,7 +41,7 @@ This plugin is complete for WooCommerce stores. The full WP MCP plugin adds page
 
 = Privacy =
 
-The plugin collects nothing about you and sends nothing to the author. Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing on the schedule ever makes a network request, and neither does activation. Every host it can reach is listed under "External services" below, and each request happens only while you or your agent are running the specific ability that needs it, except the cloud announcements check described under WP MCP Cloud, which runs only if a cloud connection was saved.
+The plugin collects nothing about you and sends nothing to the author. Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing on the schedule ever makes a network request, and neither does activation. Every host it can reach is listed under "External services" below, and each request happens only while you or your agent are running the specific ability that needs it, except the cloud announcements check described under WP MCP Cloud, which runs only if a cloud connection was saved, and, with OAuth switched on, the client metadata document fetch described below, which runs while an MCP client signs in.
 
 == External services ==
 
@@ -80,6 +80,10 @@ Used by the `search-stock-images` ability when the Unsplash provider is chosen, 
 = Pages you ask the plugin to measure =
 
 `analyze-performance` fetches the URL you give it so it can measure the response. It is normally this site's own address. Private, loopback and reserved addresses are refused and redirects are not followed. Nothing is sent beyond an ordinary GET and a `WPMCP-Performance-Analyzer/1.0` user agent.
+
+= MCP client metadata documents (the client's own https URL) =
+
+Used only when OAuth is switched on (it is off by default) and an MCP client signs in with an https URL as its client ID, a Client ID Metadata Document. While a signed-in user authorizes that client, this site fetches that one URL to read the client's name and allowed redirect addresses. Nothing about your site or its users is sent: it is a plain GET under a WPMCP-OAuth-Client-Metadata/1.0 user agent. Private, loopback and reserved addresses are refused, redirects are not followed, the document is capped at 5 KB, and it is cached per its Cache-Control header (an hour by default), so a repeat sign-in sends nothing. Set the wpmcp_oauth_cimd_enabled filter to false to turn this off, or require approval of new clients on the WP MCP Connection screen. The client's publisher's own terms and privacy policy apply to the document it hosts.
 
 = WP MCP Cloud (only if a cloud connection was saved elsewhere) =
 

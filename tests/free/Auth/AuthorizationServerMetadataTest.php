@@ -53,15 +53,15 @@ class AuthorizationServerMetadataTest extends \WP_UnitTestCase
         $this->assertSame(['code'], $doc['response_types_supported']);
     }
 
-    public function test_token_endpoint_auth_method_is_client_secret_post_only(): void
+    public function test_token_endpoint_auth_methods_are_client_secret_post_and_none(): void
     {
-        // Every client Client_Store::create() registers is issued a secret
-        // and Token_Grant::exchange() requires and verifies it (there is no
-        // "public client" registration mode yet), so advertising 'none' here
-        // would be dishonest: client_secret_post is the only method this
-        // plugin actually supports.
+        // Every client Client_Store::create() registers through DCR is
+        // issued a secret and must present it (client_secret_post). Since
+        // issue #388 the server also accepts Client ID Metadata Document
+        // clients, which are public clients by definition: they authenticate
+        // with PKCE alone, so 'none' is now an honest advertisement too.
         $doc = Authorization_Server_Metadata::build('https://example.com');
 
-        $this->assertSame(['client_secret_post'], $doc['token_endpoint_auth_methods_supported']);
+        $this->assertSame(['client_secret_post', 'none'], $doc['token_endpoint_auth_methods_supported']);
     }
 }

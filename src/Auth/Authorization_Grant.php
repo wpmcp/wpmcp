@@ -54,6 +54,19 @@ class Authorization_Grant
 
         $client_id = (string) ($params['client_id'] ?? '');
         $client    = Client_Store::get($client_id);
+        if (null === $client && Client_Metadata_Document::looks_like_url($client_id)) {
+            // Issue #388: a client_id that is an https URL names a Client ID
+            // Metadata Document. The document supplies the redirect_uris,
+            // and a site that requires approval holds new clients here.
+            $client = Client_Metadata_Document::resolve($client_id);
+            if (is_wp_error($client)) {
+                return self::deny('invalid_client', $client->get_error_message(), $client_id);
+            }
+            $admitted = Client_Metadata_Document::admit($client);
+            if (is_wp_error($admitted)) {
+                return self::deny($admitted->get_error_code(), $admitted->get_error_message(), $client_id);
+            }
+        }
         if (null === $client) {
             return self::deny('invalid_client', 'Unknown client_id.', $client_id);
         }
