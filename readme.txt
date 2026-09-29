@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.98
+Stable tag: 0.8.99
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -102,6 +102,11 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.99 =
+* New: MCP clients can now sign in through OAuth with a client metadata document (an https URL as their client ID), the registration method the MCP authorization spec now prefers. Dynamic client registration keeps working for older clients.
+* The client's document is fetched only while a signed-in user authorizes it, refusing private addresses and redirects, capped in size and cached. See External services in the readme.
+* Site owners can require approval for new OAuth clients, and approve or block them, on the WP MCP Connection screen. Blocking a client revokes its tokens.
 
 = 0.8.98 =
 * New: agents can edit block theme templates, template parts (header, footer and the rest) and navigation menus, with every change undoable.
@@ -528,6 +533,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.99 =
+New: MCP clients can now sign in through OAuth with a client metadata document (an https URL as their client ID), the registration method the MCP authorization spec now prefers. Dynamic client registration keeps working for older clients.
 
 = 0.8.98 =
 New: agents can edit block theme templates, template parts (header, footer and the rest) and navigation menus, with every change undoable.
