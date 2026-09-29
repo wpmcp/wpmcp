@@ -189,7 +189,7 @@ class GlobalStylesTest extends \WP_UnitTestCase
         $out = $this->write->handle([
             'entity' => 'global_styles',
             'attrs'  => [
-                'settings.typography.fontSizes.theme.large.size' => '2.75rem',
+                'settings.typography.fontSizes.theme.medium.size' => '2.75rem',
                 'styles.elements.link.color.text'                => '#ab1234',
             ],
         ]);

@@ -35,6 +35,10 @@ if (! defined('ABSPATH')) {
  *    through the post restore, in place or resurrected at its original ID
  *    with its terms, so a reverted customization comes back as it was.
  *
+ * The user global styles post (wp_global_styles, issue #379) is the same
+ * shape, one post per theme tagged in wp_theme, so it is captured and
+ * restored through this too, under the fixed slug GLOBAL_STYLES_SLUG.
+ *
  * Restoring takes edit_theme_options, the capability core requires to edit
  * templates, so rollback-operation (edit_posts) cannot become a way around
  * it (see Rollback_Service::restore_capabilities()).
@@ -44,7 +48,14 @@ class Site_Template_Snapshot
     public const TYPE = 'site_template';
 
     /** The post types a key may name. */
-    public const POST_TYPES = ['wp_template', 'wp_template_part'];
+    public const POST_TYPES = ['wp_template', 'wp_template_part', 'wp_global_styles'];
+
+    /**
+     * The user global styles post (issue #379) is keyed the same way, with
+     * a fixed slug: core looks it up by theme alone, never by post name, so
+     * the key's slug is only a label.
+     */
+    public const GLOBAL_STYLES_SLUG = 'global-styles';
 
     public static function key(string $post_type, string $theme, string $slug): string
     {
@@ -75,7 +86,7 @@ class Site_Template_Snapshot
      */
     public static function customization_ids(string $post_type, string $theme, string $slug): array
     {
-        $query = new \WP_Query([
+        $args = [
             'post_type'              => $post_type,
             'post_status'            => ['auto-draft', 'draft', 'publish'],
             'name'                   => $slug,
@@ -92,7 +103,11 @@ class Site_Template_Snapshot
                 'field'    => 'name',
                 'terms'    => $theme,
             ]],
-        ]);
+        ];
+        if ('wp_global_styles' === $post_type) {
+            unset($args['name']);
+        }
+        $query = new \WP_Query($args);
         return array_map('intval', $query->posts);
     }
 
@@ -137,6 +152,14 @@ class Site_Template_Snapshot
         if (null !== $captured) {
             Rollback_Service::apply_snapshot($captured);
             clean_post_cache($captured_id);
+        }
+
+        if ('wp_global_styles' === $parsed[0]) {
+            // Core memoizes the resolved theme.json and the stylesheet built
+            // from it; without this the restored styles would not show until
+            // the next request.
+            \WP_Theme_JSON_Resolver::clean_cached_data();
+            wp_clean_theme_json_cache();
         }
     }
 }

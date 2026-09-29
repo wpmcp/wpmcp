@@ -33,6 +33,9 @@ if (! defined('ABSPATH')) {
  * customization back at its original ID. A navigation menu is an ordinary
  * post and is snapshotted as one.
  *
+ * Entity global_styles (issue #379) patches the user theme.json layer
+ * instead, with actions save, variation and revert; see Global_Styles.
+ *
  * Content that does not round-trip through parse/serialize is refused for a
  * path edit of stored content, as the block tools refuse it. A theme file
  * is the exception: a path edit there creates a new customization from the
@@ -49,6 +52,9 @@ class Site_Templates_Write
         $entity = (string) ($args['entity'] ?? '');
         $action = (string) ($args['action'] ?? 'save');
         $id     = $args['id'] ?? null;
+        if ('global_styles' === $entity) {
+            return (new Global_Styles())->write($action, $args);
+        }
         if (null === $id || '' === $id) {
             throw new \InvalidArgumentException('"id" is required.');
         }

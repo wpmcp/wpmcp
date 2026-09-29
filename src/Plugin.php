@@ -2640,7 +2640,7 @@ final class Plugin
         // other three point at it. Repeating ~40 keys in four descriptions cost
         // most of a kilobyte of every tools/list payload
         // (tests/free/Platform/ToolsListBudgetTest.php).
-        $style_doc = 'Optional flat "style" (color, background_color, font_size, padding, gap, width, ...; all keys on add-atomic-widget; raw "props" for the rest) becomes a local v4 style class; unknown keys or unusable values are errors, never dropped. ';
+        $style_doc = 'Optional flat "style" (color, font_size, padding, gap, ...; all keys on add-atomic-widget, raw "props" for the rest) becomes a local v4 style class; unknown keys or bad values are errors, never dropped. ';
 
         $style_doc_full = sprintf(
             'An optional flat "style" object becomes a local v4 style class. Keys: %s, plus raw "props" for the rest. An unknown key or unusable value is an error, never dropped. ',
@@ -3041,7 +3041,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/search-content',
             'free',
-            'Search all site text at once, including what post_content search misses: Elementor and Bricks settings, block attributes, template parts, reusable blocks and nav menus. Each hit has an addressable location (block path, element id or menu item id) and a snippet. Read-only; hits are re-checked against read_post. Empty index: run reindex-search',
+            'Search all site text, including what post_content search misses: Elementor and Bricks settings, block attributes, template parts, reusable blocks and nav menus. Each hit has an addressable location (block path, element id or menu item id) and a snippet. Read-only; hits are re-checked against read_post. Empty index: run reindex-search',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4394,20 +4394,21 @@ final class Plugin
      * block theme's header, footer or layouts. Both take edit_theme_options,
      * as the site editor does. Every write is snapshot-first; a template
      * write is snapshotted by its key, so its rollback restores the prior
-     * customization or its absence (the theme file). Global styles are not
-     * covered here.
+     * customization or its absence (the theme file). Entity global_styles
+     * (issue #379) reads the theme.json layers and patches the user one, a
+     * variation or a reset, snapshotted the same way by theme.
      */
     private function register_site_template_abilities(Registrar $registrar): void
     {
         $read   = new Site_Templates_Read();
         $write  = new Site_Templates_Write();
-        $entity = [ 'type' => 'string', 'enum' => [ 'template', 'template_part', 'navigation' ] ];
+        $entity = [ 'type' => 'string', 'enum' => [ 'template', 'template_part', 'navigation', 'global_styles' ] ];
         $id     = [ 'type' => [ 'string', 'integer' ] ];
 
         $registrar->register(new Ability(
             'wpmcp/site-templates-read',
             'free',
-            'List the block theme\'s templates and parts (source theme/custom, area, customized) or wp_navigation menus; entity plus id reads one as parsed blocks and content_hash. Reports a classic theme. Read-only',
+            'List the block theme\'s templates and parts (source theme/custom, area, customized) or wp_navigation menus; entity plus id reads one as parsed blocks and content_hash. global_styles: theme/user/merged theme.json, variations, fonts (id: dot path narrows). Reports a classic theme. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4423,13 +4424,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/site-templates-write',
             'free',
-            'Edit a block theme template or part (id: slug or theme//slug) or wp_navigation menu (id). save: content or blocks, customizing over the theme file; add_block (content: one block)/update_block/remove_block: by path with expected_hash; revert: delete the customization. Snapshot-first',
+            'Edit a block theme template or part (id: slug or theme//slug) or wp_navigation menu (id). save: content or blocks, customizing over the theme file; add_block (content: one block)/update_block/remove_block: by path with expected_hash; revert: delete the customization. global_styles (no id): save attrs {dot.path: value|null} to user styles, preset entries by slug; variation: title; revert: reset. Snapshot-first',
             [
                 'type'       => 'object',
                 'properties' => [
                     'entity'        => $entity,
                     'id'            => $id,
-                    'action'        => [ 'type' => 'string', 'enum' => [ 'save', 'add_block', 'update_block', 'remove_block', 'revert' ] ],
+                    'action'        => [ 'type' => 'string', 'enum' => [ 'save', 'add_block', 'update_block', 'remove_block', 'revert', 'variation' ] ],
                     'content'       => [ 'type' => 'string' ],
                     'blocks'        => [ 'type' => 'array' ],
                     'path'          => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
@@ -4440,7 +4441,7 @@ final class Plugin
                     'area'          => [ 'type' => 'string' ],
                     'session_id'    => [ 'type' => 'string' ],
                 ],
-                'required'   => [ 'entity', 'id' ],
+                'required'   => [ 'entity' ],
             ],
             [$write, 'handle'],
             'edit_theme_options',
@@ -5132,7 +5133,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Restore this site in place from a site-backup archive (job_id or path). dry_run defaults to TRUE: a report on format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false first takes a database safety archive (job id returned; no restore if it fails), holds maintenance mode, imports each statement, and on failure reports it and rolls back. preserve_session (default true) keeps the caller signed in. include_files (default false, scope all) stages and swaps in wp-content. Refuses paths outside the site-backup dir',
+            'Restore this site in place from a site-backup archive (job_id or path). dry_run (default TRUE) reports format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false first takes a database safety archive (job id returned; no restore if it fails), holds maintenance mode, imports each statement, and on failure reports it and rolls back. preserve_session (default true) keeps the caller signed in. include_files (default false, scope all) stages and swaps in wp-content. Refuses paths outside the site-backup dir',
             [
                 'type'       => 'object',
                 'properties' => [
