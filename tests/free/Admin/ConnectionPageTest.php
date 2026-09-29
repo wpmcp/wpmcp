@@ -201,6 +201,25 @@ class ConnectionPageTest extends \WP_UnitTestCase
         $this->assertStringContainsString('wpmcp_connection_action', $html);
     }
 
+    /** Issue #416: each scoped identity is listed with the addresses it is pinned to. */
+    public function test_render_lists_each_identity_with_its_allowed_addresses(): void
+    {
+        \WPMCP\Identity\Identity_Store::create('pinned <b>bot</b>', ['allowed_ips' => ['203.0.113.0/24', '2001:db8::/32']]);
+        \WPMCP\Identity\Identity_Store::create('open-bot', []);
+
+        set_current_screen('admin_page_' . Connection_Page::SLUG);
+        ob_start();
+        (new Connection_Page())->render();
+        $html = ob_get_clean();
+        delete_option(\WPMCP\Identity\Identity_Store::OPTION);
+
+        $this->assertStringContainsString('Scoped identities', $html);
+        $this->assertStringContainsString('203.0.113.0/24, 2001:db8::/32', $html);
+        $this->assertStringContainsString('open-bot', $html);
+        $this->assertStringContainsString('Any address', $html);
+        $this->assertStringNotContainsString('<b>bot</b>', $html, 'Identity names must be escaped.');
+    }
+
     public function test_render_reveals_a_fresh_password_once_and_escapes_user_input(): void
     {
         $_POST = $this->post('provision', [

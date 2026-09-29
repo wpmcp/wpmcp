@@ -337,7 +337,7 @@ class CloudSettingsSyncTest extends \WP_UnitTestCase
         $payload = Settings_Sync::export();
 
         $this->assertSame(
-            ['name', 'domains', 'operations', 'abilities', 'mode', 'exposure'],
+            ['name', 'domains', 'operations', 'abilities', 'mode', 'exposure', 'allowed_ips'],
             array_keys($payload[ Identity_Store::OPTION ]['editor-bot'])
         );
         $this->assertStringNotContainsString('hunter2', wp_json_encode($payload));

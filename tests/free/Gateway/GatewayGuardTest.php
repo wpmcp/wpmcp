@@ -214,6 +214,36 @@ class GatewayGuardTest extends \WP_UnitTestCase
         $this->assertFalse((new Registrar())->is_permitted($read));
     }
 
+    /**
+     * Issue #416: a bound identity pinned to allowed_ips refuses the gateway
+     * token at authentication time from any other address, so the request
+     * is anonymous before anything runs, and the refusal is audited.
+     */
+    public function test_a_bound_identity_pinned_to_other_addresses_refuses_the_token_at_authentication(): void
+    {
+        $previous = $_SERVER['REMOTE_ADDR'] ?? null;
+        Identity_Store::create('Agency Editor', ['domains' => ['content'], 'allowed_ips' => ['203.0.113.0/24']]);
+        $token = $this->gateway_token();
+
+        try {
+            $_SERVER['REMOTE_ADDR'] = '203.0.113.9';
+            \WPMCP\Identity\Ip_Allowlist::reset_for_tests();
+            $this->assertSame($this->admin_id, $this->present($token, '/wp-json/mcp/wpmcp-server'), 'An allowed address authenticates.');
+
+            $_SERVER['REMOTE_ADDR'] = '198.51.100.9';
+            \WPMCP\Identity\Ip_Allowlist::reset_for_tests();
+            $this->assertSame(0, $this->present($token, '/wp-json/mcp/wpmcp-server'), 'Any other address is refused.');
+            $this->assertContains('identity/ip-refused', array_column(Governance_Audit_Log::list(), 'ability'));
+        } finally {
+            if (null === $previous) {
+                unset($_SERVER['REMOTE_ADDR']);
+            } else {
+                $_SERVER['REMOTE_ADDR'] = $previous;
+            }
+            \WPMCP\Identity\Ip_Allowlist::reset_for_tests();
+        }
+    }
+
     public function test_an_unbound_credential_keeps_142_semantics_but_stays_on_the_mcp_connection(): void
     {
         $token = $this->gateway_token(null);
