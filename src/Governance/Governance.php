@@ -4,6 +4,7 @@ namespace WPMCP\Governance;
 
 use WPMCP\Identity\Identity_Context;
 use WPMCP\Identity\Identity_Store;
+use WPMCP\Identity\Ip_Allowlist;
 use WPMCP\MCP\Ability;
 
 if (! defined('ABSPATH')) {
@@ -144,6 +145,8 @@ class Governance
      *    (an ability matching the given scope is the one that gets denied,
      *    everything else is allowed); mode='allow' (the default) is the
      *    ordinary allowlist behavior described above.
+     *  - Identity pinned to allowed_ips (issue #416) and the client address
+     *    is outside them: returns false for every ability, whatever the mode.
      */
     public static function is_within_identity_scope(Ability $a): bool
     {
@@ -154,6 +157,9 @@ class Governance
 
         $identity = Identity_Store::get($current);
         if (null === $identity) {
+            return false;
+        }
+        if (Ip_Allowlist::refuses($identity)) {
             return false;
         }
 

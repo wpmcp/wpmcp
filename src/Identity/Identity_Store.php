@@ -9,9 +9,9 @@ if (! defined('ABSPATH')) {
 /**
  * CRUD over a single wpmcp_identities option: a map of identity name =>
  * identity record. A record is { name, domains, operations, abilities, mode,
- * exposure }, where domains/operations/abilities are string[] allowlists (an
- * empty array means "no restriction on this dimension") and mode is 'allow'
- * (default) or 'deny'. The identity name is the natural, caller-chosen
+ * exposure, allowed_ips }, where domains/operations/abilities are string[]
+ * allowlists (an empty array means "no restriction on this dimension") and
+ * mode is 'allow' (default) or 'deny'. The identity name is the natural, caller-chosen
  * unique key, so there is no separate id sequence to keep deterministic
  * (unlike Backup_Job_Store, which needs one because jobs are anonymous).
  *
@@ -19,6 +19,10 @@ if (! defined('ABSPATH')) {
  * 'full', 'compact', or '' (default) to inherit the site-wide
  * wpmcp_tool_exposure_mode option. It is purely an exposure choice consumed
  * by Tool_Exposure - unlike the scope arrays it grants or denies nothing.
+ *
+ * 'allowed_ips' (issue #416) pins the identity to client addresses: IPv4/IPv6
+ * addresses and CIDR ranges, empty meaning any address. Ip_Allowlist
+ * enforces it; it can only refuse, never grant.
  */
 class Identity_Store
 {
@@ -37,8 +41,8 @@ class Identity_Store
 
     /**
      * Create (or overwrite) the identity named $name. $fields may contain
-     * 'domains', 'operations', 'abilities' (each string[], default []) and
-     * 'mode' ('allow'|'deny', default 'allow'). Returns the stored record.
+     * 'domains', 'operations', 'abilities' (each string[], default []),
+     * 'mode' ('allow'|'deny', default 'allow'), 'exposure' and 'allowed_ips'. Returns the stored record.
      */
     public static function create(string $name, array $fields): array
     {
@@ -53,8 +57,8 @@ class Identity_Store
 
     /**
      * The canonical identity record for $name built from $fields: exactly the
-     * six fields Governance and Tool_Exposure read, and nothing else. Shared
-     * by create() and Cloud\Settings_Sync (issue #135) so a record written
+     * seven fields Governance, Tool_Exposure and Ip_Allowlist read, and
+     * nothing else. Shared by create() and Cloud\Settings_Sync (issue #135) so a record written
      * here and one arriving from another site cannot drift in shape. Unknown
      * fields are dropped, scope lists keep their scalar entries as strings,
      * and mode/exposure fall back to their defaults when not recognized.
@@ -73,12 +77,13 @@ class Identity_Store
         $exposure = $fields['exposure'] ?? '';
 
         return [
-            'name'       => (string) $name,
-            'domains'    => $list($fields['domains'] ?? []),
-            'operations' => $list($fields['operations'] ?? []),
-            'abilities'  => $list($fields['abilities'] ?? []),
-            'mode'       => 'deny' === ($fields['mode'] ?? 'allow') ? 'deny' : 'allow',
-            'exposure'   => in_array($exposure, ['full', 'compact'], true) ? $exposure : '',
+            'name'        => (string) $name,
+            'domains'     => $list($fields['domains'] ?? []),
+            'operations'  => $list($fields['operations'] ?? []),
+            'abilities'   => $list($fields['abilities'] ?? []),
+            'mode'        => 'deny' === ($fields['mode'] ?? 'allow') ? 'deny' : 'allow',
+            'exposure'    => in_array($exposure, ['full', 'compact'], true) ? $exposure : '',
+            'allowed_ips' => Ip_Allowlist::sanitize($fields['allowed_ips'] ?? []),
         ];
     }
 

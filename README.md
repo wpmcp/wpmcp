@@ -197,6 +197,20 @@ Choose the mode site-wide with the `wpmcp_tool_exposure_mode` option (`full` or 
 
 Measured `tools/list` payload (test environment, all optional plugins active): **full** 72,897 bytes across 154 tools; **compact** 2,790 bytes across 5 tools, a **96.2% reduction**. The numbers are pinned by a checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) and re-measured on every test run.
 
+## Pinning an identity to IP ranges
+
+A scoped identity can be pinned to the addresses your agents run from. Pass `allowed_ips` to `create-identity` as a list of IPv4 or IPv6 addresses and CIDR ranges (for example `["203.0.113.0/24", "2001:db8::/32"]`). A request acting as that identity from any other address is refused before any tool runs, with the same generic error as any other denial, and the refusal is recorded in the governance audit log as `identity/ip-refused` with the refused address. Overwriting the identity without `allowed_ips` clears the list. Identities without a list behave as before, the Connection screen shows each identity's list, and the admin screens are never restricted.
+
+The client address is `REMOTE_ADDR`. Forwarded headers are ignored unless you name your reverse proxies, so a client cannot claim another address:
+
+```php
+add_filter('wpmcp_trusted_proxies', function () {
+    return ['10.0.0.0/8']; // your load balancer or proxy addresses
+});
+```
+
+When `REMOTE_ADDR` is a listed proxy, `X-Forwarded-For` is read right to left and the first hop that is not a listed proxy is the client. A malformed hop, or no usable address, is refused. The WP-CLI stdio transport has no network peer and is not affected.
+
 ## Agent project memory (enforced, not advisory)
 
 A site accumulates rules an agent should know: "the header is a reusable block", "never touch the homepage". wpmcp stores those as `wpmcp_memory` entries and puts a **trust gate** in front of them: everything an agent proposes lands `pending` and is completely inert. It is not injected into any future session, it is not enforced, and `memory-recall` will not read it back. An administrator publishing the entry in wp-admin is the single act that makes it live, and nothing on the agent-facing path can publish (`memory-propose` hard-codes the status and takes no parameter to override it).

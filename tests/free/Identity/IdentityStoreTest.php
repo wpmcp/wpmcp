@@ -90,7 +90,7 @@ class IdentityStoreTest extends \WP_UnitTestCase
         $normalized = Identity_Store::normalize(2024, $fields);
 
         $this->assertSame(Identity_Store::create('2024', $fields), $normalized);
-        $this->assertSame(['name', 'domains', 'operations', 'abilities', 'mode', 'exposure'], array_keys($normalized));
+        $this->assertSame(['name', 'domains', 'operations', 'abilities', 'mode', 'exposure', 'allowed_ips'], array_keys($normalized));
         $this->assertSame('2024', $normalized['name']);
         $this->assertSame(['content', '7'], $normalized['domains']);
         $this->assertSame([], $normalized['operations']);

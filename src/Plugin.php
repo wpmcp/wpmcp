@@ -786,6 +786,11 @@ final class Plugin
             // `wp wpmcp gateway-revoke` kill switch. src/Gateway ships on every
             // flavor, so this is unconditional.
             \WPMCP\Gateway\Gateway_Guard::register();
+            // Identities pinned to allowed_ips (issue #416): the MCP route
+            // answers a pinned identity calling from another address with a
+            // generic 403 before the adapter runs. Governance and the gateway
+            // token check refuse it too; see Ip_Allowlist.
+            \WPMCP\Identity\Ip_Allowlist::register();
             // Handshake context injection (issue #80): swap the MCP
             // Adapter's initialize `instructions` for the admin-authored
             // text plus the permission-gated site summary. A no-op unless
@@ -1672,7 +1677,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/import-stock-image',
             'free',
-            'Sideload a stock search result into the Media Library. SSRF-guarded: https only, host allowlist (wpmcp_remote_media_allowed_hosts filter) checked first, no redirects, size caps, bytes must verify as an image. Attribution and license are stored on the attachment; rollback deletes the import',
+            'Sideload a stock search result into the Media Library. SSRF-guarded: https only, host allowlist (wpmcp_remote_media_allowed_hosts filter) checked first, no redirects, size caps, bytes must verify as an image. Attribution and license stored on the attachment; rollback deletes the import',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1726,7 +1731,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-settings',
             'free',
-            'Read WordPress site settings (general, reading, writing, discussion, media, permalinks), each with its group, type, and whether it is writable',
+            'Read WordPress site settings (general, reading, writing, discussion, media, permalinks), each with its group, type and whether it is writable',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1997,7 +2002,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-plugins',
             'free',
-            'List installed plugins with active status, protected-package flag, and pending update info; updates:true lists core, plugin and theme updates with auto-update state',
+            'List installed plugins with active status, protected-package flag and pending update info; updates:true lists core, plugin and theme updates with auto-update state',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2101,7 +2106,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-themes',
             'free',
-            'List installed themes with active status, parent theme, and pending update info',
+            'List installed themes with active status, parent theme and pending update info',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -2235,7 +2240,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-plugin-info',
             'free',
-            'Fetch full wordpress.org plugin directory info for a slug: version, rating, installs, homepage, download link, and compatibility',
+            'Fetch full wordpress.org plugin directory info for a slug: version, rating, installs, homepage, download link and compatibility',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2320,7 +2325,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/describe-table',
             'free',
-            'Return the columns, types, and keys of a database table',
+            'Return the columns, types and keys of a database table',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2336,7 +2341,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/query',
             'free',
-            'Run a read-only SQL query (SELECT/SHOW/DESCRIBE/EXPLAIN/WITH). Writes, DDL, stacked statements, and file-access SQL are rejected before execution. Reads of the users/usermeta tables are blocked (wpmcp_db_allow_user_table_reads filter opts in, with secrets masked). Results are capped',
+            'Run a read-only SQL query (SELECT/SHOW/DESCRIBE/EXPLAIN/WITH). Writes, DDL, stacked statements and file-access SQL are rejected before running. Reads of users/usermeta tables are blocked (wpmcp_db_allow_user_table_reads filter opts in, with secrets masked). Results are capped',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2603,7 +2608,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-cache-status',
             'free',
-            'Report active caching layers: the object cache backend (external or internal), OPcache, and any page-cache plugin (WP Rocket, W3 Total Cache, WP Super Cache, LiteSpeed Cache, WP Fastest Cache) detected by its functions or constants. Read-only',
+            'Report active caching layers: the object cache backend (external or internal), OPcache and any page-cache plugin (WP Rocket, W3 Total Cache, WP Super Cache, LiteSpeed Cache, WP Fastest Cache) detected by its functions or constants. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -2619,7 +2624,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/clear-cache',
             'free',
-            'Flush caches: object cache, all transients, OPcache when enabled, and any detected page-cache plugin through its own API. Returns what each layer cleared or lacked. Idempotent; not snapshotted (a cache has no before-image)',
+            'Flush caches: object cache, all transients, OPcache when enabled and any detected page-cache plugin through its own API. Returns what each layer cleared or lacked. Idempotent; not snapshotted (a cache has no before-image)',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -3106,7 +3111,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/search-content',
             'free',
-            'Search all site text, including what post_content search misses: Elementor and Bricks settings, block attributes, template parts, reusable blocks and nav menus. Each hit has a location (block path, element id or menu item id) and a snippet. Read-only; hits re-checked against read_post. Empty index: run reindex-search',
+            'Search all site text, incl. what post_content search misses: Elementor and Bricks settings, block attributes, template parts, reusable blocks and nav menus. Each hit has a location (block path, element id or menu item id) and a snippet. Read-only; hits re-checked against read_post. Empty index: run reindex-search',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3763,7 +3768,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/run-wp-cli',
             'pro',
-            'Run an allowlisted wp-cli subcommand (e.g. "core version") and return stdout, stderr and exit code. Off by default (WPMCP_ALLOW_WP_CLI or wpmcp_allow_wp_cli); refused on production without a separate override; only subcommands on the wpmcp_wp_cli_allowlist filter run; shell metacharacters are rejected first',
+            'Run an allowlisted wp-cli subcommand (e.g. "core version"); returns stdout, stderr, exit code. Off by default (WPMCP_ALLOW_WP_CLI or wpmcp_allow_wp_cli); refused on production without a separate override; only subcommands on the wpmcp_wp_cli_allowlist filter run; shell metacharacters are rejected first',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4206,7 +4211,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-site-context',
             'free',
-            'Orientation payload: site name, URL, tagline, WordPress and PHP versions, theme, active plugins, public post types with counts, taxonomies, user count, locale, timezone, multisite, and active integrations. No admin email. Read-only',
+            'Orientation payload: site name, URL, tagline, WordPress and PHP versions, theme, active plugins, public post types with counts, taxonomies, user count, locale, timezone, multisite and active integrations. No admin email. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -4230,7 +4235,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-page-snapshot',
             'free',
-            'One-call page digest from stored post_content: structure counts, outline, media and link inventory, builder detection, SEO-lite signals (content_coverage flags builder page gaps). Heavy sections (global_tokens, responsive_overrides) are opt-in via sections. Size-capped. Read-only',
+            'One-call page digest from stored post_content: structure counts, outline, media and link inventory, builder detection, SEO-lite signals (content_coverage flags builder page gaps). Heavy sections (global_tokens, responsive_overrides) opt-in via sections. Size-capped. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4387,7 +4392,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-block-type',
             'free',
-            'Return full detail for a single registered block type by name: its attributes schema, declared supports, and block-context wiring (uses_context, provides_context). Read-only',
+            'Return full detail for a single registered block type by name: its attributes schema, declared supports and block-context wiring (uses_context, provides_context). Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5003,7 +5008,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-content',
             'free',
-            'WXR export via core export_wp(), narrowed by content, author, start_date, end_date, status, to a protected uploads directory; returns path, size, count. Once per PHP process (core limit). mirror:true instead writes builder pages as stable JSON files for git (post_id, or all 50 per page). Read-only',
+            'WXR export via core export_wp(), narrowed by content, author, start_date, end_date, status, to a protected uploads directory; returns path, size, count. Once per PHP process (core limit). mirror:true instead writes builder pages as stable JSON for git (post_id, or all 50 per page). Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5025,7 +5030,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-exports',
             'free',
-            'List the WXR export files previously generated by export-content: file name, size in bytes, and created timestamp for each. Read-only',
+            'List the WXR export files previously generated by export-content: file name, size in bytes and created timestamp for each. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -5540,16 +5545,17 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-identity',
             'free',
-            'Create or overwrite (by name) a scoped identity that, once active (wpmcp_current_identity filter), narrows usable abilities beyond capability and Governance. Optional domains/operations/abilities allowlists, mode (allow by default, or deny) and exposure (full/compact, overrides the site-wide mode)',
+            'Create or overwrite (by name) a scoped identity that, once active (wpmcp_current_identity filter), narrows abilities beyond capability and Governance. Optional domains/operations/abilities allowlists, mode (allow default, or deny), exposure (full/compact, overrides site-wide mode), allowed_ips (IPs/CIDRs; other client addresses refused)',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'name'       => [ 'type' => 'string' ],
-                    'domains'    => [ 'type' => 'array' ],
-                    'operations' => [ 'type' => 'array' ],
-                    'abilities'  => [ 'type' => 'array' ],
-                    'mode'       => [ 'type' => 'string' ],
-                    'exposure'   => [ 'type' => 'string' ],
+                    'name'        => [ 'type' => 'string' ],
+                    'domains'     => [ 'type' => 'array' ],
+                    'operations'  => [ 'type' => 'array' ],
+                    'abilities'   => [ 'type' => 'array' ],
+                    'mode'        => [ 'type' => 'string' ],
+                    'exposure'    => [ 'type' => 'string' ],
+                    'allowed_ips' => [ 'type' => 'array' ],
                 ],
                 'required'   => [ 'name' ],
             ],
@@ -6003,7 +6009,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-option',
             'free',
-            'Read a single wp_options value by name. Refuses a conservative denylist of sensitive/core option names (auth keys and salts, siteurl, home, active_plugins, and secret/password/token-shaped names)',
+            'Read a single wp_options value by name. Refuses a conservative denylist of sensitive/core option names (auth keys and salts, siteurl, home, active_plugins and secret/password/token-shaped names)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6554,7 +6560,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-theme-template',
             'pro',
-            'Read one Elementor library template: its type, display conditions, and element count. Read-only',
+            'Read one Elementor library template: its type, display conditions and element count. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6591,7 +6597,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/resolve-theme-template',
             'pro',
-            'Which Elementor theme-builder template wins for a location (header, footer, single, archive, ...): every candidate with its conditions, specificity and matching excludes, plus the winner. post_type/post_id resolve against a real target; without them only specificity counts. Read-only',
+            'Which Elementor theme-builder template wins for a location (header, footer, single, archive, ...): every candidate with its conditions, specificity and matching excludes, plus the winner. post_type/post_id resolve against a real target, else only specificity counts. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6631,7 +6637,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-elementor-version',
             'pro',
-            'Report the Elementor and Elementor Pro versions, supports_atomic (Elementor 4.0+), and atomic_tools_registered: the four atomic write tools register only on a builder that renders atomic elements, so check before assuming they exist. Read-only',
+            'Report the Elementor and Elementor Pro versions, supports_atomic (Elementor 4.0+) and atomic_tools_registered: the four atomic write tools register only on a builder that renders atomic elements, so check before assuming they exist. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -6795,7 +6801,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-code-snippets',
             'pro',
-            'List the Elementor Custom Code snippets stored on this site (elementor_snippet posts) with their location, priority, and code. Read-only',
+            'List the Elementor Custom Code snippets stored on this site (elementor_snippet posts) with their location, priority and code. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -7622,7 +7628,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-sales-report',
             'free',
-            'Read-only sales summary over a date range: order count, gross sales, items sold, and top products by quantity. Aggregated over wc_get_orders() (HPOS- and CPT-safe)',
+            'Read-only sales summary over a date range: order count, gross sales, items sold and top products by quantity. Aggregated over wc_get_orders() (HPOS- and CPT-safe)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7740,7 +7746,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/bulk-update-products',
             'free',
-            'Update up to 50 products and variations in one call; each item is {id, ...fields} as update-product/update-variation take them, same rules and permission checks. Per item: ok, operation_id or error; one failure does not stop the rest. rollback-session on the returned session_id undoes the batch',
+            'Update up to 50 products and variations in one call; each item {id, ...fields} as update-product/update-variation take them, same rules and permission checks. Per item: ok, operation_id or error; one failure does not stop the rest. rollback-session on the returned session_id undoes the batch',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8383,7 +8389,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-field-groups',
             'free',
-            'List registered ACF (Advanced Custom Fields) field groups: key, title, a flattened summary of their location rules, and whether each is active',
+            'List registered ACF (Advanced Custom Fields) field groups: key, title, a flattened summary of their location rules and whether each is active',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -8863,7 +8869,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-link-map',
             'free',
-            'Summarize the internal-link graph: per-post outgoing and incoming link counts, the orphan list, and the most-linked posts',
+            'Summarize the internal-link graph: per-post outgoing and incoming link counts, the orphan list and the most-linked posts',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9210,7 +9216,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-connection-info',
             'free',
-            'Return how to connect an MCP client to this site: the MCP server endpoint URL and ready-to-paste connection snippets for Claude Code, Cursor, and Claude Desktop, each using an Application Password placeholder. Never returns a real credential. Read-only',
+            'Return how to connect an MCP client to this site: the MCP server endpoint URL and ready-to-paste connection snippets for Claude Code, Cursor and Claude Desktop, each using an Application Password placeholder. Never returns a real credential. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -9433,7 +9439,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-site-abilities',
             'free',
-            'Abilities OTHER plugins register via the Abilities API: name, summary, owning plugin, whether an input schema exists, and reversible:false (bridged results are outside wpmcp rollback). Optional plugin filter. Read-only. Needs the ability bridge opt-in (default off)',
+            'Abilities OTHER plugins register via the Abilities API: name, summary, owning plugin, whether an input schema exists and reversible:false (bridged results are outside wpmcp rollback). Optional plugin filter. Read-only. Needs the ability bridge opt-in (default off)',
             [
                 'type'       => 'object',
                 'properties' => [

@@ -6,6 +6,8 @@ use WPMCP\Auth\Bearer_Auth;
 use WPMCP\Auth\Client_Store;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
+use WPMCP\Identity\Identity_Store;
+use WPMCP\Identity\Ip_Allowlist;
 use WPMCP\MCP\Transport_Guard;
 
 if (! defined('ABSPATH')) {
@@ -69,7 +71,8 @@ class Gateway_Guard
 
     /**
      * wpmcp_bearer_token_accepted: refuse a gateway token off the MCP and
-     * OAuth routes. May only refuse, never accept.
+     * OAuth routes, or from outside its bound identity's allowed_ips. May
+     * only refuse, never accept.
      *
      * @param bool  $accepted Whether the token authenticates this request.
      * @param array $record   The validated token record.
@@ -84,7 +87,16 @@ class Gateway_Guard
             return true;
         }
 
-        return self::surface_allows(self::early_rest_route());
+        if (! self::surface_allows(self::early_rest_route())) {
+            return false;
+        }
+
+        // Issue #416: a bound identity pinned to other addresses refuses the
+        // token here, so the request is anonymous before anything runs.
+        $bound    = Gateway_Binding::identity_for_client((string) $record['client_id']);
+        $identity = null !== $bound ? Identity_Store::get($bound) : null;
+
+        return null === $identity || ! Ip_Allowlist::refuses($identity);
     }
 
     /**
