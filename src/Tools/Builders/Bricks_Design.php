@@ -56,7 +56,7 @@ class Bricks_Design
     public static function templates(): array
     {
         $templates = [];
-        foreach (Builder_Design::posts([self::TEMPLATE_POST_TYPE]) as $post) {
+        foreach (Builder_Design_Data::posts([self::TEMPLATE_POST_TYPE]) as $post) {
             $type     = (string) get_post_meta($post->ID, '_bricks_template_type', true);
             $settings = get_post_meta($post->ID, '_bricks_template_settings', true);
             $settings = is_array($settings) ? $settings : [];
@@ -88,7 +88,7 @@ class Bricks_Design
     public static function catalog(string $element = '')
     {
         if (! class_exists('Bricks\\Elements') || ! is_array(\Bricks\Elements::$elements ?? null) || [] === \Bricks\Elements::$elements) {
-            return Builder_Design::not_loaded('bricks');
+            return Builder_Design_Data::not_loaded('bricks');
         }
 
         $registry = \Bricks\Elements::$elements;
@@ -96,7 +96,7 @@ class Bricks_Design
         if ('' !== $element) {
             $entry = $registry[$element] ?? null;
             if (! is_array($entry)) {
-                return Builder_Design::element_not_found('bricks', $element);
+                return Builder_Design_Data::element_not_found('bricks', $element);
             }
 
             return [

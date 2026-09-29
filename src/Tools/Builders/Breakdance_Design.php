@@ -75,7 +75,7 @@ class Breakdance_Design
         $types  = array_map(static fn ($kind) => $prefix . $kind, self::TEMPLATE_KINDS);
 
         $templates = [];
-        foreach (Builder_Design::posts($types) as $post) {
+        foreach (Builder_Design_Data::posts($types) as $post) {
             $settings = get_post_meta($post->ID, '_' . $prefix . 'template_settings', true);
             if (is_string($settings)) {
                 $settings = json_decode($settings, true);
@@ -109,7 +109,7 @@ class Breakdance_Design
     public static function catalog(string $builder, string $element = '')
     {
         if (! Breakdance_Cache::plugin_active($builder) || ! class_exists('Breakdance\\Elements\\Element')) {
-            return Builder_Design::not_loaded($builder);
+            return Builder_Design_Data::not_loaded($builder);
         }
 
         $classes = self::element_classes();
@@ -117,7 +117,7 @@ class Breakdance_Design
         if ('' !== $element) {
             $class = ltrim($element, '\\');
             if (! in_array($class, $classes, true)) {
-                return Builder_Design::element_not_found($builder, $element);
+                return Builder_Design_Data::element_not_found($builder, $element);
             }
 
             return [
