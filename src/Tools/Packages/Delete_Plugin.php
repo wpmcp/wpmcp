@@ -39,7 +39,7 @@ class Delete_Plugin
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Deleting a plugin is permanent. Pass confirm:true to proceed.');
+            throw new \WPMCP\MCP\Confirmation_Required('Deleting a plugin is permanent. Pass confirm:true to proceed.');
         }
 
         if (Package_Guard::is_protected_plugin($plugin)) {

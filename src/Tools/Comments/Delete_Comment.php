@@ -41,7 +41,7 @@ class Delete_Comment
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Deleting a comment is permanent. Pass confirm:true to proceed.');
+            throw new \WPMCP\MCP\Confirmation_Required('Deleting a comment is permanent. Pass confirm:true to proceed.');
         }
 
         $out = Safe_Mutation::run(

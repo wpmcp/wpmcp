@@ -161,7 +161,7 @@ class Receive_Site_Archive
             return new \WP_Error('wpmcp_migration_busy', 'That upload is being applied right now; poll action=status for the result. If the request applying it died, start with restart:true discards this record.', ['status' => 409]);
         }
         if (! $dry_run && ! $confirm) {
-            throw new \InvalidArgumentException('Applying a migration replaces this site\'s database and requires confirm:true. Run with dry_run:true first.');
+            throw new \WPMCP\MCP\Confirmation_Required('Applying a migration replaces this site\'s database and requires confirm:true. Run with dry_run:true first.');
         }
 
         // Step 1: nothing about the upload is trusted until this passes.

@@ -50,7 +50,7 @@ class Import_Content
             throw new \RuntimeException('The import-content tool is disabled. Enable it with the wpmcp_enable_import filter.');
         }
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Importing content creates posts that are not automatically reversible. Pass confirm:true to proceed.');
+            throw new \WPMCP\MCP\Confirmation_Required('Importing content creates posts that are not automatically reversible. Pass confirm:true to proceed.');
         }
 
         $file = (string) ($args['file'] ?? '');

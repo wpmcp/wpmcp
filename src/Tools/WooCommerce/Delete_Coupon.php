@@ -36,7 +36,7 @@ class Delete_Coupon
             throw new \InvalidArgumentException('Coupon not found.');
         }
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Deleting a coupon stops it working at checkout. Pass confirm:true to proceed.');
+            throw new \WPMCP\MCP\Confirmation_Required('Deleting a coupon stops it working at checkout. Pass confirm:true to proceed.');
         }
 
         $force  = ! empty($args['force']);

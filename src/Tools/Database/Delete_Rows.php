@@ -47,7 +47,7 @@ class Delete_Rows
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Deleting rows requires confirm:true.');
+            throw new \WPMCP\MCP\Confirmation_Required('Deleting rows requires confirm:true.');
         }
 
         $where = (array) ($args['where'] ?? []);

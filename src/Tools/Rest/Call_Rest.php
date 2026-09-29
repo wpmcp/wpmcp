@@ -60,7 +60,7 @@ class Call_Rest
                 throw new \RuntimeException('REST writes are disabled. Enable them with the wpmcp_enable_rest_writes filter.');
             }
             if (true !== ($args['confirm'] ?? null)) {
-                throw new \InvalidArgumentException('This is a mutating REST request. Pass confirm:true to proceed.');
+                throw new \WPMCP\MCP\Confirmation_Required('This is a mutating REST request. Pass confirm:true to proceed.');
             }
         } elseif (! in_array($method, self::READ_METHODS, true)) {
             throw new \InvalidArgumentException(sprintf('Unsupported method "%s".', esc_html($method)));

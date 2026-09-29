@@ -61,7 +61,7 @@ class Apply_Product_Import
             );
         }
         if ($public['confirm_required'] && true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException(
+            throw new \WPMCP\MCP\Confirmation_Required(
                 'This import writes ' . (int) $public['writes'] . ' products, above the confirmation threshold of '
                 . (int) Product_Import_Plan::confirm_threshold() . '. Pass confirm:true to proceed.'
             );

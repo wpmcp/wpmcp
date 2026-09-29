@@ -68,6 +68,44 @@ class Stdio_Transport
      */
     public const FALLBACK_PROTOCOL_VERSION = Protocol_Revision::LEGACY;
 
+    /** Id prefix of requests this server sends to the client (issue #387). */
+    private const SERVER_REQUEST_PREFIX = 'wpmcp-s2c-';
+
+    /**
+     * The client capabilities of the 2026-07-28 request being handled, or
+     * null while handling a 2025-11-25 one. 2026 carries them per request.
+     *
+     * @var array<string,mixed>|null
+     */
+    private ?array $request_capabilities = null;
+
+    /**
+     * The client capabilities a 2025-11-25 session declared at initialize.
+     *
+     * @var array<string,mixed>
+     */
+    private array $session_capabilities = [];
+
+    /**
+     * Sends a request to the client and returns its result, or null for
+     * no answer (issue #387). Only the serve() loop can do this, so it is
+     * unset when the transport answers HTTP or is driven by tests.
+     *
+     * @var callable(string, array<string,mixed>): (array<string,mixed>|null)|null
+     */
+    private $client_requester = null;
+
+    /**
+     * Wires the channel for server-to-client requests (2025-11-25
+     * elicitation). Null removes it.
+     *
+     * @param callable(string, array<string,mixed>): (array<string,mixed>|null)|null $requester
+     */
+    public function set_client_requester(?callable $requester): void
+    {
+        $this->client_requester = $requester;
+    }
+
     /** Registers the WP-CLI command. No-op outside WP-CLI. */
     public static function register(): void
     {
@@ -105,7 +143,23 @@ class Stdio_Transport
 
         $transport = new self();
 
-        while (false !== ($line = fgets($stdin))) {
+        // Messages the client sent while the server was waiting on its own
+        // request (elicitation, issue #387) wait here for the main loop.
+        $pending  = new \SplQueue();
+        $sequence = 0;
+        $read     = static fn() => fgets($stdin);
+        $transport->set_client_requester(static function (string $method, array $params) use ($read, $pending, &$sequence): ?array {
+            $request_id = self::SERVER_REQUEST_PREFIX . (++$sequence);
+            self::emit([ 'jsonrpc' => self::JSONRPC, 'id' => $request_id, 'method' => $method, 'params' => $params ]);
+
+            return self::await_response($read, $request_id, $pending);
+        });
+
+        while (true) {
+            $line = $pending->isEmpty() ? fgets($stdin) : $pending->dequeue();
+            if (false === $line) {
+                break;
+            }
             $line = trim($line);
             if ('' === $line) {
                 continue;
@@ -160,6 +214,40 @@ class Stdio_Transport
         return 'wp mcp-stdio serve needs a user context: WP-CLI runs as no user by default, so every '
             . 'tool call would be denied by its capability check. Re-run with the global --user flag, '
             . 'e.g. wp mcp-stdio serve --user=admin';
+    }
+
+    /**
+     * Reads client lines until the response to the server's own request
+     * arrives, and returns its result: null on end of input or an error
+     * response. Every other message read meanwhile is queued, untouched,
+     * for the main loop; a response to some other id is dropped, since this
+     * server has at most one request of its own outstanding.
+     *
+     * @param callable(): (string|false) $read_line Next raw line, false at EOF.
+     * @return array<string,mixed>|null
+     */
+    public static function await_response(callable $read_line, string $request_id, \SplQueue $pending): ?array
+    {
+        while (false !== ($line = $read_line())) {
+            $message = json_decode(trim((string) $line), true);
+
+            $is_response = is_array($message)
+                && ! isset($message['method'])
+                && array_key_exists('id', $message)
+                && (array_key_exists('result', $message) || array_key_exists('error', $message));
+
+            if (! $is_response) {
+                $pending->enqueue($line);
+                continue;
+            }
+            if ($request_id !== $message['id']) {
+                continue;
+            }
+
+            return isset($message['result']) && is_array($message['result']) ? $message['result'] : null;
+        }
+
+        return null;
     }
 
     /**
@@ -227,9 +315,27 @@ class Stdio_Transport
             return self::error_response($id, Protocol_Revision::METHOD_NOT_FOUND, sprintf('Method not found: %s', $method));
         }
 
-        $response = 'server/discover' === $method
-            ? self::result_response($id, Protocol_Revision::discover_result(self::capabilities()))
-            : $this->dispatch($id, $method, $params);
+        $meta         = isset($params['_meta']) ? (array) $params['_meta'] : [];
+        $capabilities = json_decode((string) wp_json_encode($meta[ Protocol_Revision::META_CLIENT_CAPABILITIES ] ?? []), true);
+
+        $this->request_capabilities = is_array($capabilities) ? $capabilities : [];
+        try {
+            if ('server/discover' === $method) {
+                $server = self::capabilities();
+                // The Tasks extension (issue #387): backups and CLI jobs.
+                $server['extensions'] = [ Tasks::EXTENSION => new \stdClass() ];
+                $response = self::result_response($id, Protocol_Revision::discover_result($server));
+            } elseif (str_starts_with($method, 'tasks/')) {
+                $answer   = Tasks::handle($method, $params);
+                $response = isset($answer['error'])
+                    ? self::error_response($id, $answer['error']['code'], $answer['error']['message'])
+                    : self::result_response($id, $answer['result'] ?? []);
+            } else {
+                $response = $this->dispatch($id, $method, $params);
+            }
+        } finally {
+            $this->request_capabilities = null;
+        }
 
         if (isset($response['error'])) {
             // 2026-07-28 reports a missing resource as invalid params.
@@ -287,6 +393,10 @@ class Stdio_Transport
      */
     private function initialize_result(array $params): array
     {
+        // Remembered for the session: 2025-11-25 declares them once.
+        $capabilities               = json_decode((string) wp_json_encode($params['capabilities'] ?? []), true);
+        $this->session_capabilities = is_array($capabilities) ? $capabilities : [];
+
         $result = [
             'protocolVersion' => self::negotiate_protocol_version($params),
             'capabilities'    => self::capabilities(),
@@ -372,6 +482,8 @@ class Stdio_Transport
                 'inputSchema' => is_object($ability) && method_exists($ability, 'get_input_schema')
                     ? (array) $ability->get_input_schema()
                     : [ 'type' => 'object' ],
+                // Issue #387; see Output_Schemas for why these live at the wire.
+                'outputSchema' => Output_Schemas::for_ability($name),
             ];
         }
 
@@ -407,49 +519,159 @@ class Stdio_Transport
 
         $input = is_array($params['arguments'] ?? null) ? $params['arguments'] : [];
 
-        // The adapter's ToolsHandler::call_tool() catches Throwable and
-        // returns an isError CallToolResult, so the HTTP route survives a
-        // throwing tool. WP_Ability::execute() does not catch Throwable on
-        // the WordPress versions this plugin targets, and
-        // Registrar::throttled() re-throws on purpose, so parity here has
-        // to be written rather than assumed.
-        try {
-            $result = $ability->execute($input);
-        } catch (\Throwable $e) {
-            return self::result_response($id, [
-                'isError' => true,
-                'content' => [ [ 'type' => 'text', 'text' => $e->getMessage() ] ],
-            ]);
+        // Confirm gates as elicitation (issue #387): 'answer' is a 2026
+        // retry carrying the question's answer, 'ask' the channel to ask on.
+        $ask       = $this->elicitation_channel();
+        $confirmed = false;
+        if ('input_required' === $ask) {
+            $answer = Elicitation::answer($params, $tool_name, $input);
+            if ('decline' === $answer) {
+                return self::result_response($id, Elicitation::declined_result($tool_name));
+            }
+            if ('accept' === $answer) {
+                $input     = Elicitation::with_confirm($tool_name, $input, true);
+                $confirmed = true;
+            }
         }
 
-        if (is_wp_error($result)) {
-            return self::result_response($id, [
+        $probe = null === $ask || $confirmed
+            ? $input
+            : Elicitation::probe_input($tool_name, $input, method_exists($ability, 'get_input_schema') ? (array) $ability->get_input_schema() : []);
+
+        $outcome = self::execute($ability, $probe);
+
+        if (null !== $ask && ! $confirmed && Elicitation::is_confirmation_refusal($outcome)) {
+            $reason = Elicitation::refusal_message($outcome);
+
+            if ('input_required' === $ask) {
+                return self::result_response($id, Elicitation::input_required($tool_name, $input, $reason));
+            }
+
+            $reply = ($this->client_requester)('elicitation/create', Elicitation::request_params($tool_name, $input, $reason));
+            if (null !== $reply) {
+                if (! Elicitation::accepted($reply)) {
+                    return self::result_response($id, Elicitation::declined_result($tool_name));
+                }
+                $outcome = self::execute($ability, Elicitation::with_confirm($tool_name, $input, true));
+            }
+        }
+
+        // Backups and CLI jobs as Tasks (issue #387) for a client that
+        // declared the extension: the job just queued, as a task handle.
+        $kind = Tasks::kind_for($ability_name);
+        if (
+            null !== $kind
+            && null !== $this->request_capabilities
+            && Tasks::supported($this->request_capabilities)
+            && is_array($outcome)
+            && isset($outcome['job_id'])
+            && is_int($outcome['job_id'])
+        ) {
+            $task = Tasks::create_result($kind, $outcome['job_id']);
+            if (null !== $task) {
+                return self::result_response($id, $task);
+            }
+        }
+
+        return self::result_response($id, self::tool_result($outcome));
+    }
+
+    /**
+     * How a confirm gate can ask the person on this request: by an
+     * input_required result (2026-07-28), by elicitation/create on the
+     * live session (2025-11-25 over stdio), or not at all (null), in which
+     * case the confirm argument is the whole contract.
+     */
+    private function elicitation_channel(): ?string
+    {
+        if (null !== $this->request_capabilities) {
+            return Elicitation::supports_form($this->request_capabilities) ? 'input_required' : null;
+        }
+
+        return null !== $this->client_requester && Elicitation::supports_form($this->session_capabilities)
+            ? 'session'
+            : null;
+    }
+
+    /**
+     * Runs one ability and returns what it produced: its result, the
+     * WP_Error it returned, or the Throwable it threw.
+     *
+     * The adapter's ToolsHandler::call_tool() catches Throwable and
+     * returns an isError CallToolResult, so the HTTP route survives a
+     * throwing tool. WP_Ability::execute() does not catch Throwable on
+     * the WordPress versions this plugin targets, and
+     * Registrar::throttled() re-throws on purpose, so parity here has
+     * to be written rather than assumed.
+     *
+     * @param object              $ability The WP_Ability.
+     * @param array<string,mixed> $input
+     * @return mixed
+     */
+    private static function execute($ability, array $input)
+    {
+        Confirmation_Required::take();
+        try {
+            $outcome = $ability->execute($input);
+        } catch (\Throwable $e) {
+            $outcome = $e;
+        }
+
+        // Core 7.1 hands a thrown refusal back as a generic WP_Error; the
+        // Registrar saw it typed on the way out (Confirmation_Required).
+        $refusal = Confirmation_Required::take();
+        if (null !== $refusal && is_wp_error($outcome)) {
+            return $refusal;
+        }
+
+        return $outcome;
+    }
+
+    /**
+     * An ability outcome as a CallToolResult. Ability-level failures come
+     * back as MCP tool errors (isError content), not JSON-RPC faults,
+     * matching the HTTP transport's behavior.
+     *
+     * @param mixed $outcome
+     * @return array<string,mixed>
+     */
+    private static function tool_result($outcome): array
+    {
+        if ($outcome instanceof \Throwable) {
+            return [
                 'isError' => true,
-                'content' => [ [ 'type' => 'text', 'text' => $result->get_error_message() ] ],
-            ]);
+                'content' => [ [ 'type' => 'text', 'text' => $outcome->getMessage() ] ],
+            ];
+        }
+
+        if (is_wp_error($outcome)) {
+            return [
+                'isError' => true,
+                'content' => [ [ 'type' => 'text', 'text' => $outcome->get_error_message() ] ],
+            ];
         }
 
         // Same wire normalization the HTTP route gets from Structured_Result
         // on mcp_adapter_tool_call_result: structuredContent must be a JSON
         // object, never a top-level list or scalar.
-        $normalized = Structured_Result::normalize($result);
+        $normalized = Structured_Result::normalize($outcome);
 
         // Unchecked, a false from wp_json_encode (invalid UTF-8 in a tool
         // result, depth overflow) casts to '' and the text block silently
         // becomes empty while structuredContent still claims a payload.
         $text = wp_json_encode($normalized);
         if (false === $text) {
-            return self::result_response($id, [
+            return [
                 'isError' => true,
                 'content' => [ [ 'type' => 'text', 'text' => 'Tool result could not be serialized as JSON.' ] ],
-            ]);
+            ];
         }
 
-        return self::result_response($id, [
+        return [
             'isError'           => false,
             'content'           => [ [ 'type' => 'text', 'text' => $text ] ],
             'structuredContent' => $normalized,
-        ]);
+        ];
     }
 
     /**

@@ -45,7 +45,7 @@ class Delete_Product
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Deleting a product is permanent. Pass confirm:true to proceed.');
+            throw new \WPMCP\MCP\Confirmation_Required('Deleting a product is permanent. Pass confirm:true to proceed.');
         }
 
         $force = ! empty($args['force']);

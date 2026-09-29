@@ -49,7 +49,7 @@ class Gateway_Provision
     public function handle(array $args)
     {
         if (true !== ($args['confirm'] ?? false)) {
-            throw new \InvalidArgumentException(
+            throw new \WPMCP\MCP\Confirmation_Required(
                 'gateway-provision mints a credential shown exactly once and invalidates any previous one. Pass confirm:true to proceed.'
             );
         }

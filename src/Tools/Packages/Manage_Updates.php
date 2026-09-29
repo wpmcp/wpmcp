@@ -67,7 +67,7 @@ class Manage_Updates
     private function core(array $args): array
     {
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('A core update replaces WordPress files and cannot be snapshot-rolled-back. Pass confirm:true to proceed.');
+            throw new \WPMCP\MCP\Confirmation_Required('A core update replaces WordPress files and cannot be snapshot-rolled-back. Pass confirm:true to proceed.');
         }
 
         if (! function_exists('get_core_updates')) {
