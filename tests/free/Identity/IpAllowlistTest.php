@@ -255,7 +255,7 @@ class IpAllowlistTest extends \WP_UnitTestCase
         Identity_Context::set_current_for_tests('pinned');
         $this->from('198.51.100.9');
 
-        $result = Ip_Allowlist::filter_pre_dispatch(null, rest_get_server(), new \WP_REST_Request('POST', '/mcp/wpmcp-server'));
+        $result = Ip_Allowlist::filter_pre_dispatch(null, null, new \WP_REST_Request('POST', '/mcp/wpmcp-server'));
 
         $this->assertWPError($result);
         $this->assertSame(403, $result->get_error_data()['status']);
@@ -269,15 +269,15 @@ class IpAllowlistTest extends \WP_UnitTestCase
         Identity_Context::set_current_for_tests('pinned');
         $this->from('198.51.100.9');
 
-        $this->assertNull(Ip_Allowlist::filter_pre_dispatch(null, rest_get_server(), new \WP_REST_Request('GET', '/wp/v2/posts')));
+        $this->assertNull(Ip_Allowlist::filter_pre_dispatch(null, null, new \WP_REST_Request('GET', '/wp/v2/posts')));
 
         Identity_Context::set_current_for_tests(null);
-        $this->assertNull(Ip_Allowlist::filter_pre_dispatch(null, rest_get_server(), new \WP_REST_Request('POST', '/mcp/wpmcp-server')));
+        $this->assertNull(Ip_Allowlist::filter_pre_dispatch(null, null, new \WP_REST_Request('POST', '/mcp/wpmcp-server')));
     }
 
     public function test_the_filter_passes_an_earlier_result_through(): void
     {
         $earlier = new \WP_Error('x', 'y');
-        $this->assertSame($earlier, Ip_Allowlist::filter_pre_dispatch($earlier, rest_get_server(), new \WP_REST_Request('POST', '/mcp/wpmcp-server')));
+        $this->assertSame($earlier, Ip_Allowlist::filter_pre_dispatch($earlier, null, new \WP_REST_Request('POST', '/mcp/wpmcp-server')));
     }
 }

@@ -167,7 +167,13 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  call-rest, rewrite-site-urls, run-php-snippet, update-page-settings,
      *  add-custom-css, get-widget-schema, add-container and find-element
      *  descriptions without dropping a rule: 208975 -> 208982 bytes over 406
-     *  tools. */
+     *  tools. Identity IP allowlists (#416) added no tool: they are an
+     *  allowed_ips argument on create-identity, paid for by rewording that
+     *  description and the query, search-content, import-stock-image,
+     *  run-wp-cli, export-content, get-page-snapshot, resolve-theme-template
+     *  and bulk-update-products descriptions and dropping serial commas
+     *  from nineteen list-style descriptions, without dropping a rule:
+     *  208982 -> 208994 bytes over 406 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */

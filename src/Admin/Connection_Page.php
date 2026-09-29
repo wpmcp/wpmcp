@@ -8,6 +8,7 @@ use WPMCP\Connect\Bundle_Builder;
 use WPMCP\Connect\Client_Config_Generator;
 use WPMCP\Connect\Connection_Tester;
 use WPMCP\Connect\Exposure;
+use WPMCP\Identity\Identity_Store;
 use WPMCP\Plugin;
 
 if (! defined('ABSPATH')) {
@@ -374,6 +375,8 @@ class Connection_Page
 
             <?php $this->render_oauth_clients($nonce); ?>
 
+            <?php $this->render_identities(); ?>
+
             <h2><?php echo esc_html__('Issued application passwords', 'wpmcp'); ?></h2>
             <?php $records = $this->records(); ?>
             <?php if (! $records) : ?>
@@ -410,6 +413,38 @@ class Connection_Page
         </div>
         <?php
     }
+    /**
+     * Scoped identities and the client addresses each is pinned to (issue
+     * #416). Read-only: identities are edited with create-identity. Hidden
+     * while no identity exists.
+     */
+    private function render_identities(): void
+    {
+        $identities = Identity_Store::list();
+        if (! $identities) {
+            return;
+        }
+        ?>
+        <h2><?php echo esc_html__('Scoped identities', 'wpmcp'); ?></h2>
+        <p><?php echo esc_html__('An identity with allowed addresses refuses MCP requests from anywhere else. The client address is REMOTE_ADDR; behind a reverse proxy, list the proxy with the wpmcp_trusted_proxies filter so X-Forwarded-For is used. The admin screens are never restricted.', 'wpmcp'); ?></p>
+        <table class="widefat striped">
+            <thead><tr>
+                <th><?php echo esc_html__('Identity', 'wpmcp'); ?></th>
+                <th><?php echo esc_html__('Allowed addresses', 'wpmcp'); ?></th>
+            </tr></thead>
+            <tbody>
+            <?php foreach ($identities as $identity) : ?>
+                <?php $ips = array_map('strval', (array) ($identity['allowed_ips'] ?? [])); ?>
+                <tr>
+                    <td><?php echo esc_html((string) ($identity['name'] ?? '')); ?></td>
+                    <td><?php echo $ips ? '<code>' . esc_html(implode(', ', $ips)) . '</code>' : esc_html__('Any address', 'wpmcp'); ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php
+    }
+
     /**
      * OAuth clients that connected with a Client ID Metadata Document
      * (issue #388), and the switch that holds new ones for approval. Only

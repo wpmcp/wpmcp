@@ -55,7 +55,8 @@ why an agent could not finish a task.
 `wpmcp/list-identities` shows the scoped identities configured on the site. An
 identity narrows a connection to a set of domains and operations, so a content
 agent can be limited to `content` + `read`/`update` and cannot touch users,
-files, or plugins at all.
+files, or plugins at all. An identity can also be pinned to client addresses
+(`allowed_ips`); a call from anywhere else is refused before any tool runs.
 
 When you need more access than you have, ask for the narrowest widening that
 unblocks the specific task, name the domain and operation, and say what you
