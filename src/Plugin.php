@@ -225,6 +225,7 @@ use WPMCP\Tools\Filesystem\Edit_File;
 use WPMCP\Tools\Filesystem\Delete_File;
 use WPMCP\Tools\Performance\Analyze_Performance;
 use WPMCP\Tools\Security\Scan_Security;
+use WPMCP\Tools\Security\Incident_Response;
 use WPMCP\Tools\Cache\Get_Cache_Status;
 use WPMCP\Tools\Cache\Clear_Cache;
 use WPMCP\Tools\Diagnostics\Get_Debug_Config;
@@ -2533,6 +2534,37 @@ final class Plugin
             'read'
         ));
 
+        // Issue #382: the containment steps after a scan-security finding.
+        // Each action narrows the capability further inside the handler
+        // (edit_user for another user, update_core for core files).
+        $incident_response = new Incident_Response();
+
+        $registrar->register(new Ability(
+            'wpmcp/incident-response',
+            'free',
+            'Contain a compromise. list-app-passwords (no secrets); revoke-app-password (uuid or all); end-sessions (user_id or all); rotate-salts (wp-config.php, backup kept; refused if unwritable or defined elsewhere); reinstall-core-files (files scan-security flags, from the checksum-verified official package, never wp-content; undo: rollback-operation). Writes need confirm:true. Cannot be undone: revoke, end-sessions, rotate-salts (logs out everyone, your cookie session too, not app passwords). Your session and app password stay unless include_current. Other users take edit_users',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'action'          => [
+                        'type' => 'string',
+                        'enum' => Incident_Response::ACTIONS,
+                    ],
+                    'user_id'         => [ 'type' => 'integer' ],
+                    'uuid'            => [ 'type' => 'string' ],
+                    'all'             => [ 'type' => 'boolean' ],
+                    'include_current' => [ 'type' => 'boolean' ],
+                    'paths'           => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'confirm'         => [ 'type' => 'boolean' ],
+                ],
+                'required'   => [ 'action' ],
+            ],
+            [$incident_response, 'handle'],
+            'manage_options',
+            'security',
+            'delete'
+        ));
+
         $get_cache_status = new Get_Cache_Status();
 
         $registrar->register(new Ability(
@@ -2640,7 +2672,7 @@ final class Plugin
         // other three point at it. Repeating ~40 keys in four descriptions cost
         // most of a kilobyte of every tools/list payload
         // (tests/free/Platform/ToolsListBudgetTest.php).
-        $style_doc = 'Optional flat "style" (color, font_size, padding, gap, ...; all keys on add-atomic-widget, raw "props" for the rest) becomes a local v4 style class; unknown keys or bad values are errors, never dropped. ';
+        $style_doc = 'Optional flat "style" (keys on add-atomic-widget; raw "props" for the rest) becomes a local v4 style class; unknown keys or bad values error, never dropped. ';
 
         $style_doc_full = sprintf(
             'An optional flat "style" object becomes a local v4 style class. Keys: %s, plus raw "props" for the rest. An unknown key or unusable value is an error, never dropped. ',
@@ -2652,7 +2684,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-flexbox',
             'pro',
-            'Add an Elementor 4.0+ atomic flexbox (elType e-flexbox) to a page under parent_id (or top level) at an optional position. ' . $style_doc . 'Needs expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Add an Elementor 4.0+ atomic flexbox (e-flexbox) to a page under parent_id (or top level), optional position. ' . $style_doc . 'Needs expected_hash from get-elementor-data. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2676,7 +2708,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-div-block',
             'pro',
-            'Add an Elementor 4.0+ atomic div-block (elType e-div-block) to a page under parent_id (or top level) at an optional position. ' . $style_doc . 'Needs expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Add an Elementor 4.0+ atomic div-block (e-div-block) to a page under parent_id (or top level), optional position. ' . $style_doc . 'Needs expected_hash from get-elementor-data. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2726,7 +2758,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-atomic-widget',
             'pro',
-            'Update an Elementor 4.0+ atomic widget\'s settings by element id. Friendly params map to typed $$type props for known types (only those passed change; other props survive); raw $$type-wrapped settings also work. ' . $style_doc . 'A style object rewrites its generated local style class. Needs expected_hash. Undoable via rollback-operation',
+            'Update an Elementor 4.0+ atomic widget\'s settings by element id. Friendly params map to typed $$type props for known types (only those passed change); raw $$type-wrapped settings also work. ' . $style_doc . 'A style object rewrites its generated local style class. Needs expected_hash. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2794,7 +2826,7 @@ final class Plugin
                 'memory-propose',
                 'create',
                 new \WPMCP\Tools\Memory\Memory_Propose(),
-                'Propose one durable memory entry. Stored PENDING and inert (not injected into sessions; severity=block not enforced) until an administrator publishes it in wp-admin. A severity=block proposal must name at least one target (tool:<ability>, post_id:<id>, post_type:<slug>); once published every matching call is refused in the permission check, so it is enforced, not advisory',
+                'Propose one durable memory entry, stored PENDING and inert (not injected into sessions; severity=block not enforced) until an administrator publishes it in wp-admin. severity=block must name at least one target (tool:<ability>, post_id:<id>, post_type:<slug>); once published, matching calls are refused in the permission check (enforced, not advisory)',
                 $entry_props,
                 ['text'],
             ],
@@ -3843,7 +3875,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/run-php-snippet',
             'pro',
-            'Run a guarded, arbitrary PHP snippet; returns its return value, echoed output and any thrown error. REMOTE CODE EXECUTION: off by default (WPMCP_ALLOW_PHP_EXEC constant or wpmcp_allow_php_exec filter); refused on production or any unrecognized environment unless WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION is set too; snippets the static validator flags are rejected first (a speed-bump, not a security boundary). Not snapshotted; cannot be undone.',
+            'Run a guarded, arbitrary PHP snippet; returns its return value, echoed output and any thrown error. REMOTE CODE EXECUTION: off by default (WPMCP_ALLOW_PHP_EXEC or wpmcp_allow_php_exec); refused on production or an unrecognized environment unless WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION is also set; the static validator rejects flagged snippets first (a speed-bump, not a security boundary). Not snapshotted; cannot be undone.',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5133,7 +5165,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Restore this site in place from a site-backup archive (job_id or path). dry_run (default TRUE) reports format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false first takes a database safety archive (job id returned; no restore if it fails), holds maintenance mode, imports each statement, and on failure reports it and rolls back. preserve_session (default true) keeps the caller signed in. include_files (default false, scope all) stages and swaps in wp-content. Refuses paths outside the site-backup dir',
+            'Restore this site in place from a site-backup archive (job_id or path). dry_run (default TRUE) reports format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false first takes a database safety archive (job id returned; no restore if it fails), holds maintenance mode, imports each statement, and reports and rolls back a failure. preserve_session (default true) keeps you signed in. include_files (default false, scope all) stages and swaps in wp-content. Refuses paths outside the site-backup dir',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6704,7 +6736,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-code-snippet',
             'pro',
-            'Create an Elementor Custom Code snippet (elementor_snippet post: _elementor_code, _elementor_location, _elementor_priority). location: wp_head, wp_body_open or wp_footer. Stored on any site; renders where Elementor Pro Custom Code is active. Not snapshotted (a create destroys nothing); remove with delete-code-snippet',
+            'Create an Elementor Custom Code snippet (an elementor_snippet post). location: wp_head, wp_body_open or wp_footer. Stored on any site; renders where Elementor Pro Custom Code is active. Not snapshotted (a create destroys nothing); remove with delete-code-snippet',
             [
                 'type'       => 'object',
                 'properties' => [

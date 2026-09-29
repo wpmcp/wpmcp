@@ -187,6 +187,11 @@ class Rollback_Service
         if (Site_Template_Snapshot::TYPE === $type) {
             return [ [ 'edit_theme_options' ] ];
         }
+        // Undoing a core file reinstall rewrites WordPress core, which core
+        // itself gates at update_core, so restoring one takes it too (#382).
+        if (Core_Files_Snapshot::TYPE === $type) {
+            return [ [ 'update_core' ] ];
+        }
         if ('post' !== $type) {
             return [];
         }
@@ -885,6 +890,7 @@ class Rollback_Service
             'acf_options',
             'option_set',
             'site_template',
+            'core_files',
         ];
     }
 
@@ -1114,6 +1120,14 @@ class Rollback_Service
 
         if ('package_install' === $snapshot['object_type']) {
             self::apply_package_install_snapshot($snapshot);
+            return;
+        }
+
+        // Core_Files_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('core_files' === $snapshot['object_type']) {
+            foreach (Core_Files_Snapshot::restore($snapshot) as $warning) {
+                self::warn($warning);
+            }
             return;
         }
 

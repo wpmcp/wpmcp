@@ -88,7 +88,7 @@ class IncidentResponseTest extends \WP_UnitTestCase
 
         $description = $ability->get_description();
         $this->assertStringContainsString('confirm', $description);
-        $this->assertMatchedRegularExpression('/cannot be undone/i', $description);
+        $this->assertMatchesRegularExpression('/cannot be undone/i', $description);
     }
 
     // -----------------------------------------------------------------

@@ -232,8 +232,8 @@ class File_Backup
         return $wp_filesystem;
     }
 
-    /** Block direct web access to a backup directory (deny + empty index). */
-    private static function protect_dir(string $dir): void
+    /** Block direct web access to a backup directory (deny + empty index). Also used by Core_Files_Snapshot. */
+    public static function protect_dir(string $dir): void
     {
         if (! is_file($dir . '/.htaccess')) {
             @file_put_contents($dir . '/.htaccess', "Require all denied\n");

@@ -69,6 +69,16 @@ that ability. What is sent: the WordPress version and the site locale, under
 a `WPMCP-Security-Scanner/1.0` user agent. No content and no personal data.
 Privacy policy: https://wordpress.org/about/privacy/
 
+= WordPress.org core package, core file reinstall (api.wordpress.org, downloads.wordpress.org) =
+
+Used by the `incident-response` ability, only when you or your agent run its
+`reinstall-core-files` action. It fetches the same core checksums as above,
+then downloads the official WordPress package for this site's version from
+downloads.wordpress.org through core's `download_url()`, with core's standard
+user agent (WordPress version and this site's address). Only files matching
+the official checksums are written. Privacy policy:
+https://wordpress.org/about/privacy/
+
 = WordPress.org plugin directory API, abandoned-plugin check (api.wordpress.org) =
 
 The same `scan-security` ability also asks the plugin directory whether any
