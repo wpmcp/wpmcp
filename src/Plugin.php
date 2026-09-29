@@ -1919,7 +1919,7 @@ final class Plugin
                 'required'   => [ 'id' ],
             ],
             [$edit_comment, 'handle'],
-            'edit_comments',
+            'moderate_comments',
             'comments',
             'update'
         ));
@@ -1937,7 +1937,7 @@ final class Plugin
                 'required'   => [ 'id', 'confirm' ],
             ],
             [$delete_comment, 'handle'],
-            'edit_comments',
+            'moderate_comments',
             'comments',
             'delete'
         ));
