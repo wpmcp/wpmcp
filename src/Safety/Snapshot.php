@@ -70,6 +70,9 @@ class Snapshot
         if (BuddyPress_Rows_Snapshot::TYPE === $object_type) {
             return BuddyPress_Rows_Snapshot::capture((string) $object_id);
         }
+        if (Site_Template_Snapshot::TYPE === $object_type) {
+            return Site_Template_Snapshot::capture((string) $object_id);
+        }
         if ('theme_scaffold' === $object_type) {
             return self::capture_theme_scaffold((string) $object_id);
         }

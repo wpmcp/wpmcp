@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 402,
-    'free'      => 270,
+    'total'     => 404,
+    'free'      => 272,
     'pro'       => 132,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -361,6 +361,8 @@ return [
         'wpmcp/set-term-meta' => 'free',
         'wpmcp/set-widget-status' => 'pro',
         'wpmcp/sideload-image' => 'free',
+        'wpmcp/site-templates-read' => 'free',
+        'wpmcp/site-templates-write' => 'free',
         'wpmcp/suggest-internal-links' => 'free',
         'wpmcp/sureforms-read' => 'free',
         'wpmcp/sureforms-write' => 'free',

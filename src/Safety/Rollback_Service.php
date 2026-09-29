@@ -180,10 +180,20 @@ class Rollback_Service
             }
             return $caps;
         }
+        // A block theme template, template part or navigation menu renders
+        // on every page, and core gates editing them at edit_theme_options,
+        // so restoring one takes it too (issue #378), whatever capability the
+        // rollback tool itself is registered at.
+        if (Site_Template_Snapshot::TYPE === $type) {
+            return [ [ 'edit_theme_options' ] ];
+        }
         if ('post' !== $type) {
             return [];
         }
-        $post_type  = (string) ($snapshot['data']['post']['post_type'] ?? '');
+        $post_type = (string) ($snapshot['data']['post']['post_type'] ?? '');
+        if (in_array($post_type, [ 'wp_template', 'wp_template_part', 'wp_navigation' ], true)) {
+            return [ [ 'edit_theme_options' ] ];
+        }
         $capability = self::pii_snapshot_capabilities()[ $post_type ] ?? null;
         return null === $capability ? [] : [ [ $capability ] ];
     }
@@ -874,6 +884,7 @@ class Rollback_Service
             'acf_structure',
             'acf_options',
             'option_set',
+            'site_template',
         ];
     }
 
@@ -1092,6 +1103,12 @@ class Rollback_Service
 
         if ('theme_scaffold' === $snapshot['object_type']) {
             self::apply_theme_scaffold_snapshot($snapshot);
+            return;
+        }
+
+        // Site_Template_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('site_template' === $snapshot['object_type']) {
+            Site_Template_Snapshot::restore($snapshot);
             return;
         }
 
