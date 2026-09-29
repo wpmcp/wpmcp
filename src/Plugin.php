@@ -2859,7 +2859,7 @@ final class Plugin
                 'memory-propose',
                 'create',
                 new \WPMCP\Tools\Memory\Memory_Propose(),
-                'Propose one durable memory entry, stored PENDING and inert (not injected into sessions; severity=block not enforced) until an administrator publishes it in wp-admin. severity=block must name at least one target (tool:<ability>, post_id:<id>, post_type:<slug>); once published, matching calls are refused in the permission check (enforced, not advisory)',
+                'Propose one durable memory entry, stored PENDING and inert (not injected into sessions; severity=block not enforced) until an admin publishes it in wp-admin. severity=block needs at least one target (tool:<ability>, post_id:<id>, post_type:<slug>); once published, matching calls are refused by the permission check (enforced, not advisory)',
                 $entry_props,
                 ['text'],
             ],
@@ -3908,7 +3908,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/run-php-snippet',
             'pro',
-            'Run a guarded, arbitrary PHP snippet; returns its return value, echoed output and any thrown error. REMOTE CODE EXECUTION: off by default (WPMCP_ALLOW_PHP_EXEC or wpmcp_allow_php_exec); refused on production or an unrecognized environment unless WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION is also set; the static validator rejects flagged snippets first (a speed-bump, not a security boundary). Not snapshotted; cannot be undone.',
+            'Run a guarded arbitrary PHP snippet; returns its return value, output and any thrown error. REMOTE CODE EXECUTION: off by default (WPMCP_ALLOW_PHP_EXEC or wpmcp_allow_php_exec); refused on production or an unrecognized environment unless WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION is also set; the static validator rejects flagged snippets first (a speed-bump, not a security boundary). Not snapshotted; cannot be undone.',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4330,7 +4330,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/call-rest',
             'free',
-            'Run an internal REST request (rest_do_request) on any local route; returns status and body. The route\'s permission_callback runs as the current user, so access cannot widen. GET/HEAD always allowed; writes need the wpmcp_enable_rest_writes filter (off by default) and confirm:true, and report recoverable:false (not snapshotted)',
+            'Run an internal REST request (rest_do_request) on any local route; returns status and body. The route\'s permission_callback runs as the current user, so access cannot widen. GET/HEAD always run; writes need the wpmcp_enable_rest_writes filter (default off) and confirm:true, and are not snapshotted (recoverable:false)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4546,7 +4546,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-block',
             'free',
-            'Insert ONE block ("<!-- wp:... -->" markup) into a post at "path" (zero-based indexes into the parse-blocks tree; the last may equal the sibling count to append). Requires expected_hash (content_hash from parse-blocks); stale reads are refused. Snapshot-first; other blocks stay byte-identical',
+            'Insert ONE block ("<!-- wp:... -->" markup) into a post at "path" (zero-based indexes into the parse-blocks tree; the last may equal the sibling count to append). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; other blocks stay byte-identical',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4566,7 +4566,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-block',
             'free',
-            'Update ONE block in place by "path" (zero-based indexes into the parse-blocks tree, descending innerBlocks): replace "attrs" (full replacement) and/or "inner_html" (leaf blocks only; target a container\'s children by their own paths). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; every other block stays byte-identical',
+            'Update ONE block by "path" (zero-based indexes into the parse-blocks tree, through innerBlocks): replace "attrs" (whole) and/or "inner_html" (leaf blocks only; a container\'s children by their own paths). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; other blocks stay byte-identical',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4587,7 +4587,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/remove-block',
             'free',
-            'Remove ONE block by "path" (zero-based indexes into the parse-blocks tree, descending innerBlocks); nested removals keep the container. Requires expected_hash (content_hash from parse-blocks); stale reads are refused. Snapshot-first, undoable via rollback-operation',
+            'Remove ONE block by "path" (zero-based indexes into the parse-blocks tree, descending innerBlocks); nested removals keep the container. Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first, undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4660,7 +4660,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/insert-pattern',
             'free',
-            'Insert a registered block pattern\'s blocks into a post at "path" (add-block\'s path semantics; whitespace filler dropped). Requires expected_hash (content_hash from parse-blocks); stale reads are refused. Snapshot-first; existing blocks stay byte-identical',
+            'Insert a registered block pattern\'s blocks into a post at "path" (add-block\'s path semantics; whitespace filler dropped). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; existing blocks stay byte-identical',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5254,7 +5254,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/rewrite-site-urls',
             'free',
-            'Rewrite embedded URLs in the database from one site URL to another (options, postmeta, posts, termmeta, usermeta, comments), serialization-aware for plain, JSON-escaped, percent-encoded and scheme-relative forms; object values are refused and reported. dry_run (default) reports per-table counts; dry_run:false + confirm:true takes a database safety archive first or refuses, returning its job_id for restore-site-backup. Skips wpmcp_db_protected_tables (usermeta by default); never rewrites GUIDs',
+            'Rewrite one site URL to another across the database (options, postmeta, posts, termmeta, usermeta, comments), serialization-aware for plain, JSON-escaped, percent-encoded and scheme-relative forms; object values are refused and reported. dry_run (default) reports per-table counts; dry_run:false + confirm:true takes a database safety archive first or refuses, returning its job_id for restore-site-backup. Skips wpmcp_db_protected_tables (usermeta by default); never rewrites GUIDs',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5851,7 +5851,8 @@ final class Plugin
      *
      * get-site-health (issue #381) runs the Site Health tests and is gated
      * at view_site_health_checks, the capability core checks for the Site
-     * Health screen itself.
+     * Health screen itself. Its mail_test (issue #415) sending path adds its
+     * own manage_options, confirm and rate-limit gates (see Mail_Check).
      */
     private function register_diagnostics_abilities(Registrar $registrar): void
     {
@@ -5925,13 +5926,15 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-site-health',
             'free',
-            'Run Site Health tests, plugin-added ones included, as plain text. Async tests past timeout seconds (default 10, max 30) report not completed. cached: last full run',
+            'Run Site Health tests, plugin-added ones included, as plain text. Async tests past timeout seconds (default 10, max 30) report not completed. cached: last full run. mail_test: how mail is sent (no secrets); your or admin email + confirm sends a test (manage_options, rate limited)',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'tests'   => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
-                    'timeout' => [ 'type' => 'integer' ],
-                    'cached'  => [ 'type' => 'boolean' ],
+                    'tests'     => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'timeout'   => [ 'type' => 'integer' ],
+                    'cached'    => [ 'type' => 'boolean' ],
+                    'mail_test' => [ 'type' => 'string' ],
+                    'confirm'   => [ 'type' => 'boolean' ],
                 ],
             ],
             [$get_site_health, 'handle'],
@@ -6072,7 +6075,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-widget-schema',
             'free',
-            'Return the settings schema for one Elementor widget type: the curated typed params (defaults, enums, responsive hints, required plugin) for cataloged widgets by default, or with full:true (and for non-cataloged widgets) the full introspected control stack. Read-only',
+            'The settings schema for one Elementor widget type: curated typed params (defaults, enums, responsive hints, required plugin) for cataloged widgets, or with full:true (and for non-cataloged widgets) the full introspected control stack. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6733,7 +6736,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-custom-css',
             'pro',
-            'Add site-wide custom CSS through WordPress core Additional CSS, so it works on any site (Elementor Pro not required). Appends by default, or replaces with replace=true. Snapshot-first when the Additional-CSS post exists, so it is undoable via rollback-operation',
+            'Add site-wide custom CSS via core Additional CSS, so it works on any site (Elementor Pro not required). Appends, or replaces with replace=true. Snapshot-first when the Additional-CSS post exists (undoable via rollback-operation)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7193,7 +7196,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-container',
             'pro',
-            'Create an Elementor layout element (container by default, or section/column) at the top level or under parent_id, at an optional position. Columns need a parent; widgets are never parents. Needs expected_hash from get-elementor-data; stale reads are refused. Undoable via rollback-operation',
+            'Create an Elementor layout element (container by default, or section/column) at the top level or under parent_id, at an optional position. Columns need a parent; widgets are never parents. Needs expected_hash from get-elementor-data; stale reads refused. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7335,7 +7338,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/find-element',
             'pro',
-            'Search a page\'s Elementor tree by el_type, widget_type, setting_key + setting_value and/or css_class (AND-combined, at least one). Each match reports element_id, types, navigator label and ancestor path; the current data_hash is returned for chaining a mutation. Read-only',
+            'Search a page\'s Elementor tree by el_type, widget_type, setting_key + setting_value and/or css_class (AND-combined, at least one). Each match reports element_id, types, navigator label and ancestor path; returns the current data_hash for chaining a mutation. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7359,7 +7362,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-page-settings',
             'pro',
-            'Merge settings into a page\'s Elementor page settings (_elementor_page_settings): given keys are set, all others survive. Post field keys (post_title, post_status, template, ...) are refused, use the post tools. Needs expected_hash = settings_hash from get-elementor-data. Undoable via rollback-operation',
+            'Merge settings into a page\'s Elementor page settings (_elementor_page_settings): given keys are set, others survive. Post field keys (post_title, post_status, template, ...) are refused, use the post tools. Needs expected_hash = settings_hash from get-elementor-data. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [

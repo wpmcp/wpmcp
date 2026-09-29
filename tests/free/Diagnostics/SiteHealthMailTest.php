@@ -35,6 +35,8 @@ class SiteHealthMailTest extends \WP_UnitTestCase
         wp_set_current_user($this->admin_id);
         update_option('admin_email', 'owner@example.org');
         Get_Site_Health::reset_mail_test_limit($this->admin_id);
+        // Changing admin_email mails a notice; start each test with no mail sent.
+        reset_phpmailer_instance();
     }
 
     protected function tearDown(): void

@@ -30,6 +30,10 @@ if (! defined('ABSPATH')) {
  *
  * A full run (no tests subset) is stored in a transient so cached mode can
  * return it without rerunning anything. Nothing else is written.
+ *
+ * mail_test (issue #415) switches to the mail delivery check instead of the
+ * tests: how the site sends mail and, for an allowed recipient with
+ * confirm:true, one test send. See Mail_Check for its gates.
  */
 class Get_Site_Health
 {
@@ -37,6 +41,9 @@ class Get_Site_Health
 
     public const DEFAULT_TIMEOUT = 10;
     public const MAX_TIMEOUT     = 30;
+
+    public const MAIL_TEST_LIMIT  = Mail_Check::LIMIT;
+    public const MAIL_TEST_WINDOW = Mail_Check::WINDOW;
 
     private const STATUSES = [ 'good', 'recommended', 'critical' ];
 
@@ -48,8 +55,18 @@ class Get_Site_Health
         $this->clock = $clock ?? static fn (): float => microtime(true);
     }
 
+    public static function reset_mail_test_limit(int $user_id): void
+    {
+        Mail_Check::reset_limit($user_id);
+    }
+
     public function handle(array $args): array
     {
+        if (array_key_exists('mail_test', $args)) {
+            $recipient = is_string($args['mail_test']) ? $args['mail_test'] : '';
+            return [ 'mail' => (new Mail_Check($this->clock))->run($recipient, true === ($args['confirm'] ?? null)) ];
+        }
+
         if (! empty($args['cached'])) {
             return $this->cached();
         }

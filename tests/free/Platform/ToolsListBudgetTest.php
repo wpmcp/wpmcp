@@ -160,7 +160,14 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  208815 bytes over 405 tools. Builder design systems, templates and
      *  element catalogs (#391) added no tool: they are a scope, builder and
      *  element argument on get-builder-content (post_id no longer required),
-     *  which puts the payload at 208977 bytes over 405 tools. */
+     *  which puts the payload at 208977 bytes over 405 tools. The mail
+     *  delivery check (#415) added no tool either: it is a mail_test and
+     *  confirm argument on get-site-health, paid for by rewording the
+     *  update-block, add-block, remove-block, insert-pattern, memory-propose,
+     *  call-rest, rewrite-site-urls, run-php-snippet, update-page-settings,
+     *  add-custom-css, get-widget-schema, add-container and find-element
+     *  descriptions without dropping a rule: 208975 -> 208982 bytes over 406
+     *  tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
