@@ -231,6 +231,8 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         $this->assertFalse($abilities['wpmcp/update-plugin']->idempotent_hint);
         $this->assertTrue($abilities['wpmcp/update-theme']->destructive_hint);
         $this->assertFalse($abilities['wpmcp/update-theme']->idempotent_hint);
+        $this->assertTrue($abilities['wpmcp/manage-updates']->destructive_hint);
+        $this->assertFalse($abilities['wpmcp/manage-updates']->idempotent_hint);
     }
 
     public function test_database_abilities_are_tagged_database_domain(): void
