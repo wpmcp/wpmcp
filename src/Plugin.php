@@ -201,6 +201,7 @@ use WPMCP\Tools\Packages\Activate_Plugin;
 use WPMCP\Tools\Packages\Deactivate_Plugin;
 use WPMCP\Tools\Packages\Install_Plugin;
 use WPMCP\Tools\Packages\Update_Plugin;
+use WPMCP\Tools\Packages\Manage_Updates;
 use WPMCP\Tools\Packages\Delete_Plugin;
 use WPMCP\Tools\Packages\List_Themes;
 use WPMCP\Tools\Packages\Switch_Theme;
@@ -1989,14 +1990,17 @@ final class Plugin
         $install_theme     = new Install_Theme();
         $update_theme      = new Update_Theme();
         $delete_theme      = new Delete_Theme();
+        $manage_updates    = new Manage_Updates();
 
         $registrar->register(new Ability(
             'wpmcp/list-plugins',
             'free',
-            'List installed plugins with active status, protected-package flag, and pending update info',
+            'List installed plugins with active status, protected-package flag, and pending update info; updates:true lists core, plugin and theme updates with auto-update state',
             [
                 'type'       => 'object',
-                'properties' => [],
+                'properties' => [
+                    'updates' => [ 'type' => 'boolean' ],
+                ],
             ],
             [$list_plugins, 'handle'],
             'activate_plugins',
@@ -2176,6 +2180,33 @@ final class Plugin
             'packages',
             'delete'
         ));
+        $registrar->register(new Ability(
+            'wpmcp/manage-updates',
+            'free',
+            'Update WordPress core or set plugin/theme auto-updates. type=core applies the offered core update (or pending DB upgrade); needs confirm:true and a full backup (trigger-backup type=full) under 1h old; refuses if expected_version differs from the offer. A core update cannot be snapshot-rolled-back; restore that backup to revert. type=plugin|theme + item + enabled sets auto-update (undoable)',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'type'             => [
+                        'type' => 'string',
+                        'enum' => ['core', 'plugin', 'theme'],
+                    ],
+                    'item'             => [ 'type' => 'string' ],
+                    'enabled'          => [ 'type' => 'boolean' ],
+                    'expected_version' => [ 'type' => 'string' ],
+                    'confirm'          => [ 'type' => 'boolean' ],
+                    'session_id'       => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'type' ],
+            ],
+            [$manage_updates, 'handle'],
+            'update_core',
+            'packages',
+            'update',
+            false,
+            true,
+            false
+        ));
 
         $search_plugins  = new Search_Plugins();
         $get_plugin_info = new Get_Plugin_Info();
@@ -2337,7 +2368,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-rows',
             'free',
-            'Update rows matching a mandatory equality WHERE via $wpdb->update() (parameterized). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo via rollback-operation when the table has a primary key and the WHERE fits the before-image cap, else recoverable:false and the before-image goes to the write audit log',
+            'Update rows matching a mandatory equality WHERE via $wpdb->update(). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo via rollback-operation if the table has a primary key and the WHERE fits the before-image cap, else recoverable:false with the before-image in the write audit log',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2357,7 +2388,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-rows',
             'free',
-            'Delete rows matching a mandatory equality WHERE via $wpdb->delete() (parameterized). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo via rollback-operation (rows reinserted with their ids) when the table has a primary key and the WHERE fits the before-image cap, else recoverable:false and the before-image goes to the write audit log',
+            'Delete rows matching a mandatory equality WHERE via $wpdb->delete(). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo via rollback-operation (rows reinserted with their ids) if the table has a primary key and the WHERE fits the before-image cap, else recoverable:false with the before-image in the write audit log',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2542,7 +2573,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/incident-response',
             'free',
-            'Contain a compromise. list-app-passwords (no secrets); revoke-app-password (uuid or all); end-sessions (user_id or all); rotate-salts (wp-config.php, backup kept; refused if unwritable or defined elsewhere); reinstall-core-files (files scan-security flags, from the checksum-verified official package, never wp-content; undo: rollback-operation). Writes need confirm:true. Cannot be undone: revoke, end-sessions, rotate-salts (logs out everyone, your cookie session too, not app passwords). Your session and app password stay unless include_current. Other users take edit_users',
+            'list-app-passwords (no secrets); revoke-app-password (uuid or all); end-sessions (user_id or all); rotate-salts (wp-config.php, backup kept; refused if unwritable or defined elsewhere); reinstall-core-files (files scan-security flags, from the checksum-verified official package, never wp-content; undo: rollback-operation). Writes need confirm:true. Cannot be undone: revoke, end-sessions, rotate-salts (logs out everyone, your cookie session too, not app passwords). Your session and app password stay unless include_current. Other users take edit_users',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2586,7 +2617,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/clear-cache',
             'free',
-            'Flush caches: object cache, all transients, OPcache when enabled, and any detected page-cache plugin through its own API. Returns what each layer cleared or lacked. Idempotent and not snapshotted, since a cache has no before-image to restore',
+            'Flush caches: object cache, all transients, OPcache when enabled, and any detected page-cache plugin through its own API. Returns what each layer cleared or lacked. Idempotent; not snapshotted (a cache has no before-image)',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -2675,7 +2706,7 @@ final class Plugin
         $style_doc = 'Optional flat "style" (keys on add-atomic-widget; raw "props" for the rest) becomes a local v4 style class; unknown keys or bad values error, never dropped. ';
 
         $style_doc_full = sprintf(
-            'An optional flat "style" object becomes a local v4 style class. Keys: %s, plus raw "props" for the rest. An unknown key or unusable value is an error, never dropped. ',
+            'Optional flat "style" becomes a local v4 style class. Keys: %s; raw "props" for the rest. Unknown keys or bad values error, never dropped. ',
             implode(', ', Atomic_Styles::style_keys())
         );
 
@@ -2814,7 +2845,7 @@ final class Plugin
                 'memory-recall',
                 'read',
                 new \WPMCP\Tools\Memory\Memory_Recall(),
-                'Read this site\'s APPROVED project memory: published facts, conventions and guardrails, published session summaries and the enforced block rules. Pending proposals are never returned (only their count), so an agent cannot read back its own unapproved suggestions as policy. Read-only',
+                'Read this site\'s APPROVED project memory: published facts, conventions, guardrails, session summaries and enforced block rules. Pending proposals are never returned (only their count), so unapproved suggestions never read back as policy. Read-only',
                 [
                     'topic' => ['type' => 'string'],
                     'kind'  => ['type' => 'string', 'enum' => \WPMCP\Memory\Memory_Entry::KINDS],
@@ -2834,7 +2865,7 @@ final class Plugin
                 'memory-save-summary',
                 'create',
                 new \WPMCP\Tools\Memory\Memory_Save_Summary(),
-                'Record what a session changed as a pending session-summary entry. The facts are computed by the server from that session\'s snapshot rows, not from the supplied prose or any LLM, so it cannot over- or under-claim. Optional takeaways are filed as separate pending proposals',
+                'Record what a session changed as a pending session-summary entry. Facts come from that session\'s snapshot rows, not the supplied prose or any LLM, so it cannot over- or under-claim. Optional takeaways are filed as separate pending proposals',
                 [
                     'session_id' => ['type' => 'string'],
                     'summary'    => ['type' => 'string'],
@@ -2896,7 +2927,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-skills',
             'free',
-            'List installed agent skills: versioned markdown playbooks for WordPress, Elementor and WooCommerce work (slug, name, description, version, tags). Bodies via get-skill. Skills whose required tools are missing are hidden unless include_unavailable is set. Read-only',
+            'List installed agent skills (versioned markdown playbooks): slug, name, description, version, tags. Bodies via get-skill. Skills whose required tools are missing are hidden unless include_unavailable is set. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3073,7 +3104,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/search-content',
             'free',
-            'Search all site text, including what post_content search misses: Elementor and Bricks settings, block attributes, template parts, reusable blocks and nav menus. Each hit has an addressable location (block path, element id or menu item id) and a snippet. Read-only; hits are re-checked against read_post. Empty index: run reindex-search',
+            'Search all site text, including what post_content search misses: Elementor and Bricks settings, block attributes, template parts, reusable blocks and nav menus. Each hit has a location (block path, element id or menu item id) and a snippet. Read-only; hits re-checked against read_post. Empty index: run reindex-search',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3096,7 +3127,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/reindex-search',
             'free',
-            'Build or rebuild the search-content index. It updates on every save, so this is only for the first build or a full refresh after bulk or out-of-band changes. Cursor-based: each call indexes up to batch_size posts and returns next_offset',
+            'Build or rebuild the search-content index. The index updates on save; use this for the first build or after bulk or out-of-band changes. Cursor-based: each call indexes up to batch_size posts and returns next_offset',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3304,7 +3335,7 @@ final class Plugin
         $spec_schema = [ 'type' => 'object' ];
 
         $tools = [
-            ['create-custom-block', 'create', new \WPMCP\Tools\BlockBuilder\Create_Custom_Block(), 'Create a custom Gutenberg block from a data spec (title, attributes, template with {{name}} placeholders). Validated, stored as a wpmcp_block post, and registered via register_block_type at runtime with a render_callback that interprets the template (no code generation, no eval). Remove with delete-custom-block', ['spec' => $spec_schema], ['spec']],
+            ['create-custom-block', 'create', new \WPMCP\Tools\BlockBuilder\Create_Custom_Block(), 'Create a custom Gutenberg block from a data spec (title, attributes, template with {{name}} placeholders). Validated, stored as a wpmcp_block post and registered at runtime; a render_callback interprets the template (no code generation, no eval). Remove with delete-custom-block', ['spec' => $spec_schema], ['spec']],
             ['update-custom-block', 'update', new \WPMCP\Tools\BlockBuilder\Update_Custom_Block(), 'Replace a custom block\'s spec by id (re-validated before it is stored). Snapshotted: returns an operation_id for rollback-operation', ['block_id' => ['type' => 'integer'], 'spec' => $spec_schema], ['block_id', 'spec']],
             ['get-custom-block', 'read', new \WPMCP\Tools\BlockBuilder\Get_Custom_Block(), 'Read one custom block\'s stored spec by id. Read-only', ['block_id' => ['type' => 'integer']], ['block_id']],
             ['list-custom-blocks', 'read', new \WPMCP\Tools\BlockBuilder\List_Custom_Blocks(), 'List the custom blocks on this site (id, name, title, active/inactive). Read-only', [], []],
@@ -3536,7 +3567,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-php-snippet',
             'free',
-            'Store a named PHP snippet, inactive, in the PHP snippet store (not an Elementor custom-code post: see create-code-snippet). Never executed; syntax errors or critical static findings refuse it (advisory check, not a security boundary). Activation is separate and gated. Snapshot-first, reversible per snippet',
+            'Store a named PHP snippet, inactive (not Elementor custom code: see create-code-snippet). Never executed; syntax errors or critical static findings refuse it (advisory, not a security boundary). Activation is separate and gated. Snapshot-first, reversible per snippet',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3730,7 +3761,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/run-wp-cli',
             'pro',
-            'Run an allowlisted wp-cli subcommand (e.g. "core version") and return stdout, stderr and exit code. Off by default (WPMCP_ALLOW_WP_CLI constant or wpmcp_allow_wp_cli filter); refused on production without a separate override; only subcommands on the wpmcp_wp_cli_allowlist filter run; shell metacharacters are rejected first',
+            'Run an allowlisted wp-cli subcommand (e.g. "core version") and return stdout, stderr and exit code. Off by default (WPMCP_ALLOW_WP_CLI or wpmcp_allow_wp_cli); refused on production without a separate override; only subcommands on the wpmcp_wp_cli_allowlist filter run; shell metacharacters are rejected first',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3781,7 +3812,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/dispatch-cli-job',
             'pro',
-            'Queue an allowlisted wp-cli command as a background job; returns its id at once (poll get-cli-job). Same gates as run-wp-cli: off by default (WPMCP_ALLOW_WP_CLI or wpmcp_allow_wp_cli), refused on production without a separate override, allowlisted subcommands and flags, no shell metacharacters; re-checked when the job runs (closing them stops queued jobs). timeout seconds (default 300, max 900). Refused while too many jobs are queued or running',
+            'Queue an allowlisted wp-cli command as a background job; returns its id at once (poll get-cli-job). Same gates as run-wp-cli (off by default: WPMCP_ALLOW_WP_CLI or wpmcp_allow_wp_cli; production needs a separate override; allowlisted subcommands and flags; no shell metacharacters), re-checked at run time, so closing them stops queued jobs. timeout seconds (default 300, max 900). Refused while too many jobs are queued or running',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3902,7 +3933,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/activate-php-snippet',
             'pro',
-            'Activate a STORED PHP SNIPPET by id (not Elementor custom code): flips the status flag, never executes it. Refused unless PHP execution is enabled (WPMCP_ALLOW_PHP_EXEC or wpmcp_allow_php_exec, default off) and the environment permits it, as for run-php-snippet. Every attempt is audited. Snapshot-first; rollback restores it inactive',
+            'Activate a STORED PHP SNIPPET by id (not Elementor custom code): flips the status flag, never executes it. Refused unless PHP execution is enabled (WPMCP_ALLOW_PHP_EXEC or wpmcp_allow_php_exec, default off) and the environment permits it (as run-php-snippet). Every attempt audited. Snapshot-first; rollback restores it inactive',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3955,7 +3986,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-scoped-css',
             'pro',
-            'Store CSS for one post/page (post_id required), printed in wp_head only there. Pass css, or a selector plus bare declarations; element_id (Elementor) scopes it to .elementor-element-<id>. Appends; replace=true overwrites, css="" + replace=true clears. Site-wide: add-custom-css. Needs edit_css and manage_options. Refuses script-capable CSS (markup, expression(), script or data: URLs, @import), even obfuscated. Snapshot-first per page',
+            'Store CSS printed in wp_head only on one post/page (post_id required). Pass css, or selector plus bare declarations; element_id (Elementor) scopes it to .elementor-element-<id>. Appends; replace=true overwrites, css="" + replace=true clears. Site-wide: add-custom-css. Needs edit_css and manage_options. Refuses script-capable CSS (markup, expression(), script or data: URLs, @import), even obfuscated. Snapshot-first per page',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3976,7 +4007,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-custom-js',
             'pro',
-            'Store the site-wide JS snippet printed in wp_footer (replaces the previous one; js="" + replace=true clears). XSS-CLASS SURFACE, off by default: needs WPMCP_ALLOW_JS_INJECTION or the wpmcp_allow_js_injection filter, plus unfiltered_html and manage_options. Snapshot-first; closing the gate stops rendering stored JS',
+            'Store the site-wide JS snippet printed in wp_footer (replaces the previous one; js="" + replace=true clears). XSS-CLASS SURFACE, off by default: needs WPMCP_ALLOW_JS_INJECTION or wpmcp_allow_js_injection, plus unfiltered_html and manage_options. Snapshot-first; closing the gate stops rendering stored JS',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4173,7 +4204,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-site-context',
             'free',
-            'Orientation payload: site name, URL, tagline, WordPress and PHP versions, theme, active plugins, public post types with counts, taxonomies, user count, locale, timezone, multisite, and active integrations (Elementor, WooCommerce, ACF, Yoast, RankMath). No admin email. Read-only',
+            'Orientation payload: site name, URL, tagline, WordPress and PHP versions, theme, active plugins, public post types with counts, taxonomies, user count, locale, timezone, multisite, and active integrations. No admin email. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -4297,7 +4328,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/call-rest',
             'free',
-            'Run an internal REST request (rest_do_request) on any route here; returns status and body. The route\'s permission_callback runs as the current user, so access cannot widen. GET/HEAD always allowed; POST/PUT/PATCH/DELETE need the wpmcp_enable_rest_writes filter (off by default) and confirm:true, and report recoverable:false (not snapshotted)',
+            'Run an internal REST request (rest_do_request) on any local route; returns status and body. The route\'s permission_callback runs as the current user, so access cannot widen. GET/HEAD always allowed; writes need the wpmcp_enable_rest_writes filter (off by default) and confirm:true, and report recoverable:false (not snapshotted)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5005,7 +5036,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/import-content',
             'free',
-            'Import a WXR file as new posts (title, content, status, post_type, postmeta). Off by default (wpmcp_enable_import filter), needs confirm:true, not snapshotted (recoverable:false); returns created_post_ids for delete-post. mirror:true with post_id instead restores that page from its export-content mirror, undoable via rollback-operation',
+            'Import a WXR file as new posts (title, content, status, post_type, postmeta). Off by default (wpmcp_enable_import filter), needs confirm:true, not snapshotted (recoverable:false); returns created_post_ids for delete-post. mirror:true + post_id restores that page from its export-content mirror (undoable)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5165,7 +5196,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Restore this site in place from a site-backup archive (job_id or path). dry_run (default TRUE) reports format_version, scope (all or database), table prefix, multisite, WordPress downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false first takes a database safety archive (job id returned; no restore if it fails), holds maintenance mode, imports each statement, and reports and rolls back a failure. preserve_session (default true) keeps you signed in. include_files (default false, scope all) stages and swaps in wp-content. Refuses paths outside the site-backup dir',
+            'Restore this site in place from a site-backup archive (job_id or path; none outside the site-backup dir). dry_run (default true) reports format_version, scope (all/database), prefix, multisite, WP downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false takes a database safety archive first (job id returned; no restore if it fails), holds maintenance mode, imports each statement, and on failure rolls back. preserve_session (default true) keeps the caller signed in; include_files (default false, scope all) swaps in staged wp-content',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5221,7 +5252,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/rewrite-site-urls',
             'free',
-            'Rewrite every embedded URL in the database from one site URL to another (options, postmeta, posts, termmeta, usermeta, comments), serialization-aware across plain, JSON-escaped, percent-encoded and scheme-relative forms; object values are refused and reported. dry_run (default) reports per-table counts; dry_run:false + confirm:true takes a database safety archive first or refuses, and returns its job_id for restore-site-backup to undo. Skips wpmcp_db_protected_tables (usermeta by default); never rewrites GUIDs',
+            'Rewrite embedded URLs in the database from one site URL to another (options, postmeta, posts, termmeta, usermeta, comments), serialization-aware for plain, JSON-escaped, percent-encoded and scheme-relative forms; object values are refused and reported. dry_run (default) reports per-table counts; dry_run:false + confirm:true takes a database safety archive first or refuses, returning its job_id for restore-site-backup. Skips wpmcp_db_protected_tables (usermeta by default); never rewrites GUIDs',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5250,7 +5281,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/push-site-archive',
             'free',
-            'Push a site-backup archive (job_id or path; scope all or database) to another wpmcp site at target_url as its admin (target_user + target_app_password, or target_token). dry_run (default) only checks the target; dry_run:false + confirm:true uploads resumable chunks for max_seconds (call again to go on); apply:true also has the target restore it (safety archive first) and rewrite URLs. Needs the outgoing-migration opt-in here, incoming there',
+            'Push a site-backup archive (job_id or path; scope all or database) to another wpmcp site at target_url as its admin (target_user + target_app_password, or target_token). dry_run (default) only checks the target; dry_run:false + confirm:true uploads resumable chunks for max_seconds (call again to continue); apply:true has the target restore it (safety archive first) and rewrite URLs. Needs the outgoing-migration opt-in here, incoming there',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5507,7 +5538,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-identity',
             'free',
-            'Create or overwrite (by name) a scoped identity that, once active (wpmcp_current_identity filter), narrows usable abilities beyond capability and Governance. Optional domains/operations/abilities allowlists, mode (allow default, or deny) and exposure (full or compact) overriding the site-wide tool-surface mode',
+            'Create or overwrite (by name) a scoped identity that, once active (wpmcp_current_identity filter), narrows usable abilities beyond capability and Governance. Optional domains/operations/abilities allowlists, mode (allow by default, or deny) and exposure (full/compact, overrides the site-wide mode)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5722,7 +5753,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-analytics-connection-status',
             'free',
-            'Report whether an analytics provider (Google Site Kit or explicitly configured credentials) is active and appears connected. Always registered so a caller can discover state before using the rest of the analytics tool group. Read-only',
+            'Report whether an analytics provider (Google Site Kit or explicitly configured credentials) is active and appears connected. Always registered, so state can be checked before the other analytics tools. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -6021,7 +6052,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-widgets',
             'free',
-            'List Elementor registered widget types (name, title, categories, icon, tier, availability), annotated from the curated widget catalog (purpose line, cataloged flag). Filter by tier (free/pro), category, or a case-insensitive search over name/title/catalog keywords. Read-only',
+            'List Elementor registered widget types (name, title, categories, icon, tier, availability), annotated from the curated catalog (purpose, cataloged flag). Filter by tier (free/pro), category or case-insensitive search (name, title, catalog keywords). Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6039,7 +6070,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-widget-schema',
             'free',
-            'Return the settings schema for one Elementor widget type: the curated typed params (defaults, enums, responsive hints, required plugin) for cataloged widgets by default, or the full introspected control stack with full:true (also the fallback for non-cataloged widgets). Read-only',
+            'Return the settings schema for one Elementor widget type: the curated typed params (defaults, enums, responsive hints, required plugin) for cataloged widgets by default, or with full:true (and for non-cataloged widgets) the full introspected control stack. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6117,7 +6148,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-elementor-data',
             'pro',
-            'A page\'s parsed Elementor tree (id, elType, widgetType, settings, children). Large pages: summary=true (skeleton with labels and child/descendant counts), max_depth (cut nodes report truncated_children) or element_id for one subtree. Reports total_elements, returned_elements, truncated; data_hash covers the whole page, so windowed reads are a valid expected_hash. Read-only',
+            'A page\'s parsed Elementor tree (id, elType, widgetType, settings, children). Large pages: summary=true (skeleton with labels and child/descendant counts), max_depth (cut nodes report truncated_children) or element_id for one subtree. Reports total/returned_elements, truncated; data_hash covers the whole page, so windowed reads are a valid expected_hash. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6248,7 +6279,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/generate-widget',
             'pro',
-            'Generate a widget of any cataloged type from the curated schema (list-widgets / get-widget-schema) and insert it into a page\'s _elementor_data under parent_id, or at the top level, with a seedable element id. Unknown types and invalid settings are refused before any write. Undoable via rollback-operation',
+            'Generate a widget of any cataloged type (list-widgets / get-widget-schema) into a page\'s _elementor_data under parent_id or top level, with a seedable element id. Unknown types and invalid settings are refused before any write. Undoable via rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7704,7 +7735,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/bulk-update-products',
             'free',
-            'Update up to 50 products and variations in one call; each item is {id, ...fields} as update-product or update-variation takes them, with the same rules and permission checks. Reports ok, operation_id or error per item; one failure does not stop the rest. rollback-session on the returned session_id undoes the batch',
+            'Update up to 50 products and variations in one call; each item is {id, ...fields} as update-product/update-variation take them, same rules and permission checks. Per item: ok, operation_id or error; one failure does not stop the rest. rollback-session on the returned session_id undoes the batch',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8304,7 +8335,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-menu',
             'free',
-            'Delete a navigation menu (a nav_menu term). Disabled by default (site must opt in via the wpmcp_enable_delete_menu filter) and requires confirm:true. This is not automatically reversible: the menu name and its items are returned so it can be rebuilt manually',
+            'Delete a navigation menu (a nav_menu term). Off until the wpmcp_enable_delete_menu filter opts in; requires confirm:true. Not automatically reversible: the menu name and items are returned for a manual rebuild',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9334,7 +9365,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-tool-schema',
             'free',
-            'Read one registered wpmcp tool\'s full contract by name: the exact input schema it was registered with, its complete description, MCP annotations, and its domain/operation/tier classification. Read-only. Use wpmcp/list-tools to discover names',
+            'Read one wpmcp tool\'s full contract by name: exact input schema, complete description, MCP annotations and domain/operation/tier. Read-only; list-tools finds names',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9350,7 +9381,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/call-tool',
             'free',
-            'Invoke any wpmcp tool by name with an arguments object, the path to tools compact mode hides from tools/list. The target\'s own checks (capability, governance, identity scope, license, rate limit, input validation, snapshot/rollback) apply as if called directly; it never widens access. Refuses non-wpmcp tools and the meta-tools',
+            'Invoke any wpmcp tool by name with an arguments object (reaches tools compact mode hides). The target\'s own checks (capability, governance, identity scope, license, rate limit, input validation, snapshot/rollback) apply as if called directly, never widening access. Refuses non-wpmcp tools and the meta-tools',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9410,7 +9441,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-site-ability',
             'free',
-            'Read one third-party ability\'s full contract by name: complete description, exact input schema, output schema and meta where provided, and its owning plugin. Refuses wpmcp\'s own abilities (use wpmcp/get-tool-schema for those). Read-only. Use wpmcp/list-site-abilities to discover names',
+            'Read one third-party ability\'s full contract by name: description, input and output schemas, meta where provided, and owning plugin. Refuses wpmcp\'s own abilities (use get-tool-schema). Read-only; list-site-abilities finds names',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9426,7 +9457,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/execute-site-ability',
             'free',
-            'Invoke one third-party ability by name with an arguments object. Its own permission callback always runs (no bypass), plus wpmcp governance, identity scope and rate limiting. Results are reversible:false: bridged writes are outside the wpmcp rollback guarantee. Refuses wpmcp\'s own abilities; needs the site bridge opt-in (default off)',
+            'Invoke one third-party ability by name with an arguments object. Its own permission callback always runs, plus wpmcp governance, identity scope and rate limiting. Results are reversible:false (bridged writes are outside wpmcp rollback). Refuses wpmcp\'s own abilities; needs the site bridge opt-in (default off)',
             [
                 'type'       => 'object',
                 'properties' => [

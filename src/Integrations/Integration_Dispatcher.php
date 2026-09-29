@@ -208,7 +208,7 @@ abstract class Integration_Dispatcher
             "wpmcp/{$slug}-write",
             $this->tier(),
             sprintf(
-                'Write op on %s: operation and args per its schema (list-operations on the read half). Snapshotable targets are snapshotted first, undo with rollback-operation; destructive ops need confirm:true',
+                'Write op on %s: operation plus args per its schema (list-operations on the read half). Snapshotable targets are snapshotted first (rollback-operation undoes); destructive ops need confirm:true',
                 $this->summary()
             ),
             $this->dispatcher_schema(true),

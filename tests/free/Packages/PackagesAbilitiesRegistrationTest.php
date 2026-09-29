@@ -19,6 +19,7 @@ class PackagesAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/search-plugins',
         'wpmcp/get-plugin-info',
         'wpmcp/search-themes',
+        'wpmcp/manage-updates',
     ];
 
     public function test_all_package_tools_are_registered_as_free_abilities(): void
@@ -60,6 +61,7 @@ class PackagesAbilitiesRegistrationTest extends \WP_UnitTestCase
             'wpmcp/install-theme',
             'wpmcp/update-theme',
             'wpmcp/delete-theme',
+            'wpmcp/manage-updates',
         ];
 
         $abilities = wp_get_abilities();
