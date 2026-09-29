@@ -846,6 +846,8 @@ final class Plugin
             // structuredContent must serialize as a JSON object. Normalized
             // at the wire boundary only, so tool contracts are unchanged.
             (new Structured_Result())->register();
+            // Every tool declares an outputSchema on tools/list (issue #387).
+            (new \WPMCP\MCP\Output_Schemas())->register();
             // Scheduled OAuth garbage collection (issue #133). The cron
             // callback is always attached (so a previously scheduled event
             // still has a handler if OAuth is switched off); the event is

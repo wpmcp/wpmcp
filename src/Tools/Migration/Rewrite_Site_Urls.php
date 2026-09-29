@@ -130,7 +130,7 @@ class Rewrite_Site_Urls
             throw new \InvalidArgumentException('from_url and to_url are identical; nothing to rewrite.');
         }
         if (! $dry_run && ! $confirm) {
-            throw new \InvalidArgumentException(
+            throw new \WPMCP\MCP\Confirmation_Required(
                 'Applying a site-wide URL rewrite requires confirm:true. Run with dry_run:true first to see what would change.'
             );
         }

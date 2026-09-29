@@ -259,6 +259,10 @@ class Registrar
             try {
                 $result = ($a->handler)(...$args);
             } catch (\Throwable $e) {
+                if ($e instanceof Confirmation_Required) {
+                    // Typed here, wrapped by core past this point (issue #387).
+                    Confirmation_Required::observe($e);
+                }
                 // A failed write still leaves a snapshot behind, so the row
                 // keeps its undo point; the exception itself is re-thrown
                 // untouched.

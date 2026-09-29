@@ -52,7 +52,7 @@ class Update_Rows
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \InvalidArgumentException('Updating raw table rows requires confirm:true.');
+            throw new \WPMCP\MCP\Confirmation_Required('Updating raw table rows requires confirm:true.');
         }
 
         $data = (array) ($args['data'] ?? []);

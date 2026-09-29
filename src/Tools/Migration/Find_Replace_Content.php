@@ -620,7 +620,7 @@ class Find_Replace_Content
         }
 
         if ($to_write > self::CONFIRM_THRESHOLD && ! $confirm) {
-            throw new \InvalidArgumentException(sprintf(
+            throw new \WPMCP\MCP\Confirmation_Required(sprintf(
                 'This pass would change %d posts; applying more than %d requires confirm:true. Review the dry run first.',
                 (int) $to_write,
                 (int) self::CONFIRM_THRESHOLD

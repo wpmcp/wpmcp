@@ -39,8 +39,21 @@ class ElicitationHttpTest extends \WP_UnitTestCase
         Rate_Limiter::set_clock_override(fn() => 1_790_000_387);
         add_filter('wpmcp_rate_limit', fn() => 100000);
         add_filter('wpmcp_enable_delete_comment', '__return_true');
-        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wp_set_current_user(self::admin());
         $this->mount();
+    }
+
+    /**
+     * An administrator who can also delete comments: wpmcp/delete-comment
+     * is gated on the edit_comments primitive, which core's administrator
+     * role does not carry (CommentsCapabilityTest grants it the same way).
+     */
+    private static function admin(): int
+    {
+        $id = self::factory()->user->create(['role' => 'administrator']);
+        get_user_by('id', $id)->add_cap('edit_comments');
+
+        return $id;
     }
 
     protected function tearDown(): void

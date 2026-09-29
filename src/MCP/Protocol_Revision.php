@@ -49,6 +49,10 @@ final class Protocol_Revision
         'resources/list',
         'resources/templates/list',
         'resources/read',
+        // The Tasks extension (issue #387), advertised in server/discover.
+        'tasks/get',
+        'tasks/update',
+        'tasks/cancel',
     ];
 
     /** Results that carry the ttlMs / cacheScope cache hints. */
@@ -225,7 +229,11 @@ final class Protocol_Revision
      */
     public static function complete(string $method, array $result): array
     {
-        $result['resultType'] = 'complete';
+        // A result that already names its type keeps it: an elicitation's
+        // "input_required" and a task handle's "task" (issue #387).
+        $result['resultType'] = isset($result['resultType']) && is_string($result['resultType'])
+            ? $result['resultType']
+            : 'complete';
 
         if (in_array($method, self::CACHEABLE, true)) {
             $result['ttlMs']      = 0;
