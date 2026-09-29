@@ -49,6 +49,10 @@ The plugin collects nothing about you and sends nothing to the author. Its only 
 
 Used by the `scan-security` ability to compare this site's core files against the official checksums for its version, so modified core files can be reported. It is contacted only when an administrator or an agent runs that ability. What is sent: the WordPress version and the site locale, under a `WPMCP-Security-Scanner/1.0` user agent. No content and no personal data. Privacy policy: https://wordpress.org/about/privacy/
 
+= WordPress.org core package, core file reinstall (api.wordpress.org, downloads.wordpress.org) =
+
+Used by the `incident-response` ability, only when you or your agent run its `reinstall-core-files` action. It fetches the same core checksums as above, then downloads the official WordPress package for this site's version from downloads.wordpress.org through core's `download_url()`, with core's standard user agent (WordPress version and this site's address). Only files matching the official checksums are written. Privacy policy: https://wordpress.org/about/privacy/
+
 = WordPress.org plugin directory API, abandoned-plugin check (api.wordpress.org) =
 
 The same `scan-security` ability also asks the plugin directory whether any of your active plugins has been closed, so an abandoned plugin can be reported. What is sent: the directory slug of each active plugin it looks up (a capped number per run, then cached), through WordPress core's own `plugins_api()`. Core sends its standard user agent with those requests, which contains the WordPress version and this site's address. Privacy policy: https://wordpress.org/about/privacy/

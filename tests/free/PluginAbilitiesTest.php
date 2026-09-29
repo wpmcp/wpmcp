@@ -27,12 +27,12 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
 
         // The free forms pairs (issue #66) register only while their host
         // plugin was loaded at boot, which for a harness double depends on
-        // test order, so they are counted apart: 273 free abilities, of which
+        // test order, so they are counted apart: 274 free abilities, of which
         // 8 are the four free forms adapters' pairs and 2 the plugin-data
         // pair (issue #299), which follows JetEngine, Pods and TranslatePress
         // the same way.
         $forms = array_merge(wpmcp_forms_pair_names(), [ 'wpmcp/plugin-data-read', 'wpmcp/plugin-data-write' ]);
-        $this->assertCount(263, array_diff($names, $forms));
+        $this->assertCount(264, array_diff($names, $forms));
         $this->assertLessThanOrEqual(10, count(array_intersect($names, $forms)));
     }
 
