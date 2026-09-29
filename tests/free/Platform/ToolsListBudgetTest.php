@@ -157,7 +157,10 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  descriptions and a few long free descriptions (restore-site-backup,
      *  rewrite-site-urls, update-rows, delete-rows, call-rest and others)
      *  were reworded without dropping a rule, which puts the payload at
-     *  208815 bytes over 405 tools. */
+     *  208815 bytes over 405 tools. Builder design systems, templates and
+     *  element catalogs (#391) added no tool: they are a scope, builder and
+     *  element argument on get-builder-content (post_id no longer required),
+     *  which puts the payload at 208977 bytes over 405 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
