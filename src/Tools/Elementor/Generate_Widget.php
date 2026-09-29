@@ -84,7 +84,7 @@ class Generate_Widget
             'id'         => $element_id,
             'elType'     => 'widget',
             'widgetType' => $widget_type,
-            'settings'   => $built_settings,
+            'settings'   => Classic_Dimensions::normalize($built_settings),
             'elements'   => [],
         ];
 

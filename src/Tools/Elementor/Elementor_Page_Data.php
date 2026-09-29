@@ -140,7 +140,7 @@ class Elementor_Page_Data
                 if (! isset($item['settings']) || ! is_array($item['settings'])) {
                     $item['settings'] = [];
                 }
-                $item['settings'] = array_merge($item['settings'], $settings);
+                $item['settings'] = array_merge($item['settings'], Classic_Dimensions::normalize($settings));
                 return true;
             }
 
