@@ -4,6 +4,7 @@ namespace WPMCP\Integrations;
 
 use WPMCP\Safety\Post_Creation_Snapshot;
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -730,7 +731,7 @@ abstract class LMS_Adapter
                 $fields[ $column ] = wp_slash((string) $args[ $arg ]);
             }
         }
-        $out = wp_update_post($fields, true);
+        $out = Save_Filters::update_post($fields, true);
         if (is_wp_error($out)) {
             throw new Operation_Refused('update_failed', $out->get_error_message());
         }

@@ -89,6 +89,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new chat conversation post.',
         ],
+        'Integrations/LMS_Adapter.php'                => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new course, section or lesson post.',
+        ],
     ];
 
     private static function src(): string
