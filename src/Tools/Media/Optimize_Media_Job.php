@@ -24,8 +24,9 @@ if (! defined('ABSPATH')) {
  * The job runs as the user who started it, so the per-attachment
  * edit_post check and the snapshots' user are that user's, never a cron
  * request's anonymous one. Every change goes under the job's session id, so
- * one rollback-session undoes the whole run, and each batch runs with
- * snapshot pruning held so the run cannot prune its own undo points.
+ * one rollback-session undoes the whole run: each batch runs with
+ * snapshot pruning held, and while the run is active other writes do not
+ * prune either (holds_pruning), so nothing prunes its undo points.
  *
  * Records live in one option, like the backup jobs: { id, user_id, status
  * (queued|running|completed|failed|canceled), args, session_id, progress
@@ -41,6 +42,9 @@ class Optimize_Media_Job
     private const KEEP_FINISHED = 20;
 
     private const ACTIVE = ['queued', 'running'];
+
+    /** Seconds without progress after which a job stops holding pruning. */
+    private const STALE_AFTER = HOUR_IN_SECONDS;
 
     /** @return array{next_id:int,jobs:array<int,array<string,mixed>>} */
     private static function load(): array
@@ -126,6 +130,24 @@ class Optimize_Media_Job
             }
         }
         return null;
+    }
+
+    /**
+     * wpmcp_snapshot_prune_held callback: hold snapshot pruning while a run
+     * is active, so a write elsewhere on the site between two of its cron
+     * runs cannot prune the run's first undo points. A job not updated for
+     * STALE_AFTER (cron stopped firing) no longer holds, so a stuck record
+     * cannot stop pruning for good.
+     *
+     * @param mixed $held
+     */
+    public static function holds_pruning($held): bool
+    {
+        if (true === $held) {
+            return true;
+        }
+        $active = self::active();
+        return null !== $active && (time() - (int) $active['updated_at']) < self::STALE_AFTER;
     }
 
     public static function update(int $id, array $fields): ?array

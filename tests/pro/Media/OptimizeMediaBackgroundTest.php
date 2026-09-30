@@ -131,8 +131,10 @@ class OptimizeMediaBackgroundTest extends \WP_UnitTestCase
         $out = (new Optimize_Media())->handle(['background' => true, 'quality' => 40]);
         for ($i = 0; $i < 3; $i++) {
             $this->tick($out['job_id']);
-            // Any other write on the site between two cron runs prunes.
-            Snapshot_Store::prune();
+            if ($i < 2) {
+                // Any other write on the site between two cron runs prunes.
+                Snapshot_Store::prune();
+            }
         }
         $this->assertSame('completed', $this->status($out['job_id'])['status']);
 

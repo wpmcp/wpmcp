@@ -439,6 +439,18 @@ class Snapshot_Store
         if (self::$prune_holds > 0) {
             return 0;
         }
+        /**
+         * Whether a multi-request operation still running needs every undo
+         * point it has written so far (issue #432: a background
+         * optimize-media run spans many cron requests, and a write between
+         * two of them would otherwise prune its first ones). The next write
+         * once nothing holds prunes to the cap as usual.
+         *
+         * @param bool $held
+         */
+        if (true === apply_filters('wpmcp_snapshot_prune_held', false)) {
+            return 0;
+        }
 
         global $wpdb;
         $t = self::table_name();

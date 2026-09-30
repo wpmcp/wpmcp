@@ -642,6 +642,7 @@ final class Plugin
         add_action('wpmcp_run_optimize_media_job', static function ($job_id) use ($job): void {
             (new $job())->handle((int) $job_id);
         });
+        add_filter('wpmcp_snapshot_prune_held', [$job, 'holds_pruning']);
         call_user_func(['\\WPMCP\\Tools\\Media\\Optimize_Uploads', 'register']);
         call_user_func(['\\WPMCP\\Tools\\Media\\Modern_Image_Delivery', 'register']);
     }
