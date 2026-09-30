@@ -109,6 +109,33 @@ class File_Backup
     }
 
     /**
+     * Delete files an operation CREATED next to the ones it backed up (the
+     * WebP and AVIF copies optimize-media writes, issue #380), so a rollback
+     * leaves the uploads directory as it found it. Only regular files under
+     * the uploads directory are removed: never a symlink, never a path
+     * outside uploads, and never a path the same operation backed up.
+     *
+     * @param string[] $paths    absolute paths the operation wrote
+     * @param array    $manifest the operation's backup manifest
+     */
+    public static function remove_created(array $paths, array $manifest = []): void
+    {
+        $uploads = wp_upload_dir();
+        $base    = trailingslashit(wp_normalize_path((string) $uploads['basedir']));
+        foreach ($paths as $path) {
+            $path   = (string) $path;
+            $normal = wp_normalize_path($path);
+            if (
+                isset($manifest[ $path ]) || 0 !== strpos($normal, $base)
+                || false !== strpos($normal, '/../') || is_link($path) || ! is_file($path)
+            ) {
+                continue;
+            }
+            wp_delete_file($path);
+        }
+    }
+
+    /**
      * Back up a whole directory (a plugin or theme about to be replaced by
      * install-package-from-zip, issue #282) as ONE archive in the
      * per-operation backup directory.

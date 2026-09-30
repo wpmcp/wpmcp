@@ -203,7 +203,13 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  trailing "Read-only" from 28 descriptions whose readOnlyHint already
      *  says it (list-php-snippets through get-analytics-connection-status)
      *  and shortening the filter names in get-governance-settings, without
-     *  dropping a rule: 208958 -> 208893 bytes over 406 tools. */
+     *  dropping a rule: 208958 -> 208893 bytes over 406 tools. Image
+     *  optimization (#380) adds one pro tool, optimize-media (quality,
+     *  max_edge, formats, dry_run, force and a cursor, 705 bytes), paid for
+     *  by dropping the trailing "Read-only" from the integration dispatcher
+     *  read template and 46 more descriptions whose readOnlyHint already
+     *  says it, without dropping a rule: 208893 -> 208883 bytes over 407
+     *  tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
