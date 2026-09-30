@@ -151,6 +151,7 @@ class WPForms_Integration extends Forms_Integration
             ],
             'get-form' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => 'Read one WPForms form with its decoded field definitions',
                 'input_schema' => $form_only,
                 'handler'      => function (array $args): array {
@@ -160,6 +161,7 @@ class WPForms_Integration extends Forms_Integration
             ],
             'list-fields' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => 'List one form\'s fields: id, type, label, whether it is required, and choices for choice fields',
                 'input_schema' => $form_only,
                 'handler'      => function (array $args): array {
@@ -184,6 +186,7 @@ class WPForms_Integration extends Forms_Integration
             ],
             'list-notifications' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => 'List one form\'s email notifications: id, name, whether it is enabled, recipient, sender, reply-to, subject, and message template, plus whether notifications are switched on for the form at all',
                 'input_schema' => $form_only,
                 'handler'      => function (array $args): array {
@@ -218,6 +221,7 @@ class WPForms_Integration extends Forms_Integration
             ],
             'list-entries' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'requires'     => static fn () => self::requires_entries(),
                 'description'  => 'List a form\'s entries, newest first, with paging (page_size default 20, max 100, plus offset) and an optional status filter (spam or trash; without one every entry is listed, each with its status). Needs WPForms entry storage and manage_options because entries are user data',
@@ -258,6 +262,7 @@ class WPForms_Integration extends Forms_Integration
             ],
             'get-entry' => [
                 'mode'         => 'read',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'requires'     => static fn () => self::requires_entries(),
                 'description'  => 'Read one entry in full: submitted field values, status, starred/viewed flags, date, IP address, and user agent. Needs WPForms entry storage and manage_options because entries are user data',
@@ -273,6 +278,7 @@ class WPForms_Integration extends Forms_Integration
             ],
             'update-entry-status' => [
                 'mode'         => 'write',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'requires'     => static fn () => self::requires_entries(),
                 'description'  => 'Move one entry between active, spam, and trash through the WPForms entry handler. Snapshotted first (a before-image of the entry row) and restorable with rollback-operation. Needs WPForms entry storage and manage_options',

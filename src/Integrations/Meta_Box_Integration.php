@@ -63,6 +63,7 @@ class Meta_Box_Integration extends Integration_Dispatcher
             ],
             'get-fields' => [
                 'mode'         => 'read',
+                'objects'      => [ 'post_id' => 'post' ],
                 'description'  => 'Read a post\'s Meta Box field values for the given field keys, via rwmb_meta()',
                 'input_schema' => [
                     'type'       => 'object',
@@ -84,6 +85,7 @@ class Meta_Box_Integration extends Integration_Dispatcher
             ],
             'update-fields' => [
                 'mode'               => 'write',
+                'objects'            => [ 'post_id' => 'post' ],
                 'description'        => 'Set one or more Meta Box field values on a post via rwmb_set_meta(). Snapshotted on the post target; restorable with rollback-operation. Disabled by default (site opts in via the wpmcp_enable_metabox_write filter)',
                 'enabled_by_default' => (bool) apply_filters('wpmcp_enable_metabox_write', false),
                 'input_schema'       => [

@@ -71,6 +71,7 @@ class ACF_Integration extends Integration_Dispatcher
             ],
             'get-fields'        => [
                 'mode'         => 'read',
+                'objects'      => [ 'post_id' => 'post' ],
                 'description'  => 'Read a post\'s ACF field values, keyed by field name, via get_fields()',
                 'input_schema' => [
                     'type'       => 'object',
@@ -83,6 +84,7 @@ class ACF_Integration extends Integration_Dispatcher
             ],
             'update-fields'     => [
                 'mode'               => 'write',
+                'objects'            => [ 'post_id' => 'post' ],
                 'description'        => 'Set one or more ACF field values on a post via update_field(). Snapshotted on the post target; restorable with rollback-operation. Disabled by default (site opts in via the wpmcp_enable_acf_write filter)',
                 'enabled_by_default' => (bool) apply_filters('wpmcp_enable_acf_write', false),
                 'input_schema'       => [
@@ -180,6 +182,7 @@ class ACF_Integration extends Integration_Dispatcher
             ] + $registration,
             'validate-fields'   => [
                 'mode'         => 'read',
+                'objects'      => [ 'post_id' => 'post' ],
                 'description'  => 'Check values against their fields with ACF\'s own validation (required, number range, email, URL, custom rules) without writing. Pass post_id so field names resolve by that post\'s groups',
                 'input_schema' => [
                     'type'       => 'object',

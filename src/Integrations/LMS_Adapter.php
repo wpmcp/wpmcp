@@ -186,6 +186,7 @@ abstract class LMS_Adapter
             ],
             "{$p}-get-course"       => $base + [
                 'mode'         => 'read',
+                'objects'      => [ 'id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => "One {$label} course as a tree: {$section}s in order, each with its items (lesson, quiz, assignment) in order" . ('lesson' === $this->parent_kind('quiz') ? ', a lesson\'s quiz under it' : '') . ', quiz questions (id, title, type, points) unless questions:false, and counts',
                 'input_schema' => [
                     'type'       => 'object',
@@ -197,6 +198,7 @@ abstract class LMS_Adapter
             ],
             "{$p}-list-enrollments" => $base + [
                 'mode'         => 'read',
+                'objects'      => [ 'course_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'capability'   => 'list_users',
                 'description'  => "A {$label} course's enrollments newest first: user id, display name, email, status (enrolled, pending, cancelled, expired) and date. Personal data: needs list_users. Read-only; status filters; page and per_page (max 50)",
                 'input_schema' => [
@@ -224,6 +226,7 @@ abstract class LMS_Adapter
             ],
             "{$p}-add-section"      => $base + [
                 'mode'              => 'write',
+                'objects'           => [ 'course_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'self_snapshotting' => true,
                 'description'       => "Add a {$section} to course_id at position (0-based; default last), renumbering the ones after it. Undo: rollback-session",
                 'input_schema'      => [
@@ -236,6 +239,7 @@ abstract class LMS_Adapter
             ],
             "{$p}-add-lesson"       => $base + [
                 'mode'              => 'write',
+                'objects'           => [ 'parent_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'self_snapshotting' => true,
                 'description'       => "Add a lesson to the {$section} parent_id at position (0-based; default last); status defaults to publish. Undo: rollback-session",
                 'input_schema'      => [
@@ -248,6 +252,7 @@ abstract class LMS_Adapter
             ],
             "{$p}-add-quiz"         => $base + [
                 'mode'              => 'write',
+                'objects'           => [ 'parent_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'self_snapshotting' => true,
                 'description'       => "Add a quiz to parent_id, {$quiz_in}" . ('lesson' === $this->parent_kind('quiz') ? '' : ', at position (0-based; default last)') . '. Questions are authored in the plugin. Undo: rollback-session',
                 'input_schema'      => [
@@ -260,6 +265,7 @@ abstract class LMS_Adapter
             ],
             "{$p}-update-item"      => $base + [
                 'mode'         => 'write',
+                'objects'      => [ 'id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => "Edit title, content, excerpt or status of a {$label} course, {$section}, lesson or quiz. Undo: rollback-operation",
                 'input_schema' => [
                     'type'       => 'object',
@@ -272,6 +278,7 @@ abstract class LMS_Adapter
             ],
             "{$p}-move-item"        => $base + [
                 'mode'              => 'write',
+                'objects'           => [ 'id' => [ 'type' => 'post', 'own_type' => true ], 'parent_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'self_snapshotting' => true,
                 'description'       => "Move a {$section} to position in its course, or a " . implode(' or ', array_diff($this->movable_kinds(), [ 'section' ])) . " to position in parent_id (a {$section} of the same course; default its own). 0-based; siblings renumbered. Undo: rollback-session",
                 'input_schema'      => [

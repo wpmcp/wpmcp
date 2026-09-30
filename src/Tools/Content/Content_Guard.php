@@ -232,6 +232,20 @@ class Content_Guard
      */
     private const REFERENCE_KEYS = ['parent', 'source_id', 'target_post_id', 'object_id'];
 
+    /**
+     * Keys that only link to a post (a parent, a redirect target, a menu
+     * item's object) without returning or copying its content, so a
+     * password-protected post may be named there (issue #450).
+     */
+    private const LINK_KEYS = ['parent', 'target_post_id', 'object_id'];
+
+    /**
+     * Read abilities that return a password-protected post with its content
+     * withheld themselves, the way core's REST API does, rather than being
+     * refused (issue #450).
+     */
+    private const REDACTS_PROTECTED_CONTENT = ['wpmcp/get-post'];
+
     /** Keys that name the post an ability works on, when present. */
     private const PRIMARY_KEYS = ['post_id', 'post_ids', 'id', 'ids', 'page_id'];
 
@@ -295,6 +309,11 @@ class Content_Guard
      *   only links to or copies from (REFERENCE_KEYS, a SECONDARY_KEYS post
      *   next to a primary one, and the ability's own read_keys) needs
      *   read_post whatever the operation.
+     * - 'protected-post': a post read for its content (not merely linked
+     *   to) is password protected and the caller cannot edit it (issue
+     *   #450). Core hands that content only to a user who can edit the post
+     *   or who supplies the password, and the tools take no password.
+     *   get-post is the exception: it answers with the content withheld.
      *
      * @param array<string, mixed> $input
      */
@@ -336,10 +355,73 @@ class Content_Guard
                 if (! self::user_can_post('read_post', $post) || ! self::user_can_post($capability, $post)) {
                     return 'post-capability';
                 }
+                $reads_content = 'read_post' === $capability
+                    && ! in_array($key, self::LINK_KEYS, true)
+                    && ! in_array($a->name, self::REDACTS_PROTECTED_CONTENT, true);
+                if ($reads_content && self::withholds_protected_content($post)) {
+                    return 'protected-post';
+                }
             }
         }
 
         return self::input_names_unreadable_type($input) ? 'private-post' : null;
+    }
+
+    /**
+     * Whether a post's content must be withheld from the current user: it
+     * is password protected and they cannot edit it (core's
+     * can_access_password_content(), without a password to check). A
+     * revision is judged by the post it belongs to.
+     */
+    public static function withholds_protected_content(\WP_Post $post): bool
+    {
+        $subject = self::subject_post((int) $post->ID) ?? $post;
+        if ('' === (string) $subject->post_password) {
+            return false;
+        }
+        if (! post_type_exists((string) $subject->post_type)) {
+            return ! current_user_can('manage_options');
+        }
+        return ! current_user_can('edit_post', (int) $subject->ID);
+    }
+
+    /**
+     * Why the current user may not act on a post an integration pack
+     * operation names in its args, or null (issue #450). The rule is
+     * input_denial()'s for one post:
+     *
+     * - $access 'read' asks read_post, and refuses password-protected
+     *   content the caller cannot edit; 'write' asks read_post and
+     *   edit_post; 'delete' asks read_post and delete_post;
+     * - a plugin-private type is never reachable;
+     * - $type_rule applies can_read_post_type() too. An op that only ever
+     *   acts on its host plugin's own post type (and checks that itself)
+     *   passes false: the type's own capabilities then decide, through the
+     *   per-post meta capability.
+     *
+     * A published row passes the read check as core's read_post passes it,
+     * without asking for a meta capability some plugin types do not map. A
+     * missing post is not refused: the op answers "not found" itself.
+     */
+    public static function post_object_denial(int $post_id, string $access, bool $type_rule = true): ?string
+    {
+        $post = self::subject_post($post_id);
+        if (null === $post) {
+            return null;
+        }
+        $type = (string) $post->post_type;
+        if (! self::is_agent_readable_post_type($type) || ($type_rule && ! self::can_read_post_type($type))) {
+            return 'private-post';
+        }
+        $status   = get_post_status_object((string) get_post_status($post));
+        $readable = ($status instanceof \stdClass && ! empty($status->public)) || self::user_can_post('read_post', $post);
+        if (! $readable) {
+            return 'post-capability';
+        }
+        if ('read' === $access) {
+            return self::withholds_protected_content($post) ? 'protected-post' : null;
+        }
+        return self::user_can_post('delete' === $access ? 'delete_post' : 'edit_post', $post) ? null : 'post-capability';
     }
 
     /**

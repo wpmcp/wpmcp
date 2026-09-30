@@ -157,6 +157,7 @@ class SureForms_Integration extends Forms_Integration
             ],
             'get-form' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => 'Read one SureForms form: title, embed shortcode, and its fields (name, label, type, required) parsed from the form\'s srfm/* blocks',
                 'input_schema' => [
                     'type'       => 'object',
@@ -182,6 +183,7 @@ class SureForms_Integration extends Forms_Integration
             ],
             'list-entries' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'List a SureForms form\'s entries with paging (page_size default 20, max 100), each with status, timestamp, and decoded field values',
                 'input_schema' => [
@@ -216,6 +218,7 @@ class SureForms_Integration extends Forms_Integration
             ],
             'get-entry' => [
                 'mode'         => 'read',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Read one SureForms entry by entry_id, with its status, timestamp, and decoded field values',
                 'input_schema' => [
@@ -233,6 +236,7 @@ class SureForms_Integration extends Forms_Integration
             ],
             'delete-entry' => [
                 'mode'               => 'destructive',
+                'objects'            => [ 'entry_id' => 'entry' ],
                 // Issue #66: entry deletion is off by default across every
                 // forms adapter. A site opts in with the
                 // wpmcp_integration_op_enabled filter.

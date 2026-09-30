@@ -62,9 +62,9 @@ class PostSnapshotCommentPiiTest extends \WP_UnitTestCase
     }
 
     /** The author force-deletes their own post through the real tool. */
-    private function delete_post(string $session): string
+    private function delete_post(string $session, ?int $user = null): string
     {
-        wp_set_current_user($this->author);
+        wp_set_current_user($user ?? $this->author);
         $out = (new Delete_Post())->handle([
             'post_id'    => $this->post_id,
             'force'      => true,
@@ -146,9 +146,12 @@ class PostSnapshotCommentPiiTest extends \WP_UnitTestCase
 
     public function test_a_moderator_session_rollback_restores_the_comments_exactly(): void
     {
-        $this->delete_post('pii-362-session');
+        // The editor's own session: a session belongs to whoever started it
+        // (issue #450).
+        $editor = self::factory()->user->create([ 'role' => 'editor' ]);
+        $this->delete_post('pii-362-session', $editor);
 
-        wp_set_current_user(self::factory()->user->create([ 'role' => 'editor' ]));
+        wp_set_current_user($editor);
         $out = (new Rollback_Session())->handle([ 'session_id' => 'pii-362-session' ]);
 
         $this->assertSame(1, $out['restored_count']);

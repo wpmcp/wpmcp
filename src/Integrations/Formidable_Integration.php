@@ -175,6 +175,7 @@ class Formidable_Integration extends Forms_Integration
             ],
             'get-entry' => [
                 'mode'         => 'read',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Read a single entry with its field values by entry id. Requires manage_options because entries are user data',
                 'input_schema' => [
