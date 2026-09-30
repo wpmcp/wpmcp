@@ -736,6 +736,9 @@ final class Plugin
             // the core sitemap exclusions, all read from one option at request
             // time. See Crawler_Files.
             Crawler_Files::register_runtime_hooks();
+            // Staged edits (issue #417): a stage stays a noindex draft until
+            // duplicate-post publishes it over its original.
+            \WPMCP\Tools\Content\Post_Stage::register_runtime_hooks();
             // The WP-Cron executor for a background broken-link scan: one
             // batch per run, rescheduling itself until the scan completes.
             add_action(Run_Broken_Link_Scan::HOOK, [new Run_Broken_Link_Scan(), 'handle']);
@@ -1322,22 +1325,30 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/duplicate-post',
             'free',
-            'Duplicate a post, page or CPT entry with content, meta and terms, optionally with child posts. The copy is a draft unless another status is given. Editor bookkeeping meta (_edit_lock, _wp_old_slug) is skipped; builder data is copied',
+            'Copy a post, page or CPT entry (content, meta but _edit_lock and _wp_old_slug, terms, builder data; children optional) as a draft unless status is set. stage:true: one linked draft to edit; publish_stage:<stage id> writes it over the original (same ID, URL, comments; refused if the original changed, unless force; undo: rollback-operation); discard_stage deletes it',
             [
                 'type'       => 'object',
+                // post_id is not required: publish_stage and discard_stage
+                // name the stage instead (issue #417).
                 'properties' => [
                     'post_id'          => [ 'type' => 'integer' ],
                     'title'            => [ 'type' => 'string' ],
                     'status'           => [ 'type' => 'string', 'enum' => ['draft', 'pending', 'private', 'publish'] ],
                     'include_children' => [ 'type' => 'boolean' ],
+                    'stage'            => [ 'type' => 'boolean' ],
+                    'publish_stage'    => [ 'type' => 'integer' ],
+                    'discard_stage'    => [ 'type' => 'integer' ],
+                    'force'            => [ 'type' => 'boolean' ],
                     'session_id'       => [ 'type' => 'string' ],
                 ],
-                'required'   => [ 'post_id' ],
             ],
             [$duplicate_post, 'handle'],
             'edit_posts',
             'content',
-            'create'
+            'create',
+            null,
+            // publish_stage overwrites a live post and discard_stage trashes one.
+            true
         ));
         $registrar->register(new Ability(
             'wpmcp/diff-revisions',
@@ -2711,10 +2722,10 @@ final class Plugin
         // other three point at it. Repeating ~40 keys in four descriptions cost
         // most of a kilobyte of every tools/list payload
         // (tests/free/Platform/ToolsListBudgetTest.php).
-        $style_doc = 'Optional flat "style" (keys on add-atomic-widget; raw "props" for the rest) becomes a local v4 style class; unknown keys or bad values error, never dropped. ';
+        $style_doc = 'Optional flat style (keys on add-atomic-widget; raw props for the rest) becomes a local v4 style class; unknown keys or bad values error, never dropped. ';
 
         $style_doc_full = sprintf(
-            'Optional flat "style" becomes a local v4 style class. Keys: %s; raw "props" for the rest. Unknown keys or bad values error, never dropped. ',
+            'Optional flat style becomes a local v4 style class. Keys: %s; raw props for the rest. Unknown keys or bad values error, never dropped. ',
             implode(', ', Atomic_Styles::style_keys())
         );
 
@@ -4572,7 +4583,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-block',
             'free',
-            'Update ONE block by "path" (zero-based indexes into the parse-blocks tree, through innerBlocks): replace "attrs" (whole) and/or "inner_html" (leaf blocks only; a container\'s children by their own paths). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; other blocks stay byte-identical',
+            'Update ONE block by path (zero-based indexes into the parse-blocks tree, through innerBlocks): replace attrs (whole) and/or inner_html (leaf blocks only; a container\'s children by their own paths). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; other blocks stay byte-identical',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4593,7 +4604,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/remove-block',
             'free',
-            'Remove ONE block by "path" (zero-based indexes into the parse-blocks tree, descending innerBlocks); nested removals keep the container. Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; undo: rollback-operation',
+            'Remove ONE block by path (zero-based indexes into the parse-blocks tree, descending innerBlocks); nested removals keep the container. Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4612,7 +4623,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/move-block',
             'free',
-            'Move the block at "from_path" to position "to_index" among its own siblings (same parent only; compose remove-block + add-block to move across parents). Needs expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first',
+            'Move the block at from_path to position to_index among its own siblings (same parent only; compose remove-block + add-block to move across parents). Needs expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4632,7 +4643,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/duplicate-block',
             'free',
-            'Duplicate the block at "path" (deep copy, inserted immediately after the original within the same parent) and return the copy\'s new_path. Needs expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first',
+            'Duplicate the block at path (deep copy, inserted immediately after the original within the same parent) and return the copy\'s new_path. Needs expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4666,7 +4677,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/insert-pattern',
             'free',
-            'Insert a registered block pattern\'s blocks into a post at "path" (add-block\'s path semantics; whitespace filler dropped). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; existing blocks stay byte-identical',
+            'Insert a registered block pattern\'s blocks into a post at path (add-block\'s path semantics; whitespace filler dropped). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; existing blocks stay byte-identical',
             [
                 'type'       => 'object',
                 'properties' => [

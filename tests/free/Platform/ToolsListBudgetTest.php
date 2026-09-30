@@ -190,7 +190,13 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  trigger-backup, analyze-performance, set-dynamic-tag,
      *  reorder-global-classes, delete-global-class, add-block, woo-write,
      *  restore-site-backup, edit-file and a few other descriptions without
-     *  dropping a rule: 208962 -> 208959 bytes over 406 tools. */
+     *  dropping a rule: 208962 -> 208959 bytes over 406 tools. Staged
+     *  edits (#417) added no tool: they are stage, publish_stage,
+     *  discard_stage and force arguments on duplicate-post (post_id no
+     *  longer required), paid for by rewording the integration dispatcher
+     *  read and write templates and dropping cosmetic quotes around
+     *  argument names in the atomic widget and block tool descriptions,
+     *  without dropping a rule: 208959 -> 208958 bytes over 406 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
