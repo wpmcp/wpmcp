@@ -173,7 +173,11 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  run-wp-cli, export-content, get-page-snapshot, resolve-theme-template
      *  and bulk-update-products descriptions and dropping serial commas
      *  from nineteen list-style descriptions, without dropping a rule:
-     *  208982 -> 208994 bytes over 406 tools. */
+     *  208982 -> 208994 bytes over 406 tools. Honest annotations (#420)
+     *  flipped readOnlyHint and idempotentHint to false on get-site-health,
+     *  export-content and find-broken-links (six bytes), paid for by
+     *  dropping the "Read-only" claims those descriptions no longer earn:
+     *  208994 -> 208981 bytes over 406 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
