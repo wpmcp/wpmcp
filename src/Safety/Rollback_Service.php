@@ -1456,9 +1456,11 @@ class Rollback_Service
         }
 
         foreach (['breakdance', 'oxygen'] as $engine_builder) {
-            $engine_key = Breakdance_Cache::prefix($engine_builder) . 'data';
-            if (isset($snapshotted_meta[ $engine_key ]) || isset($current_meta[ $engine_key ])) {
-                Breakdance_Cache::regenerate($object_id, $engine_builder);
+            foreach (Breakdance_Cache::data_keys($engine_builder) as $engine_key) {
+                if (isset($snapshotted_meta[ $engine_key ]) || isset($current_meta[ $engine_key ])) {
+                    Breakdance_Cache::regenerate($object_id, $engine_builder);
+                    break;
+                }
             }
         }
 

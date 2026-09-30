@@ -100,6 +100,24 @@ elif [ "${WPMCP_LIVE_LMS:-}" = "lifterlms" ]; then
 	)
 fi
 
+# The live Breakdance job (issue #457) runs the Breakdance adapter against a
+# real Breakdance 1.x. Breakdance is a commercial plugin and not on
+# wordpress.org, so it is copied from a local directory holding it
+# (WPMCP_BREAKDANCE_SRC) instead of downloaded. Exclusive too: the stub-backed
+# Breakdance tests stand in for its cache generator and toggle its presence.
+if [ "${WPMCP_LIVE_BREAKDANCE:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_BREAKDANCE_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/plugin.php" ]; then
+		echo "WPMCP_LIVE_BREAKDANCE=1 needs WPMCP_BREAKDANCE_SRC, a directory holding the Breakdance plugin (plugin.php)." >&2
+		exit 1
+	fi
+	mkdir -p "$PLUGINS_DIR"
+	rm -rf "$PLUGINS_DIR/breakdance"
+	cp -R "$src" "$PLUGINS_DIR/breakdance"
+	echo "Copied Breakdance $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/plugin.php" | head -n 1) from $src."
+fi
+
 download() {
 	if command -v curl >/dev/null 2>&1; then
 		curl -fsSL "$1" -o "$2"
@@ -165,7 +183,7 @@ install_plugin() {
 
 mkdir -p "$PLUGINS_DIR"
 
-for entry in "${PLUGINS[@]}"; do
+for entry in "${PLUGINS[@]+"${PLUGINS[@]}"}"; do
 	install_plugin "${entry%%:*}" "${entry##*:}"
 done
 

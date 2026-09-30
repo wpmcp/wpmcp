@@ -8,7 +8,8 @@ if (! defined('ABSPATH')) {
 
 /**
  * Read/write access to a page's layout on the Breakdance engine, which
- * lives in the `_breakdance_data` postmeta for Breakdance and in
+ * lives in the `_breakdance_data` postmeta for Breakdance (`breakdance_data`
+ * on pages saved by Breakdance 1.x, see Breakdance_Cache::prefix()) and in
  * `_oxygen_data` for Oxygen 6 (the same engine under another meta prefix):
  * a JSON object whose `tree_json_string` key holds the document as a JSON
  * string (see Breakdance_Tree for its shape). The engine writes that row
@@ -27,16 +28,16 @@ class Breakdance_Content
 {
     public const DATA_META_KEY = '_breakdance_data';
 
-    /** The data row for a builder slug. */
-    public static function data_key(string $builder = 'breakdance'): string
+    /** The data row a builder's page uses: the one it has, else the one the loaded builder writes. */
+    public static function data_key(string $builder = 'breakdance', int $post_id = 0): string
     {
-        return Breakdance_Cache::prefix($builder) . 'data';
+        return Breakdance_Cache::data_key($builder, $post_id);
     }
 
     /** The stored document, or null when absent or not a valid tree. */
     public static function get_document(int $post_id, string $builder = 'breakdance'): ?object
     {
-        $raw   = get_post_meta($post_id, self::data_key($builder), true);
+        $raw   = get_post_meta($post_id, self::data_key($builder, $post_id), true);
         $outer = is_string($raw) ? json_decode($raw, true) : null;
         $tree  = is_array($outer) ? ($outer['tree_json_string'] ?? null) : null;
 
@@ -65,7 +66,7 @@ class Breakdance_Content
      */
     public static function save(int $post_id, object $doc, string $builder = 'breakdance'): void
     {
-        $key   = self::data_key($builder);
+        $key   = self::data_key($builder, $post_id);
         $value = (string) wp_json_encode(['tree_json_string' => Breakdance_Tree::encode($doc)]);
 
         if (get_post_meta($post_id, $key, true) === $value) {
@@ -73,7 +74,7 @@ class Breakdance_Content
         }
 
         update_post_meta($post_id, $key, wp_slash($value));
-        foreach (Breakdance_Cache::cache_keys($builder) as $cache_key) {
+        foreach (Breakdance_Cache::cache_keys($builder, $post_id) as $cache_key) {
             delete_post_meta($post_id, $cache_key);
         }
         Breakdance_Cache::regenerate($post_id, $builder);

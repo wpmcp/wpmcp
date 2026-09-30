@@ -102,6 +102,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'buddypress/bp-loader.php' );
     }
 
+    // The live Breakdance job (issue #457, WPMCP_LIVE_BREAKDANCE=1) runs the
+    // Breakdance adapter against a real Breakdance 1.x, copied in from
+    // WPMCP_BREAKDANCE_SRC. Loaded only on request: the stub-backed
+    // Breakdance tests stand in for its cache generator.
+    if ( getenv( 'WPMCP_LIVE_BREAKDANCE' ) ) {
+        wpmcp_maybe_require_plugin( 'breakdance/plugin.php' );
+    }
+
     // The live LMS jobs (issue #394, WPMCP_LIVE_LMS=tutor or lifterlms) run
     // the LMS ops through the real Tutor LMS or LifterLMS, one per install.
     // Loaded only on request: the stub-backed LMS tests register the plugins'

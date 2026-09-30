@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.128
+Stable tag: 0.8.129
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -105,6 +105,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.129 =
+* Fix: pages built with Breakdance 1.x are now detected, readable and editable. The builder tools read and write whichever layout key a page uses, and rollback restores that same key.
+* Breakdance 1.x templates now show their display conditions in the builder design reads.
 
 = 0.8.128 =
 * File edits to PHP files are now checked: a file that does not parse is refused with the line of the error, and an edit that causes a fatal error on the front end or in admin is reverted automatically in the same call.
@@ -655,6 +659,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.129 =
+Fix: pages built with Breakdance 1.x are now detected, readable and editable. The builder tools read and write whichever layout key a page uses, and rollback restores that same key.
 
 = 0.8.128 =
 File edits to PHP files are now checked: a file that does not parse is refused with the line of the error, and an edit that causes a fatal error on the front end or in admin is reverted automatically in the same call.
