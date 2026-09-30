@@ -2490,7 +2490,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/edit-file',
             'free',
-            'Replace an exact string in a file (must match once unless replace_all). Backs up the original first (recoverable via restore). Refuses wp-config.php/.htaccess. Disabled by default (wpmcp_enable_fs_writes filter); requires edit_files and honors DISALLOW_FILE_EDIT',
+            'Replace an exact string in a file (must match once unless replace_all). Backs up the original first (restore recovers it). Refuses wp-config.php/.htaccess. Disabled by default (wpmcp_enable_fs_writes filter); requires edit_files and honors DISALLOW_FILE_EDIT',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2529,7 +2529,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/analyze-performance',
             'free',
-            'Scan server config, WordPress internals (database size, autoloaded options, cron backlog, object cache, OPcache, plugin count) and a page (frontpage, or "url" / "post_id") for performance bottlenecks. Returns a scored report with ranked recommendations. Read-only',
+            'Scan server config, WordPress internals (database size, autoloaded options, cron backlog, object cache, OPcache, plugin count) and a page (frontpage, url or post_id) for performance bottlenecks. Returns a scored report with ranked fixes. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2550,20 +2550,21 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/scan-security',
             'free',
-            'Scan this site for malware (deep=true for the whole tree), core file integrity, hardening gaps and outdated software. Returns a 0-100 score, A-F grade and ranked fixes. Read-only',
+            'Scan this site for malware (deep=true: whole tree), core file integrity, hardening gaps, outdated software and known vulnerabilities (vulnerabilities=true; sends slugs and versions to wpvulnerability.net). Returns a 0-100 score, A-F grade and ranked fixes. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'checks'      => [
+                    'checks'          => [
                         'type'  => 'array',
                         'items' => [
                             'type' => 'string',
                             'enum' => ['malware', 'integrity', 'hardening', 'software'],
                         ],
                     ],
-                    'deep'        => [ 'type' => 'boolean' ],
-                    'max_files'   => [ 'type' => 'integer' ],
-                    'max_seconds' => [ 'type' => 'integer' ],
+                    'deep'            => [ 'type' => 'boolean' ],
+                    'max_files'       => [ 'type' => 'integer' ],
+                    'max_seconds'     => [ 'type' => 'integer' ],
+                    'vulnerabilities' => [ 'type' => 'boolean' ],
                 ],
             ],
             [$scan_security, 'handle'],
@@ -2770,7 +2771,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-atomic-widget',
             'pro',
-            'Add an Elementor 4.0+ atomic widget (e-* widgetType such as e-heading, e-paragraph, e-button, e-image) to a page. Friendly params (title, content, text, image_url, alt, link) become typed $$type props for known types; any type also takes raw $$type-wrapped settings. ' . $style_doc_full . 'Needs expected_hash. Undo: rollback-operation',
+            'Add an Elementor 4.0+ atomic widget (e-* widgetType, e.g. e-heading, e-paragraph, e-button, e-image) to a page. Friendly params (title, content, text, image_url, alt, link) become typed $$type props for known types; any type also takes raw $$type-wrapped settings. ' . $style_doc_full . 'Needs expected_hash. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3819,7 +3820,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/dispatch-cli-job',
             'pro',
-            'Queue an allowlisted wp-cli command as a background job; returns its id at once (poll get-cli-job). Same gates as run-wp-cli (off by default: WPMCP_ALLOW_WP_CLI or wpmcp_allow_wp_cli; production needs a separate override; allowlisted subcommands and flags; no shell metacharacters), re-checked at run time, so closing them stops queued jobs. timeout seconds (default 300, max 900). Refused while too many jobs are queued or running',
+            'Queue an allowlisted wp-cli command as a background job; returns its id (poll get-cli-job). Same gates as run-wp-cli (off by default: WPMCP_ALLOW_WP_CLI or wpmcp_allow_wp_cli; production needs a separate override; allowlisted subcommands and flags; no shell metacharacters), re-checked at run time, so closing them stops queued jobs. timeout seconds (default 300, max 900). Refused while too many jobs are queued or running',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4551,7 +4552,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-block',
             'free',
-            'Insert ONE block ("<!-- wp:... -->" markup) into a post at "path" (zero-based indexes into the parse-blocks tree; the last may equal the sibling count to append). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; other blocks stay byte-identical',
+            'Insert ONE block ("<!-- wp:... -->" markup) into a post at path (zero-based indexes into the parse-blocks tree; the last may equal the sibling count to append). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; other blocks stay byte-identical',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5008,7 +5009,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-content',
             'free',
-            'WXR export via core export_wp(), narrowed by content, author, start_date, end_date, status, to a protected uploads directory; returns path, size, count. Once per PHP process (core limit). mirror:true instead writes builder pages as stable JSON for git (post_id, or all 50 per page)',
+            'WXR export via core export_wp(), narrowed by content, author, start_date, end_date, status, to a protected uploads dir; returns path, size, count. Once per PHP process (core limit). mirror:true instead writes builder pages as stable JSON for git (post_id, or all 50 per page)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5109,7 +5110,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
             'free',
-            'Queue a backup job run by WP-Cron and return its job id at once. type=full builds a portable site archive (zip: full SQL dump, wp-content, origin manifest) to restore or migrate; database, files and uploads narrow it to that scope; content is a WXR export via export-content',
+            'Queue a WP-Cron backup job and return its job id. type=full builds a portable site archive (zip: full SQL dump, wp-content, origin manifest) to restore or migrate; database, files and uploads narrow it to that scope; content is a WXR export via export-content',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5175,7 +5176,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-backup-manifest',
             'free',
-            'Read a completed site-backup archive\'s manifest by job id or path: origin site_url/home_url, table prefix, multisite, WordPress/PHP/plugin versions, scope, per-table row counts, BLOB tables and file count. Read-only; paths outside the site-backup directory are refused',
+            'Read a completed site-backup archive\'s manifest by job id or path: origin site_url/home_url, table prefix, multisite, WordPress/PHP/plugin versions, scope, per-table row counts, BLOB tables and file count. Read-only; paths outside the site-backup dir are refused',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5207,7 +5208,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Restore this site in place from a site-backup archive (job_id or path; none outside the site-backup dir). dry_run (default true) reports format_version, scope (all/database), prefix, multisite, WP downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false takes a database safety archive first (job id returned; no restore if it fails), holds maintenance mode, imports each statement, and on failure rolls back. preserve_session (default true) keeps the caller signed in; include_files (default false, scope all) swaps in staged wp-content',
+            'Restore this site in place from a site-backup archive (job_id or path; none outside the site-backup dir). dry_run (default true) reports format_version, scope (all/database), prefix, multisite, WP downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false takes a database safety archive first (job id returned; no restore if it fails), holds maintenance mode, imports each statement and rolls back on failure. preserve_session (default true) keeps the caller signed in; include_files (default false, scope all) swaps in staged wp-content',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6391,7 +6392,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/replace-system-typography',
             'pro',
-            'Atomically replace all four Elementor system typography slots (primary, secondary, text, accent) on the active kit: each exactly once, or nothing is written. Each entry has at least one typography_* field and nothing else (unknown keys refused); a font enables custom typography; no "title" keeps the current one. Needs expected_hash from get-global-settings. Undo: rollback-operation',
+            'Atomically replace all four Elementor system typography slots (primary, secondary, text, accent) on the active kit: each exactly once, or nothing is written. Each entry needs at least one typography_* field; unknown keys are refused; a font enables custom typography; no "title" keeps the current one. Needs expected_hash from get-global-settings. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6534,7 +6535,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-theme-template',
             'pro',
-            'Create an Elementor theme-builder template: a header, footer, single, archive, loop-item, search-results, or error-404 elementor_library post, optionally seeded with elements and display conditions. Not snapshotted (a create destroys nothing); remove with delete-theme-template',
+            'Create an Elementor theme-builder template: a header, footer, single, archive, loop-item, search-results or error-404 elementor_library post, optionally seeded with elements and display conditions. Not snapshotted (a create destroys nothing); remove with delete-theme-template',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6734,7 +6735,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-dynamic-tag',
             'pro',
-            'Bind an Elementor dynamic tag to an element setting, writing it into the element\'s settings[__dynamic__][setting_key] in Elementor\'s [elementor-tag ...] format and preserving other bindings. Needs expected_hash from get-elementor-data. Undo: rollback-operation',
+            'Bind an Elementor dynamic tag to an element setting, written into settings[__dynamic__][setting_key] in Elementor\'s [elementor-tag ...] format; other bindings are kept. Needs expected_hash from get-elementor-data. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7053,7 +7054,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-global-class',
             'pro',
-            'Delete an Elementor v4 global class by g- id. Without confirm:true it is a dry run listing every post applying the class; with it, the class set is snapshotted and the class deleted, so rollback-operation restores it. Needs expected_hash from list-global-classes',
+            'Delete an Elementor v4 global class by g- id. Without confirm:true it is a dry run listing every post using the class; with it, the class set is snapshotted, then the class deleted (rollback-operation restores it). Needs expected_hash from list-global-classes',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7074,7 +7075,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/reorder-global-classes',
             'pro',
-            'Set the order of Elementor v4 global classes, which is their CSS source order and decides ties at equal specificity. Pass { order: [g-id, ...] }; omitted classes follow in current order and unknown ids are refused. Needs expected_hash from list-global-classes. Undoable',
+            'Set the order of Elementor v4 global classes, which is their CSS source order and decides ties at equal specificity. Pass order: [g-id, ...]; omitted classes follow in current order and unknown ids are refused. Needs expected_hash from list-global-classes. Undoable',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7360,7 +7361,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/find-element',
             'pro',
-            'Search a page\'s Elementor tree by el_type, widget_type, setting_key + setting_value and/or css_class (AND-combined, at least one). Each match reports element_id, types, navigator label and ancestor path; returns the current data_hash for chaining a mutation. Read-only',
+            'Search a page\'s Elementor tree by el_type, widget_type, setting_key + setting_value and/or css_class (AND-combined, at least one). Each match reports element_id, types, navigator label and ancestor path; returns the current data_hash to chain a mutation. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7678,7 +7679,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-variation',
             'free',
-            'Update a WooCommerce variation: regular_price, sale_price, sku, status (publish or private), manage_stock, stock_quantity (integer) and stock_status (only while stock is unmanaged). Snapshotted; rollback-operation restores price and stock, keeps it attached to its parent and re-syncs the parent\'s price range',
+            'Update a WooCommerce variation: regular_price, sale_price, sku, status (publish/private), manage_stock, stock_quantity and stock_status (only while stock is unmanaged). Snapshotted; rollback-operation restores price and stock, keeps it attached to its parent and re-syncs the parent\'s price range',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8102,7 +8103,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/woo-write',
             'pro',
-            'Run one woo-ops write op, or a batch of up to 25, as in-process wc/v3 requests as the current user, gated like woo-read. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. Refunds are not recoverable and call the gateway only with api_refund:true. Deletes and refunds need the wpmcp_woo_op_enabled filter and confirm:true. A batch prechecks every item, refuses whole on any failure, and shares one session_id for rollback-session',
+            'Run one woo-ops write op or a batch of up to 25 as in-process wc/v3 requests as the current user, gated like woo-read. Path params fill the route, the rest are the body (query for deletes). Changes to existing state are snapshotted (operation_id for rollback-operation); creates return recoverable:false and an undo_op. Refunds are not recoverable and call the gateway only with api_refund:true. Deletes and refunds need the wpmcp_woo_op_enabled filter and confirm:true. A batch prechecks every item, refuses whole on any failure and shares one session_id for rollback-session',
             [
                 'type'       => 'object',
                 'properties' => [

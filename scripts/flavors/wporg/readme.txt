@@ -89,6 +89,22 @@ reported. What is sent: the directory slug of each active plugin it looks up
 which contains the WordPress version and this site's address. Privacy
 policy: https://wordpress.org/about/privacy/
 
+= WPVulnerability database (www.wpvulnerability.net) =
+
+Used by the `scan-security` ability when it is run with
+`vulnerabilities:true`, and only then, to look up WordPress core, each
+installed plugin and each installed theme in this free, public vulnerability database. It needs
+no API key and no account. What is sent: the WordPress version (for core)
+and each plugin or theme slug, nothing else. Your plugin and theme versions
+and your site address are not sent: versions are compared on this site, and
+requests go out under a `WPMCP-Security-Scanner/1.0` user agent with
+redirects off. Answers are cached on this site for a day (filterable with
+`wpmcp_vulnerability_cache_ttl`), so a repeat scan sends nothing, and a
+lookup that fails is reported as unchecked rather than clean. The service
+states that it stores no request data. Terms:
+https://www.wpvulnerability.com/license/ Privacy policy:
+https://www.wpvulnerability.com/privacy/
+
 = WordPress.org plugin and theme directory (api.wordpress.org, downloads.wordpress.org) =
 
 Used by the `search-plugins`, `get-plugin-info`, `install-plugin`,

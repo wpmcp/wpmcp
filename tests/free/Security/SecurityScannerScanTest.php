@@ -8,6 +8,7 @@ use WPMCP\Tools\Security\Malware_Audit;
 use WPMCP\Tools\Security\Security_Finding;
 use WPMCP\Tools\Security\Security_Scanner;
 use WPMCP\Tools\Security\Software_Audit;
+use WPMCP\Tools\Security\Vulnerability_Audit;
 
 class SecurityScannerScanTest extends \WP_UnitTestCase
 {
@@ -153,5 +154,81 @@ class SecurityScannerScanTest extends \WP_UnitTestCase
 
         $this->assertSame(1, $captured['max_files']);
         $this->assertSame(1, $captured['max_seconds']);
+    }
+
+    /** Counts its runs; returns one critical match and a partial report. */
+    private function vulnerability_double(int &$runs): Vulnerability_Audit
+    {
+        return new class ($runs) extends Vulnerability_Audit {
+            private int $runs;
+
+            public function __construct(int &$runs)
+            {
+                $this->runs = &$runs;
+            }
+
+            public function run(): array
+            {
+                $this->runs++;
+                return [
+                    'findings' => [
+                        Security_Finding::make('vulnerability', 'vulnerabilities', 'Vulnerable plugin', 'critical', ['slug' => 'x'], 'msg', 'Update plugin "x" to 2.0 or later with update-plugin.'),
+                    ],
+                    'report'   => [
+                        'source'     => 'wpvulnerability.net',
+                        'status'     => 'partial',
+                        'checked'    => 1,
+                        'unchecked'  => 1,
+                        'vulnerable' => 1,
+                        'components' => [],
+                    ],
+                ];
+            }
+        };
+    }
+
+    /** Issue #413: no vulnerability lookup, so no outbound request, unless asked. */
+    public function test_vulnerabilities_are_not_looked_up_unless_requested(): void
+    {
+        $captured = [];
+        $runs     = 0;
+        $scanner  = new Security_Scanner(
+            $this->malware_double($captured),
+            $this->integrity_double(),
+            $this->hardening_double(),
+            $this->software_double(),
+            $this->vulnerability_double($runs)
+        );
+
+        $report = $scanner->scan(['checks' => ['hardening']]);
+        $scanner->scan(['checks' => ['hardening'], 'vulnerabilities' => false]);
+
+        $this->assertSame(0, $runs);
+        $this->assertArrayNotHasKey('vulnerabilities', $report);
+        $this->assertSame(['ok' => false, 'error' => 'not_requested'], $report['scan_meta']['vulnerability_db']);
+    }
+
+    /** Issue #413: matches feed the score, the sections and the ranked fixes. */
+    public function test_requested_vulnerabilities_feed_the_score_sections_and_fixes(): void
+    {
+        $captured = [];
+        $runs     = 0;
+        $scanner  = new Security_Scanner(
+            $this->malware_double($captured),
+            $this->integrity_double(),
+            $this->hardening_double(),
+            $this->software_double(),
+            $this->vulnerability_double($runs)
+        );
+
+        $report = $scanner->scan(['checks' => ['hardening'], 'vulnerabilities' => true]);
+
+        $this->assertSame(1, $runs);
+        // One hardening warning (-5) + one vulnerability critical (-20) => 75.
+        $this->assertSame(75, $report['summary']['score']);
+        $this->assertCount(1, $report['sections']['vulnerabilities']);
+        $this->assertSame('partial', $report['vulnerabilities']['status']);
+        $this->assertSame(['ok' => false, 'status' => 'partial', 'source' => 'wpvulnerability.net'], $report['scan_meta']['vulnerability_db']);
+        $this->assertStringContainsString('update-plugin', $report['top_recommendations'][0]);
     }
 }

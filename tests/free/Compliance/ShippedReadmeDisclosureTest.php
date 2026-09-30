@@ -35,6 +35,7 @@ class ShippedReadmeDisclosureTest extends \WP_UnitTestCase
         'api.openverse.org',
         'api.pexels.com',
         'api.unsplash.com',
+        'www.wpvulnerability.net',
     ];
 
     /** Abilities that can put a request on the wire, named so a user can find them. */
@@ -157,12 +158,13 @@ class ShippedReadmeDisclosureTest extends \WP_UnitTestCase
      * privacy link.
      */
     private const PROVIDER_POLICIES = [
-        'api.openverse.org'    => ['https://openverse.org/terms', 'https://openverse.org/privacy'],
-        'api.pexels.com'       => ['https://www.pexels.com/terms-of-service/', 'https://www.pexels.com/privacy-policy/'],
-        'api.unsplash.com'     => ['https://unsplash.com/terms', 'https://unsplash.com/privacy'],
-        'upload.wikimedia.org' => ['https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use', 'https://foundation.wikimedia.org/wiki/Policy:Privacy_policy'],
-        'staticflickr.com'     => ['https://www.flickr.com/help/terms', 'https://www.flickr.com/help/privacy'],
-        'WP MCP Cloud ('       => ['https://wpmcp-pro.com/terms.html', 'https://wpmcp-pro.com/privacy.html'],
+        'api.openverse.org'       => ['https://openverse.org/terms', 'https://openverse.org/privacy'],
+        'api.pexels.com'          => ['https://www.pexels.com/terms-of-service/', 'https://www.pexels.com/privacy-policy/'],
+        'api.unsplash.com'        => ['https://unsplash.com/terms', 'https://unsplash.com/privacy'],
+        'www.wpvulnerability.net' => ['https://www.wpvulnerability.com/license/', 'https://www.wpvulnerability.com/privacy/'],
+        'upload.wikimedia.org'    => ['https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use', 'https://foundation.wikimedia.org/wiki/Policy:Privacy_policy'],
+        'staticflickr.com'        => ['https://www.flickr.com/help/terms', 'https://www.flickr.com/help/privacy'],
+        'WP MCP Cloud ('          => ['https://wpmcp-pro.com/terms.html', 'https://wpmcp-pro.com/privacy.html'],
     ];
 
     /**
@@ -277,6 +279,7 @@ class ShippedReadmeDisclosureTest extends \WP_UnitTestCase
         foreach (
             [
                 'src/Tools/Security/Software_Audit.php',
+                'src/Tools/Security/Vulnerability_Lookup.php',
                 'src/Tools/Packages/Install_Plugin.php',
                 'src/Tools/Media/Sideload_Image.php',
                 'src/Tools/Media/Upload_Svg.php',
@@ -285,6 +288,21 @@ class ShippedReadmeDisclosureTest extends \WP_UnitTestCase
             ] as $relative
         ) {
             $this->assertFileExists($this->repository() . '/' . $relative);
+        }
+    }
+
+    /**
+     * Issue #413: the vulnerability lookup is opt-in and sends only slugs and
+     * versions, and every shipped readme has to say both.
+     */
+    public function test_the_vulnerability_entry_says_it_is_opt_in_and_what_it_sends(): void
+    {
+        foreach (self::SHIPPED_READMES as $relative) {
+            $entry = preg_replace('/\s+/', ' ', $this->entry($this->external_services($this->readme($relative)), 'www.wpvulnerability.net'));
+            $this->assertStringContainsString('vulnerabilities', $entry, $relative . ': the entry does not name the vulnerabilities option');
+            $this->assertMatchesRegularExpression('/\bslug/i', $entry, $relative . ': the entry does not say slugs are sent');
+            $this->assertMatchesRegularExpression('/\bno (API )?key\b/i', $entry, $relative . ': the entry does not say no key is needed');
+            $this->assertMatchesRegularExpression('/cached/i', $entry, $relative . ': the entry does not say answers are cached');
         }
     }
 }
