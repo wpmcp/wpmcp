@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.126
+Stable tag: 0.8.127
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -105,6 +105,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.127 =
+* Page builder design systems are now editable: update-builder-content can add, update and remove Bricks global classes, variables and palette colors, and Breakdance classes and palette colors, each change undoable with rollback-operation and refused if the data changed since it was read.
+* Fixed the Breakdance design system read returning empty classes and palettes on real installs.
 
 = 0.8.126 =
 * Security: the content tools now apply WordPress's per-post permissions. Contributors and Authors can only change, delete or undo changes to posts they are allowed to edit, and can only read other users' drafts and private posts when WordPress would let them. Editors and Administrators keep full access.
@@ -647,6 +651,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.127 =
+Page builder design systems are now editable: update-builder-content can add, update and remove Bricks global classes, variables and palette colors, and Breakdance classes and palette colors, each change undoable with rollback-operation and refused if the data changed since it was read.
 
 = 0.8.126 =
 Security: the content tools now apply WordPress's per-post permissions. Contributors and Authors can only change, delete or undo changes to posts they are allowed to edit, and can only read other users' drafts and private posts when WordPress would let them. Editors and Administrators keep full access.
