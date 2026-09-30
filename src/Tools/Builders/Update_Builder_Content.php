@@ -36,6 +36,11 @@ if (! defined('ABSPATH')) {
  * Elementor/gutenberg/classic posts are out of scope for this tool (use
  * update-element for Elementor) and return a WP_Error.
  *
+ * With `scope` 'design_system' the call edits one entry of the builder's
+ * global design data instead of a post (issue #391): Bricks classes,
+ * variables and palettes, Breakdance classes and palette colors. See
+ * Builder_Design_Write, which snapshots the one option it changes.
+ *
  * All writes go through Safe_Mutation::run() with object_type='post':
  * Bricks' JSON lives in ordinary postmeta and Divi's shortcodes live in
  * ordinary post_content (as do WPBakery's shortcodes and meta, and Beaver
@@ -49,6 +54,15 @@ class Update_Builder_Content
 {
     public function handle(array $args)
     {
+        $scope = (string) ($args['scope'] ?? '');
+        if ('' !== $scope) {
+            if ('design_system' !== $scope) {
+                return new \WP_Error('invalid_scope', "update-builder-content's only scope is 'design_system'; got '{$scope}'.");
+            }
+
+            return Builder_Design_Write::write($args);
+        }
+
         $post_id = (int) ($args['post_id'] ?? 0);
         $builder = (string) ($args['builder'] ?? '');
         $content = $args['content'] ?? null;
