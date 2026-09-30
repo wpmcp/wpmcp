@@ -64,7 +64,7 @@ class RedirectAbilitiesRegistrationTest extends \WP_UnitTestCase
         $abilities = $this->abilities();
 
         $this->assertTrue($abilities['wpmcp/list-redirects']->read_only_hint);
-        $this->assertTrue($abilities['wpmcp/find-broken-links']->read_only_hint);
+        $this->assertFalse($abilities['wpmcp/find-broken-links']->read_only_hint);
         $this->assertFalse($abilities['wpmcp/create-redirect']->read_only_hint);
         $this->assertTrue($abilities['wpmcp/update-redirect']->idempotent_hint);
         $this->assertTrue($abilities['wpmcp/delete-redirect']->destructive_hint);

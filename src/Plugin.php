@@ -5008,7 +5008,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-content',
             'free',
-            'WXR export via core export_wp(), narrowed by content, author, start_date, end_date, status, to a protected uploads directory; returns path, size, count. Once per PHP process (core limit). mirror:true instead writes builder pages as stable JSON for git (post_id, or all 50 per page). Read-only',
+            'WXR export via core export_wp(), narrowed by content, author, start_date, end_date, status, to a protected uploads directory; returns path, size, count. Once per PHP process (core limit). mirror:true instead writes builder pages as stable JSON for git (post_id, or all 50 per page)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5025,7 +5025,11 @@ final class Plugin
             [$export_content, 'handle'],
             'manage_options',
             'export',
-            'read'
+            'read',
+            // Not read-only (issue #420): each call writes a new export file.
+            false,
+            false,
+            false
         ));
         $registrar->register(new Ability(
             'wpmcp/list-exports',
@@ -5953,7 +5957,12 @@ final class Plugin
             [$get_site_health, 'handle'],
             'view_site_health_checks',
             'diagnostics',
-            'read'
+            'read',
+            // Not read-only (issue #420): mail_test + confirm sends a test email.
+            // Still operation 'read', so scoped read identities keep Site Health.
+            false,
+            false,
+            false
         ));
     }
 
@@ -8997,7 +9006,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/find-broken-links',
             'free',
-            'Scan published content for internal links that are dead, point at a non-public post or go through a redirect. background:true queues a batched scan; poll it with scan_id. Read-only: proposes fixes, changes nothing',
+            'Scan published content for internal links that are dead, point at a non-public post or go through a redirect. background:true queues a batched scan; poll it with scan_id. Proposes fixes, changes no content',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9011,7 +9020,11 @@ final class Plugin
             [new Find_Broken_Links(), 'handle'],
             'edit_posts',
             'seo',
-            'read'
+            'read',
+            // Not read-only (issue #420): background:true stores a scan and schedules cron.
+            false,
+            false,
+            false
         ));
     }
 
