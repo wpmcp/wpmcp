@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.119
+Stable tag: 0.8.120
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -104,6 +104,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.120 =
+* Changing a site part, custom widget, custom block or memory entry status, moving content to the trash, or editing only a title, status or meta field no longer rewrites the stored content, excerpt or title for users without the unfiltered_html capability.
+* Status transition hooks still fire as before, and fields a tool does change are still filtered.
 
 = 0.8.119 =
 * Pro: optimize-media can now run over the whole Media Library in the background, with progress you can check and one undo for the entire run.
@@ -615,6 +619,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.120 =
+Changing a site part, custom widget, custom block or memory entry status, moving content to the trash, or editing only a title, status or meta field no longer rewrites the stored content, excerpt or title for users without the unfiltered_html capability.
 
 = 0.8.119 =
 Pro: optimize-media can now run over the whole Media Library in the background, with progress you can check and one undo for the entire run.
