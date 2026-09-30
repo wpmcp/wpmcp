@@ -4,9 +4,13 @@ namespace WPMCP\Tests\Pro\Media;
 
 use WPMCP\Governance\Governance;
 use WPMCP\Identity\Identity_Context;
+use WPMCP\MCP\Ability;
+use WPMCP\MCP\Registrar;
+use WPMCP\Plugin;
 use WPMCP\RateLimit\Rate_Limiter;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Tools\Media\Optimize_Media;
+use WPMCP\Tools\Media\Upload_Media;
 use WPMCP\Tools\Settings\Get_Settings;
 use WPMCP\Tools\Settings\Update_Settings;
 
@@ -24,6 +28,10 @@ class OptimizeUploadsTest extends \WP_UnitTestCase
 {
     use OptimizeMediaFixture;
 
+    private const TOOL = 'wpmcp/test-upload-media';
+
+    private ?Registrar $original = null;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -33,10 +41,45 @@ class OptimizeUploadsTest extends \WP_UnitTestCase
         Rate_Limiter::set_clock_override(fn() => 1_790_000_432);
         add_filter('wpmcp_rate_limit', fn() => 100000);
         delete_option('wpmcp_optimize_uploads');
+        $this->register_upload_tool();
+    }
+
+    /**
+     * upload-media's handler as a registered tool, through a Registrar like
+     * every wpmcp tool, in a private wp_abilities_api_init window against a
+     * swapped Registrar (the pattern CliJobTasksTest uses), so the test
+     * neither depends on nor disturbs the suite's registry.
+     */
+    private function register_upload_tool(): void
+    {
+        $prop           = new \ReflectionProperty(Plugin::class, 'registrar');
+        $this->original = $prop->getValue(Plugin::instance());
+        $fresh          = new Registrar();
+        $prop->setValue(Plugin::instance(), $fresh);
+
+        remove_all_actions('wp_abilities_api_init');
+        add_action('wp_abilities_api_init', static function () use ($fresh): void {
+            $fresh->register(new Ability(self::TOOL, 'free', 'Upload a file.', [
+                'type'       => 'object',
+                'properties' => [
+                    'filename'   => [ 'type' => 'string' ],
+                    'data'       => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+                'required'   => [ 'filename', 'data' ],
+            ], [ new Upload_Media(), 'handle' ], 'upload_files', 'media', 'create'));
+        });
+        do_action('wp_abilities_api_init');
     }
 
     protected function tearDown(): void
     {
+        if (wp_has_ability(self::TOOL)) {
+            wp_unregister_ability(self::TOOL);
+        }
+        if (null !== $this->original) {
+            (new \ReflectionProperty(Plugin::class, 'registrar'))->setValue(Plugin::instance(), $this->original);
+        }
         delete_option('wpmcp_optimize_uploads');
         remove_all_filters('wpmcp_rate_limit');
         Rate_Limiter::set_clock_override(null);
@@ -45,11 +88,11 @@ class OptimizeUploadsTest extends \WP_UnitTestCase
         parent::tearDown();
     }
 
-    /** upload-media, called as a tool: through the registered ability. */
+    /** upload-media's handler, called as a tool: through the registered ability. */
     private function tool_upload(array $extra = []): array
     {
         $bytes  = (string) file_get_contents(DIR_TESTDATA . '/images/canola.jpg');
-        $result = wp_get_ability('wpmcp/upload-media')->execute($extra + [
+        $result = wp_get_ability(self::TOOL)->execute($extra + [
             'filename' => 'canola.jpg',
             'data'     => base64_encode($bytes),
         ]);

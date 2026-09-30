@@ -50,6 +50,9 @@ class OptimizeMediaTasksTest extends \WP_UnitTestCase
         $prop->setValue($plugin, $fresh);
 
         Gate::set_pro_for_tests(true);
+        if (wp_has_ability('wpmcp/optimize-media')) {
+            wp_unregister_ability('wpmcp/optimize-media');
+        }
         remove_all_actions('wp_abilities_api_init');
         add_action('wp_abilities_api_init', static function () use ($fresh): void {
             $fresh->register(new Ability('wpmcp/optimize-media', 'pro', 'Optimize images.', [

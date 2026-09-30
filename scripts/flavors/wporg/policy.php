@@ -88,6 +88,11 @@ return [
         'src/Tools/Media/Stock/Insert_Stock_Image.php',
         // Same shape: image compression and WebP/AVIF copies (issue #380).
         'src/Tools/Media/Optimize_Media.php',
+        // Its background runs, tool-upload optimization and front-end
+        // WebP/AVIF delivery (issue #432).
+        'src/Tools/Media/Optimize_Media_Job.php',
+        'src/Tools/Media/Optimize_Uploads.php',
+        'src/Tools/Media/Modern_Image_Delivery.php',
         // Installing a plugin or theme from an uploaded ZIP (issue #282).
         // Guideline 8 forbids installing plugins or themes from anywhere but
         // WordPress.org, and the directory installers in src/Tools/Packages

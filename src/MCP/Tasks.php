@@ -7,10 +7,11 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * Backups and background WP-CLI jobs as MCP Tasks (issue #387), through the
+ * Backups, background WP-CLI jobs and background image optimization runs
+ * (issues #387, #432) as MCP Tasks, through the
  * Tasks extension (io.modelcontextprotocol/tasks) of MCP 2026-07-28.
  *
- * Both tools were already asynchronous: trigger-backup and dispatch-cli-job
+ * These tools were already asynchronous: trigger-backup and dispatch-cli-job
  * queue a WP-Cron job, return its id at once, and a status tool polls it.
  * The extension standardizes exactly that shape, so a task here IS a job:
  *
@@ -63,6 +64,17 @@ final class Tasks
             'get'    => 'wpmcp/get-cli-job',
             'cancel' => 'wpmcp/cancel-cli-job',
             'label'  => 'CLI job',
+        ],
+        // A background optimize-media run (issue #432): one tool starts,
+        // reads (job_id) and cancels (job_id + cancel) it, and a running
+        // run stops cooperatively before its next batch.
+        'optimize' => [
+            'start'       => 'wpmcp/optimize-media',
+            'get'         => 'wpmcp/optimize-media',
+            'cancel'      => 'wpmcp/optimize-media',
+            'cancel_args' => [ 'cancel' => true ],
+            'cancels'     => [ 'queued', 'running' ],
+            'label'       => 'Image optimization job',
         ],
     ];
 
@@ -134,10 +146,11 @@ final class Tasks
             case 'tasks/get':
                 return [ 'result' => self::detailed($kind, $job_id, $job) ];
             case 'tasks/cancel':
-                if ('queued' === ($job['status'] ?? null)) {
+                $def = self::KINDS[ $kind ];
+                if (in_array($job['status'] ?? null, $def['cancels'] ?? [ 'queued' ], true)) {
                     // A refusal here means the job moved on meanwhile; the
                     // acknowledgement stands either way.
-                    self::run(self::KINDS[ $kind ]['cancel'], [ 'job_id' => $job_id ]);
+                    self::run($def['cancel'], [ 'job_id' => $job_id ] + ($def['cancel_args'] ?? []));
                 }
                 return [ 'result' => [] ];
             case 'tasks/update':
@@ -218,7 +231,7 @@ final class Tasks
         return [
             'taskId'         => self::TASK_ID_PREFIX . $kind . '-' . $job_id,
             'status'         => self::status($status),
-            'statusMessage'  => sprintf('%s %d is %s.', $def['label'], $job_id, $status),
+            'statusMessage'  => sprintf('%s %d is %s%s.', $def['label'], $job_id, $status, self::progress($job)),
             'createdAt'      => gmdate('Y-m-d\TH:i:s\Z', $created),
             'lastUpdatedAt'  => gmdate('Y-m-d\TH:i:s\Z', $updated),
             'ttlMs'          => $ttl,
@@ -262,6 +275,17 @@ final class Tasks
         }
 
         return $task;
+    }
+
+    /** " (3 of 10)" for a job that records progress, else nothing. */
+    private static function progress(array $job): string
+    {
+        $progress = $job['progress'] ?? null;
+        if (! is_array($progress) || ! isset($progress['done'], $progress['total'])) {
+            return '';
+        }
+
+        return sprintf(' (%d of %d)', (int) $progress['done'], (int) $progress['total']);
     }
 
     /** Job status to task status. */
