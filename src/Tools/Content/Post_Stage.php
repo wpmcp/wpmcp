@@ -122,7 +122,6 @@ class Post_Stage
             'numberposts'      => 1,
             'orderby'          => 'ID',
             'order'            => 'ASC',
-            'suppress_filters' => true,
         ]);
         return [] === $ids ? 0 : (int) $ids[0];
     }
