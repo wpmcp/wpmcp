@@ -72,11 +72,11 @@ class Upload_Svg
 
         $post_id  = (int) ($args['post_id'] ?? 0);
         $media_id = wp_insert_attachment(
-            [
+            wp_slash([
                 'post_mime_type' => 'image/svg+xml',
                 'post_title'     => '' !== $title ? $title : (string) pathinfo($filename, PATHINFO_FILENAME),
                 'post_status'    => 'inherit',
-            ],
+            ]),
             $upload['file'],
             $post_id,
             true
@@ -88,7 +88,7 @@ class Upload_Svg
         $media_id = (int) $media_id;
 
         if (! empty($args['alt'])) {
-            update_post_meta($media_id, '_wp_attachment_image_alt', sanitize_text_field((string) $args['alt']));
+            update_post_meta($media_id, '_wp_attachment_image_alt', wp_slash(sanitize_text_field((string) $args['alt'])));
         }
 
         $operation_id = Media_Import_Snapshot::record(

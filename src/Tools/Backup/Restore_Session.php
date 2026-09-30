@@ -129,7 +129,7 @@ class Restore_Session
             if ('' === $value || null === $value || [] === $value) {
                 continue;
             }
-            update_user_meta($user_id, (string) $key, $value);
+            update_user_meta($user_id, (string) $key, wp_slash($value));
             $kept[] = (string) $key;
         }
 

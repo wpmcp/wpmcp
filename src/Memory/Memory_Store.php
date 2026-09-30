@@ -113,12 +113,13 @@ class Memory_Store
 
         self::ensure_post_type();
 
-        $id = wp_insert_post([
+        // wp_insert_post() unslashes; slash so a backslash in the entry survives.
+        $id = wp_insert_post(wp_slash([
             'post_type'    => self::POST_TYPE,
             'post_status'  => 'pending',
             'post_title'   => $entry['title'],
             'post_content' => $entry['text'],
-        ], true);
+        ]), true);
 
         if (is_wp_error($id)) {
             return $id;
@@ -396,15 +397,15 @@ class Memory_Store
         try {
             update_post_meta($id, self::META_KIND, $entry['kind']);
             update_post_meta($id, self::META_SEVERITY, $entry['severity']);
-            update_post_meta($id, self::META_TARGETS, $entry['targets']);
+            update_post_meta($id, self::META_TARGETS, wp_slash($entry['targets']));
 
             $post = get_post($id);
             if (null !== $post && ($post->post_title !== $entry['title'] || $post->post_content !== $entry['text'])) {
-                wp_update_post([
+                wp_update_post(wp_slash([
                     'ID'           => $id,
                     'post_title'   => $entry['title'],
                     'post_content' => $entry['text'],
-                ]);
+                ]));
             }
         } finally {
             self::$writing = false;

@@ -110,10 +110,13 @@ final class Fix_Pass
                 'args'        => $args,
             ],
             static function () use ($post_id, $content) {
+                // The spliced content is the stored (unslashed) body, and
+                // wp_update_post() unslashes: slash it or every backslash
+                // elsewhere in the post is lost.
                 return wp_update_post(
                     [
                         'ID'           => $post_id,
-                        'post_content' => $content,
+                        'post_content' => wp_slash($content),
                     ]
                 );
             }

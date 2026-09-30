@@ -95,7 +95,7 @@ class Build_Page
                 $postarr['post_name'] = sanitize_title($spec['slug']);
             }
 
-            $result = wp_insert_post($postarr, true);
+            $result = wp_insert_post(wp_slash($postarr), true);
             if (is_wp_error($result)) {
                 throw new \RuntimeException('Could not create the page: ' . esc_html($result->get_error_message()));
             }
@@ -342,7 +342,7 @@ class Build_Page
     /** Add the created page to the requested menu; WP_Error becomes a build failure (compensated by the caller). */
     private function place_in_menu(array $menu, int $post_id, string $page_title): int
     {
-        $item_id = wp_update_nav_menu_item((int) $menu['menu_id'], 0, [
+        $item_id = wp_update_nav_menu_item((int) $menu['menu_id'], 0, wp_slash([
             'menu-item-title'     => '' !== trim((string) ($menu['title'] ?? '')) ? (string) $menu['title'] : $page_title,
             'menu-item-type'      => 'post_type',
             'menu-item-object'    => 'page',
@@ -350,7 +350,7 @@ class Build_Page
             'menu-item-status'    => 'publish',
             'menu-item-parent-id' => (int) ($menu['parent'] ?? 0),
             'menu-item-position'  => (int) ($menu['position'] ?? 0),
-        ]);
+        ]));
 
         if (is_wp_error($item_id)) {
             throw new \RuntimeException('The menu placement step failed: ' . esc_html($item_id->get_error_message()));

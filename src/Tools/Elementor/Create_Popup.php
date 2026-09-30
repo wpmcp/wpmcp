@@ -32,7 +32,7 @@ class Create_Popup
 
         $settings = is_array($args['settings'] ?? null) ? $args['settings'] : [];
         if ([] !== $settings) {
-            update_post_meta($popup_id, '_elementor_page_settings', $settings);
+            update_post_meta($popup_id, '_elementor_page_settings', wp_slash($settings));
             Elementor_Cache::invalidate_document($popup_id);
         }
 

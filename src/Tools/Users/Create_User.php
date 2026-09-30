@@ -54,7 +54,7 @@ class Create_User
             'last_name'    => isset($args['last_name']) ? sanitize_text_field((string) $args['last_name']) : '',
         ];
 
-        $user_id = wp_insert_user($userdata);
+        $user_id = wp_insert_user(wp_slash($userdata));
         if (is_wp_error($user_id)) {
             throw new \RuntimeException('Could not create user: ' . esc_html($user_id->get_error_message()));
         }

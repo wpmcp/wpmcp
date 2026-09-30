@@ -91,7 +91,7 @@ class Update_Term
                 'args'        => $args,
             ],
             static function () use ($term_id, $taxonomy, $fields): bool {
-                $updated = wp_update_term($term_id, $taxonomy, $fields);
+                $updated = wp_update_term($term_id, $taxonomy, wp_slash($fields));
                 if (is_wp_error($updated)) {
                     throw new \RuntimeException(esc_html($updated->get_error_message()));
                 }

@@ -314,7 +314,7 @@ class SEO_Adapter
             $data['post_no_follow'] = $fields['nofollow'] ? 'yes' : 'no';
         }
 
-        update_post_meta($post_id, '_surerank_meta', $data);
+        update_post_meta($post_id, '_surerank_meta', wp_slash($data));
     }
 
     /**
@@ -460,7 +460,7 @@ class SEO_Adapter
 
         foreach (['title', 'description', 'focus_keyword', 'canonical'] as $field) {
             if (array_key_exists($field, $fields) && '' !== $keys[$field]) {
-                update_post_meta($post_id, $keys[$field], (string) $fields[$field]);
+                update_post_meta($post_id, $keys[$field], wp_slash((string) $fields[$field]));
             }
         }
 

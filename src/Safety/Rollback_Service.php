@@ -675,7 +675,8 @@ class Rollback_Service
         $user_id = (int) $snapshot['object_id'];
 
         if (! empty($snapshot['data']['fields'])) {
-            wp_update_user(array_merge(['ID' => $user_id], $snapshot['data']['fields']));
+            // wp_update_user() unslashes; the snapshot holds raw stored values.
+            wp_update_user(wp_slash(array_merge(['ID' => $user_id], $snapshot['data']['fields'])));
         }
 
         $snapshotted_meta = (array) $snapshot['data']['meta'];
@@ -690,7 +691,7 @@ class Rollback_Service
         foreach ($snapshotted_meta as $key => $values) {
             delete_user_meta($user_id, $key);
             foreach ((array) $values as $v) {
-                add_user_meta($user_id, $key, maybe_unserialize($v));
+                add_user_meta($user_id, $key, self::slash_meta_value(maybe_unserialize($v)));
             }
         }
     }
@@ -722,7 +723,7 @@ class Rollback_Service
         $comment_id = (int) $snapshot['object_id'];
 
         if (get_comment($comment_id)) {
-            wp_update_comment($snapshot['data']['comment']);
+            wp_update_comment(wp_slash($snapshot['data']['comment']));
             self::reconcile_comment_meta($comment_id, (array) $snapshot['data']['meta']);
             return;
         }
@@ -739,7 +740,7 @@ class Rollback_Service
     private static function resurrect_comment(array $comment_row, array $meta): void
     {
         unset($comment_row['comment_ID']);
-        $new_comment_id = wp_insert_comment($comment_row);
+        $new_comment_id = wp_insert_comment(wp_slash($comment_row));
         if (! $new_comment_id) {
             throw new Mutation_Failed('Rollback failed to resurrect a force-deleted comment.');
         }
@@ -762,7 +763,7 @@ class Rollback_Service
         foreach ($snapshotted_meta as $key => $values) {
             delete_comment_meta($comment_id, $key);
             foreach ((array) $values as $v) {
-                add_comment_meta($comment_id, $key, maybe_unserialize($v));
+                add_comment_meta($comment_id, $key, self::slash_meta_value(maybe_unserialize($v)));
             }
         }
     }
@@ -1895,12 +1896,12 @@ class Rollback_Service
         if ($was_missing) {
             self::resurrect_term($term_id, $taxonomy, $captured);
         } else {
-            wp_update_term($term_id, $taxonomy, [
+            wp_update_term($term_id, $taxonomy, wp_slash([
                 'name'        => (string) ($captured['name'] ?? ''),
                 'slug'        => $slug,
                 'description' => (string) ($captured['description'] ?? ''),
                 'parent'      => (int) ($captured['parent'] ?? 0),
-            ]);
+            ]));
         }
 
         self::restore_term_meta($term_id, (array) ($data['meta'] ?? []));
@@ -1992,7 +1993,7 @@ class Rollback_Service
 
         foreach ($meta as $key => $values) {
             foreach ((array) $values as $value) {
-                add_term_meta($term_id, (string) $key, maybe_unserialize($value));
+                add_term_meta($term_id, (string) $key, self::slash_meta_value(maybe_unserialize($value)));
             }
         }
     }
@@ -2613,14 +2614,14 @@ class Rollback_Service
             unset($comment['comment_ID'], $comment['meta']);
             $comment['comment_post_ID'] = $post_id;
 
-            $new_comment_id = wp_insert_comment($comment);
+            $new_comment_id = wp_insert_comment(wp_slash($comment));
             if (! $new_comment_id) {
                 continue;
             }
 
             foreach ((array) $meta as $key => $values) {
                 foreach ((array) $values as $v) {
-                    add_comment_meta($new_comment_id, $key, maybe_unserialize($v));
+                    add_comment_meta($new_comment_id, $key, self::slash_meta_value(maybe_unserialize($v)));
                 }
             }
         }

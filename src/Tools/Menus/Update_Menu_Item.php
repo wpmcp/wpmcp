@@ -67,7 +67,7 @@ class Update_Menu_Item
                 'args'        => $args,
             ],
             function () use ($menu_id, $item_id, $data): void {
-                $result = wp_update_nav_menu_item($menu_id, $item_id, $data);
+                $result = wp_update_nav_menu_item($menu_id, $item_id, wp_slash($data));
                 if (is_wp_error($result)) {
                     throw new \RuntimeException('Could not update the menu item: ' . esc_html($result->get_error_message()));
                 }

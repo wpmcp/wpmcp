@@ -86,7 +86,8 @@ class Upload_Media
                 ['name' => $filename, 'tmp_name' => $tmp],
                 (int) ($args['post_id'] ?? 0),
                 null,
-                $post_data
+                // media_handle_sideload() inserts through wp_insert_attachment(), which unslashes.
+                wp_slash($post_data)
             );
             if (is_wp_error($media_id)) {
                 throw new \RuntimeException('The file could not be added to the Media Library: ' . esc_html($media_id->get_error_message()));
@@ -99,7 +100,7 @@ class Upload_Media
         }
 
         if (array_key_exists('alt', $args)) {
-            update_post_meta($media_id, '_wp_attachment_image_alt', sanitize_text_field((string) $args['alt']));
+            update_post_meta($media_id, '_wp_attachment_image_alt', wp_slash(sanitize_text_field((string) $args['alt'])));
         }
 
         $operation_id = Media_Import_Snapshot::record(

@@ -126,7 +126,7 @@ class Atomic_Widget_Map
             return [];
         }
         if ($image_id > 0 && '' !== $alt) {
-            update_post_meta($image_id, '_wp_attachment_image_alt', $alt);
+            update_post_meta($image_id, '_wp_attachment_image_alt', wp_slash($alt));
         }
 
         return ['image' => Atomic_Props::image($image_id, $image_url, $alt)];

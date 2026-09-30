@@ -38,10 +38,10 @@ class Import_Stock_Image
         $media_id = Remote_Image_Guard::sideload($url, (int) ($args['post_id'] ?? 0), 'stock-image');
 
         if (! empty($args['title'])) {
-            wp_update_post(['ID' => $media_id, 'post_title' => sanitize_text_field((string) $args['title'])]);
+            wp_update_post(wp_slash(['ID' => $media_id, 'post_title' => sanitize_text_field((string) $args['title'])]));
         }
         if (! empty($args['alt'])) {
-            update_post_meta($media_id, '_wp_attachment_image_alt', sanitize_text_field((string) $args['alt']));
+            update_post_meta($media_id, '_wp_attachment_image_alt', wp_slash(sanitize_text_field((string) $args['alt'])));
         }
 
         // Persist provider attribution/license where the source supplied it.
@@ -57,7 +57,7 @@ class Import_Stock_Image
             } else {
                 $value = sanitize_text_field($value);
             }
-            update_post_meta($media_id, $meta_key, $value);
+            update_post_meta($media_id, $meta_key, wp_slash($value));
         }
 
         $operation_id = Media_Import_Snapshot::record(

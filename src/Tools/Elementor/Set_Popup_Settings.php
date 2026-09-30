@@ -51,7 +51,8 @@ class Set_Popup_Settings
                     'args'         => $args,
                 ],
                 function () use ($post_id, $merged) {
-                    update_post_meta($post_id, '_elementor_page_settings', $merged);
+                    // update_post_meta() unslashes; slash so CSS and JSON escapes survive.
+                    update_post_meta($post_id, '_elementor_page_settings', wp_slash($merged));
                     Elementor_Cache::invalidate_document($post_id);
                     return true;
                 },

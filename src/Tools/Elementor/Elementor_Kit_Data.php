@@ -204,7 +204,8 @@ class Elementor_Kit_Data
                     'args'         => $args,
                 ],
                 function () use ($kit_id, $merged) {
-                    update_post_meta($kit_id, '_elementor_page_settings', $merged);
+                    // update_post_meta() unslashes; slash so CSS and JSON escapes survive.
+                    update_post_meta($kit_id, '_elementor_page_settings', wp_slash($merged));
                     Elementor_Cache::clear_all();
                     return true;
                 },
