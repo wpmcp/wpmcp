@@ -1911,7 +1911,13 @@ class Rollback_Service
             // specs were created inactive, so deactivating would undo nothing.
             if (empty($snapshot['data']['remove_on_rollback']) && in_array($current->post_type, self::DEACTIVATE_ON_CREATION_ROLLBACK, true)) {
                 if ('draft' !== $current->post_status && 'trash' !== $current->post_status) {
-                    $updated = wp_update_post(['ID' => $post_id, 'post_status' => 'draft'], true);
+                    // wp_update_post() re-saves the whole row to change the
+                    // status, and its save filters (kses for a user without
+                    // unfiltered_html) would rewrite the stored columns.
+                    $updated = self::without_save_filters(
+                        self::POST_SAVE_FILTERS,
+                        static fn () => wp_update_post(['ID' => $post_id, 'post_status' => 'draft'], true)
+                    );
                     if (is_wp_error($updated) || 0 === $updated) {
                         self::warn("Spec {$post_id} created by this operation could not be deactivated.");
                     }
@@ -1922,7 +1928,9 @@ class Rollback_Service
             if ('trash' === $current->post_status) {
                 continue;
             }
-            if (! wp_trash_post($post_id)) {
+            // wp_trash_post() changes the status through wp_update_post(),
+            // which would run the same save filters over the whole row.
+            if (! self::without_save_filters(self::POST_SAVE_FILTERS, static fn () => wp_trash_post($post_id))) {
                 self::warn("Post {$post_id} created by this operation could not be moved to the trash; it was left in place.");
             }
         }
