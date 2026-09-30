@@ -192,6 +192,7 @@ class Contact_Form_7_Integration extends Forms_Integration
             ],
             'get-form' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => 'Read one form: title, slug, the form markup, and the mail template',
                 'input_schema' => [
                     'type'       => 'object',
@@ -213,6 +214,7 @@ class Contact_Form_7_Integration extends Forms_Integration
             ],
             'list-fields' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => 'List one form\'s fields as Contact Form 7 parses them out of the form markup: name, type, whether it is required, and its options',
                 'input_schema' => [
                     'type'       => 'object',
@@ -243,6 +245,7 @@ class Contact_Form_7_Integration extends Forms_Integration
             ],
             'list-notifications' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => 'List a form\'s mail notifications: the primary Mail template and the optional Mail (2) autoresponder, each with whether it is active, recipient, sender, subject, and body template',
                 'input_schema' => [
                     'type'       => 'object',
@@ -274,6 +277,7 @@ class Contact_Form_7_Integration extends Forms_Integration
             ],
             'list-entries' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'requires'     => static fn () => self::requires_flamingo(),
                 'description'  => 'List a form\'s Flamingo-stored submissions, newest first, with paging (page_size default 20, max 100, plus offset) and a status filter (inbox, the default, plus spam and trash, which Flamingo keeps out of the default listing). form_id is required and is resolved to the form\'s Flamingo channel term; a form whose channel binding is missing is refused rather than answered with an unscoped listing. Requires the Flamingo plugin and the edit_users capability because submissions are user data',
@@ -346,6 +350,7 @@ class Contact_Form_7_Integration extends Forms_Integration
             ],
             'get-entry' => [
                 'mode'         => 'read',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'requires'     => static fn () => self::requires_flamingo(),
                 'description'  => 'Read one Flamingo-stored submission in full: subject, sender, channel, submitted fields, and meta. Requires the Flamingo plugin and the edit_users capability (the cap Flamingo itself gates inbound messages behind) because submissions are user data',
@@ -367,6 +372,7 @@ class Contact_Form_7_Integration extends Forms_Integration
             ],
             'update-entry-status' => [
                 'mode'         => 'write',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'requires'     => static fn () => self::requires_flamingo(),
                 'description'  => 'Move one Flamingo-stored submission between the inbox and the trash, through Flamingo\'s own trash()/untrash() so it lands where Flamingo\'s screen expects it. Snapshotted first and restorable with rollback-operation. Spam flagging is deliberately not offered: Flamingo reports spam to Akismet, which would send the submission to a third-party service. Requires the Flamingo plugin and the edit_users capability',
@@ -414,6 +420,7 @@ class Contact_Form_7_Integration extends Forms_Integration
             ],
             'delete-entry' => [
                 'mode'               => 'destructive',
+                'objects'            => [ 'entry_id' => 'entry' ],
                 'enabled_by_default' => false,
                 'capability'         => self::ENTRY_CAPABILITY,
                 'requires'           => static fn () => self::requires_flamingo(),

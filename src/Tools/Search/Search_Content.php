@@ -238,6 +238,11 @@ class Search_Content
         if (! Content_Guard::can_read_post((int) $post->ID)) {
             return null;
         }
+        // A match inside password-protected content would reveal that
+        // content to a caller who may not see it (issue #450).
+        if (Content_Guard::withholds_protected_content($post)) {
+            return null;
+        }
 
         return [
             'title'     => (string) $post->post_title,

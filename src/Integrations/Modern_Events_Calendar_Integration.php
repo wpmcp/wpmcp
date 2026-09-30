@@ -98,6 +98,7 @@ class Modern_Events_Calendar_Integration extends Integration_Dispatcher
             ],
             'get-event' => [
                 'mode'         => 'read',
+                'objects'      => [ 'event_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => 'Read one event: title, content, status, and its curated MEC schedule (start/end date and time, all-day flag, location and organizer ids, cost)',
                 'input_schema' => [
                     'type'       => 'object',

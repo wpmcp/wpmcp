@@ -203,6 +203,8 @@ class Registrar
      * the audit reason ('' for a capability/tier/governance/identity denial,
      * 'private-post' for an input naming a plugin-private post or post type,
      * 'post-capability' for a post the caller may not read, edit or delete,
+     * 'protected-post' for password-protected content the caller may not
+     * see, 'object-capability' for a term, user, comment, order or entry,
      * 'memory-block:<id>' for a project-memory denial, 'insufficient_scope'
      * for a non-read ability called over a read-only OAuth connection).
      *
@@ -236,6 +238,15 @@ class Registrar
         $post_denial = Content_Guard::input_denial($a, $input);
         if (null !== $post_denial) {
             return $post_denial;
+        }
+
+        // The objects an integration pack op names inside its args, which
+        // the keys above never see (issue #450): the same per-object rule.
+        if (null !== $a->objects) {
+            $object_denial = Object_Guard::denial((array) ($a->objects)($input));
+            if (null !== $object_denial) {
+                return $object_denial;
+            }
         }
 
         $rule = Memory_Guard::blocking_rule($a, $input);

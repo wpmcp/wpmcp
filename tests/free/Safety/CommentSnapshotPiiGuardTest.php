@@ -3,6 +3,7 @@
 namespace WPMCP\Tests\Free\Safety;
 
 use WPMCP\Memory\Session_Digest;
+use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Snapshot;
@@ -136,8 +137,11 @@ class CommentSnapshotPiiGuardTest extends \WP_UnitTestCase
         // edit_post for it (issue #448).
         $author = self::factory()->user->create([ 'role' => 'author' ]);
         wp_update_post([ 'ID' => $this->post_id, 'post_author' => $author ]);
-        $this->edit_comment('pii-348-session');
         $post = $this->post_id;
+        // The author starts the session (a session belongs to whoever
+        // started it, issue #450), and an administrator's comment edit then
+        // lands in it.
+        wp_set_current_user($author);
         Safe_Mutation::run(
             [
                 'object_type' => 'post',
@@ -148,6 +152,7 @@ class CommentSnapshotPiiGuardTest extends \WP_UnitTestCase
             ],
             static fn () => wp_update_post([ 'ID' => $post, 'post_content' => 'after' ])
         );
+        $this->edit_comment('pii-348-session');
 
         wp_set_current_user($author);
         $out = (new Rollback_Session())->handle([ 'session_id' => 'pii-348-session' ]);
@@ -199,7 +204,13 @@ class CommentSnapshotPiiGuardTest extends \WP_UnitTestCase
         $digest = Session_Digest::build($session);
         $this->assert_no_personal_data($digest, 'session digest');
         $this->assert_no_personal_data(Session_Digest::text($digest), 'session digest text');
-        $this->assert_no_personal_data((new Rollback_Session())->handle([ 'session_id' => $session ]), 'rollback-session');
+        // Another user's session is refused outright (issue #450); the
+        // refusal carries no personal data either.
+        try {
+            $this->assert_no_personal_data((new Rollback_Session())->handle([ 'session_id' => $session ]), 'rollback-session');
+        } catch (Mutation_Failed $e) {
+            $this->assert_no_personal_data($e->getMessage(), 'rollback-session refusal');
+        }
     }
 
     public function test_a_change_set_never_carries_comment_email_or_ip_even_for_an_administrator(): void

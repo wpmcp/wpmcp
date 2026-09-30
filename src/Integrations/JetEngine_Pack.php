@@ -103,6 +103,7 @@ final class JetEngine_Pack
             ],
             'jetengine-get-fields'    => [
                 'mode'         => 'read',
+                'objects'      => [ 'post_id' => 'post' ],
                 'description'  => 'Read a post\'s JetEngine field values (every field of its post type, or the given keys)',
                 'input_schema' => Plugin_Data_Integration::get_fields_schema(),
                 'requires'     => $requires,
@@ -119,6 +120,7 @@ final class JetEngine_Pack
             ],
             'jetengine-update-fields' => [
                 'mode'               => 'write',
+                'objects'            => [ 'post_id' => 'post' ],
                 'description'        => 'Set JetEngine field values on a post (keys must be fields of its post type). Snapshotted on the post; restorable with rollback-operation. Off until the site opts in via the wpmcp_enable_jetengine_write filter',
                 'enabled_by_default' => (bool) apply_filters('wpmcp_enable_jetengine_write', false),
                 'input_schema'       => Plugin_Data_Integration::update_fields_schema(),
