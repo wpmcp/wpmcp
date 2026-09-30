@@ -12,6 +12,7 @@ if (! defined('ABSPATH')) {
  * the edit_files capability and honors DISALLOW_FILE_EDIT. Refuses
  * wp-config.php/.htaccess. Backs up an existing file before overwriting it,
  * so the change is genuinely recoverable (see Filesystem_Guard::restore()).
+ * A .php target is syntax-checked and site-checked first (Php_Edit_Guard).
  */
 class Write_File
 {
@@ -50,18 +51,26 @@ class Write_File
         $content = (string) ($args['content'] ?? '');
         $existed = is_file($abs);
 
-        $backup = Filesystem_Guard::backup($abs);
-        if (is_wp_error($backup)) {
-            throw new \RuntimeException(esc_html($backup->get_error_message()));
-        }
+        $php_check = null;
+        if (Php_Edit_Guard::applies($abs)) {
+            $done      = Php_Edit_Guard::write($abs, $content, ! empty($args['unchecked']));
+            $backup    = $done['backup'];
+            $bytes     = $done['bytes'];
+            $php_check = $done['php_check'];
+        } else {
+            $backup = Filesystem_Guard::backup($abs);
+            if (is_wp_error($backup)) {
+                throw new \RuntimeException(esc_html($backup->get_error_message()));
+            }
 
-        if (! wp_mkdir_p(dirname($abs))) {
-            throw new \RuntimeException('Could not create the parent directory.');
-        }
+            if (! wp_mkdir_p(dirname($abs))) {
+                throw new \RuntimeException('Could not create the parent directory.');
+            }
 
-        $bytes = file_put_contents($abs, $content);
-        if (false === $bytes) {
-            throw new \RuntimeException('Could not write the file (check permissions).');
+            $bytes = file_put_contents($abs, $content);
+            if (false === $bytes) {
+                throw new \RuntimeException('Could not write the file (check permissions).');
+            }
         }
 
         $rel = Filesystem_Guard::to_relative($abs);
@@ -73,6 +82,6 @@ class Write_File
             'action'      => $existed ? 'overwritten' : 'created',
             'backup'      => $backup ? Filesystem_Guard::to_relative($backup) : null,
             'recoverable' => '' !== $backup,
-        ];
+        ] + (null === $php_check ? [] : ['php_check' => $php_check]);
     }
 }

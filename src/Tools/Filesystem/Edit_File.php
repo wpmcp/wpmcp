@@ -12,6 +12,7 @@ if (! defined('ABSPATH')) {
  * wpmcp_enable_fs_writes filter. Requires the edit_files capability and
  * honors DISALLOW_FILE_EDIT. Refuses wp-config.php/.htaccess. Backs up the
  * original file before editing it, so the change is genuinely recoverable.
+ * A .php target is syntax-checked and site-checked first (Php_Edit_Guard).
  */
 class Edit_File
 {
@@ -65,11 +66,6 @@ class Edit_File
             throw new \RuntimeException('old_string matched multiple times; pass replace_all or make it unique.');
         }
 
-        $backup = Filesystem_Guard::backup($abs);
-        if (is_wp_error($backup)) {
-            throw new \RuntimeException(esc_html($backup->get_error_message()));
-        }
-
         if ($replace_all) {
             $updated = str_replace($old, $new, $content);
         } else {
@@ -77,8 +73,20 @@ class Edit_File
             $updated = substr($content, 0, $pos) . $new . substr($content, $pos + strlen($old));
         }
 
-        if (false === file_put_contents($abs, $updated)) {
-            throw new \RuntimeException('Could not write the file (check permissions).');
+        $php_check = null;
+        if (Php_Edit_Guard::applies($abs)) {
+            $done      = Php_Edit_Guard::write($abs, $updated, ! empty($args['unchecked']));
+            $backup    = $done['backup'];
+            $php_check = $done['php_check'];
+        } else {
+            $backup = Filesystem_Guard::backup($abs);
+            if (is_wp_error($backup)) {
+                throw new \RuntimeException(esc_html($backup->get_error_message()));
+            }
+
+            if (false === file_put_contents($abs, $updated)) {
+                throw new \RuntimeException('Could not write the file (check permissions).');
+            }
         }
 
         $rel = Filesystem_Guard::to_relative($abs);
@@ -89,6 +97,6 @@ class Edit_File
             'replacements' => $replace_all ? $count : 1,
             'backup'       => $backup ? Filesystem_Guard::to_relative($backup) : null,
             'recoverable'  => '' !== $backup,
-        ];
+        ] + (null === $php_check ? [] : ['php_check' => $php_check]);
     }
 }
