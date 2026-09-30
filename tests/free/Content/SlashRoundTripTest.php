@@ -196,14 +196,14 @@ XML;
         $out = (new Build_Page())->handle(['spec' => [
             'title'   => self::line(),
             'content' => [['type' => 'html', 'settings' => ['html' => self::body()]]],
-            'menu'    => ['menu_id' => $menu_id, 'title' => self::line()],
+            'menu'    => ['menu_id' => $menu_id, 'title' => self::line() . ' menu'],
         ]]);
         $post = $this->fresh((int) $out['post_id']);
 
         $this->assertSame(self::line(), $post->post_title);
         $this->assertStringContainsString(self::body(), $post->post_content);
         $items = wp_get_nav_menu_items($menu_id);
-        $this->assertSame(self::line(), $this->fresh((int) $items[0]->ID)->post_title);
+        $this->assertSame(self::line() . ' menu', $this->fresh((int) $items[0]->ID)->post_title);
     }
 
     // ---- media -----------------------------------------------------------------
@@ -397,9 +397,12 @@ XML;
 
     public function test_rolling_back_a_comment_edit_restores_backslashes(): void
     {
+        // Plain text content: wp_update_comment() runs the comment content
+        // filters on the restored row, which may normalize markup; the
+        // backslashes are what this test is about.
         $comment_id = (int) wp_insert_comment(wp_slash([
             'comment_post_ID' => $this->post(),
-            'comment_content' => self::body(),
+            'comment_content' => self::line(),
             'comment_author'  => self::line(),
         ]));
         add_comment_meta($comment_id, 'wpmcp_slash_text', wp_slash(self::body()));
@@ -408,7 +411,7 @@ XML;
         $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
         clean_comment_cache($comment_id);
 
-        $this->assertSame(self::body(), get_comment($comment_id)->comment_content);
+        $this->assertSame(self::line(), get_comment($comment_id)->comment_content);
         $this->assertSame(self::line(), get_comment($comment_id)->comment_author);
         $this->assertSame(self::body(), get_comment_meta($comment_id, 'wpmcp_slash_text', true));
     }
