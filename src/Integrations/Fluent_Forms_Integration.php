@@ -217,6 +217,7 @@ class Fluent_Forms_Integration extends Forms_Integration
             ],
             'get-entry' => [
                 'mode'         => 'read',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Read one entry in full: form, serial number, status, date, submitted response, and IP address. Requires manage_options because entries are user data',
                 'input_schema' => [
@@ -231,6 +232,7 @@ class Fluent_Forms_Integration extends Forms_Integration
             ],
             'update-entry-status' => [
                 'mode'         => 'write',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Set one entry\'s status to unread, read, spam, or trashed, and fire Fluent Forms\' own after-status-update action. Snapshotted first (a before-image of the submission row) and restorable with rollback-operation. Requires manage_options',
                 'input_schema' => [

@@ -134,6 +134,7 @@ class Forminator_Integration extends Forms_Integration
             ],
             'get-form' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => 'Read one Forminator form: display name, embed shortcode, and its fields (id, type, label, required)',
                 'input_schema' => [
                     'type'       => 'object',
@@ -157,6 +158,7 @@ class Forminator_Integration extends Forms_Integration
             ],
             'list-entries' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'List a Forminator form\'s submissions with paging (page_size default 20, max 100) and their decoded field values',
                 'input_schema' => [
@@ -187,6 +189,7 @@ class Forminator_Integration extends Forms_Integration
             ],
             'get-entry' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ], 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Read one Forminator submission by form_id plus entry_id, with its decoded field values',
                 'input_schema' => [
@@ -207,6 +210,7 @@ class Forminator_Integration extends Forms_Integration
             ],
             'delete-entry' => [
                 'mode'               => 'destructive',
+                'objects'            => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ], 'entry_id' => 'entry' ],
                 // Issue #66: entry deletion is off by default across every
                 // forms adapter. A site opts in with the
                 // wpmcp_integration_op_enabled filter.

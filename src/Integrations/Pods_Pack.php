@@ -136,6 +136,7 @@ final class Pods_Pack
             ],
             'pods-get-fields'    => [
                 'mode'         => 'read',
+                'objects'      => [ 'post_id' => 'post' ],
                 'description'  => 'Read a post\'s Pods field values (every field of its pod, or the given keys) from meta or the pod table',
                 'input_schema' => Plugin_Data_Integration::get_fields_schema(),
                 'requires'     => $requires,
@@ -149,6 +150,7 @@ final class Pods_Pack
             ],
             'pods-update-fields' => [
                 'mode'               => 'write',
+                'objects'            => [ 'post_id' => 'post' ],
                 'description'        => 'Set simple Pods field values (text, number, date, boolean and the like) on a post, in meta or the pod table. Snapshotted; restorable with rollback-operation. Off until the site opts in via the wpmcp_enable_pods_write filter',
                 'enabled_by_default' => (bool) apply_filters('wpmcp_enable_pods_write', false),
                 'input_schema'       => Plugin_Data_Integration::update_fields_schema(),

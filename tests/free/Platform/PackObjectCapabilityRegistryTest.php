@@ -37,6 +37,7 @@ class PackObjectCapabilityRegistryTest extends \WP_UnitTestCase
     private const NOT_WP_OBJECTS = [
         'gravitytables:get-table:table_id'                     => 'a Gravity Tables table row',
         'pmpro:get-level:level_id'                             => 'a membership level, site configuration',
+        'plugin-data:translatepress-update-strings:translations.*.id' => 'a TranslatePress dictionary row, manage_options',
         'plugin-data:buddypress-get-group:id'                  => 'a BuddyPress group; hidden groups are filtered by the pack',
         'plugin-data:buddypress-list-group-members:group_id'   => 'a BuddyPress group; hidden groups are filtered by the pack',
         'plugin-data:buddypress-list-activity:user_id'         => 'filters the public activity stream by member',

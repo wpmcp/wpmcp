@@ -229,6 +229,7 @@ class Ninja_Forms_Integration extends Forms_Integration
             ],
             'get-entry' => [
                 'mode'         => 'read',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Read one submission in full: its form, sequence number, status, date, and submitted field values. Requires manage_options because submissions are user data',
                 'input_schema' => [
@@ -247,6 +248,7 @@ class Ninja_Forms_Integration extends Forms_Integration
             ],
             'update-entry-status' => [
                 'mode'         => 'write',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Move one submission between active and the trash. Snapshotted first (a submission is a post) and restorable with rollback-operation. Refused when the site has the trash disabled, because trashing would then be permanent deletion. Requires manage_options',
                 'input_schema' => [

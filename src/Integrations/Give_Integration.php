@@ -99,6 +99,7 @@ class Give_Integration extends Integration_Dispatcher
             ],
             'get-form' => [
                 'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => 'Read one donation form: title, status, and its curated configuration (price, price option, donation levels, goal option and amount, earnings, sales)',
                 'input_schema' => [
                     'type'       => 'object',

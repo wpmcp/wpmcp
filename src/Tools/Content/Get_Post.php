@@ -40,14 +40,20 @@ class Get_Post
 
         $thumbnail_id = (int) get_post_thumbnail_id($post);
 
+        // A password-protected post's content and excerpt go only to a
+        // caller who can edit it, as in core's REST API; everyone else gets
+        // the post with both withheld and `protected` set (issue #450).
+        $withheld = Content_Guard::withholds_protected_content($post);
+
         return [
             'post_id'        => (int) $post->ID,
             'post_type'      => (string) $post->post_type,
             'title'          => (string) $post->post_title,
             'slug'           => (string) $post->post_name,
             'status'         => (string) $post->post_status,
-            'content'        => (string) $post->post_content,
-            'excerpt'        => (string) $post->post_excerpt,
+            'content'        => $withheld ? '' : (string) $post->post_content,
+            'excerpt'        => $withheld ? '' : (string) $post->post_excerpt,
+            'protected'      => '' !== (string) $post->post_password,
             'date'           => (string) $post->post_date,
             'modified'       => (string) $post->post_modified,
             'parent'         => (int) $post->post_parent,

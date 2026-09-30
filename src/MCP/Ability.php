@@ -32,6 +32,12 @@ class Ability
      * its operation writes (a copy source). The permission decision checks
      * read_post for them instead of edit_post (Content_Guard::input_denial()).
      * It is not part of the tool's advertised contract.
+     *
+     * $objects, when set, lists the WordPress objects an invocation names
+     * somewhere Content_Guard's post-id keys do not reach (an integration
+     * pack's `args`, issue #450): given the input, it returns
+     * Object_Guard::denial() entries. The permission decision checks each
+     * one's per-object capability. Not advertised either.
      */
     public function __construct(
         public string $name,
@@ -45,7 +51,8 @@ class Ability
         ?bool $read_only_hint = null,
         ?bool $destructive_hint = null,
         ?bool $idempotent_hint = null,
-        public array $read_keys = []
+        public array $read_keys = [],
+        public ?\Closure $objects = null
     ) {
         $this->read_only_hint   = $read_only_hint ?? ('read' === $operation);
         $this->destructive_hint = $destructive_hint ?? ('delete' === $operation);

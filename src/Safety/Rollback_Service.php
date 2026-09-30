@@ -328,11 +328,21 @@ class Rollback_Service
      * catch-all 'default' session is a stream of unrelated single writes
      * pruned row by row, so it is never refused.
      *
-     * @throws Mutation_Failed When a named session's undo points were pruned.
+     * A named session belongs to the user who started it (issue #450).
+     * Below manage_options a caller may roll back only their own sessions:
+     * another user's, or one started with no user and so owned by no one,
+     * is refused with the reason before anything is restored. The shared
+     * 'default' session is everyone's stream of single writes, so it is not
+     * refused as a whole; each of its rows goes through the per-post checks
+     * below, as every row does.
+     *
+     * @throws Mutation_Failed When a named session's undo points were pruned,
+     *                         or it belongs to another user.
      */
     public static function restore_session(string $session_id): int
     {
         self::$warnings = [];
+        self::assert_session_owner($session_id);
         $pruned = Snapshot_Store::is_loose_session($session_id) ? 0 : Snapshot_Store::pruned_rows_for_session($session_id);
         if ($pruned > 0) {
             throw new Mutation_Failed(sprintf(
@@ -486,6 +496,33 @@ class Rollback_Service
             $count++;
         }
         return $count;
+    }
+
+    /**
+     * Refuse a named session the current user did not start, unless they
+     * may manage the site. Code running with no user (cron, WP-CLI without
+     * --user, a tool undoing its own run) is not acting for anyone and is
+     * not refused, like refused_post(). A session with no undo points left
+     * is left to restore_session()'s own pruned or unknown answer.
+     *
+     * @throws Mutation_Failed When the session belongs to someone else.
+     */
+    private static function assert_session_owner(string $session_id): void
+    {
+        $user = get_current_user_id();
+        if (0 === $user || Snapshot_Store::is_loose_session($session_id) || current_user_can('manage_options')) {
+            return;
+        }
+        $owner = Snapshot_Store::session_owner($session_id);
+        if (null === $owner || $owner === $user) {
+            return;
+        }
+        throw new Mutation_Failed(sprintf(
+            0 === $owner
+                ? 'Session "%s" has no recorded owner (it was written outside any user account), so only a site administrator can roll it back. Nothing was restored.'
+                : 'Session "%s" was started by another user, so only they or a site administrator can roll it back. Nothing was restored.',
+            esc_html($session_id)
+        ));
     }
 
     /**

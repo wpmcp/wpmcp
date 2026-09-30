@@ -97,6 +97,7 @@ class The_Events_Calendar_Integration extends Integration_Dispatcher
             ],
             'get-event' => [
                 'mode'         => 'read',
+                'objects'      => [ 'event_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'description'  => 'Read one event: title, content, status, and its curated schedule (start/end date, UTC start, all-day flag, venue and organizer ids, cost, URL)',
                 'input_schema' => [
                     'type'       => 'object',

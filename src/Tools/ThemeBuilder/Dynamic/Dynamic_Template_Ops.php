@@ -83,6 +83,7 @@ class Dynamic_Template_Ops
             ],
             'preview-dynamic-template' => [
                 'mode'         => 'read',
+                'objects'      => ['template_id' => ['type' => 'post', 'own_type' => true], 'post_id' => 'post'],
                 'tier'         => 'pro',
                 'capability'   => 'manage_options',
                 'description'  => 'Render a stored dynamic template with its bindings resolved against post_id (a loop repeats over recent posts of that post type), without changing the site',
@@ -117,6 +118,7 @@ class Dynamic_Template_Ops
             ],
             'update-dynamic-template'  => [
                 'mode'         => 'write',
+                'objects'      => ['template_id' => ['type' => 'post', 'own_type' => true]],
                 'tier'         => 'pro',
                 'capability'   => 'manage_options',
                 'description'  => 'Edit a dynamic template\'s title, content, conditions or priority; omitted fields are kept and the context is fixed. Snapshot-first: operation_id rolls it back',

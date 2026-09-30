@@ -29,6 +29,7 @@ class ACF_Batch_Update
     {
         return [
             'mode'               => 'write',
+            'objects'            => [ 'updates.*.post_id' => 'post' ],
             'tier'               => 'pro',
             'description'        => 'Set ACF field values on many posts at once. Every value is validated first and one invalid value refuses the whole batch. Each post is snapshotted under one session_id (returned), so rollback-session undoes the batch. Disabled by default (wpmcp_enable_acf_write filter)',
             'enabled_by_default' => (bool) apply_filters('wpmcp_enable_acf_write', false),

@@ -83,6 +83,21 @@ if (! defined('ABSPATH')) {
  *                           'operation_ids' => [...]]; the response carries
  *                           the session_id, so one rollback-session undoes
  *                           the whole call
+ *      'objects'            args key => object kind, for every args key
+ *                           that names a WordPress object by id (issue
+ *                           #450): 'post', 'term', 'user', 'comment',
+ *                           'order' or 'entry'. A key inside a list of
+ *                           objects is written 'updates.*.post_id'. The
+ *                           value may instead be ['type' => kind, 'access'
+ *                           => 'read'|'write'|'delete' (default: from the
+ *                           op's mode), 'own_type' => true for a post key
+ *                           the op only accepts as its host plugin's own
+ *                           post type, 'capability' => the plugin's entry
+ *                           capability (default: the op's)]. Both halves'
+ *                           permission decision then checks the matching
+ *                           per-object capability for each id through
+ *                           Object_Guard, before the op runs, so a pack
+ *                           cannot forget it. See declared_objects()
  *      'tier'               'free' (default) or another tier. An op whose
  *                           tier Registrar::tier_permitted() refuses on this
  *                           install is left out of the catalog and of
@@ -201,7 +216,8 @@ abstract class Integration_Dispatcher
             [ $this, 'handle_read' ],
             $this->capability(),
             $this->domain(),
-            'read'
+            'read',
+            objects: \Closure::fromCallable([ $this, 'named_objects' ])
         );
 
         $write = new Ability(
@@ -217,7 +233,8 @@ abstract class Integration_Dispatcher
             $this->domain(),
             'update',
             null,
-            $has_destructive ? true : null
+            $has_destructive ? true : null,
+            objects: \Closure::fromCallable([ $this, 'named_objects' ])
         );
 
         return [ $read, $write ];
@@ -263,6 +280,95 @@ abstract class Integration_Dispatcher
             'available'   => $this->is_available(),
             'operations'  => $ops,
         ];
+    }
+
+    /**
+     * Every op's declared objects (the 'objects' key, issue #450),
+     * normalized: op name => ['mode' => ..., 'objects' => [args key path =>
+     * ['type', 'access', 'own_type', 'capability']]]. Ops that name no
+     * object are left out.
+     *
+     * @return array<string, array{mode: string, objects: array<string, array{type: string, access: string, own_type: bool, capability: string}>}>
+     */
+    public function declared_objects(): array
+    {
+        $out = [];
+        foreach ($this->permitted_operations() as $name => $def) {
+            if (empty($def['objects']) || ! is_array($def['objects'])) {
+                continue;
+            }
+            $mode    = (string) ($def['mode'] ?? '');
+            $access  = [ 'read' => 'read', 'destructive' => 'delete' ][ $mode ] ?? 'write';
+            $objects = [];
+            foreach ($def['objects'] as $path => $spec) {
+                $spec                      = is_array($spec) ? $spec : [ 'type' => (string) $spec ];
+                $objects[ (string) $path ] = [
+                    'type'       => (string) ($spec['type'] ?? ''),
+                    'access'     => (string) ($spec['access'] ?? $access),
+                    'own_type'   => ! empty($spec['own_type']),
+                    'capability' => (string) ($spec['capability'] ?? ($def['capability'] ?? $this->capability())),
+                ];
+            }
+            $out[ (string) $name ] = [ 'mode' => $mode, 'objects' => $objects ];
+        }
+        return $out;
+    }
+
+    /**
+     * The objects one invocation of either half names in its args, for
+     * Object_Guard (Ability::$objects). Values that are not numeric ids are
+     * left to schema validation, which refuses them before the op runs.
+     *
+     * @param array<string, mixed> $input The dispatcher ability's input.
+     * @return array<int, array<string, mixed>>
+     */
+    public function named_objects(array $input): array
+    {
+        $declared = $this->declared_objects()[ (string) ($input['operation'] ?? '') ] ?? null;
+        if (null === $declared) {
+            return [];
+        }
+        $out = [];
+        foreach ($declared['objects'] as $path => $spec) {
+            foreach (self::values_at($input['args'] ?? [], explode('.', $path)) as $value) {
+                foreach ((array) $value as $id) {
+                    if (is_numeric($id)) {
+                        $out[] = $spec + [ 'id' => (int) $id ];
+                    }
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The values at a key path in decoded args; '*' walks every item of a
+     * list.
+     *
+     * @param mixed    $data
+     * @param string[] $parts
+     * @return array<int, mixed>
+     */
+    private static function values_at($data, array $parts): array
+    {
+        if ([] === $parts) {
+            return [ $data ];
+        }
+        if (is_object($data)) {
+            $data = get_object_vars($data);
+        }
+        if (! is_array($data)) {
+            return [];
+        }
+        $part = array_shift($parts);
+        if ('*' === $part) {
+            $out = [];
+            foreach ($data as $item) {
+                $out = array_merge($out, self::values_at($item, $parts));
+            }
+            return $out;
+        }
+        return array_key_exists($part, $data) ? self::values_at($data[ $part ], $parts) : [];
     }
 
     /**
