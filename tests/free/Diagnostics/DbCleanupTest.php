@@ -267,6 +267,25 @@ class DbCleanupTest extends \WP_UnitTestCase
         $this->assertSame([ $term ], wp_get_post_categories($trash));
     }
 
+    public function test_rows_two_categories_share_are_snapshotted_once(): void
+    {
+        [ $post, $revisions ] = $this->post_with_revisions(3);
+        wp_trash_post($post);
+        update_post_meta($post, '_wp_trash_meta_time', time() - 40 * DAY_IN_SECONDS);
+        $before = $this->state();
+
+        $out = (new Delete_Transient())->handle([ 'cleanup' => [ 'revisions', 'trash' ], 'keep' => 1, 'dry_run' => false, 'confirm' => true ]);
+
+        $this->assertFalse($this->post_exists($post));
+        foreach ($revisions as $id) {
+            $this->assertFalse($this->post_exists($id));
+        }
+        Rollback_Service::take_warnings();
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assertSame([], Rollback_Service::take_warnings());
+        $this->assertSame($before, $this->state());
+    }
+
     public function test_item_cap_returns_a_cursor_and_the_next_call_continues(): void
     {
         $ids = [ $this->spam_comment(), $this->spam_comment(), $this->spam_comment() ];
