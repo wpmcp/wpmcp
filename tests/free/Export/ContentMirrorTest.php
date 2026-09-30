@@ -243,6 +243,17 @@ class ContentMirrorTest extends \WP_UnitTestCase
                     update_post_meta($id, '_breakdance_data', wp_slash(self::breakdance_meta('Edited')));
                 },
             ],
+            // Breakdance 1.x stores the same row without the underscore (#457).
+            'breakdance 1.x' => [
+                static function (self $t): int {
+                    $id = $t->page();
+                    $t->raw_meta($id, 'breakdance_data', self::breakdance_meta('Welcome to C:\\Sites\\bd1, "hi"'));
+                    return $id;
+                },
+                static function (self $t, int $id): void {
+                    update_post_meta($id, 'breakdance_data', wp_slash(self::breakdance_meta('Edited')));
+                },
+            ],
             'avada'          => [
                 static function (self $t): int {
                     $id = $t->page("[fusion_builder_container type=\"flex\"][fusion_builder_row][fusion_builder_column type=\"1_1\"]\n[fusion_text]<p>Welcome to C:\\Sites\\avada</p>[/fusion_text]\n[fusion_separator style_type=\"default\" /][/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]");
