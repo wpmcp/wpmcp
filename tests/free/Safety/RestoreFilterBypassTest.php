@@ -5,6 +5,9 @@ namespace WPMCP\Tests\Free\Safety;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Comments\Edit_Comment;
+use WPMCP\Tools\Content\Delete_Post;
+use WPMCP\Tools\Content\Post_Stage;
+use WPMCP\Tools\Content\Update_Post;
 use WPMCP\Tools\Terms\Update_Term;
 use WPMCP\Tools\Users\Update_User;
 
@@ -147,5 +150,178 @@ class RestoreFilterBypassTest extends \WP_UnitTestCase
 
         $this->assertSame(self::NAME, get_userdata($user_id)->display_name);
         $this->assertSame(10, has_filter('pre_user_display_name', 'sanitize_text_field'));
+    }
+
+    /** Post HTML that kses rewrites for a user without unfiltered_html. */
+    private const POST_MARKUP = self::MARKUP . "\n<iframe src=\"https://example.org/x\"></iframe>";
+
+    /** A title that wp_filter_kses rewrites. */
+    private const POST_TITLE = 'Title <b>B</b> & 1 < 2 <script>x</script>';
+
+    /** Footnotes meta whose content kses rewrites, JSON encoded the way the editor stores it. */
+    private const FOOTNOTES = '[{"content":"1 < 2 <iframe src=\"https:\/\/example.org\/x\"><\/iframe>","id":"fn-1"}]';
+
+    private function author(): int
+    {
+        $author = self::factory()->user->create(['role' => 'author']);
+        $this->assertFalse(user_can($author, 'unfiltered_html'));
+        return $author;
+    }
+
+    /** A post owned by $author holding markup kses would rewrite, stored verbatim. */
+    private function raw_post(int $author): int
+    {
+        global $wpdb;
+        $post_id = self::factory()->post->create(['post_author' => $author, 'post_status' => 'publish']);
+        $wpdb->update($wpdb->posts, [
+            'post_content' => self::POST_MARKUP,
+            'post_excerpt' => self::POST_MARKUP,
+            'post_title'   => self::POST_TITLE,
+        ], ['ID' => $post_id]);
+        $wpdb->insert($wpdb->postmeta, ['post_id' => $post_id, 'meta_key' => 'footnotes', 'meta_value' => self::FOOTNOTES]);
+        clean_post_cache($post_id);
+        wp_cache_delete($post_id, 'post_meta');
+        return $post_id;
+    }
+
+    private function assert_post_is_raw(int $post_id): void
+    {
+        clean_post_cache($post_id);
+        wp_cache_delete($post_id, 'post_meta');
+        $post = get_post($post_id);
+        $this->assertSame(self::POST_MARKUP, $post->post_content);
+        $this->assertSame(self::POST_MARKUP, $post->post_excerpt);
+        $this->assertSame(self::POST_TITLE, $post->post_title);
+        $this->assertSame([self::FOOTNOTES], get_post_meta($post_id, 'footnotes'));
+    }
+
+    private function assert_post_filters_hooked(): void
+    {
+        $this->assertSame(10, has_filter('content_save_pre', 'wp_filter_post_kses'));
+        $this->assertSame(10, has_filter('excerpt_save_pre', 'wp_filter_post_kses'));
+        $this->assertSame(10, has_filter('title_save_pre', 'wp_filter_kses'));
+        $this->assertSame(10, has_filter('sanitize_post_meta_footnotes', '_wp_filter_post_meta_footnotes'));
+    }
+
+    public function test_post_rollback_by_an_author_restores_markup_byte_for_byte(): void
+    {
+        $author  = $this->author();
+        $post_id = $this->raw_post($author);
+        wp_set_current_user($author);
+        $this->assert_post_filters_hooked();
+        // The markup is something kses would change, or this proves nothing.
+        $this->assertNotSame(self::POST_MARKUP, wp_unslash(wp_filter_post_kses(wp_slash(self::POST_MARKUP))));
+        $this->assertNotSame(self::POST_TITLE, wp_unslash(wp_filter_kses(wp_slash(self::POST_TITLE))));
+
+        $out = (new Update_Post())->handle([
+            'post_id' => $post_id,
+            'title'   => 'Plain',
+            'content' => 'plain',
+            'excerpt' => 'plain',
+            'meta'    => ['footnotes' => '[]'],
+        ]);
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+
+        $this->assert_post_is_raw($post_id);
+        $this->assert_post_filters_hooked();
+    }
+
+    public function test_force_deleted_post_rollback_by_an_author_restores_markup_byte_for_byte(): void
+    {
+        $author  = $this->author();
+        $post_id = $this->raw_post($author);
+        wp_set_current_user($author);
+        add_filter('wpmcp_enable_delete_post', '__return_true');
+
+        $out = (new Delete_Post())->handle(['post_id' => $post_id, 'force' => true, 'confirm' => true]);
+        $this->assertNull(get_post($post_id));
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+
+        $this->assert_post_is_raw($post_id);
+        $this->assert_post_filters_hooked();
+    }
+
+    public function test_stage_publish_rollback_by_an_author_restores_markup_byte_for_byte(): void
+    {
+        $author   = $this->author();
+        $post_id  = $this->raw_post($author);
+        $stage_id = self::factory()->post->create(['post_author' => $author, 'post_status' => 'draft', 'post_content' => 'staged']);
+        Post_Stage::link($stage_id, $post_id);
+        wp_set_current_user($author);
+
+        $out = Post_Stage::publish($stage_id, ['force' => true]);
+        $this->assertSame('staged', get_post($post_id)->post_content);
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+
+        $this->assert_post_is_raw($post_id);
+    }
+
+    public function test_normal_post_updates_by_the_author_are_still_filtered(): void
+    {
+        $author  = $this->author();
+        $post_id = $this->raw_post($author);
+        wp_set_current_user($author);
+
+        $out = (new Update_Post())->handle(['post_id' => $post_id, 'content' => 'x']);
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assert_post_is_raw($post_id);
+
+        // The very next ordinary write by the same user goes through kses.
+        (new Update_Post())->handle([
+            'post_id' => $post_id,
+            'title'   => self::POST_TITLE,
+            'content' => self::POST_MARKUP,
+            'excerpt' => self::POST_MARKUP,
+            'meta'    => ['footnotes' => self::FOOTNOTES],
+        ]);
+        clean_post_cache($post_id);
+        wp_cache_delete($post_id, 'post_meta');
+        $post = get_post($post_id);
+        $this->assertStringNotContainsString('<iframe', $post->post_content);
+        $this->assertStringNotContainsString('<iframe', $post->post_excerpt);
+        $this->assertStringNotContainsString('<script', $post->post_title);
+        $this->assertStringNotContainsString('iframe', (string) get_post_meta($post_id, 'footnotes', true));
+        $this->assertNotFalse(wp_update_post(wp_slash(['ID' => $post_id, 'post_content' => self::POST_MARKUP])));
+        $this->assertNotSame(self::POST_MARKUP, get_post($post_id)->post_content);
+    }
+
+    public function test_post_filters_are_restored_when_the_post_write_throws(): void
+    {
+        $author  = $this->author();
+        $post_id = $this->raw_post($author);
+        wp_set_current_user($author);
+        $out = (new Update_Post())->handle(['post_id' => $post_id, 'content' => 'x']);
+
+        add_filter('wp_insert_post_data', [self::class, 'explode_on_update']);
+        try {
+            Rollback_Service::restore_operation($out['operation_id']);
+            $this->fail('The restore should have failed.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('update refused', $e->getMessage());
+        } finally {
+            remove_filter('wp_insert_post_data', [self::class, 'explode_on_update']);
+        }
+
+        $this->assert_post_filters_hooked();
+    }
+
+    public function test_post_meta_filters_are_restored_when_the_meta_write_throws(): void
+    {
+        $author  = $this->author();
+        $post_id = $this->raw_post($author);
+        wp_set_current_user($author);
+        $out = (new Update_Post())->handle(['post_id' => $post_id, 'meta' => ['footnotes' => '[]']]);
+
+        add_filter('add_post_metadata', [self::class, 'explode_on_update']);
+        try {
+            Rollback_Service::restore_operation($out['operation_id']);
+            $this->fail('The restore should have failed.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('update refused', $e->getMessage());
+        } finally {
+            remove_filter('add_post_metadata', [self::class, 'explode_on_update']);
+        }
+
+        $this->assert_post_filters_hooked();
     }
 }
