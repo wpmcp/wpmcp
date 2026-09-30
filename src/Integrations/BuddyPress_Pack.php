@@ -152,6 +152,7 @@ final class BuddyPress_Pack
             ],
             'buddypress-create-group'         => [
                 'mode'         => 'write',
+                'objects'      => [ 'creator_id' => [ 'type' => 'user', 'access' => 'read' ] ],
                 'capability'   => 'manage_options',
                 'description'  => 'Create a BuddyPress group (name, description, status public/private/hidden, default public; creator_id defaults to you and becomes its admin). The slug is made unique. Snapshotted; rollback-operation removes it',
                 'input_schema' => [

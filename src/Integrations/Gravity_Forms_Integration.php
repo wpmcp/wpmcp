@@ -197,6 +197,7 @@ class Gravity_Forms_Integration extends Forms_Integration
             ],
             'get-entry' => [
                 'mode'         => 'read',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Read a single entry (all field values plus meta) by entry id. Requires manage_options because entries are user data',
                 'input_schema' => [
@@ -213,6 +214,7 @@ class Gravity_Forms_Integration extends Forms_Integration
             ],
             'get-notes' => [
                 'mode'         => 'read',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'List the notes attached to an entry. Requires manage_options because notes are part of the entry',
                 'input_schema' => [
@@ -229,6 +231,7 @@ class Gravity_Forms_Integration extends Forms_Integration
             ],
             'update-entry-status' => [
                 'mode'         => 'write',
+                'objects'      => [ 'entry_id' => 'entry' ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'description'  => 'Move one entry between active, spam, and trash through GFAPI::update_entry_property(), the way Gravity Forms\' entry screen does. Snapshotted first (a before-image of the entry row) and restorable with rollback-operation. Requires manage_options',
                 'input_schema' => [

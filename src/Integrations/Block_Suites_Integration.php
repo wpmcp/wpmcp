@@ -125,6 +125,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
             ],
             'insert-block'      => [
                 'mode'              => 'write',
+                'objects'           => [ 'id' => 'post' ],
                 'tier'              => 'pro',
                 'self_snapshotting' => true,
                 'description'       => 'Insert one suite block, given as block markup (it may contain inner blocks), AT path in post id; expected_hash is the content_hash from parse-blocks. Attributes are checked against the block schema. A missing, duplicate or foreign unique id is generated the way the suite\'s editor does and replaces the old id or the __UNIQUE_ID__ placeholder in that block\'s markup; GenerateBlocks css is compiled from styles. Snapshotted: rollback-operation restores the post exactly and the suite CSS is rebuilt',
@@ -138,6 +139,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
             ],
             'update-block'      => [
                 'mode'              => 'write',
+                'objects'           => [ 'id' => 'post' ],
                 'tier'              => 'pro',
                 'self_snapshotting' => true,
                 'description'       => 'Update the suite block at path: attrs are MERGED into its attributes (null removes one) and checked against the schema; the unique id cannot change. inner_html replaces a leaf block\'s markup. GenerateBlocks css is recompiled when styles change. Snapshotted like insert-block',
@@ -172,6 +174,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
             ],
             'import-pattern'    => [
                 'mode'              => 'write',
+                'objects'           => [ 'id' => 'post' ],
                 'tier'              => 'pro',
                 'self_snapshotting' => true,
                 'description'       => 'Insert registered pattern name (or a directory:<id> or spectra:<id> from list-patterns) AT path in post id (expected_hash from parse-blocks). Suite unique ids are made unique in the post as insert-block does. Remote images are sideloaded through the remote media host allowlist and their urls (and attachment ids) rewritten; others are kept and reported. sideload_images:false keeps all. One snapshot; rollback-operation restores the post (sideloaded media stays)',

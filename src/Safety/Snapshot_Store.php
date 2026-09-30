@@ -185,6 +185,21 @@ class Snapshot_Store
         return $row;
     }
 
+    /**
+     * The user who started a session: the user_id recorded on its first
+     * undo point (issue #450). Every undo point has recorded the user who
+     * wrote it since the table was created, so this needs no migration. 0
+     * when that point was written with no user (cron, WP-CLI without
+     * --user), and null when the session has no undo points left.
+     */
+    public static function session_owner(string $session_id): ?int
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; ownership must be read live.
+        $owner = $wpdb->get_var($wpdb->prepare('SELECT user_id FROM %i WHERE session_id = %s ORDER BY id ASC LIMIT 1', self::table_name(), $session_id));
+        return null === $owner ? null : (int) $owner;
+    }
+
     public static function list_by_session(string $session_id): array
     {
         global $wpdb;
