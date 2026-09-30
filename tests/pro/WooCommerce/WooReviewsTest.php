@@ -4,6 +4,7 @@ namespace WPMCP\Tests\Pro\WooCommerce;
 
 use WPMCP\Governance\Governance;
 use WPMCP\Pro\Gate;
+use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Rollback_Operation;
@@ -418,8 +419,14 @@ class WooReviewsTest extends \WP_UnitTestCase
         $rolled = (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
         $this->assertFalse($rolled['restored'], wp_json_encode($rolled));
         $this->assertStringContainsString('edit_product', wp_json_encode($rolled['warnings']));
-        $session = (new Rollback_Session())->handle(['session_id' => 'review-348']);
-        $this->assertSame(0, $session['restored_count'], wp_json_encode($session));
+        // The session is not the editor's own, so it is refused outright
+        // (issue #450), and nothing is restored.
+        try {
+            (new Rollback_Session())->handle(['session_id' => 'review-348']);
+            $this->fail('Another user\'s session was rolled back');
+        } catch (Mutation_Failed $e) {
+            $this->assertStringContainsString('another user', $e->getMessage());
+        }
         $this->assertSame($after, $this->state($review));
 
         // A shop manager has both, and the undo still restores exactly.

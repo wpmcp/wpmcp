@@ -210,7 +210,7 @@ class Forminator_Integration extends Forms_Integration
             ],
             'delete-entry' => [
                 'mode'               => 'destructive',
-                'objects'            => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ], 'entry_id' => 'entry' ],
+                'objects'            => [ 'form_id' => [ 'type' => 'post', 'own_type' => true, 'access' => 'read' ], 'entry_id' => 'entry' ],
                 // Issue #66: entry deletion is off by default across every
                 // forms adapter. A site opts in with the
                 // wpmcp_integration_op_enabled filter.

@@ -90,7 +90,10 @@ class PiiSnapshotRestoreGuardTest extends \WP_UnitTestCase
     public function test_a_session_rollback_skips_the_pii_snapshot_it_may_not_restore(): void
     {
         $ordinary = self::factory()->post->create([ 'post_content' => 'before' ]);
-        $this->delete_entry_with_snapshot();
+        // The editor starts the session (it is theirs to roll back, issue
+        // #450) and an administrator's entry delete then lands in it.
+        $editor = self::factory()->user->create([ 'role' => 'editor' ]);
+        wp_set_current_user($editor);
         Safe_Mutation::run(
             [
                 'object_type' => 'post',
@@ -101,8 +104,9 @@ class PiiSnapshotRestoreGuardTest extends \WP_UnitTestCase
             ],
             static fn () => wp_update_post([ 'ID' => $ordinary, 'post_content' => 'after' ])
         );
+        $this->delete_entry_with_snapshot();
 
-        wp_set_current_user(self::factory()->user->create([ 'role' => 'editor' ]));
+        wp_set_current_user($editor);
         Rollback_Service::restore_session('pii-66');
 
         $this->assertSame('before', get_post($ordinary)->post_content, 'The ordinary post still unwinds');
