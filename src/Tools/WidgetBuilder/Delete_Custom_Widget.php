@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\WidgetBuilder;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -51,7 +52,7 @@ class Delete_Custom_Widget
                 'args'        => $args,
             ],
             static function () use ($id): void {
-                wp_trash_post($id);
+                Save_Filters::trash_post($id);
             }
         );
 

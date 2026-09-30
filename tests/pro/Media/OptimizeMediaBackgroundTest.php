@@ -3,6 +3,7 @@
 namespace WPMCP\Tests\Pro\Media;
 
 use WPMCP\Safety\Rollback_Service;
+use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Media\Optimize_Media;
 use WPMCP\Tools\Media\Optimize_Media_Job;
@@ -137,6 +138,40 @@ class OptimizeMediaBackgroundTest extends \WP_UnitTestCase
             }
         }
         $this->assertSame('completed', $this->status($out['job_id'])['status']);
+
+        Rollback_Service::restore_session($out['session_id']);
+
+        foreach ($ids as $i => $id) {
+            $this->assertSame($before[ $i ], $this->file_hashes($id), "attachment {$id} not restored");
+        }
+    }
+
+    /**
+     * Issue #439: once the run has finished nothing holds pruning any more,
+     * and the flat cap used to delete most of the run's undo points on the
+     * next writes. The finished run is one session and stays whole.
+     */
+    public function test_writes_after_a_finished_run_do_not_prune_the_runs_undo_points(): void
+    {
+        $ids    = [$this->upload_image(), $this->upload_image(), $this->upload_image()];
+        $before = array_map([$this, 'file_hashes'], $ids);
+        add_filter('wpmcp_optimize_media_batch_size', static fn () => 1);
+        add_filter('wpmcp_snapshot_history_limit', static fn () => 1);
+
+        $out = (new Optimize_Media())->handle(['background' => true, 'quality' => 40]);
+        for ($i = 0; $i < 3; $i++) {
+            $this->tick($out['job_id']);
+        }
+        $this->assertSame('completed', $this->status($out['job_id'])['status']);
+        $this->assertFalse(Optimize_Media_Job::holds_pruning(false));
+
+        $post = self::factory()->post->create();
+        foreach (['default', 'after-run-a', 'default', 'after-run-b'] as $i => $session) {
+            Safe_Mutation::run(
+                ['object_type' => 'post', 'object_id' => $post, 'session_id' => $session, 'tool_name' => 'update-post', 'args' => [$i]],
+                static fn () => wp_update_post(['ID' => $post, 'post_content' => "after {$i}"])
+            );
+        }
 
         Rollback_Service::restore_session($out['session_id']);
 

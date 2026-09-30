@@ -2,6 +2,8 @@
 
 namespace WPMCP\Memory;
 
+use WPMCP\Safety\Save_Filters;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -141,7 +143,7 @@ class Memory_Store
         if (! self::is_entry($id)) {
             return false;
         }
-        wp_update_post(['ID' => $id, 'post_status' => 'publish']);
+        Save_Filters::set_post_status($id, 'publish');
         self::flush_rules_cache();
         return true;
     }
@@ -152,7 +154,7 @@ class Memory_Store
         if (! self::is_entry($id)) {
             return false;
         }
-        wp_update_post(['ID' => $id, 'post_status' => 'pending']);
+        Save_Filters::set_post_status($id, 'pending');
         self::flush_rules_cache();
         return true;
     }

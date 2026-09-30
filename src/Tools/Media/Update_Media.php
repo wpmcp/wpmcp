@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Media;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -52,7 +53,7 @@ class Update_Media
                     $updated[]               = 'description';
                 }
                 if (count($postarr) > 1) {
-                    wp_update_post(wp_slash($postarr));
+                    Save_Filters::update_post(wp_slash($postarr));
                 }
                 if (array_key_exists('alt', $args)) {
                     update_post_meta($media_id, '_wp_attachment_image_alt', wp_slash(sanitize_text_field((string) $args['alt'])));

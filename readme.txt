@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.119
+Stable tag: 0.8.121
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -45,7 +45,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 
 = Free vs Pro =
 
-The free plugin is fully functional: the MCP server, the safety core, snapshots and rollback, Gutenberg building, and the integration read tools. Snapshot history keeps the last 20 operations on every install, free and Pro alike, and the `wpmcp_snapshot_history_limit` filter raises or lowers that number on any site at no cost.
+The free plugin is fully functional: the MCP server, the safety core, snapshots and rollback, Gutenberg building, and the integration read tools. Snapshot history keeps the last 20 operations on every install, free and Pro alike, and the `wpmcp_snapshot_history_limit` filter raises or lowers that number on any site at no cost. A bulk run recorded under one session is kept or dropped as a whole: the most recent run stays fully undoable with rollback-session however large it is, and a run that has been dropped is refused with a reason instead of being undone in part.
 
 WP MCP Pro adds deep Elementor editing and building, custom widget/block builders, the forms adapter pack (Gravity Forms, WPForms, Formidable, Ninja Forms, Fluent Forms: forms, fields, notifications, entries and entry status), cloud sync for your widget and block specs, and priority support. See https://wpmcp-pro.com/pricing.html
 
@@ -105,6 +105,15 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.121 =
+* Bulk runs recorded under one session (background media optimization, product imports, multi-call database cleanups) now stay fully undoable with rollback-session after later changes on the site: snapshot history keeps or drops a session as a whole instead of cutting it to the history limit.
+* The most recent run is always kept whole, whatever its size, and ordinary single changes still keep the last 20 (or your wpmcp_snapshot_history_limit) as before.
+* rollback-session now refuses, with the reason, a session whose undo points were pruned, instead of silently undoing only part of it.
+
+= 0.8.120 =
+* Changing a site part, custom widget, custom block or memory entry status, moving content to the trash, or editing only a title, status or meta field no longer rewrites the stored content, excerpt or title for users without the unfiltered_html capability.
+* Status transition hooks still fire as before, and fields a tool does change are still filtered.
 
 = 0.8.119 =
 * Pro: optimize-media can now run over the whole Media Library in the background, with progress you can check and one undo for the entire run.
@@ -616,6 +625,12 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.121 =
+Bulk runs recorded under one session (background media optimization, product imports, multi-call database cleanups) now stay fully undoable with rollback-session after later changes on the site: snapshot history keeps or drops a session as a whole instead of cutting it to the history limit.
+
+= 0.8.120 =
+Changing a site part, custom widget, custom block or memory entry status, moving content to the trash, or editing only a title, status or meta field no longer rewrites the stored content, excerpt or title for users without the unfiltered_html capability.
 
 = 0.8.119 =
 Pro: optimize-media can now run over the whole Media Library in the background, with progress you can check and one undo for the entire run.

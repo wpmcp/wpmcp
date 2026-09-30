@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\WidgetBuilder;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Tools\WidgetBuilder\Compiler\Compile_Custom_Widget;
 use WPMCP\Tools\WidgetBuilder\Compiler\Compiled_Widget_Manifest;
 
@@ -58,7 +59,7 @@ class Set_Widget_Status
                 'extra_snapshot_data' => $has ? ['compiled_widget_entry' => Compiled_Widget_Manifest::capture_entry($id)] : [],
             ],
             static function () use ($id, $status, $has, $enable, $allowed) {
-                wp_update_post(['ID' => $id, 'post_status' => $status]);
+                Save_Filters::set_post_status($id, $status);
                 if (! $has) {
                     return null;
                 }

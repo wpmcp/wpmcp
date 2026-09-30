@@ -429,6 +429,46 @@ class ContentMirrorTest extends \WP_UnitTestCase
         $this->restore($id);
     }
 
+    /**
+     * Issue #439: restoring many pages under one session_id is one run, and
+     * rollback-session undoes every restore even past the history limit and
+     * after other writes.
+     */
+    public function test_restores_under_one_session_roll_back_whole_after_later_writes(): void
+    {
+        $limit = static fn () => 2;
+        add_filter('wpmcp_snapshot_history_limit', $limit);
+        try {
+            $ids = [];
+            for ($i = 0; $i < 4; $i++) {
+                $id = $this->page("<!-- wp:paragraph -->\n<p>original {$i}</p>\n<!-- /wp:paragraph -->");
+                $this->export(['post_id' => $id]);
+                wp_update_post(['ID' => $id, 'post_content' => "<!-- wp:paragraph -->\n<p>edited {$i}</p>\n<!-- /wp:paragraph -->"]);
+                $ids[] = $id;
+            }
+            foreach ($ids as $id) {
+                $this->restore($id, ['session_id' => 'mirror-439']);
+            }
+            $this->assertStringContainsString('original 0', get_post($ids[0])->post_content);
+
+            $other = $this->page('x');
+            foreach (['default', 'after-mirror', 'default'] as $i => $session) {
+                \WPMCP\Safety\Safe_Mutation::run(
+                    ['object_type' => 'post', 'object_id' => $other, 'session_id' => $session, 'tool_name' => 'update-post', 'args' => [$i]],
+                    static fn () => wp_update_post(['ID' => $other, 'post_content' => "after {$i}"])
+                );
+            }
+
+            Rollback_Service::restore_session('mirror-439');
+            foreach ($ids as $i => $id) {
+                clean_post_cache($id);
+                $this->assertStringContainsString("edited {$i}", get_post($id)->post_content, "page {$id} not rolled back");
+            }
+        } finally {
+            remove_filter('wpmcp_snapshot_history_limit', $limit);
+        }
+    }
+
     public function test_restore_does_not_need_the_wxr_import_opt_in(): void
     {
         $this->assertFalse(Import_Content::is_enabled());

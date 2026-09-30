@@ -35,7 +35,7 @@ class SnapshotRetentionFloorTest extends \WP_UnitTestCase
         for ($i = 0; $i < $count; $i++) {
             Snapshot_Store::save(
                 "op-floor-{$i}",
-                'sess',
+                'default',
                 ['object_type' => 'post', 'object_id' => $i, 'data' => ['post' => null, 'meta' => []]],
                 'update-blocks',
                 str_repeat('a', 64)

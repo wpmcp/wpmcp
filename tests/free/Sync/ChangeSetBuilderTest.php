@@ -312,14 +312,15 @@ class ChangeSetBuilderTest extends \WP_UnitTestCase
         for ($i = 0; $i < 19; $i++) {
             $this->note("other-{$i}", 'other', 'post', $other);
         }
-        // 22 rows, keep 20: the two oldest, both from 'long', are discarded.
-        $this->assertSame(2, Snapshot_Store::prune(20));
+        // 22 rows, keep 20: 'long' no longer fits and, since issue #439, a
+        // named session is dropped whole rather than cut to the cap.
+        $this->assertSame(3, Snapshot_Store::prune(20));
 
         $set = (new Change_Set_Builder())->build(['session_id' => 'long']);
 
-        $this->assertCount(1, $set['objects'], 'The surviving row still exports');
+        $this->assertCount(0, $set['objects'], 'Nothing of a dropped session is left to export');
         $this->assertTrue($set['truncated']['truncated']);
-        $this->assertStringContainsString('2 ledger row(s)', (string) $set['truncated']['reason']);
+        $this->assertStringContainsString('3 ledger row(s)', (string) $set['truncated']['reason']);
         $this->assertStringContainsString('pruned', (string) $set['truncated']['reason']);
     }
 

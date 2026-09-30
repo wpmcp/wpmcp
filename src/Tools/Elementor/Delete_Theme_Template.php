@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Elementor;
 
+use WPMCP\Safety\Save_Filters;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -23,7 +25,7 @@ class Delete_Theme_Template
             return new \WP_Error('not_a_template', "Post {$post_id} is not an elementor_library template.");
         }
 
-        wp_trash_post($post_id);
+        Save_Filters::trash_post($post_id);
 
         return [
             'template_id' => $post_id,
