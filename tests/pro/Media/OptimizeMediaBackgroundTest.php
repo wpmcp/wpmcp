@@ -3,6 +3,7 @@
 namespace WPMCP\Tests\Pro\Media;
 
 use WPMCP\Safety\Rollback_Service;
+use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Media\Optimize_Media;
 use WPMCP\Tools\Media\Optimize_Media_Job;
 
@@ -118,6 +119,41 @@ class OptimizeMediaBackgroundTest extends \WP_UnitTestCase
             $this->assertFileDoesNotExist(get_attached_file($id) . '.webp');
             $this->assertSame('', get_post_meta($id, Optimize_Media::META_KEY, true));
         }
+    }
+
+    public function test_writes_between_runs_do_not_prune_the_runs_undo_points(): void
+    {
+        $ids    = [$this->upload_image(), $this->upload_image(), $this->upload_image()];
+        $before = array_map([$this, 'file_hashes'], $ids);
+        add_filter('wpmcp_optimize_media_batch_size', static fn () => 1);
+        add_filter('wpmcp_snapshot_history_limit', static fn () => 1);
+
+        $out = (new Optimize_Media())->handle(['background' => true, 'quality' => 40]);
+        for ($i = 0; $i < 3; $i++) {
+            $this->tick($out['job_id']);
+            // Any other write on the site between two cron runs prunes.
+            Snapshot_Store::prune();
+        }
+        $this->assertSame('completed', $this->status($out['job_id'])['status']);
+
+        Rollback_Service::restore_session($out['session_id']);
+
+        foreach ($ids as $i => $id) {
+            $this->assertSame($before[ $i ], $this->file_hashes($id), "attachment {$id} not restored");
+        }
+    }
+
+    public function test_a_stalled_job_does_not_hold_pruning_forever(): void
+    {
+        $this->upload_image();
+        $job_id = (new Optimize_Media())->handle(['background' => true])['job_id'];
+        $this->assertTrue(Optimize_Media_Job::holds_pruning(false));
+
+        $stored = get_option(Optimize_Media_Job::OPTION);
+        $stored['jobs'][ $job_id ]['updated_at'] = time() - 2 * HOUR_IN_SECONDS;
+        update_option(Optimize_Media_Job::OPTION, $stored);
+
+        $this->assertFalse(Optimize_Media_Job::holds_pruning(false));
     }
 
     public function test_a_running_job_can_be_cancelled_and_stops(): void
