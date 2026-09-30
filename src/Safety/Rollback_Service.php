@@ -161,6 +161,12 @@ class Rollback_Service
         if ('buddypress_rows' === $type) {
             return [ [ 'manage_options' ] ];
         }
+        // A database cleanup's rows are raw core table rows (comments with
+        // their authors' emails and IPs, user meta), and the cleanup takes
+        // manage_options, so restoring one takes it too (issue #414).
+        if ('db_cleanup' === $type) {
+            return [ [ 'manage_options' ] ];
+        }
         // An option snapshot may name the capability its restore needs: a
         // payment gateway's settings option holds the gateway's credentials,
         // so restoring it takes the capability its write required (issue #292).
@@ -277,7 +283,7 @@ class Rollback_Service
             // session's whole-zone snapshots are put back first, newest first.
             // BuddyPress rows (issue #354) too: a create's undo removes the
             // group only while it still has the slug the create wrote.
-            if (in_array($snapshot['object_type'], [ Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE, 'buddypress_rows' ], true) && ! self::may_restore($snapshot)) {
+            if (in_array($snapshot['object_type'], [ Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE, 'buddypress_rows', 'db_cleanup' ], true) && ! self::may_restore($snapshot)) {
                 self::warn(sprintf(
                     'snapshot %s skipped: restoring it requires the "%s" capability.',
                     self::object_identity($snapshot),
@@ -288,7 +294,9 @@ class Rollback_Service
             // Plugin table rows (Pods table storage, TranslatePress
             // dictionary rows, issue #299) too: each covers only the ids ONE
             // write named, and two writes can name overlapping sets.
-            if (in_array($snapshot['object_type'], [ 'db_rows', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)) {
+            // A database cleanup (issue #414) too: each call's snapshot holds
+            // only the rows that call deleted, one bounded batch of many.
+            if (in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)) {
                 self::apply_snapshot($snapshot);
                 $count++;
                 continue;
@@ -875,6 +883,7 @@ class Rollback_Service
             'redirection_item',
             'plugin_table_rows',
             'buddypress_rows',
+            'db_cleanup',
             'wc_tax_rate',
             'php_snippet',
             'page_build',
@@ -1055,6 +1064,12 @@ class Rollback_Service
         // Plugin_Table_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('plugin_table_rows' === $snapshot['object_type']) {
             Plugin_Table_Rows_Snapshot::restore($snapshot);
+            return;
+        }
+
+        // Db_Cleanup_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('db_cleanup' === $snapshot['object_type']) {
+            self::warn_if(Db_Cleanup_Snapshot::restore($snapshot));
             return;
         }
 

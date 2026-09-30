@@ -173,7 +173,14 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  run-wp-cli, export-content, get-page-snapshot, resolve-theme-template
      *  and bulk-update-products descriptions and dropping serial commas
      *  from nineteen list-style descriptions, without dropping a rule:
-     *  208982 -> 208994 bytes over 406 tools. */
+     *  208982 -> 208994 bytes over 406 tools. Database cleanup (#414) added
+     *  no tool: it is a cleanup list with keep, days, dry_run, confirm and
+     *  cursor on delete-transient (name no longer required), paid for by
+     *  rewording "Undoable via rollback-operation" to "Undo:
+     *  rollback-operation", "Requires expected_hash" and "requires
+     *  confirm:true" to "Needs ..." and the integration dispatcher read and
+     *  write templates, without dropping a rule: 208994 -> 208975 bytes over
+     *  406 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */

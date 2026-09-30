@@ -79,6 +79,9 @@ class Snapshot
         if ('package_install' === $object_type) {
             return self::capture_package_install((string) $object_id);
         }
+        if (Db_Cleanup_Snapshot::TYPE === $object_type) {
+            return Db_Cleanup_Snapshot::capture();
+        }
         if (Core_Files_Snapshot::TYPE === $object_type) {
             return Core_Files_Snapshot::capture((string) $object_id);
         }
