@@ -177,7 +177,14 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  flipped readOnlyHint and idempotentHint to false on get-site-health,
      *  export-content and find-broken-links (six bytes), paid for by
      *  dropping the "Read-only" claims those descriptions no longer earn:
-     *  208994 -> 208981 bytes over 406 tools. */
+     *  208994 -> 208981 bytes over 406 tools. Database cleanup (#414) added
+     *  no tool: it is a cleanup list with keep, days, dry_run, confirm and
+     *  cursor on delete-transient (name no longer required), paid for by
+     *  rewording "Undoable via rollback-operation" to "Undo:
+     *  rollback-operation", "Requires expected_hash" and "requires
+     *  confirm:true" to "Needs ..." and the integration dispatcher read and
+     *  write templates, without dropping a rule: 208981 -> 208962 bytes over
+     *  406 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */

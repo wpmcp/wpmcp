@@ -2068,7 +2068,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-plugin',
             'free',
-            'Update an installed plugin to the latest wordpress.org version. Disabled by default (wpmcp_enable_update_plugin filter) and requires confirm:true. File changes are not rollback-able',
+            'Update an installed plugin to the latest wordpress.org version. Disabled by default (wpmcp_enable_update_plugin filter) and needs confirm:true. File changes are not rollback-able',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2088,7 +2088,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-plugin',
             'free',
-            'Permanently delete an installed plugin\'s files. Disabled by default (wpmcp_enable_delete_plugin filter) and requires confirm:true. Refuses protected or active plugins. Not rollback-able',
+            'Permanently delete an installed plugin\'s files. Disabled by default (wpmcp_enable_delete_plugin filter) and needs confirm:true. Refuses protected or active plugins. Not rollback-able',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2153,7 +2153,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-theme',
             'free',
-            'Update an installed theme to the latest wordpress.org version. Disabled by default (wpmcp_enable_update_theme filter) and requires confirm:true. File changes are not rollback-able',
+            'Update an installed theme to the latest wordpress.org version. Disabled by default (wpmcp_enable_update_theme filter) and needs confirm:true. File changes are not rollback-able',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2173,7 +2173,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-theme',
             'free',
-            'Permanently delete an installed theme\'s files. Disabled by default (wpmcp_enable_delete_theme filter) and requires confirm:true. Refuses the active theme (or its active parent). Not rollback-able',
+            'Permanently delete an installed theme\'s files. Disabled by default (wpmcp_enable_delete_theme filter) and needs confirm:true. Refuses the active theme (or its active parent). Not rollback-able',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2509,7 +2509,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-file',
             'free',
-            'Delete a file inside the WordPress install. Requires confirm:true. Backs up the file first (recoverable via restore). Refuses wp-config.php/.htaccess. Disabled by default (wpmcp_enable_fs_writes filter); requires edit_files and honors DISALLOW_FILE_EDIT',
+            'Delete a file inside the WordPress install. Needs confirm:true. Backs up the file first (recoverable via restore). Refuses wp-config.php/.htaccess. Disabled by default (wpmcp_enable_fs_writes filter); requires edit_files and honors DISALLOW_FILE_EDIT',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2722,7 +2722,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-flexbox',
             'pro',
-            'Add an Elementor 4.0+ atomic flexbox (e-flexbox) to a page under parent_id (or top level), optional position. ' . $style_doc . 'Needs expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Add an Elementor 4.0+ atomic flexbox (e-flexbox) to a page under parent_id (or top level), optional position. ' . $style_doc . 'Needs expected_hash from get-elementor-data. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2746,7 +2746,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-div-block',
             'pro',
-            'Add an Elementor 4.0+ atomic div-block (e-div-block) to a page under parent_id (or top level), optional position. ' . $style_doc . 'Needs expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Add an Elementor 4.0+ atomic div-block (e-div-block) to a page under parent_id (or top level), optional position. ' . $style_doc . 'Needs expected_hash from get-elementor-data. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2770,7 +2770,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-atomic-widget',
             'pro',
-            'Add an Elementor 4.0+ atomic widget (e-* widgetType such as e-heading, e-paragraph, e-button, e-image) to a page. Friendly params (title, content, text, image_url, alt, link) become typed $$type props for known types; any type also takes raw $$type-wrapped settings. ' . $style_doc_full . 'Needs expected_hash. Undoable via rollback-operation',
+            'Add an Elementor 4.0+ atomic widget (e-* widgetType such as e-heading, e-paragraph, e-button, e-image) to a page. Friendly params (title, content, text, image_url, alt, link) become typed $$type props for known types; any type also takes raw $$type-wrapped settings. ' . $style_doc_full . 'Needs expected_hash. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2796,7 +2796,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-atomic-widget',
             'pro',
-            'Update an Elementor 4.0+ atomic widget\'s settings by element id. Friendly params map to typed $$type props for known types (only those passed change); raw $$type-wrapped settings also work. ' . $style_doc . 'A style object rewrites its generated local style class. Needs expected_hash. Undoable via rollback-operation',
+            'Update an Elementor 4.0+ atomic widget\'s settings by element id. Friendly params map to typed $$type props for known types (only those passed change); raw $$type-wrapped settings also work. ' . $style_doc . 'A style object rewrites its generated local style class. Needs expected_hash. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4592,7 +4592,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/remove-block',
             'free',
-            'Remove ONE block by "path" (zero-based indexes into the parse-blocks tree, descending innerBlocks); nested removals keep the container. Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first, undoable via rollback-operation',
+            'Remove ONE block by "path" (zero-based indexes into the parse-blocks tree, descending innerBlocks); nested removals keep the container. Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first; undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4611,7 +4611,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/move-block',
             'free',
-            'Move the block at "from_path" to position "to_index" among its own siblings (same parent only; compose remove-block + add-block to move across parents). Requires expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first',
+            'Move the block at "from_path" to position "to_index" among its own siblings (same parent only; compose remove-block + add-block to move across parents). Needs expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4631,7 +4631,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/duplicate-block',
             'free',
-            'Duplicate the block at "path" (deep copy, inserted immediately after the original within the same parent) and return the copy\'s new_path. Requires expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first',
+            'Duplicate the block at "path" (deep copy, inserted immediately after the original within the same parent) and return the copy\'s new_path. Needs expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5857,7 +5857,9 @@ final class Plugin
      * clear-cache. get-debug-config, get-debug-log, and list-transients are
      * 'read' operations; delete-transient is 'update' but, like clear-cache,
      * is not routed through Safe_Mutation: a transient is cache-like data
-     * with no meaningful before-image to restore.
+     * with no meaningful before-image to restore. Its cleanup list (issue
+     * #414, see Db_Cleanup) is a dry run by default; the confirmed run
+     * snapshots every row it deletes, expired transients aside.
      *
      * get-site-health (issue #381) runs the Site Health tests and is gated
      * at view_site_health_checks, the capability core checks for the Site
@@ -5920,13 +5922,18 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-transient',
             'free',
-            'Delete one named transient. Not snapshotted: transients are cache data with nothing to restore',
+            'Delete one named transient (cache data, not snapshotted) or run cleanup: expired_transients, revisions (beyond keep newest per post, default 5), auto_drafts (7+ days old), trash (older than days, default 0), spam_comments, orphaned_meta. Dry run by default (counts, bytes, sample ids); dry_run:false+confirm applies up to 200 items/10s, returning a cursor to resume. rollback-operation undoes all but transients; attachments and parents are skipped',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'name' => [ 'type' => 'string' ],
+                    'name'    => [ 'type' => 'string' ],
+                    'cleanup' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'keep'    => [ 'type' => 'integer' ],
+                    'days'    => [ 'type' => 'integer' ],
+                    'dry_run' => [ 'type' => 'boolean' ],
+                    'confirm' => [ 'type' => 'boolean' ],
+                    'cursor'  => [ 'type' => 'string' ],
                 ],
-                'required'   => [ 'name' ],
             ],
             [$delete_transient, 'handle'],
             'manage_options',
@@ -6190,7 +6197,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-element',
             'pro',
-            'Update an Elementor element\'s settings by id, merging the given settings into its existing settings. Writes the page\'s _elementor_data, snapshot-first; undoable via rollback-operation',
+            'Update an Elementor element\'s settings by id, merging the given settings into its existing settings. Writes the page\'s _elementor_data, snapshot-first; undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6211,7 +6218,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-widget',
             'pro',
-            'Add a widget to a page\'s _elementor_data under parent_id (or top level) at an optional position. Cataloged widget_types (list-widgets) take typed params validated before any write; other registered widgets take raw settings. Needs expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Add a widget to a page\'s _elementor_data under parent_id (or top level) at an optional position. Cataloged widget_types (list-widgets) take typed params validated before any write; other registered widgets take raw settings. Needs expected_hash from get-elementor-data. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6236,7 +6243,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-widget',
             'pro',
-            'Patch a cataloged widget\'s settings by element id from typed params (add-widget\'s schema; see get-widget-schema), validated and merged. Non-cataloged widgets are refused toward update-element. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Patch a cataloged widget\'s settings by element id from typed params (add-widget\'s schema; see get-widget-schema), validated and merged. Non-cataloged widgets are refused toward update-element. Needs expected_hash from get-elementor-data. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6258,7 +6265,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/remove-element',
             'pro',
-            'Remove an element (and its children) from a page\'s _elementor_data by id. Undoable via rollback-operation since _elementor_data is ordinary postmeta captured by the existing post snapshot',
+            'Remove an element (and its children) from a page\'s _elementor_data by id. Undo: rollback-operation (_elementor_data is ordinary postmeta the post snapshot captures)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6278,7 +6285,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/move-element',
             'pro',
-            'Reparent an element by id: remove it and append it as a child of a new parent in the page\'s _elementor_data. Refuses moves into itself or its descendants. Undoable via rollback-operation (post snapshot)',
+            'Reparent an element by id: remove it and append it as a child of a new parent in the page\'s _elementor_data. Refuses moves into itself or its descendants. Undo: rollback-operation (post snapshot)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6299,7 +6306,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/generate-widget',
             'pro',
-            'Generate a widget of any cataloged type (list-widgets / get-widget-schema) into a page\'s _elementor_data under parent_id or top level, with a seedable element id. Unknown types and invalid settings are refused before any write. Undoable via rollback-operation',
+            'Generate a widget of any cataloged type (list-widgets / get-widget-schema) into a page\'s _elementor_data under parent_id or top level, with a seedable element id. Unknown types and invalid settings are refused before any write. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6322,7 +6329,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-global-colors',
             'pro',
-            'Update the active Elementor kit\'s global colors: system_colors entries patch the four system tokens by _id (color/title); custom_colors entries update one by _id or append. Colors must be hex. Needs expected_hash from get-global-settings. Undoable via rollback-operation',
+            'Update the active Elementor kit\'s global colors: system_colors entries patch the four system tokens by _id (color/title); custom_colors entries update one by _id or append. Colors must be hex. Needs expected_hash from get-global-settings. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6343,7 +6350,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-global-typography',
             'pro',
-            'Update the active Elementor kit\'s global typography: system_typography entries patch the four system tokens by _id; custom_typography entries update one by _id or append. typography_* fields merge in; setting a font enables custom typography so the token renders. Needs expected_hash from get-global-settings. Undoable via rollback-operation',
+            'Update the active Elementor kit\'s global typography: system_typography entries patch the four system tokens by _id; custom_typography entries update one by _id or append. typography_* fields merge in; setting a font enables custom typography so the token renders. Needs expected_hash from get-global-settings. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6364,7 +6371,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/replace-system-colors',
             'pro',
-            'Atomically replace all four Elementor system color slots (primary, secondary, text, accent) on the active kit: each exactly once with a valid hex color, or nothing is written. No "title" keeps the current one. Needs expected_hash from get-global-settings. Undoable via rollback-operation',
+            'Atomically replace all four Elementor system color slots (primary, secondary, text, accent) on the active kit: each exactly once with a valid hex color, or nothing is written. No "title" keeps the current one. Needs expected_hash from get-global-settings. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6384,7 +6391,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/replace-system-typography',
             'pro',
-            'Atomically replace all four Elementor system typography slots (primary, secondary, text, accent) on the active kit: each exactly once, or nothing is written. Each entry has at least one typography_* field and nothing else (unknown keys refused); a font enables custom typography; no "title" keeps the current one. Needs expected_hash from get-global-settings. Undoable via rollback-operation',
+            'Atomically replace all four Elementor system typography slots (primary, secondary, text, accent) on the active kit: each exactly once, or nothing is written. Each entry has at least one typography_* field and nothing else (unknown keys refused); a font enables custom typography; no "title" keeps the current one. Needs expected_hash from get-global-settings. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6463,7 +6470,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/apply-template',
             'pro',
-            'Copy a library template\'s content into a page with fresh ids that never collide, appended (default, optionally under parent_id at position) or replacing the whole page (mode=replace). Needs expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Copy a library template\'s content into a page with fresh ids that never collide, appended (default, optionally under parent_id at position) or replacing the whole page (mode=replace). Needs expected_hash from get-elementor-data. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6549,7 +6556,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-template-conditions',
             'pro',
-            'Set where an Elementor theme template renders: conditions as part arrays (["include","singular","post"]) or slash strings ("include/general"), through Elementor Pro\'s conditions manager when present, else the same _elementor_conditions meta. Snapshot-first, undoable via rollback-operation',
+            'Set where an Elementor theme template renders: conditions as part arrays (["include","singular","post"]) or slash strings ("include/general"), through Elementor Pro\'s conditions manager when present, else the same _elementor_conditions meta. Snapshot-first; undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6689,7 +6696,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-popup-settings',
             'pro',
-            'Set an Elementor popup\'s trigger/display settings (open/close triggers, timing, advanced rules), merged into the popup\'s _elementor_page_settings. Snapshot-first, undoable via rollback-operation',
+            'Set an Elementor popup\'s trigger/display settings (open/close triggers, timing, advanced rules), merged into the popup\'s _elementor_page_settings. Snapshot-first; undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6727,7 +6734,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-dynamic-tag',
             'pro',
-            'Bind an Elementor dynamic tag to an element setting, writing it into the element\'s settings[__dynamic__][setting_key] in Elementor\'s [elementor-tag ...] format and preserving other bindings. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Bind an Elementor dynamic tag to an element setting, writing it into the element\'s settings[__dynamic__][setting_key] in Elementor\'s [elementor-tag ...] format and preserving other bindings. Needs expected_hash from get-elementor-data. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6751,7 +6758,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-custom-css',
             'pro',
-            'Add site-wide custom CSS via core Additional CSS, so it works on any site (Elementor Pro not required). Appends, or replaces with replace=true. Snapshot-first when the Additional-CSS post exists (undoable via rollback-operation)',
+            'Add site-wide custom CSS via core Additional CSS, so it works on any site (Elementor Pro not required). Appends, or replaces with replace=true. Snapshot-first when the Additional-CSS post exists (undo: rollback-operation)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6996,7 +7003,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-global-class',
             'pro',
-            'Create an Elementor v4 global class (Class Manager) with a label and styles; returns its g- id. Pass friendly "styles" and/or raw $$type "props", optional breakpoint/state; validated against Elementor\'s schema, so a property it would drop is refused. Needs expected_hash from list-global-classes. Undoable via rollback-operation',
+            'Create an Elementor v4 global class (Class Manager) with a label and styles; returns its g- id. Pass friendly "styles" and/or raw $$type "props", optional breakpoint/state; validated against Elementor\'s schema, so a property it would drop is refused. Needs expected_hash from list-global-classes. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7020,7 +7027,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-global-class',
             'pro',
-            'Update an Elementor v4 global class by g- id: rename it and/or merge styles into one breakpoint + state variant (replace_variant:true replaces it), so other responsive or hover rules survive. Requires expected_hash from list-global-classes. Undoable via rollback-operation',
+            'Update an Elementor v4 global class by g- id: rename it and/or merge styles into one breakpoint + state variant (replace_variant:true replaces it), so other responsive or hover rules survive. Needs expected_hash from list-global-classes. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7046,7 +7053,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-global-class',
             'pro',
-            'Delete an Elementor v4 global class by g- id. Without confirm:true it is a dry run listing every post applying the class; with it, the class set is snapshotted and the class deleted, so rollback-operation restores it. Requires expected_hash from list-global-classes',
+            'Delete an Elementor v4 global class by g- id. Without confirm:true it is a dry run listing every post applying the class; with it, the class set is snapshotted and the class deleted, so rollback-operation restores it. Needs expected_hash from list-global-classes',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7067,7 +7074,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/reorder-global-classes',
             'pro',
-            'Set the order of Elementor v4 global classes, which is their CSS source order and decides ties at equal specificity. Pass { order: [g-id, ...] }; omitted classes follow in current order and unknown ids are refused. Requires expected_hash from list-global-classes. Undoable',
+            'Set the order of Elementor v4 global classes, which is their CSS source order and decides ties at equal specificity. Pass { order: [g-id, ...] }; omitted classes follow in current order and unknown ids are refused. Needs expected_hash from list-global-classes. Undoable',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7211,7 +7218,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-container',
             'pro',
-            'Create an Elementor layout element (container by default, or section/column) at the top level or under parent_id, at an optional position. Columns need a parent; widgets are never parents. Needs expected_hash from get-elementor-data; stale reads refused. Undoable via rollback-operation',
+            'Create an Elementor layout element (container by default, or section/column) at the top level or under parent_id, at an optional position. Columns need a parent; widgets are never parents. Needs expected_hash from get-elementor-data; stale reads refused. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7235,7 +7242,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-container',
             'pro',
-            'Merge settings into an Elementor container, section or column by id: given keys are set, others survive. Widgets are refused (use update-element). Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Merge settings into an Elementor container, section or column by id: given keys are set, others survive. Widgets are refused (use update-element). Needs expected_hash from get-elementor-data. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7257,7 +7264,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/batch-update',
             'pro',
-            'Apply N Elementor element settings updates atomically under ONE snapshot: every {element_id, settings} is validated first, one unknown id refuses the batch, and any failure rolls it all back. Requires expected_hash from get-elementor-data. One rollback-operation undoes it',
+            'Apply N Elementor element settings updates atomically under ONE snapshot: every {element_id, settings} is validated first, one unknown id refuses the batch, and any failure rolls it all back. Needs expected_hash from get-elementor-data. One rollback-operation undoes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7288,7 +7295,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/reorder-elements',
             'pro',
-            'Reorder the children of one Elementor parent (or the top level without parent_id) to an explicit id order, which must be an exact permutation of the current children. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Reorder the children of one Elementor parent (or the top level without parent_id) to an explicit id order, which must be an exact permutation of the current children. Needs expected_hash from get-elementor-data. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7310,7 +7317,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/duplicate-element',
             'pro',
-            'Deep-copy an Elementor element and its subtree with fresh ids, inserted right after the original. New ids use Elementor\'s 7-char hex format and are unique on the page. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Deep-copy an Elementor element and its subtree with fresh ids, inserted right after the original. New ids use Elementor\'s 7-char hex format and are unique on the page. Needs expected_hash from get-elementor-data. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7331,7 +7338,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/set-element-label',
             'pro',
-            'Set an Elementor element\'s navigator label (stored as the _title setting); an empty label clears the custom name. All other settings survive untouched. Requires expected_hash from get-elementor-data. Undoable via rollback-operation',
+            'Set an Elementor element\'s navigator label (stored as the _title setting); an empty label clears the custom name. All other settings survive untouched. Needs expected_hash from get-elementor-data. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7377,7 +7384,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-page-settings',
             'pro',
-            'Merge settings into a page\'s Elementor page settings (_elementor_page_settings): given keys are set, others survive. Post field keys (post_title, post_status, template, ...) are refused, use the post tools. Needs expected_hash = settings_hash from get-elementor-data. Undoable via rollback-operation',
+            'Merge settings into a page\'s Elementor page settings (_elementor_page_settings): given keys are set, others survive. Post field keys (post_title, post_status, template, ...) are refused, use the post tools. Needs expected_hash = settings_hash from get-elementor-data. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7533,7 +7540,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-product',
             'free',
-            'Delete a WooCommerce product (trash by default, force for permanent). Off until the wpmcp_enable_delete_product filter opts in; requires confirm:true. Snapshotted: rollback resurrects a force-deleted product at its id with price, stock and terms',
+            'Delete a WooCommerce product (trash by default, force for permanent). Off until the wpmcp_enable_delete_product filter opts in; needs confirm:true. Snapshotted: rollback resurrects a force-deleted product at its id with price, stock and terms',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7737,7 +7744,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-variation',
             'free',
-            'Permanently delete a product variation (there is no variation trash). Disabled until the site opts in via the wpmcp_enable_delete_variation filter; requires confirm:true. Snapshotted: rollback-operation resurrects it at the same id, attached to its parent',
+            'Permanently delete a product variation (there is no variation trash). Disabled until the site opts in via the wpmcp_enable_delete_variation filter; needs confirm:true. Snapshotted: rollback-operation resurrects it at the same id, attached to its parent',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7884,7 +7891,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-coupon',
             'free',
-            'Delete a coupon (trash by default, force for permanent). Disabled until the site opts in via the wpmcp_enable_delete_coupon filter; requires confirm:true. Snapshotted: rollback-operation restores it at the same id',
+            'Delete a coupon (trash by default, force for permanent). Disabled until the site opts in via the wpmcp_enable_delete_coupon filter; needs confirm:true. Snapshotted: rollback-operation restores it at the same id',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7993,7 +8000,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-tax-rate',
             'free',
-            'Delete a tax rate. Disabled until the site opts in via the wpmcp_enable_delete_tax_rate filter; requires confirm:true. Snapshotted: rollback-operation restores it at the same id',
+            'Delete a tax rate. Disabled until the site opts in via the wpmcp_enable_delete_tax_rate filter; needs confirm:true. Snapshotted: rollback-operation restores it at the same id',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8355,7 +8362,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-menu',
             'free',
-            'Delete a navigation menu (a nav_menu term). Off until the wpmcp_enable_delete_menu filter opts in; requires confirm:true. Not automatically reversible: the menu name and items are returned for a manual rebuild',
+            'Delete a navigation menu (a nav_menu term). Off until the wpmcp_enable_delete_menu filter opts in; needs confirm:true. Not automatically reversible: the menu name and items are returned for a manual rebuild',
             [
                 'type'       => 'object',
                 'properties' => [
