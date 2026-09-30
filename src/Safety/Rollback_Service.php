@@ -733,6 +733,44 @@ class Rollback_Service
     ];
 
     /**
+     * The filters wp_insert_post() runs over the text columns a post
+     * snapshot holds (sanitize_post() in the db context): the content,
+     * excerpt and title, plus the content_filtered column that shares the
+     * content's kses. For a user without unfiltered_html these carry kses.
+     */
+    private const POST_SAVE_FILTERS = [
+        'pre_post_content',
+        'content_save_pre',
+        'pre_post_excerpt',
+        'excerpt_save_pre',
+        'pre_post_title',
+        'title_save_pre',
+        'pre_post_content_filtered',
+        'content_filtered_save_pre',
+    ];
+
+    /**
+     * The sanitize filters add_post_meta() runs over each of these keys.
+     * Core kses-filters the footnotes key this way for a user without
+     * unfiltered_html, and a registered meta's sanitize callback hooks here too.
+     *
+     * @param string[] $keys
+     * @return string[]
+     */
+    private static function post_meta_save_filters(int $post_id, array $keys): array
+    {
+        $subtype = (string) get_object_subtype('post', $post_id);
+        $hooks   = [];
+        foreach ($keys as $key) {
+            $hooks[] = 'sanitize_post_meta_' . $key;
+            if ('' !== $subtype) {
+                $hooks[] = 'sanitize_post_meta_' . $key . '_for_' . $subtype;
+            }
+        }
+        return $hooks;
+    }
+
+    /**
      * Run a restore write with the given save filters standing down.
      *
      * A snapshot holds values exactly as they were stored. Handing them back
@@ -1286,7 +1324,10 @@ class Rollback_Service
                 // wp_update_post() unslashes its input; the snapshot holds
                 // the raw stored columns, so they are slashed first or every
                 // backslash (block JSON escapes such as \u003c) is lost.
-                wp_update_post(wp_slash($postarr));
+                // Its save filters would rewrite the stored HTML (kses for
+                // a user without unfiltered_html), so they stand down.
+                $postarr = wp_slash($postarr);
+                self::without_save_filters(self::POST_SAVE_FILTERS, static fn () => wp_update_post($postarr));
             } else {
                 self::resurrect($object_id, $snapshot['data']['post'], $snapshot['data']['comments'] ?? []);
             }
@@ -1302,14 +1343,18 @@ class Rollback_Service
             delete_post_meta($object_id, $key);
         }
 
-        // Restore snapshotted keys/values exactly as captured.
-        foreach ($snapshotted_meta as $key => $values) {
-            delete_post_meta($object_id, $key);
-            foreach ((array) $values as $v) {
-                // add_post_meta() unslashes too; slash so the value lands byte-for-byte.
-                add_post_meta($object_id, $key, self::slash_meta_value(maybe_unserialize($v)));
+        // Restore snapshotted keys/values exactly as captured, without the
+        // meta sanitizers filtering the stored values a second time.
+        $meta_filters = self::post_meta_save_filters($object_id, array_map('strval', array_keys($snapshotted_meta)));
+        self::without_save_filters($meta_filters, static function () use ($object_id, $snapshotted_meta): void {
+            foreach ($snapshotted_meta as $key => $values) {
+                delete_post_meta($object_id, $key);
+                foreach ((array) $values as $v) {
+                    // add_post_meta() unslashes too; slash so the value lands byte-for-byte.
+                    add_post_meta($object_id, $key, self::slash_meta_value(maybe_unserialize($v)));
+                }
             }
-        }
+        });
 
         // Restore taxonomy term assignments captured at snapshot time. Older
         // snapshots predating term capture simply have no 'terms' key, so
@@ -2693,8 +2738,8 @@ class Rollback_Service
      */
     private static function resurrect(int $object_id, array $post_columns, array $comments): void
     {
-        $postarr = array_merge(['import_id' => $object_id], self::restore_columns($post_columns, true));
-        $result  = wp_insert_post(wp_slash($postarr), true);
+        $postarr = wp_slash(array_merge(['import_id' => $object_id], self::restore_columns($post_columns, true)));
+        $result  = self::without_save_filters(self::POST_SAVE_FILTERS, static fn () => wp_insert_post($postarr, true));
 
         if (is_wp_error($result)) {
             throw new Mutation_Failed('Rollback failed to resurrect post ' . (int) $object_id . ': ' . esc_html($result->get_error_message()));
