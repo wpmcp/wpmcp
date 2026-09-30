@@ -30,10 +30,13 @@ if (! defined('ABSPATH')) {
  * editor's heartbeat reads to tell the person the document changed. On an
  * Elementor without them, nothing here changes.
  *
- * Undo: rollback-operation and rollback-session refuse the same way before
- * restoring anything (assert_restorable()), since a restore overwrites the
- * post just as a write does. The unwind of a write that failed inside the
- * same call is internal and never refused.
+ * Undo: Rollback_Service refuses the same way before restoring anything
+ * (restore_refusal()), since a restore overwrites the post just as a write
+ * does: rollback-operation reports the refusal as its warning with restored
+ * false, and rollback-session refuses the whole session. Both ask only
+ * after their ownership and capability checks, so the answer never names a
+ * post the caller could not undo anyway. The lock is released when the
+ * person closes the editor; the undo then works.
  *
  * The wpmcp_respect_edit_locks filter turns all of this off.
  */
@@ -98,27 +101,41 @@ class Edit_Lock
     }
 
     /**
-     * Refuses an undo that would restore a post another user is editing,
-     * before anything is restored.
+     * Why an undo that restores these snapshot rows may not run now: a post
+     * it would overwrite or remove is being edited by another user. Null
+     * when nothing refuses it.
+     *
+     * @param array<int, array<string, mixed>> $rows Snapshot_Store rows.
+     */
+    public static function restore_refusal(array $rows): ?\WP_Error
+    {
+        foreach ($rows as $row) {
+            foreach (self::restored_post_ids($row) as $post_id) {
+                $error = self::refusal($post_id);
+                if (null !== $error) {
+                    return new \WP_Error(
+                        'wpmcp_post_locked',
+                        str_replace('Nothing was written.', 'Nothing was restored; undo again once they close it.', $error->get_error_message()),
+                        ['operation_id' => (string) ($row['operation_id'] ?? '')] + (array) $error->get_error_data()
+                    );
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Throws when restore_refusal() refuses.
      *
      * @param array<int, array<string, mixed>> $rows Snapshot_Store rows.
      * @throws Post_Locked
      */
     public static function assert_restorable(array $rows): void
     {
-        foreach ($rows as $row) {
-            foreach (self::restored_post_ids($row) as $post_id) {
-                $error = self::refusal($post_id);
-                if (null !== $error) {
-                    $refused = new \WP_Error(
-                        'wpmcp_post_locked',
-                        str_replace('Nothing was written.', 'Nothing was restored; undo again once they close it.', $error->get_error_message()),
-                        ['operation_id' => (string) ($row['operation_id'] ?? '')] + (array) $error->get_error_data()
-                    );
-                    // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Post_Locked escapes the message it is given.
-                    throw new Post_Locked($refused);
-                }
-            }
+        $error = self::restore_refusal($rows);
+        if (null !== $error) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Post_Locked escapes the message it is given.
+            throw new Post_Locked($error);
         }
     }
 

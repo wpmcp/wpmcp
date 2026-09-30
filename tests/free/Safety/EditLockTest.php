@@ -18,8 +18,9 @@ use WPMCP\Safety\Snapshot_Store;
  *
  * Undo follows the same rule: rolling back an agent's write while someone
  * else has that post open would overwrite their editor just the same, so
- * rollback-operation and rollback-session refuse too, restore nothing, and
- * work again once the lock is released.
+ * rollback-operation (restored false, the reason as its warning) and
+ * rollback-session (a wpmcp_post_locked error) refuse too, restore
+ * nothing, and work again once the lock is released.
  *
  * Every call goes through the registered ability, the path an MCP client
  * takes.
@@ -243,7 +244,14 @@ class EditLockTest extends \WP_UnitTestCase
 
         $refused = $this->call('wpmcp/rollback-operation', ['operation_id' => $write['operation_id']]);
 
-        $this->assert_locked_refusal($refused, $post, $at);
+        // rollback-operation reports a refusal the way it reports its other
+        // refusals: restored false, with the reason as a warning.
+        $this->assertIsArray($refused, is_wp_error($refused) ? $refused->get_error_message() : '');
+        $this->assertFalse($refused['restored']);
+        $this->assertCount(1, $refused['warnings']);
+        $this->assertStringContainsString('Bea Lockholder', $refused['warnings'][0]);
+        $this->assertStringContainsString(gmdate('Y-m-d H:i:s', $at), $refused['warnings'][0]);
+        $this->assertStringContainsString('Nothing was restored', $refused['warnings'][0]);
         $this->assertSame('Agent body', $this->content($post), 'A refused undo restores nothing.');
 
         // The person closes the editor: the lock lapses and the undo works.
