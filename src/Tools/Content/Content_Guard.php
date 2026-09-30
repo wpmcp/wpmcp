@@ -79,9 +79,119 @@ class Content_Guard
     }
 
     /**
+     * Whether the current user may reach posts of this type through the
+     * content tools (issue #446).
+     *
+     * The tools are gated on edit_posts, which every Contributor holds, so
+     * without this any caller could list or read the records other plugins
+     * keep as non-public post types (LMS enrollments, orders, form entries).
+     * The rule, in order:
+     *
+     * - a plugin-private type (PRIVATE_TYPES) is never reachable;
+     * - a public type, and attachments, are reachable exactly as before;
+     * - a type that is not registered (rows left behind by a deactivated
+     *   plugin) declares no capabilities at all, so only a site
+     *   administrator (manage_options) may reach it;
+     * - a non-public type without an admin screen (show_ui false) has no
+     *   audience of its own, so it is refused below site administrator
+     *   unless the `wpmcp_agent_readable_hidden_post_types` filter names it;
+     * - otherwise the caller needs the type's own edit_posts capability,
+     *   the same one wp-admin requires for its list screen.
+     */
+    public static function can_read_post_type(string $post_type): bool
+    {
+        if ('' === $post_type || ! self::is_agent_readable_post_type($post_type)) {
+            return false;
+        }
+
+        $object = get_post_type_object($post_type);
+        if (! $object instanceof \WP_Post_Type) {
+            return current_user_can('manage_options');
+        }
+        if ($object->public || 'attachment' === $post_type) {
+            return true;
+        }
+        if (! $object->show_ui && ! current_user_can('manage_options') && ! self::is_allowed_hidden_type($post_type)) {
+            return false;
+        }
+
+        return current_user_can((string) $object->cap->edit_posts);
+    }
+
+    /**
+     * Whether the current user may reach this post through the content
+     * tools: can_read_post_type() for its type and, for a non-public type,
+     * core's read_post meta capability for the row itself. A revision or
+     * autosave is judged by the post it belongs to. A missing post is not
+     * refused here: the tool answers "not found" itself.
+     */
+    public static function can_read_post(int $post_id): bool
+    {
+        if ($post_id <= 0) {
+            return true;
+        }
+        $post = get_post($post_id);
+        if (! $post instanceof \WP_Post) {
+            return true;
+        }
+        if ('revision' === $post->post_type && $post->post_parent > 0) {
+            $parent = get_post((int) $post->post_parent);
+            if ($parent instanceof \WP_Post) {
+                $post = $parent;
+            }
+        }
+
+        $type = (string) $post->post_type;
+        if (! self::can_read_post_type($type)) {
+            return false;
+        }
+        $object = get_post_type_object($type);
+        if (! $object instanceof \WP_Post_Type || $object->public || 'attachment' === $type) {
+            return true;
+        }
+        return current_user_can('read_post', (int) $post->ID);
+    }
+
+    /**
+     * Non-public types without an admin screen that the site owner has
+     * opened to the content tools. Their own capabilities still apply.
+     */
+    private static function is_allowed_hidden_type(string $post_type): bool
+    {
+        /**
+         * Filters the non-public post types without an admin screen that
+         * the content tools may reach for users below site administrator.
+         *
+         * Such types are refused by default, because a type with no admin
+         * screen usually stores a plugin's private records rather than
+         * editorial content. Adding a type here lets callers who hold that
+         * type's own capabilities (its edit_posts, and read_post for each
+         * row) reach it. Plugin-private wpmcp types cannot be added.
+         *
+         * @param string[] $post_types Post type names. Default empty.
+         */
+        $allowed = apply_filters('wpmcp_agent_readable_hidden_post_types', []);
+
+        return in_array($post_type, array_map('strval', (array) $allowed), true);
+    }
+
+    /**
      * Input keys that name a post on every ability that has them.
      */
-    private const POST_ID_KEYS = ['post_id', 'post_ids', 'source_id', 'object_id', 'page_id', 'template_id'];
+    private const POST_ID_KEYS = [
+        'post_id',
+        'post_ids',
+        'source_id',
+        'object_id',
+        'page_id',
+        'template_id',
+        'target_post_id',
+        'media_id',
+        'attachment_id',
+        'revision_id',
+        'from_revision_id',
+        'to_revision_id',
+    ];
 
     /** Keys that name a post type. */
     private const POST_TYPE_KEYS = ['post_type', 'post_types'];
@@ -95,31 +205,58 @@ class Content_Guard
     private const POST_ID_DOMAINS = ['content', 'core', 'blocks'];
 
     /**
-     * Whether an ability invocation targets a private post or post type.
+     * The input keys the permission-time guard reads as post ids for an
+     * ability in this domain.
      *
-     * Called from Registrar's permission decision, so it covers every
-     * ability, including the dozens of generic tools that take an arbitrary
-     * post id (duplicate-post, get-post-meta, extract-content, the block and
-     * builder editors, revisions, ...) without each one having to remember
-     * the private-type list. Without it, an edit_posts caller could, for
-     * example, duplicate another administrator's chat conversation (meta and
-     * all) into a post they own.
-     *
-     * @param array<string, mixed> $input
+     * @return string[]
      */
-    public static function input_targets_private_post(string $domain, array $input): bool
+    public static function post_id_keys(string $domain): array
     {
         $keys = self::POST_ID_KEYS;
         if (in_array($domain, self::POST_ID_DOMAINS, true)) {
             $keys = array_merge($keys, ['id', 'ids', 'parent']);
         }
+        return $keys;
+    }
 
-        foreach ($keys as $key) {
+    /**
+     * The input keys the permission-time guard reads as post types.
+     *
+     * @return string[]
+     */
+    public static function post_type_keys(): array
+    {
+        return self::POST_TYPE_KEYS;
+    }
+
+    /**
+     * Whether an ability invocation targets a post or post type the current
+     * user may not reach through the content tools: a plugin-private type,
+     * or one whose own capabilities the caller lacks (can_read_post_type()
+     * and can_read_post()).
+     *
+     * Called from Registrar's permission decision, so it covers every
+     * ability, including the dozens of generic tools that take an arbitrary
+     * post id (duplicate-post, get-post-meta, extract-content, the block and
+     * builder editors, revisions, ...) without each one having to remember
+     * the rule. Without it, an edit_posts caller could, for example,
+     * duplicate another administrator's chat conversation (meta and all)
+     * into a post they own, or read another plugin's enrollment or order
+     * records.
+     *
+     * The literal post_type 'any' is left to the tool: list-posts narrows it
+     * to the types the caller may read.
+     *
+     * @param array<string, mixed> $input
+     */
+    public static function input_targets_private_post(string $domain, array $input): bool
+    {
+        foreach (self::post_id_keys($domain) as $key) {
             if (! array_key_exists($key, $input)) {
                 continue;
             }
             foreach ((array) $input[ $key ] as $value) {
-                if (is_numeric($value) && self::is_private_post((int) $value)) {
+                if (is_numeric($value) && ! self::can_read_post((int) $value)) {
                     return true;
                 }
             }
@@ -130,7 +267,11 @@ class Content_Guard
                 continue;
             }
             foreach ((array) $input[ $key ] as $value) {
-                if (is_string($value) && ! self::is_agent_readable_post_type($value)) {
+                if (! is_string($value)) {
+                    continue;
+                }
+                $value = sanitize_key($value);
+                if ('' !== $value && 'any' !== $value && ! self::can_read_post_type($value)) {
                     return true;
                 }
             }

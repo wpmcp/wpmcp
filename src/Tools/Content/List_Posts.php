@@ -22,10 +22,24 @@ class List_Posts
         if ('' === $post_type) {
             $post_type = 'post';
         }
-        if (! Content_Guard::is_agent_readable_post_type($post_type)) {
+        $empty = ['posts' => [], 'total' => 0, 'pages' => 0, 'page' => $page];
+        if ('any' === $post_type) {
+            // WP_Query's 'any' is every type not excluded from search, which
+            // can include a plugin's non-public records. Narrow it to the
+            // types this caller may read (issue #446).
+            $post_type = array_values(array_filter(
+                array_map('strval', get_post_types(['exclude_from_search' => false], 'names')),
+                [Content_Guard::class, 'can_read_post_type']
+            ));
+            if ([] === $post_type) {
+                return $empty;
+            }
+        } elseif (! Content_Guard::can_read_post_type($post_type)) {
             // Answered as an empty result rather than an error: whether a
-            // conversation exists, and for whom, is itself information.
-            return ['posts' => [], 'total' => 0, 'pages' => 0, 'page' => $page];
+            // private record exists, and for whom, is itself information.
+            // The permission check refuses the call before it gets here;
+            // this holds when the handler is reached some other way.
+            return $empty;
         }
         $status_in = isset($args['status']) ? (string) $args['status'] : 'any';
         $status    = in_array($status_in, self::VALID_STATUSES, true) ? $status_in : 'any';
