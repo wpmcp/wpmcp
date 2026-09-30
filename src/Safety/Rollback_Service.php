@@ -10,6 +10,7 @@ use WPMCP\Tools\Database\Database_Guard;
 use WPMCP\Tools\Builders\Avada_Cache;
 use WPMCP\Tools\Builders\Beaver_Builder_Cache;
 use WPMCP\Tools\Builders\Breakdance_Cache;
+use WPMCP\Tools\Builders\Builder_Design_Refresh;
 use WPMCP\Tools\Builders\Oxygen_Classic_Cache;
 use WPMCP\Tools\Builders\Elementor_Cache;
 
@@ -661,6 +662,10 @@ class Rollback_Service
      */
     private static function options_restored(array $names): void
     {
+        // A page builder's global design data (issue #391) feeds generated
+        // stylesheets its own saves rebuild; rebuild them the way the write did.
+        Builder_Design_Refresh::after_options($names);
+
         /** Action: options restored by a rollback, as a list of option names. */
         do_action('wpmcp_rollback_options_restored', $names);
     }
