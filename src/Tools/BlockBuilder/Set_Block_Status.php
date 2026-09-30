@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\BlockBuilder;
 
+use WPMCP\Safety\Save_Filters;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -37,7 +39,7 @@ class Set_Block_Status
             'set-block-status',
             $args,
             static function () use ($id, $status): bool {
-                $result = wp_update_post(['ID' => $id, 'post_status' => $status], true);
+                $result = Save_Filters::set_post_status($id, $status, true);
                 return ! is_wp_error($result) && 0 !== $result && get_post_status($id) === $status;
             }
         );

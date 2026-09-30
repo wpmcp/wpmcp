@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\ThemeBuilder;
 
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Pro\Gate;
 
 if (! defined('ABSPATH')) {
@@ -168,7 +169,7 @@ class Template_Store
             $post['post_content'] = self::sanitize_content((string) $changes['content']);
         }
         if (count($post) > 1) {
-            $updated = wp_update_post(wp_slash($post), true);
+            $updated = Save_Filters::update_post(wp_slash($post), true);
             if (is_wp_error($updated)) {
                 return $updated;
             }

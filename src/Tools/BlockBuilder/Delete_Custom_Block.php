@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\BlockBuilder;
 
+use WPMCP\Safety\Save_Filters;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -31,7 +33,7 @@ class Delete_Custom_Block
             // wp_trash_post() returns false or null when it did nothing. With
             // EMPTY_TRASH_DAYS set to 0 it deletes outright instead; the
             // full-row snapshot still makes that undoable.
-            static fn (): bool => (bool) wp_trash_post($id)
+            static fn (): bool => (bool) Save_Filters::trash_post($id)
         );
         if (is_wp_error($operation_id)) {
             return $operation_id;

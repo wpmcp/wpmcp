@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Elementor;
 
+use WPMCP\Safety\Save_Filters;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -23,7 +25,7 @@ class Delete_Code_Snippet
             return new \WP_Error('not_a_snippet', "Post {$snippet_id} is not an elementor_snippet.");
         }
 
-        wp_trash_post($snippet_id);
+        Save_Filters::trash_post($snippet_id);
 
         return ['snippet_id' => $snippet_id, 'deleted' => 'trashed'];
     }
