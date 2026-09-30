@@ -4,6 +4,7 @@ namespace WPMCP\Tools\Sync;
 
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Safety\Snapshot;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Elementor\Global_Classes_Store;
@@ -1016,7 +1017,10 @@ class Change_Set_Applier
                     'args'        => ['key' => (string) $entry['key']],
                 ],
                 function () use ($target, $fields, $entry) {
-                    $result = wp_update_post(wp_slash($fields), true);
+                    // A change set carries the whole row, text included. The
+                    // text columns the target already holds are left out, so
+                    // the save filters run only over the ones that change.
+                    $result = Save_Filters::update_post(wp_slash(Save_Filters::changed_text($target, $fields)), true);
                     if (is_wp_error($result)) {
                         return $result;
                     }

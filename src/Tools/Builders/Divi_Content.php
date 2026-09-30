@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Builders;
 
+use WPMCP\Safety\Save_Filters;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -33,7 +35,7 @@ class Divi_Content
     /** Write post_content and ensure the use-builder flag is set. */
     public static function save(int $post_id, string $content): void
     {
-        wp_update_post([
+        Save_Filters::update_post([
             'ID'           => $post_id,
             'post_content' => wp_slash($content),
         ]);

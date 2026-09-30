@@ -4,6 +4,7 @@ namespace WPMCP\Tools\Migration;
 
 use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Backup\Url_Rewriter;
 use WPMCP\Tools\Content\Content_Guard;
@@ -19,10 +20,10 @@ if (! defined('ABSPATH')) {
  * The sibling of rewrite-site-urls, scoped to posts so that, unlike that
  * pass, it can be fully snapshot-backed: every changed post is written
  * through Safe_Mutation under ONE session id handed back to the caller, so
- * rollback-session undoes the whole pass. Because the snapshot ledger keeps
- * only Snapshot_Store::history_limit() rows, a pass that would change more
- * posts than that is refused outright rather than applied with its own
- * earliest undo points already pruned.
+ * rollback-session undoes the whole pass. The pass runs with pruning held
+ * and snapshot pruning keeps a named session whole (issue #439), so a pass
+ * larger than Snapshot_Store::history_limit() is still undone in full; it
+ * used to be refused outright (issue #442).
  *
  * Replacement inside meta reuses Url_Rewriter::transform(), the same
  * serialization-aware walk the URL rewrite uses: serialized values are
@@ -138,17 +139,21 @@ class Find_Replace_Content
         $session_id = wp_generate_uuid4();
         $applied    = [];
         $failed     = [];
-        foreach ($scan['plans'] as $post_id => $plan) {
-            if ([] === $plan['writes']) {
-                continue;
+        // Held so no write of the pass prunes an earlier one; the next write
+        // after it prunes by whole sessions and keeps this one intact.
+        Snapshot_Store::hold_pruning(function () use ($scan, $session_id, $args, &$applied, &$failed): void {
+            foreach ($scan['plans'] as $post_id => $plan) {
+                if ([] === $plan['writes']) {
+                    continue;
+                }
+                $result = $this->apply_post((int) $post_id, $plan['writes'], $session_id, $args);
+                if (isset($result['error'])) {
+                    $failed[] = ['post_id' => (int) $post_id, 'reason' => $result['error']];
+                    continue;
+                }
+                $applied[] = ['post_id' => (int) $post_id, 'operation_id' => $result['operation_id']];
             }
-            $result = $this->apply_post((int) $post_id, $plan['writes'], $session_id, $args);
-            if (isset($result['error'])) {
-                $failed[] = ['post_id' => (int) $post_id, 'reason' => $result['error']];
-                continue;
-            }
-            $applied[] = ['post_id' => (int) $post_id, 'operation_id' => $result['operation_id']];
-        }
+        });
 
         $out['session_id']  = $session_id;
         $out['applied']     = $applied;
@@ -610,15 +615,6 @@ class Find_Replace_Content
 
         $to_write = count(array_filter($scan['plans'], static fn (array $p): bool => [] !== $p['writes']));
 
-        $limit = Snapshot_Store::history_limit();
-        if ($to_write > $limit) {
-            throw new \InvalidArgumentException(sprintf(
-                'This pass would change %d posts but snapshot history keeps %d, so rollback-session could not undo all of it. Narrow the scope (post_ids, post_types) or raise the wpmcp_snapshot_history_limit filter.',
-                (int) $to_write,
-                (int) $limit
-            ));
-        }
-
         if ($to_write > self::CONFIRM_THRESHOLD && ! $confirm) {
             throw new \WPMCP\MCP\Confirmation_Required(sprintf(
                 'This pass would change %d posts; applying more than %d requires confirm:true. Review the dry run first.',
@@ -674,7 +670,8 @@ class Find_Replace_Content
                         }
                         // wp_update_post() expects slashed input; without
                         // this every backslash in the content is stripped.
-                        $result = wp_update_post(wp_slash($postarr), true);
+                        // Only the columns with a replacement are filtered.
+                        $result = Save_Filters::update_post(wp_slash($postarr), true);
                         if (is_wp_error($result)) {
                             throw new Mutation_Failed(esc_html($result->get_error_message()));
                         }

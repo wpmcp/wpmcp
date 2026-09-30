@@ -248,8 +248,11 @@ class Rollback_Service
      * A named session is one run, and snapshot pruning keeps or drops it
      * whole (issue #439). Once any of its undo points has been pruned, what
      * is left would undo only part of the run, so the rollback is refused
-     * with the reason instead. The catch-all 'default' session is a stream
-     * of unrelated single writes pruned row by row, so it is never refused.
+     * with the reason instead, however long ago it was pruned (issue #442).
+     * A named session with no undo points that was never pruned is reported
+     * as unknown in a warning rather than as an empty success. The
+     * catch-all 'default' session is a stream of unrelated single writes
+     * pruned row by row, so it is never refused.
      *
      * @throws Mutation_Failed When a named session's undo points were pruned.
      */
@@ -266,6 +269,23 @@ class Rollback_Service
         }
         $rows  = Snapshot_Store::list_by_session($session_id); // newest first
         $count = 0;
+
+        // No rows left: either the run was pruned long enough ago to have
+        // left the exact per-session counts (issue #442), or nothing was ever
+        // recorded under this id. The two must not both read as "0 restored".
+        if ([] === $rows && ! Snapshot_Store::is_loose_session($session_id)) {
+            if (Snapshot_Store::was_session_pruned($session_id)) {
+                throw new Mutation_Failed(sprintf(
+                    'Session "%s" can no longer be rolled back: its undo points were pruned from snapshot history (a newer run replaced it, or it fell outside the history the site keeps). Nothing was restored.',
+                    esc_html($session_id)
+                ));
+            }
+            self::warn(sprintf(
+                'No undo points exist for session "%s", and none were ever pruned: no change was recorded under that id, so there is nothing to undo. Check the session_id.',
+                $session_id
+            ));
+            return 0;
+        }
 
         // Pass 1: db_rows snapshots, applied NEWEST-first, every one of them.
         // Unlike the whole-object snapshots below, a db_rows snapshot covers

@@ -84,6 +84,28 @@ final class Save_Filters
     }
 
     /**
+     * $fields without the text columns the stored row already holds byte for
+     * byte. A write that carries a whole row (a sync, a published stage) then
+     * leaves its unchanged text out of the save filters entirely.
+     *
+     * @param array<string, mixed> $fields Unslashed.
+     * @return array<string, mixed>
+     */
+    public static function changed_text(int $post_id, array $fields): array
+    {
+        $stored = get_post($post_id, ARRAY_A);
+        if (! is_array($stored)) {
+            return $fields;
+        }
+        foreach (array_keys(self::POST_COLUMNS) as $column) {
+            if (array_key_exists($column, $fields) && (string) $stored[ $column ] === (string) $fields[ $column ]) {
+                unset($fields[ $column ]);
+            }
+        }
+        return $fields;
+    }
+
+    /**
      * Change only a post's status.
      *
      * @return int|\WP_Error Whatever wp_update_post() returns.

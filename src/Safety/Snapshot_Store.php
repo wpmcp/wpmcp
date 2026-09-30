@@ -323,7 +323,8 @@ class Snapshot_Store
      * Cap on remembered sessions. Entries are kept in insertion order and the
      * oldest are dropped past this, so the option stays a few KB no matter
      * how long the site lives. A session older than the last hundred pruned
-     * ones has no surviving rows to build a change set from anyway.
+     * ones has no surviving rows, and that it was pruned at all is still
+     * answered by PRUNED_SESSION_FILTER_OPTION (see was_session_pruned()).
      */
     private const PRUNED_SESSIONS_MAX = 100;
 
@@ -335,6 +336,104 @@ class Snapshot_Store
             return 0;
         }
         return (int) $map[ $session_id ];
+    }
+
+    /**
+     * Option holding a fixed-size Bloom filter of every named session prune()
+     * has ever discarded rows from (issue #442).
+     *
+     * PRUNED_SESSIONS_OPTION keeps exact counts, but only for the newest
+     * PRUNED_SESSIONS_MAX sessions, so a run dropped long ago fell out of it
+     * and rollback-session then answered "0 restored" as if there had never
+     * been anything to undo. This answers the one question that must outlive
+     * that window, "was this session ever pruned?", in constant space: the
+     * filter never grows, never forgets a session it has seen (no false
+     * negatives), and its only error is the rare "maybe pruned" for an id
+     * that was not. Callers consult it only for a session that has no rows
+     * left, so a false positive can change which reason an empty rollback
+     * gives, never refuse a session that still has undo points.
+     */
+    public const PRUNED_SESSION_FILTER_OPTION = 'wpmcp_pruned_session_filter';
+
+    /**
+     * Filter size in bytes (65,536 bits, 16 KB stored as hex and not
+     * autoloaded), with PRUNED_SESSION_FILTER_HASHES bit positions per
+     * session. The false
+     * positive rate stays under 1% for the first ~6,800 pruned named
+     * sessions and rises slowly after; the catch-all session, where most
+     * single writes land, is never added.
+     */
+    private const PRUNED_SESSION_FILTER_BYTES = 8192;
+
+    private const PRUNED_SESSION_FILTER_HASHES = 4;
+
+    /**
+     * Whether prune() has ever discarded rows of this named session: exact
+     * for the recent sessions, and for older ones answered by the filter.
+     */
+    public static function was_session_pruned(string $session_id): bool
+    {
+        if ('' === $session_id || self::is_loose_session($session_id)) {
+            return false;
+        }
+        if (self::pruned_rows_for_session($session_id) > 0) {
+            return true;
+        }
+        $filter = self::pruned_session_filter();
+        foreach (self::filter_bits($session_id) as $bit) {
+            if (0 === (ord($filter[ $bit >> 3 ]) & (1 << ($bit & 7)))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** The stored filter, or an empty one when absent or malformed. */
+    private static function pruned_session_filter(): string
+    {
+        $stored = get_option(self::PRUNED_SESSION_FILTER_OPTION, '');
+        $raw    = is_string($stored) && 2 * self::PRUNED_SESSION_FILTER_BYTES === strlen($stored) && ctype_xdigit($stored)
+            ? hex2bin($stored)
+            : false;
+        if (! is_string($raw)) {
+            return str_repeat("\0", self::PRUNED_SESSION_FILTER_BYTES);
+        }
+        return $raw;
+    }
+
+    /** @return int[] the filter bit positions of one session id */
+    private static function filter_bits(string $session_id): array
+    {
+        $hash = hash('sha256', $session_id, true);
+        $bits = [];
+        for ($i = 0; $i < self::PRUNED_SESSION_FILTER_HASHES; $i++) {
+            $bits[] = (ord($hash[ 2 * $i ]) << 8 | ord($hash[ 2 * $i + 1 ])) % (self::PRUNED_SESSION_FILTER_BYTES * 8);
+        }
+        return $bits;
+    }
+
+    /** @param string[] $session_ids */
+    private static function add_to_pruned_session_filter(array $session_ids): void
+    {
+        $filter  = self::pruned_session_filter();
+        $changed = false;
+        foreach ($session_ids as $session_id) {
+            $session_id = (string) $session_id;
+            if ('' === $session_id || self::is_loose_session($session_id)) {
+                continue;
+            }
+            foreach (self::filter_bits($session_id) as $bit) {
+                $byte = ord($filter[ $bit >> 3 ]);
+                $mask = 1 << ($bit & 7);
+                if (0 === ($byte & $mask)) {
+                    $filter[ $bit >> 3 ] = chr($byte | $mask);
+                    $changed             = true;
+                }
+            }
+        }
+        if ($changed) {
+            update_option(self::PRUNED_SESSION_FILTER_OPTION, bin2hex($filter), false);
+        }
     }
 
     /** @param array<string, int> $counts session_id => rows about to be deleted */
@@ -360,6 +459,7 @@ class Snapshot_Store
             $map = array_slice($map, -self::PRUNED_SESSIONS_MAX, null, true);
         }
         update_option(self::PRUNED_SESSIONS_OPTION, $map, false);
+        self::add_to_pruned_session_filter(array_map('strval', array_keys($counts)));
     }
 
     /**
@@ -459,9 +559,11 @@ class Snapshot_Store
      * The upper bound: $keep rows of recent history, plus at most those two
      * whole sessions. A run stays undoable until a newer run larger than the
      * cap finishes and a later write prunes; then it is dropped whole. A
-     * dropped session is recorded (PRUNED_SESSIONS_OPTION) before any of its
-     * rows go, so rollback-session refuses it instead of undoing part of it,
-     * and a session larger than one batch is finished by the next prunes.
+     * dropped session is recorded (PRUNED_SESSIONS_OPTION, and for good in
+     * PRUNED_SESSION_FILTER_OPTION) before any of its rows go, so
+     * rollback-session refuses it instead of undoing part of it or reporting
+     * nothing to undo, and a session larger than one batch is finished by
+     * the next prunes.
      *
      * At most PRUNE_BATCH_LIMIT rows go per call, never below the retention
      * floor an upgrading install arrived with. $keep defaults to
