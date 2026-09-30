@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tests\Pro\Integrations;
 
+use WPMCP\Integrations\LMS_Tutor;
 use WPMCP\Integrations\Plugin_Data_Integration;
 use WPMCP\Pro\Gate;
 use WPMCP\Safety\Rollback_Service;
@@ -43,6 +44,9 @@ class TutorLmsPackTest extends \WP_UnitTestCase
         'tutor-move-item'        => 'write',
     ];
 
+    /** The other plugin-data plugins, off so only this LMS decides whether the pair is available. */
+    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active' ];
+
     private int $admin;
 
     public static function wpSetUpBeforeClass(): void
@@ -69,10 +73,16 @@ class TutorLmsPackTest extends \WP_UnitTestCase
         wp_set_current_user($this->admin);
         add_filter('wpmcp_tutor_active', '__return_true');
         add_filter('wpmcp_lifterlms_active', '__return_false');
+        foreach (self::OTHER_FILTERS as $filter) {
+            add_filter($filter, '__return_false');
+        }
     }
 
     protected function tearDown(): void
     {
+        foreach (self::OTHER_FILTERS as $filter) {
+            remove_all_filters($filter);
+        }
         remove_all_filters('wpmcp_tutor_active');
         remove_all_filters('wpmcp_lifterlms_active');
         wpmcp_test_unregister_tutor_types();
@@ -398,5 +408,40 @@ class TutorLmsPackTest extends \WP_UnitTestCase
         $out = $this->write('tutor-add-lesson', [ 'parent_id' => $t1, 'title' => 'Sneaky' ]);
         $this->assertSame('operation_denied', $out['error']['code'] ?? null);
         $this->assertSame([], get_posts([ 'post_type' => 'lesson', 'title' => 'Sneaky', 'post_status' => 'any', 'fields' => 'ids' ]));
+    }
+
+    public function test_update_item_refuses_an_empty_change_and_publishing_without_the_capability(): void
+    {
+        [, , , $l1] = $this->seed_course();
+        $this->assertSame('nothing_to_update', $this->write('tutor-update-item', [ 'id' => $l1 ])['error']['code'] ?? null);
+
+        wp_get_current_user()->remove_cap('publish_tutor_lessons');
+        wp_update_post([ 'ID' => $l1, 'post_status' => 'draft' ]);
+        $out = $this->write('tutor-update-item', [ 'id' => $l1, 'status' => 'publish' ]);
+        $this->assertSame('operation_denied', $out['error']['code'] ?? null);
+        $this->assertSame('draft', get_post_status($l1));
+    }
+
+    public function test_get_course_leaves_questions_out_on_request(): void
+    {
+        [$course] = $this->seed_course();
+        $out      = $this->ok($this->read('tutor-get-course', [ 'id' => $course, 'questions' => false ]))['result'];
+        $this->assertArrayNotHasKey('questions', $out['sections'][0]['items'][1]);
+        $this->assertNull($out['counts']['questions']);
+    }
+
+    public function test_trashing_a_tutor_course_outside_an_admin_screen_does_not_redirect_and_exit(): void
+    {
+        // Tutor LMS hooks this on trashed_post to redirect and exit; the guard
+        // Plugin::boot() adds ahead of it takes it off outside wp-admin.
+        $redirect = 'TUTOR\\Course::redirect_to_course_list_page';
+        $this->assertSame(1, has_action('trashed_post', [ LMS_Tutor::class, 'keep_request_alive' ]));
+
+        [$course, $t1] = $this->seed_course();
+        add_action('trashed_post', $redirect);
+        LMS_Tutor::keep_request_alive($t1);
+        $this->assertSame(10, has_action('trashed_post', $redirect), 'only a course trash is guarded');
+        LMS_Tutor::keep_request_alive($course);
+        $this->assertFalse(has_action('trashed_post', $redirect));
     }
 }

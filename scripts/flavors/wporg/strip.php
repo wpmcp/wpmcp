@@ -1360,6 +1360,52 @@ $edits['src/Integrations/Theme_Integration.php'] = [
         1,
     ],
 ];
+// The LMS ops (issue #394) are the paid add-on's. Their files are removed by
+// policy.php, so the plugin-data pair loses the lines that merge them, count
+// them towards availability, name them in the summary and describe them.
+$edits['src/Plugin.php'][] = [
+    "            // Tutor LMS redirects and exits after a course is trashed, meant\n"
+        . "            // for its admin course list; outside that screen it would cut off\n"
+        . "            // an MCP response or a rollback that trashes a course (#394).\n"
+        . "            if (class_exists(\\WPMCP\\Integrations\\LMS_Tutor::class)) {\n"
+        . "                add_action('trashed_post', [\\WPMCP\\Integrations\\LMS_Tutor::class, 'keep_request_alive'], 1);\n"
+        . "            }\n",
+    '',
+    1,
+];
+$edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    [
+        " *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS and\n"
+            . " *    LifterLMS course, section, lesson and quiz trees with snapshotted\n"
+            . " *    writes, and read-only enrollments.\n",
+        '',
+        1,
+    ],
+    [
+        " * The pair registers only while at least one of them is loaded (the LMS\n"
+            . " * ops only on an install that may run the paid tier), and\n",
+        " * The pair registers only while at least one of them is loaded, and\n",
+        1,
+    ],
+    [
+        " || BuddyPress_Pack::active()\n"
+            . "            || LMS_Pack::active();\n",
+        " || BuddyPress_Pack::active();\n",
+        1,
+    ],
+    [
+        "        return 'JetEngine and Pods fields, TranslatePress strings, BuddyPress community data'\n"
+            . "            . ', Tutor LMS and LifterLMS courses';\n",
+        "        return 'JetEngine and Pods fields, TranslatePress strings, BuddyPress community data';\n",
+        1,
+    ],
+    [
+        "            BuddyPress_Pack::operations(),\n"
+            . "            LMS_Pack::operations()\n",
+        "            BuddyPress_Pack::operations()\n",
+        1,
+    ],
+];
 $edits['src/Plugin.php'][] = [
     "        // An Elementor addon module toggle dropped the suite's cached module\n"
         . "        // map; its rollback does too (issue #286).\n"

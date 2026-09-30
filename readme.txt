@@ -39,6 +39,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * BuddyPress: groups, group members, activity moderation and extended profile fields
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
 * With Pro, FunnelKit funnels and their steps (read), with linked pages, products and step counts
+* With Pro, Tutor LMS and LifterLMS: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read)
 * Media library plus stock image imports
 * REST passthrough for anything else, still snapshotted
 

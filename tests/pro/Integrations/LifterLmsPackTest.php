@@ -39,6 +39,9 @@ class LifterLmsPackTest extends \WP_UnitTestCase
         'lifterlms-move-item'        => 'write',
     ];
 
+    /** The other plugin-data plugins, off so only this LMS decides whether the pair is available. */
+    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active' ];
+
     private int $admin;
 
     public static function wpSetUpBeforeClass(): void
@@ -65,10 +68,16 @@ class LifterLmsPackTest extends \WP_UnitTestCase
         wp_set_current_user($this->admin);
         add_filter('wpmcp_lifterlms_active', '__return_true');
         add_filter('wpmcp_tutor_active', '__return_false');
+        foreach (self::OTHER_FILTERS as $filter) {
+            add_filter($filter, '__return_false');
+        }
     }
 
     protected function tearDown(): void
     {
+        foreach (self::OTHER_FILTERS as $filter) {
+            remove_all_filters($filter);
+        }
         remove_all_filters('wpmcp_lifterlms_active');
         remove_all_filters('wpmcp_tutor_active');
         wpmcp_test_unregister_lifterlms_types();
@@ -213,10 +222,14 @@ class LifterLmsPackTest extends \WP_UnitTestCase
         $this->assertSame('yes', get_post_meta($lesson, '_llms_quiz_enabled', true));
 
         Rollback_Service::restore_session($session);
+        // The lesson was created in this session, so its oldest state is "did
+        // not exist": the session undo trashes it rather than replaying the
+        // later snapshot of its quiz link (restore_session's oldest-first
+        // pick per object). A lesson that already existed keeps its meta
+        // undo, see the next test.
         foreach ([ $course_id, $section, $lesson, $quiz ] as $id) {
             $this->assertSame('trash', get_post_status($id), "post {$id}");
         }
-        $this->assertFalse(metadata_exists('post', $lesson, '_llms_quiz'));
     }
 
     public function test_add_quiz_to_an_existing_lesson_is_undone_by_its_session_including_the_lesson_meta(): void

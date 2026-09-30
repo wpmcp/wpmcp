@@ -110,6 +110,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'tutor/tutor.php' );
     }
     if ( 'lifterlms' === getenv( 'WPMCP_LIVE_LMS' ) ) {
+        // LifterLMS reads its add-on catalog from lifterlms.com while it
+        // boots and saves courses; an empty catalog keeps the run offline.
+        add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
+            if ( false !== $pre || 0 !== strpos( (string) $url, 'https://lifterlms.com/' ) ) {
+                return $pre;
+            }
+            return [ 'headers' => [], 'body' => '{"items":[]}', 'response' => [ 'code' => 200, 'message' => 'OK' ], 'cookies' => [], 'filename' => null ];
+        }, 10, 3 );
         wpmcp_maybe_require_plugin( 'lifterlms/lifterlms.php' );
     }
 } );
