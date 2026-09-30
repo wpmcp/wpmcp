@@ -4,6 +4,7 @@ namespace WPMCP\Tools\Migration;
 
 use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Backup\Url_Rewriter;
 use WPMCP\Tools\Content\Content_Guard;
@@ -669,7 +670,8 @@ class Find_Replace_Content
                         }
                         // wp_update_post() expects slashed input; without
                         // this every backslash in the content is stripped.
-                        $result = wp_update_post(wp_slash($postarr), true);
+                        // Only the columns with a replacement are filtered.
+                        $result = Save_Filters::update_post(wp_slash($postarr), true);
                         if (is_wp_error($result)) {
                             throw new Mutation_Failed(esc_html($result->get_error_message()));
                         }

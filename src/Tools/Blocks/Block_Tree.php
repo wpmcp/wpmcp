@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Blocks;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -92,7 +93,7 @@ class Block_Tree
                 'args'        => $args,
             ],
             function () use ($id, $new) {
-                wp_update_post(['ID' => $id, 'post_content' => wp_slash($new)]);
+                Save_Filters::update_post(['ID' => $id, 'post_content' => wp_slash($new)]);
                 return true;
             },
             function () use ($id, $new) {

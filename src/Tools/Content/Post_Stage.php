@@ -262,12 +262,13 @@ class Post_Stage
         $id = (int) $original->ID;
 
         // wp_update_post() unslashes; slash so block JSON escapes (<) survive.
-        $updated = wp_update_post(wp_slash([
+        // Only the text the stage changed is written, and so filtered.
+        $updated = Save_Filters::update_post(wp_slash(Save_Filters::changed_text($id, [
             'ID'           => $id,
             'post_title'   => $stage->post_title,
             'post_content' => $stage->post_content,
             'post_excerpt' => $stage->post_excerpt,
-        ]), true);
+        ])), true);
         if (is_wp_error($updated)) {
             throw new \RuntimeException(esc_html($updated->get_error_message()));
         }

@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\SiteEditor;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Safety\Site_Template_Snapshot;
 
 if (! defined('ABSPATH')) {
@@ -137,7 +138,7 @@ class Global_Styles
         $post_id = null === $post ? 0 : $post->ID;
         $out     = $this->mutate($theme, $args, function () use (&$post_id, $new, $theme) {
             if ($post_id > 0) {
-                wp_update_post(wp_slash(['ID' => $post_id, 'post_content' => $new]));
+                Save_Filters::update_post(wp_slash(['ID' => $post_id, 'post_content' => $new]));
             } else {
                 $inserted = wp_insert_post(wp_slash([
                     'post_type'    => 'wp_global_styles',

@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Analysis;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -113,7 +114,7 @@ final class Fix_Pass
                 // The spliced content is the stored (unslashed) body, and
                 // wp_update_post() unslashes: slash it or every backslash
                 // elsewhere in the post is lost.
-                return wp_update_post(
+                return Save_Filters::update_post(
                     [
                         'ID'           => $post_id,
                         'post_content' => wp_slash($content),
