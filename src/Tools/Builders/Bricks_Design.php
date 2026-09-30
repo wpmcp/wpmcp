@@ -25,7 +25,8 @@ if (! defined('ABSPATH')) {
  * - the element catalog in the static \Bricks\Elements::$elements registry,
  *   which only exists while Bricks is loaded.
  *
- * Everything is read as stored; nothing here writes.
+ * Everything is read as stored; nothing here writes (Builder_Design_Write
+ * does, through update-builder-content).
  */
 class Bricks_Design
 {
@@ -49,6 +50,12 @@ class Bricks_Design
             'variables'           => self::option_list('bricks_global_variables'),
             'variable_categories' => self::option_list('bricks_global_variables_categories'),
             'palettes'            => self::option_list('bricks_color_palette'),
+            // The hash of each writable list's option, for update-builder-content.
+            'hashes'              => [
+                'classes'   => Builder_Design_Data::option_hash('bricks_global_classes'),
+                'variables' => Builder_Design_Data::option_hash('bricks_global_variables'),
+                'palettes'  => Builder_Design_Data::option_hash('bricks_color_palette'),
+            ],
         ];
     }
 
