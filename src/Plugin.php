@@ -794,6 +794,13 @@ final class Plugin
             // generic 403 before the adapter runs. Governance and the gateway
             // token check refuse it too; see Ip_Allowlist.
             \WPMCP\Identity\Ip_Allowlist::register();
+            // Site-wide audit and governance of ability calls made outside
+            // the MCP endpoint (issue #412): every audit row records the
+            // entry point, and the default-off site_wide setting logs (or
+            // refuses, for abilities disabled by name) third-party calls.
+            \WPMCP\Governance\Call_Source::register();
+            \WPMCP\Governance\Site_Wide_Governance::register();
+            add_action('wp_ability_invoked', [Registrar::class, 'note_invoked'], PHP_INT_MIN, 1);
             // Handshake context injection (issue #80): swap the MCP
             // Adapter's initialize `instructions` for the admin-authored
             // text plus the permission-gated site summary. A no-op unless
@@ -3605,7 +3612,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-php-snippets',
             'free',
-            'List STORED PHP SNIPPETS as summaries (id, name, status, static-check flag, timestamps) without code. Not Elementor custom code (see list-code-snippets). Read-only',
+            'List STORED PHP SNIPPETS as summaries (id, name, status, static-check flag, timestamps) without code. Not Elementor custom code (see list-code-snippets)',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -3619,7 +3626,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-php-snippet',
             'free',
-            'Fetch one STORED PHP SNIPPET by id: code, status and last static-check report (advisory, not proof of safety). Not Elementor custom code (see get-code-snippet). Read-only',
+            'Fetch one STORED PHP SNIPPET by id: code, status and last static-check report (advisory, not proof of safety). Not Elementor custom code (see get-code-snippet)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3715,7 +3722,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-bundle',
             'free',
-            'Export PHP snippets, plus custom block/widget specs where present, as a checksummed JSON bundle for import-bundle; types and ids filter. Read-only',
+            'Export PHP snippets, plus custom block/widget specs where present, as a checksummed JSON bundle for import-bundle; types and ids filter',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3848,7 +3855,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-cli-job',
             'pro',
-            'Return a background CLI job by id: status (queued/running/completed/failed/canceled), the dispatched command and, once run, size-capped stdout/stderr, exit code and timed-out flag, or the error that stopped it. Read-only',
+            'Return a background CLI job by id: status (queued/running/completed/failed/canceled), the dispatched command and, once run, size-capped stdout/stderr, exit code and timed-out flag, or the error that stopped it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3864,7 +3871,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-cli-jobs',
             'pro',
-            'List background CLI jobs, newest first, with an optional status filter (queued/running/completed/failed/canceled). Read-only',
+            'List background CLI jobs, newest first, with an optional status filter (queued/running/completed/failed/canceled)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4068,7 +4075,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-cron-events',
             'free',
-            'List the scheduled WP-Cron events (hook, next-run timestamp, recurrence/schedule, interval in seconds, callback args) from the cron array, plus the available schedules from wp_get_schedules(). Optional hook filter. Read-only',
+            'List the scheduled WP-Cron events (hook, next-run timestamp, recurrence/schedule, interval in seconds, callback args) from the cron array, plus the available schedules from wp_get_schedules(). Optional hook filter',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4161,7 +4168,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-maintenance-status',
             'free',
-            'Report whether maintenance mode is on and, when it is, the configured message and Retry-After seconds. Read-only',
+            'Report whether maintenance mode is on and, when it is, the configured message and Retry-After seconds',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -4223,7 +4230,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-site-context',
             'free',
-            'Orientation payload: site name, URL, tagline, WordPress and PHP versions, theme, active plugins, public post types with counts, taxonomies, user count, locale, timezone, multisite and active integrations. No admin email. Read-only',
+            'Orientation payload: site name, URL, tagline, WordPress and PHP versions, theme, active plugins, public post types with counts, taxonomies, user count, locale, timezone, multisite and active integrations. No admin email',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -4247,7 +4254,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-page-snapshot',
             'free',
-            'One-call page digest from stored post_content: structure counts, outline, media and link inventory, builder detection, SEO-lite signals (content_coverage flags builder page gaps). Heavy sections (global_tokens, responsive_overrides) opt-in via sections. Size-capped. Read-only',
+            'One-call page digest from stored post_content: structure counts, outline, media and link inventory, builder detection, SEO-lite signals (content_coverage flags builder page gaps). Heavy sections (global_tokens, responsive_overrides) opt-in via sections. Size-capped',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4279,7 +4286,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-rendered-html',
             'free',
-            'Visitor-view HTML of a site page (post_id or url/path), chunked. Read-only',
+            'Visitor-view HTML of a site page (post_id or url/path), chunked',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4388,7 +4395,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-block-types',
             'free',
-            'List registered block types: name, title, category, is_dynamic and attribute names. Optional category (exact) and search (substring on name) filters. Read-only',
+            'List registered block types: name, title, category, is_dynamic and attribute names. Optional category (exact) and search (substring on name) filters',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4404,7 +4411,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-block-type',
             'free',
-            'Return full detail for a single registered block type by name: its attributes schema, declared supports and block-context wiring (uses_context, provides_context). Read-only',
+            'Return full detail for a single registered block type by name: its attributes schema, declared supports and block-context wiring (uses_context, provides_context)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4420,7 +4427,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/parse-blocks',
             'free',
-            'Parse block markup into its block tree via parse_blocks(). Takes "blocks" (raw markup) or "id" (parses that post\'s post_content). Each node reports blockName, attrs, recursively parsed innerBlocks, and an innerHTML summary. Read-only',
+            'Parse block markup into its block tree via parse_blocks(). Takes "blocks" (raw markup) or "id" (parses that post\'s post_content). Each node reports blockName, attrs, recursively parsed innerBlocks, and an innerHTML summary',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4490,7 +4497,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/site-templates-read',
             'free',
-            'List the block theme\'s templates and parts (source theme/custom, area, customized) or wp_navigation menus; entity plus id reads one as parsed blocks and content_hash. global_styles: theme/user/merged theme.json, variations, fonts (id: dot path narrows). Reports a classic theme. Read-only',
+            'List the block theme\'s templates and parts (source theme/custom, area, customized) or wp_navigation menus; entity plus id reads one as parsed blocks and content_hash. global_styles: theme/user/merged theme.json, variations, fonts (id: dot path narrows). Reports a classic theme',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4662,7 +4669,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-patterns',
             'free',
-            'List registered block patterns: name, title, description, categories. Optional search (substring on name or title). Markup is not returned; insert-pattern inserts it server-side. Read-only',
+            'List registered block patterns: name, title, description, categories. Optional search (substring on name or title). Markup is not returned; insert-pattern inserts it server-side',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4722,7 +4729,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-terms',
             'free',
-            'List terms in a taxonomy with search, parent filter, ordering and pagination. Empty terms are INCLUDED unless hide_empty is set (the opposite of core\'s default), so a partial list never leads to creating a duplicate. Read-only',
+            'List terms in a taxonomy with search, parent filter, ordering and pagination. Empty terms are INCLUDED unless hide_empty is set (the opposite of core\'s default), so a partial list never leads to creating a duplicate',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4745,7 +4752,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-term',
             'free',
-            'Read one term by term_id or slug, with its meta and full ancestor chain. Ancestors disambiguate a hierarchical taxonomy, where several same-named terms sit under different parents. Read-only',
+            'Read one term by term_id or slug, with its meta and full ancestor chain. Ancestors disambiguate a hierarchical taxonomy, where several same-named terms sit under different parents',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4865,7 +4872,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-shortcodes',
             'free',
-            'List the shortcode tags registered in the global $shortcode_tags array: tag name and a short description of the registered callback where resolvable. Optional search (substring match on tag name) narrows the result. Read-only',
+            'List the shortcode tags registered in the global $shortcode_tags array: tag name and a short description of the registered callback where resolvable. Optional search (substring match on tag name) narrows the result',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4896,7 +4903,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-sidebars',
             'free',
-            'List the sidebars/widget areas registered via register_sidebar(): id, name, description. Read-only',
+            'List the sidebars/widget areas registered via register_sidebar(): id, name, description',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -4909,7 +4916,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-sidebar-widgets',
             'free',
-            'List the widgets assigned to a single sidebar (by sidebar_id): widget id and display name, from wp_get_sidebars_widgets() resolved against the registered widgets. Read-only',
+            'List the widgets assigned to a single sidebar (by sidebar_id): widget id and display name, from wp_get_sidebars_widgets() resolved against the registered widgets',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5046,7 +5053,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-exports',
             'free',
-            'List the WXR export files previously generated by export-content: file name, size in bytes and created timestamp for each. Read-only',
+            'List the WXR export files previously generated by export-content: file name, size in bytes and created timestamp for each',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -5140,7 +5147,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-backup-status',
             'free',
-            'Return a backup job\'s current record (status: queued/running/completed/failed/canceled, result artifact reference or error, timestamps) by job id. Read-only',
+            'Return a backup job\'s current record (status: queued/running/completed/failed/canceled, result artifact reference or error, timestamps) by job id',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5156,7 +5163,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-backup-jobs',
             'free',
-            'List backup jobs, newest first, with an optional status filter (queued/running/completed/failed/canceled). Read-only',
+            'List backup jobs, newest first, with an optional status filter (queued/running/completed/failed/canceled)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5513,7 +5520,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-governance-settings',
             'free',
-            'Return the stored governance toggle maps (ability, domain, operation): explicit enable/disable decisions layered on top of the wpmcp_ability_enabled/wpmcp_domain_enabled/wpmcp_operation_enabled filters. Read-only',
+            'Return the stored governance toggle maps (ability, domain, operation) and site_wide mode: explicit enable/disable decisions layered on top of the wpmcp_{ability,domain,operation}_enabled filters',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -5527,13 +5534,14 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-governance-settings',
             'free',
-            'Batch-update stored governance toggles by ability, domain and operation, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}, operation: {"delete": false}}. Invalid entries are skipped and reported; only empty input throws',
+            'Batch-update stored governance toggles by ability, domain and operation, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}, operation: {"delete": false}}. Invalid entries are skipped and reported; only empty input throws. site_wide audits ability calls outside MCP; enforce also refuses abilities toggled off by name',
             [
                 'type'       => 'object',
                 'properties' => [
                     'ability'   => [ 'type' => 'object' ],
                     'domain'    => [ 'type' => 'object' ],
                     'operation' => [ 'type' => 'object' ],
+                    'site_wide' => [ 'type' => 'string', 'enum' => [ 'off', 'audit', 'enforce' ] ],
                 ],
             ],
             [$update_governance_settings, 'handle'],
@@ -5545,11 +5553,12 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-governance-audit-log',
             'free',
-            'List governance-decision audit log entries (ability, active identity or "none", allowed/denied, timestamp), newest first. Optional limit (default 20). Read-only',
+            'List governance-decision audit log entries (ability, active identity or "none", allowed/denied, timestamp, source: mcp/rest/server/cli/php), newest first. Optional limit (default 20) and source filter',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'limit' => [ 'type' => 'integer' ],
+                    'limit'  => [ 'type' => 'integer' ],
+                    'source' => [ 'type' => 'string' ],
                 ],
             ],
             [$list_governance_audit_log, 'handle'],
@@ -5584,7 +5593,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-identities',
             'free',
-            'List every registered scoped identity. Read-only',
+            'List every registered scoped identity',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -5673,7 +5682,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-network-info',
             'free',
-            'Report this network\'s id, name, domain, total site count, and main site id, via get_network()/get_main_site_id(). Read-only',
+            'Report this network\'s id, name, domain, total site count, and main site id, via get_network()/get_main_site_id()',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -5777,7 +5786,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-analytics-connection-status',
             'free',
-            'Report whether an analytics provider (Google Site Kit or explicitly configured credentials) is active and appears connected. Always registered, so state can be checked before the other analytics tools. Read-only',
+            'Report whether an analytics provider (Google Site Kit or explicitly configured credentials) is active and appears connected. Always registered, so state can be checked before the other analytics tools',
             [
                 'type'       => 'object',
                 'properties' => [],
