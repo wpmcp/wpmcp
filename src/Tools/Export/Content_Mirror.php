@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Export;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Tools\Builders\{Avada_Content, Beaver_Builder_Content, Beaver_Builder_Nodes, Breakdance_Content, Breakdance_Tree, Bricks_Content, Builder_Detector, Divi_Content, Oxygen_Classic_Content, Oxygen_Classic_Json, Thrive_Content, Thrive_Html, WPBakery_Content};
 use WPMCP\Tools\Content\Content_Guard;
 use WPMCP\Tools\Elementor\Elementor_Page_Data;
@@ -214,7 +215,7 @@ class Content_Mirror
             }
 
             return static function () use ($post_id, $content) {
-                wp_update_post(['ID' => $post_id, 'post_content' => wp_slash($content)]);
+                Save_Filters::update_post(['ID' => $post_id, 'post_content' => wp_slash($content)]);
                 return true;
             };
         }

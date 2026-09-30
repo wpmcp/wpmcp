@@ -403,11 +403,11 @@ class Memory_Store
 
             $post = get_post($id);
             if (null !== $post && ($post->post_title !== $entry['title'] || $post->post_content !== $entry['text'])) {
-                wp_update_post(wp_slash([
+                Save_Filters::update_post(wp_slash(Save_Filters::changed_text($id, [
                     'ID'           => $id,
                     'post_title'   => $entry['title'],
                     'post_content' => $entry['text'],
-                ]));
+                ])));
             }
         } finally {
             self::$writing = false;
