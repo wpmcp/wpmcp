@@ -27,6 +27,11 @@ class Ability
      *  - delete: read_only=false, destructive=true,  idempotent=false
      * Callers that need to deviate from this default (e.g. an update that is
      * actually an irreversible file overwrite) pass explicit booleans.
+     *
+     * $read_keys names input keys whose post the ability only reads although
+     * its operation writes (a copy source). The permission decision checks
+     * read_post for them instead of edit_post (Content_Guard::input_denial()).
+     * It is not part of the tool's advertised contract.
      */
     public function __construct(
         public string $name,
@@ -39,7 +44,8 @@ class Ability
         public string $operation = 'read',
         ?bool $read_only_hint = null,
         ?bool $destructive_hint = null,
-        ?bool $idempotent_hint = null
+        ?bool $idempotent_hint = null,
+        public array $read_keys = []
     ) {
         $this->read_only_hint   = $read_only_hint ?? ('read' === $operation);
         $this->destructive_hint = $destructive_hint ?? ('delete' === $operation);

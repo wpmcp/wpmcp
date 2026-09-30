@@ -75,8 +75,75 @@ class Rollback_Service
             ));
             return false;
         }
+        $refused = self::refused_post($row['snapshot']);
+        if (null !== $refused) {
+            self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
+            return false;
+        }
         self::apply_for_caller($row['snapshot']);
         return true;
+    }
+
+    /**
+     * Why the current user may not undo this snapshot's change to a post,
+     * or null when they may (issue #448). Undoing an edit writes the post
+     * back, so it takes core's edit_post for it, the same capability the
+     * edit itself took; undoing a creation trashes or deletes what was
+     * created, so it takes delete_post for each. A post that is gone (a
+     * force delete) has no meta capability to ask, so the type's own
+     * edit_posts is asked for the caller's own post and edit_others_posts
+     * for anyone else's. A row of a type that is no longer registered has
+     * no capabilities at all and takes manage_options.
+     *
+     * Only the agent-facing entry points ask, like may_restore(): the unwind
+     * of a mutation that threw is internal and never refused.
+     */
+    private static function refused_post(array $snapshot): ?string
+    {
+        $type = (string) ($snapshot['object_type'] ?? '');
+        if ('post' === $type) {
+            $post_id = (int) ($snapshot['object_id'] ?? 0);
+            $post    = $post_id > 0 ? get_post($post_id) : null;
+            if ($post instanceof \WP_Post) {
+                return self::refused_post_capability('edit_post', $post);
+            }
+            $row    = (array) ($snapshot['data']['post'] ?? []);
+            $object = get_post_type_object((string) ($row['post_type'] ?? ''));
+            if (! $object instanceof \WP_Post_Type) {
+                return current_user_can('manage_options') ? null : sprintf('post %d is of a type that is no longer registered.', $post_id);
+            }
+            $mine       = get_current_user_id() > 0 && (int) ($row['post_author'] ?? 0) === get_current_user_id();
+            $capability = (string) ($mine ? $object->cap->edit_posts : $object->cap->edit_others_posts);
+            return current_user_can($capability) ? null : sprintf('you cannot edit post %d.', $post_id);
+        }
+
+        if (in_array($type, [ 'page_build', 'media_import', Post_Creation_Snapshot::OBJECT_TYPE ], true)) {
+            $ids = Post_Creation_Snapshot::OBJECT_TYPE === $type
+                ? Post_Creation_Snapshot::post_ids($snapshot)
+                : [ (int) ($snapshot['object_id'] ?? 0) ];
+            foreach ($ids as $post_id) {
+                $post = $post_id > 0 ? get_post($post_id) : null;
+                if ($post instanceof \WP_Post) {
+                    $refused = self::refused_post_capability('delete_post', $post);
+                    if (null !== $refused) {
+                        return $refused;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static function refused_post_capability(string $capability, \WP_Post $post): ?string
+    {
+        if (! post_type_exists((string) $post->post_type)) {
+            return current_user_can('manage_options') ? null : sprintf('post %d is of a type that is no longer registered.', (int) $post->ID);
+        }
+        if (current_user_can($capability, (int) $post->ID)) {
+            return null;
+        }
+        return sprintf('you cannot %s post %d.', 'delete_post' === $capability ? 'delete' : 'edit', (int) $post->ID);
     }
 
     /**
@@ -389,6 +456,11 @@ class Rollback_Service
                     $key,
                     (string) self::restore_capability($snapshot)
                 ));
+                continue;
+            }
+            $refused = self::refused_post($snapshot);
+            if (null !== $refused) {
+                self::warn(sprintf('snapshot %s skipped: %s', $key, $refused));
                 continue;
             }
             // A child-theme scaffold is undone LAST: its restore refuses to

@@ -1388,7 +1388,10 @@ final class Plugin
             'create',
             null,
             // publish_stage overwrites a live post and discard_stage trashes one.
-            true
+            true,
+            null,
+            // post_id is the copy source; staging checks edit_post itself.
+            ['post_id']
         ));
         $registrar->register(new Ability(
             'wpmcp/diff-revisions',
@@ -6541,7 +6544,8 @@ final class Plugin
             [$save_as_template, 'handle'],
             'edit_posts',
             'elementor',
-            'create'
+            'create',
+            read_keys: ['post_id']
         ));
 
         $apply_template = new Apply_Template();

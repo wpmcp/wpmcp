@@ -181,6 +181,7 @@ class Registrar
      * Null when the ability is permitted for the current caller, otherwise
      * the audit reason ('' for a capability/tier/governance/identity denial,
      * 'private-post' for an input naming a plugin-private post or post type,
+     * 'post-capability' for a post the caller may not read, edit or delete,
      * 'memory-block:<id>' for a project-memory denial).
      *
      * @param array<string, mixed> $input
@@ -196,11 +197,13 @@ class Registrar
             return '';
         }
 
-        // Plugin-private post types (the chat conversation store) are never
-        // a valid target for any ability, whatever the caller's capability:
-        // one check here instead of one per generic post tool.
-        if (Content_Guard::input_targets_private_post($a->domain, $input)) {
-            return 'private-post';
+        // Every post and post type the input names: plugin-private and
+        // non-public types the caller may not reach, and core's per-post
+        // meta capability (read_post, edit_post, delete_post) for the
+        // ability's operation. One check here instead of one per tool.
+        $post_denial = Content_Guard::input_denial($a, $input);
+        if (null !== $post_denial) {
+            return $post_denial;
         }
 
         $rule = Memory_Guard::blocking_rule($a, $input);
