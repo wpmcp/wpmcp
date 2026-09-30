@@ -209,7 +209,12 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  by dropping the trailing "Read-only" from the integration dispatcher
      *  read template and 46 more descriptions whose readOnlyHint already
      *  says it, without dropping a rule: 208893 -> 208883 bytes over 407
-     *  tools. */
+     *  tools. Image optimization follow-up (#432) added no tool: it is
+     *  background, job_id and cancel on optimize-media plus a pointer to
+     *  its two settings, paid for by rewording "so it can be rolled back"
+     *  to "(undoable)", "Refuses with an error if" to "Errors if" and the
+     *  render-shortcode, update-settings and switch-theme descriptions,
+     *  without dropping a rule: 208883 -> 208872 bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */

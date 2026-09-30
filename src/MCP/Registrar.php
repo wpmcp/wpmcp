@@ -35,6 +35,22 @@ class Registrar
     /** The last decision recorded by a check made outside execute(). */
     private static ?string $standalone = null;
 
+    /** How many tool calls are running, counting a tool one dispatches. */
+    private static int $depth = 0;
+
+    /** Incremented as each outermost tool call starts. */
+    private static int $call_id = 0;
+
+    /**
+     * The outermost tool call running right now, or 0 outside one. Lets a
+     * hook tell work a wpmcp tool did from work anything else did in the
+     * same request (issue #432: optimizing only the uploads the tools make).
+     */
+    public static function current_call(): int
+    {
+        return self::$depth > 0 ? self::$call_id : 0;
+    }
+
     /**
      * Whether this install can run abilities of a given tier.
      *
@@ -287,8 +303,23 @@ class Registrar
             // that dispatches another tool cannot steal this call's undo point.
             $mark    = Operation_Context::mark();
             $started = microtime(true);
+            if (0 === self::$depth++) {
+                ++self::$call_id;
+            }
             try {
                 $result = ($a->handler)(...$args);
+                if (1 === self::$depth && ! is_wp_error($result)) {
+                    /**
+                     * Filters an outermost tool call's successful result
+                     * while the call is still current, so follow-up work
+                     * on what it did stays part of it (issue #432).
+                     *
+                     * @param mixed  $result The handler's result.
+                     * @param string $name   The ability name.
+                     * @param array  $input  The call's arguments.
+                     */
+                    $result = apply_filters('wpmcp_tool_result', $result, $a->name, isset($args[0]) && is_array($args[0]) ? $args[0] : []);
+                }
             } catch (\Throwable $e) {
                 if ($e instanceof Confirmation_Required) {
                     // Typed here, wrapped by core past this point (issue #387).
@@ -306,6 +337,8 @@ class Registrar
                     Operation_Context::since($mark)
                 );
                 throw $e;
+            } finally {
+                --self::$depth;
             }
 
             $this->record_outcome(

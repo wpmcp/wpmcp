@@ -136,6 +136,10 @@ const REMOVED_METHODS = [
     // #290): the front-end wiring of a paid feature whose classes leave by
     // path (policy.php). Its call site is edited out below.
     'register_dynamic_template_runtime_hooks',
+    // Same shape for image optimization (issue #432): the cron executor,
+    // upload hook and front-end delivery of a paid feature whose classes
+    // leave by path (policy.php). Its call site is edited out below.
+    'register_image_optimization_runtime_hooks',
     // Called only from register_cli_abilities(), which leaves above. Without
     // this it survives as a private method with no caller, and its four
     // `new *_Cli_Job()` instantiations hold the whole async wp-cli package
@@ -957,6 +961,16 @@ $plugin_edits[] = [
 $plugin_edits[] = [
     "        // Stored custom CSS/JS output (issue #63), gated on its own group.\n"
         . "        \$this->register_custom_code_runtime_hooks();\n",
+    '',
+    1,
+];
+
+// The call site of the image optimization wiring (issue #432).
+// remove_method() above takes the method itself.
+$plugin_edits[] = [
+    "        // Image optimization runs, tool-upload optimization and modern\n"
+        . "        // format delivery (issue #432), gated on the media group.\n"
+        . "        \$this->register_image_optimization_runtime_hooks();\n",
     '',
     1,
 ];
