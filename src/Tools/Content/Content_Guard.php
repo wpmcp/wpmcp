@@ -120,36 +120,68 @@ class Content_Guard
 
     /**
      * Whether the current user may reach this post through the content
-     * tools: can_read_post_type() for its type and, for a non-public type,
-     * core's read_post meta capability for the row itself. A revision or
-     * autosave is judged by the post it belongs to. A missing post is not
-     * refused here: the tool answers "not found" itself.
+     * tools: can_read_post_type() for its type and core's read_post meta
+     * capability for the row itself (issue #448: another user's draft or
+     * private post is not readable below Editor). A revision or autosave is
+     * judged by the post it belongs to. A missing post is not refused here:
+     * the tool answers "not found" itself.
      */
     public static function can_read_post(int $post_id): bool
     {
-        if ($post_id <= 0) {
+        $post = self::subject_post($post_id);
+        if (null === $post) {
             return true;
+        }
+        if (! self::can_read_post_type((string) $post->post_type)) {
+            return false;
+        }
+        return self::user_can_post('read_post', $post);
+    }
+
+    /**
+     * The post a capability check is about: the post itself, or for a
+     * revision or autosave the post it belongs to. Null when there is none.
+     */
+    private static function subject_post(int $post_id): ?\WP_Post
+    {
+        if ($post_id <= 0) {
+            return null;
         }
         $post = get_post($post_id);
         if (! $post instanceof \WP_Post) {
-            return true;
+            return null;
         }
         if ('revision' === $post->post_type && $post->post_parent > 0) {
             $parent = get_post((int) $post->post_parent);
             if ($parent instanceof \WP_Post) {
-                $post = $parent;
+                return $parent;
             }
         }
+        return $post;
+    }
 
-        $type = (string) $post->post_type;
-        if (! self::can_read_post_type($type)) {
-            return false;
-        }
-        $object = get_post_type_object($type);
-        if (! $object instanceof \WP_Post_Type || $object->public || 'attachment' === $type) {
+    /**
+     * Core's per-post meta capability (read_post, edit_post, delete_post)
+     * for a post. A row of an unregistered type has no capability map, and
+     * core reports asking for one as a misuse; can_read_post_type() already
+     * limits those rows to site administrators, so they pass here.
+     */
+    private static function user_can_post(string $capability, \WP_Post $post): bool
+    {
+        $object = get_post_type_object((string) $post->post_type);
+        if (! $object instanceof \WP_Post_Type) {
             return true;
         }
-        return current_user_can('read_post', (int) $post->ID);
+        // A published row of a public type is public content: core's
+        // read_post grants it to everyone, and asking current_user_can()
+        // would only differ for a caller without the bare read capability.
+        if ('read_post' === $capability && ($object->public || 'attachment' === $post->post_type)) {
+            $status = get_post_status_object((string) get_post_status($post));
+            if ($status instanceof \stdClass && ! empty($status->public)) {
+                return true;
+            }
+        }
+        return current_user_can($capability, (int) $post->ID);
     }
 
     /**
@@ -193,6 +225,23 @@ class Content_Guard
         'to_revision_id',
     ];
 
+    /**
+     * Keys that name a post the ability links to rather than changes: a
+     * parent, a copy source, a redirect target, a menu item's object. The
+     * caller needs to be able to read that post, not edit it.
+     */
+    private const REFERENCE_KEYS = ['parent', 'source_id', 'target_post_id', 'object_id'];
+
+    /** Keys that name the post an ability works on, when present. */
+    private const PRIMARY_KEYS = ['post_id', 'post_ids', 'id', 'ids', 'page_id'];
+
+    /**
+     * Keys that name the post an ability works on when the input names no
+     * primary post, and otherwise something applied to that post (a
+     * template, a social image), which is only read.
+     */
+    private const SECONDARY_KEYS = ['template_id', 'media_id', 'attachment_id'];
+
     /** Keys that name a post type. */
     private const POST_TYPE_KEYS = ['post_type', 'post_types'];
 
@@ -230,19 +279,161 @@ class Content_Guard
     }
 
     /**
-     * Whether an ability invocation targets a post or post type the current
-     * user may not reach through the content tools: a plugin-private type,
-     * or one whose own capabilities the caller lacks (can_read_post_type()
-     * and can_read_post()).
+     * Why an ability invocation may not run for the current user, judged on
+     * the posts and post types its input names; null when nothing refuses it.
+     * Called from Registrar's permission decision, so every ability that
+     * names a post by id gets the same rule without each one having to
+     * remember it:
      *
-     * Called from Registrar's permission decision, so it covers every
-     * ability, including the dozens of generic tools that take an arbitrary
-     * post id (duplicate-post, get-post-meta, extract-content, the block and
-     * builder editors, revisions, ...) without each one having to remember
-     * the rule. Without it, an edit_posts caller could, for example,
-     * duplicate another administrator's chat conversation (meta and all)
-     * into a post they own, or read another plugin's enrollment or order
-     * records.
+     * - 'private-post': a post or post type the caller may not reach at all
+     *   (can_read_post_type(), issue #446);
+     * - 'post-capability': core's per-post meta capability for the named
+     *   post fails (issue #448). The capability follows the ability's
+     *   registered operation: read_post for a read, edit_post for a create or
+     *   update (content, status, terms, meta, featured image, revisions,
+     *   block and builder edits), delete_post for a delete. A post the call
+     *   only links to or copies from (REFERENCE_KEYS, a SECONDARY_KEYS post
+     *   next to a primary one, and the ability's own read_keys) needs
+     *   read_post whatever the operation.
+     *
+     * @param array<string, mixed> $input
+     */
+    public static function input_denial(\WPMCP\MCP\Ability $a, array $input): ?string
+    {
+        $write_cap = [
+            'read'   => 'read_post',
+            'delete' => 'delete_post',
+        ][ $a->operation ] ?? 'edit_post';
+
+        $has_primary = false;
+        foreach (self::PRIMARY_KEYS as $key) {
+            if (! empty($input[ $key ])) {
+                $has_primary = true;
+                break;
+            }
+        }
+
+        foreach (self::post_id_keys($a->domain) as $key) {
+            if (! array_key_exists($key, $input)) {
+                continue;
+            }
+            $read_only = in_array($key, self::REFERENCE_KEYS, true)
+                || ($has_primary && in_array($key, self::SECONDARY_KEYS, true))
+                || in_array($key, $a->read_keys, true);
+            $capability = $read_only ? 'read_post' : $write_cap;
+
+            foreach ((array) $input[ $key ] as $value) {
+                if (! is_numeric($value)) {
+                    continue;
+                }
+                $post = self::subject_post((int) $value);
+                if (null === $post) {
+                    continue;
+                }
+                if (! self::can_read_post_type((string) $post->post_type)) {
+                    return 'private-post';
+                }
+                if (! self::user_can_post('read_post', $post) || ! self::user_can_post($capability, $post)) {
+                    return 'post-capability';
+                }
+            }
+        }
+
+        return self::input_names_unreadable_type($input) ? 'private-post' : null;
+    }
+
+    /**
+     * Whether the input names a post type the caller may not reach. The
+     * literal 'any' is left to the tool: list-posts narrows it itself.
+     *
+     * @param array<string, mixed> $input
+     */
+    private static function input_names_unreadable_type(array $input): bool
+    {
+        foreach (self::POST_TYPE_KEYS as $key) {
+            if (! array_key_exists($key, $input)) {
+                continue;
+            }
+            foreach ((array) $input[ $key ] as $value) {
+                if (! is_string($value)) {
+                    continue;
+                }
+                $value = sanitize_key($value);
+                if ('' !== $value && 'any' !== $value && ! self::can_read_post_type($value)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The SQL condition that keeps a post listing to the rows the current
+     * user may read, following core's read_post: published rows of each
+     * type, the caller's own rows, private rows with the type's
+     * read_private_posts, and other users' drafts, pending and scheduled
+     * rows with the type's edit_others_posts. Attachments inherit their
+     * status and are listed as the media library lists them. Empty when the
+     * caller may read every row of every type given.
+     *
+     * @param string[] $post_types
+     */
+    public static function readable_posts_where(array $post_types, string $table): string
+    {
+        global $wpdb;
+
+        $user_id  = get_current_user_id();
+        $public   = array_values(array_map('strval', get_post_stati(['public' => true])));
+        $private  = array_values(array_map('strval', get_post_stati(['private' => true])));
+        $status   = $wpdb->prepare('%i.post_status', $table);
+        $in       = static fn (array $values): string => implode(', ', array_map(static fn (string $v): string => $wpdb->prepare('%s', $v), $values));
+        $clauses  = [];
+        $narrowed = false;
+
+        foreach ($post_types as $type) {
+            $object = get_post_type_object((string) $type);
+            $typed  = $wpdb->prepare('%i.post_type = %s', $table, (string) $type);
+            if (! $object instanceof \WP_Post_Type || 'attachment' === $type) {
+                $clauses[] = $typed;
+                continue;
+            }
+            $others  = current_user_can((string) $object->cap->edit_others_posts);
+            $privacy = current_user_can((string) $object->cap->read_private_posts);
+            if ($others && $privacy) {
+                $clauses[] = $typed;
+                continue;
+            }
+            $narrowed = true;
+            $allowed  = [];
+            if ([] !== $public) {
+                $allowed[] = $status . ' IN (' . $in($public) . ')';
+            }
+            if ($user_id > 0) {
+                $allowed[] = $wpdb->prepare('%i.post_author = %d', $table, $user_id);
+            }
+            if ($privacy && [] !== $private) {
+                $allowed[] = $status . ' IN (' . $in($private) . ')';
+            }
+            if ($others) {
+                $allowed[] = [] === $private ? '1=1' : $status . ' NOT IN (' . $in($private) . ')';
+            }
+            $clauses[] = '(' . $typed . ' AND (' . ([] === $allowed ? '1=0' : implode(' OR ', $allowed)) . '))';
+        }
+
+        if (! $narrowed || [] === $clauses) {
+            return '';
+        }
+        return ' AND (' . implode(' OR ', $clauses) . ')';
+    }
+
+    /**
+     * Whether an input names a post or post type the current user may not
+     * read through the content tools: a plugin-private type, one whose own
+     * capabilities the caller lacks, or a row core's read_post refuses
+     * (can_read_post_type() and can_read_post()).
+     *
+     * This is the read half of input_denial(), which Registrar calls with
+     * the ability's operation; it is kept for callers that only read.
      *
      * The literal post_type 'any' is left to the tool: list-posts narrows it
      * to the types the caller may read.
@@ -262,22 +453,7 @@ class Content_Guard
             }
         }
 
-        foreach (self::POST_TYPE_KEYS as $key) {
-            if (! array_key_exists($key, $input)) {
-                continue;
-            }
-            foreach ((array) $input[ $key ] as $value) {
-                if (! is_string($value)) {
-                    continue;
-                }
-                $value = sanitize_key($value);
-                if ('' !== $value && 'any' !== $value && ! self::can_read_post_type($value)) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        return self::input_names_unreadable_type($input);
     }
 
     public static function is_writable_post_type(string $post_type): bool

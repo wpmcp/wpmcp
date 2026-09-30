@@ -11,7 +11,11 @@ class ListPostsTest extends \WP_UnitTestCase
         self::factory()->post->create(['post_title' => 'A', 'post_status' => 'publish']);
         self::factory()->post->create(['post_title' => 'B', 'post_status' => 'draft']);
 
+        // A caller who may read every row (issue #448 keeps others' drafts
+        // from callers who may not).
+        wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
         $out = (new List_Posts())->handle(['per_page' => 20, 'status' => 'any']);
+        wp_set_current_user(0);
 
         $this->assertSame(2, $out['total']);
         $this->assertCount(2, $out['posts']);

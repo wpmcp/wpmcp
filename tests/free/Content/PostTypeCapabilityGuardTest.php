@@ -95,7 +95,7 @@ class PostTypeCapabilityGuardTest extends \WP_UnitTestCase
     /**
      * @dataProvider roles
      */
-    public function test_public_posts_and_pages_behave_exactly_as_before(string $role): void
+    public function test_public_posts_and_pages_behave_as_core_reads_them(string $role): void
     {
         $other = self::factory()->user->create(['role' => 'administrator']);
         $post  = self::factory()->post->create(['post_author' => $other]);
@@ -104,10 +104,15 @@ class PostTypeCapabilityGuardTest extends \WP_UnitTestCase
         $media = self::factory()->attachment->create(['post_author' => $other]);
         wp_set_current_user($this->role_users[ $role ]);
 
-        foreach ([$post, $page, $draft, $media] as $id) {
+        foreach ([$post, $page, $media] as $id) {
             $this->assertTrue($this->permits('wpmcp/get-post', ['post_id' => $id]), $role . ' lost get-post on ' . get_post_type($id));
             $this->assertFalse(Content_Guard::input_targets_private_post('content', ['post_id' => $id]));
         }
+        // Another user's draft follows core's read_post (issue #448): only
+        // callers who may edit others' posts read it.
+        $may_read_draft = in_array($role, ['editor', 'administrator'], true);
+        $this->assertSame($may_read_draft, $this->permits('wpmcp/get-post', ['post_id' => $draft]), $role . ' get-post on another user\'s draft');
+        $this->assertSame(! $may_read_draft, Content_Guard::input_targets_private_post('content', ['post_id' => $draft]));
         foreach (['post', 'page', 'attachment', 'any'] as $type) {
             $this->assertTrue($this->permits('wpmcp/list-posts', ['post_type' => $type]), $role . ' lost list-posts on ' . $type);
         }
