@@ -397,12 +397,12 @@ XML;
 
     public function test_rolling_back_a_comment_edit_restores_backslashes(): void
     {
-        // Plain text content: wp_update_comment() runs the comment content
-        // filters on the restored row, which may normalize markup; the
-        // backslashes are what this test is about.
+        // The body carries HTML, a lone less-than and block comment markup
+        // next to the backslashes (issue #428): the restore must hand all of
+        // it back byte for byte, not through the comment content filters.
         $comment_id = (int) wp_insert_comment(wp_slash([
             'comment_post_ID' => $this->post(),
-            'comment_content' => self::line(),
+            'comment_content' => self::body(),
             'comment_author'  => self::line(),
         ]));
         add_comment_meta($comment_id, 'wpmcp_slash_text', wp_slash(self::body()));
@@ -411,7 +411,7 @@ XML;
         $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
         clean_comment_cache($comment_id);
 
-        $this->assertSame(self::line(), get_comment($comment_id)->comment_content);
+        $this->assertSame(self::body(), get_comment($comment_id)->comment_content);
         $this->assertSame(self::line(), get_comment($comment_id)->comment_author);
         $this->assertSame(self::body(), get_comment_meta($comment_id, 'wpmcp_slash_text', true));
     }
