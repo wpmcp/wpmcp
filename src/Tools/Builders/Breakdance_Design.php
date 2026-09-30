@@ -26,7 +26,8 @@ if (! defined('ABSPATH')) {
  *   `<prefix>footer`, `<prefix>block` and `<prefix>popup` types. Each keeps
  *   its tree in the same data row a page does (read through
  *   Breakdance_Content) and its conditions in
- *   `_<prefix>template_settings`.
+ *   `_<prefix>template_settings` (unprefixed on Breakdance 1.x, like the
+ *   data row: see Breakdance_Cache::prefix()).
  * - The element catalog is every loaded class extending
  *   \Breakdance\Elements\Element, whose static contentControls(),
  *   designControls() and settingsControls() are the control schemas.
@@ -90,7 +91,7 @@ class Breakdance_Design
 
         $templates = [];
         foreach (Builder_Design_Data::posts($types) as $post) {
-            $settings = get_post_meta($post->ID, '_' . $prefix . 'template_settings', true);
+            $settings = get_post_meta($post->ID, Breakdance_Cache::prefix($builder, (int) $post->ID) . 'template_settings', true);
             if (is_string($settings)) {
                 $settings = json_decode($settings, true);
             }
