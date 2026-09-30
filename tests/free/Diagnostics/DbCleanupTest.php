@@ -312,6 +312,50 @@ class DbCleanupTest extends \WP_UnitTestCase
         $this->assertFalse($this->comment_exists($ids[2]));
     }
 
+    /**
+     * Issue #439: a cleanup continued over several calls under one
+     * session_id is one run, and rollback-session undoes all of it, even
+     * when it wrote more undo points than the history limit and other writes
+     * followed it.
+     */
+    public function test_a_cleanup_over_many_calls_rolls_back_as_one_session(): void
+    {
+        $limit = static fn () => 2;
+        add_filter('wpmcp_snapshot_history_limit', $limit);
+        try {
+            $ids = [];
+            for ($i = 0; $i < 5; $i++) {
+                $ids[] = $this->spam_comment("spam {$i}");
+            }
+
+            $cursor = null;
+            $calls  = 0;
+            do {
+                $out    = (new Db_Cleanup(null, 1))->run([ 'cleanup' => [ 'spam_comments' ], 'dry_run' => false, 'confirm' => true, 'cursor' => $cursor, 'session_id' => 'cleanup-439' ]);
+                $cursor = $out['cursor'];
+                $calls++;
+            } while (null !== $cursor && $calls < 20);
+            foreach ($ids as $id) {
+                $this->assertFalse($this->comment_exists($id));
+            }
+
+            $post = self::factory()->post->create();
+            foreach ([ 'default', 'after-cleanup', 'default' ] as $i => $session) {
+                \WPMCP\Safety\Safe_Mutation::run(
+                    [ 'object_type' => 'post', 'object_id' => $post, 'session_id' => $session, 'tool_name' => 'update-post', 'args' => [ $i ] ],
+                    static fn () => wp_update_post([ 'ID' => $post, 'post_content' => "after {$i}" ])
+                );
+            }
+
+            Rollback_Service::restore_session('cleanup-439');
+            foreach ($ids as $id) {
+                $this->assertTrue($this->comment_exists($id), "spam comment {$id} not restored");
+            }
+        } finally {
+            remove_filter('wpmcp_snapshot_history_limit', $limit);
+        }
+    }
+
     public function test_snapshot_byte_cap_stops_the_call_with_a_cursor(): void
     {
         $ids = [ $this->spam_comment(str_repeat('x', 1000)), $this->spam_comment(str_repeat('y', 1000)) ];

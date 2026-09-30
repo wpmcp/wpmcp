@@ -242,9 +242,28 @@ class Rollback_Service
         return true;
     }
 
+    /**
+     * Undo every operation of one session.
+     *
+     * A named session is one run, and snapshot pruning keeps or drops it
+     * whole (issue #439). Once any of its undo points has been pruned, what
+     * is left would undo only part of the run, so the rollback is refused
+     * with the reason instead. The catch-all 'default' session is a stream
+     * of unrelated single writes pruned row by row, so it is never refused.
+     *
+     * @throws Mutation_Failed When a named session's undo points were pruned.
+     */
     public static function restore_session(string $session_id): int
     {
         self::$warnings = [];
+        $pruned = Snapshot_Store::is_loose_session($session_id) ? 0 : Snapshot_Store::pruned_rows_for_session($session_id);
+        if ($pruned > 0) {
+            throw new Mutation_Failed(sprintf(
+                'Session "%s" can no longer be rolled back: %d of its undo points were pruned from snapshot history (a newer run replaced it, or it fell outside the history the site keeps). Restoring the rest would undo only part of it, so nothing was restored.',
+                esc_html($session_id),
+                absint($pruned)
+            ));
+        }
         $rows  = Snapshot_Store::list_by_session($session_id); // newest first
         $count = 0;
 

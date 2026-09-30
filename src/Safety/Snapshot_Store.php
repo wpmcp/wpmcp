@@ -46,7 +46,8 @@ class Snapshot_Store
      * every undo point it writes. Without the hold, an import that writes
      * more rows than history_limit() would prune its own oldest snapshots
      * mid-run and rollback-session would then undo only part of it. The
-     * next write outside the hold prunes to the normal cap as usual.
+     * next write outside the hold prunes as usual, by whole sessions (see
+     * prune()), so the finished run is kept whole.
      *
      * @return mixed Whatever $work returns.
      */
@@ -422,17 +423,53 @@ class Snapshot_Store
     }
 
     /**
-     * Delete the oldest snapshot rows beyond the $keep most recent, at most
-     * PRUNE_BATCH_LIMIT of them per call, and never below the retention
+     * Sessions that are not a run: the catch-all a tool writes to when the
+     * caller names no session. Their rows are ordinary single writes and are
+     * pruned one by one, exactly as the flat cap always did.
+     */
+    private const LOOSE_SESSIONS = [ '', 'default' ];
+
+    /** Whether a session id is the catch-all rather than one named run. */
+    public static function is_loose_session(string $session_id): bool
+    {
+        return in_array($session_id, self::LOOSE_SESSIONS, true);
+    }
+
+    /**
+     * Prune the history back to $keep rows, by whole sessions (issue #439).
+     *
+     * A bulk run (an optimize-media background run, a product import, a
+     * database cleanup continued over many calls, mirror restores under one
+     * session_id) writes one undo point per item under one session, and
+     * rollback-session promises to undo the whole run. Deleting the oldest
+     * rows by id cut such a run down to the cap, and the rollback then
+     * restored only part of it without saying so. So:
+     *
+     * - Rows of the catch-all session ('default', or none) are ordinary
+     *   single writes: each is its own unit, pruned oldest first to the cap.
+     * - A named session is one unit, kept or dropped whole, never cut.
+     * - Units are ranked by their newest row. Walking from the newest, each
+     *   unit is kept while the rows kept so far plus its own stay within
+     *   $keep; the first that does not fit, and every older unit, is dropped.
+     * - Two sessions are always kept, whatever their size: the newest named
+     *   session (the run being written, or the one that just finished), and
+     *   the newest session larger than $keep (the last bulk run). Both count
+     *   toward $keep, so ordinary history newer than them still fits the cap.
+     *
+     * The upper bound: $keep rows of recent history, plus at most those two
+     * whole sessions. A run stays undoable until a newer run larger than the
+     * cap finishes and a later write prunes; then it is dropped whole. A
+     * dropped session is recorded (PRUNED_SESSIONS_OPTION) before any of its
+     * rows go, so rollback-session refuses it instead of undoing part of it,
+     * and a session larger than one batch is finished by the next prunes.
+     *
+     * At most PRUNE_BATCH_LIMIT rows go per call, never below the retention
      * floor an upgrading install arrived with. $keep defaults to
-     * history_limit(), so a call site cannot forget the flat cap.
-     * Additionally
-     * deletes each pruned row's attachment file backup dir (if any), via
+     * history_limit(), so a call site cannot forget the cap. Each pruned
+     * row's attachment file backup dir (if any) is deleted too, via
      * File_Backup::delete_backup_dir(), so a force-deleted attachment's
-     * backed-up bytes do not accumulate under wp-content/uploads/ forever
-     * once its snapshot has aged out and can no longer be rolled back to.
-     * Calling delete_backup_dir() for every pruned operation_id is a no-op
-     * for the (overwhelming majority of) rows that never had one.
+     * backed-up bytes do not accumulate once its snapshot can no longer be
+     * rolled back to; that call is a no-op for rows that never had one.
      */
     public static function prune(?int $keep = null): int
     {
@@ -452,9 +489,6 @@ class Snapshot_Store
             return 0;
         }
 
-        global $wpdb;
-        $t = self::table_name();
-
         $keep = $keep ?? self::history_limit();
 
         // A filter is the owner deciding what the depth should be, which is
@@ -466,43 +500,166 @@ class Snapshot_Store
                 $keep = max($keep, self::ensure_retention_floor());
             }
         }
+        $keep = max(1, $keep);
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; pruning must see the live row set.
-        $cutoff = $wpdb->get_var($wpdb->prepare('SELECT id FROM %i ORDER BY id DESC LIMIT 1 OFFSET %d', $t, $keep));
-        if (null === $cutoff) {
+        if (self::row_count() <= $keep) {
             return 0;
         }
 
-        // One batch per call. The ids come back oldest first so the batch is
-        // a contiguous range ending at $batch_cutoff, which keeps the DELETE
-        // a single range scan and keeps the rows deleted identical to the
-        // operation_ids whose backup dirs are removed below.
+        return self::delete_planned(self::plan_prune($keep));
+    }
+
+    /**
+     * Decide what prune() drops.
+     *
+     * @return array{sessions: string[], loose_below: int} the named
+     *         sessions to drop, oldest first and only as many as one batch
+     *         can reach, and the row id below which catch-all rows go
+     *         (PHP_INT_MAX when none is kept)
+     */
+    private static function plan_prune(int $keep): array
+    {
+        global $wpdb;
+        $t     = self::table_name();
+        $loose = self::LOOSE_SESSIONS;
+
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; pruning must see the live row set.
-        $batch = $wpdb->get_results(
-            $wpdb->prepare('SELECT id, operation_id FROM %i WHERE id <= %d ORDER BY id ASC LIMIT %d', $t, $cutoff, self::PRUNE_BATCH_LIMIT),
-            ARRAY_A
-        );
-        if (! $batch) {
+        $sessions = (array) $wpdb->get_results($wpdb->prepare(
+            'SELECT session_id, COUNT(*) AS n, MAX(id) AS last FROM %i WHERE session_id NOT IN (%s, %s) GROUP BY session_id',
+            $t,
+            $loose[0],
+            $loose[1]
+        ), ARRAY_A);
+
+        // Only the newest $keep catch-all rows can fit; every older one is
+        // dropped whatever else the walk decides.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; pruning must see the live row set.
+        $loose_ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+            'SELECT id FROM %i WHERE session_id IN (%s, %s) ORDER BY id DESC LIMIT %d',
+            $t,
+            $loose[0],
+            $loose[1],
+            $keep
+        )));
+
+        $units  = [];
+        $newest = null;
+        $bulk   = null;
+        foreach ($sessions as $row) {
+            $unit = [ 'last' => (int) $row['last'], 'n' => (int) $row['n'], 'session' => (string) $row['session_id'] ];
+            $units[] = $unit;
+            if (null === $newest || $unit['last'] > $newest['last']) {
+                $newest = $unit;
+            }
+            if ($unit['n'] > $keep && (null === $bulk || $unit['last'] > $bulk['last'])) {
+                $bulk = $unit;
+            }
+        }
+        foreach ($loose_ids as $id) {
+            $units[] = [ 'last' => $id, 'n' => 1, 'session' => null ];
+        }
+        usort($units, static fn (array $a, array $b): int => $b['last'] <=> $a['last']);
+
+        $protected = array_filter([ $newest['session'] ?? null, $bulk['session'] ?? null ], 'is_string');
+
+        $kept_rows   = 0;
+        $full        = false;
+        $oldest_kept = null;
+        $dropped     = [];
+        foreach ($units as $unit) {
+            $session = $unit['session'];
+            if (null !== $session && in_array($session, $protected, true)) {
+                $kept_rows += $unit['n'];
+                continue;
+            }
+            // Already partly deleted (a drop larger than one batch, or a
+            // flat prune before this one): the rest goes too.
+            $doomed = null !== $session && self::pruned_rows_for_session($session) > 0;
+            if (! $doomed && ! $full && $kept_rows + $unit['n'] <= $keep) {
+                $kept_rows += $unit['n'];
+                if (null === $session) {
+                    $oldest_kept = $unit['last'];
+                }
+                continue;
+            }
+            if (! $doomed) {
+                $full = true;
+            }
+            if (null !== $session) {
+                $dropped[] = $unit;
+            }
+        }
+
+        // Oldest first, and only as many sessions as one batch can reach, so
+        // the IN list stays bounded however many sessions a site has.
+        $dropped = array_reverse($dropped);
+        $names   = [];
+        $reach   = 0;
+        foreach ($dropped as $unit) {
+            if ($reach >= self::PRUNE_BATCH_LIMIT) {
+                break;
+            }
+            $names[] = $unit['session'];
+            $reach  += $unit['n'];
+        }
+
+        // Kept catch-all rows are always the newest ones (the walk keeps
+        // them only until the first unit that does not fit), so everything
+        // below the oldest kept one goes; with none kept, all of them go.
+        return [ 'sessions' => $names, 'loose_below' => $oldest_kept ?? PHP_INT_MAX ];
+    }
+
+    /**
+     * Delete one batch of what plan_prune() dropped, oldest rows first, and
+     * record per session what went before anything is deleted.
+     *
+     * @param array{sessions: string[], loose_below: int} $plan
+     */
+    private static function delete_planned(array $plan): int
+    {
+        global $wpdb;
+        $t     = self::table_name();
+        $loose = self::LOOSE_SESSIONS;
+
+        $where  = [];
+        $values = [ $t ];
+        if ([] !== $plan['sessions']) {
+            $where[] = 'session_id IN (' . implode(', ', array_fill(0, count($plan['sessions']), '%s')) . ')';
+            array_push($values, ...$plan['sessions']);
+        }
+        $where[] = '(session_id IN (%s, %s) AND id < %d)';
+        array_push($values, $loose[0], $loose[1], $plan['loose_below']);
+        $values[] = self::PRUNE_BATCH_LIMIT;
+
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- wpmcp_snapshots is this plugin's own table; the WHERE is built only from literal fragments and placeholders, and every value is bound through the spread.
+        $batch = (array) $wpdb->get_results($wpdb->prepare(
+            'SELECT id, operation_id, session_id FROM %i WHERE ' . implode(' OR ', $where) . ' ORDER BY id ASC LIMIT %d',
+            ...$values
+        ), ARRAY_A);
+        // phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+        if ([] === $batch) {
             return 0;
         }
 
-        $last         = end($batch);
-        $batch_cutoff = (int) $last['id'];
-
+        $ids         = [];
         $per_session = [];
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the per-session tally must count exactly the rows the delete below removes.
-        $by_session = $wpdb->get_results(
-            $wpdb->prepare('SELECT session_id, COUNT(*) AS n FROM %i WHERE id <= %d GROUP BY session_id', $t, $batch_cutoff),
-            ARRAY_A
-        );
-        foreach ((array) $by_session as $row) {
-            $per_session[ (string) $row['session_id'] ] = (int) $row['n'];
+        foreach ($batch as $row) {
+            $ids[]      = (int) $row['id'];
+            $session_id = (string) $row['session_id'];
+            $per_session[ $session_id ] = ($per_session[ $session_id ] ?? 0) + 1;
         }
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the prune is the delete itself.
-        $deleted = (int) $wpdb->query($wpdb->prepare('DELETE FROM %i WHERE id <= %d', $t, $batch_cutoff));
-
+        // Recorded before the delete: a session is not undoable from the
+        // moment its first row is about to go.
         self::record_pruned_sessions($per_session);
+
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- wpmcp_snapshots is this plugin's own table; the id list is one %d placeholder per id, bound through the spread.
+        $deleted = (int) $wpdb->query($wpdb->prepare(
+            'DELETE FROM %i WHERE id IN (' . implode(', ', array_fill(0, count($ids), '%d')) . ')',
+            $t,
+            ...$ids
+        ));
+        // phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 
         foreach ($batch as $row) {
             File_Backup::delete_backup_dir((string) $row['operation_id']);

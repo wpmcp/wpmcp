@@ -89,7 +89,7 @@ class Apply_Product_Import
         $warnings    = [];
         if ($undo_points > $limit) {
             $warnings[] = 'This import wrote ' . $undo_points . ' undo points, more than the site keeps (' . $limit
-                . '). The next change on the site starts pruning the oldest of them, so roll back now if needed, or raise the wpmcp_snapshot_history_limit filter before large imports.';
+                . '). They are kept together as one session until a newer run larger than that replaces it; then the whole import stops being undoable, so roll back before then if needed.';
         }
 
         return [
