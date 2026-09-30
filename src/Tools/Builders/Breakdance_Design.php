@@ -17,8 +17,11 @@ if (! defined('ABSPATH')) {
  *   `<prefix>variables_json_string` and the class selectors in
  *   `<prefix>oxy_selectors_json_string` (Oxygen 6) or
  *   `<prefix>breakdance_classes_json_string` (Breakdance), each a JSON
- *   string the engine writes and decodes whole. They are returned decoded
- *   and otherwise as stored.
+ *   string the engine writes and decodes whole. The engine's option API
+ *   encodes that string once more before storing it, so the stored value
+ *   is a JSON string literal; both layers are decoded (see
+ *   Builder_Design_Data::engine_decode()) and the document is otherwise
+ *   returned as stored.
  * - Templates are posts of the `<prefix>template`, `<prefix>header`,
  *   `<prefix>footer`, `<prefix>block` and `<prefix>popup` types. Each keeps
  *   its tree in the same data row a page does (read through
@@ -57,7 +60,7 @@ class Breakdance_Design
 
         $palette = $settings['settings']['colors']['palette'] ?? ($settings['colors']['palette'] ?? null);
 
-        return [
+        $out = [
             'builder'         => $builder,
             'scope'           => 'design_system',
             'plugin_active'   => Breakdance_Cache::plugin_active($builder),
@@ -66,6 +69,17 @@ class Breakdance_Design
             'palettes'        => is_array($palette) ? [$palette] : [],
             'global_settings' => $settings,
         ];
+
+        // The lists update-builder-content can write, each with the hash of
+        // the option it lives in (Breakdance only: see Builder_Design_Write).
+        if ('breakdance' === $builder) {
+            $out['hashes'] = [
+                'classes'  => Builder_Design_Data::option_hash($prefix . 'breakdance_classes_json_string'),
+                'palettes' => Builder_Design_Data::option_hash($prefix . 'global_settings_json_string'),
+            ];
+        }
+
+        return $out;
     }
 
     /** @return array<string,mixed> */
@@ -189,8 +203,7 @@ class Breakdance_Design
     /** @return array<int|string,mixed> */
     private static function json_option(string $option): array
     {
-        $raw     = get_option($option, '');
-        $decoded = is_string($raw) && '' !== $raw ? json_decode($raw, true) : $raw;
+        [, $decoded] = Builder_Design_Data::engine_decode($option);
 
         return is_array($decoded) ? $decoded : [];
     }

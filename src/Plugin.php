@@ -2946,7 +2946,7 @@ final class Plugin
                 'memory-propose',
                 'create',
                 new \WPMCP\Tools\Memory\Memory_Propose(),
-                'Propose one durable memory entry, stored PENDING and inert (not injected into sessions; severity=block not enforced) until an admin publishes it in wp-admin. severity=block needs at least one target (tool:<ability>, post_id:<id>, post_type:<slug>); once published, matching calls are refused by the permission check (enforced, not advisory)',
+                'Propose one durable memory entry, stored PENDING and inert (not injected into sessions; severity=block not enforced) until an admin publishes it in wp-admin. severity=block needs at least one target (tool:<ability>, post_id:<id>, post_type:<slug>); once published, matching calls are refused (enforced, not advisory)',
                 $entry_props,
                 ['text'],
             ],
@@ -3133,7 +3133,7 @@ final class Plugin
     private function register_cloud_abilities(Registrar $registrar): void
     {
         $tools = [
-            ['cloud-connect', 'update', new \WPMCP\Tools\Cloud\Cloud_Connect(), 'Connect this site to WP MCP Cloud: store the cloud url + api key and verify them by fetching the account. Returns the account on success. gateway_consent (default false) permits a gateway credential upload; false withdraws it and kills any the cloud holds', ['url' => ['type' => 'string'], 'key' => ['type' => 'string'], 'gateway_consent' => ['type' => 'boolean', 'default' => false]], ['url', 'key']],
+            ['cloud-connect', 'update', new \WPMCP\Tools\Cloud\Cloud_Connect(), 'Connect this site to WP MCP Cloud: store the cloud url + api key and verify them by fetching the account, which is returned. gateway_consent (default false) permits a gateway credential upload; false withdraws it and kills any the cloud holds', ['url' => ['type' => 'string'], 'key' => ['type' => 'string'], 'gateway_consent' => ['type' => 'boolean', 'default' => false]], ['url', 'key']],
             ['cloud-status', 'read', new \WPMCP\Tools\Cloud\Cloud_Status(), 'Report whether this site is connected to WP MCP Cloud, and where', [], []],
             ['cloud-list-assets', 'read', new \WPMCP\Tools\Cloud\Cloud_List_Assets(), 'List the assets (widget/block specs) in this site\'s WP MCP Cloud account', [], []],
             ['cloud-push-assets', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Assets(), 'Push this site\'s custom widget and block specs up to WP MCP Cloud (backup + reuse across sites). Optionally filter by type (widget|block)', ['types' => ['type' => 'array']], []],
@@ -4244,7 +4244,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/enable-maintenance',
             'free',
-            'Turn maintenance mode on (wpmcp_maintenance option: enabled, message, retry_after seconds). Logged-out visitors and users without manage_options get a 503 with the message until it is disabled. Snapshotted; rollback-operation restores the prior state',
+            'Turn maintenance mode on (wpmcp_maintenance option: enabled, message, retry_after seconds). Logged-out visitors and users without manage_options get a 503 with the message until disabled. Snapshotted; rollback-operation restores the prior state',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4693,7 +4693,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/move-block',
             'free',
-            'Move the block at from_path to position to_index among its own siblings (same parent only; compose remove-block + add-block to move across parents). Needs expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first',
+            'Move the block at from_path to position to_index among its own siblings (same parent only; compose remove-block + add-block to move across parents). Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4713,7 +4713,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/duplicate-block',
             'free',
-            'Duplicate the block at path (deep copy, inserted immediately after the original within the same parent) and return the copy\'s new_path. Needs expected_hash (the content_hash from parse-blocks) and refuses stale reads. Snapshot-first',
+            'Duplicate the block at path (deep copy, inserted immediately after the original within the same parent) and return the copy\'s new_path. Needs expected_hash (content_hash from parse-blocks); stale reads refused. Snapshot-first',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4935,7 +4935,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-shortcodes',
             'free',
-            'List the shortcode tags registered in the global $shortcode_tags array: tag name and a short description of the registered callback where resolvable. Optional search (substring match on tag name) narrows the result',
+            'List registered shortcode tags ($shortcode_tags): tag name and a short description of its callback where resolvable. Optional search (substring of the tag name) narrows the result',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5289,7 +5289,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Restore this site in place from a site-backup archive (job_id or path; none outside the site-backup dir). dry_run (default true) reports format_version, scope (all/database), prefix, multisite, WP downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false takes a database safety archive first (job id returned; no restore if it fails), holds maintenance mode, imports each statement and rolls back on failure. preserve_session (default true) keeps the caller signed in; include_files (default false, scope all) swaps in staged wp-content',
+            'Restore this site in place from a site-backup archive (job_id, or a path in the site-backup dir). dry_run (default true) reports format_version, scope (all/database), prefix, multisite, WP downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false takes a database safety archive first (job id returned; no restore if it fails), holds maintenance mode, imports each statement and rolls back on failure. preserve_session (default true) keeps the caller signed in; include_files (default false, scope all) swaps in staged wp-content',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5633,7 +5633,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-identity',
             'free',
-            'Create or overwrite (by name) a scoped identity that, once active (wpmcp_current_identity filter), narrows abilities beyond capability and Governance. Optional domains/operations/abilities allowlists, mode (allow default, or deny), exposure (full/compact, overrides site-wide mode), allowed_ips (IPs/CIDRs; other client addresses refused)',
+            'Create or overwrite (by name) a scoped identity that, once active (wpmcp_current_identity filter), narrows abilities beyond capability and Governance. Optional domains/operations/abilities allowlists, mode (allow default, or deny), exposure (full/compact, overrides site-wide mode), allowed_ips (IPs/CIDRs; other clients refused)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6760,7 +6760,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-popup',
             'pro',
-            'Create an Elementor popup (an elementor_library post of type popup), optionally seeded with elements and trigger/display settings. Not snapshotted (a create destroys nothing); configure further with set-popup-settings, remove with delete-post',
+            'Create an Elementor popup (elementor_library post, type popup), optionally seeded with elements and trigger/display settings. Not snapshotted (a create destroys nothing); configure further with set-popup-settings, remove with delete-post',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6879,7 +6879,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-code-snippet',
             'pro',
-            'Create an Elementor Custom Code snippet (an elementor_snippet post). location: wp_head, wp_body_open or wp_footer. Stored on any site; renders where Elementor Pro Custom Code is active. Not snapshotted (a create destroys nothing); remove with delete-code-snippet',
+            'Create an Elementor Custom Code snippet (elementor_snippet post). location: wp_head, wp_body_open or wp_footer. Stored on any site; renders where Elementor Pro Custom Code is active. Not snapshotted (a create destroys nothing); remove with delete-code-snippet',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7303,7 +7303,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-container',
             'pro',
-            'Create an Elementor layout element (container by default, or section/column) at the top level or under parent_id, at an optional position. Columns need a parent; widgets are never parents. Needs expected_hash from get-elementor-data; stale reads refused. Undo: rollback-operation',
+            'Create an Elementor layout element (container by default, or section/column) at top level or under parent_id, optional position. Columns need a parent; widgets are never parents. Needs expected_hash from get-elementor-data; stale reads refused. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9007,7 +9007,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-redirects',
             'free',
-            'List this site\'s managed redirects (source path, resolved target, status code, enabled, hit count), plus the pending redirect suggestions raised when a published post was deleted or moved. Filter by enabled state or a search string. Read-only',
+            'List this site\'s managed redirects (source path, resolved target, status code, enabled, hit count), plus pending suggestions raised when a published post was deleted or moved. Filter by enabled state or a search string. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9321,7 +9321,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-connection-info',
             'free',
-            'Return how to connect an MCP client to this site: the MCP server endpoint URL and ready-to-paste connection snippets for Claude Code, Cursor and Claude Desktop, each using an Application Password placeholder. Never returns a real credential. Read-only',
+            'How to connect an MCP client here: the MCP endpoint URL and ready-to-paste snippets for Claude Code, Cursor and Claude Desktop, each using an Application Password placeholder. Never returns a real credential. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -9416,11 +9416,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-builder-content',
             'pro',
-            'Bricks JSON; Divi/WPBakery/Avada shortcodes, Thrive HTML; oxygen-classic/Beaver Builder/Breakdance/Oxygen JSON tree. All but Bricks/Divi: operation update (path, attrs, text), add (to, index, element), remove (path), move (path, to, index); to "" = top. Undo: rollback-operation',
+            'Bricks JSON; Divi/WPBakery/Avada shortcodes, Thrive HTML; oxygen-classic/Beaver Builder/Breakdance/Oxygen JSON tree. All but Bricks/Divi: operation update (path, attrs, text), add (to, index, element), remove (path), move (path, to, index); to "" = top. scope design_system (bricks|breakdance): add/update/remove at classes|variables|palettes/<id>[/<color id>]; expected_hash: read\'s hashes.<list>. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
                     'post_id'   => [ 'type' => 'integer' ],
+                    'scope'     => [ 'type' => 'string' ],
+                    'expected_hash' => [ 'type' => 'string' ],
                     'builder'   => [ 'type' => 'string' ],
                     'content'   => [ 'type' => 'string' ],
                     'operation' => [ 'type' => 'string' ],
@@ -9431,7 +9433,7 @@ final class Plugin
                     'text'      => [ 'type' => 'string' ],
                     'element'   => [ 'type' => 'object' ],
                 ],
-                'required'   => [ 'post_id', 'builder' ],
+                'required'   => [ 'builder' ],
             ],
             [$update_builder_content, 'handle'],
             'edit_posts',
