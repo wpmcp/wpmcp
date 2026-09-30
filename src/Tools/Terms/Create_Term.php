@@ -64,10 +64,11 @@ class Create_Term
                 'args'        => $args,
             ],
             static function () use ($taxonomy, $name, $slug, $parent, $description): int {
-                $created = wp_insert_term($name, $taxonomy, [
+                // wp_insert_term() unslashes the name and description.
+                $created = wp_insert_term(wp_slash($name), $taxonomy, [
                     'slug'        => $slug,
                     'parent'      => $parent,
-                    'description' => $description,
+                    'description' => wp_slash($description),
                 ]);
 
                 if (is_wp_error($created)) {

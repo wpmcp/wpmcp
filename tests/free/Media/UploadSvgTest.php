@@ -14,6 +14,8 @@ use WPMCP\Tools\Media\Upload_Svg;
  */
 class UploadSvgTest extends \WP_UnitTestCase
 {
+    use \WPMCP\Tests\Free\Content\Slash_Payload;
+
     private const BENIGN_SVG    = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><!-- tool comment --><rect width="4" height="4" fill="#111"/></svg>';
     private const MALICIOUS_SVG = '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(1)</script></svg>';
     private const SVG_URL       = 'https://svg.wpmcp.example/icons/arrow.svg';
@@ -137,5 +139,16 @@ class UploadSvgTest extends \WP_UnitTestCase
 
         $this->assertNull(get_post($out['media_id']));
         $this->assertFileDoesNotExist($file);
+    }
+
+    /** Issue #425: title and alt text keep their backslashes. */
+    public function test_title_and_alt_keep_backslashes(): void
+    {
+        $out = (new Upload_Svg())->handle(['markup' => self::BENIGN_SVG, 'title' => self::line(), 'alt' => self::line()]);
+        $id  = (int) $out['media_id'];
+        clean_post_cache($id);
+
+        $this->assertSame(self::line(), get_post($id)->post_title);
+        $this->assertSame(self::line(), get_post_meta($id, '_wp_attachment_image_alt', true));
     }
 }

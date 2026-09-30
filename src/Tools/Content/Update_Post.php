@@ -110,7 +110,9 @@ class Update_Post
                 if (! empty($args['status'])) {
                     $postarr['post_status'] = sanitize_key((string) $args['status']);
                 }
-                wp_update_post($postarr);
+                // wp_update_post() unslashes its input; slash so backslashes
+                // (block JSON escapes, Elementor's \/) land byte for byte.
+                wp_update_post(wp_slash($postarr));
 
                 if (isset($args['terms']) && is_array($args['terms'])) {
                     $append = isset($args['terms_mode']) && 'append' === $args['terms_mode'];
@@ -120,7 +122,7 @@ class Update_Post
                 }
                 if (isset($args['meta']) && is_array($args['meta'])) {
                     foreach ($args['meta'] as $key => $value) {
-                        update_post_meta($post_id, sanitize_key((string) $key), $value);
+                        update_post_meta($post_id, sanitize_key((string) $key), wp_slash($value));
                     }
                 }
                 if (array_key_exists('featured_image', $args)) {

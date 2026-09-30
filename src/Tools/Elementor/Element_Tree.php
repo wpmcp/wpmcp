@@ -330,7 +330,7 @@ class Element_Tree
             return;
         }
 
-        update_post_meta($post_id, '_elementor_page_settings', $settings);
+        update_post_meta($post_id, '_elementor_page_settings', wp_slash($settings));
         Elementor_Cache::invalidate_document($post_id);
     }
 

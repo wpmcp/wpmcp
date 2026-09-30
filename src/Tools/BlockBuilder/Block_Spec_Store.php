@@ -44,7 +44,7 @@ class Block_Spec_Store
         }
         $spec = Block_Spec::normalize($spec);
 
-        $id = wp_insert_post([
+        $id = wp_insert_post(wp_slash([
             'post_type'   => self::POST_TYPE,
             'post_status' => $status,
             'post_title'  => sanitize_text_field((string) $spec['title']),
@@ -55,13 +55,13 @@ class Block_Spec_Store
             // with, or rolling back its creation would skip it as a
             // reclaimed id.
             'post_date_gmt' => gmdate('Y-m-d H:i:s'),
-        ], true);
+        ]), true);
 
         if (is_wp_error($id)) {
             return $id;
         }
         $id = (int) $id;
-        update_post_meta($id, '_wpmcp_block_spec', $spec);
+        update_post_meta($id, '_wpmcp_block_spec', wp_slash($spec));
 
         return $id;
     }
@@ -72,7 +72,7 @@ class Block_Spec_Store
             return false;
         }
         $spec   = Block_Spec::normalize($spec);
-        $result = wp_update_post(['ID' => $id, 'post_title' => sanitize_text_field((string) $spec['title'])], true);
+        $result = wp_update_post(wp_slash(['ID' => $id, 'post_title' => sanitize_text_field((string) $spec['title'])]), true);
         if (is_wp_error($result) || 0 === $result) {
             return false;
         }

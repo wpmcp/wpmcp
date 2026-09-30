@@ -49,7 +49,9 @@ class Add_Menu_Item
             $data['menu-item-position'] = (int) $args['position'];
         }
 
-        $item_id = wp_update_nav_menu_item($menu_id, 0, $data);
+        // wp_update_nav_menu_item() stores through wp_insert_post() and the
+        // meta writers, which all unslash.
+        $item_id = wp_update_nav_menu_item($menu_id, 0, wp_slash($data));
         if (is_wp_error($item_id)) {
             throw new \RuntimeException('Could not add the menu item: ' . esc_html($item_id->get_error_message()));
         }

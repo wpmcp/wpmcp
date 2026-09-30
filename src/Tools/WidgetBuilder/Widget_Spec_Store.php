@@ -59,7 +59,7 @@ class Widget_Spec_Store
             return $spec;
         }
 
-        $id = wp_insert_post([
+        $id = wp_insert_post(wp_slash([
             'post_type'   => self::POST_TYPE,
             'post_status' => $status,
             'post_title'  => sanitize_text_field((string) $spec['title']),
@@ -71,13 +71,13 @@ class Widget_Spec_Store
             // reclaimed id.
             'post_date_gmt' => gmdate('Y-m-d H:i:s'),
             'post_name'   => $spec['name'],
-        ], true);
+        ]), true);
 
         if (is_wp_error($id)) {
             return $id;
         }
         $id = (int) $id;
-        update_post_meta($id, '_wpmcp_widget_spec', $spec);
+        update_post_meta($id, '_wpmcp_widget_spec', wp_slash($spec));
 
         return $id;
     }
@@ -96,8 +96,8 @@ class Widget_Spec_Store
         if (is_wp_error($spec)) {
             return $spec;
         }
-        wp_update_post(['ID' => $id, 'post_title' => sanitize_text_field((string) $spec['title'])]);
-        update_post_meta($id, '_wpmcp_widget_spec', $spec);
+        wp_update_post(wp_slash(['ID' => $id, 'post_title' => sanitize_text_field((string) $spec['title'])]));
+        update_post_meta($id, '_wpmcp_widget_spec', wp_slash($spec));
         return true;
     }
 
