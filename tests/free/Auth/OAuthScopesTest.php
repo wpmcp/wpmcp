@@ -337,12 +337,14 @@ class OAuthScopesTest extends \WP_UnitTestCase
         $this->assertSame('content-reader', $stored['identity']);
 
         $_SERVER['REMOTE_ADDR'] = '203.0.113.7';
+        Ip_Allowlist::reset_for_tests();
         $this->present($session['tokens']['access_token']);
         $this->assertTrue($this->check('wpmcp/get-post'));
         $this->assertNotTrue($this->check('wpmcp/update-post'));
         $this->assertNotTrue($this->check('wpmcp/query'));
 
         $_SERVER['REMOTE_ADDR'] = '198.51.100.9';
+        Ip_Allowlist::reset_for_tests();
         $this->present($session['tokens']['access_token']);
         $this->assertNotTrue($this->check('wpmcp/get-post'));
     }

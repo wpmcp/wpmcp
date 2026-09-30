@@ -2,6 +2,7 @@
 
 namespace WPMCP\MCP;
 
+use WPMCP\Auth\Client_Access;
 use WPMCP\Governance\Governance;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
@@ -99,7 +100,9 @@ class Registrar
                 // permission callback (WP_Ability::check_permissions($input)),
                 // which is what lets a project-memory rule targeting a post id
                 // or post type be decided here rather than inside each tool.
-                'permission_callback' => fn ($input = null) => $this->is_permitted($a, is_array($input) ? $input : []),
+                // permission() rather than is_permitted() so a read-only
+                // OAuth connection is told which scope it lacks (issue #454).
+                'permission_callback' => fn ($input = null) => $this->permission($a, is_array($input) ? $input : []),
             ]);
         }
     }
@@ -149,6 +152,24 @@ class Registrar
     }
 
     /**
+     * is_permitted() for the Abilities API permission callback: true, or
+     * false, or the insufficient_scope WP_Error when the only thing standing
+     * in the way is a read-only OAuth connection (issue #454), so the MCP
+     * client is told which scope the call needs. The decision and its audit
+     * row are is_permitted()'s own.
+     *
+     * @param array<string, mixed> $input As for is_permitted().
+     */
+    public function permission(Ability $a, array $input = []): bool|\WP_Error
+    {
+        if ($this->is_permitted($a, $input)) {
+            return true;
+        }
+
+        return Client_Access::denial($a) ?? false;
+    }
+
+    /**
      * wp_ability_invoked (WordPress 7.1): the next permission check for
      * $name is the one inside execute(). See is_permitted().
      *
@@ -182,12 +203,23 @@ class Registrar
      * the audit reason ('' for a capability/tier/governance/identity denial,
      * 'private-post' for an input naming a plugin-private post or post type,
      * 'post-capability' for a post the caller may not read, edit or delete,
-     * 'memory-block:<id>' for a project-memory denial).
+     * 'memory-block:<id>' for a project-memory denial, 'insufficient_scope'
+     * for a non-read ability called over a read-only OAuth connection).
      *
      * @param array<string, mixed> $input
      */
     private function denial_reason(Ability $a, array $input): ?string
     {
+        // The OAuth access level (issue #454) comes first: a read-only
+        // connection may run read abilities only, whatever its user could
+        // otherwise do. Keyed on the registered operation, so no ability
+        // can opt out. An identity-bound connection is narrowed below, by
+        // is_within_identity_scope(), through the wpmcp_current_identity
+        // filter.
+        if (null !== Client_Access::denial($a)) {
+            return 'insufficient_scope';
+        }
+
         $allowed = self::tier_permitted($a->tier)
             && current_user_can($a->capability)
             && Governance::is_ability_enabled($a)

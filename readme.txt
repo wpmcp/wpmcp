@@ -23,7 +23,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * Six-layer governance where each layer can only narrow permissions, never widen them
 * Full audit log of every tool call and every governance decision
 * Scoped identities: give each agent exactly the capabilities it needs
-* OAuth 2.1 with PKCE, or application passwords
+* OAuth 2.1 with PKCE, with full or read-only access chosen when you approve a client, or application passwords
 
 = What agents can do =
 
