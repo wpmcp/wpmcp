@@ -132,6 +132,10 @@ class CommentSnapshotPiiGuardTest extends \WP_UnitTestCase
 
     public function test_a_session_rollback_by_an_author_skips_the_comment_but_unwinds_the_rest(): void
     {
+        // The post is the author's own: undoing an edit of it takes
+        // edit_post for it (issue #448).
+        $author = self::factory()->user->create([ 'role' => 'author' ]);
+        wp_update_post([ 'ID' => $this->post_id, 'post_author' => $author ]);
         $this->edit_comment('pii-348-session');
         $post = $this->post_id;
         Safe_Mutation::run(
@@ -145,7 +149,7 @@ class CommentSnapshotPiiGuardTest extends \WP_UnitTestCase
             static fn () => wp_update_post([ 'ID' => $post, 'post_content' => 'after' ])
         );
 
-        $this->as_role('author');
+        wp_set_current_user($author);
         $out = (new Rollback_Session())->handle([ 'session_id' => 'pii-348-session' ]);
 
         $this->assertSame('before', get_post($post)->post_content, 'The ordinary post still unwinds');

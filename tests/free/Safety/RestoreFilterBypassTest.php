@@ -164,6 +164,14 @@ class RestoreFilterBypassTest extends \WP_UnitTestCase
     /** Footnotes meta whose content kses rewrites, JSON encoded the way the editor stores it. */
     private const FOOTNOTES = '[{"content":"1 < 2 <iframe src=\"https:\/\/example.org\/x\"><\/iframe>","id":"fn-1"}]';
 
+    /** Make $author the owner of a row, without any save filter running. */
+    private function own(int $post_id, int $author): void
+    {
+        global $wpdb;
+        $wpdb->update($wpdb->posts, ['post_author' => $author], ['ID' => $post_id]);
+        clean_post_cache($post_id);
+    }
+
     private function author(): int
     {
         $author = self::factory()->user->create(['role' => 'author']);
@@ -391,7 +399,11 @@ class RestoreFilterBypassTest extends \WP_UnitTestCase
         [$spec_id, $operation_id] = $this->raw_spec($kind);
         $spec = get_post_meta($spec_id, $meta_key, true);
 
-        wp_set_current_user($this->author());
+        // The spec is the author's own: undoing its creation takes
+        // delete_post for it (issue #448).
+        $author = $this->author();
+        $this->own($spec_id, $author);
+        wp_set_current_user($author);
         $this->assert_post_filters_hooked();
         $this->assertTrue(Rollback_Service::restore_operation($operation_id));
 
@@ -405,8 +417,10 @@ class RestoreFilterBypassTest extends \WP_UnitTestCase
 
     public function test_spec_filters_are_restored_when_the_deactivation_throws(): void
     {
-        [, $operation_id] = $this->raw_spec('widget');
-        wp_set_current_user($this->author());
+        [$spec_id, $operation_id] = $this->raw_spec('widget');
+        $author = $this->author();
+        $this->own($spec_id, $author);
+        wp_set_current_user($author);
 
         add_filter('wp_insert_post_data', [self::class, 'explode_on_update']);
         try {
