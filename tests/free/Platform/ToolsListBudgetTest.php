@@ -214,7 +214,13 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  its two settings, paid for by rewording "so it can be rolled back"
      *  to "(undoable)", "Refuses with an error if" to "Errors if" and the
      *  render-shortcode, update-settings and switch-theme descriptions,
-     *  without dropping a rule: 208883 -> 208872 bytes over 407 tools. */
+     *  without dropping a rule: 208883 -> 208872 bytes over 407 tools. LMS
+     *  course structure (#394) added no tool: its Tutor LMS and LifterLMS
+     *  ops sit on the plugin-data pair, whose summary names them (66 bytes
+     *  over both halves), paid for by dropping implementation names from
+     *  delete-rows and call-rest and the redundant operation example from
+     *  update-governance-settings, without dropping a rule: 208872 ->
+     *  208868 bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */

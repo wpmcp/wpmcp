@@ -733,6 +733,12 @@ final class Plugin
             // rollback puts those options back. Wired only for the classes
             // this build ships; see register_rollback_refreshers().
             self::register_rollback_refreshers();
+            // Tutor LMS redirects and exits after a course is trashed, meant
+            // for its admin course list; outside that screen it would cut off
+            // an MCP response or a rollback that trashes a course (#394).
+            if (class_exists(\WPMCP\Integrations\LMS_Tutor::class)) {
+                add_action('trashed_post', [\WPMCP\Integrations\LMS_Tutor::class, 'keep_request_alive'], 1);
+            }
             // A shipping zone deleted through WooCommerce drops the creation
             // marker a woo-write create gave it, so a zone that later reuses
             // the id is never mistaken for the created one (issue #338).
@@ -2465,7 +2471,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-rows',
             'free',
-            'Delete rows matching a mandatory equality WHERE via $wpdb->delete(). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo: rollback-operation (rows reinserted with their ids) if the table has a primary key and the WHERE fits the before-image cap, else recoverable:false with the before-image in the write audit log',
+            'Delete rows matching a mandatory equality WHERE. Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo: rollback-operation (rows reinserted with their ids) if the table has a primary key and the WHERE fits the before-image cap, else recoverable:false with the before-image in the write audit log',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4406,7 +4412,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/call-rest',
             'free',
-            'Run an internal REST request (rest_do_request) on any local route; returns status and body. The route\'s permission_callback runs as the current user, so access cannot widen. GET/HEAD always run; writes need the wpmcp_enable_rest_writes filter (default off) and confirm:true, and are not snapshotted (recoverable:false)',
+            'Run an internal REST request on any local route; returns status and body. The route\'s permission_callback runs as the current user, so access cannot widen. GET/HEAD always run; writes need the wpmcp_enable_rest_writes filter (default off) and confirm:true, and are not snapshotted (recoverable:false)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5586,7 +5592,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-governance-settings',
             'free',
-            'Batch-update stored governance toggles by ability, domain and operation, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}, operation: {"delete": false}}. Invalid entries are skipped and reported; only empty input throws. site_wide audits ability calls outside MCP; enforce also refuses abilities toggled off by name',
+            'Batch-update stored governance toggles by ability, domain and operation, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}}. Invalid entries are skipped and reported; only empty input throws. site_wide audits ability calls outside MCP; enforce also refuses abilities toggled off by name',
             [
                 'type'       => 'object',
                 'properties' => [

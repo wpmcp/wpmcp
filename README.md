@@ -302,9 +302,10 @@ WPMCP_TEST_ADAPTER_PLUGIN=/path/to/mcp-adapter/mcp-adapter.php bin/test-local.sh
 bin/test-local.sh --live-forms          # only the Contact Form 7 + Flamingo live group
 bin/test-local.sh --live-blocks         # only the block suites live group (Kadence Blocks, GenerateBlocks, Spectra, Otter Blocks)
 bin/test-local.sh --live-buddypress     # only the BuddyPress live group
+bin/test-local.sh --live-lms            # only the Tutor LMS and LifterLMS live groups
 ```
 
-It starts a private MariaDB server under `~/.cache/wpmcp-tests`, installs each WordPress version there once per version of the install scripts, and gives every worktree its own database, so worktrees can run side by side. The default run ends with three live groups, each on its own install: the live forms group (the Contact Form 7 adapter against the real Contact Form 7 and Flamingo), the live blocks group (blocks inserted through the block-suites tools, rendered with the real Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks) and the live BuddyPress group (the BuddyPress ops run through the real BuddyPress, its hooks firing, and rolled back). MySQL does not work: the harness makes every table TEMPORARY and MySQL cannot reopen one inside a query, which WooCommerce does. Skip the gate for one push with `WPMCP_SKIP_LOCAL_TESTS=1 git push`.
+It starts a private MariaDB server under `~/.cache/wpmcp-tests`, installs each WordPress version there once per version of the install scripts, and gives every worktree its own database, so worktrees can run side by side. The default run ends with five live groups, each on its own install: the live forms group (the Contact Form 7 adapter against the real Contact Form 7 and Flamingo), the live blocks group (blocks inserted through the block-suites tools, rendered with the real Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks), the live BuddyPress group (the BuddyPress ops run through the real BuddyPress, its hooks firing, and rolled back) and the live Tutor LMS and LifterLMS groups (a course tree built through the LMS ops, read back through each plugin's own curriculum API, and rolled back). MySQL does not work: the harness makes every table TEMPORARY and MySQL cannot reopen one inside a query, which WooCommerce does. Skip the gate for one push with `WPMCP_SKIP_LOCAL_TESTS=1 git push`.
 
 ## Contributing
 

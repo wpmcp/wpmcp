@@ -101,6 +101,25 @@ tests_add_filter( 'muplugins_loaded', function () {
         add_filter( 'pre_option_bp-active-components', 'wpmcp_test_buddypress_components' );
         wpmcp_maybe_require_plugin( 'buddypress/bp-loader.php' );
     }
+
+    // The live LMS jobs (issue #394, WPMCP_LIVE_LMS=tutor or lifterlms) run
+    // the LMS ops through the real Tutor LMS or LifterLMS, one per install.
+    // Loaded only on request: the stub-backed LMS tests register the plugins'
+    // post types themselves, and the two plugins share the "lesson" type.
+    if ( 'tutor' === getenv( 'WPMCP_LIVE_LMS' ) ) {
+        wpmcp_maybe_require_plugin( 'tutor/tutor.php' );
+    }
+    if ( 'lifterlms' === getenv( 'WPMCP_LIVE_LMS' ) ) {
+        // LifterLMS reads its add-on catalog from lifterlms.com while it
+        // boots and saves courses; an empty catalog keeps the run offline.
+        add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
+            if ( false !== $pre || 0 !== strpos( (string) $url, 'https://lifterlms.com/' ) ) {
+                return $pre;
+            }
+            return [ 'headers' => [], 'body' => '{"items":[]}', 'response' => [ 'code' => 200, 'message' => 'OK' ], 'cookies' => [], 'filename' => null ];
+        }, 10, 3 );
+        wpmcp_maybe_require_plugin( 'lifterlms/lifterlms.php' );
+    }
 } );
 
 if ( ! function_exists( 'wpmcp_test_buddypress_components' ) ) {
@@ -121,6 +140,21 @@ tests_add_filter( 'setup_theme', function () {
     require_once buddypress()->plugin_dir . 'bp-core/admin/bp-core-admin-schema.php';
     bp_core_install( wpmcp_test_buddypress_components() );
 } );
+
+// The live LMS jobs' tables and roles, built by each plugin's own installer
+// once per run, before any test transaction starts. A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( 'tutor' === getenv( 'WPMCP_LIVE_LMS' ) && class_exists( '\\TUTOR\\Tutor' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        \TUTOR\Tutor::create_database();
+        \TUTOR\Tutor::manage_tutor_roles_and_permissions();
+    }
+    if ( 'lifterlms' === getenv( 'WPMCP_LIVE_LMS' ) && class_exists( 'LLMS_Install' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        LLMS_Install::create_tables();
+        LLMS_Roles::install();
+    }
+}, 20 );
 
 // Recreate the wpmcp snapshots table once per run, BEFORE any test
 // transaction starts. The table is otherwise created lazily by

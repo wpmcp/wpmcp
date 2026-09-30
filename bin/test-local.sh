@@ -24,6 +24,8 @@
 #      GenerateBlocks, Spectra and Otter Blocks, on its own install too.
 #   7. Runs the live BuddyPress group (issue #363): the BuddyPress ops run
 #      through the real BuddyPress, its hooks firing, on its own install too.
+#   8. Runs the live LMS groups (issue #394): the Tutor LMS and LifterLMS ops
+#      through the real plugins, one install each.
 #
 # MariaDB, not MySQL: the WordPress harness turns every CREATE TABLE into a
 # TEMPORARY table, and WooCommerce's order-sync query reads one of them twice
@@ -38,6 +40,7 @@
 #   bin/test-local.sh --live-forms    only the live forms group (real Contact Form 7 + Flamingo)
 #   bin/test-local.sh --live-blocks   only the live blocks group (real block suites)
 #   bin/test-local.sh --live-buddypress only the live BuddyPress group (real BuddyPress)
+#   bin/test-local.sh --live-lms      only the live LMS groups (real Tutor LMS, then real LifterLMS)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments; skips lint, drift and coverage
 #   bin/test-local.sh --stop-db       stop the private MariaDB server and exit
 #
@@ -79,6 +82,7 @@ only_wp=""
 only_live_forms=false
 only_live_blocks=false
 only_live_buddypress=false
+only_live_lms=false
 coverage=true
 phpunit_args=()
 while [ $# -gt 0 ]; do
@@ -89,6 +93,7 @@ while [ $# -gt 0 ]; do
 		--live-forms) only_live_forms=true ;;
 		--live-blocks) only_live_blocks=true ;;
 		--live-buddypress) only_live_buddypress=true ;;
+		--live-lms) only_live_lms=true ;;
 		--stop-db) stop_db=true ;;
 		--) shift; phpunit_args=("$@"); break ;;
 		-h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
@@ -212,6 +217,8 @@ install_wp() {
 	[ "${WPMCP_LIVE_BLOCKS:-}" = 1 ] && flavor="-blocks-live"
 	# And WPMCP_LIVE_BUDDYPRESS=1 and BuddyPress.
 	[ "${WPMCP_LIVE_BUDDYPRESS:-}" = 1 ] && flavor="-buddypress-live"
+	# And WPMCP_LIVE_LMS=tutor or lifterlms and that one LMS plugin.
+	[ -n "${WPMCP_LIVE_LMS:-}" ] && flavor="-${WPMCP_LIVE_LMS}-live"
 	# The installers' hash is part of the directory, not a stamp inside it:
 	# branches carrying different installers (a moved plugin pin, say) get
 	# separate installs, so one run never deletes an install another run is
@@ -367,6 +374,25 @@ run_live_buddypress() {
 	unset WPMCP_LIVE_BUDDYPRESS
 }
 
+# The live LMS groups (issue #394), the same way, once per plugin: Tutor LMS
+# and LifterLMS both register a "lesson" post type, so each gets its own
+# install, its own database and its own group, with --fail-on-skipped.
+run_live_lms() {
+	local version=$1 lms dir core config
+	for lms in tutor lifterlms; do
+		export WPMCP_LIVE_LMS=$lms
+		dir=$(install_wp "$version")
+		core=$(checkout_core "$dir")
+		RUN_CORES+=("$core")
+		config=$(db_config "$dir" "$version-$lms-live" "$core")
+		RUN_CONFIGS+=("$config")
+		say "PHPUnit live $lms group on WordPress $version (real $lms)"
+		WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+			"$PHP" vendor/bin/phpunit --group "$lms-live" --fail-on-skipped
+		unset WPMCP_LIVE_LMS
+	done
+}
+
 cd "$ROOT"
 
 RUN_CORES=()
@@ -420,10 +446,11 @@ if [ "$coverage" = true ] && [ "$targeted" = false ]; then
 	fi
 fi
 
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ]; then
 	[ "$only_live_forms" = false ] || run_live_forms "${only_wp:-$default_wp}"
 	[ "$only_live_blocks" = false ] || run_live_blocks "${only_wp:-$default_wp}"
 	[ "$only_live_buddypress" = false ] || run_live_buddypress "${only_wp:-$default_wp}"
+	[ "$only_live_lms" = false ] || run_live_lms "${only_wp:-$default_wp}"
 elif [ -n "$only_wp" ]; then
 	run_suite "$only_wp" false
 else
@@ -437,6 +464,7 @@ else
 		run_live_forms "$default_wp"
 		run_live_blocks "$default_wp"
 		run_live_buddypress "$default_wp"
+		run_live_lms "$default_wp"
 	fi
 fi
 
