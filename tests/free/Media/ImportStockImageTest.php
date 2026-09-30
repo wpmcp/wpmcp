@@ -16,6 +16,8 @@ use WPMCP\Tools\Media\Stock\Import_Stock_Image;
  */
 class ImportStockImageTest extends \WP_UnitTestCase
 {
+    use \WPMCP\Tests\Free\Content\Slash_Payload;
+
     private const IMAGE_URL = 'https://images.pexels.com/photos/123/wpmcp%20photo.jpeg?auto=compress&w=5000';
 
     private int $http_calls = 0;
@@ -225,5 +227,22 @@ class ImportStockImageTest extends \WP_UnitTestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         (new Import_Stock_Image())->handle([]);
+    }
+
+    /** Issue #425: title, alt and attribution keep their backslashes. */
+    public function test_title_alt_and_attribution_keep_backslashes(): void
+    {
+        $out = (new Import_Stock_Image())->handle([
+            'image_url'   => self::IMAGE_URL,
+            'title'       => self::line(),
+            'alt'         => self::line(),
+            'attribution' => self::line(),
+        ]);
+        $id = (int) $out['media_id'];
+        clean_post_cache($id);
+
+        $this->assertSame(self::line(), get_post($id)->post_title);
+        $this->assertSame(self::line(), get_post_meta($id, '_wp_attachment_image_alt', true));
+        $this->assertSame(self::line(), get_post_meta($id, '_wpmcp_stock_attribution', true));
     }
 }
