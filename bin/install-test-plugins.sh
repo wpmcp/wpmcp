@@ -85,6 +85,21 @@ if [ "${WPMCP_LIVE_BUDDYPRESS:-}" = "1" ]; then
 	)
 fi
 
+# The live LMS jobs (issue #394) run the Tutor LMS and LifterLMS ops through
+# the real plugins. One plugin per install: both register a post type named
+# "lesson", so loading them together would test neither the way a site runs.
+# Exclusive too: the stub-backed LMS tests register the plugins' post types
+# themselves.
+if [ "${WPMCP_LIVE_LMS:-}" = "tutor" ]; then
+	PLUGINS=(
+		"tutor:tutor.php"
+	)
+elif [ "${WPMCP_LIVE_LMS:-}" = "lifterlms" ]; then
+	PLUGINS=(
+		"lifterlms:lifterlms.php"
+	)
+fi
+
 download() {
 	if command -v curl >/dev/null 2>&1; then
 		curl -fsSL "$1" -o "$2"
