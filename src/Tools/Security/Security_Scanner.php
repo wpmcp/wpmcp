@@ -10,8 +10,9 @@ if (! defined('ABSPATH')) {
  * Security & Malware Scanner orchestrator.
  *
  * resolve_checks(), summarize(), and group_by_category() are pure. scan() wires
- * the four audits together (added once the audits exist). Read-only: this class
- * never writes, never mutates, and never executes scanned content.
+ * the four audits together, plus the known-vulnerability lookup when asked
+ * with vulnerabilities:true (issue #413). Read-only: this class never writes,
+ * never mutates, and never executes scanned content.
  */
 class Security_Scanner
 {
@@ -26,24 +27,28 @@ class Security_Scanner
     private Integrity_Audit $integrity;
     private Hardening_Audit $hardening;
     private Software_Audit $software;
+    private Vulnerability_Audit $vulnerabilities;
 
     public function __construct(
         ?Malware_Audit $malware = null,
         ?Integrity_Audit $integrity = null,
         ?Hardening_Audit $hardening = null,
-        ?Software_Audit $software = null
+        ?Software_Audit $software = null,
+        ?Vulnerability_Audit $vulnerabilities = null
     ) {
         $this->malware   = $malware ?: new Malware_Audit();
         $this->integrity = $integrity ?: new Integrity_Audit();
         $this->hardening = $hardening ?: new Hardening_Audit();
         $this->software  = $software ?: new Software_Audit();
+
+        $this->vulnerabilities = $vulnerabilities ?: new Vulnerability_Audit();
     }
 
     /**
      * Live: run the requested audits and assemble the scored report.
      *
-     * @param array $input { checks?, deep?, max_files?, max_seconds? }
-     * @return array { summary, sections, scan_meta, top_recommendations }
+     * @param array $input { checks?, deep?, max_files?, max_seconds?, vulnerabilities? }
+     * @return array { summary, sections, scan_meta, top_recommendations, vulnerabilities? }
      */
     public function scan(array $input): array
     {
@@ -66,6 +71,7 @@ class Security_Scanner
             'checks_run'         => $checks,
             'integrity_api'      => ['ok' => false, 'error' => 'not_run'],
             'headers_fetch'      => ['ok' => false, 'error' => 'not_run'],
+            'vulnerability_db'   => ['ok' => false, 'error' => 'not_requested'],
             'elapsed_ms'         => 0,
         ];
 
@@ -91,10 +97,24 @@ class Security_Scanner
             $findings = array_merge($findings, $this->software->run());
         }
 
+        // Issue #413: the only outbound lookup here that is opt-in. Nothing is
+        // sent to the vulnerability database unless the caller asks.
+        $vulnerability_report = null;
+        if (! empty($input['vulnerabilities'])) {
+            $vulnerabilities               = $this->vulnerabilities->run();
+            $findings                      = array_merge($findings, $vulnerabilities['findings']);
+            $vulnerability_report          = $vulnerabilities['report'];
+            $scan_meta['vulnerability_db'] = [
+                'ok'     => 'ok' === $vulnerability_report['status'],
+                'status' => $vulnerability_report['status'],
+                'source' => $vulnerability_report['source'],
+            ];
+        }
+
         $summary                 = $this->summarize($findings);
         $scan_meta['elapsed_ms'] = (int) round((microtime(true) - $started) * 1000);
 
-        return [
+        $report = [
             'summary'             => [
                 'score'  => $summary['score'],
                 'grade'  => $summary['grade'],
@@ -104,6 +124,10 @@ class Security_Scanner
             'scan_meta'           => $scan_meta,
             'top_recommendations' => $summary['top_recommendations'],
         ];
+        if (null !== $vulnerability_report) {
+            $report['vulnerabilities'] = $vulnerability_report;
+        }
+        return $report;
     }
 
     /**

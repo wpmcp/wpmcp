@@ -184,7 +184,13 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  rollback-operation", "Requires expected_hash" and "requires
      *  confirm:true" to "Needs ..." and the integration dispatcher read and
      *  write templates, without dropping a rule: 208981 -> 208962 bytes over
-     *  406 tools. */
+     *  406 tools. Known-vulnerability lookups (#413) added no tool: they are
+     *  a vulnerabilities argument on scan-security, paid for by rewording the
+     *  update-variation, replace-system-typography, dispatch-cli-job,
+     *  trigger-backup, analyze-performance, set-dynamic-tag,
+     *  reorder-global-classes, delete-global-class, add-block, woo-write,
+     *  restore-site-backup, edit-file and a few other descriptions without
+     *  dropping a rule: 208962 -> 208959 bytes over 406 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
