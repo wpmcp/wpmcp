@@ -15,7 +15,7 @@ class SnapshotStoreCrudTest extends \WP_UnitTestCase {
     }
     public function test_prune_keeps_most_recent(): void {
         for ( $i = 0; $i < 25; $i++ ) {
-            Snapshot_Store::save( "op-{$i}", 'sess', ['object_type'=>'post','object_id'=>$i,'data'=>['post'=>null,'meta'=>[]]], 'update-blocks', str_repeat('a',64) );
+            Snapshot_Store::save( "op-{$i}", 'default', ['object_type'=>'post','object_id'=>$i,'data'=>['post'=>null,'meta'=>[]]], 'update-blocks', str_repeat('a',64) );
         }
         $this->assertSame( 5, Snapshot_Store::prune( 20 ) );
         $this->assertCount( 20, Snapshot_Store::recent( 100 ) );
@@ -23,28 +23,39 @@ class SnapshotStoreCrudTest extends \WP_UnitTestCase {
 
     /**
      * The change-set builder (issue #192) needs to know whether a session
-     * lost rows to pruning, and the surviving ledger cannot say: prune
-     * deletes by id and sessions interleave. So prune() records it.
+     * lost rows to pruning, and the surviving ledger cannot say. So prune()
+     * records it. Since issue #439 a named session is dropped whole, so the
+     * record is its full size, and catch-all rows are counted as they go.
      */
     public function test_prune_records_how_many_rows_each_session_lost(): void {
-        for ( $i = 0; $i < 3; $i++ ) {
-            Snapshot_Store::save( "early-{$i}", 'early', ['object_type'=>'post','object_id'=>$i,'data'=>['post'=>null,'meta'=>[]]], 'update-blocks', str_repeat('a',64) );
+        $snap = ['object_type'=>'post','object_id'=>1,'data'=>['post'=>null,'meta'=>[]]];
+        for ( $i = 0; $i < 2; $i++ ) {
+            Snapshot_Store::save( "loose-{$i}", 'default', $snap, 'update-blocks', str_repeat('a',64) );
         }
-        for ( $i = 0; $i < 22; $i++ ) {
-            Snapshot_Store::save( "late-{$i}", 'late', ['object_type'=>'post','object_id'=>$i,'data'=>['post'=>null,'meta'=>[]]], 'update-blocks', str_repeat('a',64) );
+        for ( $i = 0; $i < 3; $i++ ) {
+            Snapshot_Store::save( "early-{$i}", 'early', $snap, 'update-blocks', str_repeat('a',64) );
+        }
+        for ( $i = 0; $i < 18; $i++ ) {
+            Snapshot_Store::save( "late-{$i}", 'late', $snap, 'update-blocks', str_repeat('a',64) );
         }
 
         $this->assertSame( 0, Snapshot_Store::pruned_rows_for_session( 'early' ), 'Nothing recorded before a prune' );
+        // 23 rows, keep 20: 'late' fits, 'early' does not and goes whole,
+        // and so does every older row.
         $this->assertSame( 5, Snapshot_Store::prune( 20 ) );
 
         $this->assertSame( 3, Snapshot_Store::pruned_rows_for_session( 'early' ) );
-        $this->assertSame( 2, Snapshot_Store::pruned_rows_for_session( 'late' ) );
+        $this->assertSame( 2, Snapshot_Store::pruned_rows_for_session( 'default' ) );
+        $this->assertSame( 0, Snapshot_Store::pruned_rows_for_session( 'late' ) );
         $this->assertSame( 0, Snapshot_Store::pruned_rows_for_session( 'never-pruned' ) );
 
         // Counts accumulate across prunes rather than being overwritten.
-        Snapshot_Store::save( 'late-22', 'late', ['object_type'=>'post','object_id'=>99,'data'=>['post'=>null,'meta'=>[]]], 'update-blocks', str_repeat('a',64) );
+        for ( $i = 2; $i < 23; $i++ ) {
+            Snapshot_Store::save( "loose-{$i}", 'default', $snap, 'update-blocks', str_repeat('a',64) );
+        }
         Snapshot_Store::prune( 20 );
-        $this->assertSame( 3, Snapshot_Store::pruned_rows_for_session( 'late' ) );
+        $this->assertSame( 3, Snapshot_Store::pruned_rows_for_session( 'default' ) );
+        $this->assertSame( 0, Snapshot_Store::pruned_rows_for_session( 'late' ) );
     }
 
     /**
@@ -56,7 +67,7 @@ class SnapshotStoreCrudTest extends \WP_UnitTestCase {
     public function test_prune_deletes_backup_dirs_for_pruned_operations_only(): void {
         for ( $i = 0; $i < 25; $i++ ) {
             $op_id = "op-backup-{$i}";
-            Snapshot_Store::save( $op_id, 'sess', ['object_type'=>'post','object_id'=>$i,'data'=>['post'=>null,'meta'=>[]]], 'delete-media', str_repeat('a',64) );
+            Snapshot_Store::save( $op_id, 'default', ['object_type'=>'post','object_id'=>$i,'data'=>['post'=>null,'meta'=>[]]], 'delete-media', str_repeat('a',64) );
             File_Backup::backup( $op_id, [] ); // no real files needed; just materialize the dir + .htaccess.
             wp_mkdir_p( File_Backup::operation_dir( $op_id ) );
             file_put_contents( File_Backup::operation_dir( $op_id ) . '/marker.txt', 'x' );

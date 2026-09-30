@@ -113,7 +113,7 @@ class SnapshotHistoryLimitTest extends \WP_UnitTestCase
         for ($i = 0; $i < $count; $i++) {
             Snapshot_Store::save(
                 "op-limit-{$i}",
-                'sess',
+                'default',
                 ['object_type' => 'post', 'object_id' => $i, 'data' => ['post' => null, 'meta' => []]],
                 'update-blocks',
                 str_repeat('a', 64)
@@ -130,7 +130,7 @@ class SnapshotHistoryLimitTest extends \WP_UnitTestCase
         for ($i = 0; $i < 10; $i++) {
             Snapshot_Store::save(
                 "op-limit-{$i}",
-                'sess',
+                'default',
                 ['object_type' => 'post', 'object_id' => $i, 'data' => ['post' => null, 'meta' => []]],
                 'update-blocks',
                 str_repeat('a', 64)

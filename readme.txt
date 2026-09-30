@@ -44,7 +44,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 
 = Free vs Pro =
 
-The free plugin is fully functional: the MCP server, the safety core, snapshots and rollback, Gutenberg building, and the integration read tools. Snapshot history keeps the last 20 operations on every install, free and Pro alike, and the `wpmcp_snapshot_history_limit` filter raises or lowers that number on any site at no cost.
+The free plugin is fully functional: the MCP server, the safety core, snapshots and rollback, Gutenberg building, and the integration read tools. Snapshot history keeps the last 20 operations on every install, free and Pro alike, and the `wpmcp_snapshot_history_limit` filter raises or lowers that number on any site at no cost. A bulk run recorded under one session is kept or dropped as a whole: the most recent run stays fully undoable with rollback-session however large it is, and a run that has been dropped is refused with a reason instead of being undone in part.
 
 WP MCP Pro adds deep Elementor editing and building, custom widget/block builders, the forms adapter pack (Gravity Forms, WPForms, Formidable, Ninja Forms, Fluent Forms: forms, fields, notifications, entries and entry status), cloud sync for your widget and block specs, and priority support. See https://wpmcp-pro.com/pricing.html
 

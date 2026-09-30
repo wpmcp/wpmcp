@@ -175,7 +175,7 @@ class IdentifierPlaceholderTest extends \WP_UnitTestCase
 
         $snapshot = ['object_type' => 'post', 'object_id' => 1, 'data' => ['post' => null, 'meta' => []]];
         for ($i = 0; $i < 5; $i++) {
-            Snapshot_Store::save('op-' . $i, 'sess', $snapshot, 'delete-post', str_repeat('a', 64));
+            Snapshot_Store::save('op-' . $i, 'default', $snapshot, 'delete-post', str_repeat('a', 64));
         }
 
         $this->assertSame(3, Snapshot_Store::prune(2));
