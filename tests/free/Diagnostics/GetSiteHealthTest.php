@@ -118,7 +118,7 @@ class GetSiteHealthTest extends \WP_UnitTestCase
         return $map;
     }
 
-    public function test_is_registered_read_only_at_view_site_health_checks(): void
+    public function test_is_registered_as_a_non_read_only_read_at_view_site_health_checks(): void
     {
         $found = null;
         foreach (RegisteredAbilities::all() as $ability) {
@@ -131,7 +131,7 @@ class GetSiteHealthTest extends \WP_UnitTestCase
         $this->assertSame('free', $found->tier);
         $this->assertSame('read', $found->operation);
         $this->assertSame('view_site_health_checks', $found->capability);
-        $this->assertTrue($found->read_only_hint);
+        $this->assertFalse($found->read_only_hint);
     }
 
     public function test_runs_core_and_third_party_tests(): void
