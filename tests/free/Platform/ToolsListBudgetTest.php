@@ -220,7 +220,13 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  over both halves), paid for by dropping implementation names from
      *  delete-rows and call-rest and the redundant operation example from
      *  update-governance-settings, without dropping a rule: 208872 ->
-     *  208868 bytes over 407 tools. */
+     *  208868 bytes over 407 tools. Safe PHP file edits (#453) added no
+     *  tool: an unchecked flag on edit-file and write-file plus the PHP
+     *  parse, fatal-revert and loopback-override rules, paid for by
+     *  tightening the three file-write descriptions and read-file, and by
+     *  "input schema" to "schema" and "where possible" to "if possible" in
+     *  the integration dispatcher templates, without dropping a rule:
+     *  main measured 208881 bytes over 407 tools before it and after it. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */

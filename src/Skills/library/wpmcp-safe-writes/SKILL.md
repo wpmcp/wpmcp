@@ -61,7 +61,11 @@ Be explicit with the user about these instead of implying total reversibility:
   before proposing them.
 - File writes are backed up separately (`wpmcp/edit-file`, `wpmcp/write-file`
   keep a file backup), but a rollback of a theme file does not undo whatever
-  the site did while the broken file was live.
+  the site did while the broken file was live. A `.php` write is refused if it
+  does not parse, and reverted in the same call if the front end or admin then
+  hits a fatal error. When that site check cannot run, the write is refused;
+  pass `unchecked: true` only after telling the user the file will not be
+  checked.
 
 ## Free tier history limit
 
