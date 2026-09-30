@@ -26,7 +26,7 @@ class Update_Blocks
                 'args'        => $args,
             ],
             function () use ($id, $blocks) {
-                wp_update_post(['ID' => $id, 'post_content' => $blocks]);
+                wp_update_post(['ID' => $id, 'post_content' => wp_slash($blocks)]);
                 return true;
             },
             function () use ($id, $blocks) {

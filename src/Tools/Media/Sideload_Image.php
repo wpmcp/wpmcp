@@ -38,7 +38,7 @@ class Sideload_Image
         $media_id = (int) $media_id;
 
         if (array_key_exists('alt', $args)) {
-            update_post_meta($media_id, '_wp_attachment_image_alt', sanitize_text_field((string) $args['alt']));
+            update_post_meta($media_id, '_wp_attachment_image_alt', wp_slash(sanitize_text_field((string) $args['alt'])));
         }
 
         return [

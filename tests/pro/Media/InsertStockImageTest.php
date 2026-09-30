@@ -17,6 +17,8 @@ use WPMCP\Tools\Media\Stock\Insert_Stock_Image;
  */
 class InsertStockImageTest extends \WP_UnitTestCase
 {
+    use \WPMCP\Tests\Free\Content\Slash_Payload;
+
     private const IMAGE_URL = 'https://images.pexels.com/photos/123/field.jpeg';
 
     protected function setUp(): void
@@ -145,5 +147,19 @@ class InsertStockImageTest extends \WP_UnitTestCase
         $this->assertTrue(Rollback_Service::restore_operation($out['import_operation_id']));
         $this->assertNull(get_post((int) $out['media_id']));
         $this->assertFileDoesNotExist($file);
+    }
+
+    /** Issue #425: inserting an image must not strip backslashes already in the post. */
+    public function test_existing_backslashes_in_the_post_survive_the_insert(): void
+    {
+        Gate::set_pro_for_tests(true);
+        wp_set_current_user((int) $this->factory->user->create(['role' => 'administrator']));
+        $post_id = (int) $this->factory->post->create(['post_content' => wp_slash(self::body())]);
+        $this->assertSame(self::body(), get_post($post_id)->post_content, 'Fixture stored as intended.');
+
+        (new Insert_Stock_Image())->handle(['post_id' => $post_id, 'image_url' => self::IMAGE_URL, 'alt' => 'Field']);
+        clean_post_cache($post_id);
+
+        $this->assertStringStartsWith(self::body() . "\n\n<!-- wp:image", (string) get_post($post_id)->post_content);
     }
 }

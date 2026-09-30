@@ -6,6 +6,8 @@ use WPMCP\Tools\Media\Sideload_Image;
 
 class SideloadImageTest extends \WP_UnitTestCase
 {
+    use \WPMCP\Tests\Free\Content\Slash_Payload;
+
     private const FIXTURE_URL = 'https://example.com/fixtures/wpmcp-test-image.jpg';
 
     protected function setUp(): void
@@ -61,5 +63,13 @@ class SideloadImageTest extends \WP_UnitTestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         (new Sideload_Image())->handle([]);
+    }
+
+    /** Issue #425: alt text keeps its backslashes. */
+    public function test_alt_text_keeps_backslashes(): void
+    {
+        $out = (new Sideload_Image())->handle(['url' => self::FIXTURE_URL, 'alt' => self::line()]);
+
+        $this->assertSame(self::line(), get_post_meta((int) $out['media_id'], '_wp_attachment_image_alt', true));
     }
 }

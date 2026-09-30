@@ -57,7 +57,7 @@ class Edit_Comment
                 'args'        => $args,
             ],
             function () use ($id, $changes): void {
-                $result = wp_update_comment(array_merge(['comment_ID' => $id], $changes));
+                $result = wp_update_comment(wp_slash(array_merge(['comment_ID' => $id], $changes)));
                 if (false === $result || is_wp_error($result)) {
                     throw new \RuntimeException('Could not update the comment.');
                 }

@@ -164,7 +164,7 @@ final class Review_Ops
     public static function apply(string $handler, int $id, array $plan): array
     {
         if ('review_update' === $handler) {
-            $done = wp_update_comment([ 'comment_ID' => $id, 'comment_content' => wp_kses_post($plan['content']) ]);
+            $done = wp_update_comment(wp_slash([ 'comment_ID' => $id, 'comment_content' => wp_kses_post($plan['content']) ]));
             if (false === $done || is_wp_error($done)) {
                 throw new \RuntimeException('Could not update the review.');
             }

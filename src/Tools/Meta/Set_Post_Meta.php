@@ -52,7 +52,7 @@ class Set_Post_Meta
                 'args'        => $args,
             ],
             function () use ($post_id, $key, $value): void {
-                update_post_meta($post_id, $key, $value);
+                update_post_meta($post_id, $key, wp_slash($value));
             }
         );
 

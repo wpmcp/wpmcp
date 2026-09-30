@@ -68,19 +68,19 @@ class Import_Content
             }
             $status = in_array($item['status'], self::VALID_STATUSES, true) ? $item['status'] : 'draft';
 
-            $post_id = wp_insert_post([
+            $post_id = wp_insert_post(wp_slash([
                 'post_type'    => $post_type,
                 'post_status'  => $status,
                 'post_title'   => $item['title'],
                 'post_content' => $item['content'],
-            ], true);
+            ]), true);
             if (is_wp_error($post_id)) {
                 continue;
             }
             $post_id = (int) $post_id;
 
             foreach ($item['meta'] as $key => $value) {
-                update_post_meta($post_id, $key, $value);
+                update_post_meta($post_id, $key, wp_slash($value));
             }
 
             $created_post_ids[] = $post_id;

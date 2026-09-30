@@ -55,7 +55,7 @@ class Set_Term_Meta
                     delete_term_meta($term_id, $key);
                     return true;
                 }
-                update_term_meta($term_id, $key, $value);
+                update_term_meta($term_id, $key, wp_slash($value));
                 return true;
             }
         );

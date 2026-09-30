@@ -64,7 +64,7 @@ class Import_Template
         $page_settings = [];
         if (! empty($export['page_settings']) && is_array($export['page_settings'])) {
             $page_settings = $export['page_settings'];
-            update_post_meta($template_id, '_elementor_page_settings', $page_settings);
+            update_post_meta($template_id, '_elementor_page_settings', wp_slash($page_settings));
             Elementor_Cache::invalidate_document($template_id);
         }
 

@@ -52,10 +52,10 @@ class Update_Media
                     $updated[]               = 'description';
                 }
                 if (count($postarr) > 1) {
-                    wp_update_post($postarr);
+                    wp_update_post(wp_slash($postarr));
                 }
                 if (array_key_exists('alt', $args)) {
-                    update_post_meta($media_id, '_wp_attachment_image_alt', sanitize_text_field((string) $args['alt']));
+                    update_post_meta($media_id, '_wp_attachment_image_alt', wp_slash(sanitize_text_field((string) $args['alt'])));
                     $updated[] = 'alt';
                 }
 

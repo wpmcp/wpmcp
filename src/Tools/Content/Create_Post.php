@@ -60,7 +60,8 @@ class Create_Post
             $postarr['post_parent'] = (int) $args['parent'];
         }
 
-        $post_id = wp_insert_post($postarr, true);
+        // wp_insert_post() and update_post_meta() unslash; slash so backslashes survive.
+        $post_id = wp_insert_post(wp_slash($postarr), true);
         if (is_wp_error($post_id)) {
             throw new \InvalidArgumentException(esc_html($post_id->get_error_message()));
         }
@@ -73,7 +74,7 @@ class Create_Post
         }
         if (isset($args['meta']) && is_array($args['meta'])) {
             foreach ($args['meta'] as $key => $value) {
-                update_post_meta($post_id, sanitize_key((string) $key), $value);
+                update_post_meta($post_id, sanitize_key((string) $key), wp_slash($value));
             }
         }
 

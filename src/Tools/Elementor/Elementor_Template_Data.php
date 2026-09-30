@@ -107,7 +107,7 @@ class Elementor_Template_Data
         $title = sanitize_text_field($title);
 
         $id = wp_insert_post(
-            [
+            wp_slash([
                 'post_title'  => '' !== $title ? $title : __('Untitled template', 'wpmcp'),
                 'post_status' => 'publish',
                 'post_type'   => self::POST_TYPE,
@@ -115,7 +115,7 @@ class Elementor_Template_Data
                     '_elementor_edit_mode'     => 'builder',
                     '_elementor_template_type' => $type,
                 ],
-            ],
+            ]),
             true
         );
 

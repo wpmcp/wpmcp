@@ -32,18 +32,19 @@ class Create_Code_Snippet
         $priority = max(1, min(10, (int) ($args['priority'] ?? 10)));
         $status   = 'draft' === ($args['status'] ?? 'publish') ? 'draft' : 'publish';
 
-        $snippet_id = wp_insert_post([
+        $snippet_id = wp_insert_post(wp_slash([
             'post_title'  => '' !== $title ? $title : 'Code snippet',
             'post_type'   => 'elementor_snippet',
             'post_status' => $status,
-        ], true);
+        ]), true);
 
         if (is_wp_error($snippet_id)) {
             return $snippet_id;
         }
         $snippet_id = (int) $snippet_id;
 
-        update_post_meta($snippet_id, '_elementor_code', $code);
+        // update_post_meta() unslashes; a regex or string escape in the code must survive.
+        update_post_meta($snippet_id, '_elementor_code', wp_slash($code));
         update_post_meta($snippet_id, '_elementor_location', $location);
         update_post_meta($snippet_id, '_elementor_priority', $priority);
         update_post_meta($snippet_id, '_elementor_template_type', 'code_snippet');
