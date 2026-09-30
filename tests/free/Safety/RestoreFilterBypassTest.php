@@ -109,6 +109,8 @@ class RestoreFilterBypassTest extends \WP_UnitTestCase
             has_filter('pre_comment_author_name', 'sanitize_text_field'),
         ]);
         $this->assertNotFalse($before[1]);
+        // The restore's own pin on the update data is gone too.
+        $this->assertFalse(has_filter('wp_update_comment_data'));
     }
 
     public function test_term_rollback_restores_name_and_description_byte_for_byte(): void

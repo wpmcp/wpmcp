@@ -676,7 +676,10 @@ class Rollback_Service
 
         if (! empty($snapshot['data']['fields'])) {
             // wp_update_user() unslashes; the snapshot holds raw stored values.
-            wp_update_user(wp_slash(array_merge(['ID' => $user_id], $snapshot['data']['fields'])));
+            // Its save filters would rewrite them again, so they stand down.
+            $fields = wp_slash(array_merge(['ID' => $user_id], $snapshot['data']['fields']));
+            self::without_save_filters(self::USER_SAVE_FILTERS, static fn () => wp_update_user($fields));
+            clean_user_cache($user_id);
         }
 
         $snapshotted_meta = (array) $snapshot['data']['meta'];
@@ -692,6 +695,75 @@ class Rollback_Service
             delete_user_meta($user_id, $key);
             foreach ((array) $values as $v) {
                 add_user_meta($user_id, $key, self::slash_meta_value(maybe_unserialize($v)));
+            }
+        }
+    }
+
+    /** The filters wp_update_comment() runs over a row before it is saved. */
+    private const COMMENT_SAVE_FILTERS = [
+        'pre_user_id',
+        'pre_comment_user_agent',
+        'pre_comment_author_name',
+        'pre_comment_content',
+        'pre_comment_user_ip',
+        'pre_comment_author_url',
+        'pre_comment_author_email',
+        'comment_save_pre',
+    ];
+
+    /** The comment columns a save filter can rewrite, pinned to their captured values on restore. */
+    private const COMMENT_TEXT_COLUMNS = [
+        'comment_content',
+        'comment_author',
+        'comment_author_email',
+        'comment_author_url',
+        'comment_author_IP',
+        'comment_agent',
+    ];
+
+    /** The filters wp_update_user() runs over the profile fields a snapshot holds. */
+    private const USER_SAVE_FILTERS = [
+        'pre_user_display_name',
+        'pre_user_email',
+        'pre_user_url',
+        'pre_user_nickname',
+        'pre_user_first_name',
+        'pre_user_last_name',
+        'pre_user_description',
+    ];
+
+    /**
+     * Run a restore write with the given save filters standing down.
+     *
+     * A snapshot holds values exactly as they were stored. Handing them back
+     * through the core writer runs its save filters a second time (kses,
+     * balanceTags, sanitize_text_field and friends), and those rewrite
+     * markup a site stored on purpose: "<p>" goes, a lone "<" becomes
+     * "&lt;". The filters are lifted for this one write only and are put
+     * back in a finally block, so a write that throws cannot leave the site
+     * without them.
+     *
+     * @param string[] $hooks
+     * @return mixed Whatever $write returns.
+     */
+    private static function without_save_filters(array $hooks, callable $write)
+    {
+        global $wp_filter;
+
+        $lifted = [];
+        foreach (array_unique($hooks) as $hook) {
+            if (isset($wp_filter[ $hook ])) {
+                $lifted[ $hook ] = $wp_filter[ $hook ];
+                unset($wp_filter[ $hook ]);
+            }
+        }
+
+        try {
+            return $write();
+        } finally {
+            foreach ($lifted as $hook => $callbacks) {
+                // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- puts back the exact hook object lifted above.
+                $wp_filter[ $hook ] = $callbacks;
             }
         }
     }
@@ -723,12 +795,51 @@ class Rollback_Service
         $comment_id = (int) $snapshot['object_id'];
 
         if (get_comment($comment_id)) {
-            wp_update_comment(wp_slash($snapshot['data']['comment']));
+            self::update_comment_verbatim((array) $snapshot['data']['comment']);
+            clean_comment_cache($comment_id);
             self::reconcile_comment_meta($comment_id, (array) $snapshot['data']['meta']);
             return;
         }
 
         self::resurrect_comment($snapshot['data']['comment'], (array) $snapshot['data']['meta']);
+    }
+
+    /**
+     * Write a captured comment row back through wp_update_comment() without
+     * its save filters touching the text columns.
+     *
+     * wp_update_comment() runs the comment save filters (kses, balanceTags,
+     * the note mention class sanitizer) over the row, which would rewrite
+     * the captured HTML instead of restoring it. Lifting those filters is
+     * not enough on its own: when wp_filter_kses is not hooked, core hooks
+     * it again itself for a commenter without unfiltered_html. So the text
+     * columns are also pinned to their captured values on
+     * wp_update_comment_data, the last stop before the row is written. The
+     * update still runs through core, so status transitions, comment counts
+     * and the edit_comment action behave as for any other update.
+     */
+    private static function update_comment_verbatim(array $captured): void
+    {
+        $pin = static function ($data) use ($captured) {
+            if (is_array($data)) {
+                foreach (self::COMMENT_TEXT_COLUMNS as $column) {
+                    if (array_key_exists($column, $captured)) {
+                        $data[ $column ] = $captured[ $column ];
+                    }
+                }
+            }
+            return $data;
+        };
+        $row = wp_slash($captured);
+
+        self::without_save_filters(self::COMMENT_SAVE_FILTERS, static function () use ($row, $pin) {
+            add_filter('wp_update_comment_data', $pin, PHP_INT_MAX);
+            try {
+                return wp_update_comment($row);
+            } finally {
+                remove_filter('wp_update_comment_data', $pin, PHP_INT_MAX);
+            }
+        });
     }
 
     /**
@@ -1896,12 +2007,23 @@ class Rollback_Service
         if ($was_missing) {
             self::resurrect_term($term_id, $taxonomy, $captured);
         } else {
-            wp_update_term($term_id, $taxonomy, wp_slash([
+            $fields = wp_slash([
                 'name'        => (string) ($captured['name'] ?? ''),
                 'slug'        => $slug,
                 'description' => (string) ($captured['description'] ?? ''),
                 'parent'      => (int) ($captured['parent'] ?? 0),
-            ]));
+            ]);
+            // The name and description go back as captured, not through
+            // their save filters again. The slug keeps its filters: it is
+            // stored sanitized and must stay unique.
+            $filters = [
+                'pre_term_name',
+                'pre_term_description',
+                "pre_{$taxonomy}_name",
+                "pre_{$taxonomy}_description",
+            ];
+            self::without_save_filters($filters, static fn () => wp_update_term($term_id, $taxonomy, $fields));
+            clean_term_cache([$term_id], $taxonomy);
         }
 
         self::restore_term_meta($term_id, (array) ($data['meta'] ?? []));
