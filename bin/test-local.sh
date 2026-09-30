@@ -26,6 +26,10 @@
 #      through the real BuddyPress, its hooks firing, on its own install too.
 #   8. Runs the live LMS groups (issue #394): the Tutor LMS and LifterLMS ops
 #      through the real plugins, one install each.
+#   9. Runs the live Breakdance group (issue #457) when WPMCP_BREAKDANCE_SRC
+#      names a local copy of Breakdance (a commercial plugin, so not
+#      downloadable here): pages saved by the real Breakdance are detected,
+#      read, edited and rolled back, and Breakdance still loads them.
 #
 # MariaDB, not MySQL: the WordPress harness turns every CREATE TABLE into a
 # TEMPORARY table, and WooCommerce's order-sync query reads one of them twice
@@ -41,6 +45,7 @@
 #   bin/test-local.sh --live-blocks   only the live blocks group (real block suites)
 #   bin/test-local.sh --live-buddypress only the live BuddyPress group (real BuddyPress)
 #   bin/test-local.sh --live-lms      only the live LMS groups (real Tutor LMS, then real LifterLMS)
+#   bin/test-local.sh --live-breakdance only the live Breakdance group (needs WPMCP_BREAKDANCE_SRC)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments; skips lint, drift and coverage
 #   bin/test-local.sh --stop-db       stop the private MariaDB server and exit
 #
@@ -49,6 +54,9 @@
 #   WPMCP_TEST_DB_PORT   MariaDB port (default 3399)
 #   WPMCP_TEST_PHP       PHP binary (default php)
 #   WPMCP_MARIADB_BIN    directory holding mariadbd, if not found automatically
+#   WPMCP_BREAKDANCE_SRC a local Breakdance plugin directory for the live
+#                        Breakdance group; without it that group is not run,
+#                        except under --live-breakdance, where it is an error
 #   ELEMENTOR_VERSION    passed to bin/install-test-plugins.sh ('latest' tests
 #                        against the newest Elementor in a separate install)
 
@@ -83,6 +91,7 @@ only_live_forms=false
 only_live_blocks=false
 only_live_buddypress=false
 only_live_lms=false
+only_live_breakdance=false
 coverage=true
 phpunit_args=()
 while [ $# -gt 0 ]; do
@@ -94,6 +103,7 @@ while [ $# -gt 0 ]; do
 		--live-blocks) only_live_blocks=true ;;
 		--live-buddypress) only_live_buddypress=true ;;
 		--live-lms) only_live_lms=true ;;
+		--live-breakdance) only_live_breakdance=true ;;
 		--stop-db) stop_db=true ;;
 		--) shift; phpunit_args=("$@"); break ;;
 		-h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
@@ -219,6 +229,8 @@ install_wp() {
 	[ "${WPMCP_LIVE_BUDDYPRESS:-}" = 1 ] && flavor="-buddypress-live"
 	# And WPMCP_LIVE_LMS=tutor or lifterlms and that one LMS plugin.
 	[ -n "${WPMCP_LIVE_LMS:-}" ] && flavor="-${WPMCP_LIVE_LMS}-live"
+	# And WPMCP_LIVE_BREAKDANCE=1 and the local Breakdance copy.
+	[ "${WPMCP_LIVE_BREAKDANCE:-}" = 1 ] && flavor="-breakdance-live"
 	# The installers' hash is part of the directory, not a stamp inside it:
 	# branches carrying different installers (a moved plugin pin, say) get
 	# separate installs, so one run never deletes an install another run is
@@ -393,6 +405,24 @@ run_live_lms() {
 	done
 }
 
+# The live Breakdance group (issue #457), the same way, with the Breakdance
+# copy from WPMCP_BREAKDANCE_SRC: its own install, its own database and
+# --fail-on-skipped.
+run_live_breakdance() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_BREAKDANCE_SRC:-}/plugin.php" ] || die "the live Breakdance group needs WPMCP_BREAKDANCE_SRC, a directory holding the Breakdance plugin"
+	export WPMCP_LIVE_BREAKDANCE=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-breakdance-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Breakdance group on WordPress $version (real Breakdance from $WPMCP_BREAKDANCE_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group breakdance-live --fail-on-skipped
+	unset WPMCP_LIVE_BREAKDANCE
+}
+
 cd "$ROOT"
 
 RUN_CORES=()
@@ -446,11 +476,12 @@ if [ "$coverage" = true ] && [ "$targeted" = false ]; then
 	fi
 fi
 
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_breakdance" = true ]; then
 	[ "$only_live_forms" = false ] || run_live_forms "${only_wp:-$default_wp}"
 	[ "$only_live_blocks" = false ] || run_live_blocks "${only_wp:-$default_wp}"
 	[ "$only_live_buddypress" = false ] || run_live_buddypress "${only_wp:-$default_wp}"
 	[ "$only_live_lms" = false ] || run_live_lms "${only_wp:-$default_wp}"
+	[ "$only_live_breakdance" = false ] || run_live_breakdance "${only_wp:-$default_wp}"
 elif [ -n "$only_wp" ]; then
 	run_suite "$only_wp" false
 else
@@ -465,6 +496,9 @@ else
 		run_live_blocks "$default_wp"
 		run_live_buddypress "$default_wp"
 		run_live_lms "$default_wp"
+		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
+			run_live_breakdance "$default_wp"
+		fi
 	fi
 fi
 

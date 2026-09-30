@@ -9,7 +9,8 @@ if (! defined('ABSPATH')) {
 /**
  * Tree view and editor for a Breakdance engine document: the JSON the
  * engine keeps in the `tree_json_string` key of its `_breakdance_data`
- * postmeta, or `_oxygen_data` for Oxygen 6, which runs on the same engine.
+ * postmeta (`breakdance_data` on Breakdance 1.x), or `_oxygen_data` for
+ * Oxygen 6, which runs on the same engine.
  * Pure data work, so it runs without either plugin loaded.
  *
  * The document is {root, _nextNodeId, status, ...}. `root` is a node with

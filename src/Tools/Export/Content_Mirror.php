@@ -344,7 +344,7 @@ class Content_Mirror
                 return explode("\n", Oxygen_Classic_Content::get_shortcodes($post_id));
         }
 
-        $raw   = get_post_meta($post_id, Breakdance_Content::data_key($builder), true);
+        $raw   = get_post_meta($post_id, Breakdance_Content::data_key($builder, $post_id), true);
         $outer = is_string($raw) ? json_decode($raw, true) : null;
         $tree  = is_array($outer) && is_string($outer['tree_json_string'] ?? null) ? json_decode($outer['tree_json_string']) : null;
 

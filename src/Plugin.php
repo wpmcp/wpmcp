@@ -2501,7 +2501,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/read-file',
             'free',
-            'Read a file inside the WordPress installation (core, plugins, themes, uploads). Path is confined to the WP install',
+            'Read a file inside the WordPress install (core, plugins, themes, uploads); the path cannot leave it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2552,12 +2552,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/write-file',
             'free',
-            'Create or overwrite a file inside the WordPress install. Backs up an existing file first (recoverable via restore). Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT',
+            'Create or overwrite a file in the WordPress install. Backs up an existing file (restore recovers it). Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT. PHP must parse; a fatal on the front end or admin after saving reverts it; if that check cannot run, refused unless unchecked:true',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'path'    => [ 'type' => 'string' ],
-                    'content' => [ 'type' => 'string' ],
+                    'path'      => [ 'type' => 'string' ],
+                    'content'   => [ 'type' => 'string' ],
+                    'unchecked' => [ 'type' => 'boolean' ],
                 ],
                 'required'   => [ 'path', 'content' ],
             ],
@@ -2569,7 +2570,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/edit-file',
             'free',
-            'Replace an exact string in a file (must match once unless replace_all). Backs up the original first (restore recovers it). Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT',
+            'Replace an exact string in a file (must match once unless replace_all). Backs up the original (restore recovers it). Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT. PHP is checked and reverted as in write-file',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2577,6 +2578,7 @@ final class Plugin
                     'old_string'  => [ 'type' => 'string' ],
                     'new_string'  => [ 'type' => 'string' ],
                     'replace_all' => [ 'type' => 'boolean' ],
+                    'unchecked'   => [ 'type' => 'boolean' ],
                 ],
                 'required'   => [ 'path', 'old_string', 'new_string' ],
             ],
@@ -2588,7 +2590,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-file',
             'free',
-            'Delete a file inside the WordPress install. Needs confirm:true. Backs up the file first (recoverable via restore). Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT',
+            'Delete a file in the WordPress install. Needs confirm:true. Backs up the file (restore recovers it). Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT',
             [
                 'type'       => 'object',
                 'properties' => [
