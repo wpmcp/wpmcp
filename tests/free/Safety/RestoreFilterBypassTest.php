@@ -2,14 +2,17 @@
 
 namespace WPMCP\Tests\Free\Safety;
 
+use WPMCP\Safety\Post_Creation_Snapshot;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\BlockBuilder\Block_Spec_Store;
 use WPMCP\Tools\Comments\Edit_Comment;
 use WPMCP\Tools\Content\Delete_Post;
 use WPMCP\Tools\Content\Post_Stage;
 use WPMCP\Tools\Content\Update_Post;
 use WPMCP\Tools\Terms\Update_Term;
 use WPMCP\Tools\Users\Update_User;
+use WPMCP\Tools\WidgetBuilder\Widget_Spec_Store;
 
 /**
  * Issue #428: a rollback writes a captured row back through wp_update_comment(),
@@ -320,6 +323,135 @@ class RestoreFilterBypassTest extends \WP_UnitTestCase
             $this->assertSame('update refused', $e->getMessage());
         } finally {
             remove_filter('add_post_metadata', [self::class, 'explode_on_update']);
+        }
+
+        $this->assert_post_filters_hooked();
+    }
+
+    /**
+     * Issue #434: a spec row holding markup kses would rewrite, stored
+     * verbatim (an import or another writer), with its creation row recorded
+     * the way create-custom-widget and create-custom-block record it.
+     *
+     * @return array{0: int, 1: string} The spec id and the creation operation id.
+     */
+    private function raw_spec(string $kind): array
+    {
+        global $wpdb;
+        if ('widget' === $kind) {
+            $spec_id = Widget_Spec_Store::create([
+                'name'     => 'restore-box',
+                'title'    => 'Restore Box',
+                'controls' => [['name' => 'heading', 'type' => 'text', 'label' => 'Heading', 'default' => 'Hi']],
+                'template' => '<div class="box"><h3>{{heading}}</h3></div>',
+            ]);
+        } else {
+            $spec_id = Block_Spec_Store::create([
+                'name'       => 'restore-callout',
+                'title'      => 'Restore Callout',
+                'category'   => 'widgets',
+                'attributes' => [['name' => 'heading', 'type' => 'string', 'label' => 'Heading', 'default' => 'Note']],
+                'template'   => '<div class="callout"><h4>{{heading}}</h4></div>',
+            ]);
+        }
+        $this->assertIsInt($spec_id);
+        $wpdb->update($wpdb->posts, [
+            'post_content' => self::POST_MARKUP,
+            'post_excerpt' => self::POST_MARKUP,
+            'post_title'   => self::POST_TITLE,
+        ], ['ID' => $spec_id]);
+        clean_post_cache($spec_id);
+        $this->assertSame('publish', get_post($spec_id)->post_status);
+
+        $operation_id = Post_Creation_Snapshot::record('create-custom-' . $kind, [$spec_id], [], 'default');
+        return [$spec_id, $operation_id];
+    }
+
+    private function assert_columns_are_raw(int $post_id): void
+    {
+        clean_post_cache($post_id);
+        $post = get_post($post_id);
+        $this->assertSame(self::POST_MARKUP, $post->post_content);
+        $this->assertSame(self::POST_MARKUP, $post->post_excerpt);
+        $this->assertSame(self::POST_TITLE, $post->post_title);
+    }
+
+    /** @return array<string, array{0: string, 1: string}> */
+    public static function spec_kinds(): array
+    {
+        return [
+            'widget' => ['widget', '_wpmcp_widget_spec'],
+            'block'  => ['block', '_wpmcp_block_spec'],
+        ];
+    }
+
+    /** @dataProvider spec_kinds */
+    public function test_spec_creation_rollback_by_an_author_leaves_the_spec_byte_for_byte(string $kind, string $meta_key): void
+    {
+        [$spec_id, $operation_id] = $this->raw_spec($kind);
+        $spec = get_post_meta($spec_id, $meta_key, true);
+
+        wp_set_current_user($this->author());
+        $this->assert_post_filters_hooked();
+        $this->assertTrue(Rollback_Service::restore_operation($operation_id));
+
+        clean_post_cache($spec_id);
+        $this->assertSame('draft', get_post($spec_id)->post_status);
+        $this->assert_columns_are_raw($spec_id);
+        wp_cache_delete($spec_id, 'post_meta');
+        $this->assertSame($spec, get_post_meta($spec_id, $meta_key, true));
+        $this->assert_post_filters_hooked();
+    }
+
+    public function test_spec_filters_are_restored_when_the_deactivation_throws(): void
+    {
+        [, $operation_id] = $this->raw_spec('widget');
+        wp_set_current_user($this->author());
+
+        add_filter('wp_insert_post_data', [self::class, 'explode_on_update']);
+        try {
+            Rollback_Service::restore_operation($operation_id);
+            $this->fail('The restore should have failed.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('update refused', $e->getMessage());
+        } finally {
+            remove_filter('wp_insert_post_data', [self::class, 'explode_on_update']);
+        }
+
+        $this->assert_post_filters_hooked();
+    }
+
+    /** Undoing a create-post trashes the post, and trashing re-saves the row. */
+    public function test_post_creation_rollback_by_an_author_trashes_the_post_byte_for_byte(): void
+    {
+        $author       = $this->author();
+        $post_id      = $this->raw_post($author);
+        $operation_id = Post_Creation_Snapshot::record('create-post', [$post_id], [], 'default');
+        wp_set_current_user($author);
+
+        $this->assertTrue(Rollback_Service::restore_operation($operation_id));
+
+        clean_post_cache($post_id);
+        $this->assertSame('trash', get_post($post_id)->post_status);
+        $this->assert_post_is_raw($post_id);
+        $this->assert_post_filters_hooked();
+    }
+
+    public function test_post_creation_filters_are_restored_when_the_trash_throws(): void
+    {
+        $author       = $this->author();
+        $post_id      = $this->raw_post($author);
+        $operation_id = Post_Creation_Snapshot::record('create-post', [$post_id], [], 'default');
+        wp_set_current_user($author);
+
+        add_filter('wp_insert_post_data', [self::class, 'explode_on_update']);
+        try {
+            Rollback_Service::restore_operation($operation_id);
+            $this->fail('The restore should have failed.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('update refused', $e->getMessage());
+        } finally {
+            remove_filter('wp_insert_post_data', [self::class, 'explode_on_update']);
         }
 
         $this->assert_post_filters_hooked();
