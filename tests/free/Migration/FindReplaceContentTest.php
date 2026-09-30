@@ -375,21 +375,42 @@ class FindReplaceContentTest extends \WP_UnitTestCase
         $this->assertCount(count($ids), $out['applied']);
     }
 
-    public function test_apply_is_refused_when_the_snapshot_history_cannot_hold_the_pass(): void
+    /**
+     * Issue #442: since pruning keeps a session whole (v0.8.121), a pass
+     * larger than the history limit no longer loses its own oldest undo
+     * points, so it is applied and stays fully undoable after later writes.
+     */
+    public function test_a_pass_larger_than_the_history_limit_is_applied_and_stays_fully_undoable(): void
     {
         $limit = static fn () => 2;
         add_filter('wpmcp_snapshot_history_limit', $limit);
-        $ids = [$this->post('Acme Corp'), $this->post('Acme Corp'), $this->post('Acme Corp')];
-
         try {
-            $this->tool->handle(['search' => 'Acme Corp', 'replace' => 'X', 'dry_run' => false, 'confirm' => true]);
-            $this->fail('A pass larger than the snapshot history must be refused');
-        } catch (\InvalidArgumentException $e) {
-            $this->assertStringContainsString('wpmcp_snapshot_history_limit', $e->getMessage());
+            $ids = [];
+            for ($i = 0; $i < 6; $i++) {
+                $ids[] = $this->post("Acme Corp {$i}");
+            }
+
+            $out = $this->tool->handle(['search' => 'Acme Corp', 'replace' => 'X', 'dry_run' => false]);
+            $this->assertCount(6, $out['applied']);
+            $this->assertCount(6, Snapshot_Store::list_by_session($out['session_id']), 'No undo point of the pass was pruned while it ran');
+
+            // Later ordinary writes prune the history back to the limit.
+            $other = $this->post('other');
+            for ($i = 0; $i < 5; $i++) {
+                \WPMCP\Safety\Safe_Mutation::run(
+                    ['object_type' => 'post', 'object_id' => $other, 'session_id' => 'default', 'tool_name' => 'update-post', 'args' => []],
+                    static fn () => wp_update_post(['ID' => $other, 'post_content' => "other {$i}"], true)
+                );
+            }
+
+            $rolled = (new Rollback_Session())->handle(['session_id' => $out['session_id']]);
+            $this->assertSame(6, $rolled['restored_count']);
+            foreach ($ids as $i => $id) {
+                $this->assertSame("Acme Corp {$i}", $this->fields($id)[1], "post {$i} of the pass was not restored");
+            }
         } finally {
             remove_filter('wpmcp_snapshot_history_limit', $limit);
         }
-        $this->assertSame('Acme Corp', $this->fields($ids[0])[1]);
     }
 
     public function test_meta_field_requires_meta_keys(): void
