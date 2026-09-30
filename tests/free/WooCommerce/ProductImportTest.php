@@ -448,6 +448,42 @@ class ProductImportTest extends \WP_UnitTestCase
         }
     }
 
+    /**
+     * Issue #439: hold_pruning only covers the import itself. The writes that
+     * follow it used to prune the import back to the history limit, so a
+     * later rollback-session restored only the last few products.
+     */
+    public function test_the_import_stays_whole_after_later_writes_on_the_site(): void
+    {
+        $limit = static fn () => 2;
+        add_filter('wpmcp_snapshot_history_limit', $limit);
+        try {
+            $rows = [];
+            for ($i = 1; $i <= 5; $i++) {
+                $this->simple("L-{$i}", '1.00', 1);
+                $rows[] = ['sku' => "L-{$i}", 'regular_price' => '2.00'];
+            }
+            $plan = $this->plan($rows);
+            $out  = $this->apply($rows, $plan['plan_hash']);
+
+            $post = self::factory()->post->create();
+            foreach (['default', 'later-a', 'default', 'later-b'] as $i => $session) {
+                \WPMCP\Safety\Safe_Mutation::run(
+                    ['object_type' => 'post', 'object_id' => $post, 'session_id' => $session, 'tool_name' => 'update-post', 'args' => [$i]],
+                    static fn () => wp_update_post(['ID' => $post, 'post_content' => "later {$i}"])
+                );
+            }
+
+            $this->assertCount(5, Snapshot_Store::list_by_session($out['session_id']));
+            (new Rollback_Session())->handle(['session_id' => $out['session_id']]);
+            for ($i = 1; $i <= 5; $i++) {
+                $this->assertSame('1.00', wc_get_product(wc_get_product_id_by_sku("L-{$i}"))->get_regular_price(), "L-{$i} not restored");
+            }
+        } finally {
+            remove_filter('wpmcp_snapshot_history_limit', $limit);
+        }
+    }
+
     public function test_row_cap_and_confirm_threshold(): void
     {
         $max = static fn () => 2;
