@@ -30,6 +30,9 @@ class StagedEditsTest extends \WP_UnitTestCase
     protected function tearDown(): void
     {
         Elementor_Cache::set_available_for_tests(null);
+        // Building the default kit instantiates the global REST server; drop
+        // it so a later test gets a fresh one with every route registered.
+        $GLOBALS['wp_rest_server'] = null;
         unregister_taxonomy_for_object_type('category', 'page');
         if (post_type_exists(self::CPT)) {
             unregister_post_type(self::CPT);
@@ -149,10 +152,11 @@ class StagedEditsTest extends \WP_UnitTestCase
 
         // Block JSON escapes (<) are where a missing wp_slash() shows.
         $content = "<!-- wp:paragraph {\"className\":\"a\\u003cb\"} -->\n<p class=\"a&lt;b\">New body</p>\n<!-- /wp:paragraph -->";
+        wp_update_post(wp_slash(['ID' => $stage, 'post_content' => $content]));
+        $this->assertSame($content, get_post($stage)->post_content);
         (new Update_Post())->handle([
             'post_id'        => $stage,
             'title'          => 'Reworked page',
-            'content'        => $content,
             'excerpt'        => 'new excerpt',
             'meta'           => ['custom_key' => 'new'],
             'featured_image' => ['id' => $thumb],
@@ -185,14 +189,37 @@ class StagedEditsTest extends \WP_UnitTestCase
         $this->assertSame('', (string) get_post_meta($stage, Duplicate_Post::STAGE_OF_META, true));
     }
 
+    /** Elementor data for one heading widget, JSON-encoded the way Elementor stores it (\/ and \u escapes). */
+    private function heading(string $title): string
+    {
+        return (string) wp_json_encode([
+            [
+                'id'         => 'wid0001',
+                'elType'     => 'widget',
+                'settings'   => ['title' => $title],
+                'elements'   => [],
+                'widgetType' => 'heading',
+            ],
+        ]);
+    }
+
     public function test_publishing_carries_elementor_data_and_drops_its_caches(): void
     {
-        Elementor_Cache::set_available_for_tests(true);
+        if (! wpmcp_elementor_active()) {
+            $this->markTestSkipped('Elementor not active');
+        }
+        // The framework deletes every post between tests, the default kit
+        // included; Elementor needs one to touch a document's CSS.
+        $kits = \Elementor\Plugin::instance()->kits_manager;
+        if (! $kits->get_active_id() || ! get_post((int) $kits->get_active_id())) {
+            update_option('elementor_active_kit', \Elementor\Core\Kits\Manager::create_default_kit());
+        }
         $original = $this->published();
         // Elementor stores slashed JSON (\/ and \u escapes); add_post_meta
         // unslashes, so the fixtures go in slashed to land byte-for-byte.
-        $old_data = '[{"id":"a1","elType":"widget","settings":{"url":"https:\/\/old.test\/"}}]';
-        $new_data = '[{"id":"a1","elType":"widget","settings":{"url":"https:\/\/new.test\/","title":"café"}}]';
+        $old_data = $this->heading('Old https://old.test/');
+        $new_data = $this->heading("Caf\u{e9} https://new.test/");
+        $this->assertStringContainsString('\\/', $new_data, 'The fixture carries the escapes that unslashing destroys.');
         add_post_meta($original, '_elementor_data', wp_slash($old_data));
         add_post_meta($original, '_elementor_edit_mode', 'builder');
         add_post_meta($original, '_elementor_page_settings', ['hide_title' => 'yes']);
