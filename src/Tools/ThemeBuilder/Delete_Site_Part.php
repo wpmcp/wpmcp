@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\ThemeBuilder;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -32,7 +33,7 @@ class Delete_Site_Part
                 'args'        => $args,
             ],
             static function () use ($id) {
-                wp_trash_post($id);
+                Save_Filters::trash_post($id);
                 return true;
             }
         );

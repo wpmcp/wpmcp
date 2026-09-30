@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Content;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Tools\Builders\Elementor_Cache;
 
 if (! defined('ABSPATH')) {
@@ -195,7 +196,7 @@ class Post_Stage
             static function () use ($stage, $original, $base): bool {
                 self::write($stage, $original, $base);
                 self::unlink($stage->ID);
-                wp_trash_post($stage->ID);
+                Save_Filters::trash_post($stage->ID);
                 return true;
             }
         );
@@ -222,7 +223,7 @@ class Post_Stage
         }
 
         self::unlink($stage->ID);
-        wp_trash_post($stage->ID);
+        Save_Filters::trash_post($stage->ID);
 
         return [
             'post_id'   => (int) $stage->ID,

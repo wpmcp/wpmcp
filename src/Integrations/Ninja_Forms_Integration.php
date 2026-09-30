@@ -2,6 +2,8 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Safety\Save_Filters;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -270,7 +272,7 @@ class Ninja_Forms_Integration extends Forms_Integration
                         if (! EMPTY_TRASH_DAYS) {
                             throw new Operation_Error('trash_disabled', 'This site has the trash disabled (EMPTY_TRASH_DAYS is 0), so trashing would permanently delete the submission.', [ 'entry_id' => (int) $args['entry_id'] ]);
                         }
-                        $done = wp_trash_post($entry_id);
+                        $done = Save_Filters::trash_post($entry_id);
                     } else {
                         // Put the submission back in the state it was trashed
                         // from rather than core's default of draft, which
@@ -278,7 +280,7 @@ class Ninja_Forms_Integration extends Forms_Integration
                         $restore = static fn () => 'publish';
                         add_filter('wp_untrash_post_status', $restore);
                         try {
-                            $done = wp_untrash_post($entry_id);
+                            $done = Save_Filters::untrash_post($entry_id);
                         } finally {
                             remove_filter('wp_untrash_post_status', $restore);
                         }

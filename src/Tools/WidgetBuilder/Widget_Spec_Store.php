@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\WidgetBuilder;
 
+use WPMCP\Safety\Save_Filters;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -96,7 +98,7 @@ class Widget_Spec_Store
         if (is_wp_error($spec)) {
             return $spec;
         }
-        wp_update_post(wp_slash(['ID' => $id, 'post_title' => sanitize_text_field((string) $spec['title'])]));
+        Save_Filters::update_post(wp_slash(['ID' => $id, 'post_title' => sanitize_text_field((string) $spec['title'])]));
         update_post_meta($id, '_wpmcp_widget_spec', wp_slash($spec));
         return true;
     }
