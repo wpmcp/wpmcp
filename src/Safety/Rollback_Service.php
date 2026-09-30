@@ -678,7 +678,7 @@ class Rollback_Service
             // wp_update_user() unslashes; the snapshot holds raw stored values.
             // Its save filters would rewrite them again, so they stand down.
             $fields = wp_slash(array_merge(['ID' => $user_id], $snapshot['data']['fields']));
-            self::without_save_filters(self::USER_SAVE_FILTERS, static fn () => wp_update_user($fields));
+            Save_Filters::without(self::USER_SAVE_FILTERS, static fn () => wp_update_user($fields));
             clean_user_cache($user_id);
         }
 
@@ -738,16 +738,7 @@ class Rollback_Service
      * excerpt and title, plus the content_filtered column that shares the
      * content's kses. For a user without unfiltered_html these carry kses.
      */
-    private const POST_SAVE_FILTERS = [
-        'pre_post_content',
-        'content_save_pre',
-        'pre_post_excerpt',
-        'excerpt_save_pre',
-        'pre_post_title',
-        'title_save_pre',
-        'pre_post_content_filtered',
-        'content_filtered_save_pre',
-    ];
+    private const POST_SAVE_FILTERS = Save_Filters::POST;
 
     /**
      * The sanitize filters add_post_meta() runs over each of these keys.
@@ -768,42 +759,6 @@ class Rollback_Service
             }
         }
         return $hooks;
-    }
-
-    /**
-     * Run a restore write with the given save filters standing down.
-     *
-     * A snapshot holds values exactly as they were stored. Handing them back
-     * through the core writer runs its save filters a second time (kses,
-     * balanceTags, sanitize_text_field and friends), and those rewrite
-     * markup a site stored on purpose: "<p>" goes, a lone "<" becomes
-     * "&lt;". The filters are lifted for this one write only and are put
-     * back in a finally block, so a write that throws cannot leave the site
-     * without them.
-     *
-     * @param string[] $hooks
-     * @return mixed Whatever $write returns.
-     */
-    private static function without_save_filters(array $hooks, callable $write)
-    {
-        global $wp_filter;
-
-        $lifted = [];
-        foreach (array_unique($hooks) as $hook) {
-            if (isset($wp_filter[ $hook ])) {
-                $lifted[ $hook ] = $wp_filter[ $hook ];
-                unset($wp_filter[ $hook ]);
-            }
-        }
-
-        try {
-            return $write();
-        } finally {
-            foreach ($lifted as $hook => $callbacks) {
-                // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- puts back the exact hook object lifted above.
-                $wp_filter[ $hook ] = $callbacks;
-            }
-        }
     }
 
     /**
@@ -870,7 +825,7 @@ class Rollback_Service
         };
         $row = wp_slash($captured);
 
-        self::without_save_filters(self::COMMENT_SAVE_FILTERS, static function () use ($row, $pin) {
+        Save_Filters::without(self::COMMENT_SAVE_FILTERS, static function () use ($row, $pin) {
             add_filter('wp_update_comment_data', $pin, PHP_INT_MAX);
             try {
                 return wp_update_comment($row);
@@ -1327,7 +1282,7 @@ class Rollback_Service
                 // Its save filters would rewrite the stored HTML (kses for
                 // a user without unfiltered_html), so they stand down.
                 $postarr = wp_slash($postarr);
-                self::without_save_filters(self::POST_SAVE_FILTERS, static fn () => wp_update_post($postarr));
+                Save_Filters::without(self::POST_SAVE_FILTERS, static fn () => wp_update_post($postarr));
             } else {
                 self::resurrect($object_id, $snapshot['data']['post'], $snapshot['data']['comments'] ?? []);
             }
@@ -1346,7 +1301,7 @@ class Rollback_Service
         // Restore snapshotted keys/values exactly as captured, without the
         // meta sanitizers filtering the stored values a second time.
         $meta_filters = self::post_meta_save_filters($object_id, array_map('strval', array_keys($snapshotted_meta)));
-        self::without_save_filters($meta_filters, static function () use ($object_id, $snapshotted_meta): void {
+        Save_Filters::without($meta_filters, static function () use ($object_id, $snapshotted_meta): void {
             foreach ($snapshotted_meta as $key => $values) {
                 delete_post_meta($object_id, $key);
                 foreach ((array) $values as $v) {
@@ -1914,7 +1869,7 @@ class Rollback_Service
                     // wp_update_post() re-saves the whole row to change the
                     // status, and its save filters (kses for a user without
                     // unfiltered_html) would rewrite the stored columns.
-                    $updated = self::without_save_filters(
+                    $updated = Save_Filters::without(
                         self::POST_SAVE_FILTERS,
                         static fn () => wp_update_post(['ID' => $post_id, 'post_status' => 'draft'], true)
                     );
@@ -1930,7 +1885,7 @@ class Rollback_Service
             }
             // wp_trash_post() changes the status through wp_update_post(),
             // which would run the same save filters over the whole row.
-            if (! self::without_save_filters(self::POST_SAVE_FILTERS, static fn () => wp_trash_post($post_id))) {
+            if (! Save_Filters::without(self::POST_SAVE_FILTERS, static fn () => wp_trash_post($post_id))) {
                 self::warn("Post {$post_id} created by this operation could not be moved to the trash; it was left in place.");
             }
         }
@@ -2075,7 +2030,7 @@ class Rollback_Service
                 "pre_{$taxonomy}_name",
                 "pre_{$taxonomy}_description",
             ];
-            self::without_save_filters($filters, static fn () => wp_update_term($term_id, $taxonomy, $fields));
+            Save_Filters::without($filters, static fn () => wp_update_term($term_id, $taxonomy, $fields));
             clean_term_cache([$term_id], $taxonomy);
         }
 
@@ -2750,7 +2705,7 @@ class Rollback_Service
     private static function resurrect(int $object_id, array $post_columns, array $comments): void
     {
         $postarr = wp_slash(array_merge(['import_id' => $object_id], self::restore_columns($post_columns, true)));
-        $result  = self::without_save_filters(self::POST_SAVE_FILTERS, static fn () => wp_insert_post($postarr, true));
+        $result  = Save_Filters::without(self::POST_SAVE_FILTERS, static fn () => wp_insert_post($postarr, true));
 
         if (is_wp_error($result)) {
             throw new Mutation_Failed('Rollback failed to resurrect post ' . (int) $object_id . ': ' . esc_html($result->get_error_message()));

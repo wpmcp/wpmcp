@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Content;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Tools\Redirects\Redirect_Suggestions;
 
 if (! defined('ABSPATH')) {
@@ -79,7 +80,7 @@ class Delete_Post
         $lost_url = $this->public_url($post);
 
         if (! $force) {
-            wp_trash_post($post_id);
+            Save_Filters::trash_post($post_id);
             $result = ['post_id' => $post_id, 'deleted' => 'trashed'];
             $suggestion = $this->suggest_redirect($lost_url, $post);
             if (null !== $suggestion) {

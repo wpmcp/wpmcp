@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\ThemeBuilder;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -34,7 +35,8 @@ class Set_Site_Part_Status
                 'args'        => $args,
             ],
             static function () use ($id, $status) {
-                wp_update_post(['ID' => $id, 'post_status' => $status]);
+                // Status only: the stored markup is written back as it is.
+                Save_Filters::set_post_status($id, $status);
                 return true;
             },
             static function () use ($id, $status): bool {

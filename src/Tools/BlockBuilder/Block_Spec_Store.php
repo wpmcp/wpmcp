@@ -5,6 +5,7 @@ namespace WPMCP\Tools\BlockBuilder;
 use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -72,7 +73,7 @@ class Block_Spec_Store
             return false;
         }
         $spec   = Block_Spec::normalize($spec);
-        $result = wp_update_post(wp_slash(['ID' => $id, 'post_title' => sanitize_text_field((string) $spec['title'])]), true);
+        $result = Save_Filters::update_post(wp_slash(['ID' => $id, 'post_title' => sanitize_text_field((string) $spec['title'])]), true);
         if (is_wp_error($result) || 0 === $result) {
             return false;
         }

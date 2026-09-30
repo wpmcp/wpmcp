@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Content;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Tools\Redirects\Redirect_Store;
 use WPMCP\Tools\Redirects\Redirect_Suggestions;
 
@@ -112,7 +113,9 @@ class Update_Post
                 }
                 // wp_update_post() unslashes its input; slash so backslashes
                 // (block JSON escapes, Elementor's \/) land byte for byte.
-                wp_update_post(wp_slash($postarr));
+                // Only the text columns passed here are filtered: a status,
+                // slug or meta-only edit leaves the stored text as it is.
+                Save_Filters::update_post(wp_slash($postarr));
 
                 if (isset($args['terms']) && is_array($args['terms'])) {
                     $append = isset($args['terms_mode']) && 'append' === $args['terms_mode'];
