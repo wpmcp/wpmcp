@@ -48,7 +48,10 @@ not a clever workaround. Report the denial and what would need to change.
 
 `wpmcp/list-governance-audit-log` shows recent allow and deny decisions with
 the identity that made them, which is the fastest way to explain to a human
-why an agent could not finish a task.
+why an agent could not finish a task. Each entry names its `source`: `mcp` for
+this endpoint, `rest`, `server`, `cli` or `php` for calls made outside it, which
+are logged (and, with enforcement on, governed) only when the site owner turns
+on `site_wide`.
 
 ## Scoped identities
 

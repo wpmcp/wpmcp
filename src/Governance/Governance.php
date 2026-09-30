@@ -124,6 +124,7 @@ class Governance
     public static function reset_for_tests(): void
     {
         delete_option(self::OPTION);
+        delete_option(Site_Wide_Governance::OPTION);
     }
 
     /**

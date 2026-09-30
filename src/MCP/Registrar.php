@@ -29,6 +29,12 @@ class Registrar
     /** @var Ability[] every ability handed to register(), before any gating. */
     private array $declared = [];
 
+    /** @var array<string, true> abilities whose execute() has begun but not yet checked permission. */
+    private static array $invoked = [];
+
+    /** The last decision recorded by a check made outside execute(). */
+    private static ?string $standalone = null;
+
     /**
      * Whether this install can run abilities of a given tier.
      *
@@ -108,8 +114,33 @@ class Registrar
         $reason  = $this->denial_reason($a, $input);
         $allowed = null === $reason;
 
+        // One call, one row (issue #412). The adapter's tools/call and
+        // core's REST run route both check permission and then call
+        // execute(), which checks again. The check inside execute() (marked
+        // by wp_ability_invoked) is not recorded when it repeats the
+        // decision the standalone check just recorded.
+        $in_execute = isset(self::$invoked[ $a->name ]);
+        unset(self::$invoked[ $a->name ]);
+        $signature = implode("\0", [$a->name, Identity_Context::current() ?? 'none', $allowed ? '1' : '0', (string) $reason]);
+        if ($in_execute && self::$standalone === $signature) {
+            self::$standalone = null;
+            return $allowed;
+        }
+
         $this->record_audit($a, $allowed, (string) $reason);
+        self::$standalone = $in_execute ? null : $signature;
         return $allowed;
+    }
+
+    /**
+     * wp_ability_invoked (WordPress 7.1): the next permission check for
+     * $name is the one inside execute(). See is_permitted().
+     *
+     * @param mixed $name The ability name.
+     */
+    public static function note_invoked($name): void
+    {
+        self::$invoked[ (string) $name ] = true;
     }
 
     /**

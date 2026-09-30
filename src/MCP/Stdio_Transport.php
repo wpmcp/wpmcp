@@ -260,6 +260,22 @@ class Stdio_Transport
      */
     public function handle_request(array $request): ?array
     {
+        // Everything this transport runs is a call through the wpmcp
+        // endpoint, audited as such (issue #412).
+        \WPMCP\Governance\Call_Source::enter(\WPMCP\Governance\Call_Source::MCP);
+        try {
+            return $this->route_request($request);
+        } finally {
+            \WPMCP\Governance\Call_Source::leave();
+        }
+    }
+
+    /**
+     * @param array<string,mixed> $request Decoded JSON-RPC request.
+     * @return array<string,mixed>|null
+     */
+    private function route_request(array $request): ?array
+    {
         $method = isset($request['method']) ? (string) $request['method'] : '';
 
         // JSON-RPC 2.0 defines a notification as a request with no id at
