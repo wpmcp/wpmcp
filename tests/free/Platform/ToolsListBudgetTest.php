@@ -196,7 +196,14 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  longer required), paid for by rewording the integration dispatcher
      *  read and write templates and dropping cosmetic quotes around
      *  argument names in the atomic widget and block tool descriptions,
-     *  without dropping a rule: 208959 -> 208958 bytes over 406 tools. */
+     *  without dropping a rule: 208959 -> 208958 bytes over 406 tools.
+     *  Site-wide governance (#412) added no tool: it is a site_wide enum on
+     *  update-governance-settings and a source argument on
+     *  list-governance-audit-log (232 bytes), paid for by dropping the
+     *  trailing "Read-only" from 28 descriptions whose readOnlyHint already
+     *  says it (list-php-snippets through get-analytics-connection-status)
+     *  and shortening the filter names in get-governance-settings, without
+     *  dropping a rule: 208958 -> 208893 bytes over 406 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */

@@ -17,7 +17,10 @@ if (! defined('ABSPATH')) {
  * identity is active), allowed (bool), timestamp (int), reason (string,
  * empty unless a specific rule produced the outcome, e.g.
  * "memory-block:42", the id of the published project-memory entry that
- * denied the call, issue #131) }.
+ * denied the call, issue #131), source (string, the entry point the call
+ * came in by, see Call_Source, issue #412) }. Site-wide rows for calls made
+ * outside the endpoint also carry duration_ms. Inputs and outputs are never
+ * stored.
  *
  * The log is capped at CAP entries (500): once full, the oldest entry is
  * dropped for every new one recorded, so a busy site's option never grows
@@ -53,18 +56,29 @@ class Governance_Audit_Log
      * out the way it did, for the cases where the ability name alone does not
      * say. It defaults to '' so every pre-existing call site keeps recording
      * exactly the entry it always did.
+     *
+     * $extra may override 'source' (default: Call_Source::current()) and add
+     * 'duration_ms'; any other key is ignored, so nothing else can reach a
+     * row.
+     *
+     * @param array{source?: string, duration_ms?: int} $extra
      */
-    public static function record(string $ability, string $identity, bool $allowed, string $reason = ''): void
+    public static function record(string $ability, string $identity, bool $allowed, string $reason = '', array $extra = []): void
     {
         $entries = self::load();
 
-        $entries[] = [
+        $entry = [
             'ability'   => $ability,
             'identity'  => $identity,
             'allowed'   => $allowed,
             'timestamp' => self::now(),
             'reason'    => $reason,
+            'source'    => isset($extra['source']) ? (string) $extra['source'] : Call_Source::current(),
         ];
+        if (isset($extra['duration_ms'])) {
+            $entry['duration_ms'] = (int) $extra['duration_ms'];
+        }
+        $entries[] = $entry;
 
         if (count($entries) > self::CAP) {
             $entries = array_slice($entries, -self::CAP);
@@ -90,10 +104,20 @@ class Governance_Audit_Log
         }
     }
 
-    /** Newest-first entries, limited to $limit (default: the entire log). */
-    public static function list(int $limit = self::CAP): array
+    /**
+     * Newest-first entries, limited to $limit (default: the entire log),
+     * optionally only those recorded with $source. Rows written before
+     * sources existed have none and match no source filter.
+     */
+    public static function list(int $limit = self::CAP, string $source = ''): array
     {
         $entries = array_reverse(self::load());
+        if ('' !== $source) {
+            $entries = array_values(array_filter(
+                $entries,
+                static fn ($entry) => is_array($entry) && $source === ($entry['source'] ?? null)
+            ));
+        }
         return array_slice($entries, 0, $limit);
     }
 

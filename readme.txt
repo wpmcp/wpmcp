@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.112
+Stable tag: 0.8.113
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -104,6 +104,11 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.113 =
+* New: site-wide governance. A default-off site_wide setting on update-governance-settings logs ability calls made outside the MCP endpoint (the core abilities REST route, other servers, WP-CLI or other plugins' PHP), for third-party abilities as well as wpmcp's own, and in enforce mode refuses abilities you disabled by name on every entry point.
+* Every governance audit log entry now records where the call came from (mcp, rest, server, cli or php), and list-governance-audit-log can filter by it.
+* A call through the MCP endpoint or the core REST run route now leaves one audit entry instead of two.
 
 = 0.8.112 =
 * Stage edits to a live page: duplicate-post can make a private draft copy of a published post, page or custom post type entry, then publish it back over the original (same ID, URL, author, date and comments, undoable in one step) or discard it. Publishing refuses if the original changed since the copy was made, unless forced.
@@ -587,6 +592,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.113 =
+New: site-wide governance. A default-off site_wide setting on update-governance-settings logs ability calls made outside the MCP endpoint (the core abilities REST route, other servers, WP-CLI or other plugins' PHP), for third-party abilities as well as wpmcp's own, and in enforce mode refuses abilities you disabled by name on every entry point.
 
 = 0.8.112 =
 Stage edits to a live page: duplicate-post can make a private draft copy of a published post, page or custom post type entry, then publish it back over the original (same ID, URL, author, date and comments, undoable in one step) or discard it. Publishing refuses if the original changed since the copy was made, unless forced.
