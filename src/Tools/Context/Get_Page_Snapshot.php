@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Context;
 
+use WPMCP\Tools\Builders\Breakdance_Cache;
 use WPMCP\Tools\Builders\Builder_Detector;
 use WPMCP\Tools\Content\Content_Extractor;
 
@@ -460,7 +461,7 @@ class Get_Page_Snapshot
         }
 
         if ('breakdance' === $builder || 'oxygen' === $builder) {
-            $outer = json_decode((string) get_post_meta($post_id, "_{$builder}_data", true), true);
+            $outer = json_decode((string) get_post_meta($post_id, Breakdance_Cache::data_key($builder, $post_id), true), true);
             $tree  = is_array($outer) && is_string($outer['tree_json_string'] ?? null) ? json_decode($outer['tree_json_string'], true) : null;
 
             return is_array($tree['root']['children'] ?? null) ? wp_json_encode($tree['root']['children']) : null;

@@ -351,6 +351,22 @@ namespace WPMCP\Tests\Pro\Builders {
             $this->assertSame('Top bar', $header_tree[0]->data->properties->content->content->text);
         }
 
+        public function test_breakdance_1x_templates_read_their_unprefixed_rows(): void
+        {
+            // Breakdance 1.x keeps a template's tree and conditions in
+            // `breakdance_data` and `breakdance_template_settings` (#457).
+            $tree = '{"root":{"id":1,"data":{"type":"root","properties":null},"children":[{"id":2,"data":{"type":"EssentialElements\\\\Text","properties":{"content":{"content":{"text":"Top bar"}}}},"children":[],"_parentId":1}]},"_nextNodeId":3,"status":"exported"}';
+            $id   = self::factory()->post->create(['post_type' => 'breakdance_header', 'post_title' => 'Header', 'post_status' => 'publish']);
+            add_post_meta($id, 'breakdance_data', wp_slash((string) wp_json_encode(['tree_json_string' => $tree])));
+            add_post_meta($id, 'breakdance_template_settings', wp_slash((string) wp_json_encode(['type' => 'all', 'ruleGroups' => []])));
+
+            $out = $this->read(['builder' => 'breakdance', 'scope' => 'templates']);
+
+            $by_id = array_column($out['templates'], null, 'id');
+            $this->assertSame(['type' => 'all', 'ruleGroups' => []], $by_id[$id]['settings']);
+            $this->assertSame('Top bar', $by_id[$id]['tree'][0]->data->properties->content->content->text);
+        }
+
         /** @dataProvider engine_builders */
         public function test_engine_catalog_reads_element_classes_and_control_schemas(string $builder): void
         {

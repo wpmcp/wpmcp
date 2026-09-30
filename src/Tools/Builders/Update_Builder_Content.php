@@ -25,7 +25,8 @@ if (! defined('ABSPATH')) {
  * Beaver_Builder_Content::save).
  * Breakdance and Oxygen 6 (the same engine): either a whole node tree as a
  * JSON string, or one operation addressed by node id, written to
- * `_breakdance_data` or `_oxygen_data` (see Breakdance_Content::save).
+ * `_breakdance_data` (`breakdance_data` on Breakdance 1.x pages) or
+ * `_oxygen_data` (see Breakdance_Content::save).
  * Thrive Architect: either a whole layout as an HTML string, or one element
  * operation addressed by the dotted paths get-builder-content returns,
  * written to its layout meta (see Thrive_Content::save).

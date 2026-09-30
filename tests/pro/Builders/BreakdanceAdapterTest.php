@@ -49,6 +49,7 @@ namespace WPMCP\Tests\Pro\Builders {
         {
             Gate::set_pro_for_tests(null);
             remove_all_filters('wpmcp_breakdance_active');
+            remove_all_filters('wpmcp_breakdance_meta_prefix');
             parent::tearDown();
         }
 
@@ -315,6 +316,130 @@ namespace WPMCP\Tests\Pro\Builders {
 
             $this->assertSame($before, $this->state($post_id));
             $this->assertFalse(metadata_exists('post', $classic, '_breakdance_data'));
+        }
+
+        // ------------------------------------------ Breakdance 1.x (#457)
+
+        /**
+         * A page saved by Breakdance 1.x: its set_meta() passes the key
+         * straight to update_post_meta(), so the rows carry no leading
+         * underscore (`breakdance_data` and the two generated cache rows).
+         */
+        private function legacy_page(): int
+        {
+            $post_id = $this->page('<p>Written before Breakdance took over</p>');
+            $this->raw_meta($post_id, 'breakdance_data', BreakdanceTreeTest::fixture_meta());
+            $this->raw_meta($post_id, 'breakdance_css_file_paths_cache', sprintf(self::CSS_CACHE, $post_id, $post_id));
+            $this->raw_meta($post_id, 'breakdance_dependency_cache', self::DEPENDENCY_CACHE);
+
+            return $post_id;
+        }
+
+        public function test_a_breakdance_1x_page_is_detected_and_read(): void
+        {
+            $post_id = $this->legacy_page();
+            $broken  = $this->page('<p>Plain</p>');
+            $this->raw_meta($broken, 'breakdance_data', '{"tree_json_string":"not a tree"}');
+
+            $this->assertSame('breakdance', $this->detect($post_id));
+            $this->assertSame('classic', $this->detect($broken));
+
+            $out = $this->read($post_id);
+            $this->assertSame('breakdance', $out['builder']);
+            $this->assertSame(112, $out['next_node_id']);
+            $this->assertSame('About the studio', $out['tree'][0]->children[0]->data->properties->content->content->text);
+            $this->assertSame(BreakdanceTreeTest::fixture_json(), Breakdance_Tree::encode(Breakdance_Content::get_document($post_id)));
+        }
+
+        public function test_a_breakdance_1x_page_is_edited_in_its_own_key_and_rolls_back_exactly(): void
+        {
+            $post_id = $this->legacy_page();
+            $before  = $this->state($post_id);
+
+            $out = $this->update($post_id, ['operation' => 'update', 'path' => '101', 'attrs' => ['content' => ['content' => ['text' => 'Edited "here"']]]]);
+
+            $this->assertIsArray($out, is_wp_error($out) ? $out->get_error_message() : '');
+            $outer = json_decode((string) $this->raw($post_id, 'breakdance_data'), true);
+            $tree  = json_decode($outer['tree_json_string'], true);
+            $this->assertSame('Edited "here"', $tree['root']['children'][0]['children'][0]['data']['properties']['content']['content']['text']);
+            // Never both keys: the underscored row is not created.
+            $this->assertFalse(metadata_exists('post', $post_id, '_breakdance_data'));
+            // Its own stale cache rows are the ones dropped.
+            $this->assertNull($this->raw($post_id, 'breakdance_css_file_paths_cache'));
+            $this->assertNull($this->raw($post_id, 'breakdance_dependency_cache'));
+            $this->assertSame('breakdance', $this->detect($post_id));
+
+            Rollback_Service::restore_operation($out['operation_id']);
+
+            $this->assertSame($before, $this->state($post_id));
+            $this->assertSame(BreakdanceTreeTest::fixture_meta(), $this->raw($post_id, 'breakdance_data'));
+            $this->assertFalse(metadata_exists('post', $post_id, '_breakdance_data'));
+        }
+
+        public function test_an_unchanged_whole_tree_write_to_a_1x_page_stores_nothing(): void
+        {
+            $post_id = $this->legacy_page();
+            $before  = $this->state($post_id);
+
+            $out = $this->update($post_id, ['content' => (string) wp_json_encode($this->read($post_id)['tree'])]);
+
+            $this->assertSame('breakdance', $out['builder']);
+            $this->assertSame($before, $this->state($post_id));
+        }
+
+        public function test_rollback_of_a_1x_page_regenerates_its_cache_when_active(): void
+        {
+            add_filter('wpmcp_breakdance_active', '__return_true');
+            $post_id = $this->legacy_page();
+            $before  = $this->state($post_id);
+
+            $out = $this->update($post_id, ['operation' => 'remove', 'path' => '103']);
+            $this->assertSame([$post_id], $GLOBALS['wpmcp_breakdance_cache_calls']);
+
+            $GLOBALS['wpmcp_breakdance_cache_calls'] = [];
+            Rollback_Service::restore_operation($out['operation_id']);
+
+            $this->assertSame([$post_id], $GLOBALS['wpmcp_breakdance_cache_calls']);
+            $this->assertSame($before, $this->state($post_id));
+        }
+
+        public function test_a_first_write_uses_the_key_the_loaded_breakdance_stores(): void
+        {
+            // Breakdance 1.x loaded: a new page gets the unprefixed row.
+            add_filter('wpmcp_breakdance_meta_prefix', static fn () => 'breakdance_');
+            $post_id = $this->page();
+            $before  = $this->state($post_id);
+
+            $out = $this->update($post_id, ['operation' => 'add', 'to' => '', 'element' => ['type' => 'EssentialElements\\Section']]);
+
+            $this->assertTrue(metadata_exists('post', $post_id, 'breakdance_data'));
+            $this->assertFalse(metadata_exists('post', $post_id, '_breakdance_data'));
+            $this->assertSame('breakdance', $this->detect($post_id));
+            Rollback_Service::restore_operation($out['operation_id']);
+            $this->assertSame($before, $this->state($post_id));
+
+            // Without that, the underscored row, as before.
+            remove_all_filters('wpmcp_breakdance_meta_prefix');
+            $this->update($post_id, ['operation' => 'add', 'to' => '', 'element' => ['type' => 'EssentialElements\\Section']]);
+            $this->assertTrue(metadata_exists('post', $post_id, '_breakdance_data'));
+            $this->assertFalse(metadata_exists('post', $post_id, 'breakdance_data'));
+        }
+
+        public function test_an_existing_page_keeps_its_own_key_whatever_breakdance_is_loaded(): void
+        {
+            $legacy  = $this->legacy_page();
+            $current = $this->breakdance_page();
+
+            add_filter('wpmcp_breakdance_meta_prefix', static fn () => '_breakdance_');
+            $this->update($legacy, ['operation' => 'remove', 'path' => '103']);
+            $this->assertFalse(metadata_exists('post', $legacy, '_breakdance_data'));
+            $this->assertSame([100, 111], array_map(static fn ($n) => $n->id, $this->read($legacy)['tree']));
+
+            remove_all_filters('wpmcp_breakdance_meta_prefix');
+            add_filter('wpmcp_breakdance_meta_prefix', static fn () => 'breakdance_');
+            $this->update($current, ['operation' => 'remove', 'path' => '103']);
+            $this->assertFalse(metadata_exists('post', $current, 'breakdance_data'));
+            $this->assertSame([100, 111], array_map(static fn ($n) => $n->id, $this->read($current)['tree']));
         }
 
         public function test_the_content_class_reads_what_breakdance_stores(): void

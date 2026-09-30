@@ -65,8 +65,11 @@ class Builder_Detector
             return 'beaver-builder';
         }
 
-        if (self::has_engine_tree($post_id, '_breakdance_data')) {
-            return 'breakdance';
+        // `_breakdance_data`, or `breakdance_data` on a Breakdance 1.x page.
+        foreach (Breakdance_Cache::data_keys('breakdance') as $key) {
+            if (self::has_engine_tree($post_id, $key)) {
+                return 'breakdance';
+            }
         }
 
         // Oxygen 6 is the Breakdance engine under the `_oxygen_` prefix.
@@ -131,7 +134,7 @@ class Builder_Detector
 
     /**
      * Whether a Breakdance engine data row (`_breakdance_data`, or
-     * `_oxygen_data` for Oxygen 6) holds a tree the engine would render:
+     * `breakdance_data` from Breakdance 1.x, or `_oxygen_data` for Oxygen 6) holds a tree the engine would render:
      * the same root check its own reader makes.
      */
     private static function has_engine_tree(int $post_id, string $key): bool
