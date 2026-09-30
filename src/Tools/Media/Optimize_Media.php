@@ -31,6 +31,11 @@ if (! defined('ABSPATH')) {
  * When an image-optimization plugin is active the tool defers to it unless
  * force is passed: two optimizers fighting over the same files would each
  * recompress the other's output.
+ *
+ * background:true (issue #432) queues the library walk as a WP-Cron job
+ * instead (Optimize_Media_Job) with progress read back by job_id; the
+ * optional upload and front-end features live in Optimize_Uploads and
+ * Modern_Image_Delivery.
  */
 class Optimize_Media
 {
@@ -48,10 +53,21 @@ class Optimize_Media
         'avif' => ['image/avif', 'AVIF'],
     ];
 
+    private const OPTIMIZERS_TRANSIENT = 'wpmcp_image_optimizer_scan';
+
+    /** @var array<string,string[]> active-plugins key => optimizer names, for this request */
+    private static array $optimizers_cache = [];
+
     private int $quality = self::DEFAULT_QUALITY;
 
     public function handle(array $args): array
     {
+        // A background run's status, or its cancellation (issue #432).
+        $job_id = (int) ($args['job_id'] ?? 0);
+        if ($job_id > 0) {
+            return empty($args['cancel']) ? Optimize_Media_Job::read($job_id) : Optimize_Media_Job::cancel($job_id);
+        }
+
         $this->quality = max(1, min(100, (int) ($args['quality'] ?? self::DEFAULT_QUALITY)));
         $max_edge      = max(0, (int) ($args['max_edge'] ?? 0));
         $formats       = self::formats($args['formats'] ?? []);
@@ -59,6 +75,13 @@ class Optimize_Media
         $force         = ! empty($args['force']);
         $session_id    = (string) ($args['session_id'] ?? 'default');
         $media_id      = (int) ($args['media_id'] ?? 0);
+
+        if (! empty($args['background'])) {
+            if ($media_id) {
+                throw new \InvalidArgumentException('background runs over the whole library; drop media_id, or drop background to optimize one image now.');
+            }
+            return $this->queue($max_edge, $formats, $dry_run, $force, $session_id);
+        }
 
         if ($media_id) {
             $post = get_post($media_id);
@@ -127,6 +150,55 @@ class Optimize_Media
     }
 
     /**
+     * Queue a background run over the library (issue #432). Nothing is
+     * queued while an optimizer plugin is active (unless forced) or while
+     * another run is still going: two runs over the same library would
+     * each skip or redo the other's images.
+     *
+     * @param string[] $formats
+     */
+    private function queue(int $max_edge, array $formats, bool $dry_run, bool $force, string $session_id): array
+    {
+        $optimizers = self::active_optimizers();
+        if ([] !== $optimizers && ! $force) {
+            return [
+                'deferred_to' => $optimizers,
+                'reason'      => 'An active image-optimization plugin already handles this. Pass force:true to run anyway.',
+            ];
+        }
+
+        $active = Optimize_Media_Job::active();
+        if (null !== $active) {
+            throw new \InvalidArgumentException(sprintf(
+                'optimize-media job %d is still %s. Read it with job_id, or cancel it (job_id with cancel:true) first.',
+                (int) $active['id'],
+                esc_html((string) $active['status'])
+            ));
+        }
+
+        $job = Optimize_Media_Job::create(
+            [
+                'quality'    => $this->quality,
+                'max_edge'   => $max_edge,
+                'formats'    => $formats,
+                'dry_run'    => $dry_run,
+                'force'      => $force,
+                'session_id' => $session_id,
+            ],
+            get_current_user_id(),
+            self::count_after(0)
+        );
+
+        return [
+            'job_id'      => (int) $job['id'],
+            'status'      => (string) $job['status'],
+            'session_id'  => (string) $job['session_id'],
+            'total'       => (int) $job['progress']['total'],
+            'unsupported' => self::unsupported($formats),
+        ];
+    }
+
+    /**
      * Whether a plugin's Name and Description read like an image optimizer.
      * Generic on purpose: no plugin is named, so a new optimizer is deferred
      * to as soon as it describes itself.
@@ -164,6 +236,18 @@ class Optimize_Media
         }
         $self = defined('WPMCP_FILE') ? plugin_basename(WPMCP_FILE) : '';
 
+        // Front-end delivery asks on every page view (issue #432), so the
+        // header scan is remembered per set of active plugins: activating
+        // or deactivating one changes the key and rescans.
+        $key = md5(implode("\n", $active));
+        if (isset(self::$optimizers_cache[ $key ])) {
+            return self::$optimizers_cache[ $key ];
+        }
+        $cached = get_transient(self::OPTIMIZERS_TRANSIENT);
+        if (is_array($cached) && ($cached['key'] ?? '') === $key && is_array($cached['names'] ?? null)) {
+            return self::$optimizers_cache[ $key ] = array_map('strval', $cached['names']);
+        }
+
         $found = [];
         foreach (array_unique(array_map('strval', $active)) as $relative) {
             $file = WP_PLUGIN_DIR . '/' . $relative;
@@ -175,7 +259,8 @@ class Optimize_Media
                 $found[] = (string) $data['Name'];
             }
         }
-        return $found;
+        set_transient(self::OPTIMIZERS_TRANSIENT, [ 'key' => $key, 'names' => $found ], DAY_IN_SECONDS);
+        return self::$optimizers_cache[ $key ] = $found;
     }
 
     /** @return string[] validated format keys */

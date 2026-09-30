@@ -603,6 +603,9 @@ final class Plugin
         }
         // Stored custom CSS/JS output (issue #63), gated on its own group.
         $this->register_custom_code_runtime_hooks();
+        // Image optimization runs, tool-upload optimization and modern
+        // format delivery (issue #432), gated on the media group.
+        $this->register_image_optimization_runtime_hooks();
         // Agent project memory (issue #131): the wpmcp_memory CPT is the
         // store AND the approval queue, so it is registered here rather than
         // lazily from the tools. Note this runs even though the three memory
@@ -619,6 +622,29 @@ final class Plugin
             add_action('transition_post_status', [Memory_Store::class, 'flush_rules_cache_on_transition'], 10, 3);
             add_action('deleted_post', [Memory_Store::class, 'flush_rules_cache_on_delete'], 10, 2);
         }
+    }
+
+    /**
+     * Runtime wiring for optimize-media (issue #432): the WP-Cron executor
+     * of a background run, the tool-upload optimization and settings
+     * (Optimize_Uploads), and front-end WebP/AVIF delivery
+     * (Modern_Image_Delivery). Both options are off by default and every
+     * callback no-ops until one is on. Its own method so the wp.org build,
+     * which ships no image optimization, removes it by name; string
+     * callables for the same reason the builder branches use them.
+     */
+    public function register_image_optimization_runtime_hooks(): void
+    {
+        if (! $this->group_enabled('media') || ! class_exists('\\WPMCP\\Tools\\Media\\Optimize_Uploads')) {
+            return;
+        }
+        $job = '\\WPMCP\\Tools\\Media\\Optimize_Media_Job';
+        add_action('wpmcp_run_optimize_media_job', static function ($job_id) use ($job): void {
+            (new $job())->handle((int) $job_id);
+        });
+        add_filter('wpmcp_snapshot_prune_held', [$job, 'holds_pruning']);
+        call_user_func(['\\WPMCP\\Tools\\Media\\Optimize_Uploads', 'register']);
+        call_user_func(['\\WPMCP\\Tools\\Media\\Modern_Image_Delivery', 'register']);
     }
 
     /**
@@ -1291,7 +1317,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-post',
             'free',
-            'Delete a post, page or CPT entry. Trash by default (reversible). force:true deletes permanently, is off until the wpmcp_enable_delete_post filter opts in, needs confirm:true, and is snapshotted so it can be rolled back',
+            'Delete a post, page or CPT entry. Trash by default (reversible). force:true deletes permanently, is off until the wpmcp_enable_delete_post filter opts in, needs confirm:true, and is snapshotted (undoable)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1513,7 +1539,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-media',
             'free',
-            'Delete a Media Library attachment. Off until the wpmcp_enable_delete_media filter opts in; needs confirm:true. force:true deletes permanently, snapshotted so it can be rolled back',
+            'Delete a Media Library attachment. Off until the wpmcp_enable_delete_media filter opts in; needs confirm:true. force:true deletes permanently, snapshotted (undoable)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1622,7 +1648,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/resize-media',
             'free',
-            'Regenerate the given registered image sizes of an attachment from its original and report each file (name, dimensions, URL). Snapshot-first with a file backup, so it can be rolled back',
+            'Regenerate the given registered image sizes of an attachment from its original and report each file (name, dimensions, URL). Snapshot-first with a file backup (undoable)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1640,12 +1666,15 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/optimize-media',
             'pro',
-            'Recompress JPEG/PNG at quality (82), cap the full size at max_edge px and write webp/avif copies of it and each size with the server image editor. No media_id: batches by cursor. dry_run estimates. Defers to an optimizer plugin unless force. Undo: rollback-operation',
+            'Recompress JPEG/PNG at quality (82), cap the full size at max_edge px and write webp/avif copies of it and each size with the server image editor. No media_id: batches by cursor, or background:true queues a job under one session_id (job_id: progress; +cancel: stop). dry_run estimates. Defers to an optimizer plugin unless force. Undo: rollback-operation. Settings: wpmcp_optimize_uploads, wpmcp_serve_modern_images',
             [
                 'type'       => 'object',
                 'properties' => [
                     'media_id'   => [ 'type' => 'integer' ],
                     'cursor'     => [ 'type' => 'integer' ],
+                    'background' => [ 'type' => 'boolean' ],
+                    'job_id'     => [ 'type' => 'integer' ],
+                    'cancel'     => [ 'type' => 'boolean' ],
                     'quality'    => [ 'type' => 'integer' ],
                     'max_edge'   => [ 'type' => 'integer' ],
                     'formats'    => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
@@ -1788,7 +1817,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-settings',
             'free',
-            'Update WordPress site settings from a strict allowlist. Validates/coerces each value (enum, int range, bool), rejects unsafe permalink structures, skips read-only or non-allowlisted keys, and applies the valid subset even if some keys fail',
+            'Update WordPress site settings from a strict allowlist. Validates/coerces each value (enum, int range, bool), rejects unsafe permalink structures, skips read-only or non-allowlisted keys and still applies the valid subset',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2058,7 +2087,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/activate-plugin',
             'free',
-            'Activate an installed plugin. Snapshots the prior active_plugins option so it can be rolled back',
+            'Activate an installed plugin. Snapshots the prior active_plugins option (undoable)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2075,7 +2104,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/deactivate-plugin',
             'free',
-            'Deactivate a plugin. Refuses protected packages (wpmcp, Elementor). Snapshots the prior active_plugins option so it can be rolled back',
+            'Deactivate a plugin. Refuses protected packages (wpmcp, Elementor). Snapshots the prior active_plugins option (undoable)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2160,7 +2189,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/switch-theme',
             'free',
-            'Activate (switch to) an installed theme. Snapshots the prior template/stylesheet options so it can be rolled back',
+            'Activate an installed theme. Snapshots the prior template/stylesheet options (undoable)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2416,7 +2445,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-rows',
             'free',
-            'Update rows matching a mandatory equality WHERE via $wpdb->update(). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo via rollback-operation if the table has a primary key and the WHERE fits the before-image cap, else recoverable:false with the before-image in the write audit log',
+            'Update rows matching a mandatory equality WHERE via $wpdb->update(). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo: rollback-operation if the table has a primary key and the WHERE fits the before-image cap, else recoverable:false with the before-image in the write audit log',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2436,7 +2465,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-rows',
             'free',
-            'Delete rows matching a mandatory equality WHERE via $wpdb->delete(). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo via rollback-operation (rows reinserted with their ids) if the table has a primary key and the WHERE fits the before-image cap, else recoverable:false with the before-image in the write audit log',
+            'Delete rows matching a mandatory equality WHERE via $wpdb->delete(). Needs confirm:true and the wpmcp_enable_db_writes filter; refuses protected tables. Undo: rollback-operation (rows reinserted with their ids) if the table has a primary key and the WHERE fits the before-image cap, else recoverable:false with the before-image in the write audit log',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3909,7 +3938,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/cancel-cli-job',
             'pro',
-            'Cancel a queued background CLI job: unschedule its WP-Cron event and mark it canceled so it never runs. Refuses with an error if the job is unknown or is no longer queued (already running, or in a terminal status)',
+            'Cancel a queued background CLI job: unschedule its WP-Cron event and mark it canceled so it never runs. Errors if the job is unknown or no longer queued (running or terminal)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -4910,7 +4939,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/render-shortcode',
             'free',
-            'Render a shortcode string (e.g. "[gallery ids=\"1,2\"]") via do_shortcode() and return the resulting HTML. Only invokes tags already present in the registered shortcode registry; input must contain an opening "[" or it is refused',
+            'Render a shortcode string (e.g. "[gallery ids=\"1,2\"]") via do_shortcode() and return the HTML. Only invokes registered shortcode tags; input without an opening "[" is refused',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5201,7 +5230,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/cancel-backup-job',
             'free',
-            'Cancel a queued backup job: unschedule its WP-Cron event and mark it canceled. Refuses with an error if the job is no longer queued (already running or in a terminal status) or unknown',
+            'Cancel a queued backup job: unschedule its WP-Cron event and mark it canceled. Errors if the job is unknown or no longer queued (running or terminal)',
             [
                 'type'       => 'object',
                 'properties' => [

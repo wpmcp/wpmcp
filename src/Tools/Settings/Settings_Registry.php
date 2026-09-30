@@ -54,20 +54,39 @@ class Settings_Registry
         'permalink_structure' => ['group' => 'permalinks', 'type' => 'string', 'writable' => true],
     ];
 
-    /** @return array<string,array> The full allowlist, keyed by option name. */
+    /**
+     * The full allowlist, keyed by option name. A feature that owns an
+     * option adds it through the wpmcp_settings_registry filter, so the
+     * option is listed only on builds that ship the feature (issue #432);
+     * a malformed entry is dropped rather than trusted.
+     *
+     * @return array<string,array>
+     */
     public static function all(): array
     {
-        return self::SCHEMA;
+        $schema = apply_filters('wpmcp_settings_registry', self::SCHEMA);
+        if (! is_array($schema)) {
+            return self::SCHEMA;
+        }
+        $groups = self::groups();
+        foreach ($schema as $key => $meta) {
+            if (! is_array($meta) || ! in_array($meta['group'] ?? null, $groups, true) || ! isset($meta['type'], $meta['writable'])) {
+                unset($schema[ $key ]);
+            }
+        }
+        // Core entries always win: a filter adds options, it never loosens
+        // one of these (admin_email stays read-only).
+        return self::SCHEMA + $schema;
     }
 
     public static function has(string $key): bool
     {
-        return array_key_exists($key, self::SCHEMA);
+        return array_key_exists($key, self::all());
     }
 
     public static function get(string $key): ?array
     {
-        return self::SCHEMA[ $key ] ?? null;
+        return self::all()[ $key ] ?? null;
     }
 
     /** @return string[] All group names, in a stable order. */
