@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Media\Stock;
 
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Tools\Media\Media_Import_Snapshot;
 use WPMCP\Tools\Media\Remote_Image_Guard;
 
@@ -38,7 +39,7 @@ class Import_Stock_Image
         $media_id = Remote_Image_Guard::sideload($url, (int) ($args['post_id'] ?? 0), 'stock-image');
 
         if (! empty($args['title'])) {
-            wp_update_post(wp_slash(['ID' => $media_id, 'post_title' => sanitize_text_field((string) $args['title'])]));
+            Save_Filters::update_post(wp_slash(['ID' => $media_id, 'post_title' => sanitize_text_field((string) $args['title'])]));
         }
         if (! empty($args['alt'])) {
             update_post_meta($media_id, '_wp_attachment_image_alt', wp_slash(sanitize_text_field((string) $args['alt'])));

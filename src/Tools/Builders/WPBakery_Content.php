@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Builders;
 
+use WPMCP\Safety\Save_Filters;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -62,7 +64,7 @@ class WPBakery_Content
         $before = WPBakery_Shortcodes::custom_css_rules(self::get_content($post_id));
         $after  = WPBakery_Shortcodes::custom_css_rules($content);
 
-        wp_update_post([
+        Save_Filters::update_post([
             'ID'           => $post_id,
             'post_content' => wp_slash($content),
         ]);

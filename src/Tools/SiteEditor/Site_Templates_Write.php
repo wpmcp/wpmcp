@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\SiteEditor;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Safety\Site_Template_Snapshot;
 use WPMCP\Tools\Blocks\Block_Tree;
 use WPMCP\Tools\Blocks\Serialize_Blocks;
@@ -105,7 +106,7 @@ class Site_Templates_Write
 
         $out = $this->mutate($resolved, $args, function () use (&$wp_id, $new, $post, $area, $resolved) {
             if ($wp_id > 0) {
-                wp_update_post(wp_slash(['ID' => $wp_id, 'post_content' => $new]));
+                Save_Filters::update_post(wp_slash(['ID' => $wp_id, 'post_content' => $new]));
                 return true;
             }
             $inserted = wp_insert_post(wp_slash($post + ['post_content' => $new]), true);
