@@ -56,7 +56,7 @@ class Count_Content
 
         $out = [];
         foreach ($types as $type) {
-            if (! post_type_exists($type) || 'attachment' === $type) {
+            if (! post_type_exists($type) || 'attachment' === $type || ! Content_Guard::can_read_post_type($type)) {
                 continue;
             }
             $counts = (array) wp_count_posts($type);

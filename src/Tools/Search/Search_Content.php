@@ -7,6 +7,7 @@
 namespace WPMCP\Tools\Search;
 
 use WPMCP\Tools\Builders\Builder_Detector;
+use WPMCP\Tools\Content\Content_Guard;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -230,6 +231,11 @@ class Search_Content
             return null;
         }
         if ('publish' !== $post->post_status && ! current_user_can('read_post', (int) $post->ID)) {
+            return null;
+        }
+        // A published row of a non-public type is still private to the
+        // capability holders of that type (issue #446).
+        if (! Content_Guard::can_read_post((int) $post->ID)) {
             return null;
         }
 
