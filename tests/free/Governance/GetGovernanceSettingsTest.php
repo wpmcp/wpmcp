@@ -17,7 +17,7 @@ class GetGovernanceSettingsTest extends \WP_UnitTestCase
     {
         $out = (new Get_Governance_Settings())->handle([]);
 
-        $this->assertSame(['ability' => [], 'domain' => [], 'operation' => []], $out);
+        $this->assertSame(['ability' => [], 'domain' => [], 'operation' => [], 'site_wide' => 'off'], $out);
     }
 
     public function test_returns_stored_toggles_across_all_three_dimensions(): void
