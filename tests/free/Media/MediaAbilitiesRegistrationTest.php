@@ -33,6 +33,12 @@ class MediaAbilitiesRegistrationTest extends \WP_UnitTestCase
         $this->assertArrayNotHasKey('wpmcp/insert-stock-image', wp_get_abilities());
     }
 
+    public function test_optimize_media_is_not_registered_on_the_free_tier(): void
+    {
+        // PRO (issue #380): absent from the unlicensed harness's surface.
+        $this->assertArrayNotHasKey('wpmcp/optimize-media', wp_get_abilities());
+    }
+
     public function test_set_stock_key_requires_manage_options(): void
     {
         $ability = \WPMCP\Plugin::instance()->registrar()->get('wpmcp/set-stock-key');

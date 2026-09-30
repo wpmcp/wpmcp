@@ -2546,9 +2546,11 @@ class Rollback_Service
 
     /**
      * Restore an attachment's backed-up physical files, when present. Only
-     * a force-deleted attachment's snapshot ever carries a 'files' entry
+     * a snapshot of an attachment's files carries a 'files' entry
      * (['operation_id' => ..., 'manifest' => [original_abs_path => stored_filename]]);
      * every other snapshot has no such key, making this a no-op for them.
+     * An optional 'created' list names files the operation wrote beside the
+     * originals (optimize-media's WebP/AVIF copies), which are deleted.
      */
     private static function restore_files(?array $files): void
     {
@@ -2556,6 +2558,7 @@ class Rollback_Service
             return;
         }
         File_Backup::restore((string) $files['operation_id'], (array) $files['manifest']);
+        File_Backup::remove_created((array) ($files['created'] ?? []), (array) $files['manifest']);
     }
 
     /**

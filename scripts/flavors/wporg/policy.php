@@ -86,6 +86,8 @@ return [
         'src/Tools/Performance/Curl_Dns_Pin.php',
         // Paid ability whose handler lives inside an otherwise free directory.
         'src/Tools/Media/Stock/Insert_Stock_Image.php',
+        // Same shape: image compression and WebP/AVIF copies (issue #380).
+        'src/Tools/Media/Optimize_Media.php',
         // Installing a plugin or theme from an uploaded ZIP (issue #282).
         // Guideline 8 forbids installing plugins or themes from anywhere but
         // WordPress.org, and the directory installers in src/Tools/Packages
