@@ -55,4 +55,13 @@ class SecurityAbilitiesTest extends \WP_UnitTestCase
         $this->assertSame('A', $report['summary']['grade']);
         $this->assertArrayHasKey('scan_meta', $report);
     }
+
+    /** Issue #413: the lookup is an opt-in boolean on the existing tool, not a new tool. */
+    public function test_scan_security_offers_an_opt_in_vulnerabilities_flag(): void
+    {
+        $schema = wp_get_abilities()['wpmcp/scan-security']->get_input_schema();
+
+        $this->assertSame(['type' => 'boolean'], $schema['properties']['vulnerabilities'] ?? null);
+        $this->assertArrayNotHasKey('wpmcp/scan-vulnerabilities', wp_get_abilities());
+    }
 }
