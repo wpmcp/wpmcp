@@ -300,6 +300,7 @@ class Db_Cleanup
         }
 
         $tables      = [];
+        $collected   = [];
         $transients  = [];
         $items       = 0;
         $snap_bytes  = 0;
@@ -339,9 +340,15 @@ class Db_Cleanup
                 }
                 $items++;
                 $snap_bytes += $size;
+                // Two categories can reach the same row in one call (a trashed
+                // post's excess revisions); each row is snapshotted once.
                 foreach ((array) $unit['rows'] as $table => $rows) {
                     foreach ($rows as $row) {
-                        $tables[ $table ][] = $row;
+                        $id = $table . ':' . implode(',', array_map(static fn (string $c): string => (string) $row[ $c ], Db_Cleanup_Snapshot::primary_key($table)));
+                        if (! isset($collected[ $id ])) {
+                            $collected[ $id ] = true;
+                            $tables[ $table ][] = $row;
+                        }
                     }
                 }
                 foreach ((array) ($unit['options'] ?? []) as $option) {
