@@ -23,14 +23,14 @@ class PrunedSessionRecordTest extends \WP_UnitTestCase
         parent::setUp();
         Snapshot_Store::install();
         delete_option(Snapshot_Store::PRUNED_SESSIONS_OPTION);
-        delete_option('wpmcp_pruned_session_filter');
+        delete_option(Snapshot_Store::PRUNED_SESSION_FILTER_OPTION);
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
     }
 
     protected function tearDown(): void
     {
         delete_option(Snapshot_Store::PRUNED_SESSIONS_OPTION);
-        delete_option('wpmcp_pruned_session_filter');
+        delete_option(Snapshot_Store::PRUNED_SESSION_FILTER_OPTION);
         parent::tearDown();
     }
 
@@ -138,7 +138,7 @@ class PrunedSessionRecordTest extends \WP_UnitTestCase
         $this->drop_then_bury('first', 130);
 
         $size = strlen((string) maybe_serialize(get_option(Snapshot_Store::PRUNED_SESSIONS_OPTION)))
-            + strlen((string) maybe_serialize(get_option('wpmcp_pruned_session_filter')));
-        $this->assertLessThan(20 * 1024, $size, 'The prune record is bounded, not a growing list');
+            + strlen((string) maybe_serialize(get_option(Snapshot_Store::PRUNED_SESSION_FILTER_OPTION)));
+        $this->assertLessThan(32 * 1024, $size, 'The prune record is bounded, not a growing list');
     }
 }

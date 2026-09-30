@@ -383,6 +383,10 @@ class Change_Set_Builder
                     '%d ledger row(s) from this session have already been pruned from the history, so its earliest mutations are not in this change set.',
                     $pruned
                 );
+            } elseif (0 === $rows_read && Snapshot_Store::was_session_pruned((string) $marker['session_id'])) {
+                // Pruned long enough ago to have left the exact counts
+                // (issue #442): empty is not the same as complete.
+                $reason = 'This session\'s ledger rows have been pruned from the history, so none of its mutations are in this change set.';
             }
         }
 
