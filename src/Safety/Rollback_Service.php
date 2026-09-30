@@ -96,10 +96,17 @@ class Rollback_Service
      * no capabilities at all and takes manage_options.
      *
      * Only the agent-facing entry points ask, like may_restore(): the unwind
-     * of a mutation that threw is internal and never refused.
+     * of a mutation that threw is internal and never refused. With no
+     * current user the restore is not being made on anyone's behalf (code
+     * running outside any caller: cron, WP-CLI without --user, a tool's own
+     * compensation), and every agent-facing path into a restore requires a
+     * logged-in user holding edit_posts first, so there is no one to check.
      */
     private static function refused_post(array $snapshot): ?string
     {
+        if (0 === get_current_user_id()) {
+            return null;
+        }
         $type = (string) ($snapshot['object_type'] ?? '');
         if ('post' === $type) {
             $post_id = (int) ($snapshot['object_id'] ?? 0);

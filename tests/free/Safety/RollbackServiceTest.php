@@ -13,9 +13,6 @@ class RollbackServiceTest extends \WP_UnitTestCase
     {
         parent::setUp();
         Snapshot_Store::install();
-        // Restores are made on behalf of a user, and undoing a post edit
-        // takes edit_post for the post (issue #448).
-        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
     }
 
     protected function tearDown(): void
@@ -26,7 +23,6 @@ class RollbackServiceTest extends \WP_UnitTestCase
             }
         }
         $this->cleanup_paths = [];
-        wp_set_current_user(0);
         parent::tearDown();
     }
 
