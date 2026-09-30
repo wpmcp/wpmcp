@@ -175,6 +175,7 @@ use WPMCP\Tools\Media\Upload_Media;
 use WPMCP\Tools\Media\List_Media;
 use WPMCP\Tools\Media\Find_Unused_Media;
 use WPMCP\Tools\Media\Resize_Media;
+use WPMCP\Tools\Media\Optimize_Media;
 use WPMCP\Tools\Media\Upload_Svg;
 use WPMCP\Tools\Media\Stock\Set_Stock_Key;
 use WPMCP\Tools\Media\Stock\Search_Stock_Images;
@@ -1360,7 +1361,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/diff-revisions',
             'free',
-            'Diff two revisions of a post, or one revision against the post\'s current state: a unified diff per changed field (title, content, excerpt) rather than two full documents. Unchanged fields are omitted. Read-only',
+            'Diff two revisions of a post, or one revision against the post\'s current state: a unified diff per changed field (title, content, excerpt) rather than two full documents. Unchanged fields are omitted',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1377,7 +1378,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/count-content',
             'free',
-            'Counts so a job can be sized before it starts: posts per public type by status, media by MIME family, comments by status, terms per taxonomy, users per role. From core counting APIs, so figures match wp-admin. Read-only',
+            'Counts so a job can be sized before it starts: posts per public type by status, media by MIME family, comments by status, terms per taxonomy, users per role. From core counting APIs, so figures match wp-admin',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1633,6 +1634,28 @@ final class Plugin
             ],
             [$resize_media, 'handle'],
             'edit_posts',
+            'media',
+            'update'
+        ));
+        $registrar->register(new Ability(
+            'wpmcp/optimize-media',
+            'pro',
+            'Recompress JPEG/PNG at quality (82), cap the full size at max_edge px and write webp/avif copies of it and each size with the server image editor. No media_id: batches by cursor. dry_run estimates. Defers to an optimizer plugin unless force. Undo: rollback-operation',
+            [
+                'type'       => 'object',
+                'properties' => [
+                    'media_id'   => [ 'type' => 'integer' ],
+                    'cursor'     => [ 'type' => 'integer' ],
+                    'quality'    => [ 'type' => 'integer' ],
+                    'max_edge'   => [ 'type' => 'integer' ],
+                    'formats'    => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'dry_run'    => [ 'type' => 'boolean' ],
+                    'force'      => [ 'type' => 'boolean' ],
+                    'session_id' => [ 'type' => 'string' ],
+                ],
+            ],
+            [new Optimize_Media(), 'handle'],
+            'upload_files',
             'media',
             'update'
         ));
@@ -2547,7 +2570,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/analyze-performance',
             'free',
-            'Scan server config, WordPress internals (database size, autoloaded options, cron backlog, object cache, OPcache, plugin count) and a page (frontpage, url or post_id) for performance bottlenecks. Returns a scored report with ranked fixes. Read-only',
+            'Scan server config, WordPress internals (database size, autoloaded options, cron backlog, object cache, OPcache, plugin count) and a page (frontpage, url or post_id) for performance bottlenecks. Returns a scored report with ranked fixes',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2568,7 +2591,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/scan-security',
             'free',
-            'Scan this site for malware (deep=true: whole tree), core file integrity, hardening gaps, outdated software and known vulnerabilities (vulnerabilities=true; sends slugs and versions to wpvulnerability.net). Returns a 0-100 score, A-F grade and ranked fixes. Read-only',
+            'Scan this site for malware (deep=true: whole tree), core file integrity, hardening gaps, outdated software and known vulnerabilities (vulnerabilities=true; sends slugs and versions to wpvulnerability.net). Returns a 0-100 score, A-F grade and ranked fixes',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2627,7 +2650,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-cache-status',
             'free',
-            'Report active caching layers: the object cache backend (external or internal), OPcache and any page-cache plugin (WP Rocket, W3 Total Cache, WP Super Cache, LiteSpeed Cache, WP Fastest Cache) detected by its functions or constants. Read-only',
+            'Report active caching layers: the object cache backend (external or internal), OPcache and any page-cache plugin (WP Rocket, W3 Total Cache, WP Super Cache, LiteSpeed Cache, WP Fastest Cache) detected by its functions or constants',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -2871,7 +2894,7 @@ final class Plugin
                 'memory-recall',
                 'read',
                 new \WPMCP\Tools\Memory\Memory_Recall(),
-                'Read this site\'s APPROVED project memory: published facts, conventions, guardrails, session summaries and enforced block rules. Pending proposals are never returned (only their count), so unapproved suggestions never read back as policy. Read-only',
+                'Read this site\'s APPROVED project memory: published facts, conventions, guardrails, session summaries and enforced block rules. Pending proposals are never returned (only their count), so unapproved suggestions never read back as policy',
                 [
                     'topic' => ['type' => 'string'],
                     'kind'  => ['type' => 'string', 'enum' => \WPMCP\Memory\Memory_Entry::KINDS],
@@ -2953,7 +2976,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-skills',
             'free',
-            'List installed agent skills (versioned markdown playbooks): slug, name, description, version, tags. Bodies via get-skill. Skills whose required tools are missing are hidden unless include_unavailable is set. Read-only',
+            'List installed agent skills (versioned markdown playbooks): slug, name, description, version, tags. Bodies via get-skill. Skills whose required tools are missing are hidden unless include_unavailable is set',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2971,7 +2994,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-skill',
             'free',
-            'Load one skill\'s full instructions by slug (from list-skills), returned exactly as written. Unknown slugs return a structured error listing the installed slugs. Read-only',
+            'Load one skill\'s full instructions by slug (from list-skills), returned exactly as written. Unknown slugs return a structured error listing the installed slugs',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3071,17 +3094,17 @@ final class Plugin
     {
         $tools = [
             ['cloud-connect', 'update', new \WPMCP\Tools\Cloud\Cloud_Connect(), 'Connect this site to WP MCP Cloud: store the cloud url + api key and verify them by fetching the account. Returns the account on success. gateway_consent (default false) permits a gateway credential upload; false withdraws it and kills any the cloud holds', ['url' => ['type' => 'string'], 'key' => ['type' => 'string'], 'gateway_consent' => ['type' => 'boolean', 'default' => false]], ['url', 'key']],
-            ['cloud-status', 'read', new \WPMCP\Tools\Cloud\Cloud_Status(), 'Report whether this site is connected to WP MCP Cloud, and where. Read-only', [], []],
-            ['cloud-list-assets', 'read', new \WPMCP\Tools\Cloud\Cloud_List_Assets(), 'List the assets (widget/block specs) in this site\'s WP MCP Cloud account. Read-only', [], []],
+            ['cloud-status', 'read', new \WPMCP\Tools\Cloud\Cloud_Status(), 'Report whether this site is connected to WP MCP Cloud, and where', [], []],
+            ['cloud-list-assets', 'read', new \WPMCP\Tools\Cloud\Cloud_List_Assets(), 'List the assets (widget/block specs) in this site\'s WP MCP Cloud account', [], []],
             ['cloud-push-assets', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Assets(), 'Push this site\'s custom widget and block specs up to WP MCP Cloud (backup + reuse across sites). Optionally filter by type (widget|block)', ['types' => ['type' => 'array']], []],
             ['cloud-pull-assets', 'create', new \WPMCP\Tools\Cloud\Cloud_Pull_Assets(), 'Pull this site\'s WP MCP Cloud builder assets and recreate them as local custom widget/block specs (each validated first; refusals listed under skipped with a reason)', [], []],
-            ['cloud-sync-settings', 'read', new \WPMCP\Tools\Cloud\Cloud_Sync_Settings(), 'Preview what would sync to WP MCP Cloud: governance toggles, MCP exposure switch, tool-exposure mode, skills switch. Never secrets or code-level gates (db writes, php exec, cli allowlist). Read-only', [], []],
+            ['cloud-sync-settings', 'read', new \WPMCP\Tools\Cloud\Cloud_Sync_Settings(), 'Preview what would sync to WP MCP Cloud: governance toggles, MCP exposure switch, tool-exposure mode, skills switch. Never secrets or code-level gates (db writes, php exec, cli allowlist)', [], []],
             ['cloud-push-settings', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Settings(), 'Push the cloud-sync-settings posture plus identity scopes (no secrets) to WP MCP Cloud for cloud-apply-settings elsewhere. Paid. Changes nothing here', [], []],
             ['cloud-apply-settings', 'update', new \WPMCP\Tools\Cloud\Cloud_Apply_Settings(), 'Apply a posture: a cloud-sync-settings map, or (settings omitted) the last pushed one. Re-filtered to the allowlist; toggles and identities merge, scope fields only; never changes the MCP exposure switch or disables rollback-operation. Paid. Each write snapshotted; applied[i] pairs with operation_ids[i]; matching options listed as unchanged', ['settings' => ['type' => 'object'], 'session_id' => ['type' => 'string']], []],
-            ['cloud-marketplace-browse', 'read', new \WPMCP\Tools\Cloud\Cloud_Marketplace_Browse(), 'Browse WP MCP Cloud marketplace widget and block specs, optionally by type and search. Read-only', ['type' => ['type' => 'string', 'enum' => ['widget', 'block']], 'search' => ['type' => 'string']], []],
+            ['cloud-marketplace-browse', 'read', new \WPMCP\Tools\Cloud\Cloud_Marketplace_Browse(), 'Browse WP MCP Cloud marketplace widget and block specs, optionally by type and search', ['type' => ['type' => 'string', 'enum' => ['widget', 'block']], 'search' => ['type' => 'string']], []],
             ['cloud-marketplace-install', 'create', new \WPMCP\Tools\Cloud\Cloud_Marketplace_Install(), 'Install a WP MCP Cloud marketplace listing by slug: validated like validate-widget-spec / validate-block-spec, template run through wp_kses_post, lands INACTIVE until set-widget-status / set-block-status. Refuses a name colliding with a local spec', ['slug' => ['type' => 'string']], ['slug']],
             ['cloud-gateway-provision', 'create', new \WPMCP\Tools\Cloud\Cloud_Gateway_Provision(), 'Mint the gateway credential bound to a scoped identity (MCP connection, that allowlist only) and upload it. Needs consent=true; replace=true kills a live one. Upload needs cloud-connect gateway_consent. Secrets shown ONCE. Revoke: gateway-revoke', ['identity' => ['type' => 'string'], 'consent' => ['type' => 'boolean'], 'replace' => ['type' => 'boolean'], 'upload' => ['type' => 'boolean']], ['identity', 'consent']],
-            ['cloud-gateway-status', 'read', new \WPMCP\Tools\Cloud\Cloud_Gateway_Status(), 'Gateway credential\'s bound identity, upload and consent state. No secrets. Read-only', [], []],
+            ['cloud-gateway-status', 'read', new \WPMCP\Tools\Cloud\Cloud_Gateway_Status(), 'Gateway credential\'s bound identity, upload and consent state. No secrets', [], []],
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
@@ -3268,7 +3291,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-site-parts',
             'free',
-            'List site parts with their conditions and status, optionally by part_type. Read-only',
+            'List site parts with their conditions and status, optionally by part_type',
             [
                 'type'       => 'object',
                 'properties' => ['part_type' => $part_type],
@@ -3281,7 +3304,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/resolve-site-part',
             'free',
-            'Which site part wins for a context (most specific, then priority), with every candidate and why. post_id alone fills post_type and term_ids. Read-only',
+            'Which site part wins for a context (most specific, then priority), with every candidate and why. post_id alone fills post_type and term_ids',
             [
                 'type'       => 'object',
                 'properties' => ['part_type' => $part_type, 'context' => $context_schema],
@@ -3363,12 +3386,12 @@ final class Plugin
         $tools = [
             ['create-custom-block', 'create', new \WPMCP\Tools\BlockBuilder\Create_Custom_Block(), 'Create a custom Gutenberg block from a data spec (title, attributes, template with {{name}} placeholders). Validated, stored as a wpmcp_block post and registered at runtime; a render_callback interprets the template (no code generation, no eval). Remove with delete-custom-block', ['spec' => $spec_schema], ['spec']],
             ['update-custom-block', 'update', new \WPMCP\Tools\BlockBuilder\Update_Custom_Block(), 'Replace a custom block\'s spec by id (re-validated before it is stored). Snapshotted: returns an operation_id for rollback-operation', ['block_id' => ['type' => 'integer'], 'spec' => $spec_schema], ['block_id', 'spec']],
-            ['get-custom-block', 'read', new \WPMCP\Tools\BlockBuilder\Get_Custom_Block(), 'Read one custom block\'s stored spec by id. Read-only', ['block_id' => ['type' => 'integer']], ['block_id']],
-            ['list-custom-blocks', 'read', new \WPMCP\Tools\BlockBuilder\List_Custom_Blocks(), 'List the custom blocks on this site (id, name, title, active/inactive). Read-only', [], []],
+            ['get-custom-block', 'read', new \WPMCP\Tools\BlockBuilder\Get_Custom_Block(), 'Read one custom block\'s stored spec by id', ['block_id' => ['type' => 'integer']], ['block_id']],
+            ['list-custom-blocks', 'read', new \WPMCP\Tools\BlockBuilder\List_Custom_Blocks(), 'List the custom blocks on this site (id, name, title, active/inactive)', [], []],
             ['delete-custom-block', 'delete', new \WPMCP\Tools\BlockBuilder\Delete_Custom_Block(), 'Delete a custom block by moving it to the trash. Snapshotted: returns an operation_id for rollback-operation (restore-post also works)', ['block_id' => ['type' => 'integer']], ['block_id']],
             ['set-block-status', 'update', new \WPMCP\Tools\BlockBuilder\Set_Block_Status(), 'Enable (publish) or disable (draft) a custom block by id. Snapshotted: returns an operation_id for rollback-operation; a no-op status change writes nothing', ['block_id' => ['type' => 'integer'], 'status' => ['type' => 'string', 'enum' => \WPMCP\Tools\BlockBuilder\Set_Block_Status::STATUSES]], ['block_id', 'status']],
-            ['validate-block-spec', 'read', new \WPMCP\Tools\BlockBuilder\Validate_Block_Spec(), 'Statically validate a custom-block spec (title, attributes, template) without storing it. Read-only', ['spec' => $spec_schema], ['spec']],
-            ['list-block-control-types', 'read', new \WPMCP\Tools\BlockBuilder\List_Block_Control_Types(), 'List the attribute types a custom-block spec may use and the block.json type each maps to. Read-only', [], []],
+            ['validate-block-spec', 'read', new \WPMCP\Tools\BlockBuilder\Validate_Block_Spec(), 'Statically validate a custom-block spec (title, attributes, template) without storing it', ['spec' => $spec_schema], ['spec']],
+            ['list-block-control-types', 'read', new \WPMCP\Tools\BlockBuilder\List_Block_Control_Types(), 'List the attribute types a custom-block spec may use and the block.json type each maps to', [], []],
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
@@ -3411,13 +3434,13 @@ final class Plugin
         $tools = [
             ['create-custom-widget', 'create', new \WPMCP\Tools\WidgetBuilder\Create_Custom_Widget(), 'Create a custom Elementor widget from a data spec (title, controls, template with {{name}} placeholders), stored as a wpmcp_widget post. Without unfiltered_html the template is wp_kses_post-filtered (template_filtered: true)', ['spec' => $spec_schema], ['spec']],
             ['update-custom-widget', 'update', new \WPMCP\Tools\WidgetBuilder\Update_Custom_Widget(), 'Replace a custom widget\'s spec by id (re-validated; same wp_kses_post gate as create)', ['widget_id' => ['type' => 'integer'], 'spec' => $spec_schema], ['widget_id', 'spec']],
-            ['get-custom-widget', 'read', new \WPMCP\Tools\WidgetBuilder\Get_Custom_Widget(), 'Read a custom widget\'s stored spec by id. Read-only', ['widget_id' => ['type' => 'integer']], ['widget_id']],
-            ['list-custom-widgets', 'read', new \WPMCP\Tools\WidgetBuilder\List_Custom_Widgets(), 'List this site\'s custom widgets (id, name, title, active/inactive). Read-only', [], []],
+            ['get-custom-widget', 'read', new \WPMCP\Tools\WidgetBuilder\Get_Custom_Widget(), 'Read a custom widget\'s stored spec by id', ['widget_id' => ['type' => 'integer']], ['widget_id']],
+            ['list-custom-widgets', 'read', new \WPMCP\Tools\WidgetBuilder\List_Custom_Widgets(), 'List this site\'s custom widgets (id, name, title, active/inactive)', [], []],
             ['delete-custom-widget', 'delete', new \WPMCP\Tools\WidgetBuilder\Delete_Custom_Widget(), 'Move a custom widget to the trash (reversible via restore-post)', ['widget_id' => ['type' => 'integer']], ['widget_id']],
             ['set-widget-status', 'update', new \WPMCP\Tools\WidgetBuilder\Set_Widget_Status(), 'Enable (publish) or disable (draft) a custom widget by id', ['widget_id' => ['type' => 'integer'], 'status' => ['type' => 'string']], ['widget_id', 'status']],
-            ['validate-widget-spec', 'read', new \WPMCP\Tools\WidgetBuilder\Validate_Widget_Spec(), 'Validate a custom-widget spec without storing it. Read-only', ['spec' => $spec_schema], ['spec']],
+            ['validate-widget-spec', 'read', new \WPMCP\Tools\WidgetBuilder\Validate_Widget_Spec(), 'Validate a custom-widget spec without storing it', ['spec' => $spec_schema], ['spec']],
             ['compile-custom-widget', 'update', new \WPMCP\Tools\WidgetBuilder\Compiler\Compile_Custom_Widget(), 'Compile a published custom-widget spec into a native Elementor widget; the plugin, never the agent, writes and lints the PHP. Off unless wpmcp_enable_widget_compiler is on; needs edit_files, honors DISALLOW_FILE_EDIT. set-widget-status disables it', ['widget_id' => ['type' => 'integer']], ['widget_id']],
-            ['list-control-types', 'read', new \WPMCP\Tools\WidgetBuilder\List_Control_Types(), 'List the control types a custom-widget spec may use and their Elementor controls. Read-only', [], []],
+            ['list-control-types', 'read', new \WPMCP\Tools\WidgetBuilder\List_Control_Types(), 'List the control types a custom-widget spec may use and their Elementor controls', [], []],
         ];
 
         foreach ($tools as [$name, $op, $handler, $desc, $props, $required]) {
@@ -3542,7 +3565,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/validate-php-snippet',
             'free',
-            'Statically check a PHP snippet without running it: syntax validity (error message and line) and severity-tagged findings (eval, exec, shell_exec, backticks, obfuscation decoders, request-driven input, outbound HTTP). Read-only',
+            'Statically check a PHP snippet without running it: syntax validity (error message and line) and severity-tagged findings (eval, exec, shell_exec, backticks, obfuscation decoders, request-driven input, outbound HTTP)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6100,7 +6123,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-widgets',
             'free',
-            'List Elementor registered widget types (name, title, categories, icon, tier, availability), annotated from the curated catalog (purpose, cataloged flag). Filter by tier (free/pro), category or case-insensitive search (name, title, catalog keywords). Read-only',
+            'List Elementor registered widget types (name, title, categories, icon, tier, availability), annotated from the curated catalog (purpose, cataloged flag). Filter by tier (free/pro), category or case-insensitive search (name, title, catalog keywords)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6118,7 +6141,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-widget-schema',
             'free',
-            'The settings schema for one Elementor widget type: curated typed params (defaults, enums, responsive hints, required plugin) for cataloged widgets, or with full:true (and for non-cataloged widgets) the full introspected control stack. Read-only',
+            'The settings schema for one Elementor widget type: curated typed params (defaults, enums, responsive hints, required plugin) for cataloged widgets, or with full:true (and for non-cataloged widgets) the full introspected control stack',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6138,7 +6161,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-global-settings',
             'free',
-            'Read the Elementor kit\'s global colors, typography, spacing and layout. Returns the settings_hash the global color and typography writes require. Read-only',
+            'Read the Elementor kit\'s global colors, typography, spacing and layout. Returns the settings_hash the global color and typography writes require',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -6196,7 +6219,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-elementor-data',
             'pro',
-            'A page\'s parsed Elementor tree (id, elType, widgetType, settings, children). Large pages: summary=true (skeleton with labels and child/descendant counts), max_depth (cut nodes report truncated_children) or element_id for one subtree. Reports total/returned_elements, truncated; data_hash covers the whole page, so windowed reads are a valid expected_hash. Read-only',
+            'A page\'s parsed Elementor tree (id, elType, widgetType, settings, children). Large pages: summary=true (skeleton with labels and child/descendant counts), max_depth (cut nodes report truncated_children) or element_id for one subtree. Reports total/returned_elements, truncated; data_hash covers the whole page, so windowed reads are a valid expected_hash',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6432,7 +6455,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-global-classes',
             'pro',
-            'List the Elementor v4 global CSS classes of the active kit in stored order (empty when the feature has not been used), with the state_hash the global class write tools require as expected_hash. Read-only',
+            'List the Elementor v4 global CSS classes of the active kit in stored order (empty when the feature has not been used), with the state_hash the global class write tools require as expected_hash',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -6451,7 +6474,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-page',
             'pro',
-            'Export a page\'s Elementor content to a portable structure (content element tree + page_settings + type + version), the envelope import-template accepts, so a design can move between pages or sites. Read-only',
+            'Export a page\'s Elementor content to a portable structure (content element tree + page_settings + type + version), the envelope import-template accepts, so a design can move between pages or sites',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6536,7 +6559,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/export-template',
             'pro',
-            'Export an elementor_library template as the portable envelope import-template accepts (element tree, page_settings, conditions, type, version), so it round-trips between sites intact. Read-only',
+            'Export an elementor_library template as the portable envelope import-template accepts (element tree, page_settings, conditions, type, version), so it round-trips between sites intact',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6597,7 +6620,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-theme-template',
             'pro',
-            'Read one Elementor library template: its type, display conditions and element count. Read-only',
+            'Read one Elementor library template: its type, display conditions and element count',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6616,7 +6639,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-theme-templates',
             'pro',
-            'List Elementor theme-builder templates (header, footer, single, archive, ...), optionally filtered to one template_type, each with its display conditions. Read-only',
+            'List Elementor theme-builder templates (header, footer, single, archive, ...), optionally filtered to one template_type, each with its display conditions',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6634,7 +6657,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/resolve-theme-template',
             'pro',
-            'Which Elementor theme-builder template wins for a location (header, footer, single, archive, ...): every candidate with its conditions, specificity and matching excludes, plus the winner. post_type/post_id resolve against a real target, else only specificity counts. Read-only',
+            'Which Elementor theme-builder template wins for a location (header, footer, single, archive, ...): every candidate with its conditions, specificity and matching excludes, plus the winner. post_type/post_id resolve against a real target, else only specificity counts',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6674,7 +6697,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-elementor-version',
             'pro',
-            'Report the Elementor and Elementor Pro versions, supports_atomic (Elementor 4.0+) and atomic_tools_registered: the four atomic write tools register only on a builder that renders atomic elements, so check before assuming they exist. Read-only',
+            'Report the Elementor and Elementor Pro versions, supports_atomic (Elementor 4.0+) and atomic_tools_registered: the four atomic write tools register only on a builder that renders atomic elements, so check before assuming they exist',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -6737,7 +6760,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-dynamic-tags',
             'pro',
-            'List the Elementor dynamic tags registered on this site (name, title, group), optionally filtered by group. Most tags come from Elementor Pro, so the list is short or empty without it. Read-only',
+            'List the Elementor dynamic tags registered on this site (name, title, group), optionally filtered by group. Most tags come from Elementor Pro, so the list is short or empty without it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6799,7 +6822,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-custom-css',
             'pro',
-            'Read the site\'s WordPress core Additional CSS. Read-only',
+            'Read the site\'s WordPress core Additional CSS',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -6838,7 +6861,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-code-snippets',
             'pro',
-            'List the Elementor Custom Code snippets stored on this site (elementor_snippet posts) with their location, priority and code. Read-only',
+            'List the Elementor Custom Code snippets stored on this site (elementor_snippet posts) with their location, priority and code',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -6898,7 +6921,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-brand-kits',
             'pro',
-            'List brand kits (bundled presets plus any from the wpmcp_brand_kits option or filter): slug, category, source, the four system colors, font families, logo flag. Filter by category, source (bundled/site) or search. Read-only',
+            'List brand kits (bundled presets plus any from the wpmcp_brand_kits option or filter): slug, category, source, the four system colors, font families, logo flag. Filter by category, source (bundled/site) or search',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6918,7 +6941,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-brand-kit',
             'pro',
-            'Return one brand kit in the shape apply-brand-kit writes: system slots as hex, named swatches with _id, typography mapped to Elementor typography_* fields. Entries failing validation are listed in "invalid" and make the kit unappliable. Read-only',
+            'Return one brand kit in the shape apply-brand-kit writes: system slots as hex, named swatches with _id, typography mapped to Elementor typography_* fields. Entries failing validation are listed in "invalid" and make the kit unappliable',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7137,7 +7160,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-global-variables',
             'pro',
-            'List Elementor v4 global variables (color, font, size design tokens) with the state_hash the write tools need as expected_hash. Read-only',
+            'List Elementor v4 global variables (color, font, size design tokens) with the state_hash the write tools need as expected_hash',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -7381,7 +7404,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/find-element',
             'pro',
-            'Search a page\'s Elementor tree by el_type, widget_type, setting_key + setting_value and/or css_class (AND-combined, at least one). Each match reports element_id, types, navigator label and ancestor path; returns the current data_hash to chain a mutation. Read-only',
+            'Search a page\'s Elementor tree by el_type, widget_type, setting_key + setting_value and/or css_class (AND-combined, at least one). Each match reports element_id, types, navigator label and ancestor path; returns the current data_hash to chain a mutation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7723,7 +7746,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-low-stock-products',
             'free',
-            'List products and variations at or below a managed-stock threshold (default: the store\'s low-stock setting) or out of stock, as rows whose ids feed update-product/update-variation. Page while has_more is true. Read-only',
+            'List products and variations at or below a managed-stock threshold (default: the store\'s low-stock setting) or out of stock, as rows whose ids feed update-product/update-variation. Page while has_more is true',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7808,7 +7831,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-coupons',
             'free',
-            'List coupons as summary rows (id, code, status, type, amount, usage, expiry), with code search, status filter and paging. Read-only',
+            'List coupons as summary rows (id, code, status, type, amount, usage, expiry), with code search, status filter and paging',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7826,7 +7849,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-coupon',
             'free',
-            'Read one coupon\'s full settings by id or code (limits, restrictions, usage). Read-only',
+            'Read one coupon\'s full settings by id or code (limits, restrictions, usage)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7931,7 +7954,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/validate-coupon',
             'free',
-            'Check whether a coupon code would be accepted: published, expiry, usage limits, and (when email or subtotal is given) per-customer limit, email allow-list and spend rules. Each rule reports pass, fail or skipped; cart-dependent rules are flagged. Read-only',
+            'Check whether a coupon code would be accepted: published, expiry, usage limits, and (when email or subtotal is given) per-customer limit, email allow-list and spend rules. Each rule reports pass, fail or skipped; cart-dependent rules are flagged',
             [
                 'type'       => 'object',
                 'properties' => [

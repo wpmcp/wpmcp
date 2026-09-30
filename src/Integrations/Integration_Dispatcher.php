@@ -194,7 +194,7 @@ abstract class Integration_Dispatcher
             "wpmcp/{$slug}-read",
             $this->tier(),
             sprintf(
-                'Read op on %s: operation + matching args (list-operations lists each op\'s input schema). Read-only',
+                'Read op on %s: operation + matching args (list-operations lists each op\'s input schema)',
                 $this->summary()
             ),
             $this->dispatcher_schema(false),
