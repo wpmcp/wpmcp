@@ -18,8 +18,8 @@ if (! defined('ABSPATH')) {
  *    loads this file and Cron_Registry directly (no autoloader) and calls
  *    uninstall();
  *  - the self-hosted build ships no uninstall.php, so the licensing SDK's
- *    own uninstall hook still runs, and Freemius\Bootstrap attaches
- *    uninstall() to its after_uninstall action.
+ *    own uninstall hook still runs, and that build's licensing bootstrap
+ *    attaches uninstall() to the SDK's after_uninstall action.
  *
  * Deactivation already cleared the events (a plugin cannot be deleted while
  * active); this covers anything scheduled since, on every site of a network.

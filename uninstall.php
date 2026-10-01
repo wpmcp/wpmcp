@@ -8,6 +8,9 @@
  * uninstall.php instead of the licensing SDK's uninstall hook; that build
  * reaches the same WPMCP\Uninstaller through the SDK's after_uninstall action.
  */
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
 if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	exit;
 }
