@@ -170,15 +170,24 @@ final class Output_Schemas
             'required'   => [ 'id', 'status', 'created_at', 'updated_at' ],
         ];
 
+        // trigger-backup with every answers with the schedule instead of a
+        // job handle (issue #455), so neither half is required there.
+        $triggered                          = $handle;
+        $triggered['properties']['schedule'] = [ 'type' => 'object' ];
+        unset($triggered['required']);
+
+        $backup_jobs                            = self::listing($backup_job);
+        $backup_jobs['properties']['schedules'] = [ 'type' => 'array', 'items' => [ 'type' => 'object' ] ];
+
         $dispatched                          = $handle;
         $dispatched['properties']['command'] = [ 'type' => 'string' ];
         $dispatched['properties']['timeout'] = [ 'type' => 'integer' ];
 
         return [
-            'wpmcp/trigger-backup'    => $handle,
+            'wpmcp/trigger-backup'    => $triggered,
             'wpmcp/cancel-backup-job' => $handle,
             'wpmcp/get-backup-status' => $backup_job,
-            'wpmcp/list-backup-jobs'  => self::listing($backup_job),
+            'wpmcp/list-backup-jobs'  => $backup_jobs,
             'wpmcp/dispatch-cli-job'  => $dispatched,
             'wpmcp/cancel-cli-job'    => $handle,
             'wpmcp/get-cli-job'       => $cli_job,

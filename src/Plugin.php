@@ -246,6 +246,7 @@ use WPMCP\Tools\Backup\Get_Backup_Status;
 use WPMCP\Tools\Backup\List_Backup_Jobs;
 use WPMCP\Tools\Backup\Cancel_Backup_Job;
 use WPMCP\Tools\Backup\Run_Backup_Job;
+use WPMCP\Tools\Backup\Backup_Schedule;
 use WPMCP\Tools\Backup\Get_Backup_Manifest;
 use WPMCP\Tools\Backup\Delete_Backup_Archive;
 use WPMCP\Tools\Backup\Restore_Site_Backup;
@@ -747,6 +748,8 @@ final class Plugin
             // the queued job (producing a backup artifact) and flips its
             // status to completed/failed. See Run_Backup_Job's docblock.
             add_action(Run_Backup_Job::HOOK, [new Run_Backup_Job(), 'handle']);
+            // Recurring backups (issue #455): each run queues the job above.
+            add_action(Backup_Schedule::HOOK, [Backup_Schedule::class, 'run']);
             // The WP-Cron executor for dispatch-cli-job's scheduled events
             // (issue #84). It re-runs the FULL wp-cli guard chain before
             // executing anything, so hooking it here does not by itself let
@@ -3140,9 +3143,9 @@ final class Plugin
     {
         $tools = [
             ['cloud-connect', 'update', new \WPMCP\Tools\Cloud\Cloud_Connect(), 'Connect this site to WP MCP Cloud: store the cloud url + api key and verify them by fetching the account, which is returned. gateway_consent (default false) permits a gateway credential upload; false withdraws it and kills any the cloud holds', ['url' => ['type' => 'string'], 'key' => ['type' => 'string'], 'gateway_consent' => ['type' => 'boolean', 'default' => false]], ['url', 'key']],
-            ['cloud-status', 'read', new \WPMCP\Tools\Cloud\Cloud_Status(), 'Report whether this site is connected to WP MCP Cloud, and where', [], []],
+            ['cloud-status', 'read', new \WPMCP\Tools\Cloud\Cloud_Status(), 'Whether this site is connected to WP MCP Cloud, and where', [], []],
             ['cloud-list-assets', 'read', new \WPMCP\Tools\Cloud\Cloud_List_Assets(), 'List the assets (widget/block specs) in this site\'s WP MCP Cloud account', [], []],
-            ['cloud-push-assets', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Assets(), 'Push this site\'s custom widget and block specs up to WP MCP Cloud (backup + reuse across sites). Optionally filter by type (widget|block)', ['types' => ['type' => 'array']], []],
+            ['cloud-push-assets', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Assets(), 'Push this site\'s custom widget and block specs up to WP MCP Cloud (backup + reuse across sites). Optional type filter (widget|block)', ['types' => ['type' => 'array']], []],
             ['cloud-pull-assets', 'create', new \WPMCP\Tools\Cloud\Cloud_Pull_Assets(), 'Pull this site\'s WP MCP Cloud builder assets and recreate them as local custom widget/block specs (each validated first; refusals listed under skipped with a reason)', [], []],
             ['cloud-sync-settings', 'read', new \WPMCP\Tools\Cloud\Cloud_Sync_Settings(), 'Preview what would sync to WP MCP Cloud: governance toggles, MCP exposure switch, tool-exposure mode, skills switch. Never secrets or code-level gates (db writes, php exec, cli allowlist)', [], []],
             ['cloud-push-settings', 'update', new \WPMCP\Tools\Cloud\Cloud_Push_Settings(), 'Push the cloud-sync-settings posture plus identity scopes (no secrets) to WP MCP Cloud for cloud-apply-settings elsewhere. Paid. Changes nothing here', [], []],
@@ -4237,7 +4240,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-maintenance-status',
             'free',
-            'Report whether maintenance mode is on and, when it is, the configured message and Retry-After seconds',
+            'Whether maintenance mode is on and, if so, its message and Retry-After seconds',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -5197,7 +5200,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
             'free',
-            'Queue a WP-Cron backup job and return its job id. type=full builds a portable site archive (zip: full SQL dump, wp-content, origin manifest) to restore or migrate; database, files and uploads narrow it to that scope; content is a WXR export via export-content',
+            'Queue a WP-Cron backup job; returns its job id. type=full: portable site archive (zip: full SQL dump, wp-content, origin manifest) to restore or migrate; database/files/uploads narrow it; content: WXR export. every=daily [HH:MM], weekly [mon-sun] [HH:MM] (site time) or off schedules that type instead; each run prunes its archives past keep (default 7), never manual ones or after a failed run',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5206,6 +5209,8 @@ final class Plugin
                         'enum' => ['full', 'database', 'files', 'uploads', 'content'],
                     ],
                     'scope' => [ 'type' => 'string' ],
+                    'every' => [ 'type' => 'string' ],
+                    'keep'  => [ 'type' => 'integer' ],
                 ],
             ],
             [$trigger_backup, 'handle'],
@@ -5232,7 +5237,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-backup-jobs',
             'free',
-            'List backup jobs, newest first, with an optional status filter (queued/running/completed/failed/canceled)',
+            'List backup jobs, newest first, optionally by status (queued/running/completed/failed/canceled), plus schedules (next run, overdue, last run)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5731,7 +5736,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/is-multisite',
             'free',
-            'Report whether this WordPress install is part of a multisite network. Always registered, even on single-site installs, so a caller can discover network status before using the rest of the multisite tool group',
+            'Whether this install is a multisite network. Always registered, even on single-site, so network status can be checked before the other multisite tools',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -5855,7 +5860,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-analytics-connection-status',
             'free',
-            'Report whether an analytics provider (Google Site Kit or explicitly configured credentials) is active and appears connected. Always registered, so state can be checked before the other analytics tools',
+            'Whether an analytics provider (Google Site Kit or configured credentials) is active and appears connected. Always registered, so it can be checked before the other analytics tools',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -6807,7 +6812,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-dynamic-tags',
             'pro',
-            'List the Elementor dynamic tags registered on this site (name, title, group), optionally filtered by group. Most tags come from Elementor Pro, so the list is short or empty without it',
+            'List registered Elementor dynamic tags (name, title, group), optionally by group. Most come from Elementor Pro, so the list is short or empty without it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8498,7 +8503,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-field-groups',
             'free',
-            'List registered ACF (Advanced Custom Fields) field groups: key, title, a flattened summary of their location rules and whether each is active',
+            'List registered ACF (Advanced Custom Fields) field groups: key, title, flattened location rules and whether each is active',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -8563,7 +8568,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-seo-status',
             'free',
-            'Report which SEO plugin is active on this site, by name and version',
+            'Which SEO plugin is active, by name and version',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -8852,7 +8857,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-languages',
             'free',
-            'List the site\'s configured languages (code, human-readable name, and which is the default) via the active multilingual plugin (Polylang or WPML)',
+            'List the site\'s languages (code, name, which is default) via the active multilingual plugin (Polylang or WPML)',
             [
                 'type'       => 'object',
                 'properties' => [],
@@ -9554,7 +9559,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-site-abilities',
             'free',
-            'Abilities OTHER plugins register via the Abilities API: name, summary, owning plugin, whether an input schema exists and reversible:false (bridged results are outside wpmcp rollback). Optional plugin filter. Read-only. Needs the ability bridge opt-in (default off)',
+            'Abilities OTHER plugins register via the Abilities API: name, summary, owning plugin, whether an input schema exists and reversible:false (bridged results are outside wpmcp rollback). Optional plugin filter. Needs the ability bridge opt-in (default off)',
             [
                 'type'       => 'object',
                 'properties' => [
