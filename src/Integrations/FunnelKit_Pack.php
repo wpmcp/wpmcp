@@ -460,6 +460,9 @@ final class FunnelKit_Pack
             return [ 'funnel_steps_meta', $meta ];
         }
 
+        // Every status, as FunnelKit's own funnel screens list offers: this
+        // runs only for get-funnelkit-funnel, which is gated on
+        // manage_woocommerce, the capability of those screens (issue #465).
         $ids = get_posts([
             'post_type'        => self::offer_post_types(),
             'post_status'      => 'any',

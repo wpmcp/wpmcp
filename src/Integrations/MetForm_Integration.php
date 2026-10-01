@@ -2,6 +2,8 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Tools\Content\Readable_Posts;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -125,7 +127,8 @@ class MetForm_Integration extends Forms_Integration
                     ],
                 ],
                 'handler'      => function (array $args): array {
-                    $query = new \WP_Query([
+                    // Only the forms the caller may read (issue #465).
+                    $query = Readable_Posts::query([
                         'post_type'      => self::FORM_CPT,
                         'post_status'    => 'any',
                         'posts_per_page' => (int) ($args['page_size'] ?? 20),
