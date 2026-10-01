@@ -140,17 +140,27 @@ class SessionOwnershipTest extends \WP_UnitTestCase
 
     public function test_the_session_belongs_to_whoever_started_it(): void
     {
-        // The editor starts a session; the contributor then writes into it.
+        // The editor starts a session. Since issue #461 the contributor can
+        // no longer write into it; an administrator still can, and that
+        // does not make the session theirs.
         $editors = self::factory()->post->create(['post_author' => $this->users['editor'], 'post_status' => 'draft', 'post_title' => 'original']);
         $session = wp_generate_uuid4();
         $this->edit($this->users['editor'], $editors, $session, 'editor change');
         $mine = $this->draft_of('contributor');
-        $this->edit($this->users['contributor'], $mine, $session, 'contributor change');
+        try {
+            $this->edit($this->users['contributor'], $mine, $session, 'contributor change');
+            $this->fail('Writing into another user\'s session was not refused');
+        } catch (Mutation_Failed $e) {
+            $this->assertStringContainsString('another user', $e->getMessage());
+        }
+        $this->assertSame('original', get_post_field('post_title', $mine));
+        $this->edit($this->users['administrator'], $mine, $session, 'administrator change');
+        $this->assertSame($this->users['editor'], Snapshot_Store::session_owner($session));
 
         wp_set_current_user($this->users['contributor']);
         try {
             Rollback_Service::restore_session($session);
-            $this->fail('Joining another user\'s session must not make it the joiner\'s');
+            $this->fail('A contributor rolled back another user\'s session');
         } catch (Mutation_Failed $e) {
             $this->assertStringContainsString('another user', $e->getMessage());
         }
@@ -158,6 +168,7 @@ class SessionOwnershipTest extends \WP_UnitTestCase
         wp_set_current_user($this->users['editor']);
         $this->assertSame(2, Rollback_Service::restore_session($session));
         $this->assertSame('original', get_post_field('post_title', $editors));
+        $this->assertSame('original', get_post_field('post_title', $mine));
     }
 
     /**

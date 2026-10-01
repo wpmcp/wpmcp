@@ -23,7 +23,9 @@ use WPMCP\Tools\WooCommerce\Catalog\Op_Catalog;
  * is either declared or listed as a row in one of WooCommerce's own tables
  * (a shipping zone, a webhook, a gateway, a setting), which the op's store
  * capability already covers. The second aims each declared key at another
- * user's object as a Contributor holding only the dispatcher's capability.
+ * user's object as a Contributor holding only the dispatcher's capability
+ * (a Contributor has no product capabilities, so even their own draft
+ * product is refused; the role tests cover the allowed side).
  * The last ones run the real roles: Contributor, Author, Editor, Shop Manager
  * and Administrator.
  */
@@ -170,7 +172,6 @@ class WooObjectCapabilityTest extends \WP_UnitTestCase
         $contributor = self::factory()->user->create([ 'role' => 'contributor' ]);
         $live        = $this->product($owner);
         $draft       = $this->product($owner, 'draft');
-        $own_draft   = $this->product($contributor, 'draft');
         $held        = self::factory()->comment->create([ 'comment_post_ID' => $live, 'comment_type' => 'review', 'comment_approved' => '0' ]);
         $order       = wc_create_order()->get_id();
         $brand       = taxonomy_exists('product_brand') ? (int) wp_insert_term('Acme ' . wp_generate_password(6, false), 'product_brand')['term_id'] : 0;
@@ -190,7 +191,6 @@ class WooObjectCapabilityTest extends \WP_UnitTestCase
                     'post'    => array_filter([
                         'another user\'s draft'          => [ $draft, true ],
                         'another user\'s published post' => 'read' === $spec['access'] ? null : [ $live, true ],
-                        'their own draft'                => [ $own_draft, false ],
                     ]),
                     'user'    => [ 'another user' => [ $owner, true ] ],
                     'comment' => [ 'a held review' => [ $held, true ] ],

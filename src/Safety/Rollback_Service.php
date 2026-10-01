@@ -510,12 +510,8 @@ class Rollback_Service
      */
     private static function assert_session_owner(string $session_id): void
     {
-        $user = get_current_user_id();
-        if (0 === $user || Snapshot_Store::is_loose_session($session_id) || current_user_can('manage_options')) {
-            return;
-        }
-        $owner = Snapshot_Store::session_owner($session_id);
-        if (null === $owner || $owner === $user) {
+        $owner = Snapshot_Store::foreign_session_owner($session_id);
+        if (null === $owner) {
             return;
         }
         throw new Mutation_Failed(sprintf(
