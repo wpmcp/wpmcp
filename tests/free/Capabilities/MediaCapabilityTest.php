@@ -5,8 +5,10 @@ namespace WPMCP\Tests\Free\Capabilities;
 use WPMCP\Plugin;
 
 /**
- * Capability gating for the Media domain: read, update, delete, and sideload
- * all require edit_posts, matching WordPress core's own media-library gate.
+ * Capability gating for the Media domain: read, update and delete require
+ * edit_posts, matching WordPress core's own media-library gate. sideload-image
+ * creates a file in the Media Library, so it requires upload_files like
+ * core's own upload screen (issue #456).
  */
 class MediaCapabilityTest extends \WP_UnitTestCase
 {
@@ -21,7 +23,7 @@ class MediaCapabilityTest extends \WP_UnitTestCase
         'wpmcp/get-media'      => 'edit_posts',
         'wpmcp/update-media'   => 'edit_posts',
         'wpmcp/delete-media'   => 'edit_posts',
-        'wpmcp/sideload-image' => 'edit_posts',
+        'wpmcp/sideload-image' => 'upload_files',
     ];
 
     protected function tearDown(): void

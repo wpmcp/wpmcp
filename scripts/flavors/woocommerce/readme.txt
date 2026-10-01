@@ -85,6 +85,10 @@ Used by the `search-stock-images` ability when the Unsplash provider is chosen, 
 
 `sideload-image` hands the URL you or your agent supply to WordPress core's `media_sideload_image()`, so it can fetch an image from any host on the internet. It is not restricted by the allowlist above, and the destination is whatever you asked for; the plugin never picks one. Disable the ability in the WP MCP ability grid if you do not want that reach. As with any core download, the request carries WordPress's standard user agent.
 
+= The AI provider the site owner configured (WordPress 7.0+) =
+
+`sideload-image` with a `prompt` generates the image through WordPress core's AI client, with whichever provider and image model an administrator connected under Settings > Connectors and that connection's own credentials. This plugin holds no AI key and adds no provider. Nothing is sent when AI is disabled or no connected provider can make images. Otherwise the prompt, and the ratio if given, go to that provider; the image comes back as data, or is downloaded from the provider's https link with private addresses and redirects refused. That provider's own terms and privacy policy apply.
+
 = Pages you ask the plugin to measure =
 
 `analyze-performance` fetches the URL you give it so it can measure the response. It is normally this site's own address. Private, loopback and reserved addresses are refused and redirects are not followed. Nothing is sent beyond an ordinary GET and a `WPMCP-Performance-Analyzer/1.0` user agent.

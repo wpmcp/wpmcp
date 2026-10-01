@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.134
+Stable tag: 0.8.135
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -72,6 +72,7 @@ The plugin collects nothing about you and sends nothing to us. Its only schedule
 * Your own migration target - push-site-archive sends a site-backup archive (the full database, including password hashes, and wp-content if the archive has it) to the target_url you or your agent supply, signed in with credentials for that site, and only after you have allowed outgoing migrations with WPMCP_ALLOW_OUTGOING_MIGRATIONS. It contacts no other host. The receiving site must allow incoming migrations itself, and its owner's terms and privacy policy apply to what it stores.
 * Allowlisted media hosts - import-stock-image and upload-svg download the file you picked from a default allowlist of images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org (Wikimedia Commons, terms: https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use privacy policy: https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) and staticflickr.com (Flickr, terms: https://www.flickr.com/help/terms privacy policy: https://www.flickr.com/help/privacy), matched on the host or a subdomain of it. The site owner can change that list with the wpmcp_remote_media_allowed_hosts filter. The download carries WordPress's standard user agent.
 * Any host you name yourself - sideload-image passes the URL you or your agent supply to core's media_sideload_image(), so it can fetch an image from anywhere. It is not covered by the allowlist above; disable the ability if you do not want that reach.
+* The AI provider the site owner configured - sideload-image with a prompt generates the image through WordPress core's AI client (WordPress 7.0+), with whichever provider and image model an administrator connected under Settings > Connectors and that connection's own credentials. This plugin holds no AI key and adds no provider. Nothing is sent when AI is disabled or no connected provider can make images. Otherwise the prompt, and the ratio if given, go to that provider; the image comes back as data, or is downloaded from the provider's https link with private addresses and redirects refused. That provider's own terms and privacy policy apply.
 * Any URL you measure - analyze-performance fetches the URL you give it under a WPMCP-Performance-Analyzer/1.0 user agent, refusing private, loopback and reserved addresses and following no redirects.
 * MCP client metadata documents (the https URL an OAuth client uses as its client ID) - only when OAuth is switched on (it is off by default) and an MCP client signs in with an https URL as its client ID, a Client ID Metadata Document. While a signed-in user authorizes that client, this site fetches that one URL to read the client's name and allowed redirect addresses. Nothing about your site or its users is sent: it is a plain GET under a WPMCP-OAuth-Client-Metadata/1.0 user agent. Private, loopback and reserved addresses are refused, redirects are not followed, the document is capped at 5 KB, and it is cached per its Cache-Control header (an hour by default), so a repeat sign-in sends nothing. Set the wpmcp_oauth_cimd_enabled filter to false to turn this off, or require approval of new clients on the WP MCP Connection screen. The client's publisher's own terms and privacy policy apply to the document it hosts.
 * This site itself - the connection self-test calls this site's own REST route, scan-security fetches this site's front page to read its security headers, get-rendered-html fetches a page of this site (never another host, and redirects off the site are refused), and the analytics abilities call this site's own URL. These are loopback requests to your own server.
@@ -105,6 +106,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.135 =
+* sideload-image can now generate an image from a prompt (with an optional ratio) through the AI provider the site owner connected under Settings > Connectors on WordPress 7.0 and later, and saves it to the Media Library with alt text, the prompt and the model recorded. Calls are refused with a clear reason when no image-capable provider is configured.
+* sideload-image now requires the upload_files capability, and every image it adds can be undone with rollback-operation.
 
 = 0.8.134 =
 * New: recurring backups. trigger-backup can now run a backup type daily or weekly at a set site time, keeping only the newest scheduled archives you choose to retain; manual backups are never pruned and a failed run deletes nothing.
@@ -684,6 +689,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.135 =
+sideload-image can now generate an image from a prompt (with an optional ratio) through the AI provider the site owner connected under Settings > Connectors on WordPress 7.0 and later, and saves it to the Media Library with alt text, the prompt and the model recorded. Calls are refused with a clear reason when no image-capable provider is configured.
 
 = 0.8.134 =
 New: recurring backups. trigger-backup can now run a backup type daily or weekly at a set site time, keeping only the newest scheduled archives you choose to retain; manual backups are never pruned and a failed run deletes nothing.

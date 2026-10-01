@@ -218,9 +218,33 @@ class Remote_Image_Guard
         // Layers 2-3: guarded transport (no redirects, size caps).
         $tmp = self::download($url);
 
+        // Layers 4-5: the bytes must BE an allowed image; name sanitized.
+        return self::insert($tmp, self::safe_filename($url, $fallback), $post_id);
+    }
+
+    /**
+     * Add an image file already on this server (a guarded download, or the
+     * bytes an AI provider returned to sideload-image, issue #456) to the
+     * Media Library through the size cap and the byte-level image check.
+     * The temp file is moved into uploads on success and deleted on any
+     * failure, so the caller never cleans it up.
+     *
+     * @param array<string, mixed> $post_data attachment fields, unslashed.
+     * @throws \RuntimeException on a size, type or sideload failure.
+     */
+    public static function insert(string $tmp, string $filename, int $post_id = 0, array $post_data = []): int
+    {
         try {
-            // Layers 4-5: the bytes must BE an allowed image; name sanitized.
-            $filename = self::safe_filename($url, $fallback);
+            clearstatcache(true, $tmp);
+            $size = is_file($tmp) ? (int) filesize($tmp) : 0;
+            $max  = self::max_bytes();
+            if ($size < 1) {
+                throw new \RuntimeException('The image file is empty.');
+            }
+            if ($size > $max) {
+                throw new \RuntimeException(sprintf('The image is %d bytes, above the %d byte limit.', (int) $size, (int) $max));
+            }
+
             $filename = self::assert_image($tmp, $filename);
 
             if (! function_exists('media_handle_sideload')) {
@@ -229,7 +253,8 @@ class Remote_Image_Guard
                 require_once ABSPATH . 'wp-admin/includes/image.php';
             }
 
-            $media_id = media_handle_sideload(['name' => $filename, 'tmp_name' => $tmp], $post_id);
+            // media_handle_sideload() inserts through wp_insert_attachment(), which unslashes.
+            $media_id = media_handle_sideload(['name' => $filename, 'tmp_name' => $tmp], $post_id, null, wp_slash($post_data));
             if (is_wp_error($media_id)) {
                 throw new \RuntimeException('The image could not be added to the Media Library: ' . esc_html($media_id->get_error_message()));
             }

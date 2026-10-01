@@ -1576,19 +1576,20 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/sideload-image',
             'free',
-            'Add an image from a URL to the Media Library as a new attachment',
+            "Add an image to the Media Library from a url, or from a prompt via the site's AI provider (ratio e.g. 16:9). Undo: rollback-operation",
             [
                 'type'       => 'object',
                 'properties' => [
                     'url'         => [ 'type' => 'string' ],
+                    'prompt'      => [ 'type' => 'string' ],
+                    'ratio'       => [ 'type' => 'string' ],
                     'post_id'     => [ 'type' => 'integer' ],
                     'description' => [ 'type' => 'string' ],
                     'alt'         => [ 'type' => 'string' ],
                 ],
-                'required'   => [ 'url' ],
             ],
             [$sideload_image, 'handle'],
-            'edit_posts',
+            'upload_files',
             'media',
             'create'
         ));
@@ -1765,7 +1766,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/import-stock-image',
             'free',
-            'Sideload a stock search result into the Media Library. SSRF-guarded: https only, host allowlist (wpmcp_remote_media_allowed_hosts filter) checked first, no redirects, size caps, bytes must verify as an image. Attribution and license stored on the attachment; rollback deletes the import',
+            'Sideload a stock search result into the Media Library. SSRF-guarded: https only, host allowlist (wpmcp_remote_media_allowed_hosts filter) checked first, no redirects, size caps, bytes must verify as an image. Stores attribution and license. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1790,7 +1791,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/insert-stock-image',
             'pro',
-            'Composite stock-image flow: run the same SSRF-guarded import as import-stock-image, then insert the image into the post\'s builder content as a Gutenberg image block. Returns two independently rollbackable operation ids (undo the insert, undo the import)',
+            'Run import-stock-image\'s SSRF-guarded import, then insert the image into the post\'s builder content as a Gutenberg image block. Returns two operation ids, each undoable on its own (insert, import)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6544,7 +6545,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/save-as-template',
             'pro',
-            'Save a page\'s Elementor content as a reusable elementor_library template of template_type (page, section, container, header, footer, single, archive, popup, ...; default page). Not snapshotted (a create destroys nothing); remove with delete-post',
+            'Save a page\'s Elementor content as a reusable elementor_library template of template_type (page, section, container, header, footer, single, archive, popup, ...; default page). Not snapshotted (creates only); remove with delete-post',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6590,7 +6591,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/import-template',
             'pro',
-            'Create an elementor_library template from an export-page or export-template envelope, also across sites. Element ids are regenerated; the envelope\'s page_settings and display conditions apply when present. Not snapshotted (a create destroys nothing); remove with delete-post',
+            'Create an elementor_library template from an export-page or export-template envelope, also across sites. Element ids are regenerated; the envelope\'s page_settings and display conditions apply when present. Not snapshotted (creates only); remove with delete-post',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6630,7 +6631,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-theme-template',
             'pro',
-            'Create an Elementor theme-builder template: a header, footer, single, archive, loop-item, search-results or error-404 elementor_library post, optionally seeded with elements and display conditions. Not snapshotted (a create destroys nothing); remove with delete-theme-template',
+            'Create an Elementor theme-builder template: a header, footer, single, archive, loop-item, search-results or error-404 elementor_library post, optionally seeded with elements and display conditions. Not snapshotted (creates only); remove with delete-theme-template',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6771,7 +6772,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-popup',
             'pro',
-            'Create an Elementor popup (elementor_library post, type popup), optionally seeded with elements and trigger/display settings. Not snapshotted (a create destroys nothing); configure further with set-popup-settings, remove with delete-post',
+            'Create an Elementor popup (elementor_library post, type popup), optionally seeded with elements and trigger/display settings. Not snapshotted (creates only); configure further with set-popup-settings, remove with delete-post',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6890,7 +6891,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-code-snippet',
             'pro',
-            'Create an Elementor Custom Code snippet (elementor_snippet post). location: wp_head, wp_body_open or wp_footer. Stored on any site; renders where Elementor Pro Custom Code is active. Not snapshotted (a create destroys nothing); remove with delete-code-snippet',
+            'Create an Elementor Custom Code snippet (elementor_snippet post). location: wp_head, wp_body_open or wp_footer. Stored on any site; renders where Elementor Pro Custom Code is active. Not snapshotted (creates only); remove with delete-code-snippet',
             [
                 'type'       => 'object',
                 'properties' => [
