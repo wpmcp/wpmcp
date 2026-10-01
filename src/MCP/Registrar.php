@@ -366,6 +366,10 @@ class Registrar
                      */
                     $result = apply_filters('wpmcp_tool_result', $result, $a->name, isset($args[0]) && is_array($args[0]) ? $args[0] : []);
                 }
+            } catch (\WPMCP\Safety\Post_Locked $e) {
+                // Another user is editing the post (issue #452): a refusal
+                // the caller can act on, returned as its WP_Error.
+                $result = $e->error();
             } catch (\Throwable $e) {
                 if ($e instanceof Confirmation_Required) {
                     // Typed here, wrapped by core past this point (issue #387).
