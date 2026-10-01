@@ -226,7 +226,13 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  tightening the three file-write descriptions and read-file, and by
      *  "input schema" to "schema" and "where possible" to "if possible" in
      *  the integration dispatcher templates, without dropping a rule:
-     *  main measured 208881 bytes over 407 tools before it and after it. */
+     *  main measured 208881 bytes over 407 tools before it and after it.
+     *  Image generation (#456) added no tool: prompt and ratio on
+     *  sideload-image (url no longer required, 103 bytes with its new
+     *  description), paid for by rewording import-stock-image,
+     *  insert-stock-image and the five "Not snapshotted (a create destroys
+     *  nothing)" create descriptions without dropping a rule: 208881 ->
+     *  208841 bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
