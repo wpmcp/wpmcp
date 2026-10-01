@@ -138,6 +138,24 @@ class ShippedReadmeDisclosureTest extends \WP_UnitTestCase
         }
     }
 
+    /**
+     * Issue #456: sideload-image with a prompt sends that prompt to the AI
+     * provider the site owner configured under Settings > Connectors, through
+     * core's AI client. The readme must say where prompts go and that the
+     * plugin holds no key of its own.
+     */
+    public function test_every_shipped_readme_discloses_prompts_going_to_the_configured_ai_provider(): void
+    {
+        foreach (self::SHIPPED_READMES as $relative) {
+            $section = $this->external_services($this->readme($relative));
+            $this->assertMatchesRegularExpression(
+                '/sideload-image.{0,400}?prompt.{0,400}?Connectors/is',
+                $section,
+                $relative . ' must say that sideload-image prompts go to the AI provider configured under Connectors'
+            );
+        }
+    }
+
     public function test_the_stock_image_allowlist_is_described_as_a_filterable_default(): void
     {
         foreach (self::SHIPPED_READMES as $relative) {
