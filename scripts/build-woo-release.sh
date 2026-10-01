@@ -32,6 +32,10 @@ trap 'rm -rf "$STAGE_PARENT"' EXIT
 mkdir -p "$STAGE"
 
 cp "$ROOT/LICENSE" "$ROOT/composer.json" "$ROOT/composer.lock" "$STAGE/"
+# Clears the plugin's cron events on uninstall (issue #468). The self-hosted
+# build (build-release.sh) leaves it out: there the licensing SDK owns the
+# uninstall hook, and uninstall.php would replace it.
+cp "$ROOT/uninstall.php" "$STAGE/"
 cp -R "$ROOT/src" "$STAGE/src"
 
 # Ship the translation directory the Domain Path header points at (issue #184).
@@ -102,7 +106,7 @@ lint_stage() {
   local file
   while IFS= read -r file; do
     php -l "$file" > /dev/null || { echo "ERROR: syntax error in $file $1" >&2; exit 1; }
-  done < <(find "$STAGE/src" "$STAGE/$SLUG.php" -name '*.php')
+  done < <(find "$STAGE/src" "$STAGE/$SLUG.php" "$STAGE/uninstall.php" -name '*.php')
 }
 lint_stage "after the strip"
 

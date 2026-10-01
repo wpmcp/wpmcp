@@ -8,6 +8,7 @@ use WPMCP\Auth\OAuth_Config;
 use WPMCP\Auth\Oauth_Gc;
 use WPMCP\Cloud\Cloud_Credentials;
 use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\Backup\Backup_Schedule;
 use WPMCP\Tools\Redirects\Redirect_Store;
 use WPMCP\Tools\Search\Search_Index_Store;
 
@@ -17,7 +18,8 @@ if (! defined('ABSPATH')) {
 
 class Activator
 {
-    public static function activate(): void
+    /** @param bool $network_wide Passed by core for a network activation. */
+    public static function activate($network_wide = false): void
     {
         Snapshot_Store::install();
         Redirect_Store::install();
@@ -34,9 +36,19 @@ class Activator
         // Daily OAuth store sweep (issue #133). Only scheduled when the
         // OAuth subsystem is actually on; boot() re-ensures it if OAuth is
         // enabled later, and unschedules it if it is turned back off.
-        if (OAuth_Config::is_enabled()) {
-            Oauth_Gc::ensure_scheduled();
-        }
+        //
+        // Deactivation clears every plugin cron event (issue #468), so this
+        // is also where the recurring ones come back: the OAuth sweep while
+        // OAuth is on, and each backup schedule still in its option, at its
+        // configured time. Background jobs were canceled, so none returns.
+        Cron_Registry::for_each_site((bool) $network_wide, static function (): void {
+            if (OAuth_Config::is_enabled()) {
+                Oauth_Gc::ensure_scheduled();
+            }
+            if (class_exists(Backup_Schedule::class)) {
+                Backup_Schedule::restore();
+            }
+        });
 
         // Import any phase A plaintext cloud credentials into the encrypted
         // vault (issue #141). Activation does not fire on an update, so the
