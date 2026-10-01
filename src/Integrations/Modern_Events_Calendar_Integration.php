@@ -75,7 +75,8 @@ class Modern_Events_Calendar_Integration extends Integration_Dispatcher
                     ],
                 ],
                 'handler'      => function (array $args): array {
-                    $q = new \WP_Query([
+                    // Only the rows the caller may read (issue #461).
+                    $q = self::readable_query([
                         'post_type'      => self::POST_TYPE,
                         'post_status'    => isset($args['status']) ? (string) $args['status'] : 'any',
                         'posts_per_page' => (int) ($args['page_size'] ?? 20),

@@ -117,11 +117,15 @@ final class Save_Filters
 
     /**
      * wp_trash_post() without rewriting the row it moves to the trash.
+     * Trashing is a post write outside Safe_Mutation (the trash is its own
+     * undo), so it refuses a post another user is editing here (issue #452).
      *
      * @return \WP_Post|false|null Whatever wp_trash_post() returns.
+     * @throws Post_Locked When another user holds the post's edit lock.
      */
     public static function trash_post(int $post_id)
     {
+        Edit_Lock::assert_writable($post_id);
         return self::for_one_row(self::POST, static fn () => wp_trash_post($post_id));
     }
 

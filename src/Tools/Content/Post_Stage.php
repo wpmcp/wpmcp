@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Content;
 
+use WPMCP\Safety\Edit_Lock;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Save_Filters;
 use WPMCP\Tools\Builders\Elementor_Cache;
@@ -185,6 +186,11 @@ class Post_Stage
             ));
         }
 
+        // The stage is trashed inside the write below; refuse up front if
+        // another user is editing it (the original is checked by
+        // Safe_Mutation), so the publish never stops halfway (issue #452).
+        Edit_Lock::assert_writable((int) $stage->ID);
+
         $out = Safe_Mutation::run(
             [
                 'object_type' => 'post',
@@ -222,6 +228,7 @@ class Post_Stage
             throw new \RuntimeException('You cannot delete stage ' . (int) $stage->ID . '.');
         }
 
+        Edit_Lock::assert_writable((int) $stage->ID);
         self::unlink($stage->ID);
         Save_Filters::trash_post($stage->ID);
 

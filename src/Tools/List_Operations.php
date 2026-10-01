@@ -16,6 +16,12 @@ if (! defined('ABSPATH')) {
  * itself is never modified. Extends the original bare-limit shape with
  * optional filters, all backward compatible: a caller passing only 'limit'
  * gets identical behavior to before these filters existed.
+ *
+ * Below manage_options the log is the caller's own (issue #461): only the
+ * undo points they wrote are listed and counted, and every filter narrows
+ * within them. Code running with no user (cron, WP-CLI without --user) is
+ * not acting for anyone and sees the whole log, as Rollback_Service treats
+ * it.
  */
 class List_Operations
 {
@@ -71,6 +77,12 @@ class List_Operations
 
         $where  = [];
         $params = [];
+
+        $user = get_current_user_id();
+        if (0 !== $user && ! current_user_can('manage_options')) {
+            $where[]  = 'user_id = %d';
+            $params[] = $user;
+        }
 
         if (isset($args['session_id'])) {
             $where[]  = 'session_id = %s';

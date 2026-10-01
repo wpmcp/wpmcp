@@ -4,6 +4,7 @@ namespace WPMCP\Tools\WooCommerce\Catalog;
 
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Snapshot;
+use WPMCP\Safety\Snapshot_Store;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -69,6 +70,13 @@ class Woo_Write
     public function handle(array $args): array
     {
         $confirm = true === ($args['confirm'] ?? null);
+
+        // A session another user started is refused as a whole, before any
+        // item is checked or applied (issue #461).
+        $denial = Snapshot_Store::session_write_denial((string) ($args['session_id'] ?? ''));
+        if (null !== $denial) {
+            return Op_Guard::error('session_not_owned', $denial);
+        }
 
         if (array_key_exists('batch', $args)) {
             if (isset($args['op'])) {

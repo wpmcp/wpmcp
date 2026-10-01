@@ -8,6 +8,8 @@ use WPMCP\Identity\Identity_Context;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\Content\Content_Guard;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -315,6 +317,35 @@ abstract class Integration_Dispatcher
     }
 
     /**
+     * Run a post listing kept to the rows the current user may read (issue
+     * #461), for a pack op that lists its host plugin's posts. WP_Query
+     * applies no read permission to 'any' or an explicit status, so other
+     * users' drafts and private rows would otherwise be listed; the filter
+     * is core's read_post rule in SQL (Content_Guard::readable_posts_where(),
+     * as list-posts uses), so found_posts stays an honest total.
+     *
+     * @param array<string, mixed> $query_args WP_Query arguments with a post_type.
+     */
+    protected static function readable_query(array $query_args): \WP_Query
+    {
+        global $wpdb;
+        $where = Content_Guard::readable_posts_where((array) ($query_args['post_type'] ?? 'post'), $wpdb->posts);
+        $query = new \WP_Query();
+        $scope = static function ($sql, $q) use (&$query, $where) {
+            return $q === $query ? $sql . $where : $sql;
+        };
+        if ('' !== $where) {
+            add_filter('posts_where', $scope, 10, 2);
+        }
+        try {
+            $query->query($query_args);
+        } finally {
+            remove_filter('posts_where', $scope, 10);
+        }
+        return $query;
+    }
+
+    /**
      * The objects one invocation of either half names in its args, for
      * Object_Guard (Ability::$objects). Values that are not numeric ids are
      * left to schema validation, which refuses them before the op runs.
@@ -501,6 +532,13 @@ abstract class Integration_Dispatcher
      */
     private function run_write(string $op, array $def, array $op_args, ?string $session_id): array
     {
+        // A session another user started is refused before anything runs
+        // (issue #461); Snapshot_Store::save() refuses it again per row.
+        $denial = null === $session_id ? null : Snapshot_Store::session_write_denial($session_id);
+        if (null !== $denial) {
+            return $this->error('session_not_owned', $denial, [ 'operation' => $op ]);
+        }
+
         if (! empty($def['self_snapshotting'])) {
             // A multi-object op gets its own session unless the caller named
             // one, so rollback-session undoes exactly this call and nothing

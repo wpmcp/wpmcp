@@ -69,8 +69,12 @@ class ListOperationsFiltersTest extends \WP_UnitTestCase
         wp_set_current_user($user_a);
         Snapshot_Store::save('op-1', 'sess', $this->snapshot(), 'delete-post', str_repeat('a', 64));
         wp_set_current_user($user_b);
-        Snapshot_Store::save('op-2', 'sess', $this->snapshot(), 'delete-post', str_repeat('a', 64));
+        // Each user's own session: since issue #461 a user may not write
+        // into a session another user started.
+        Snapshot_Store::save('op-2', 'sess-b', $this->snapshot(), 'delete-post', str_repeat('a', 64));
 
+        // Listed by someone who may see every user's rows.
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
         $out = (new List_Operations())->handle(['user_id' => $user_b]);
 
         $this->assertCount(1, $out['operations']);

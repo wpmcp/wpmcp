@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.131
+Stable tag: 0.8.133
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -105,6 +105,16 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.133 =
+* Security hardening: event and donation form listings (The Events Calendar, Modern Events Calendar, GiveWP) now show only the entries the current user may read, and their totals count only those.
+* The operation log (list-operations) shows non-administrators only their own changes, and a change can no longer be added to a named session another user started unless you are an administrator. The shared default session and new session ids work as before.
+* WooCommerce catalog ops (woo-read, woo-write) now check the per-item permission for every product, variation, coupon, order, refund, customer, review and brand they name before running.
+
+= 0.8.132 =
+* Content writes now refuse a post another user has open in the editor, naming who holds it and when their lock was last refreshed, and write nothing. Your own open editor and expired locks never block, reads and previews are never blocked, and undo waits until the editor is closed.
+* On Elementor 4.3 and later, writes also honor Elementor's unsaved-changes guard, and an open Elementor editor is told when a document changed underneath it.
+* New filter `wpmcp_respect_edit_locks` turns the check off site wide.
 
 = 0.8.131 =
 * New: when you approve an MCP client over OAuth you now choose its access: full, read-only, or (site owners) one of your scoped identities. Read-only connections can list and read but are refused anything that changes the site. Clients connected before this update keep full access until you change them on the Connection screen.
@@ -669,6 +679,12 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.133 =
+Security hardening: event and donation form listings (The Events Calendar, Modern Events Calendar, GiveWP) now show only the entries the current user may read, and their totals count only those.
+
+= 0.8.132 =
+Content writes now refuse a post another user has open in the editor, naming who holds it and when their lock was last refreshed, and write nothing. Your own open editor and expired locks never block, reads and previews are never blocked, and undo waits until the editor is closed.
 
 = 0.8.131 =
 New: when you approve an MCP client over OAuth you now choose its access: full, read-only, or (site owners) one of your scoped identities. Read-only connections can list and read but are refused anything that changes the site. Clients connected before this update keep full access until you change them on the Connection screen.

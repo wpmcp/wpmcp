@@ -81,6 +81,12 @@ class Rollback_Service
             self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
             return false;
         }
+        // Another user is editing the post this would restore (issue #452).
+        $locked = Edit_Lock::restore_refusal([$row]);
+        if (null !== $locked) {
+            self::warn(sprintf('operation %s refused: %s', $operation_id, $locked->get_error_message()));
+            return false;
+        }
         self::apply_for_caller($row['snapshot']);
         return true;
     }
@@ -339,6 +345,7 @@ class Rollback_Service
      *
      * @throws Mutation_Failed When a named session's undo points were pruned,
      *                         or it belongs to another user.
+     * @throws Post_Locked     When another user is editing a post it changed.
      */
     public static function restore_session(string $session_id): int
     {
@@ -354,6 +361,10 @@ class Rollback_Service
         }
         $rows  = Snapshot_Store::list_by_session($session_id); // newest first
         $count = 0;
+
+        // All or nothing: while another user is editing a post the session
+        // changed, nothing is restored (issue #452).
+        Edit_Lock::assert_restorable($rows);
 
         // No rows left: either the run was pruned long enough ago to have
         // left the exact per-session counts (issue #442), or nothing was ever
@@ -510,12 +521,8 @@ class Rollback_Service
      */
     private static function assert_session_owner(string $session_id): void
     {
-        $user = get_current_user_id();
-        if (0 === $user || Snapshot_Store::is_loose_session($session_id) || current_user_can('manage_options')) {
-            return;
-        }
-        $owner = Snapshot_Store::session_owner($session_id);
-        if (null === $owner || $owner === $user) {
+        $owner = Snapshot_Store::foreign_session_owner($session_id);
+        if (null === $owner) {
             return;
         }
         throw new Mutation_Failed(sprintf(
