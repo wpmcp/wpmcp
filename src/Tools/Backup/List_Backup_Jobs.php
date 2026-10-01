@@ -8,8 +8,9 @@ if (! defined('ABSPATH')) {
 
 /**
  * Read-only: list backup jobs, newest first, with an optional 'status'
- * filter (queued|running|completed|failed|canceled). Does not mutate the
- * site.
+ * filter (queued|running|completed|failed|canceled), plus every recurring
+ * backup schedule with its next run, overdue flag and last run (issue
+ * #455). Does not mutate the site.
  */
 class List_Backup_Jobs
 {
@@ -17,6 +18,9 @@ class List_Backup_Jobs
     {
         $status = isset($args['status']) ? (string) $args['status'] : '';
 
-        return ['jobs' => Backup_Job_Store::list($status)];
+        return [
+            'jobs'      => Backup_Job_Store::list($status),
+            'schedules' => Backup_Schedule::report(),
+        ];
     }
 }

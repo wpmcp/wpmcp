@@ -241,6 +241,27 @@ class OutputSchemaConformanceTest extends \WP_UnitTestCase
         }
     }
 
+    /** A schedule change and the schedule report conform too (issue #455). */
+    public function test_backup_schedule_results_answer_what_their_schemas_declare(): void
+    {
+        $tools = $this->stdio_tools(false);
+
+        $results = [
+            'wpmcp-trigger-backup'   => $this->call('wpmcp-trigger-backup', [ 'type' => 'database', 'every' => 'daily 02:00', 'keep' => 3 ]),
+            'wpmcp-list-backup-jobs' => $this->call('wpmcp-list-backup-jobs'),
+        ];
+        $results['wpmcp-trigger-backup (off)'] = $this->call('wpmcp-trigger-backup', [ 'type' => 'database', 'every' => 'off' ]);
+        wp_clear_scheduled_hook(\WPMCP\Tools\Backup\Backup_Schedule::HOOK, [ 'database' ]);
+        delete_option(\WPMCP\Tools\Backup\Backup_Schedule::OPTION);
+
+        $this->assertNotEmpty($results['wpmcp-list-backup-jobs']['schedules']);
+        foreach ($results as $label => $structured) {
+            $name   = explode(' ', $label)[0];
+            $schema = $tools[ $name ]['outputSchema'];
+            $this->assertSame([], Json_Schema_Subset::validate($schema, $structured), $label . ' ' . wp_json_encode($structured));
+        }
+    }
+
     /**
      * A task's completed result is what the original tools/call would have
      * returned, so it conforms to the original tool's outputSchema too.

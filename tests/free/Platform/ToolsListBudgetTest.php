@@ -227,12 +227,19 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  "input schema" to "schema" and "where possible" to "if possible" in
      *  the integration dispatcher templates, without dropping a rule:
      *  main measured 208881 bytes over 407 tools before it and after it.
+     *  Recurring backups (#455) added no tool: every and keep on
+     *  trigger-backup plus the schedule report on list-backup-jobs, paid for
+     *  by rewording the is-multisite, get-analytics-connection-status,
+     *  list-languages, get-maintenance-status, get-seo-status, cloud-status,
+     *  list-dynamic-tags, list-field-groups and cloud-push-assets
+     *  descriptions and dropping list-site-abilities' redundant "Read-only",
+     *  without dropping a rule: 208881 -> 208877 bytes over 407 tools.
      *  Image generation (#456) added no tool: prompt and ratio on
      *  sideload-image (url no longer required, 103 bytes with its new
      *  description), paid for by rewording import-stock-image,
      *  insert-stock-image and the five "Not snapshotted (a create destroys
-     *  nothing)" create descriptions without dropping a rule: 208881 ->
-     *  208841 bytes over 407 tools. */
+     *  nothing)" create descriptions without dropping a rule: 208877 ->
+     *  208837 bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
