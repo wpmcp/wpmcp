@@ -305,10 +305,12 @@ class StagedEditsTest extends \WP_UnitTestCase
     public function test_viewing_the_original_does_not_count_as_a_change(): void
     {
         // Elementor writes its CSS cache and edit lock on view; neither is an edit.
+        // The lock is the caller's own: another user's live lock refuses the
+        // publish outright (issue #452, EditLockTest).
         $original = $this->published();
         $stage    = $this->stage($original);
         update_post_meta($original, '_elementor_css', ['status' => 'file', 'time' => 9]);
-        update_post_meta($original, '_edit_lock', time() . ':1');
+        update_post_meta($original, '_edit_lock', time() . ':' . get_current_user_id());
 
         $out = (new Duplicate_Post())->handle(['publish_stage' => $stage]);
 

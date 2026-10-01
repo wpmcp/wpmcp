@@ -25,6 +25,11 @@ class Safe_Mutation
      */
     public static function run(array $context, callable $mutation, ?callable $verify = null): array
     {
+        // A post another user is editing is refused before anything is
+        // captured or written (issue #452, Edit_Lock).
+        $post_id = 'post' === $context['object_type'] && is_numeric($context['object_id']) ? (int) $context['object_id'] : 0;
+        Edit_Lock::assert_writable($post_id);
+
         $operation_id = $context['operation_id'] ?? wp_generate_uuid4();
         $snapshot     = Snapshot::capture($context['object_type'], $context['object_id']);
         if (! empty($context['extra_snapshot_data']) && is_array($context['extra_snapshot_data'])) {
@@ -47,6 +52,7 @@ class Safe_Mutation
             self::restore($snapshot);
             throw new Mutation_Failed('Verification failed; change rolled back.');
         }
+        Edit_Lock::note_written($post_id);
         return ['operation_id' => $operation_id, 'result' => $result];
     }
 
