@@ -233,7 +233,13 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  list-languages, get-maintenance-status, get-seo-status, cloud-status,
      *  list-dynamic-tags, list-field-groups and cloud-push-assets
      *  descriptions and dropping list-site-abilities' redundant "Read-only",
-     *  without dropping a rule: 208881 -> 208877 bytes over 407 tools. */
+     *  without dropping a rule: 208881 -> 208877 bytes over 407 tools.
+     *  Image generation (#456) added no tool: prompt and ratio on
+     *  sideload-image (url no longer required, 103 bytes with its new
+     *  description), paid for by rewording import-stock-image,
+     *  insert-stock-image and the five "Not snapshotted (a create destroys
+     *  nothing)" create descriptions without dropping a rule: 208877 ->
+     *  208837 bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
