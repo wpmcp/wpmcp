@@ -822,6 +822,12 @@ final class Plugin
             // `wp wpmcp gateway-revoke` kill switch. src/Gateway ships on every
             // flavor, so this is unconditional.
             \WPMCP\Gateway\Gateway_Guard::register();
+            // OAuth access levels (issue #454): a connection approved as
+            // read-only runs read abilities only, and one bound to a scoped
+            // identity acts as it. The consent screen is where the approving
+            // user picks the level; both are inert while OAuth is off.
+            \WPMCP\Auth\Client_Access::register();
+            \WPMCP\Admin\OAuth_Consent_Page::register();
             // Identities pinned to allowed_ips (issue #416): the MCP route
             // answers a pinned identity calling from another address with a
             // generic 403 before the adapter runs. Governance and the gateway

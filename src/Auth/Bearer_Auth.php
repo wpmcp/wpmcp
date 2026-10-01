@@ -38,12 +38,12 @@ if (! defined('ABSPATH')) {
  * section 5.1) so a client can discover the authorization server from the
  * failure itself.
  *
- * Scope note: this wires user IDENTITY resolution only. Token_Store::validate()
- * also returns the client's granted scope, but no ability/domain-level scope
- * enforcement consults it yet (see the issue #43 report for why that is
- * explicitly out of scope for this pass); a Bearer-authenticated caller is
- * subject to exactly the same capability + Governance gates as any other WP
- * user, nothing more permissive and nothing scope-restricted yet.
+ * Scope note: this wires user IDENTITY resolution and remembers the
+ * validated record (current_token()). The token's scope is enforced by
+ * Client_Access from Registrar's permission decision (issue #454): a
+ * read-only (`mcp:read`) connection may run read abilities only, and a
+ * connection bound to a scoped identity acts as it. Nothing a token grants
+ * is ever broader than the underlying WP user's capabilities.
  */
 class Bearer_Auth
 {

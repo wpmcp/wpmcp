@@ -26,12 +26,11 @@ if (! defined('ABSPATH')) {
 class Mcp_Resource
 {
     /**
-     * The scopes advertised in the protected resource metadata. Tokens are
-     * not scope-restricted beyond the audience binding: a token grants its
-     * user's normal capabilities on the MCP endpoint, which is exactly what
-     * this one scope names.
+     * The scopes advertised in both metadata documents: `mcp` (full access
+     * as the token's user) and `mcp:read` (read abilities only). Enforced
+     * by Client_Access (issue #454).
      */
-    public const SCOPES_SUPPORTED = ['mcp'];
+    public const SCOPES_SUPPORTED = Client_Access::SCOPES_SUPPORTED;
 
     public const WELL_KNOWN_PATH = '/.well-known/oauth-protected-resource';
 

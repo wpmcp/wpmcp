@@ -36,11 +36,14 @@ if (! defined('ABSPATH')) {
  * inside Authorization_Grant; token exchange is validated entirely by the
  * presented code/verifier, checked inside Token_Grant).
  *
- * See .superpowers/sdd/issue-43-report.md for the full architecture writeup,
- * including the precise scope boundary: no interactive consent-screen UI, no
- * refresh tokens, no revocation endpoint, and no scope-to-ability
- * enforcement yet (Bearer_Auth resolves identity only; a valid token grants
- * exactly the underlying WP user's normal capabilities).
+ * A GET to the authorization endpoint is a browser sent by a client: it is
+ * redirected to the consent screen (OAuth_Consent_Page, issue #454), where
+ * the signed-in user allows or denies the client and picks its access
+ * level. Scopes (`mcp`, `mcp:read`) are enforced by Client_Access.
+ *
+ * See .superpowers/sdd/issue-43-report.md for the original architecture
+ * writeup. Refresh tokens (#133), the consent screen and scope enforcement
+ * (#454) came later; there is still no revocation endpoint.
  */
 class Endpoints
 {
@@ -61,9 +64,16 @@ class Endpoints
         ]);
 
         register_rest_route(self::NAMESPACE, '/oauth/authorize', [
-            'methods'             => 'POST',
-            'permission_callback' => '__return_true',
-            'callback'            => [$this, 'authorize'],
+            [
+                'methods'             => 'POST',
+                'permission_callback' => '__return_true',
+                'callback'            => [$this, 'authorize'],
+            ],
+            [
+                'methods'             => 'GET',
+                'permission_callback' => '__return_true',
+                'callback'            => [$this, 'authorize_redirect'],
+            ],
         ]);
 
         register_rest_route(self::NAMESPACE, '/oauth/token', [
@@ -168,6 +178,20 @@ class Endpoints
         }
 
         return new \WP_REST_Response($result, 200);
+    }
+
+    /**
+     * A browser arriving at the authorization endpoint (RFC 6749 4.1.1) is
+     * sent on to the consent screen in wp-admin, which handles signing in
+     * and asks the user. Nothing is validated or issued here; the consent
+     * screen vets the request before it shows or redirects anywhere.
+     */
+    public function authorize_redirect(\WP_REST_Request $request): \WP_REST_Response
+    {
+        $response = new \WP_REST_Response(null, 302);
+        $response->header('Location', \WPMCP\Admin\OAuth_Consent_Page::url($request->get_query_params()));
+
+        return $response;
     }
 
     public function token(\WP_REST_Request $request): \WP_REST_Response
