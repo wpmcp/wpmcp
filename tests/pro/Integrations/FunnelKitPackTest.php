@@ -621,6 +621,37 @@ class FunnelKitPackTest extends \WP_UnitTestCase
         $this->assertArrayNotHasKey('offers_unavailable', $upsells);
     }
 
+    /**
+     * Issue #465: the offer fallback lists offers of every status (offer2 is
+     * a draft), so it stays behind the ops' manage_woocommerce gate, the
+     * capability FunnelKit's own funnel screens require, where every offer
+     * is shown whatever its status. Contributor, Author and Editor are
+     * refused; a store manager sees the draft offer as FunnelKit shows it.
+     */
+    public function test_funnel_reads_are_gated_on_manage_woocommerce_for_every_role(): void
+    {
+        $ids = $this->seed_sales_funnel();
+        delete_post_meta($ids['upsells'], '_funnel_steps');
+        update_post_meta($ids['offer1'], '_funnel_id', $ids['upsells']);
+        update_post_meta($ids['offer2'], '_funnel_id', $ids['upsells']);
+
+        foreach ([ 'contributor', 'author', 'editor' ] as $role) {
+            wp_set_current_user(self::factory()->user->create([ 'role' => $role ]));
+            foreach ([ [ self::GET_OP, [ 'id' => $ids['funnel'] ] ], [ self::LIST_OP, [] ] ] as [$op, $args]) {
+                $out = $this->read($op, $args);
+                $this->assertArrayNotHasKey('result', $out, "{$op} as {$role}");
+                $this->assertSame('operation_denied', $out['error']['code'] ?? null, "{$op} as {$role}");
+            }
+        }
+
+        $manager = self::factory()->user->create([ 'role' => 'editor' ]);
+        get_userdata($manager)->add_cap('manage_woocommerce');
+        wp_set_current_user($manager);
+        $upsells = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['wc_upsells'];
+        $this->assertSame('offer_parent_meta', $upsells['offers_source']);
+        $this->assertContains($ids['offer2'], array_column($upsells['offers'], 'post_id'), 'the draft offer is listed to a store manager');
+    }
+
     public function test_each_offer_carries_its_views_and_accepts(): void
     {
         $ids = $this->seed_sales_funnel();

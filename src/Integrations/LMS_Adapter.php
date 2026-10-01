@@ -5,6 +5,7 @@ namespace WPMCP\Integrations;
 use WPMCP\Safety\Post_Creation_Snapshot;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Save_Filters;
+use WPMCP\Tools\Content\Readable_Posts;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -84,11 +85,21 @@ abstract class LMS_Adapter
     /** The section an item is linked to, or 0. */
     abstract protected function section_of(int $item): int;
 
-    /** @return int[] the course's section ids in the plugin's order. */
-    abstract protected function section_ids(int $course): array;
+    /**
+     * The course's section ids in the plugin's order: the ones the caller
+     * may read, or with $every_row (the write path) all of them.
+     *
+     * @return int[]
+     */
+    abstract protected function section_ids(int $course, bool $every_row = false): array;
 
-    /** @return \WP_Post[] the section's items in the plugin's order. */
-    abstract protected function item_posts(int $section): array;
+    /**
+     * The section's items in the plugin's order: the ones the caller may
+     * read, or with $every_row (the write path) all of them.
+     *
+     * @return \WP_Post[]
+     */
+    abstract protected function item_posts(int $section, bool $every_row = false): array;
 
     /** The stored order of a section or item. */
     abstract protected function stored_order(int $id): int;
@@ -345,46 +356,66 @@ abstract class LMS_Adapter
         return $node;
     }
 
-    /** @return int[] the ids under a parent, in order: a course's sections or a section's items. */
+    /**
+     * The ids under a parent, in order: a course's sections or a section's
+     * items. Every row, readable or not: a reorder or insert renumbers all
+     * siblings, and edit_refusal() refuses the call when one the caller may
+     * not edit would change.
+     *
+     * @return int[]
+     */
     protected function sibling_ids(string $kind, int $parent): array
     {
         if ('section' === $kind) {
-            return $this->section_ids($parent);
+            return $this->section_ids($parent, true);
         }
-        return array_map(static fn (\WP_Post $p): int => (int) $p->ID, $this->item_posts($parent));
+        return array_map(static fn (\WP_Post $p): int => (int) $p->ID, $this->item_posts($parent, true));
     }
 
     /** Sorted posts of $types that are the children of $parent by post_parent. */
-    protected static function children_by_parent(int $parent, array $types): array
+    protected static function children_by_parent(int $parent, array $types, bool $every_row = false): array
     {
         if ($parent < 1) {
             return [];
         }
-        return get_posts([
+        return self::child_posts([
             'post_type'        => $types,
             'post_parent'      => $parent,
-            'post_status'      => 'any',
             'orderby'          => [ 'menu_order' => 'ASC', 'ID' => 'ASC' ],
-            'posts_per_page'   => -1,
-            'no_found_rows'    => true,
-        ]);
+        ], $every_row);
     }
 
     /** Sorted posts of $type whose $link meta names $parent, ordered by the $order meta. */
-    protected static function children_by_meta(string $type, string $link, int $parent, string $order): array
+    protected static function children_by_meta(string $type, string $link, int $parent, string $order, bool $every_row = false): array
     {
         if ($parent < 1) {
             return [];
         }
-        return get_posts([
+        return self::child_posts([
             'post_type'        => $type,
-            'post_status'      => 'any',
             'meta_query'       => [ [ 'key' => $link, 'value' => $parent ] ], // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- the plugin links its tree through post meta and queries it the same way.
             'meta_key'         => $order, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- ordering by the plugin's own order meta.
             'orderby'          => [ 'meta_value_num' => 'ASC', 'ID' => 'ASC' ],
-            'posts_per_page'   => -1,
-            'no_found_rows'    => true,
-        ]);
+        ], $every_row);
+    }
+
+    /**
+     * Every child post the query matches, of any status. A read keeps to the
+     * rows the caller may read (issue #465), so another user's draft or
+     * private section, lesson or quiz is not listed below the LMS's own
+     * edit_others and read_private capabilities. Only the write path asks
+     * for $every_row (see sibling_ids()).
+     *
+     * @param array<string, mixed> $args get_posts() arguments.
+     * @return \WP_Post[]
+     */
+    private static function child_posts(array $args, bool $every_row): array
+    {
+        $args += [ 'posts_per_page' => -1, 'no_found_rows' => true ];
+        if (! $every_row) {
+            return Readable_Posts::get_posts($args);
+        }
+        return get_posts([ 'post_status' => 'any' ] + $args);
     }
 
     /** The course tree. */
@@ -453,7 +484,9 @@ abstract class LMS_Adapter
     {
         $per_page = max(1, min(self::MAX_PER_PAGE, (int) ($args['per_page'] ?? 20)));
         $page     = max(1, (int) ($args['page'] ?? 1));
-        $query    = new \WP_Query([
+        // Only the courses the caller may read (issue #465): WP_Query applies
+        // no read permission to explicit statuses.
+        $query    = Readable_Posts::query([
             'post_type'        => $this->types()['course'],
             'post_status'      => isset($args['status']) ? (string) $args['status'] : self::COURSE_STATUSES,
             's'                => (string) ($args['search'] ?? ''),
