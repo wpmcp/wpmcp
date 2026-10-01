@@ -298,7 +298,73 @@ class Op_Catalog
     ];
 
     /**
-     * @return array<string, array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool, taxonomy: ?string, handler: ?string}>
+     * op name => params key => object kind, for every param that names a
+     * WordPress object by id (issue #461): the path params that name one and
+     * the ids an in-process handler reads from its params. A key inside a
+     * list is written 'line_items.*.product_id'. The value is a kind ('post',
+     * 'term', 'user', 'comment' or 'order') or ['type' => kind, 'access' =>
+     * 'read'|'write'|'delete' (default: from the op's mode)]. The permission
+     * decision of woo-read and woo-write checks each id's per-object
+     * capability through Object_Guard (named_objects()), as it does for the
+     * integration packs: read_post / edit_post / delete_post for products,
+     * variations and coupons, the order capability for orders and refunds,
+     * list_users / edit_user for customers, edit_comment for reviews and
+     * edit_term / delete_term for brands. Product-type posts are the op's own
+     * post type, so the content tools' post-type rule does not apply to them.
+     *
+     * Shipping zones and methods, webhooks, gateways, settings and status
+     * tools are rows in WooCommerce's own tables or string ids, covered by the
+     * op's store capability, and order item ids name rows of the order the op
+     * already checks.
+     */
+    private const OBJECTS = [
+        'products.get'       => [ 'id' => 'post' ],
+        'products.update'    => [ 'id' => 'post' ],
+        'products.delete'    => [ 'id' => 'post' ],
+        'variations.list'    => [ 'product_id' => 'post' ],
+        'variations.get'     => [ 'product_id' => 'post', 'id' => 'post' ],
+        'variations.create'  => [ 'product_id' => 'post' ],
+        'variations.update'  => [ 'product_id' => 'post', 'id' => 'post' ],
+        'variations.delete'  => [ 'product_id' => [ 'type' => 'post', 'access' => 'write' ], 'id' => 'post' ],
+        'orders.get'         => [ 'id' => 'order' ],
+        'orders.notes'       => [ 'order_id' => 'order' ],
+        'orders.add-note'    => [ 'order_id' => 'order' ],
+        'orders.create'      => [
+            'customer_id'              => [ 'type' => 'user', 'access' => 'read' ],
+            'line_items.*.product_id'   => [ 'type' => 'post', 'access' => 'read' ],
+            'line_items.*.variation_id' => [ 'type' => 'post', 'access' => 'read' ],
+        ],
+        'orders.update'      => [
+            'id'                        => 'order',
+            'customer_id'               => [ 'type' => 'user', 'access' => 'read' ],
+            'line_items.*.product_id'   => [ 'type' => 'post', 'access' => 'read' ],
+            'line_items.*.variation_id' => [ 'type' => 'post', 'access' => 'read' ],
+        ],
+        'refunds.list'       => [ 'order_id' => 'order' ],
+        'refunds.get'        => [ 'order_id' => 'order', 'id' => 'order' ],
+        // A refund changes the order; it does not delete it.
+        'refunds.create'     => [ 'order_id' => [ 'type' => 'order', 'access' => 'write' ] ],
+        'coupons.get'        => [ 'id' => 'post' ],
+        'coupons.update'     => [ 'id' => 'post' ],
+        'coupons.delete'     => [ 'id' => 'post' ],
+        'customers.get'      => [ 'id' => 'user' ],
+        'customers.update'   => [ 'id' => 'user' ],
+        'brands.get'         => [ 'id' => 'term' ],
+        'brands.update'      => [ 'id' => 'term' ],
+        'brands.delete'      => [ 'id' => 'term' ],
+        'brands.assign'      => [ 'product_id' => 'post', 'brands' => [ 'type' => 'term', 'access' => 'read' ] ],
+        'brands.unassign'    => [ 'product_id' => 'post', 'brands' => [ 'type' => 'term', 'access' => 'read' ] ],
+        'reviews.list'       => [ 'product_id' => 'post' ],
+        'reviews.approve'    => [ 'id' => 'comment' ],
+        'reviews.unapprove'  => [ 'id' => 'comment' ],
+        'reviews.spam'       => [ 'id' => 'comment' ],
+        'reviews.trash'      => [ 'id' => 'comment' ],
+        'reviews.update'     => [ 'id' => 'comment' ],
+        'reviews.reply'      => [ 'id' => 'comment' ],
+    ];
+
+    /**
+     * @return array<string, array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool, taxonomy: ?string, handler: ?string, objects: array<string, array{type: string, access: string, own_type: bool, capability: string}>}>
      */
     public static function ops(): array
     {
@@ -330,13 +396,93 @@ class Op_Catalog
                 'guard_variations' => (bool) ($extra['guard_variations'] ?? false),
                 'taxonomy'         => $extra['taxonomy'] ?? null,
                 'handler'          => $extra['handler'] ?? null,
+                'objects'          => self::objects_of($name, $mode, $capability),
             ];
         }
         return $out;
     }
 
     /**
-     * @return array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool, taxonomy: ?string, handler: ?string}
+     * One op's OBJECTS entry, normalized for Object_Guard.
+     *
+     * @return array<string, array{type: string, access: string, own_type: bool, capability: string}>
+     */
+    private static function objects_of(string $op, string $mode, string $capability): array
+    {
+        $access = [ 'read' => 'read', 'destructive' => 'delete' ][ $mode ] ?? 'write';
+        $out    = [];
+        foreach (self::OBJECTS[ $op ] ?? [] as $path => $spec) {
+            $spec         = is_array($spec) ? $spec : [ 'type' => $spec ];
+            $out[ $path ] = [
+                'type'       => (string) $spec['type'],
+                'access'     => (string) ($spec['access'] ?? $access),
+                'own_type'   => true,
+                'capability' => $capability,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * The objects one woo-read or woo-write call names in its params, every
+     * batch item included, for Object_Guard (Ability::$objects). An unknown
+     * op names nothing here; the dispatcher refuses it. Values that are not
+     * numeric ids are left to the op, which refuses them.
+     *
+     * @param array<string, mixed> $input The dispatcher ability's input.
+     * @return array<int, array<string, mixed>>
+     */
+    public static function named_objects(array $input): array
+    {
+        $calls = isset($input['batch']) && is_array($input['batch']) ? $input['batch'] : [ $input ];
+        $ops   = self::ops();
+        $out   = [];
+        foreach ($calls as $call) {
+            if (! is_array($call) || ! is_string($call['op'] ?? null) || ! isset($ops[ $call['op'] ])) {
+                continue;
+            }
+            $params = is_array($call['params'] ?? null) ? $call['params'] : [];
+            foreach ($ops[ $call['op'] ]['objects'] as $path => $spec) {
+                foreach (self::values_at($params, explode('.', $path)) as $value) {
+                    foreach ((array) $value as $id) {
+                        if (is_numeric($id)) {
+                            $out[] = $spec + [ 'id' => (int) $id ];
+                        }
+                    }
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The values at a key path in params; '*' walks every item of a list.
+     *
+     * @param mixed    $data
+     * @param string[] $parts
+     * @return array<int, mixed>
+     */
+    private static function values_at($data, array $parts): array
+    {
+        if ([] === $parts) {
+            return [ $data ];
+        }
+        if (! is_array($data)) {
+            return [];
+        }
+        $part = array_shift($parts);
+        if ('*' === $part) {
+            $out = [];
+            foreach ($data as $item) {
+                $out = array_merge($out, self::values_at($item, $parts));
+            }
+            return $out;
+        }
+        return array_key_exists($part, $data) ? self::values_at($data[ $part ], $parts) : [];
+    }
+
+    /**
+     * @return array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool, taxonomy: ?string, handler: ?string, objects: array<string, array{type: string, access: string, own_type: bool, capability: string}>}
      */
     public static function get(string $op): array
     {

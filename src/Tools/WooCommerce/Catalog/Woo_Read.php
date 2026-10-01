@@ -109,6 +109,18 @@ class Woo_Read
         return null;
     }
 
+    /**
+     * The objects a woo-read or woo-write call names, for the permission
+     * decision (issue #461). See Op_Catalog::named_objects().
+     *
+     * @param array<string, mixed> $input
+     * @return array<int, array<string, mixed>>
+     */
+    public static function named_objects(array $input): array
+    {
+        return Op_Catalog::named_objects($input);
+    }
+
     /** Whether the host plugin is loaded, mirroring Integration_Dispatcher. */
     public static function is_available(): bool
     {

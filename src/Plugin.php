@@ -8188,7 +8188,8 @@ final class Plugin
             [new Woo_Read(), 'handle'],
             'manage_woocommerce',
             'woocommerce',
-            'read'
+            'read',
+            objects: \Closure::fromCallable([Woo_Read::class, 'named_objects'])
         ));
         $registrar->register(new Ability(
             'wpmcp/woo-write',
@@ -8220,7 +8221,8 @@ final class Plugin
             'update',
             null,
             true,
-            false
+            false,
+            objects: \Closure::fromCallable([Woo_Read::class, 'named_objects'])
         ));
     }
 
