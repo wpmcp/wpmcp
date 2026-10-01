@@ -136,5 +136,13 @@ class Run_Backup_Job
                 'error'  => $e->getMessage(),
             ]);
         }
+
+        // Retention for a scheduled job (issue #455), outside the try so a
+        // pruning problem can never turn a completed backup into a failed one.
+        try {
+            Backup_Schedule::after_job($job_id);
+        } catch (\Throwable $e) {
+            unset($e);
+        }
     }
 }

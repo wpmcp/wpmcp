@@ -33,7 +33,8 @@ class Backup_Job_Store
         self::$clock_override = $timestamp;
     }
 
-    private static function now(): int
+    /** The store's clock, shared with Backup_Schedule. */
+    public static function now(): int
     {
         return self::$clock_override ?? time();
     }
@@ -54,8 +55,12 @@ class Backup_Job_Store
         update_option(self::OPTION, $stored);
     }
 
-    /** Create a new job in 'queued' status and persist it. Returns the created job record. */
-    public static function create(string $type, string $scope): array
+    /**
+     * Create a new job in 'queued' status and persist it. Returns the
+     * created job record. $extra adds fields such as the schedule that
+     * queued it (Backup_Schedule); it cannot override the core fields.
+     */
+    public static function create(string $type, string $scope, array $extra = []): array
     {
         $stored = self::load();
         $id     = $stored['next_id'];
@@ -70,7 +75,7 @@ class Backup_Job_Store
             'updated_at' => $now,
             'result'     => null,
             'error'      => null,
-        ];
+        ] + $extra;
 
         $stored['jobs'][ $id ] = $job;
         $stored['next_id']     = $id + 1;

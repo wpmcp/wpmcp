@@ -226,7 +226,14 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  tightening the three file-write descriptions and read-file, and by
      *  "input schema" to "schema" and "where possible" to "if possible" in
      *  the integration dispatcher templates, without dropping a rule:
-     *  main measured 208881 bytes over 407 tools before it and after it. */
+     *  main measured 208881 bytes over 407 tools before it and after it.
+     *  Recurring backups (#455) added no tool: every and keep on
+     *  trigger-backup plus the schedule report on list-backup-jobs, paid for
+     *  by rewording the is-multisite, get-analytics-connection-status,
+     *  list-languages, get-maintenance-status, get-seo-status, cloud-status,
+     *  list-dynamic-tags, list-field-groups and cloud-push-assets
+     *  descriptions and dropping list-site-abilities' redundant "Read-only",
+     *  without dropping a rule: 208881 -> 208877 bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
