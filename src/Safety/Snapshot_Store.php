@@ -121,11 +121,22 @@ class Snapshot_Store
      * nothing. A backup that fails loudly is recoverable; one that fails
      * silently is worse than none, because it is trusted.
      *
-     * @throws Mutation_Failed When the snapshot row could not be written.
+     * @throws Mutation_Failed When the snapshot row could not be written, or
+     *                         the session belongs to another user.
      */
     public static function save(string $operation_id, string $session_id, array $snapshot, string $tool_name, string $args_hash): int
     {
         global $wpdb;
+
+        // Every undo point is written here, so this is where a write into a
+        // session the caller may not add to is refused (issue #461). Safe_Mutation
+        // saves before it writes, and the creation recorders undo their
+        // creation when this throws, so nothing is left changed.
+        $denial = self::session_write_denial($session_id);
+        if (null !== $denial) {
+            throw new Mutation_Failed($denial); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- session_write_denial() escapes the only variable part.
+        }
+
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
         $written = $wpdb->insert(self::table_name(), [
             'operation_id' => $operation_id,
@@ -198,6 +209,45 @@ class Snapshot_Store
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; ownership must be read live.
         $owner = $wpdb->get_var($wpdb->prepare('SELECT user_id FROM %i WHERE session_id = %s ORDER BY id ASC LIMIT 1', self::table_name(), $session_id));
         return null === $owner ? null : (int) $owner;
+    }
+
+    /**
+     * The owner of a named session the current user did not start and may
+     * not act on as a whole: another user's id, or 0 for a session written
+     * with no user. Null when the caller may act on it: it is the shared
+     * catch-all, it has no undo points yet, it is theirs, they may manage
+     * the site, or no user is acting (cron, WP-CLI without --user, a tool
+     * undoing its own run). Rollback_Service refuses rolling such a session
+     * back and save() refuses writing into it, so a caller adds to exactly
+     * the named sessions they could roll back (issues #450 and #461).
+     */
+    public static function foreign_session_owner(string $session_id): ?int
+    {
+        $user = get_current_user_id();
+        if (0 === $user || self::is_loose_session($session_id) || current_user_can('manage_options')) {
+            return null;
+        }
+        $owner = self::session_owner($session_id);
+        return null === $owner || $owner === $user ? null : $owner;
+    }
+
+    /**
+     * Why the current user may not write into a session, or null when they
+     * may (foreign_session_owner()). Otherwise the owner's rollback-session
+     * would also undo the other caller's writes.
+     */
+    public static function session_write_denial(string $session_id): ?string
+    {
+        $owner = self::foreign_session_owner($session_id);
+        if (null === $owner) {
+            return null;
+        }
+        return sprintf(
+            0 === $owner
+                ? 'Session "%s" has no recorded owner (it was written outside any user account), so only a site administrator can add changes to it. The change was not made: leave session_id out or pass a new one.'
+                : 'Session "%s" was started by another user, so only they or a site administrator can add changes to it. The change was not made: leave session_id out or pass a new one.',
+            esc_html($session_id)
+        );
     }
 
     public static function list_by_session(string $session_id): array
