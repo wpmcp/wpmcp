@@ -109,14 +109,14 @@ final class LMS_Tutor extends LMS_Adapter
         return (int) wp_get_post_parent_id($item);
     }
 
-    protected function section_ids(int $course): array
+    protected function section_ids(int $course, bool $every_row = false): array
     {
-        return array_map(static fn (\WP_Post $p): int => (int) $p->ID, self::children_by_parent($course, [ 'topics' ]));
+        return array_map(static fn (\WP_Post $p): int => (int) $p->ID, self::children_by_parent($course, [ 'topics' ], $every_row));
     }
 
-    protected function item_posts(int $section): array
+    protected function item_posts(int $section, bool $every_row = false): array
     {
-        return self::children_by_parent($section, [ 'lesson', 'tutor_quiz', 'tutor_assignments' ]);
+        return self::children_by_parent($section, [ 'lesson', 'tutor_quiz', 'tutor_assignments' ], $every_row);
     }
 
     protected function stored_order(int $id): int

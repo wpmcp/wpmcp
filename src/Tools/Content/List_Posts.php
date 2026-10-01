@@ -66,19 +66,7 @@ class List_Posts
         // 'any', so another user's drafts and private posts would be listed
         // to a Contributor. Keep the rows to what core's read_post allows
         // (issue #448); in SQL, so total and pages stay exact.
-        $where = Content_Guard::readable_posts_where((array) $post_type, $GLOBALS['wpdb']->posts);
-        $query = new \WP_Query();
-        $scope = static function ($sql, $q) use (&$query, $where) {
-            return $q === $query ? $sql . $where : $sql;
-        };
-        if ('' !== $where) {
-            add_filter('posts_where', $scope, 10, 2);
-        }
-        try {
-            $query->query($query_args);
-        } finally {
-            remove_filter('posts_where', $scope, 10);
-        }
+        $query = Readable_Posts::query($query_args);
         $rows  = [];
         foreach ($query->posts as $p) {
             $rows[] = [

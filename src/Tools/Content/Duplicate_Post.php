@@ -96,8 +96,17 @@ class Duplicate_Post
 
         $children = [];
         if ($with_children) {
-            foreach (get_children(['post_parent' => $post_id, 'post_type' => 'any']) as $child) {
-                if (! Content_Guard::is_agent_readable_post_type((string) $child->post_type)) {
+            // Only the children the caller may read (issue #465): another
+            // user's draft or private child is not copied into a post the
+            // caller owns.
+            $readable = Readable_Posts::get_posts([
+                'post_parent'    => $post_id,
+                'post_type'      => 'any',
+                'post_status'    => 'any',
+                'posts_per_page' => -1,
+            ]);
+            foreach ($readable as $child) {
+                if (! Content_Guard::can_read_post_type((string) $child->post_type)) {
                     continue;
                 }
                 $children[] = $this->copy($child, (string) $child->post_title, $status, $new_id);
