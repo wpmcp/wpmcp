@@ -13,7 +13,8 @@ if (! defined('ABSPATH')) {
  * map of scan id => record:
  *   { id, status, post_types, limit, batch_size, offset, scanned, total,
  *     findings, truncated, created_at, updated_at, error }
- * status is one of queued|running|completed|failed.
+ * status is one of queued|running|completed|failed|canceled (canceled only
+ * when the plugin is deactivated mid-scan, issue #468).
  *
  * Ids are a deterministic incrementing integer and timestamps come from an
  * injectable clock, for exactly the reason Backup_Job_Store documents: the

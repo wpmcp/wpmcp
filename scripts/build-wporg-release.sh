@@ -41,6 +41,10 @@ trap 'rm -rf "$STAGE_PARENT"' EXIT
 mkdir -p "$STAGE"
 
 cp "$ROOT/LICENSE" "$ROOT/composer.json" "$ROOT/composer.lock" "$STAGE/"
+# Clears the plugin's cron events on uninstall (issue #468). The self-hosted
+# build (build-release.sh) leaves it out: there the licensing SDK owns the
+# uninstall hook, and uninstall.php would replace it.
+cp "$ROOT/uninstall.php" "$STAGE/"
 cp -R "$ROOT/src" "$STAGE/src"
 
 # Ship the translation directory the Domain Path header points at (issue #184).
@@ -70,7 +74,7 @@ fail() { echo "ERROR: $1" >&2; exit 1; }
 #    reach a zip.
 while IFS= read -r file; do
   php -l "$file" > /dev/null || fail "syntax error in $file"
-done < <(find "$STAGE/src" "$STAGE/$SLUG.php" -name '*.php')
+done < <(find "$STAGE/src" "$STAGE/$SLUG.php" "$STAGE/uninstall.php" -name '*.php')
 
 # 2. No execution construct, at token level so Malware_Audit's detection
 #    patterns and ordinary comments cannot false-positive. Walks src, vendor

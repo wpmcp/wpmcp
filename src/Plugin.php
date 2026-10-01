@@ -706,6 +706,11 @@ final class Plugin
         if (function_exists('register_activation_hook') && defined('WPMCP_FILE')) {
             register_activation_hook(WPMCP_FILE, [Activator::class, 'activate']);
         }
+        // Clears every plugin cron event (issue #468). Here rather than in a
+        // main file so all three builds get it.
+        if (function_exists('register_deactivation_hook') && defined('WPMCP_FILE')) {
+            register_deactivation_hook(WPMCP_FILE, [Deactivator::class, 'deactivate']);
+        }
         if (function_exists('add_action')) {
             // Versioned default-disabled seeding (issue #78) runs BEFORE any
             // registration hook can fire: newly shipped default-off abilities

@@ -19,6 +19,9 @@ mkdir -p "$STAGE"
 
 cp "$ROOT/wpmcp.php" "$ROOT/readme.txt" "$ROOT/LICENSE" "$ROOT/composer.json" "$ROOT/composer.lock" "$STAGE/"
 cp -R "$ROOT/src" "$STAGE/src"
+# No uninstall file here (issue #468): WordPress would run it instead of the
+# licensing SDK's uninstall hook. This build clears its cron events through
+# that SDK's after_uninstall action (src/Freemius/Bootstrap.php) instead.
 # src/Freemius/Bootstrap.php pins the connect-screen icon to assets/, so the
 # self-hosted zip has to carry that directory (#164).
 cp -R "$ROOT/assets" "$STAGE/assets"

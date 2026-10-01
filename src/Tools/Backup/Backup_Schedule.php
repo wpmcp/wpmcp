@@ -119,6 +119,30 @@ class Backup_Schedule
     }
 
     /**
+     * Put every stored schedule back on WP-Cron, at its configured day and
+     * time (plugin activation, issue #468: deactivation clears the events
+     * but keeps this option). A schedule that already has its event is left
+     * alone, and a record whose every no longer parses is skipped.
+     *
+     * @return string[] The types that were rescheduled.
+     */
+    public static function restore(): array
+    {
+        $restored = [];
+        foreach (self::load() as $type => $schedule) {
+            $parsed = self::parse((string) ($schedule['every'] ?? ''));
+            if (null === $parsed || 'off' === $parsed['recurrence'] || false !== wp_next_scheduled(self::HOOK, [ $type ])) {
+                continue;
+            }
+            if (true === wp_schedule_event(self::first_run($parsed), $parsed['recurrence'], self::HOOK, [ $type ], true)) {
+                $restored[] = (string) $type;
+            }
+        }
+
+        return $restored;
+    }
+
+    /**
      * Parse an every value into its normalized form, or null when invalid.
      *
      * @return array{every:string,recurrence:string,day:?string,time:?string}|null
