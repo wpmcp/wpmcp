@@ -388,6 +388,23 @@ class Refresh_Token_Store
     }
 
     /**
+     * The scope a refresh token was granted, read without redeeming it, or
+     * null when the token is unknown or bound to another client. Lets the
+     * token endpoint refuse a refresh that asks for more than was granted
+     * (issue #454) before the token is rotated, so the refusal does not
+     * cost the client its session.
+     */
+    public static function scope_of(string $token, string $client_id): ?string
+    {
+        $record = self::load()[ self::hash($token) ] ?? null;
+        if (! is_array($record) || (string) ($record['client_id'] ?? '') !== $client_id) {
+            return null;
+        }
+
+        return (string) ($record['scope'] ?? '');
+    }
+
+    /**
      * Revoke every refresh token in a grant chain, and every access token
      * issued along it. Returns the number of refresh tokens removed.
      */

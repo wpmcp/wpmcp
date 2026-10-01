@@ -219,7 +219,7 @@ class Handshake_Instructions
         }
 
         try {
-            return (bool) $ability->check_permissions();
+            return true === $ability->check_permissions();
         } catch (\Throwable $e) {
             return false;
         }

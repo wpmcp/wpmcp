@@ -51,6 +51,11 @@ if (! defined('ABSPATH')) {
  * dropped-response retry is forgiven for a couple of minutes, and a reuse
  * after that revokes the whole chain, access tokens included.
  *
+ * SCOPE (issue #454). A refresh carries the redeemed record's scope forward,
+ * so a read-only grant stays read-only for its whole chain. A `scope`
+ * parameter may narrow a full chain to `mcp:read`; asking a read-only chain
+ * for more is refused with 'invalid_scope' before the token is rotated.
+ *
  * AUDIENCE (RFC 8707). Codes, access tokens and refresh tokens are all bound
  * to the MCP endpoint (Mcp_Resource). A `resource` parameter naming anything
  * else is refused with 'invalid_target' before any state changes, and a
@@ -189,6 +194,16 @@ class Token_Grant
             return self::deny($client_id);
         }
 
+        // Issue #454: a refresh may keep or narrow the granted scope, never
+        // widen it (RFC 6749 section 6). Checked before redeem() so a
+        // refused request does not rotate the token.
+        $requested = is_string($params['scope'] ?? null) ? (string) $params['scope'] : '';
+        $original  = Refresh_Token_Store::scope_of($presented, $client_id);
+        if (null !== $original && ! Client_Access::refresh_scope_allowed($original, $requested)) {
+            self::audit(false, $client_id);
+            return new \WP_Error('invalid_scope', 'The requested scope exceeds the scope originally granted.');
+        }
+
         $outcome = Refresh_Token_Store::redeem($presented, $client_id);
         $status  = (string) $outcome['status'];
 
@@ -245,7 +260,9 @@ class Token_Grant
 
         self::audit(true, $client_id);
 
-        return self::mint($client_id, $user_id, (string) $record['scope'], $chain_id, $is_gateway_chain, $resource);
+        $scope = $is_gateway_chain ? (string) $record['scope'] : Client_Access::refreshed_scope((string) $record['scope'], $requested);
+
+        return self::mint($client_id, $user_id, $scope, $chain_id, $is_gateway_chain, $resource);
     }
 
     /**

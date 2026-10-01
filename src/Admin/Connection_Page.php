@@ -2,7 +2,9 @@
 
 namespace WPMCP\Admin;
 
+use WPMCP\Auth\Client_Access;
 use WPMCP\Auth\Client_Metadata_Document;
+use WPMCP\Auth\Client_Store;
 use WPMCP\Auth\OAuth_Config;
 use WPMCP\Connect\Bundle_Builder;
 use WPMCP\Connect\Client_Config_Generator;
@@ -82,6 +84,8 @@ class Connection_Page
             case 'oauth_client_deny':
             case 'oauth_client_forget':
                 return $this->decide_oauth_client($action, self::str($post['client_id'] ?? ''));
+            case 'oauth_access':
+                return $this->set_oauth_access($post);
         }
 
         return ['error' => __('Unknown action.', 'wpmcp')];
@@ -154,6 +158,24 @@ class Connection_Page
         }
 
         return ['action' => $action, 'client_id' => $client_id];
+    }
+
+    /**
+     * Change the access level of one OAuth connection (issue #454). Applies
+     * on the connection's next request; a level above what the client was
+     * granted has no effect, because the token's own scope still applies.
+     */
+    private function set_oauth_access(array $post): array
+    {
+        $client_id = self::str($post['client_id'] ?? '');
+        $user_id   = (int) self::str($post['user_id'] ?? '');
+        $parsed    = Client_Access::parse(self::str($post['access'] ?? ''));
+
+        if (null === $parsed || ! Client_Access::set($client_id, $user_id, $parsed[0], $parsed[1])) {
+            return ['error' => __('That access level could not be applied.', 'wpmcp')];
+        }
+
+        return ['action' => 'oauth_access', 'client_id' => $client_id];
     }
 
     private function revoke(array $post): array
@@ -485,6 +507,7 @@ class Connection_Page
                     : esc_html__('New clients can connect as soon as a signed-in user authorizes them. Turning approval on keeps the clients already listed.', 'wpmcp'); ?>
             </span>
         </form>
+        <?php $this->render_oauth_connections($nonce); ?>
         <?php if (! $clients) : ?>
             <p><?php echo esc_html__('No OAuth client has used a client metadata document yet.', 'wpmcp'); ?></p>
             <?php return; ?>
@@ -527,6 +550,77 @@ class Connection_Page
                                 <?php submit_button($label, 'oauth_client_deny' === $action ? 'delete small' : 'small', 'submit', false); ?>
                             </form>
                         <?php endforeach; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php
+    }
+    /**
+     * Every live OAuth connection with its access level (issue #454), and
+     * a control to change it. Lowering applies on the connection's next
+     * request, without the client reconnecting. Connections made before
+     * access levels existed show as full access.
+     */
+    private function render_oauth_connections(string $nonce): void
+    {
+        $connections = Client_Access::connections();
+        $identities  = array_values(array_filter(array_map(static fn (array $i): string => (string) ($i['name'] ?? ''), Identity_Store::list()), 'strlen'));
+        $cimd        = Client_Metadata_Document::clients();
+        ?>
+        <h3><?php echo esc_html__('Connected applications', 'wpmcp'); ?></h3>
+        <p><?php echo esc_html__('Each application a user approved through OAuth, and what it may do. Read only refuses anything that would change the site. A scoped identity limits it exactly as that identity is limited. Changes apply on its next request.', 'wpmcp'); ?></p>
+        <?php if (! $connections) : ?>
+            <p><?php echo esc_html__('No application is connected through OAuth.', 'wpmcp'); ?></p>
+            <?php return; ?>
+        <?php endif; ?>
+        <table class="widefat striped" style="margin-bottom: 1em;">
+            <thead><tr>
+                <th><?php echo esc_html__('Application', 'wpmcp'); ?></th>
+                <th><?php echo esc_html__('Approved by', 'wpmcp'); ?></th>
+                <th><?php echo esc_html__('Access', 'wpmcp'); ?></th>
+            </tr></thead>
+            <tbody>
+            <?php foreach ($connections as $connection) : ?>
+                <?php
+                $client_id = $connection['client_id'];
+                $client    = Client_Store::get($client_id);
+                $name      = (string) ($client['client_name'] ?? ($cimd[ $client_id ]['client_name'] ?? ''));
+                $user      = get_userdata($connection['user_id']);
+                $current   = Client_Access::IDENTITY === $connection['level'] ? 'identity:' . $connection['identity'] : $connection['level'];
+                $capped    = Client_Access::SCOPE_READ === $connection['scope'];
+                $choices   = [
+                    Client_Access::FULL => $capped ? __('Full access (granted read only)', 'wpmcp') : __('Full access', 'wpmcp'),
+                    Client_Access::READ => __('Read only', 'wpmcp'),
+                ];
+                foreach ($identities as $identity) {
+                    /* translators: %s: scoped identity name. */
+                    $choices[ 'identity:' . $identity ] = sprintf(__('As the "%s" identity', 'wpmcp'), $identity);
+                }
+                ?>
+                <tr>
+                    <td>
+                        <strong><?php echo esc_html('' !== $name ? $name : __('Unnamed application', 'wpmcp')); ?></strong><br>
+                        <code><?php echo esc_html($client_id); ?></code>
+                    </td>
+                    <td><?php echo esc_html($user ? $user->user_login : __('Deleted user', 'wpmcp')); ?></td>
+                    <td>
+                        <form method="post">
+                            <input type="hidden" name="wpmcp_connection_action" value="oauth_access">
+                            <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($nonce); ?>">
+                            <input type="hidden" name="client_id" value="<?php echo esc_attr($client_id); ?>">
+                            <input type="hidden" name="user_id" value="<?php echo esc_attr((string) $connection['user_id']); ?>">
+                            <select name="access">
+                                <?php foreach ($choices as $value => $label) : ?>
+                                    <option value="<?php echo esc_attr($value); ?>" <?php selected($current, $value); ?>><?php echo esc_html($label); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <?php submit_button(__('Save', 'wpmcp'), 'small', 'submit', false); ?>
+                            <?php if (! $connection['stored']) : ?>
+                                <br><span class="description"><?php echo esc_html__('Connected before access levels existed, so it has full access.', 'wpmcp'); ?></span>
+                            <?php endif; ?>
+                        </form>
                     </td>
                 </tr>
             <?php endforeach; ?>
