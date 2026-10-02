@@ -155,17 +155,18 @@ class Site_Locale
 
     /**
      * A PHP date or time format string. Refused when empty, overlong, or when
-     * the settings screen's sanitizing (strip_tags, then wp_kses_data) would
+     * the settings screen's sanitizing (tags stripped, then wp_kses_data) would
      * change it, so markup never reaches a format every date is printed with.
      */
     public static function validate_format($raw): array
     {
-        if (! is_string($raw) || '' === trim($raw)) {
+        $format = is_string($raw) ? trim($raw) : '';
+        if ('' === $format) {
             return [ 'ok' => false, 'reason' => 'format must be a non-empty string' ];
         }
-        if (strlen($raw) > self::FORMAT_MAX || preg_match('/[\x00-\x1F\x7F]/', $raw) || wp_kses_data(strip_tags($raw)) !== $raw) {
+        if (strlen($format) > self::FORMAT_MAX || preg_match('/[\x00-\x1F\x7F]/', $format) || wp_kses_data(wp_strip_all_tags($format)) !== $format) {
             return [ 'ok' => false, 'reason' => 'unsafe format string' ];
         }
-        return [ 'ok' => true, 'value' => $raw ];
+        return [ 'ok' => true, 'value' => $format ];
     }
 }
