@@ -330,7 +330,7 @@ class SiteLocaleSettingsTest extends \WP_UnitTestCase
             return new \WP_Error('offline', 'Could not reach the translations service.');
         });
 
-        $out = (new Update_Settings())->handle([ 'settings' => [ 'WPLANG' => 'de_DE' ] ]);
+        $out = (new Update_Settings())->handle([ 'settings' => [ 'WPLANG' => self::TEST_LOCALE ] ]);
 
         $this->assertStringContainsString('could not', strtolower($this->skipped($out)['WPLANG']));
         $this->assertSame('', get_option('WPLANG'));

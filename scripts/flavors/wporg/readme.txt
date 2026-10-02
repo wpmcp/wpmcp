@@ -119,6 +119,17 @@ URL. `manage-updates` with type=core downloads the WordPress package that
 core's own update check offered, from downloads.wordpress.org. Privacy
 policy: https://wordpress.org/about/privacy/
 
+= WordPress.org language packs (api.wordpress.org, downloads.wordpress.org) =
+
+Used by the `update-settings` ability when it sets `WPLANG` to a locale that
+is not installed yet, and only then. It fetches the list of available core
+translations for this WordPress version from api.wordpress.org through
+core's `translations_api()`, then downloads that one locale's core language
+pack from downloads.wordpress.org through core's language pack upgrader,
+with core's standard user agent (WordPress version and this site's
+address). A locale that is already installed sends nothing. Privacy policy:
+https://wordpress.org/about/privacy/
+
 = Openverse (api.openverse.org) =
 
 Used by the `search-stock-images` ability. Openverse is the default

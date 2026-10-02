@@ -55,6 +55,8 @@ class Get_Settings
                 return (int) $value;
             case 'bool':
                 return (bool) $value;
+            case 'float':
+                return (float) $value;
             default:
                 return $value;
         }
