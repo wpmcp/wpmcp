@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tests\Free\SiteEditor;
 
+use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\SiteEditor\Site_Templates_Read;
@@ -37,6 +38,9 @@ class GlobalStylesTest extends \WP_UnitTestCase
 
     protected function tearDown(): void
     {
+        remove_filter('map_meta_cap', [self::class, 'deny_unfiltered_html'], 10);
+        remove_filter('content_save_pre', [self::class, 'reencode_like_wp69'], 11);
+        remove_filter('content_save_pre', [self::class, 'drop_the_base_color'], 11);
         $this->use_classic_theme();
         parent::tearDown();
     }
@@ -292,6 +296,155 @@ class GlobalStylesTest extends \WP_UnitTestCase
             $this->fail('Expected a refusal.');
         } catch (\InvalidArgumentException $e) {
             $this->assertStringContainsString($message, $e->getMessage());
+        }
+
+        $this->assertSame([], $this->user_posts());
+        $this->assertCount($ops_before, Snapshot_Store::recent(100));
+    }
+
+    /** An administrator who, like one on multisite, lacks unfiltered_html, so kses filters the global styles post. */
+    private function act_as_admin_without_unfiltered_html(): void
+    {
+        add_filter('map_meta_cap', [self::class, 'deny_unfiltered_html'], 10, 2);
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        $this->assertFalse(current_user_can('unfiltered_html'));
+        $this->assertSame(9, has_filter('content_save_pre', 'wp_filter_global_styles_post'));
+    }
+
+    /**
+     * @param string[] $caps
+     * @return string[]
+     */
+    public static function deny_unfiltered_html(array $caps, string $cap): array
+    {
+        return 'unfiltered_html' === $cap ? ['do_not_allow'] : $caps;
+    }
+
+    /**
+     * WordPress 6.9's kses filter for this post re-encodes the document with
+     * a bare wp_json_encode(), so every "/" comes back as "\/". Applied after
+     * core's filter so the 7.1 suite sees the same bytes the 6.9 one does.
+     *
+     * @param mixed $content
+     * @return mixed
+     */
+    public static function reencode_like_wp69($content)
+    {
+        $data = json_decode(wp_unslash((string) $content), true);
+        return is_array($data) ? wp_slash(wp_json_encode($data)) : $content;
+    }
+
+    /**
+     * A save filter that removes a value from the document, as kses does
+     * with a property it judges unsafe.
+     *
+     * @param mixed $content
+     * @return mixed
+     */
+    public static function drop_the_base_color($content)
+    {
+        $data = json_decode(wp_unslash((string) $content), true);
+        if (! is_array($data) || ! isset($data['settings']['color']['palette']['theme'])) {
+            return $content;
+        }
+        $data['settings']['color']['palette']['theme'] = array_values(array_filter(
+            $data['settings']['color']['palette']['theme'],
+            static fn ($entry) => 'base' !== ($entry['slug'] ?? '')
+        ));
+        return wp_slash(wp_json_encode($data, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP));
+    }
+
+    /** @return array<string, array{0: bool}> */
+    public static function kses_encodings(): array
+    {
+        return [
+            'core encoding of this WordPress' => [false],
+            'escaped slashes, as 6.9 stores'   => [true],
+        ];
+    }
+
+    /**
+     * Issue #487: "Base / Two" in the patched palette made the stored bytes
+     * differ from the encoded document on 6.9 although nothing was removed,
+     * so every palette save was rolled back. The returned hash must be the
+     * stored one, so it works as the next write's expected_hash.
+     *
+     * @dataProvider kses_encodings
+     */
+    public function test_an_admin_without_unfiltered_html_can_change_a_palette_named_with_a_slash(bool $escaped_slashes): void
+    {
+        $this->use_block_theme();
+        $this->act_as_admin_without_unfiltered_html();
+        if ($escaped_slashes) {
+            add_filter('content_save_pre', [self::class, 'reencode_like_wp69'], 11);
+        }
+
+        $first = $this->write->handle([
+            'entity' => 'global_styles',
+            'attrs'  => ['settings.color.palette.theme.base.color' => '#123456'],
+        ]);
+
+        $post_id = (int) $first['user_post_id'];
+        $stored  = $this->raw_content($post_id);
+        $this->assertSame(hash('sha256', $stored), $first['content_hash']);
+        $palette = json_decode($stored, true)['settings']['color']['palette']['theme'];
+        $this->assertContains('Base / Two', array_column($palette, 'name'));
+        $this->assertStringContainsString('--wp--preset--color--base: #123456', $this->stylesheet());
+
+        $read = $this->read->handle(['entity' => 'global_styles']);
+        $this->assertSame($first['content_hash'], $read['content_hash']);
+
+        $second = $this->write->handle([
+            'entity'        => 'global_styles',
+            'attrs'         => ['settings.color.palette.theme.base.color' => '#654321'],
+            'expected_hash' => $read['content_hash'],
+        ]);
+        $this->assertSame($post_id, (int) $second['user_post_id']);
+        $this->assertStringContainsString('--wp--preset--color--base: #654321', $this->stylesheet());
+    }
+
+    /**
+     * Comparing the decoded document must still fail closed: when a save
+     * filter removes something, the write is refused and rolled back.
+     *
+     * @dataProvider kses_encodings
+     */
+    public function test_a_save_whose_filters_remove_a_value_is_rolled_back(bool $escaped_slashes): void
+    {
+        $this->use_block_theme();
+        $original = '{"settings":{"color":{"palette":{"theme":[{"slug":"base","name":"Base","color":"#111111"}]}}},"isGlobalStylesUserThemeJSON":true,"version":3}';
+        $post_id  = $this->create_user_post($original);
+        $this->act_as_admin_without_unfiltered_html();
+        if ($escaped_slashes) {
+            add_filter('content_save_pre', [self::class, 'reencode_like_wp69'], 11);
+        }
+        add_filter('content_save_pre', [self::class, 'drop_the_base_color'], 11);
+
+        try {
+            $this->write->handle([
+                'entity' => 'global_styles',
+                'attrs'  => ['settings.color.palette.theme.base.color' => '#222222'],
+            ]);
+            $this->fail('Expected the verification to refuse a save the filters changed.');
+        } catch (Mutation_Failed $e) {
+            $this->assertStringContainsString('Verification failed', $e->getMessage());
+        }
+
+        $this->assertSame([$post_id], $this->user_posts());
+        $this->assertSame($original, $this->raw_content($post_id));
+    }
+
+    public function test_an_unsafe_css_value_is_refused_for_an_admin_without_unfiltered_html(): void
+    {
+        $this->use_block_theme();
+        $this->act_as_admin_without_unfiltered_html();
+        $ops_before = count(Snapshot_Store::recent(100));
+
+        try {
+            $this->write->handle(['entity' => 'global_styles', 'attrs' => ['styles.color.background' => 'url(javascript:alert(1))']]);
+            $this->fail('Expected a refusal.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('styles.color.background', $e->getMessage());
         }
 
         $this->assertSame([], $this->user_posts());
