@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.137
+Stable tag: 0.8.138
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -107,6 +107,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.138 =
+* New: upload-media can add PDFs, videos and other large files without sending the bytes through the chat. Pass an https url to import any allowed file type from a public address, or grant: true to get a short-lived, single-use upload link and a ready curl command for a file on your machine.
+* Files from a url or an upload link get the same name checks, type sniffing and blocked types as base64 uploads, are capped at the site's upload limit, and can be undone with rollback-operation. Private addresses and redirects are refused, and upload links are tied to the user who asked for them and logged in the governance audit log.
 
 = 0.8.137 =
 * Fix: deactivating the plugin now removes all of its scheduled events (the OAuth clean-up, backup schedules and background jobs); reactivating restores only the schedules your settings still ask for, at their configured times.
@@ -699,6 +703,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.138 =
+New: upload-media can add PDFs, videos and other large files without sending the bytes through the chat. Pass an https url to import any allowed file type from a public address, or grant: true to get a short-lived, single-use upload link and a ready curl command for a file on your machine.
 
 = 0.8.137 =
 Fix: deactivating the plugin now removes all of its scheduled events (the OAuth clean-up, backup schedules and background jobs); reactivating restores only the schedules your settings still ask for, at their configured times.
