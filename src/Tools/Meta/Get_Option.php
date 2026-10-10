@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Meta;
 
+use WPMCP\Tools\WooCommerce\Gateway_Secrets;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -30,6 +32,8 @@ class Get_Option
             throw new \RuntimeException(sprintf('Refusing to read sensitive option "%s".', esc_html($name)));
         }
 
-        return ['name' => $name, 'value' => get_option($name)];
+        // A payment gateway's settings come back with its credentials
+        // masked, as every gateway read does (issue #507).
+        return ['name' => $name, 'value' => Gateway_Secrets::mask_option($name, get_option($name))];
     }
 }

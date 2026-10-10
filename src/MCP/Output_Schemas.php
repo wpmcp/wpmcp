@@ -47,7 +47,7 @@ final class Output_Schemas
 
     public function register(): void
     {
-        add_filter('mcp_adapter_tools_list', [ $this, 'filter_tools_list' ], 20, 2);
+        add_filter('mcp_adapter_tools_list', [ $this, 'filter_tools_list' ], 20, 3);
     }
 
     /**
@@ -66,11 +66,16 @@ final class Output_Schemas
      * and entries that cannot be read pass through untouched, as in
      * Tool_Exposure, and a DTO that cannot be rebuilt is kept as it was.
      *
-     * @param mixed $tools  Tool DTOs or arrays.
+     * The bundled 0.6.x adapter passes DTOs with toArray()/fromArray().
+     * The released 0.7.0 plugin passes immutable schema records and, as a
+     * third argument, the schema that builds them (issue #501).
+     *
+     * @param mixed $tools  Tool DTOs, schema records or arrays.
      * @param mixed $server The adapter server (unused).
+     * @param mixed $schema The adapter's selected schema (0.7.0 and later).
      * @return mixed
      */
-    public function filter_tools_list($tools, $server = null)
+    public function filter_tools_list($tools, $server = null, $schema = null)
     {
         if (! is_array($tools)) {
             return $tools;
@@ -82,7 +87,7 @@ final class Output_Schemas
         }
 
         foreach ($tools as $i => $tool) {
-            $tools[ $i ] = self::with_schema($tool, $ours);
+            $tools[ $i ] = self::with_schema($tool, $ours, $schema);
         }
 
         return $tools;
@@ -90,10 +95,11 @@ final class Output_Schemas
 
     /**
      * @param mixed                $tool
-     * @param array<string,string> $ours Tool name => ability name.
+     * @param array<string,string> $ours   Tool name => ability name.
+     * @param mixed                $schema The adapter's selected schema, if passed.
      * @return mixed
      */
-    private static function with_schema($tool, array $ours)
+    private static function with_schema($tool, array $ours, $schema = null)
     {
         if (is_array($tool)) {
             $name = isset($tool['name']) && is_string($tool['name']) ? $tool['name'] : null;
@@ -101,6 +107,10 @@ final class Output_Schemas
                 $tool['outputSchema'] = self::for_ability($ours[ $name ]);
             }
             return $tool;
+        }
+
+        if (is_object($tool) && ! method_exists($tool, 'toArray') && $tool instanceof \JsonSerializable) {
+            return self::record_with_schema($tool, $ours, $schema);
         }
 
         if (! is_object($tool) || ! method_exists($tool, 'getName') || ! method_exists($tool, 'toArray') || ! method_exists($tool, 'fromArray')) {
@@ -128,6 +138,46 @@ final class Output_Schemas
             return $tool::fromArray($data);
         } catch (\Throwable $e) {
             // A foreign or changed DTO must never be able to break tools/list.
+            return $tool;
+        }
+    }
+
+    /**
+     * A schema record (adapter 0.7.0 and later) with the outputSchema added,
+     * rebuilt through the schema the filter passed so it is validated and
+     * projected like every other record. Anything that cannot be read or
+     * rebuilt is kept as it was.
+     *
+     * @param \JsonSerializable    $tool
+     * @param array<string,string> $ours   Tool name => ability name.
+     * @param mixed                $schema The adapter's selected schema.
+     * @return mixed
+     */
+    private static function record_with_schema(\JsonSerializable $tool, array $ours, $schema)
+    {
+        if (! method_exists($tool, 'getName') || ! is_object($schema) || ! method_exists($schema, 'fromJson')) {
+            return $tool;
+        }
+
+        try {
+            $name = $tool->getName();
+            if (! is_string($name) || ! isset($ours[ $name ])) {
+                return $tool;
+            }
+            if (method_exists($tool, 'getOutputSchema') && null !== $tool->getOutputSchema()) {
+                return $tool;
+            }
+
+            // Round-tripped as objects, so an empty properties map stays {}.
+            $data = json_decode((string) wp_json_encode($tool));
+            if (! $data instanceof \stdClass) {
+                return $tool;
+            }
+            $data->outputSchema = json_decode((string) wp_json_encode(self::for_ability($ours[ $name ])));
+
+            return $schema->fromJson(get_class($tool), (string) wp_json_encode($data));
+        } catch (\Throwable $e) {
+            // A foreign or changed record must never be able to break tools/list.
             return $tool;
         }
     }

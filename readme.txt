@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.156
+Stable tag: 0.8.162
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -38,7 +38,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * Events, donations, memberships (read)
 * BuddyPress: groups, group members, activity moderation and extended profile fields
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
-* With Pro, FunnelKit funnels and their steps (read), with linked pages, products and step counts
+* With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
 * With Pro, Tutor LMS and LifterLMS: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read)
 * Media library plus stock image imports
 * REST passthrough for anything else, still snapshotted
@@ -110,6 +110,31 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.162 =
+* New: translate a page in a few calls on Polylang and WPML sites (paid tier). Agents can list the posts still missing a translation into a language, create a linked draft translation (content, builder data, meta, template and featured image copied, categories and tags mapped to their translations), read all of a page's translatable text as numbered segments, and write the translations back as one change.
+* Page text covers the title, excerpt, SEO title and description, Elementor widget text and block or classic content. Writes are checked against a content hash, refused as a whole if any segment is unknown, never change the source page, and can be rolled back.
+
+= 0.8.161 =
+* Security: payment gateway credentials (API keys, webhook secrets, tokens) are now masked when gateway settings are read through get-option or the REST passthrough, the same way the gateway tools already masked them.
+* Writing back a masked gateway setting keeps the stored credential instead of overwriting it.
+
+= 0.8.160 =
+* Pro: Change FunnelKit funnels through FunnelKit itself. Agents can create, rename and delete funnels, add, reorder, enable, disable, publish and delete steps, and set checkout products with quantity and discount, seeing the price a buyer pays first with dry_run. Every change can be rolled back.
+* Fixed a fatal error on REST requests on stores where the only MCP adapter loaded is the older copy bundled with WooCommerce.
+
+= 0.8.159 =
+* Fixed: on sites running the MCP Adapter plugin from WordPress.org (0.7.0), confirm prompts and background tasks work again for 2026-07-28 clients over HTTP, and tool listings carry their output schemas again.
+* The test gate can now run the whole suite against the latest released MCP Adapter plugin, so a future adapter release that breaks WP MCP is caught before it reaches sites.
+
+= 0.8.158 =
+* New (paid tier): Amelia bookings. On sites running Amelia, agents can read the booking setup, categories, services, employees with their working hours, customers, appointments, free slots, events with places left and event attendees, and create or change categories, services and customers, book, reschedule, approve, cancel or reject appointments. No new tools: the operations sit on the existing plugin-data pair.
+* Every booking change goes through Amelia's own checks, so a taken slot or a time outside working hours is refused with Amelia's reason. Times are in the site's timezone and stay right across daylight-saving changes. Customer emails are held unless the agent asks to notify, and each answer lists what Amelia sent. Every change can be undone with rollback-operation, which never re-sends anything and is refused while later bookings depend on it.
+* Amelia customer records are now included in Tools > Export Personal Data and Erase Personal Data.
+
+= 0.8.157 =
+* New (Pro): FluentCRM and MailPoet campaigns, bulk import and automations. Agents can draft, edit and duplicate campaigns, send a test to themselves, import contacts without resubscribing anyone who opted out, and switch automations on or off, through each plugin's own API, with rollback-operation to undo each.
+* Sending a campaign to real recipients is off until a site enables it, and always asks for confirmation with the recipient count first. Mail cannot be unsent, so a send or a test is never undone.
 
 = 0.8.156 =
 * Internal: the changelog lists the WordPress 6.9 global styles fix under 0.8.145, the release that shipped it. No change to the plugin itself.
@@ -775,6 +800,24 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.162 =
+New: translate a page in a few calls on Polylang and WPML sites (paid tier). Agents can list the posts still missing a translation into a language, create a linked draft translation (content, builder data, meta, template and featured image copied, categories and tags mapped to their translations), read all of a page's translatable text as numbered segments, and write the translations back as one change.
+
+= 0.8.161 =
+Security: payment gateway credentials (API keys, webhook secrets, tokens) are now masked when gateway settings are read through get-option or the REST passthrough, the same way the gateway tools already masked them.
+
+= 0.8.160 =
+Pro: Change FunnelKit funnels through FunnelKit itself. Agents can create, rename and delete funnels, add, reorder, enable, disable, publish and delete steps, and set checkout products with quantity and discount, seeing the price a buyer pays first with dry_run. Every change can be rolled back.
+
+= 0.8.159 =
+Fixed: on sites running the MCP Adapter plugin from WordPress.org (0.7.0), confirm prompts and background tasks work again for 2026-07-28 clients over HTTP, and tool listings carry their output schemas again.
+
+= 0.8.158 =
+New (paid tier): Amelia bookings. On sites running Amelia, agents can read the booking setup, categories, services, employees with their working hours, customers, appointments, free slots, events with places left and event attendees, and create or change categories, services and customers, book, reschedule, approve, cancel or reject appointments. No new tools: the operations sit on the existing plugin-data pair.
+
+= 0.8.157 =
+New (Pro): FluentCRM and MailPoet campaigns, bulk import and automations. Agents can draft, edit and duplicate campaigns, send a test to themselves, import contacts without resubscribing anyone who opted out, and switch automations on or off, through each plugin's own API, with rollback-operation to undo each.
 
 = 0.8.156 =
 Internal: the changelog lists the WordPress 6.9 global styles fix under 0.8.145, the release that shipped it. No change to the plugin itself.

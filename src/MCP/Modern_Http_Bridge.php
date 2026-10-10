@@ -19,6 +19,10 @@ if (! defined('ABSPATH')) {
  *    it carries the same handshake instructions and revision list as the
  *    stdio transport (the adapter's own discovery result has no filter and
  *    would advertise the server description instead);
+ *  - a 2026-07-28 tools/call is always answered here (issue #501): the
+ *    confirm gates answered as elicitation and the Tasks extension are WP
+ *    MCP's, and the adapter's own tools/call has neither (0.7.0 rejects
+ *    continuation parameters for ability-backed tools);
  *  - other 2026-07-28 requests are answered here only when the loaded
  *    adapter does not speak that revision, and left to the adapter when it
  *    does;
@@ -84,14 +88,7 @@ final class Modern_Http_Bridge
         $is_modern = Protocol_Revision::MODERN === $body || Protocol_Revision::MODERN === $header;
         $named     = $body ?? $header;
 
-        // tasks/* belong to the Tasks extension this plugin implements on
-        // its own job stores (issue #387), so they are answered here even
-        // when the adapter speaks 2026-07-28 itself.
-        $ours = 'server/discover' === $method
-            || ($is_modern && str_starts_with($method, 'tasks/'))
-            || ($is_modern && ! Protocol_Revision::adapter_speaks_modern())
-            || (! $is_modern && null !== $named && ! Protocol_Revision::is_servable($named) && ! Protocol_Revision::adapter_speaks_modern());
-        if (! $ours) {
+        if (! self::answers_here($method, $is_modern, $named, Protocol_Revision::adapter_speaks_modern())) {
             return $result;
         }
 
@@ -119,6 +116,31 @@ final class Modern_Http_Bridge
         }
 
         return self::respond($response, $is_modern || 'server/discover' === $method);
+    }
+
+    /**
+     * Whether this bridge answers a request rather than the adapter.
+     *
+     * @param string      $method                The JSON-RPC method.
+     * @param bool        $is_modern             Whether the request is 2026-07-28.
+     * @param string|null $named                 The revision the request names, if any.
+     * @param bool        $adapter_speaks_modern Whether the loaded adapter speaks 2026-07-28.
+     */
+    public static function answers_here(string $method, bool $is_modern, ?string $named, bool $adapter_speaks_modern): bool
+    {
+        if ('server/discover' === $method) {
+            return true;
+        }
+        if ($is_modern) {
+            // tasks/* belong to the Tasks extension this plugin implements
+            // on its own job stores (issue #387), and tools/call carries the
+            // elicitation and task results only this plugin produces (issue
+            // #501), so both are answered here even when the adapter speaks
+            // 2026-07-28 itself.
+            return ! $adapter_speaks_modern || 'tools/call' === $method || str_starts_with($method, 'tasks/');
+        }
+
+        return null !== $named && ! Protocol_Revision::is_servable($named) && ! $adapter_speaks_modern;
     }
 
     /**
