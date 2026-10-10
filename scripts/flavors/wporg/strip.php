@@ -1374,6 +1374,34 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The CRM ops (issue #477) are the paid add-on's too, removed by
+    // policy.php; their lines go first, so the LMS and TablePress edits below
+    // still match.
+    [
+        " *  - Issue #477 adds the paid-tier CRM ops (CRM_Pack): FluentCRM and\n"
+            . " *    MailPoet contacts, lists, tags, campaigns and automations, with writes\n"
+            . " *    through each plugin's own API, snapshotted as 'crm_rows' images.\n",
+        '',
+        1,
+    ],
+    [
+        "            || TablePress_Pack::active()\n"
+            . "            || CRM_Pack::active();\n",
+        "            || TablePress_Pack::active();\n",
+        1,
+    ],
+    [
+        "            . ', Tutor LMS and LifterLMS courses, TablePress tables'\n"
+            . "            . ', FluentCRM and MailPoet';\n",
+        "            . ', Tutor LMS and LifterLMS courses, TablePress tables';\n",
+        1,
+    ],
+    [
+        "            TablePress_Pack::operations(),\n"
+            . "            CRM_Pack::operations()\n",
+        "            TablePress_Pack::operations()\n",
+        1,
+    ],
     [
         " *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS and\n"
             . " *    LifterLMS course, section, lesson and quiz trees with snapshotted\n"

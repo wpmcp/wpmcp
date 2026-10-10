@@ -87,6 +87,13 @@ class Rollback_Service
             self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
             return false;
         }
+        // Undoing a BuddyPress group create would delete rows it did not
+        // make (issue #489).
+        $refused = BuddyPress_Rows_Snapshot::refusal((array) $row['snapshot']);
+        if (null !== $refused) {
+            self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
+            return false;
+        }
         // Another user is editing the post this would restore (issue #452).
         $locked = Edit_Lock::restore_refusal([$row]);
         if (null !== $locked) {
@@ -247,6 +254,17 @@ class Rollback_Service
         // manage_options, so restoring one takes it too (issue #354).
         if ('buddypress_rows' === $type) {
             return [ [ 'manage_options' ] ];
+        }
+        // FluentCRM and MailPoet rows are contacts' personal data and their
+        // subscription consent (issue #477); restoring one takes the
+        // plugin's own permission, which Crm_Rows_Snapshot::restore()
+        // checks. MailPoet's are WordPress capabilities, named here too.
+        if ('crm_rows' === $type) {
+            $kind = (string) ($snapshot['data']['kind'] ?? '');
+            if ('mailpoet' === Crm_Rows_Snapshot::plugin($kind)) {
+                return [ [ 'mailpoet_subscriber' === $kind ? 'mailpoet_manage_subscribers' : 'mailpoet_manage_segments' ] ];
+            }
+            return [ [ 'edit_posts' ] ];
         }
         // A database cleanup's rows are raw core table rows (comments with
         // their authors' emails and IPs, user meta), and the cleanup takes
@@ -436,7 +454,9 @@ class Rollback_Service
             // session's whole-zone snapshots are put back first, newest first.
             // BuddyPress rows (issue #354) too: a create's undo removes the
             // group only while it still has the slug the create wrote.
-            if (in_array($snapshot['object_type'], [ Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE, 'buddypress_rows', 'db_cleanup' ], true) && ! self::may_restore($snapshot)) {
+            // CRM rows (issue #477) too: a contact's undo checks the status
+            // the person left it in, so later edits go back first.
+            if (in_array($snapshot['object_type'], [ Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE, 'buddypress_rows', 'crm_rows', 'db_cleanup' ], true) && ! self::may_restore($snapshot)) {
                 self::warn(sprintf(
                     'snapshot %s skipped: restoring it requires the "%s" capability.',
                     self::object_identity($snapshot),
@@ -444,12 +464,21 @@ class Rollback_Service
                 ));
                 continue;
             }
+            // A BuddyPress group create is skipped, not counted, while the
+            // group holds rows the create did not make (issue #489).
+            if ('buddypress_rows' === $snapshot['object_type']) {
+                $refused = BuddyPress_Rows_Snapshot::refusal($snapshot);
+                if (null !== $refused) {
+                    self::warn(sprintf('snapshot %s skipped: %s', self::object_identity($snapshot), $refused));
+                    continue;
+                }
+            }
             // Plugin table rows (Pods table storage, TranslatePress
             // dictionary rows, issue #299) too: each covers only the ids ONE
             // write named, and two writes can name overlapping sets.
             // A database cleanup (issue #414) too: each call's snapshot holds
             // only the rows that call deleted, one bounded batch of many.
-            if (in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)) {
+            if (in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'crm_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)) {
                 self::apply_snapshot($snapshot);
                 $count++;
                 continue;
@@ -1187,6 +1216,7 @@ class Rollback_Service
             'redirection_item',
             'plugin_table_rows',
             'buddypress_rows',
+            'crm_rows',
             'db_cleanup',
             'wc_tax_rate',
             'php_snippet',
@@ -1386,6 +1416,12 @@ class Rollback_Service
         // BuddyPress_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('buddypress_rows' === $snapshot['object_type']) {
             self::warn_if(BuddyPress_Rows_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // Crm_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('crm_rows' === $snapshot['object_type']) {
+            self::warn_if(Crm_Rows_Snapshot::restore($snapshot));
             return;
         }
 

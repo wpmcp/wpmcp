@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.146
+Stable tag: 0.8.149
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,11 +111,20 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.149 =
+* Internal: the changelog now lists the WordPress 6.9 global styles fix under 0.8.146, the release that shipped it. No change to the plugin itself.
+
+= 0.8.148 =
+* New (Pro): FluentCRM and MailPoet contacts, lists and tags. Agents can read contacts, lists, tags, custom fields, campaigns and automations, and create, update, tag, list and delete contacts and lists through each plugin's own API, so its hooks, automations and opt-in rules run. Every write can be undone with rollback-operation.
+* New contacts follow each plugin's opt-in rules. A contact who unsubscribed or bounced is never added back to a list, and an undo never sets them back to subscribed.
+
+= 0.8.147 =
+* Undoing a BuddyPress group create no longer deletes other members' data: once someone else has joined, been invited, been notified or posted in the group, the undo is refused with the reason and nothing is deleted.
+* Undoing a BuddyPress group create that holds only its own rows now deletes the group through BuddyPress itself, so no activity is left pointing at the deleted group.
+
 = 0.8.146 =
 * New: TablePress tables (paid tier). Agents can list, read, export, render and find where a table is placed, create tables, edit cells, insert and delete rows and columns, update options, copy, rename the id, delete, import CSV, JSON or HTML, and place a table on a page, all through TablePress's own table model. Every write is snapshotted and can be rolled back.
 * TablePress ops run on the existing plugin-data tools, so they add no tools where those tools already appear, and edits that would leave a table with rows of unequal length are refused.
-
-= 0.8.145 =
 * Fix: on WordPress 6.9, administrators without the unfiltered_html capability (multisite site admins, or sites that disallow unfiltered HTML) can save global styles again; palette changes were refused and rolled back whenever the styles contained a "/".
 
 = 0.8.145 =
@@ -743,11 +752,17 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Upgrade Notice ==
 
+= 0.8.149 =
+Internal: the changelog now lists the WordPress 6.9 global styles fix under 0.8.146, the release that shipped it. No change to the plugin itself.
+
+= 0.8.148 =
+New (Pro): FluentCRM and MailPoet contacts, lists and tags. Agents can read contacts, lists, tags, custom fields, campaigns and automations, and create, update, tag, list and delete contacts and lists through each plugin's own API, so its hooks, automations and opt-in rules run. Every write can be undone with rollback-operation.
+
+= 0.8.147 =
+Undoing a BuddyPress group create no longer deletes other members' data: once someone else has joined, been invited, been notified or posted in the group, the undo is refused with the reason and nothing is deleted.
+
 = 0.8.146 =
 New: TablePress tables (paid tier). Agents can list, read, export, render and find where a table is placed, create tables, edit cells, insert and delete rows and columns, update options, copy, rename the id, delete, import CSV, JSON or HTML, and place a table on a page, all through TablePress's own table model. Every write is snapshotted and can be rolled back.
-
-= 0.8.145 =
-Fix: on WordPress 6.9, administrators without the unfiltered_html capability (multisite site admins, or sites that disallow unfiltered HTML) can save global styles again; palette changes were refused and rolled back whenever the styles contained a "/".
 
 = 0.8.145 =
 New opt-in setting on the Connection screen, "Delete all WP MCP data when the plugin is deleted" (or define WPMCP_UNINSTALL_DELETE_DATA in wp-config.php): deleting the plugin then also removes its tables, settings, credentials and backup archives on every site. Off by default, so your data is kept.
