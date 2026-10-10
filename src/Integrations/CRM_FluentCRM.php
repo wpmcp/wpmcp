@@ -26,6 +26,16 @@ if (! defined('ABSPATH')) {
  * own contact update never lifts a suppressed status unless forced, and
  * nothing here forces it. A new contact is pending and is sent FluentCRM's
  * double opt-in email.
+ *
+ * Campaigns are fc_campaigns rows of type 'campaign': a draft is created
+ * and edited through the Campaign model with FluentCRM's campaign hooks
+ * (fluent_crm/campaign_created, campaign_data_updated,
+ * campaign_recipients_query_updated), and duplicated, tested and sent or
+ * scheduled by FluentCRM's own campaign controller, so its checks, its
+ * mailer and its sending pipeline run. A campaign's audience is the lists
+ * the op names, each with every tag ('list_tag' filtering); with none it
+ * has no recipients. Automations are set to published or draft through
+ * the Funnel model, and FluentCRM's trigger index is rebuilt.
  */
 class CRM_FluentCRM extends CRM_Adapter
 {
@@ -41,9 +51,15 @@ class CRM_FluentCRM extends CRM_Adapter
         'delete'        => 'fcrm_manage_contacts_delete',
         'groups'        => 'fcrm_manage_contact_cats',
         'groups_delete' => 'fcrm_manage_contact_cats_delete',
-        'campaigns'     => 'fcrm_read_emails',
-        'automations'   => 'fcrm_read_funnels',
+        'campaigns'         => 'fcrm_read_emails',
+        'campaigns_write'   => 'fcrm_manage_emails',
+        'automations'       => 'fcrm_read_funnels',
+        'automations_write' => 'fcrm_write_funnels',
     ];
+
+    private const CAMPAIGN = '\\FluentCrm\\App\\Models\\Campaign';
+
+    private const CAMPAIGN_CONTROLLER = '\\FluentCrm\\App\\Http\\Controllers\\CampaignController';
 
     public function slug(): string
     {
@@ -141,7 +157,7 @@ class CRM_FluentCRM extends CRM_Adapter
                 'double_optin_email' => true,
                 'direct_subscribe'   => $this->direct_subscribe_allowed(),
             ],
-            'campaign_send' => false,
+            'campaign_send' => $this->send_enabled(),
         ];
     }
 
@@ -314,7 +330,7 @@ class CRM_FluentCRM extends CRM_Adapter
 
     protected function campaign_statuses(): array
     {
-        return [ 'draft', 'pending', 'scheduled', 'working', 'paused', 'archived', 'incomplete' ];
+        return [ 'draft', 'pending', 'pending-scheduled', 'processing', 'scheduled', 'working', 'paused', 'archived', 'incomplete' ];
     }
 
     protected function campaign_page(?string $status, int $page, int $per_page): array
@@ -371,6 +387,119 @@ class CRM_FluentCRM extends CRM_Adapter
             'enrolled_total' => (int) ($counts[ $row['id'] ]['total'] ?? 0),
             'created_at'     => $row['created_at'] ?? null,
         ], $rows);
+    }
+
+    protected function campaign_kind(): string
+    {
+        return 'fluentcrm_campaign';
+    }
+
+    protected function campaign_send_kind(): string
+    {
+        return 'fluentcrm_campaign_send';
+    }
+
+    protected function automation_kind(): string
+    {
+        return 'fluentcrm_funnel';
+    }
+
+    protected function automation_statuses(): array
+    {
+        return [ 'published', 'draft' ];
+    }
+
+    protected function campaign_title_schema(): ?array
+    {
+        return [ 'type' => 'string', 'minLength' => 1, 'maxLength' => 190 ];
+    }
+
+    /** @return array<string, mixed>|null the fc_campaigns row of a campaign */
+    private static function campaign_row(int $id): ?array
+    {
+        global $wpdb;
+
+        if (! self::has_table(self::t('fc_campaigns'))) {
+            return null;
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- FluentCRM's own table, read live.
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM %i WHERE id = %d AND type = 'campaign'", self::t('fc_campaigns'), $id), ARRAY_A);
+        return is_array($row) ? $row : null;
+    }
+
+    /** @return int[] the lists a campaign row's audience names */
+    private static function campaign_lists(array $row): array
+    {
+        $settings = maybe_unserialize($row['settings'] ?? '');
+        $lists    = [];
+        foreach (is_array($settings) ? (array) ($settings['subscribers'] ?? []) : [] as $item) {
+            if (is_array($item) && is_numeric($item['list'] ?? null)) {
+                $lists[] = (int) $item['list'];
+            }
+        }
+        return array_values(array_unique($lists));
+    }
+
+    public function campaign(int $id): ?array
+    {
+        $row = self::campaign_row($id);
+        if (null === $row) {
+            return null;
+        }
+        return [
+            'id'           => (int) $row['id'],
+            'title'        => (string) $row['title'],
+            'subject'      => (string) ($row['email_subject'] ?? ''),
+            'preheader'    => (string) ($row['email_pre_header'] ?? ''),
+            'body'         => (string) ($row['email_body'] ?? ''),
+            'status'       => (string) $row['status'],
+            'lists'        => self::campaign_lists($row),
+            'recipients'   => 'draft' === $row['status'] ? $this->campaign_recipients($id) : (int) $row['recipients_count'],
+            'scheduled_at' => $row['scheduled_at'] ?? null,
+            'created_at'   => $row['created_at'] ?? null,
+            'updated_at'   => $row['updated_at'] ?? null,
+        ];
+    }
+
+    /** FluentCRM's own count of the subscribed contacts a campaign reaches. */
+    protected function campaign_recipients(int $id): int
+    {
+        global $wpdb;
+
+        $class = self::CAMPAIGN;
+        if (class_exists($class)) {
+            $campaign = $class::find($id);
+            $model    = null === $campaign ? null : $campaign->getSubscribersModel();
+            return null === $model ? 0 : (int) $model->count();
+        }
+        $row   = self::campaign_row($id);
+        $lists = null === $row ? [] : self::campaign_lists($row);
+        if ([] === $lists) {
+            return 0;
+        }
+        $in = implode(',', array_fill(0, count($lists), '%d'));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- FluentCRM's own tables; $in holds only %d placeholders.
+        return (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT s.id) FROM %i s JOIN %i p ON p.subscriber_id = s.id AND p.object_type = %s WHERE s.status = 'subscribed' AND p.object_id IN ($in)", self::t('fc_subscribers'), self::t('fc_subscriber_pivot'), self::LISTS, ...$lists));
+    }
+
+    protected function campaign_fields_refusal(array $fields, int $except): ?array
+    {
+        global $wpdb;
+
+        if (! isset($fields['title'])) {
+            return null;
+        }
+        // FluentCRM keeps campaign titles unique among campaigns.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- FluentCRM's own table, read live.
+        $taken = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM %i WHERE type = 'campaign' AND title = %s AND id <> %d LIMIT 1", self::t('fc_campaigns'), (string) $fields['title'], $except));
+        if (0 === $taken) {
+            return null;
+        }
+        return [
+            'code'    => 'campaign_exists',
+            'message' => sprintf('FluentCRM already has a campaign titled "%s" (%d); campaign titles are unique.', (string) $fields['title'], $taken),
+            'data'    => [ 'id' => $taken ],
+        ];
     }
 
     // ------------------------------------------------------------------
@@ -473,5 +602,160 @@ class CRM_FluentCRM extends CRM_Adapter
         $model::where('id', $id)->delete();
         do_action("fluent_crm/{$kind}_deleted", $id); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- FluentCRM's own hook, fired as its admin fires it.
         do_action("fluentcrm_{$kind}_deleted", $id); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- FluentCRM's own hook, fired as its admin fires it.
+    }
+
+    /** @return \FluentCrm\App\Models\Campaign */
+    private static function campaign_model(int $id)
+    {
+        $class    = self::CAMPAIGN;
+        $campaign = $class::find($id);
+        if (null === $campaign) {
+            throw new Operation_Error('campaign_not_found', sprintf('FluentCRM campaign %d does not exist.', $id));
+        }
+        return $campaign;
+    }
+
+    /**
+     * Point a campaign at its lists (every tag of each), and store the
+     * recipient count FluentCRM's schedule checks, the way FluentCRM's
+     * recipient step does. No lists, no recipients.
+     *
+     * @param \FluentCrm\App\Models\Campaign $campaign
+     * @param int[]                          $lists
+     */
+    private static function set_campaign_lists($campaign, array $lists): void
+    {
+        $settings                   = (array) $campaign->settings;
+        $settings['subscribers']    = array_map(static fn (int $list): array => [ 'list' => (string) $list, 'tag' => 'all' ], $lists);
+        $settings['sending_filter'] = 'list_tag';
+        $campaign->settings         = $settings;
+        $campaign->recipients_count = [] === $lists ? 0 : (int) $campaign->getSubscriberIdsCountBySegmentSettings($settings);
+        $campaign->save();
+        do_action('fluent_crm/campaign_recipients_query_updated', $campaign); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- FluentCRM's own hook, fired as its admin fires it.
+    }
+
+    /** @return array<string, string> fc_campaigns columns for the fields an op named */
+    private static function campaign_columns(array $fields): array
+    {
+        $out = [];
+        foreach ([ 'title' => 'title', 'subject' => 'email_subject', 'preheader' => 'email_pre_header', 'body' => 'email_body' ] as $field => $column) {
+            if (isset($fields[ $field ])) {
+                $out[ $column ] = (string) $fields[ $field ];
+            }
+        }
+        return class_exists('\\FluentCrm\\App\\Services\\Sanitize') ? \FluentCrm\App\Services\Sanitize::campaign($out) : $out;
+    }
+
+    protected function api_create_campaign(array $fields): int
+    {
+        global $wpdb;
+
+        $data = self::campaign_columns($fields);
+        if (! isset($data['title'])) {
+            // FluentCRM keeps titles unique; the subject names an untitled draft.
+            $base  = (string) ($data['email_subject'] ?? 'Campaign');
+            $title = $base;
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- FluentCRM's own table, read live.
+            for ($n = 2; 0 < (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE type = 'campaign' AND title = %s", self::t('fc_campaigns'), $title)); ++$n) {
+                $title = $base . ' ' . $n;
+            }
+            $data['title'] = $title;
+        }
+        $class    = self::CAMPAIGN;
+        $campaign = $class::create($data);
+        self::set_campaign_lists($campaign, (array) ($fields['lists'] ?? []));
+        do_action('fluent_crm/campaign_created', $campaign); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- FluentCRM's own hook, fired as its admin fires it.
+        return (int) $campaign->id;
+    }
+
+    protected function api_update_campaign(int $id, array $fields): void
+    {
+        $campaign = self::campaign_model($id);
+        $data     = self::campaign_columns($fields);
+        if ([] !== $data) {
+            $campaign->fill($data)->save();
+        }
+        if (isset($fields['lists'])) {
+            self::set_campaign_lists($campaign, (array) $fields['lists']);
+        }
+        do_action('fluent_crm/campaign_data_updated', self::campaign_model($id), $data); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- FluentCRM's own hook, fired as its admin fires it.
+    }
+
+    /**
+     * Run one of FluentCRM's campaign controller actions with exactly the
+     * request inputs it reads set, and put the shared request back after.
+     * A refusal (an error response, a validation failure) is the op's error.
+     *
+     * @param array<string, mixed>                                      $inputs
+     * @param callable(object $controller, object $request): mixed $call
+     * @return mixed the controller's result
+     */
+    private static function controller(array $inputs, callable $call)
+    {
+        $request = FluentCrm('request');
+        $before  = [];
+        foreach ($inputs as $key => $value) {
+            $before[ $key ] = $request->exists($key) ? [ $request->get($key) ] : null;
+            $request->set($key, $value);
+        }
+        try {
+            $class = self::CAMPAIGN_CONTROLLER;
+            $out   = $call(new $class(), $request);
+        } catch (Operation_Error $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            throw new Operation_Error('fluentcrm_refused', 'FluentCRM refused: ' . $e->getMessage());
+        } finally {
+            foreach ($before as $key => $was) {
+                null === $was ? $request->forget($key) : $request->set($key, $was[0]);
+            }
+        }
+        if ($out instanceof \WP_REST_Response) {
+            $data = (array) $out->get_data();
+            if ($out->get_status() >= 400) {
+                throw new Operation_Error('fluentcrm_refused', 'FluentCRM refused: ' . wp_strip_all_tags((string) ($data['message'] ?? 'the request failed.')), [ 'status' => $out->get_status() ]);
+            }
+            return $data;
+        }
+        return $out;
+    }
+
+    protected function api_duplicate_campaign(int $id): int
+    {
+        $out  = (array) self::controller([], static fn ($controller, $request) => $controller->duplicateCampaign($request, $id));
+        $copy = $out['campaign'] ?? null;
+        if (! is_object($copy) || empty($copy->id)) {
+            throw new Operation_Error('write_failed', 'FluentCRM did not duplicate the campaign.');
+        }
+        return (int) $copy->id;
+    }
+
+    protected function api_send_test(int $id, string $email): void
+    {
+        $out = (array) self::controller([ 'test_campaign' => 'no', 'campaign_id' => $id, 'email' => $email ], static fn ($controller) => $controller->sendTestEmail());
+        if (empty($out['result'])) {
+            throw new Operation_Error('send_failed', 'FluentCRM could not send the test email (its mailer reported a failure).');
+        }
+    }
+
+    protected function api_send_campaign(int $id, ?string $at): void
+    {
+        // FluentCRM schedules only a draft whose stored count is current.
+        $campaign                   = self::campaign_model($id);
+        $campaign->recipients_count = $this->campaign_recipients($id);
+        $campaign->save();
+        self::controller([ 'scheduled_at' => $at ?? '', 'sending_type' => 'schedule' ], static fn ($controller, $request) => $controller->schedule($request, $id));
+    }
+
+    protected function api_set_automation_status(int $id, string $status): void
+    {
+        $funnel = \FluentCrm\App\Models\Funnel::find($id);
+        if (null === $funnel) {
+            throw new Operation_Error('automation_not_found', sprintf('FluentCRM automation %d does not exist.', $id));
+        }
+        $funnel->status = $status;
+        $funnel->save();
+        // FluentCRM rebuilds its index of active triggers when an automation is published or unpublished.
+        ( new \FluentCrm\App\Hooks\Handlers\FunnelHandler() )->resetFunnelIndexes();
     }
 }

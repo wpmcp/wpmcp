@@ -46,6 +46,10 @@ if ( ! function_exists( 'wpmcp_test_crm_tables' ) ) {
 			'mailpoet_scheduled_tasks',
 			'mailpoet_automations',
 			'mailpoet_automation_runs',
+			'fc_term_relations',
+			'mailpoet_newsletter_option',
+			'mailpoet_newsletter_option_fields',
+			'mailpoet_automation_versions',
 		];
 	}
 }
@@ -474,6 +478,43 @@ if ( ! function_exists( 'wpmcp_test_create_crm_tables' ) ) {
 			`created_at` timestamp NULL DEFAULT NULL,
 			`updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
 			`next_step_id` varchar(191) DEFAULT NULL,
+			PRIMARY KEY (`id`)
+		) {$charset}" );
+		$wpdb->query( "CREATE TABLE {$p}fc_term_relations (
+			`id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			`term_id` bigint(20) unsigned DEFAULT NULL,
+			`object_type` varchar(192) NOT NULL,
+			`object_id` bigint(20) DEFAULT NULL,
+			`settings` longtext DEFAULT NULL,
+			`created_at` timestamp NULL DEFAULT NULL,
+			`updated_at` timestamp NULL DEFAULT NULL,
+			PRIMARY KEY (`id`)
+		) {$charset}" );
+		$wpdb->query( "CREATE TABLE {$p}mailpoet_newsletter_option_fields (
+			`id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+			`name` varchar(90) NOT NULL,
+			`newsletter_type` varchar(90) NOT NULL,
+			`created_at` timestamp NULL DEFAULT NULL,
+			`updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+			PRIMARY KEY (`id`),
+			UNIQUE KEY (`newsletter_type`,`name`)
+		) {$charset}" );
+		$wpdb->query( "CREATE TABLE {$p}mailpoet_newsletter_option (
+			`id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+			`newsletter_id` int(11) unsigned NOT NULL,
+			`option_field_id` int(11) unsigned NOT NULL,
+			`value` longtext DEFAULT NULL,
+			`created_at` timestamp NULL DEFAULT NULL,
+			`updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+			PRIMARY KEY (`id`),
+			UNIQUE KEY (`newsletter_id`,`option_field_id`)
+		) {$charset}" );
+		$wpdb->query( "CREATE TABLE {$p}mailpoet_automation_versions (
+			`id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+			`automation_id` int(11) unsigned NOT NULL,
+			`steps` longtext DEFAULT NULL,
+			`created_at` timestamp NULL DEFAULT NULL,
+			`updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
 			PRIMARY KEY (`id`)
 		) {$charset}" );
 		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared

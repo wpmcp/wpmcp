@@ -24,7 +24,18 @@ if (! defined('ABSPATH')) {
  *  - mailpoet_subscriber:    the mailpoet_subscribers row, its list
  *                            memberships, custom field values and tags;
  *  - mailpoet_list / _tag:   the mailpoet_segments or mailpoet_tags row and
- *                            every membership in it.
+ *                            every membership in it;
+ *  - fluentcrm_campaign:     the fc_campaigns row with its fc_meta rows and
+ *                            labels (fc_term_relations), for a draft;
+ *  - mailpoet_newsletter:    the mailpoet_newsletters row with its lists
+ *                            (mailpoet_newsletter_segment) and options, for
+ *                            a draft;
+ *  - fluentcrm_campaign_send / mailpoet_newsletter_send: the same rows,
+ *                            before a test email or a send. Mail cannot be
+ *                            unsent, so refusal() refuses every undo of one;
+ *  - fluentcrm_funnel:       the fc_funnels row (an automation's status);
+ *  - mailpoet_automation:    the mailpoet_automations row and its
+ *                            mailpoet_automation_versions rows.
  * A kind's optional sets are left out while their table is missing.
  *
  * A create has no id when its snapshot is taken: it is keyed "<kind>:0" and
@@ -46,12 +57,17 @@ if (! defined('ABSPATH')) {
  *    set back to a status that would mail it again, even when the write
  *    itself made that change;
  *  - a created list or tag that has gained members since is left in place.
- * Each such row is reported in the restore's warning.
+ * Each such row is reported in the restore's warning. A campaign that is no
+ * longer the draft the write left (scheduled or sent since) is not restored
+ * at all, and neither is a send (refusal()).
  *
  * Restoring takes the plugin's own permission: FluentCRM's contact manager
  * permission (fcrm_manage_contacts, which FluentCRM grants every
- * manage_options user), or MailPoet's mailpoet_manage_subscribers for a
- * subscriber and mailpoet_manage_segments for a list or tag.
+ * manage_options user), fcrm_manage_emails for a campaign and
+ * fcrm_write_funnels for an automation, or MailPoet's
+ * mailpoet_manage_subscribers for a subscriber, mailpoet_manage_segments for
+ * a list or tag, mailpoet_manage_emails for a newsletter and
+ * mailpoet_manage_automations for an automation.
  */
 final class Crm_Rows_Snapshot
 {
@@ -60,6 +76,44 @@ final class Crm_Rows_Snapshot
     private const FLUENTCRM_LIST = 'FluentCrm\\App\\Models\\Lists';
 
     private const FLUENTCRM_TAG = 'FluentCrm\\App\\Models\\Tag';
+
+    private const FLUENTCRM_CAMPAIGN = 'FluentCrm\\App\\Models\\Campaign';
+
+    /** The campaign sets, shared by a draft write and a send. */
+    private const FLUENTCRM_CAMPAIGN_SETS = [
+        [ 'fc_campaigns', 'id' ],
+        [ 'fc_meta', 'object_id', false, [ 'object_type' => self::FLUENTCRM_CAMPAIGN ] ],
+        [ 'fc_term_relations', 'object_id', true, [ 'object_type' => self::FLUENTCRM_CAMPAIGN ] ],
+    ];
+
+    private const MAILPOET_NEWSLETTER_SETS = [
+        [ 'mailpoet_newsletters', 'id' ],
+        [ 'mailpoet_newsletter_segment', 'newsletter_id' ],
+        [ 'mailpoet_newsletter_option', 'newsletter_id', true ],
+    ];
+
+    /** Kinds whose snapshot is taken before mail goes out; never undone. */
+    private const SEND_KINDS = [ 'fluentcrm_campaign_send', 'mailpoet_newsletter_send' ];
+
+    /** Kinds of a campaign draft: undone only while it is still that draft. */
+    private const CAMPAIGN_KINDS = [ 'fluentcrm_campaign', 'mailpoet_newsletter' ];
+
+    /** kind => the WordPress capability MailPoet manages it with. */
+    private const MAILPOET_CAPABILITIES = [
+        'mailpoet_subscriber'      => 'mailpoet_manage_subscribers',
+        'mailpoet_list'            => 'mailpoet_manage_segments',
+        'mailpoet_tag'             => 'mailpoet_manage_segments',
+        'mailpoet_newsletter'      => 'mailpoet_manage_emails',
+        'mailpoet_newsletter_send' => 'mailpoet_manage_emails',
+        'mailpoet_automation'      => 'mailpoet_manage_automations',
+    ];
+
+    /** kind => the FluentCRM permission it is managed with (default: contacts). */
+    private const FLUENTCRM_PERMISSIONS = [
+        'fluentcrm_campaign'      => 'fcrm_manage_emails',
+        'fluentcrm_campaign_send' => 'fcrm_manage_emails',
+        'fluentcrm_funnel'        => 'fcrm_write_funnels',
+    ];
 
     /**
      * kind => plugin and row sets. Each set is [table, key column, optional,
@@ -124,6 +178,33 @@ final class Crm_Rows_Snapshot
                 [ 'mailpoet_subscriber_tag', 'tag_id' ],
             ],
         ],
+        'fluentcrm_campaign'       => [
+            'plugin' => 'fluentcrm',
+            'sets'   => self::FLUENTCRM_CAMPAIGN_SETS,
+        ],
+        'fluentcrm_campaign_send'  => [
+            'plugin' => 'fluentcrm',
+            'sets'   => self::FLUENTCRM_CAMPAIGN_SETS,
+        ],
+        'fluentcrm_funnel'         => [
+            'plugin' => 'fluentcrm',
+            'sets'   => [ [ 'fc_funnels', 'id' ] ],
+        ],
+        'mailpoet_newsletter'      => [
+            'plugin' => 'mailpoet',
+            'sets'   => self::MAILPOET_NEWSLETTER_SETS,
+        ],
+        'mailpoet_newsletter_send' => [
+            'plugin' => 'mailpoet',
+            'sets'   => self::MAILPOET_NEWSLETTER_SETS,
+        ],
+        'mailpoet_automation'      => [
+            'plugin' => 'mailpoet',
+            'sets'   => [
+                [ 'mailpoet_automations', 'id' ],
+                [ 'mailpoet_automation_versions', 'automation_id', true ],
+            ],
+        ],
     ];
 
     /**
@@ -138,6 +219,12 @@ final class Crm_Rows_Snapshot
         'fc_subscribers'              => [ 'status', [ 'unsubscribed', 'bounced', 'complained', 'spammed' ], true ],
         'mailpoet_subscribers'        => [ 'status', [ 'unsubscribed', 'bounced', 'inactive' ], true ],
         'mailpoet_subscriber_segment' => [ 'status', [ 'unsubscribed' ], false ],
+        // An automation's status, kept when someone changed it since.
+        'fc_funnels'                  => [ 'status', [], false ],
+        'mailpoet_automations'        => [ 'status', [], false ],
+        // A campaign's status: refusal() refuses the undo once it changed.
+        'fc_campaigns'                => [ 'status', [], false ],
+        'mailpoet_newsletters'        => [ 'status', [], false ],
     ];
 
     /** The snapshot key for one object; 0 for a create whose id is not known yet. */
@@ -271,6 +358,10 @@ final class Crm_Rows_Snapshot
         if (! isset(self::KINDS[ $kind ]) || $id <= 0 || empty($data['tables_exist'])) {
             return null;
         }
+        $refused = self::refusal($snapshot);
+        if (null !== $refused) {
+            return $refused;
+        }
         self::authorize($kind);
 
         $sets = array_map(static fn ($set): array => (array) $set, (array) ($data['sets'] ?? []));
@@ -288,15 +379,21 @@ final class Crm_Rows_Snapshot
         // A created contact whose status changed since (a confirmed opt-in,
         // an unsubscribe) stays whole.
         if (in_array($id, array_map('intval', (array) ($created[ $primary ] ?? [])), true)) {
-            if ('contact' !== self::family($kind)) {
+            if ('group' === self::family($kind)) {
                 $foreign = self::foreign_rows($sets, $created);
                 if ($foreign > 0) {
                     return sprintf('The %s this operation created has %d member(s) added since and was left in place.', str_replace('_', ' ', $kind), $foreign);
                 }
             }
             $now = self::rows_by_id($primary, [ $id ])[0] ?? null;
-            if (null !== $now && null !== self::kept_status($primary, $now, null, $after)) {
+            if ('contact' === self::family($kind) && null !== $now && null !== self::kept_status($primary, $now, null, $after)) {
                 return sprintf('The contact this operation created has changed its subscription status since (now %s) and was left in place.', (string) $now[ self::STATUS[ $primary ][0] ]);
+            }
+            // A created campaign goes with every row that belongs to it.
+            if ('other' === self::family($kind)) {
+                foreach (array_slice($sets, 1) as $set) {
+                    $created[ (string) $set['table'] ] = array_merge(array_map('intval', (array) ($created[ (string) $set['table'] ] ?? [])), array_map(static fn (array $row): int => (int) $row['id'], self::rows($set)));
+                }
             }
         }
 
@@ -339,7 +436,7 @@ final class Crm_Rows_Snapshot
             }
         }
 
-        self::flush(self::plugin($kind));
+        self::flush(self::plugin($kind), $kind);
 
         return [] === $kept ? null : sprintf(
             'CRM rows left as they are, because restoring them would override a subscription choice: %s.',
@@ -351,8 +448,12 @@ final class Crm_Rows_Snapshot
      * Tell the plugin its rows changed under it. MailPoet keeps loaded
      * entities in its Doctrine entity manager for the rest of the request.
      */
-    public static function flush(string $plugin): void
+    public static function flush(string $plugin, string $kind = ''): void
     {
+        // FluentCRM indexes the triggers of its published automations.
+        if ('fluentcrm_funnel' === $kind && class_exists('\\FluentCrm\\App\\Hooks\\Handlers\\FunnelHandler')) {
+            ( new \FluentCrm\App\Hooks\Handlers\FunnelHandler() )->resetFunnelIndexes();
+        }
         if ('mailpoet' !== $plugin || ! class_exists('\\MailPoet\\DI\\ContainerWrapper') || ! class_exists('\\MailPoetVendor\\Doctrine\\ORM\\EntityManager')) {
             return;
         }
@@ -372,24 +473,73 @@ final class Crm_Rows_Snapshot
     {
         if ('fluentcrm' === self::plugin($kind)) {
             if (class_exists('\\FluentCrm\\App\\Services\\PermissionManager')) {
-                return (bool) \FluentCrm\App\Services\PermissionManager::currentUserCan('fcrm_manage_contacts');
+                return (bool) \FluentCrm\App\Services\PermissionManager::currentUserCan(self::FLUENTCRM_PERMISSIONS[ $kind ] ?? 'fcrm_manage_contacts');
             }
             return current_user_can('manage_options');
         }
         if ('mailpoet' === self::plugin($kind)) {
-            return current_user_can('mailpoet_subscriber' === $kind ? 'mailpoet_manage_subscribers' : 'mailpoet_manage_segments');
+            return current_user_can(self::mailpoet_capability($kind));
         }
         return false;
+    }
+
+    /** The WordPress capability MailPoet manages a kind with. */
+    public static function mailpoet_capability(string $kind): string
+    {
+        return self::MAILPOET_CAPABILITIES[ $kind ] ?? 'mailpoet_manage_segments';
+    }
+
+    /**
+     * Why an undo of this snapshot is refused outright, or null: mail a
+     * send or a test sent cannot be unsent, and a campaign that is no
+     * longer the draft the write left (scheduled or sent since) is not
+     * edited back or deleted.
+     */
+    public static function refusal(array $snapshot): ?string
+    {
+        if (self::TYPE !== ($snapshot['object_type'] ?? '')) {
+            return null;
+        }
+        $data  = (array) ($snapshot['data'] ?? []);
+        $kind  = (string) ($data['kind'] ?? '');
+        $label = 'mailpoet' === self::plugin($kind) ? 'MailPoet' : 'FluentCRM';
+        if (in_array($kind, self::SEND_KINDS, true)) {
+            if ('test' === ($data['sent'] ?? '')) {
+                return sprintf('it sent a test email to %s; mail cannot be unsent, and the operation changed nothing else.', (string) ($data['to'] ?? 'the current user'));
+            }
+            return sprintf(
+                '%s %s campaign %d to %d recipient(s); mail cannot be unsent.%s',
+                'schedule' === ($data['sent'] ?? '') ? 'it scheduled' : 'it sent',
+                $label,
+                (int) ($data['id'] ?? 0),
+                (int) ($data['recipients'] ?? 0),
+                'schedule' === ($data['sent'] ?? '') ? sprintf(' A scheduled campaign can still be cancelled in %s before it goes out.', $label) : ''
+            );
+        }
+        $id = (int) ($data['id'] ?? 0);
+        if (! in_array($kind, self::CAMPAIGN_KINDS, true) || $id <= 0 || empty($data['tables_exist'])) {
+            return null;
+        }
+        $primary = (string) self::KINDS[ $kind ]['sets'][0][0];
+        $left    = ((array) ($data['after'][ $primary ] ?? []))[ $id ] ?? null;
+        $now     = self::tables_exist($primary) ? (self::rows_by_id($primary, [ $id ])[0] ?? null) : null;
+        if (null === $left || null === $now || (string) $left === (string) $now['status']) {
+            return null;
+        }
+        return sprintf('%s campaign %d is no longer a draft (now %s): it was scheduled or sent since, so it is not changed back.', $label, $id, (string) $now['status']);
     }
 
     // -----------------------------------------------------------------
     // Internals
     // -----------------------------------------------------------------
 
-    /** 'contact' or 'group' (a list or tag). */
+    /** 'contact', 'group' (a list or tag) or 'other' (a campaign or an automation). */
     private static function family(string $kind): string
     {
-        return in_array($kind, [ 'fluentcrm_contact', 'fluentcrm_contact_full', 'mailpoet_subscriber' ], true) ? 'contact' : 'group';
+        if (in_array($kind, [ 'fluentcrm_contact', 'fluentcrm_contact_full', 'mailpoet_subscriber' ], true)) {
+            return 'contact';
+        }
+        return in_array($kind, [ 'fluentcrm_list', 'fluentcrm_tag', 'mailpoet_list', 'mailpoet_tag' ], true) ? 'group' : 'other';
     }
 
     /** @return string[] every table any kind covers, unprefixed. */
@@ -569,7 +719,7 @@ final class Crm_Rows_Snapshot
         global $wpdb;
 
         $column = (string) ($set['column'] ?? '');
-        if (! in_array($column, [ 'id', 'subscriber_id', 'object_id', 'segment_id', 'tag_id' ], true)) {
+        if (! in_array($column, [ 'id', 'subscriber_id', 'object_id', 'segment_id', 'tag_id', 'newsletter_id', 'automation_id' ], true)) {
             throw new \InvalidArgumentException('Not a CRM key column.');
         }
         $sql  = '%i = %d';
