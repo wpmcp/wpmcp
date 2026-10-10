@@ -37,6 +37,12 @@ class Trigger_Backup
             return new \WP_Error('wpmcp_backup_schedule_invalid', 'keep applies to a schedule: pass every as well.');
         }
 
+        // A schedule change is gated and audit logged by Backup_Schedule
+        // above; a one-off job is held to the same scope here (issue #525).
+        if (! Network_Scope::allows_current_user()) {
+            return new \WP_Error('wpmcp_backup_network_only', 'A backup on a multisite network holds every site\'s tables and the network users, so it needs a network administrator (manage_network_options).');
+        }
+
         $job = Backup_Job_Store::create($type, $scope);
 
         wp_schedule_single_event(time(), Run_Backup_Job::HOOK, [$job['id']]);
