@@ -3,6 +3,7 @@
 namespace WPMCP\Pro\Chat;
 
 use WPMCP\Pro\Gate;
+use WPMCP\Admin\Management_Access;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -25,7 +26,7 @@ if (! defined('ABSPATH')) {
  * stored when the model proposed it, with a single-use Approval_Gate token
  * minted for exactly that call.
  *
- * All routes fail closed: manage_options AND Pro\Gate::is_pro() are both
+ * All routes fail closed: the management capability AND Pro\Gate::is_pro() are both
  * required, checked server-side per request, and the REST cookie nonce
  * applies as for every wp-json route.
  */
@@ -200,7 +201,7 @@ class Chat_Rest_Controller
      */
     public function permission_check(): bool
     {
-        return current_user_can('manage_options') && Gate::is_pro();
+        return current_user_can(Management_Access::CAPABILITY) && Gate::is_pro();
     }
 
     public function store_key(\WP_REST_Request $request): \WP_REST_Response

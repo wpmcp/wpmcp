@@ -3,6 +3,7 @@
 namespace WPMCP\Memory;
 
 use WPMCP\Safety\Save_Filters;
+use WPMCP\Admin\Management_Access;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -55,7 +56,8 @@ class Memory_Store
      * Registers the CPT. show_ui is on (with show_in_menu off, the wpmcp menu
      * adds the submenu itself) so approving a proposal is the ordinary
      * WordPress publish flow rather than a bespoke admin screen. Every
-     * capability maps to manage_options: publishing an entry can silence a
+     * capability maps to the management capability (manage_options narrowed
+     * by the issue #479 policy): publishing an entry can silence a
      * guardrail or inject instructions into every agent session, which is the
      * same trust level as the rest of wpmcp's admin surface.
      */
@@ -86,14 +88,14 @@ class Memory_Store
             'capability_type' => 'post',
             'map_meta_cap'    => true,
             'capabilities'    => [
-                'edit_posts'           => 'manage_options',
-                'edit_others_posts'    => 'manage_options',
-                'edit_private_posts'   => 'manage_options',
-                'edit_published_posts' => 'manage_options',
-                'publish_posts'        => 'manage_options',
-                'read_private_posts'   => 'manage_options',
-                'create_posts'         => 'manage_options',
-                'delete_posts'         => 'manage_options',
+                'edit_posts'           => Management_Access::CAPABILITY,
+                'edit_others_posts'    => Management_Access::CAPABILITY,
+                'edit_private_posts'   => Management_Access::CAPABILITY,
+                'edit_published_posts' => Management_Access::CAPABILITY,
+                'publish_posts'        => Management_Access::CAPABILITY,
+                'read_private_posts'   => Management_Access::CAPABILITY,
+                'create_posts'         => Management_Access::CAPABILITY,
+                'delete_posts'         => Management_Access::CAPABILITY,
             ],
         ]);
     }

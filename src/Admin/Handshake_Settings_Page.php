@@ -14,7 +14,7 @@ if (! defined('ABSPATH')) {
  * textarea whose contents are served, merged with the auto-generated site
  * summary, in the MCP initialize response's `instructions` field - i.e. to
  * EVERY agent that connects, before authorization-gated context is added.
- * Gated at manage_options like the other wpmcp admin screens.
+ * Gated at the management capability like the other wpmcp admin screens.
  *
  * Saved through the Settings API (options.php) so the sanitize callback
  * below is the single write path from this UI: markup is stripped (with

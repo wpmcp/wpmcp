@@ -9,7 +9,8 @@
 # WPMCP_LIVE_BLOCKS=1, Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks
 # only (bin/test-local.sh --live-blocks), or, with WPMCP_LIVE_BUDDYPRESS=1,
 # BuddyPress only (bin/test-local.sh --live-buddypress), or, with
-# WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
+# WPMCP_LIVE_TABLEPRESS=1, TablePress only (bin/test-local.sh --live-tablepress), or,
+# with WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
 # --live-crm). The script
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
@@ -99,6 +100,15 @@ if [ "${WPMCP_LIVE_LMS:-}" = "tutor" ]; then
 elif [ "${WPMCP_LIVE_LMS:-}" = "lifterlms" ]; then
 	PLUGINS=(
 		"lifterlms:lifterlms.php"
+	)
+fi
+
+# The live TablePress job (issue #481) runs the TablePress ops through the
+# real TablePress. Exclusive too: the stub-backed TablePress tests define a
+# stand-in TablePress class, which the real plugin would contradict.
+if [ "${WPMCP_LIVE_TABLEPRESS:-}" = "1" ]; then
+	PLUGINS=(
+		"tablepress:tablepress.php"
 	)
 fi
 

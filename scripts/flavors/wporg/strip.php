@@ -1118,7 +1118,7 @@ $plugin_edits[] = [
 $plugin_edits[] = [
     "        // In-admin AI chat (issue #73): the chat drives the same governed\n"
         . "        // ability surface as external MCP clients under the admin's own\n"
-        . "        // identity, so viewing the screen is manage_options like the rest.\n"
+        . "        // identity, so viewing the screen needs the management capability.\n"
         . "        // The entry appears only where the feature can actually run: no dead\n"
         . "        // menu item and no locked screen on installs without it.\n"
         . "        if (Gate::is_pro()) {\n"
@@ -1126,7 +1126,7 @@ $plugin_edits[] = [
         . "                'wpmcp',\n"
         . "                self::page_title(__('Chat', 'wpmcp')),\n"
         . "                __('Chat', 'wpmcp'),\n"
-        . "                'manage_options',\n"
+        . "                Management_Access::CAPABILITY,\n"
         . "                Chat_Page::SLUG,\n"
         . "                [new Chat_Page(), 'render']\n"
         . "            );\n"
@@ -1375,7 +1375,8 @@ $edits['src/Plugin.php'][] = [
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
     // The CRM ops (issue #477) are the paid add-on's too, removed by
-    // policy.php; their lines go first, so the LMS edits below still match.
+    // policy.php; their lines go first, so the LMS and TablePress edits below
+    // still match.
     [
         " *  - Issue #477 adds the paid-tier CRM ops (CRM_Pack): FluentCRM and\n"
             . " *    MailPoet contacts, lists, tags, campaigns and automations, with writes\n"
@@ -1384,54 +1385,78 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "            || LMS_Pack::active()\n"
+        "            || TablePress_Pack::active()\n"
             . "            || CRM_Pack::active();\n",
-        "            || LMS_Pack::active();\n",
+        "            || TablePress_Pack::active();\n",
         1,
     ],
     [
-        "            . ', Tutor LMS and LifterLMS courses'\n"
+        "            . ', Tutor LMS and LifterLMS courses, TablePress tables'\n"
             . "            . ', FluentCRM and MailPoet';\n",
-        "            . ', Tutor LMS and LifterLMS courses';\n",
+        "            . ', Tutor LMS and LifterLMS courses, TablePress tables';\n",
         1,
     ],
     [
-        "            LMS_Pack::operations(),\n"
+        "            TablePress_Pack::operations(),\n"
             . "            CRM_Pack::operations()\n",
-        "            LMS_Pack::operations()\n",
+        "            TablePress_Pack::operations()\n",
         1,
     ],
     [
         " *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS and\n"
             . " *    LifterLMS course, section, lesson and quiz trees with snapshotted\n"
-            . " *    writes, and read-only enrollments.\n",
+            . " *    writes, and read-only enrollments.\n"
+            . " *  - Issue #481 adds the paid-tier TablePress ops (TablePress_Pack): tables\n"
+            . " *    read, edited cell by cell, imported, exported and placed through\n"
+            . " *    TablePress's own table model, with snapshotted writes.\n",
         '',
         1,
     ],
     [
         " * The pair registers only while at least one of them is loaded (the LMS\n"
-            . " * ops only on an install that may run the paid tier), and\n",
+            . " * and TablePress ops only on an install that may run the paid tier), and\n",
         " * The pair registers only while at least one of them is loaded, and\n",
         1,
     ],
     [
         " || BuddyPress_Pack::active()\n"
-            . "            || LMS_Pack::active();\n",
+            . "            || LMS_Pack::active()\n"
+            . "            || TablePress_Pack::active();\n",
         " || BuddyPress_Pack::active();\n",
         1,
     ],
     [
         "        return 'JetEngine and Pods fields, TranslatePress strings, BuddyPress community data'\n"
-            . "            . ', Tutor LMS and LifterLMS courses';\n",
+            . "            . ', Tutor LMS and LifterLMS courses, TablePress tables';\n",
         "        return 'JetEngine and Pods fields, TranslatePress strings, BuddyPress community data';\n",
         1,
     ],
     [
         "            BuddyPress_Pack::operations(),\n"
-            . "            LMS_Pack::operations()\n",
+            . "            LMS_Pack::operations(),\n"
+            . "            TablePress_Pack::operations()\n",
         "            BuddyPress_Pack::operations()\n",
         1,
     ],
+];
+$edits['src/Plugin.php'][] = [
+    "            // TablePress registers its post type without core's meta\n"
+        . "            // capability mapping; a rollback of a table snapshot asks for\n"
+        . "            // edit_post on it, mapped onto TablePress's own capabilities (#481).\n"
+        . "            if (class_exists(\\WPMCP\\Integrations\\TablePress_Pack::class)) {\n"
+        . "                add_filter('map_meta_cap', [\\WPMCP\\Integrations\\TablePress_Pack::class, 'map_post_caps'], 10, 4);\n"
+        . "            }\n",
+    '',
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "        // A TablePress write dropped the table's render cache, and TablePress\n"
+        . "        // keeps its table id map in memory; a rollback of either drops the\n"
+        . "        // cache and refreshes the map (issue #481).\n"
+        . "        [\\WPMCP\\Integrations\\TablePress_Pack::class, 'after_options_restored'],\n"
+        . "        [\\WPMCP\\Integrations\\TablePress_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],\n",
+    '',
+    1,
 ];
 $edits['src/Plugin.php'][] = [
     "        // An Elementor addon module toggle dropped the suite's cached module\n"
