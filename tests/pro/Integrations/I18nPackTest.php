@@ -443,6 +443,12 @@ class I18nPackTest extends \WP_UnitTestCase
         $source = $this->elementor_page();
         update_post_meta($source, '_yoast_wpseo_metadesc', 'We build houses.');
         $new          = (int) $this->ok($this->write('create-translation', [ 'post_id' => $source, 'language' => 'de' ]))['result']['post_id'];
+        // A draft's date floats (post_date_gmt stays zero) and core moves it
+        // to now on every save unless told otherwise; an old one shows
+        // whether the rollback puts it back.
+        global $wpdb;
+        $wpdb->update($wpdb->posts, [ 'post_date' => '2020-01-02 03:04:05' ], [ 'ID' => $new ]);
+        clean_post_cache($new);
         $source_state = $this->stored($source);
         $before       = $this->stored($new);
         $text         = $this->ok($this->read('get-page-text', [ 'post_id' => $new ]))['result'];
