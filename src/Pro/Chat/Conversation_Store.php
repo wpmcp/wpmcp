@@ -2,6 +2,9 @@
 
 namespace WPMCP\Pro\Chat;
 
+use WPMCP\Privacy\Personal_Data;
+use WPMCP\Privacy\Snapshot_Redactor;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -193,6 +196,159 @@ class Conversation_Store
         // Multisite: a user detached from this site also has their posts
         // reassigned, so the same leak applies.
         add_action('remove_user_from_blog', [self::class, 'purge_for_user']);
+        // A personal data erasure is the same request made without deleting
+        // the account (issue #478), so the conversations take part in
+        // WordPress's export and erasure screens from here too.
+        add_filter('wp_privacy_personal_data_exporters', [self::class, 'privacy_exporters'], Personal_Data::PRIORITY);
+        add_filter('wp_privacy_personal_data_erasers', [self::class, 'privacy_erasers'], Personal_Data::PRIORITY);
+    }
+
+    /** Key of the chat exporter and eraser. */
+    public const PRIVACY_KEY = 'wpmcp-chat';
+
+    public static function privacy_exporters($list): array
+    {
+        $list                       = (array) $list;
+        $list[ self::PRIVACY_KEY ] = [ 'exporter_friendly_name' => __('WP MCP chat', 'wpmcp'), 'callback' => [ self::class, 'export_personal_data' ] ];
+        return $list;
+    }
+
+    public static function privacy_erasers($list): array
+    {
+        $list                       = (array) $list;
+        $list[ self::PRIVACY_KEY ] = [ 'eraser_friendly_name' => __('WP MCP chat', 'wpmcp'), 'callback' => [ self::class, 'erase_personal_data' ] ];
+        return $list;
+    }
+
+    /**
+     * Conversation ids after $after that the person owns or whose title or
+     * messages hold their email, one page.
+     *
+     * @return int[]
+     */
+    private static function privacy_ids(string $email, int $user_id, int $after): array
+    {
+        global $wpdb;
+        $like = '%' . $wpdb->esc_like($email) . '%';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- one bounded page of a privacy request over the private chat post type; ownership, title and the messages meta must be ORed together, which WP_Query cannot do.
+        $ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT p.ID FROM {$wpdb->posts} p WHERE p.post_type = %s AND p.ID > %d AND ((%d > 0 AND p.post_author = %d) OR p.post_title LIKE %s OR EXISTS (SELECT 1 FROM {$wpdb->postmeta} m WHERE m.post_id = p.ID AND m.meta_key = %s AND m.meta_value LIKE %s)) ORDER BY p.ID ASC LIMIT %d",
+            self::POST_TYPE,
+            $after,
+            $user_id,
+            $user_id,
+            $like,
+            self::MESSAGES_META,
+            $like,
+            Personal_Data::ROW_PAGE
+        ));
+        return array_map('intval', (array) $ids);
+    }
+
+    /** Export: the person's own conversations whole, and from anyone else's only the turns that quote them. */
+    public static function export_personal_data($email, $page = 1): array
+    {
+        $email = trim((string) $email);
+        if ('' === $email) {
+            return [ 'data' => [], 'done' => true ];
+        }
+        $user_id = Personal_Data::user_id($email);
+        $ids     = self::privacy_ids($email, $user_id, Personal_Data::cursor('export-chat', $email, (int) $page));
+        $items   = [];
+        foreach ($ids as $id) {
+            $post = get_post($id);
+            if (! $post) {
+                continue;
+            }
+            $own      = $user_id > 0 && (int) $post->post_author === $user_id;
+            $messages = get_post_meta($id, self::MESSAGES_META, true);
+            $fields   = [
+                __('Conversation', 'wpmcp')  => $post->post_title,
+                __('Started (UTC)', 'wpmcp') => $post->post_date_gmt,
+                __('Owned by this account', 'wpmcp') => $own ? __('yes', 'wpmcp') : null,
+            ];
+            foreach (is_array($messages) ? $messages : [] as $n => $message) {
+                if (! is_array($message) || (! $own && ! Snapshot_Redactor::contains_email($message, $email))) {
+                    continue;
+                }
+                $name            = sprintf('%s %d (%s, %s UTC)', __('Message', 'wpmcp'), $n + 1, (string) ($message['role'] ?? ''), gmdate('Y-m-d H:i:s', (int) ($message['time'] ?? 0)));
+                $fields[ $name ] = (string) ($message['content'] ?? '');
+            }
+            $items[] = Personal_Data::item(
+                self::PRIVACY_KEY,
+                __('WP MCP chat', 'wpmcp'),
+                __('Conversations with the AI chat in wp-admin.', 'wpmcp'),
+                'wpmcp-chat-' . $id,
+                $fields
+            );
+        }
+        $done = count($ids) < Personal_Data::ROW_PAGE;
+        Personal_Data::advance('export-chat', $email, $ids ? (int) end($ids) : 0, $done);
+        return [ 'data' => $items, 'done' => $done ];
+    }
+
+    /**
+     * Erase: the person's own conversations are deleted; another
+     * administrator's conversation keeps its turns with the email taken out.
+     */
+    public static function erase_personal_data($email, $page = 1): array
+    {
+        $email = trim((string) $email);
+        if ('' === $email) {
+            return [ 'items_removed' => false, 'items_retained' => false, 'messages' => [], 'done' => true ];
+        }
+        global $wpdb;
+        $user_id = Personal_Data::user_id($email);
+        $ids     = self::privacy_ids($email, $user_id, Personal_Data::cursor('erase-chat', $email, (int) $page));
+        $removed = false;
+        foreach ($ids as $id) {
+            $post = get_post($id);
+            if (! $post) {
+                continue;
+            }
+            if ($user_id > 0 && (int) $post->post_author === $user_id) {
+                $removed = (bool) wp_delete_post($id, true) || $removed;
+                continue;
+            }
+            $messages = get_post_meta($id, self::MESSAGES_META, true);
+            if (is_array($messages)) {
+                $clean = self::without_email_text($messages, $email);
+                if ($clean !== $messages) {
+                    update_post_meta($id, self::MESSAGES_META, wp_slash($clean));
+                    $removed = true;
+                }
+            }
+            if (false !== stripos($post->post_title, $email)) {
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- retitling a private chat post without save hooks; the post cache is cleaned on the next line.
+                $wpdb->update($wpdb->posts, [ 'post_title' => str_ireplace($email, Snapshot_Redactor::REDACTED, $post->post_title) ], [ 'ID' => $id ]);
+                clean_post_cache($id);
+                $removed = true;
+            }
+        }
+        $done = count($ids) < Personal_Data::ROW_PAGE;
+        Personal_Data::advance('erase-chat', $email, $ids ? (int) end($ids) : 0, $done);
+        return [ 'items_removed' => $removed, 'items_retained' => false, 'messages' => [], 'done' => $done ];
+    }
+
+    /**
+     * $value with every occurrence of $email in its strings replaced. The
+     * surrounding text stays: a turn is still needed to continue the
+     * conversation, and provider blocks keep their shape.
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    private static function without_email_text($value, string $email)
+    {
+        if (is_string($value)) {
+            return str_ireplace($email, Snapshot_Redactor::REDACTED, $value);
+        }
+        if (is_array($value)) {
+            foreach ($value as $key => $item) {
+                $value[ $key ] = self::without_email_text($item, $email);
+            }
+        }
+        return $value;
     }
 
     /**

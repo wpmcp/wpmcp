@@ -327,6 +327,57 @@ class Snapshot_Store
         return null === $min ? null : (int) $min;
     }
 
+    /**
+     * The next $limit rows after ledger row $after_id, oldest first, whole
+     * (before_blob included): one page of a personal data export or erasure
+     * (issue #478). Keyed on the row id rather than an offset so a prune
+     * between two pages cannot shift a row past the cursor unread. Empty
+     * when the table is not installed.
+     *
+     * @return array[]
+     */
+    public static function page_after(int $after_id, int $limit): array
+    {
+        global $wpdb;
+        $suppressed = $wpdb->suppress_errors(true);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; a privacy request must read the live rows, one bounded page at a time.
+        $rows = $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE id > %d ORDER BY id ASC LIMIT %d', self::table_name(), $after_id, max(1, $limit)), ARRAY_A);
+        $wpdb->suppress_errors($suppressed);
+
+        return is_array($rows) ? $rows : [];
+    }
+
+    /**
+     * Rewrite one ledger row's before-image in place (issue #478: a
+     * personal data erasure redacts it). Loud on failure, like save().
+     *
+     * @throws Mutation_Failed When the row could not be rewritten.
+     */
+    public static function replace_snapshot(int $id, array $snapshot): void
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; the redacted before-image must be written directly.
+        $written = $wpdb->update(self::table_name(), [ 'before_blob' => Snapshot::serialize($snapshot) ], [ 'id' => $id ]);
+        if (false === $written) {
+            throw new Mutation_Failed(
+                'The snapshot could not be rewritten'
+                    . ($wpdb->last_error ? ' (' . esc_html($wpdb->last_error) . ')' : '') . '.'
+            );
+        }
+    }
+
+    /** How many ledger rows record $user_id as the account that made the change. */
+    public static function count_for_user(int $user_id): int
+    {
+        global $wpdb;
+        $suppressed = $wpdb->suppress_errors(true);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; the count must be live.
+        $count = $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE user_id = %d', self::table_name(), $user_id));
+        $wpdb->suppress_errors($suppressed);
+
+        return null === $count ? 0 : (int) $count;
+    }
+
     /** How many rows are currently in the ledger; 0 when the table is not installed yet. */
     public static function row_count(): int
     {
