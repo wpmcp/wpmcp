@@ -525,7 +525,7 @@ final class BuddyPress_Pack
     /**
      * Create a group straight in BuddyPress's tables, at the reserved id.
      *
-     * @return array{0: int, 1: array{id: int, slug: string}}
+     * @return array{0: int, 1: array{id: int, slug: string, rows: array<string, int[]>}}
      */
     private static function create_group_directly(array $fields, string $slug, int $creator, int $id): array
     {
@@ -548,11 +548,14 @@ final class BuddyPress_Pack
             // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
             throw new Operation_Refused('write_failed', 'Could not create the group: ' . $wpdb->last_error);
         }
+        // No BuddyPress hook reports these rows, so they are named here: the
+        // undo then knows them as the create's own (issue #489).
+        $rows = [ 'bp_groups' => [ $id ] ];
 
         // The creator becomes the first member and admin, as
         // groups_create_group() does, and the member count and last
         // activity meta BP_Groups_Member::save() keeps are set.
-        $wpdb->insert(BuddyPress_Rows_Snapshot::table('bp_groups_members'), [
+        $added = $wpdb->insert(BuddyPress_Rows_Snapshot::table('bp_groups_members'), [
             'group_id'      => $id,
             'user_id'       => $creator,
             'inviter_id'    => 0,
@@ -565,13 +568,18 @@ final class BuddyPress_Pack
             'is_banned'     => 0,
             'invite_sent'   => 0,
         ]);
+        if (false !== $added) {
+            $rows['bp_groups_members'] = [ (int) $wpdb->insert_id ];
+        }
         foreach ([ 'total_member_count' => '1', 'last_activity' => $now ] as $key => $value) {
-            $wpdb->insert(BuddyPress_Rows_Snapshot::table('bp_groups_groupmeta'), [ 'group_id' => $id, 'meta_key' => $key, 'meta_value' => $value ]);
+            if (false !== $wpdb->insert(BuddyPress_Rows_Snapshot::table('bp_groups_groupmeta'), [ 'group_id' => $id, 'meta_key' => $key, 'meta_value' => $value ])) {
+                $rows['bp_groups_groupmeta'][] = (int) $wpdb->insert_id;
+            }
         }
         // phpcs:enable
         BuddyPress_Rows_Snapshot::flush('group_created', [ $id ]);
 
-        return [ $id, [ 'id' => $id, 'slug' => $slug ] ];
+        return [ $id, [ 'id' => $id, 'slug' => $slug, 'rows' => $rows ] ];
     }
 
     private static function update_group(array $args, string $operation): array
