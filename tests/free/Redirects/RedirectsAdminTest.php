@@ -36,7 +36,7 @@ class RedirectsAdminTest extends \WP_UnitTestCase
         return (string) ob_get_clean();
     }
 
-    public function test_the_submenu_is_registered_under_manage_options(): void
+    public function test_the_submenu_is_registered_under_the_management_capability(): void
     {
         global $menu, $submenu;
         $menu    = [];
@@ -53,7 +53,7 @@ class RedirectsAdminTest extends \WP_UnitTestCase
         }
 
         $this->assertNotNull($found, 'Expected a wpmcp-redirects submenu entry.');
-        $this->assertSame('manage_options', $found[1]);
+        $this->assertSame(\WPMCP\Admin\Management_Access::CAPABILITY, $found[1]);
     }
 
     public function test_the_page_says_so_when_there_is_nothing_to_show(): void
