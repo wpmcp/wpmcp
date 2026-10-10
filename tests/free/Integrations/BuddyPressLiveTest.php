@@ -194,6 +194,63 @@ class BuddyPressLiveTest extends \WP_UnitTestCase
         $this->assertSame($count, (int) bp_get_user_meta($this->admin, 'total_group_count', true), "the creator's group count is recounted");
     }
 
+    /**
+     * Issue #489: once another member joins the created group and posts in
+     * it, undoing the create would delete their membership and leave their
+     * activity pointing at a group that no longer exists. The undo is
+     * refused with the reason instead, and nothing is deleted.
+     */
+    public function test_undoing_a_create_after_another_member_joined_and_posted_is_refused_and_deletes_nothing(): void
+    {
+        $out    = $this->write('buddypress-create-group', [ 'name' => 'Joined Club', 'description' => 'Made by the tool' ]);
+        $id     = (int) $out['result']['group']['id'];
+        $member = self::factory()->user->create();
+        $this->assertTrue(groups_join_group($id, $member));
+        $post = groups_post_update([ 'content' => 'Glad to be here', 'group_id' => $id, 'user_id' => $member ]);
+        $this->assertIsInt($post);
+        $before = $this->dump();
+
+        $this->assertFalse(Rollback_Service::restore_operation((string) $out['operation_id']), 'the undo is refused');
+        $warnings = Rollback_Service::take_warnings();
+        $this->assertCount(1, $warnings, (string) wp_json_encode($warnings));
+        $this->assertStringContainsString('refused', $warnings[0]);
+        $this->assertStringContainsString('user ' . $member, $warnings[0], 'the reason names the membership that blocks it');
+        $this->assertStringContainsString('#' . $post, $warnings[0], 'and the activity');
+
+        $this->assertSame($before, $this->dump(), 'nothing is deleted');
+        $this->assertSame($id, (int) groups_get_group($id)->id);
+        $this->assertNotEmpty(groups_is_user_member($member, $id));
+    }
+
+    /**
+     * Issue #489: with only the create's own rows in the group, the undo
+     * deletes it the way BuddyPress does, and no activity row is left
+     * pointing at the deleted group.
+     */
+    public function test_undoing_a_clean_create_deletes_the_group_through_buddypress_and_orphans_no_activity(): void
+    {
+        global $wpdb;
+        $deleted = 0;
+        $count   = static function () use (&$deleted): void {
+            $deleted++;
+        };
+        $out = $this->write('buddypress-create-group', [ 'name' => 'Short Club' ]);
+        $id  = (int) $out['result']['group']['id'];
+        $this->assertNotSame('0', $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE component = 'groups' AND item_id = %d", $this->table('bp_activity'), $id)));
+
+        add_action('groups_delete_group', $count);
+        try {
+            $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        } finally {
+            remove_action('groups_delete_group', $count);
+        }
+        $this->assertSame([], Rollback_Service::take_warnings());
+        $this->assertSame(1, $deleted, 'the group is deleted through groups_delete_group()');
+        $this->assertSame(0, (int) groups_get_group($id)->id);
+        $this->assertSame('0', $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE component = 'groups' AND item_id = %d", $this->table('bp_activity'), $id)), 'no activity points at the deleted group');
+        $this->assertSame('0', $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE group_id = %d', $this->table('bp_groups_members'), $id)));
+    }
+
     public function test_updating_a_group_runs_through_buddypress_and_rollback_undoes_what_its_hooks_did(): void
     {
         $group = groups_create_group([ 'creator_id' => $this->admin, 'name' => 'Quiet Club', 'description' => 'Members only', 'status' => 'private' ]);
