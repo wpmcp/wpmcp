@@ -140,7 +140,7 @@ class SkillsModuleTest extends \WP_UnitTestCase
         $this->assertSame('1', sanitize_option(Skills_Module::OPTION, 'on'));
     }
 
-    public function test_the_skills_submenu_is_registered_under_manage_options(): void
+    public function test_the_skills_submenu_is_registered_under_the_management_capability(): void
     {
         global $menu, $submenu;
         $menu    = [];
@@ -158,7 +158,7 @@ class SkillsModuleTest extends \WP_UnitTestCase
         }
 
         $this->assertNotNull($found, 'Expected a wpmcp-skills submenu entry.');
-        $this->assertSame('manage_options', $found[1]);
+        $this->assertSame(\WPMCP\Admin\Management_Access::CAPABILITY, $found[1]);
     }
 
     public function test_the_screen_shows_the_toggle_and_the_served_catalog(): void

@@ -6,6 +6,7 @@
 
 namespace WPMCP\Safety;
 
+use WPMCP\Privacy\Snapshot_Redactor;
 use WPMCP\Tools\Database\Database_Guard;
 use WPMCP\Tools\Builders\Avada_Cache;
 use WPMCP\Tools\Builders\Beaver_Builder_Cache;
@@ -66,6 +67,11 @@ class Rollback_Service
         self::$warnings = [];
         $row = Snapshot_Store::get_by_operation($operation_id);
         if (! $row) {
+            return false;
+        }
+        // A personal data erasure redacted this snapshot (issue #478).
+        if (Snapshot_Redactor::is_erased($row['snapshot'])) {
+            self::warn(sprintf('operation %s refused: %s', $operation_id, Snapshot_Redactor::refusal($row['snapshot'])));
             return false;
         }
         if (! self::may_restore($row['snapshot'])) {
@@ -369,6 +375,18 @@ class Rollback_Service
         $rows  = Snapshot_Store::list_by_session($session_id); // newest first
         $count = 0;
 
+        // All or nothing, like a pruned run: a session whose undo points
+        // include one a personal data erasure redacted (issue #478) cannot
+        // be put back whole, so none of it is.
+        $erased = self::erased_rows($rows);
+        if ($erased > 0) {
+            throw new Mutation_Failed(sprintf(
+                'Session "%s" can no longer be rolled back: %d of its undo points had personal data removed by a personal data erasure request, so restoring them would write placeholders back over real data. Nothing was restored.',
+                esc_html($session_id),
+                absint($erased)
+            ));
+        }
+
         // All or nothing: while another user is editing a post the session
         // changed, nothing is restored (issue #452).
         Edit_Lock::assert_restorable($rows);
@@ -524,6 +542,20 @@ class Rollback_Service
             $count++;
         }
         return $count;
+    }
+
+    /** How many of these ledger rows hold a snapshot a personal data erasure redacted. Undecodable rows are left to the unwind, which reports them. */
+    private static function erased_rows(array $rows): int
+    {
+        $erased = 0;
+        foreach ($rows as $row) {
+            try {
+                $erased += Snapshot_Redactor::is_erased(Snapshot::unserialize((string) $row['before_blob'])) ? 1 : 0;
+            } catch (\RuntimeException $e) {
+                unset($e);
+            }
+        }
+        return $erased;
     }
 
     /**
@@ -1239,6 +1271,12 @@ class Rollback_Service
      */
     public static function apply_snapshot(array $snapshot): void
     {
+        // Every restore path ends here, so a snapshot a personal data
+        // erasure redacted (issue #478) is refused even by a caller that
+        // skipped the checks in restore_operation() and restore_session().
+        if (Snapshot_Redactor::is_erased($snapshot)) {
+            throw new Mutation_Failed('Rollback refused: ' . esc_html(Snapshot_Redactor::refusal($snapshot)));
+        }
         // A post snapshot that also carries a compiled widget's enabled flag
         // (set-widget-status, update-custom-widget): restore the post first,
         // then the flag, so the undo brings back the spec AND the compiled

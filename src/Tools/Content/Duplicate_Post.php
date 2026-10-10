@@ -69,8 +69,12 @@ class Duplicate_Post
         // user's private record, meta and all, into a post the caller owns.
         // Registrar refuses the call before it gets here; this is the tool's
         // own guard for callers that reach the handler directly.
+        // A password-protected post the caller cannot edit is refused the
+        // same way (issue #483): its content is withheld from them, so it
+        // must not reach them as a copy they own. Registrar refuses it too.
         $allowed = $source instanceof \WP_Post
-            && Content_Guard::is_agent_readable_post_type((string) $source->post_type);
+            && Content_Guard::is_agent_readable_post_type((string) $source->post_type)
+            && ! Content_Guard::withholds_protected_content($source);
         if (! $allowed) {
             throw new \InvalidArgumentException('Post not found.');
         }
@@ -93,6 +97,7 @@ class Duplicate_Post
         $with_children = (bool) ($args['include_children'] ?? false);
 
         $sources = [];
+        $skipped = [];
         if ($with_children) {
             // Only the children the caller may read (issue #465): another
             // user's draft or private child is not copied into a post the
@@ -104,9 +109,17 @@ class Duplicate_Post
                 'posts_per_page' => -1,
             ]);
             foreach ($readable as $child) {
-                if (Content_Guard::can_read_post_type((string) $child->post_type)) {
-                    $sources[] = $child;
+                if (! Content_Guard::can_read_post_type((string) $child->post_type)) {
+                    continue;
                 }
+                // A published, password-protected child of another user is
+                // readable but its content is withheld (issue #483): copying
+                // it would hand that content over in a post the caller owns.
+                if (Content_Guard::withholds_protected_content($child)) {
+                    $skipped[] = (int) $child->ID;
+                    continue;
+                }
+                $sources[] = $child;
             }
         }
 
@@ -138,6 +151,7 @@ class Duplicate_Post
             'source_id'    => $post_id,
             'post_id'      => $new_id,
             'children'     => $children,
+            'skipped_children' => $skipped,
             'status'       => $new instanceof \WP_Post ? (string) $new->post_status : $status,
             'edit_link'    => get_edit_post_link($new_id, 'raw'),
             'operation_id' => $operation_id,
@@ -200,6 +214,8 @@ class Duplicate_Post
             'post_excerpt'   => $source->post_excerpt,
             'post_type'      => $source->post_type,
             'post_status'    => $status,
+            // A copy is protected exactly like its source (issue #483).
+            'post_password'  => $source->post_password,
             'post_parent'    => $parent,
             'menu_order'     => $source->menu_order,
             'comment_status' => $source->comment_status,
