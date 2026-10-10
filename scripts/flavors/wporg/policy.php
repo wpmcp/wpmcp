@@ -192,6 +192,13 @@ return [
         'src/Integrations/CRM_Adapter.php',
         'src/Integrations/CRM_FluentCRM.php',
         'src/Integrations/CRM_MailPoet.php',
+        // Amelia bookings (issue #499), paid-tier. strip.php takes out the
+        // lines in Plugin_Data_Integration that merge the ops and count the
+        // pack towards availability. Its snapshot type and the Amelia
+        // customer records in the privacy export stay: they act on Amelia's
+        // own tables and need neither class.
+        'src/Integrations/Amelia_Pack.php',
+        'src/Integrations/Amelia_Api.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration
