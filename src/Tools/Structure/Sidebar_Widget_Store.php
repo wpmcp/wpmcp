@@ -180,11 +180,14 @@ class Sidebar_Widget_Store
     {
         $out = Safe_Mutation::run(
             [
-                'object_type' => 'option_set',
-                'object_id'   => Snapshot::option_set_id([ 'sidebars_widgets', $widget->option_name ]),
-                'session_id'  => (string) ($args['session_id'] ?? 'default'),
-                'tool_name'   => $tool,
-                'args'        => $args,
+                'object_type'         => 'option_set',
+                'object_id'           => Snapshot::option_set_id([ 'sidebars_widgets', $widget->option_name ]),
+                'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'           => $tool,
+                'args'                => $args,
+                // The widget tools take edit_theme_options, so its holders
+                // may undo them (issue #502).
+                'extra_snapshot_data' => [ 'restore_capability' => 'edit_theme_options' ],
             ],
             $mutation
         );

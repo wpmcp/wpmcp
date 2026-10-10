@@ -117,11 +117,12 @@ class Install_Plugin
         try {
             $out = Safe_Mutation::run(
                 [
-                    'object_type' => 'option',
-                    'object_id'   => 'active_plugins',
-                    'session_id'  => (string) ($args['session_id'] ?? 'default'),
-                    'tool_name'   => 'install-plugin',
-                    'args'        => $args,
+                    'object_type'         => 'option',
+                    'object_id'           => 'active_plugins',
+                    'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                    'tool_name'           => 'install-plugin',
+                    'args'                => $args,
+                    'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ],
                 ],
                 function () use ($plugin_file, &$error) {
                     $result = activate_plugin($plugin_file);
