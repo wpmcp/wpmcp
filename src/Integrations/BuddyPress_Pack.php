@@ -18,10 +18,13 @@ if (! defined('ABSPATH')) {
  * maps onto manage_options). They follow BuddyPress's own visibility rules
  * for private groups (issue #503): only the group's confirmed, unbanned
  * members and moderators see its member list, pending and banned rows go
- * only to the group's admins and mods and to moderators, and activity in a
+ * only to the group's admins and to moderators, as on BuddyPress's group
+ * management screens (issue #518), and activity in a
  * private or hidden group is listed only to those who can access the group,
  * as bp_activity_user_can_read() decides. Member email is only returned to a caller with
- * list_users; a membership request's message and activity meta (where an IP
+ * list_users. Pending rows include the membership requests BuddyPress 5.0+
+ * keeps in its invitations table, read through groups_get_requests() while
+ * it is loaded. A membership request's message and activity meta (where an IP
  * or other personal data can sit) are never returned. Activity content is.
  *
  * Writes run at manage_options. While BuddyPress is loaded they run through
@@ -121,7 +124,7 @@ final class BuddyPress_Pack
             ],
             'buddypress-list-group-members'   => [
                 'mode'         => 'read',
-                'description'  => 'List a BuddyPress group\'s members (user id, name, role admin/mod/member/banned/pending, title). Private groups for their members only; pending and banned rows for group admins and mods. Email only for callers with list_users',
+                'description'  => 'List a BuddyPress group\'s members (user id, name, role admin/mod/member/banned/pending, title). Private groups for their members only; pending and banned rows for group admins. Email only for callers with list_users',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -453,10 +456,12 @@ final class BuddyPress_Pack
             'banned'  => 'is_banned = 1',
             'pending' => 'is_confirmed = 0 AND is_banned = 0',
         ];
-        $sql                 = 'group_id = %d' . (isset($args['role']) ? ' AND ' . $roles[ (string) $args['role'] ] : '');
-        // Pending requests and bans are for the group's admins and mods, and
+        $role = isset($args['role']) ? (string) $args['role'] : null;
+        $sql  = 'group_id = %d' . (null !== $role ? ' AND ' . $roles[ $role ] : '');
+        // Pending requests and bans are for the group's admins and
         // moderators, as on BuddyPress's group management screens.
-        if (! self::is_moderator() && ! in_array(self::membership($group), [ 'admin', 'mod' ], true)) {
+        $manager = self::is_moderator() || 'admin' === self::membership($group);
+        if (! $manager) {
             $sql .= ' AND is_confirmed = 1 AND is_banned = 0';
         }
         [$per_page, $offset] = self::paging($args);
@@ -464,8 +469,15 @@ final class BuddyPress_Pack
 
         // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; $sql holds only literals and placeholders, matched by the spread values.
         $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE {$sql}", $table, $group));
-        $rows  = (array) $wpdb->get_results($wpdb->prepare("SELECT id, user_id, is_admin, is_mod, user_title, date_modified, is_confirmed, is_banned FROM %i WHERE {$sql} ORDER BY id ASC LIMIT %d OFFSET %d", $table, $group, $per_page, $offset), ARRAY_A);
+        $rows  = $offset < $total ? (array) $wpdb->get_results($wpdb->prepare("SELECT id, user_id, is_admin, is_mod, user_title, date_modified, is_confirmed, is_banned FROM %i WHERE {$sql} ORDER BY id ASC LIMIT %d OFFSET %d", $table, $group, $per_page, $offset), ARRAY_A) : [];
         // phpcs:enable
+
+        // Current membership requests follow the member rows, as pending.
+        if ($manager && (null === $role || 'pending' === $role)) {
+            $requests = self::membership_requests($group);
+            $rows     = array_merge($rows, array_slice($requests, max(0, $offset - $total), $per_page - count($rows)));
+            $total   += count($requests);
+        }
 
         $users   = [];
         $members = [];
@@ -491,6 +503,46 @@ final class BuddyPress_Pack
         }
 
         return [ 'group_id' => $group, 'total' => $total, 'members' => $members ];
+    }
+
+    /**
+     * A group's pending membership requests, oldest first, in the shape of a
+     * pending member row. BuddyPress 5.0+ keeps them in its invitations
+     * table, read through groups_get_requests() while it is loaded and
+     * otherwise straight from the table the way BP_Invitation::get() reads
+     * it. A user who also has a member row in the group is left to that row.
+     * The request's message is never read.
+     *
+     * @return array<int, array<string, int|string>>
+     */
+    private static function membership_requests(int $group): array
+    {
+        global $wpdb;
+
+        if (function_exists('groups_get_requests')) {
+            $found = [];
+            foreach ((array) groups_get_requests([ 'item_id' => $group ]) as $request) {
+                $found[] = [ 'id' => (int) $request->id, 'user_id' => (int) $request->user_id, 'date_modified' => (string) $request->date_modified ];
+            }
+            usort($found, static fn (array $a, array $b): int => $a['id'] <=> $b['id']);
+        } elseif (BuddyPress_Rows_Snapshot::tables_exist('bp_invitations')) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- BuddyPress's own table, read live.
+            $found = (array) $wpdb->get_results($wpdb->prepare("SELECT id, user_id, date_modified FROM %i WHERE class = %s AND item_id = %d AND type = 'request' AND accepted = 0 ORDER BY id ASC", BuddyPress_Rows_Snapshot::table('bp_invitations'), 'BP_Groups_Invitation_Manager', $group), ARRAY_A);
+        } else {
+            return [];
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- BuddyPress's own table, read live.
+        $listed = array_map('intval', (array) $wpdb->get_col($wpdb->prepare('SELECT user_id FROM %i WHERE group_id = %d', BuddyPress_Rows_Snapshot::table('bp_groups_members'), $group)));
+        $rows   = [];
+        foreach ($found as $request) {
+            $user = (int) $request['user_id'];
+            if ($user > 0 && ! in_array($user, $listed, true)) {
+                $listed[] = $user;
+                $rows[]   = [ 'id' => 0, 'user_id' => $user, 'is_admin' => 0, 'is_mod' => 0, 'user_title' => '', 'date_modified' => (string) $request['date_modified'], 'is_confirmed' => 0, 'is_banned' => 0 ];
+            }
+        }
+        return $rows;
     }
 
     /** @return array{code: string, message: string, data: array}|null */
