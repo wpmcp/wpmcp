@@ -489,6 +489,11 @@ final class Plugin
         // A block suite write dropped the suite's cached per-post CSS; its
         // rollback does too (issue #287). Hooked on the post restore action.
         [\WPMCP\Integrations\Block_Suite::class, 'refresh_after_restore', 'wpmcp_rollback_post_restored'],
+        // A TablePress write dropped the table's render cache, and TablePress
+        // keeps its table id map in memory; a rollback of either drops the
+        // cache and refreshes the map (issue #481).
+        [\WPMCP\Integrations\TablePress_Pack::class, 'after_options_restored'],
+        [\WPMCP\Integrations\TablePress_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],
     ];
 
     /**
@@ -752,6 +757,12 @@ final class Plugin
             // an MCP response or a rollback that trashes a course (#394).
             if (class_exists(\WPMCP\Integrations\LMS_Tutor::class)) {
                 add_action('trashed_post', [\WPMCP\Integrations\LMS_Tutor::class, 'keep_request_alive'], 1);
+            }
+            // TablePress registers its post type without core's meta
+            // capability mapping; a rollback of a table snapshot asks for
+            // edit_post on it, mapped onto TablePress's own capabilities (#481).
+            if (class_exists(\WPMCP\Integrations\TablePress_Pack::class)) {
+                add_filter('map_meta_cap', [\WPMCP\Integrations\TablePress_Pack::class, 'map_post_caps'], 10, 4);
             }
             // A shipping zone deleted through WooCommerce drops the creation
             // marker a woo-write create gave it, so a zone that later reuses
