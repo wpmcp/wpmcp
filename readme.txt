@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.146
+Stable tag: 0.8.147
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -110,6 +110,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.147 =
+* Undoing a BuddyPress group create no longer deletes other members' data: once someone else has joined, been invited, been notified or posted in the group, the undo is refused with the reason and nothing is deleted.
+* Undoing a BuddyPress group create that holds only its own rows now deletes the group through BuddyPress itself, so no activity is left pointing at the deleted group.
 
 = 0.8.146 =
 * New: TablePress tables (paid tier). Agents can list, read, export, render and find where a table is placed, create tables, edit cells, insert and delete rows and columns, update options, copy, rename the id, delete, import CSV, JSON or HTML, and place a table on a page, all through TablePress's own table model. Every write is snapshotted and can be rolled back.
@@ -742,6 +746,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.147 =
+Undoing a BuddyPress group create no longer deletes other members' data: once someone else has joined, been invited, been notified or posted in the group, the undo is refused with the reason and nothing is deleted.
 
 = 0.8.146 =
 New: TablePress tables (paid tier). Agents can list, read, export, render and find where a table is placed, create tables, edit cells, insert and delete rows and columns, update options, copy, rename the id, delete, import CSV, JSON or HTML, and place a table on a page, all through TablePress's own table model. Every write is snapshotted and can be rolled back.
