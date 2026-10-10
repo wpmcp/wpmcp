@@ -241,8 +241,16 @@ class ManagementAccessEntryPointsTest extends \WP_UnitTestCase
     public function test_every_wpmcp_rest_route_with_an_admin_permission_callback_is_gated(): void
     {
         global $wp_rest_server;
-        Gate::set_pro_for_tests(true);
+        // The abilities registry initializes lazily, and rest_api_init can be
+        // the first thing to touch it. Initialize it before forcing Pro on, or
+        // it would fill with Pro abilities and leak them into later tests.
+        if (function_exists('wp_get_abilities')) {
+            wp_get_abilities();
+        }
         $wp_rest_server = new \WP_REST_Server();
+        // Pro on so the chat routes register and their permission check can
+        // pass for a listed administrator; tearDown turns it back off.
+        Gate::set_pro_for_tests(true);
         do_action('rest_api_init', $wp_rest_server);
 
         $checked = 0;
