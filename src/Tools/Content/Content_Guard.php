@@ -40,7 +40,18 @@ class Content_Guard
         // Conversations are per-user private provider exchanges between
         // one admin and their own model, never generic content.
         'wpmcp_chat_convo',
+        // Agent memory (issue #517). An entry can silence a guardrail or
+        // inject instructions into every agent session, so agents only
+        // propose entries (always pending) through the memory tools and a
+        // human approves them in wp-admin. The type maps its capabilities to
+        // the management capability, which administrators hold, so without
+        // this entry an administrator-connected agent could publish or
+        // rewrite entries with the generic tools and skip that approval.
+        self::MEMORY_TYPE,
     ];
+
+    /** The agent memory store's post type (Memory_Store::POST_TYPE), as a literal like the rest. */
+    private const MEMORY_TYPE = 'wpmcp_memory';
 
     /**
      * Post types that hold plugin-internal per-user data and are therefore
@@ -54,13 +65,81 @@ class Content_Guard
      * WP_Query does not help here: it skips its private-post permission
      * clause on the 'any' status branch, so post_status bounds nothing.
      *
+     * Agent memory is here too (issue #517): it is governance data with its
+     * own tools (memory-recall reads it), so the generic tools neither list
+     * nor reach it, and every ability that names an entry by id is refused
+     * at permission time through input_denial().
+     *
      * Named as literals: the chat store lives outside the content tools and
      * the directory build does not ship it, so this list must not depend on
      * a class constant.
      */
     private const PRIVATE_TYPES = [
         'wpmcp_chat_convo',
+        self::MEMORY_TYPE,
     ];
+
+    /**
+     * The post types no generic tool may reach (PRIVATE_TYPES), for the
+     * writers that do not name posts through ability input keys, such as
+     * the raw row tools.
+     *
+     * @return string[]
+     */
+    public static function private_post_types(): array
+    {
+        return self::PRIVATE_TYPES;
+    }
+
+    /**
+     * Why the generic tools refuse a post type, when it is one of WP MCP's
+     * own stores with tools of its own; null otherwise. The memory message
+     * names the memory tools so the agent knows the sanctioned path.
+     */
+    public static function store_refusal(string $post_type): ?string
+    {
+        if (self::MEMORY_TYPE === $post_type) {
+            return __('Agent memory entries are not reachable through the generic tools. Propose an entry with memory-propose (it stays pending until an administrator approves it in wp-admin) and read entries with memory-recall.', 'wpmcp');
+        }
+        return null;
+    }
+
+    /**
+     * The refusal to hand back when an ability input names an agent memory
+     * entry or the memory post type (issue #517), so the caller is told why
+     * and where to go instead of a bare permission denial. Null when the
+     * input names neither; the decision itself is input_denial()'s.
+     *
+     * @param array<string, mixed> $input
+     */
+    public static function input_refusal(\WPMCP\MCP\Ability $a, array $input): ?\WP_Error
+    {
+        $named = false;
+        foreach (self::post_id_keys($a->domain) as $key) {
+            if (! array_key_exists($key, $input)) {
+                continue;
+            }
+            foreach ((array) $input[ $key ] as $value) {
+                $post = is_numeric($value) ? self::subject_post((int) $value) : null;
+                if (null !== $post && self::MEMORY_TYPE === $post->post_type) {
+                    $named = true;
+                    break 2;
+                }
+            }
+        }
+        if (! $named) {
+            foreach (self::POST_TYPE_KEYS as $key) {
+                foreach ((array) ($input[ $key ] ?? []) as $value) {
+                    if (is_string($value) && self::MEMORY_TYPE === sanitize_key($value)) {
+                        $named = true;
+                        break 2;
+                    }
+                }
+            }
+        }
+
+        return $named ? new \WP_Error('wpmcp_memory_entry', (string) self::store_refusal(self::MEMORY_TYPE), ['status' => 403]) : null;
+    }
 
     /** Whether the content tools may read a post of this type at all. */
     public static function is_agent_readable_post_type(string $post_type): bool

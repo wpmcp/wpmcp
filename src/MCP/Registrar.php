@@ -155,8 +155,9 @@ class Registrar
      * is_permitted() for the Abilities API permission callback: true, or
      * false, or the insufficient_scope WP_Error when the only thing standing
      * in the way is a read-only OAuth connection (issue #454), so the MCP
-     * client is told which scope the call needs. The decision and its audit
-     * row are is_permitted()'s own.
+     * client is told which scope the call needs, or the WP_Error naming the
+     * memory tools when the input names an agent memory entry (issue #517).
+     * The decision and its audit row are is_permitted()'s own.
      *
      * @param array<string, mixed> $input As for is_permitted().
      */
@@ -166,7 +167,9 @@ class Registrar
             return true;
         }
 
-        return Client_Access::denial($a) ?? false;
+        // An input naming an agent memory entry is told to use the memory
+        // tools (issue #517) rather than handed a bare permission denial.
+        return Client_Access::denial($a) ?? Content_Guard::input_refusal($a, $input) ?? false;
     }
 
     /**
