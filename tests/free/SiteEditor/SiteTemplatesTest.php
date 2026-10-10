@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tests\Free\SiteEditor;
 
+use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\SiteEditor\Site_Templates_Read;
@@ -36,6 +37,7 @@ class SiteTemplatesTest extends \WP_UnitTestCase
 
     protected function tearDown(): void
     {
+        remove_filter('map_meta_cap', [self::class, 'deny_unfiltered_html'], 10);
         $this->use_classic_theme();
         parent::tearDown();
     }
@@ -376,6 +378,57 @@ class SiteTemplatesTest extends \WP_UnitTestCase
         $this->assertStringContainsString('"About"', get_post($nav)->post_content);
         $this->assertTrue(Rollback_Service::restore_operation($add['operation_id']));
         $this->assertSame($markup, get_post($nav)->post_content);
+    }
+
+    /**
+     * @param string[] $caps
+     * @return string[]
+     */
+    public static function deny_unfiltered_html(array $caps, string $cap): array
+    {
+        return 'unfiltered_html' === $cap ? ['do_not_allow'] : $caps;
+    }
+
+    /**
+     * Issue #487 found the global styles byte check failing on 6.9 because
+     * kses re-encoded "/" there. Templates, parts and navigation verify the
+     * same way, but kses re-serializes block attributes with slashes left
+     * unescaped on every supported version, so a slash in a URL or label
+     * stores byte for byte for an admin without unfiltered_html. A save kses
+     * does change is still refused and rolled back.
+     */
+    public function test_block_markup_with_slashes_saves_for_an_admin_without_unfiltered_html(): void
+    {
+        $this->use_block_theme();
+        add_filter('map_meta_cap', [self::class, 'deny_unfiltered_html'], 10, 2);
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        $this->assertFalse(current_user_can('unfiltered_html'));
+
+        $link   = '<!-- wp:navigation-link {"label":"Base / Two","url":"https://example.org/a/b/","kind":"custom"} /-->';
+        $nav    = self::factory()->post->create([
+            'post_type'    => 'wp_navigation',
+            'post_title'   => 'Primary',
+            'post_status'  => 'publish',
+            'post_content' => '<!-- wp:navigation-link {"label":"Home","url":"/"} /-->',
+        ]);
+        $this->write->handle(['entity' => 'navigation', 'id' => $nav, 'content' => $link]);
+        $this->assertSame($link, get_post($nav)->post_content);
+
+        $part = $link . "\n" . $this->header_markup('<a href="https://example.org/a/b/">A / B</a>');
+        $out  = $this->write->handle(['entity' => 'template_part', 'id' => 'footer', 'content' => $part]);
+        $this->assertSame($part, get_post($out['wp_id'])->post_content);
+        $this->assertSame(hash('sha256', $part), $out['content_hash']);
+
+        foreach ([['navigation', $nav, $link], ['template_part', 'footer', $part]] as [$entity, $id, $kept]) {
+            try {
+                $this->write->handle(['entity' => $entity, 'id' => $id, 'content' => $kept . '<script>alert(1)</script>']);
+                $this->fail("Expected kses stripping the $entity save to be refused.");
+            } catch (Mutation_Failed $e) {
+                $this->assertStringContainsString('Verification failed', $e->getMessage());
+            }
+        }
+        $this->assertSame($link, get_post($nav)->post_content);
+        $this->assertSame($part, get_post($out['wp_id'])->post_content);
     }
 
     public function test_a_new_custom_template_is_created_and_reverting_it_deletes_it(): void
