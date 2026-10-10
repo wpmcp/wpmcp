@@ -101,6 +101,7 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
         'src/Tools/Media/Upload_Grant.php'                   => 'grant option built from OPTION_PREFIX (wpmcp_upload_grant_)',
         'src/Tools/Analysis/SeoData/Seo_Data_Lookup.php'     => 'cache key built by cache_name() from CACHE_PREFIX (wpmcp_seod_)',
         'src/Tools/Diagnostics/Mail_Check.php'               => 'rate-limit key built from LIMIT_KEY (wpmcp_mail_test_)',
+        'src/Privacy/Personal_Data.php'                      => 'cursor and address keys built from CURSOR_PREFIX (wpmcp_privacy_cursor_) and IPS_PREFIX (wpmcp_privacy_ips_)',
         'src/Safety/Rollback_Service.php'                    => 'puts back recorded options and user meta',
         'src/Safety/Wc_Shipping_Zone_Snapshot.php'           => 'puts back recorded WooCommerce options',
         'src/Integrations/Theme_Settings_Pack.php'           => 'theme settings options',
