@@ -76,8 +76,9 @@ class Rollback_Service
         }
         if (! self::may_restore($row['snapshot'])) {
             self::warn(sprintf(
-                'operation %s refused: its snapshot holds personal data and restoring it requires the "%s" capability.',
+                'operation %s refused: %s restoring it requires the "%s" capability.',
                 $operation_id,
+                self::refusal_subject($row['snapshot'], 'its snapshot'),
                 (string) self::restore_capability($row['snapshot'])
             ));
             return false;
@@ -234,6 +235,17 @@ class Rollback_Service
         ]);
     }
 
+    /**
+     * The opening of a capability refusal: an option snapshot is a site
+     * setting, everything else the list guards holds personal data.
+     */
+    private static function refusal_subject(array $snapshot, string $subject): string
+    {
+        return in_array($snapshot['object_type'] ?? '', [ 'option', 'option_set' ], true)
+            ? sprintf('%s is a site setting, and', $subject)
+            : sprintf('%s holds personal data and', $subject);
+    }
+
     /** The capability this snapshot demands, or null when it holds no PII. */
     private static function restore_capability(array $snapshot): ?string
     {
@@ -292,11 +304,21 @@ class Rollback_Service
         if ('db_cleanup' === $type) {
             return [ [ 'manage_options' ] ];
         }
-        // An option snapshot may name the capability its restore needs: a
-        // payment gateway's settings option holds the gateway's credentials,
-        // so restoring it takes the capability its write required (issue #292).
-        if ('option' === $type && is_string($snapshot['data']['restore_capability'] ?? null)) {
-            return [ [ $snapshot['data']['restore_capability'] ] ];
+        // An option snapshot names the capability its restore needs, the one
+        // its write took: a payment gateway's settings option holds the
+        // gateway's credentials (issue #292), and a store setting takes
+        // manage_woocommerce (issue #502). Restoring an option rewrites a
+        // site-wide setting while the rollback tools sit at edit_posts, so a
+        // snapshot that declares nothing takes manage_options: a writer
+        // that forgets to declare fails closed, never open. As in
+        // refused_post(), a restore with no current user is made on no
+        // one's behalf (cron, a tool's own compensation) and is not asked.
+        if (in_array($type, [ 'option', 'option_set' ], true)) {
+            if (0 === get_current_user_id()) {
+                return [];
+            }
+            $declared = $snapshot['data']['restore_capability'] ?? null;
+            return [ [ is_string($declared) && '' !== $declared ? $declared : 'manage_options' ] ];
         }
         // A comment snapshot holds the whole comment row, author email and
         // IP included, so restoring one takes moderate_comments, the
@@ -476,9 +498,10 @@ class Rollback_Service
             // group only while it still has the slug the create wrote.
             // CRM rows (issue #477) too: a contact's undo checks the status
             // the person left it in, so later edits go back first.
-            // Amelia rows (issue #499) too: an appointment's undo checks the
-            // slot it would go back to, so later moves go back first.
-            if (in_array($snapshot['object_type'], [ Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE, 'buddypress_rows', 'crm_rows', 'amelia_rows', 'db_cleanup' ], true) && ! self::may_restore($snapshot)) {
+            // Every snapshot this pass applies goes through the capability
+            // check first: option_set rows (classic widgets, issue #502) as
+            // much as shipping zones, BuddyPress, CRM, Amelia and cleanup rows.
+            if (! self::may_restore($snapshot)) {
                 self::warn(sprintf(
                     'snapshot %s skipped: restoring it requires the "%s" capability.',
                     self::object_identity($snapshot),
@@ -566,8 +589,9 @@ class Rollback_Service
                 // One refused snapshot must not abort the rest of the unwind,
                 // but it must be visible and must NOT be counted as restored.
                 self::warn(sprintf(
-                    'snapshot %s skipped: it holds personal data and restoring it requires the "%s" capability.',
+                    'snapshot %s skipped: %s restoring it requires the "%s" capability.',
                     $key,
+                    self::refusal_subject($snapshot, 'it'),
                     (string) self::restore_capability($snapshot)
                 ));
                 continue;

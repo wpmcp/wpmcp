@@ -667,6 +667,14 @@ class Change_Set_Applier
             return;
         }
 
+        // The entry's claimed type was checked above; the post it resolved
+        // to is checked too, so no artifact can reach a non-syncable post.
+        $target_type = (string) get_post_type($target);
+        if (! Change_Set_Format::is_syncable_post_type($target_type)) {
+            $this->obj($entry, 'skipped', 'none', (string) $this->post_type_refusal($target_type));
+            return;
+        }
+
         $this->post_map[ (int) $entry['object_id'] ] = $target;
 
         $current     = get_post($target, ARRAY_A);
@@ -914,7 +922,7 @@ class Change_Set_Applier
     private function post_type_refusal(string $post_type): ?string
     {
         if (! Change_Set_Format::is_syncable_post_type($post_type)) {
-            return sprintf('%s posts are live-side data and are never synced', '' !== $post_type ? $post_type : 'untyped');
+            return sprintf('%s posts are live-side or private plugin data and are never synced', '' !== $post_type ? $post_type : 'untyped');
         }
         if (! post_type_exists($post_type)) {
             return sprintf('post type "%s" is not registered on the target', $post_type);

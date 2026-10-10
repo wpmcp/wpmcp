@@ -543,6 +543,9 @@ abstract class Integration_Dispatcher
                 'session_id' => $session_id,
                 'tool_name'  => sprintf('%s-write', $this->integration()),
                 'operation'  => $op,
+                // What the op took, for the restore capability an option
+                // snapshot it writes declares (issue #502).
+                'capability' => $this->op_capability($def),
             ]);
             $ids        = array_values((array) ($out['operation_ids'] ?? []));
 
@@ -578,6 +581,13 @@ abstract class Integration_Dispatcher
         if (! empty($target['extra_snapshot_data']) && is_array($target['extra_snapshot_data'])) {
             $context['extra_snapshot_data'] = $target['extra_snapshot_data'];
         }
+        // An option snapshot that names no restore capability needs
+        // manage_options to restore (issue #502), so it declares the one
+        // this op took: whoever could make the change can undo it, and no
+        // one below that can.
+        if (in_array($context['object_type'], [ 'option', 'option_set' ], true) && ! isset($context['extra_snapshot_data']['restore_capability'])) {
+            $context['extra_snapshot_data'] = (array) ($context['extra_snapshot_data'] ?? []) + [ 'restore_capability' => $this->op_capability($def) ];
+        }
 
         $out = Safe_Mutation::run($context, fn () => ($def['handler'])($op_args, [ 'session_id' => $session_id, 'target' => $target, 'operation_id' => $operation_id ]));
 
@@ -585,6 +595,12 @@ abstract class Integration_Dispatcher
             'operation_id' => $out['operation_id'],
             'recoverable'  => false !== ($def['undoable'] ?? true),
         ];
+    }
+
+    /** The capability an op takes: its own override, else the dispatcher's. */
+    private function op_capability(array $def): string
+    {
+        return (string) ($def['capability'] ?? $this->capability());
     }
 
     /**

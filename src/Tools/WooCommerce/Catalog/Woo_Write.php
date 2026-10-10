@@ -504,7 +504,10 @@ class Woo_Write
                     'No such WooCommerce setting in that group. List the group with settings.options first.'
                 );
             }
-            return [ 'object_type' => 'option', 'object_id' => $option ];
+            // A store setting is restored only by someone who may change it
+            // (issue #502): the shared default session holds it beside every
+            // Author's own writes.
+            return [ 'object_type' => 'option', 'object_id' => $option, 'restore_capability' => 'manage_woocommerce' ];
         }
 
         $param = (string) ($strategy['param'] ?? '');
