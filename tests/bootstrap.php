@@ -110,6 +110,24 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'breakdance/plugin.php' );
     }
 
+    // The live CRM job (issue #477, WPMCP_LIVE_CRM=1) runs the FluentCRM
+    // and MailPoet ops through the real plugins. Loaded only on request: the
+    // stub-backed CRM tests build both plugins' tables from a fixture and
+    // fake their presence.
+    if ( getenv( 'WPMCP_LIVE_CRM' ) ) {
+        // MailPoet asks its own service which sender domains are verified
+        // when it mails a confirmation, and wordpress.com for translations;
+        // empty answers keep the run offline.
+        add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
+            if ( false !== $pre || ( 0 !== strpos( (string) $url, 'https://bridge.mailpoet.com/' ) && 0 !== strpos( (string) $url, 'https://translate.wordpress.com/' ) ) ) {
+                return $pre;
+            }
+            return [ 'headers' => [], 'body' => '{}', 'response' => [ 'code' => 200, 'message' => 'OK' ], 'cookies' => [], 'filename' => null ];
+        }, 10, 3 );
+        wpmcp_maybe_require_plugin( 'fluent-crm/fluent-crm.php' );
+        wpmcp_maybe_require_plugin( 'mailpoet/mailpoet.php' );
+    }
+
     // The live LMS jobs (issue #394, WPMCP_LIVE_LMS=tutor or lifterlms) run
     // the LMS ops through the real Tutor LMS or LifterLMS, one per install.
     // Loaded only on request: the stub-backed LMS tests register the plugins'
@@ -173,6 +191,23 @@ tests_add_filter( 'init', function () {
     // wp-admin; the live TablePress job grants them the same way.
     if ( getenv( 'WPMCP_LIVE_TABLEPRESS' ) && isset( \TablePress::$model_options ) ) {
         \TablePress::$model_options->add_access_capabilities();
+    }
+}, 20 );
+
+// The live CRM job's tables, built by FluentCRM's and MailPoet's own
+// activation routines once per run, before any test transaction starts.
+// FluentCRM reads its options table from init priority 5, so its tables are
+// built ahead of that. A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_CRM' ) && class_exists( '\\FluentCrm\\App\\Hooks\\Handlers\\ActivationHandler' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        ( new \FluentCrm\App\Hooks\Handlers\ActivationHandler() )->handle( false );
+    }
+}, 1 );
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_CRM' ) && class_exists( '\\MailPoet\\DI\\ContainerWrapper' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        \MailPoet\DI\ContainerWrapper::getInstance()->get( \MailPoet\Config\Activator::class )->activate();
     }
 }, 20 );
 

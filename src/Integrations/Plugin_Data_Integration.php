@@ -27,6 +27,9 @@ if (! defined('ABSPATH')) {
  *  - Issue #481 adds the paid-tier TablePress ops (TablePress_Pack): tables
  *    read, edited cell by cell, imported, exported and placed through
  *    TablePress's own table model, with snapshotted writes.
+ *  - Issue #477 adds the paid-tier CRM ops (CRM_Pack): FluentCRM and
+ *    MailPoet contacts, lists, tags, campaigns and automations, with writes
+ *    through each plugin's own API, snapshotted as 'crm_rows' images.
  *
  * The pair registers only while at least one of them is loaded (the LMS
  * and TablePress ops only on an install that may run the paid tier), and
@@ -54,7 +57,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
     {
         return JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
-            || TablePress_Pack::active();
+            || TablePress_Pack::active()
+            || CRM_Pack::active();
     }
 
     public function registers_only_when_available(): bool
@@ -65,7 +69,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
     protected function summary(): string
     {
         return 'JetEngine and Pods fields, TranslatePress strings, BuddyPress community data'
-            . ', Tutor LMS and LifterLMS courses, TablePress tables';
+            . ', Tutor LMS and LifterLMS courses, TablePress tables'
+            . ', FluentCRM and MailPoet';
     }
 
     protected function operations(): array
@@ -76,7 +81,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             TranslatePress_Pack::operations(),
             BuddyPress_Pack::operations(),
             LMS_Pack::operations(),
-            TablePress_Pack::operations()
+            TablePress_Pack::operations(),
+            CRM_Pack::operations()
         );
     }
 

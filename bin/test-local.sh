@@ -28,7 +28,9 @@
 #      through the real plugins, one install each.
 #   9. Runs the live TablePress group (issue #481): the TablePress ops
 #      through the real TablePress, on its own install too.
-#  10. Runs the live Breakdance group (issue #457) when WPMCP_BREAKDANCE_SRC
+#  10. Runs the live CRM group (issue #477): the FluentCRM and MailPoet ops
+#      through the real plugins, on their own install.
+#  11. Runs the live Breakdance group (issue #457) when WPMCP_BREAKDANCE_SRC
 #      names a local copy of Breakdance (a commercial plugin, so not
 #      downloadable here): pages saved by the real Breakdance are detected,
 #      read, edited and rolled back, and Breakdance still loads them.
@@ -48,6 +50,7 @@
 #   bin/test-local.sh --live-buddypress only the live BuddyPress group (real BuddyPress)
 #   bin/test-local.sh --live-lms      only the live LMS groups (real Tutor LMS, then real LifterLMS)
 #   bin/test-local.sh --live-tablepress only the live TablePress group (real TablePress)
+#   bin/test-local.sh --live-crm      only the live CRM group (real FluentCRM and MailPoet)
 #   bin/test-local.sh --live-breakdance only the live Breakdance group (needs WPMCP_BREAKDANCE_SRC)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments; skips lint, drift and coverage
 #   bin/test-local.sh --stop-db       stop the private MariaDB server and exit
@@ -95,6 +98,7 @@ only_live_blocks=false
 only_live_buddypress=false
 only_live_lms=false
 only_live_tablepress=false
+only_live_crm=false
 only_live_breakdance=false
 coverage=true
 phpunit_args=()
@@ -108,6 +112,7 @@ while [ $# -gt 0 ]; do
 		--live-buddypress) only_live_buddypress=true ;;
 		--live-lms) only_live_lms=true ;;
 		--live-tablepress) only_live_tablepress=true ;;
+		--live-crm) only_live_crm=true ;;
 		--live-breakdance) only_live_breakdance=true ;;
 		--stop-db) stop_db=true ;;
 		--) shift; phpunit_args=("$@"); break ;;
@@ -236,6 +241,8 @@ install_wp() {
 	[ -n "${WPMCP_LIVE_LMS:-}" ] && flavor="-${WPMCP_LIVE_LMS}-live"
 	# And WPMCP_LIVE_TABLEPRESS=1 and TablePress.
 	[ "${WPMCP_LIVE_TABLEPRESS:-}" = 1 ] && flavor="-tablepress-live"
+	# And WPMCP_LIVE_CRM=1 and FluentCRM and MailPoet.
+	[ "${WPMCP_LIVE_CRM:-}" = 1 ] && flavor="-crm-live"
 	# And WPMCP_LIVE_BREAKDANCE=1 and the local Breakdance copy.
 	[ "${WPMCP_LIVE_BREAKDANCE:-}" = 1 ] && flavor="-breakdance-live"
 	# The installers' hash is part of the directory, not a stamp inside it:
@@ -428,6 +435,22 @@ run_live_tablepress() {
 	unset WPMCP_LIVE_TABLEPRESS
 }
 
+# The live CRM group (issue #477), the same way: its own install with the real
+# FluentCRM and MailPoet, its own database, and --fail-on-skipped.
+run_live_crm() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_CRM=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-crm-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live CRM group on WordPress $version (real FluentCRM and MailPoet)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group crm-live --fail-on-skipped
+	unset WPMCP_LIVE_CRM
+}
+
 # The live Breakdance group (issue #457), the same way, with the Breakdance
 # copy from WPMCP_BREAKDANCE_SRC: its own install, its own database and
 # --fail-on-skipped.
@@ -499,12 +522,13 @@ if [ "$coverage" = true ] && [ "$targeted" = false ]; then
 	fi
 fi
 
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_breakdance" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_breakdance" = true ]; then
 	[ "$only_live_forms" = false ] || run_live_forms "${only_wp:-$default_wp}"
 	[ "$only_live_blocks" = false ] || run_live_blocks "${only_wp:-$default_wp}"
 	[ "$only_live_buddypress" = false ] || run_live_buddypress "${only_wp:-$default_wp}"
 	[ "$only_live_lms" = false ] || run_live_lms "${only_wp:-$default_wp}"
 	[ "$only_live_tablepress" = false ] || run_live_tablepress "${only_wp:-$default_wp}"
+	[ "$only_live_crm" = false ] || run_live_crm "${only_wp:-$default_wp}"
 	[ "$only_live_breakdance" = false ] || run_live_breakdance "${only_wp:-$default_wp}"
 elif [ -n "$only_wp" ]; then
 	run_suite "$only_wp" false
@@ -521,6 +545,7 @@ else
 		run_live_buddypress "$default_wp"
 		run_live_lms "$default_wp"
 		run_live_tablepress "$default_wp"
+		run_live_crm "$default_wp"
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			run_live_breakdance "$default_wp"
 		fi

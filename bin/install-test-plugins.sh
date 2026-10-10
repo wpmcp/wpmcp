@@ -9,7 +9,9 @@
 # WPMCP_LIVE_BLOCKS=1, Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks
 # only (bin/test-local.sh --live-blocks), or, with WPMCP_LIVE_BUDDYPRESS=1,
 # BuddyPress only (bin/test-local.sh --live-buddypress), or, with
-# WPMCP_LIVE_TABLEPRESS=1, TablePress only (bin/test-local.sh --live-tablepress). The script
+# WPMCP_LIVE_TABLEPRESS=1, TablePress only (bin/test-local.sh --live-tablepress), or,
+# with WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
+# --live-crm). The script
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
 #
@@ -107,6 +109,17 @@ fi
 if [ "${WPMCP_LIVE_TABLEPRESS:-}" = "1" ]; then
 	PLUGINS=(
 		"tablepress:tablepress.php"
+	)
+fi
+
+# The live CRM job (issue #477) runs the FluentCRM and MailPoet ops through
+# the real plugins, so their own APIs, hooks and opt-in rules run. Both on one
+# install: they share no tables, post types or hooks. Exclusive too: the
+# stub-backed CRM tests fake both plugins' presence over fixture tables.
+if [ "${WPMCP_LIVE_CRM:-}" = "1" ]; then
+	PLUGINS=(
+		"fluent-crm:fluent-crm.php"
+		"mailpoet:mailpoet.php"
 	)
 fi
 
