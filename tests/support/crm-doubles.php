@@ -115,6 +115,64 @@ if ( ! class_exists( Fake_FluentCRM::class ) ) {
 			$wpdb->delete( self::t( 'list' === $kind ? 'fc_lists' : 'fc_tags' ), [ 'id' => $id ] );
 			$wpdb->delete( self::t( 'fc_subscriber_pivot' ), [ 'object_id' => $id, 'object_type' => self::type( $kind ) ] );
 		}
+
+		/** @param array<string, mixed> $fields */
+		private static function campaign_columns( array $fields ): array {
+			$row = [];
+			foreach ( [ 'title' => 'title', 'subject' => 'email_subject', 'preheader' => 'email_pre_header', 'body' => 'email_body' ] as $key => $column ) {
+				if ( array_key_exists( $key, $fields ) ) {
+					$row[ $column ] = (string) $fields[ $key ];
+				}
+			}
+			if ( array_key_exists( 'lists', $fields ) ) {
+				$row['settings'] = maybe_serialize( [ 'subscribers' => array_map( static fn ( int $list ): array => [ 'list' => $list, 'tag' => 'all' ], (array) $fields['lists'] ), 'sending_filter' => 'list_tag' ] );
+			}
+			return $row;
+		}
+
+		protected function api_create_campaign( array $fields ): int {
+			global $wpdb;
+			self::$calls[] = [ 'create_campaign', func_get_args() ];
+			$fields += [ 'title' => (string) ( $fields['subject'] ?? '' ), 'lists' => [] ];
+			$wpdb->insert( self::t( 'fc_campaigns' ), self::campaign_columns( $fields ) + [ 'type' => 'campaign', 'status' => 'draft', 'slug' => sanitize_title( (string) $fields['title'] ), 'email_body' => '', 'created_at' => self::now() ] );
+			$id = (int) $wpdb->insert_id;
+			$wpdb->insert( self::t( 'fc_meta' ), [ 'object_type' => 'FluentCrm\\App\\Models\\Campaign', 'object_id' => $id, 'key' => '_next_config_step', 'value' => '1' ] );
+			return $id;
+		}
+
+		protected function api_update_campaign( int $id, array $fields ): void {
+			global $wpdb;
+			self::$calls[] = [ 'update_campaign', func_get_args() ];
+			$wpdb->update( self::t( 'fc_campaigns' ), self::campaign_columns( $fields ) + [ 'updated_at' => self::now() ], [ 'id' => $id ] );
+		}
+
+		protected function api_duplicate_campaign( int $id ): int {
+			global $wpdb;
+			self::$calls[] = [ 'duplicate_campaign', func_get_args() ];
+			$row = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE id = %d', self::t( 'fc_campaigns' ), $id ), ARRAY_A );
+			unset( $row['id'] );
+			$row['title']  = '[Duplicate] ' . $row['title'];
+			$row['slug']   = $row['slug'] . '-copy';
+			$row['status'] = 'draft';
+			$wpdb->insert( self::t( 'fc_campaigns' ), $row );
+			return (int) $wpdb->insert_id;
+		}
+
+		protected function api_send_test( int $id, string $email ): void {
+			self::$calls[] = [ 'send_test', func_get_args() ];
+		}
+
+		protected function api_send_campaign( int $id, ?string $at ): void {
+			global $wpdb;
+			self::$calls[] = [ 'send_campaign', func_get_args() ];
+			$wpdb->update( self::t( 'fc_campaigns' ), [ 'status' => null === $at ? 'processing' : 'pending-scheduled', 'scheduled_at' => $at ?? self::now(), 'recipients_count' => 0 ], [ 'id' => $id ] );
+		}
+
+		protected function api_set_automation_status( int $id, string $status ): void {
+			global $wpdb;
+			self::$calls[] = [ 'automation_status', func_get_args() ];
+			$wpdb->update( self::t( 'fc_funnels' ), [ 'status' => $status ], [ 'id' => $id ] );
+		}
 	}
 }
 
@@ -225,6 +283,82 @@ if ( ! class_exists( Fake_MailPoet::class ) ) {
 			self::$calls[] = [ 'delete_group', func_get_args() ];
 			$wpdb->delete( self::t( 'list' === $kind ? 'mailpoet_segments' : 'mailpoet_tags' ), [ 'id' => $id ] );
 			$wpdb->delete( self::t( 'list' === $kind ? 'mailpoet_subscriber_segment' : 'mailpoet_subscriber_tag' ), [ 'list' === $kind ? 'segment_id' : 'tag_id' => $id ] );
+		}
+
+		/** @param array<string, mixed> $fields */
+		private static function newsletter_columns( array $fields ): array {
+			$row = [];
+			foreach ( [ 'subject' => 'subject', 'preheader' => 'preheader' ] as $key => $column ) {
+				if ( array_key_exists( $key, $fields ) ) {
+					$row[ $column ] = (string) $fields[ $key ];
+				}
+			}
+			if ( array_key_exists( 'body', $fields ) ) {
+				$row['body'] = (string) wp_json_encode( [ 'content' => [ 'type' => 'container', 'blocks' => [ [ 'type' => 'text', 'text' => (string) $fields['body'] ] ] ] ] );
+			}
+			return $row;
+		}
+
+		/** @param int[] $lists */
+		private static function newsletter_lists( int $id, array $lists ): void {
+			global $wpdb;
+			$wpdb->delete( self::t( 'mailpoet_newsletter_segment' ), [ 'newsletter_id' => $id ] );
+			foreach ( $lists as $list ) {
+				$wpdb->insert( self::t( 'mailpoet_newsletter_segment' ), [ 'newsletter_id' => $id, 'segment_id' => $list, 'created_at' => self::now() ] );
+			}
+		}
+
+		protected function api_create_campaign( array $fields ): int {
+			global $wpdb;
+			self::$calls[] = [ 'create_campaign', func_get_args() ];
+			$wpdb->insert( self::t( 'mailpoet_newsletters' ), self::newsletter_columns( $fields ) + [ 'type' => 'standard', 'status' => 'draft', 'hash' => wp_generate_password( 12, false ), 'created_at' => self::now() ] );
+			$id = (int) $wpdb->insert_id;
+			self::newsletter_lists( $id, array_map( 'intval', (array) ( $fields['lists'] ?? [] ) ) );
+			return $id;
+		}
+
+		protected function api_update_campaign( int $id, array $fields ): void {
+			global $wpdb;
+			self::$calls[] = [ 'update_campaign', func_get_args() ];
+			$columns = self::newsletter_columns( $fields );
+			if ( [] !== $columns ) {
+				$wpdb->update( self::t( 'mailpoet_newsletters' ), $columns, [ 'id' => $id ] );
+			}
+			if ( array_key_exists( 'lists', $fields ) ) {
+				self::newsletter_lists( $id, array_map( 'intval', (array) $fields['lists'] ) );
+			}
+		}
+
+		protected function api_duplicate_campaign( int $id ): int {
+			global $wpdb;
+			self::$calls[] = [ 'duplicate_campaign', func_get_args() ];
+			$row = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE id = %d', self::t( 'mailpoet_newsletters' ), $id ), ARRAY_A );
+			unset( $row['id'], $row['unsubscribe_token'] );
+			$row['subject'] = 'Copy of ' . $row['subject'];
+			$row['status']  = 'draft';
+			$wpdb->insert( self::t( 'mailpoet_newsletters' ), $row );
+			$copy = (int) $wpdb->insert_id;
+			self::newsletter_lists( $copy, array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( 'SELECT segment_id FROM %i WHERE newsletter_id = %d', self::t( 'mailpoet_newsletter_segment' ), $id ) ) ) );
+			return $copy;
+		}
+
+		protected function api_send_test( int $id, string $email ): void {
+			self::$calls[] = [ 'send_test', func_get_args() ];
+		}
+
+		protected function api_send_campaign( int $id, ?string $at ): void {
+			global $wpdb;
+			self::$calls[] = [ 'send_campaign', func_get_args() ];
+			$wpdb->insert( self::t( 'mailpoet_scheduled_tasks' ), [ 'type' => 'sending', 'status' => null === $at ? null : 'scheduled', 'scheduled_at' => $at, 'created_at' => self::now() ] );
+			$wpdb->insert( self::t( 'mailpoet_sending_queues' ), [ 'task_id' => (int) $wpdb->insert_id, 'newsletter_id' => $id, 'count_total' => $this->campaign_recipients( $id ), 'created_at' => self::now() ] );
+			$wpdb->update( self::t( 'mailpoet_newsletters' ), [ 'status' => null === $at ? 'sending' : 'scheduled' ], [ 'id' => $id ] );
+		}
+
+		protected function api_set_automation_status( int $id, string $status ): void {
+			global $wpdb;
+			self::$calls[] = [ 'automation_status', func_get_args() ];
+			$wpdb->update( self::t( 'mailpoet_automations' ), [ 'status' => $status ], [ 'id' => $id ] );
+			$wpdb->insert( self::t( 'mailpoet_automation_versions' ), [ 'automation_id' => $id, 'steps' => '{}', 'created_at' => self::now() ] );
 		}
 	}
 }

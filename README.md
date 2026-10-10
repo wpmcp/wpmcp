@@ -284,18 +284,19 @@ Snapshot history keeps the last 20 operations on every install; raise it with th
 
 ```bash
 composer install       # install dev dependencies
-composer test:local    # the test gate: lint, drift check, PHPUnit + WordPress suite, coverage floor
+composer test:local    # the test gate: lint, drift check, PHPUnit on the default and minimum WordPress, coverage floor
 composer lint          # PSR-12 with WordPress-idiomatic naming
 ```
 
-The PHPUnit suite does not run on GitHub Actions. It runs locally through `bin/test-local.sh`, and the pre-push hook in `.githooks/` runs it before every push. The first run of the script turns the hook on for the clone. GitHub keeps only the static gates: lint, the drift check, compliance and Plugin Check.
+The PHPUnit suite does not run on GitHub Actions. It runs locally through `bin/test-local.sh`, and the pre-push hook in `.githooks/` runs it before every push, on the default WordPress and on the `Requires at least` minimum. Every leg runs even when one fails, and the run ends with a pass/fail summary. The first run of the script turns the hook on for the clone. GitHub keeps only the static gates: lint, the drift check, compliance and Plugin Check.
 
 The script needs MariaDB and Subversion, and nothing else to configure:
 
 ```bash
 brew install mariadb@10.11 subversion   # keg-only, does not conflict with a mysql install
-bin/test-local.sh                       # default WordPress leg with the coverage floor
-bin/test-local.sh --all                 # also the `Requires at least` WordPress
+bin/test-local.sh                       # default WordPress with the coverage floor, the `Requires at least` WordPress, live groups
+bin/test-local.sh --all                 # the same on every WordPress in WP_VERSIONS
+bin/test-local.sh --plan                # list the legs a run would execute, run nothing
 bin/test-local.sh -- --filter SnapshotTest   # a targeted PHPUnit run
 ELEMENTOR_VERSION=latest bin/test-local.sh   # check for drift against the newest Elementor
 WPMCP_TEST_ADAPTER_PLUGIN=/path/to/mcp-adapter/mcp-adapter.php bin/test-local.sh   # against a canonical MCP Adapter build, e.g. its trunk after composer install --no-dev
@@ -306,7 +307,7 @@ bin/test-local.sh --live-lms            # only the Tutor LMS and LifterLMS live 
 bin/test-local.sh --live-crm            # only the FluentCRM and MailPoet live group
 ```
 
-It starts a private MariaDB server under `~/.cache/wpmcp-tests`, installs each WordPress version there once per version of the install scripts, and gives every worktree its own database, so worktrees can run side by side. The default run ends with six live groups, each on its own install: the live forms group (the Contact Form 7 adapter against the real Contact Form 7 and Flamingo), the live blocks group (blocks inserted through the block-suites tools, rendered with the real Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks), the live BuddyPress group (the BuddyPress ops run through the real BuddyPress, its hooks firing, and rolled back) and the live Tutor LMS and LifterLMS groups (a course tree built through the LMS ops, read back through each plugin's own curriculum API, and rolled back) and the live CRM group (FluentCRM contacts and MailPoet subscribers written through each plugin's own API, read back through it, and rolled back without resubscribing anyone). MySQL does not work: the harness makes every table TEMPORARY and MySQL cannot reopen one inside a query, which WooCommerce does. Skip the gate for one push with `WPMCP_SKIP_LOCAL_TESTS=1 git push`.
+It starts a private MariaDB server under `~/.cache/wpmcp-tests`, installs each WordPress version there once per version of the install scripts, and gives every worktree its own database, so worktrees can run side by side. The default run ends with six live groups, each on its own install: the live forms group (the Contact Form 7 adapter against the real Contact Form 7 and Flamingo), the live blocks group (blocks inserted through the block-suites tools, rendered with the real Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks), the live BuddyPress group (the BuddyPress ops run through the real BuddyPress, its hooks firing, and rolled back) and the live Tutor LMS and LifterLMS groups (a course tree built through the LMS ops, read back through each plugin's own curriculum API, and rolled back) and the live CRM group (FluentCRM contacts and MailPoet subscribers written, imported and rolled back through each plugin's own API without resubscribing anyone, and campaigns drafted, tested and sent through each plugin's own mailer with every email captured, never delivered). MySQL does not work: the harness makes every table TEMPORARY and MySQL cannot reopen one inside a query, which WooCommerce does. Skip the gate for one push with `WPMCP_SKIP_LOCAL_TESTS=1 git push`.
 
 ## Contributing
 
