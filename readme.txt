@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.143
+Stable tag: 0.8.144
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -110,6 +110,11 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.144 =
+* New: limit who can manage WP MCP to chosen administrators, from the Connection screen or with WPMCP_MANAGEMENT_ADMINS in wp-config.php. By default every administrator can still manage it, so nothing changes until you set a list.
+* Administrators left off the list lose the WP MCP menu, screens and admin actions but keep the rest of wp-admin, and what agents may do is still decided by identities and governance. An invalid constant value closes management until it is fixed.
+* New WP-CLI recovery command: wp wpmcp management-access reset lets every administrator manage WP MCP again (refused while the constant is defined).
 
 = 0.8.143 =
 * WP MCP now takes part in WordPress's personal data tools: Tools > Export Personal Data lists a person's records from WP MCP's undo snapshots, activity logs, agent memory, search index and (Pro) chat, and Erase Personal Data removes them.
@@ -726,6 +731,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.144 =
+New: limit who can manage WP MCP to chosen administrators, from the Connection screen or with WPMCP_MANAGEMENT_ADMINS in wp-config.php. By default every administrator can still manage it, so nothing changes until you set a list.
 
 = 0.8.143 =
 WP MCP now takes part in WordPress's personal data tools: Tools > Export Personal Data lists a person's records from WP MCP's undo snapshots, activity logs, agent memory, search index and (Pro) chat, and Erase Personal Data removes them.
