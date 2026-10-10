@@ -180,6 +180,14 @@ return [
         'src/Integrations/LMS_Adapter.php',
         'src/Integrations/LMS_Tutor.php',
         'src/Integrations/LMS_LifterLMS.php',
+        // FluentCRM and MailPoet contacts, lists, tags, campaigns and
+        // automations (issue #477), paid-tier. strip.php takes out the lines
+        // in Plugin_Data_Integration that merge the ops, count the pack
+        // towards availability and name it in the summary.
+        'src/Integrations/CRM_Pack.php',
+        'src/Integrations/CRM_Adapter.php',
+        'src/Integrations/CRM_FluentCRM.php',
+        'src/Integrations/CRM_MailPoet.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

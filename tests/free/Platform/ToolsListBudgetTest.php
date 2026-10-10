@@ -239,7 +239,10 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  description), paid for by rewording import-stock-image,
      *  insert-stock-image and the five "Not snapshotted (a create destroys
      *  nothing)" create descriptions without dropping a rule: 208877 ->
-     *  208837 bytes over 407 tools. */
+     *  208837 bytes over 407 tools.
+     *  FluentCRM and MailPoet (#477) added no tool: their ops sit on the
+     *  plugin-data pair, whose two descriptions name them in 24 bytes each:
+     *  208945 -> 208993 bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
