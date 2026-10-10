@@ -5,6 +5,8 @@ namespace WPMCP\Admin;
 use WPMCP\Auth\Client_Access;
 use WPMCP\Auth\Client_Metadata_Document;
 use WPMCP\Auth\Client_Store;
+use WPMCP\Auth\Mcp_Resource;
+use WPMCP\Auth\Network_Sites;
 use WPMCP\Auth\OAuth_Config;
 use WPMCP\Connect\Bundle_Builder;
 use WPMCP\Connect\Client_Config_Generator;
@@ -468,6 +470,56 @@ class Connection_Page
     }
 
     /**
+     * Where MCP clients find this site's OAuth metadata (issue #473). On a
+     * site whose home has a path, the RFC 8414 address sits at the domain
+     * root: a multisite main site answers it for its subsites, while on a
+     * single site in a subdirectory it is outside WordPress and discovery
+     * relies on the OpenID path-appended address, which spec-following
+     * clients try last.
+     */
+    private function render_oauth_discovery(): void
+    {
+        $home  = untrailingslashit(home_url());
+        $path  = trim((string) wp_parse_url($home, PHP_URL_PATH), '/');
+        $parts = (array) wp_parse_url($home);
+        $root  = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '') . (isset($parts['port']) ? ':' . $parts['port'] : '');
+
+        $metadata = '' === $path ? $home . '/.well-known/oauth-authorization-server' : $home . '/.well-known/openid-configuration';
+        $rfc8414  = $root . '/.well-known/oauth-authorization-server' . ('' === $path ? '' : '/' . $path);
+        $network  = is_multisite() && ! is_main_site() && ! is_subdomain_install() && Network_Sites::main_site_answers();
+        ?>
+        <h2><?php echo esc_html__('OAuth discovery', 'wpmcp'); ?></h2>
+        <table class="form-table" role="presentation">
+            <tr>
+                <th scope="row"><?php echo esc_html__('Issuer', 'wpmcp'); ?></th>
+                <td><code><?php echo esc_html($home); ?></code></td>
+            </tr>
+            <tr>
+                <th scope="row"><?php echo esc_html__('Protected resource metadata', 'wpmcp'); ?></th>
+                <td><code><?php echo esc_html(Mcp_Resource::metadata_url()); ?></code></td>
+            </tr>
+            <tr>
+                <th scope="row"><?php echo esc_html__('Authorization server metadata', 'wpmcp'); ?></th>
+                <td>
+                    <code><?php echo esc_html($metadata); ?></code>
+                    <?php if ('' !== $path && $network) : ?>
+                        <p class="description"><?php
+                            /* translators: %s: the authorization server metadata URL at the domain root. */
+                            echo esc_html(sprintf(__('The main site of this network also answers %s for this site.', 'wpmcp'), $rfc8414));
+                        ?></p>
+                    <?php elseif ('' !== $path) : ?>
+                        <p class="description"><?php
+                            /* translators: 1: the authorization server metadata URL at the domain root, 2: the same document at this site's own address. */
+                            echo esc_html(sprintf(__('WordPress is installed in a subdirectory, so the standard address at the domain root (%1$s) is outside WordPress. MCP clients that follow the MCP authorization spec fall back to the address above, so no server setup is needed. For a client that only checks the domain root, rewrite that address to %2$s on your web server.', 'wpmcp'), $rfc8414, $home . '/.well-known/oauth-authorization-server'));
+                        ?></p>
+                    <?php endif; ?>
+                </td>
+            </tr>
+        </table>
+        <?php
+    }
+
+    /**
      * OAuth clients that connected with a Client ID Metadata Document
      * (issue #388), and the switch that holds new ones for approval. Only
      * shown while OAuth is on. Each client's redirect hosts are listed, and
@@ -488,6 +540,7 @@ class Connection_Page
             'pending'  => __('Waiting for approval', 'wpmcp'),
             'seen'     => __('Allowed (approval off)', 'wpmcp'),
         ];
+        $this->render_oauth_discovery();
         ?>
         <h2><?php echo esc_html__('OAuth clients', 'wpmcp'); ?></h2>
         <p><?php echo esc_html__('MCP clients that sign in through OAuth with a client metadata document (an https URL as their client ID) are listed here. This site fetches that document to learn the client\'s name and where it may redirect.', 'wpmcp'); ?></p>

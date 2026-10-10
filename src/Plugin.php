@@ -799,6 +799,11 @@ final class Plugin
             // Endpoints::register() itself no-ops unless OAuth_Config::is_enabled()
             // (default false), so this hook registration is always safe to add.
             add_action('rest_api_init', [new OAuth_Endpoints(), 'register']);
+            // The OAuth discovery documents under /.well-known/ (issue #473).
+            // Attached here rather than on rest_api_init, which a front-end
+            // GET for a well-known path never fires. The handler answers
+            // nothing while OAuth is off.
+            OAuth_Endpoints::register_well_known();
             // In-admin AI chat (issue #73, PRO). The conversation CPT and the
             // purge that destroys conversations with their owner register
             // unconditionally, for the same reason the memory CPT above does:

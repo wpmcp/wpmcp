@@ -48,4 +48,20 @@ class Authorization_Server_Metadata
 
         return $doc;
     }
+
+    /**
+     * The same metadata in the shape OpenID Connect Discovery parsers expect,
+     * served at /.well-known/openid-configuration (issue #473). That is the
+     * one discovery address every install shape can answer: for an issuer
+     * with a path (a subdirectory install or subsite) the OpenID form appends
+     * the well-known segment to the issuer, so it reaches WordPress, while
+     * the RFC 8414 form inserts it at the domain root.
+     *
+     * Adds subject_types_supported, which OpenID parsers require. No ID
+     * token is issued, so nothing about ID tokens is advertised.
+     */
+    public static function build_openid(string $issuer): array
+    {
+        return self::build($issuer) + ['subject_types_supported' => ['public']];
+    }
 }
