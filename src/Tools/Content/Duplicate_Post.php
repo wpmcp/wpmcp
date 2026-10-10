@@ -96,10 +96,8 @@ class Duplicate_Post
 
         $with_children = (bool) ($args['include_children'] ?? false);
 
-        $new_id = $this->copy($source, $title, $status, (int) $source->post_parent);
-
-        $children = [];
-        $skipped  = [];
+        $sources = [];
+        $skipped = [];
         if ($with_children) {
             // Only the children the caller may read (issue #465): another
             // user's draft or private child is not copied into a post the
@@ -121,8 +119,23 @@ class Duplicate_Post
                     $skipped[] = (int) $child->ID;
                     continue;
                 }
-                $children[] = $this->copy($child, (string) $child->post_title, $status, $new_id);
+                $sources[] = $child;
             }
+        }
+
+        // Every copy is a new post of its source's type in $status, so the
+        // caller needs that type's create_posts and, to publish, its
+        // publish_posts (issue #482). Checked for the whole tree before
+        // anything is written, so a refusal leaves no partial copy.
+        foreach (array_merge([$source], $sources) as $original) {
+            Post_Status_Guard::assert((string) $original->post_type, $status, true);
+        }
+
+        $new_id = $this->copy($source, $title, $status, (int) $source->post_parent);
+
+        $children = [];
+        foreach ($sources as $child) {
+            $children[] = $this->copy($child, (string) $child->post_title, $status, $new_id);
         }
 
         $operation_id = Post_Creation_Snapshot::record(
@@ -161,6 +174,7 @@ class Duplicate_Post
         if (! current_user_can('edit_post', $source->ID)) {
             throw new \RuntimeException('You cannot edit post ' . (int) $source->ID . '.');
         }
+        Post_Status_Guard::assert((string) $source->post_type, 'draft', true);
 
         $stage_id     = Post_Stage::find($source);
         $operation_id = null;
