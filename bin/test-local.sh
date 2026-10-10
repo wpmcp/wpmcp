@@ -30,7 +30,10 @@
 #      through the real TablePress, on its own install too.
 #  10. Runs the live CRM group (issue #477): the FluentCRM and MailPoet ops
 #      through the real plugins, on their own install.
-#  11. Runs the live Breakdance group (issue #457) when WPMCP_BREAKDANCE_SRC
+#  11. Runs the live Polylang group (issue #498): the page translation ops
+#      through the real Polylang (booted as wp-admin boots it) and Elementor,
+#      on the shared install with its own database.
+#  12. Runs the live Breakdance group (issue #457) when WPMCP_BREAKDANCE_SRC
 #      names a local copy of Breakdance (a commercial plugin, so not
 #      downloadable here): pages saved by the real Breakdance are detected,
 #      read, edited and rolled back, and Breakdance still loads them.
@@ -51,6 +54,7 @@
 #   bin/test-local.sh --live-lms      only the live LMS groups (real Tutor LMS, then real LifterLMS)
 #   bin/test-local.sh --live-tablepress only the live TablePress group (real TablePress)
 #   bin/test-local.sh --live-crm      only the live CRM group (real FluentCRM and MailPoet)
+#   bin/test-local.sh --live-polylang only the live Polylang group (real Polylang and Elementor)
 #   bin/test-local.sh --live-breakdance only the live Breakdance group (needs WPMCP_BREAKDANCE_SRC)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments; skips lint, drift and coverage
 #   bin/test-local.sh --stop-db       stop the private MariaDB server and exit
@@ -99,6 +103,7 @@ only_live_buddypress=false
 only_live_lms=false
 only_live_tablepress=false
 only_live_crm=false
+only_live_polylang=false
 only_live_breakdance=false
 coverage=true
 phpunit_args=()
@@ -113,6 +118,7 @@ while [ $# -gt 0 ]; do
 		--live-lms) only_live_lms=true ;;
 		--live-tablepress) only_live_tablepress=true ;;
 		--live-crm) only_live_crm=true ;;
+		--live-polylang) only_live_polylang=true ;;
 		--live-breakdance) only_live_breakdance=true ;;
 		--stop-db) stop_db=true ;;
 		--) shift; phpunit_args=("$@"); break ;;
@@ -451,6 +457,22 @@ run_live_crm() {
 	unset WPMCP_LIVE_CRM
 }
 
+# The live Polylang group (issue #498): Polylang and Elementor are already in
+# the shared install, so it runs on that install with its own database, with
+# WPMCP_LIVE_POLYLANG=1 booting Polylang in tests/bootstrap.php, and
+# --fail-on-skipped.
+run_live_polylang() {
+	local version=$1 dir core config
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-polylang-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Polylang group on WordPress $version (real Polylang and Elementor)"
+	WPMCP_LIVE_POLYLANG=1 WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group polylang-live --fail-on-skipped
+}
+
 # The live Breakdance group (issue #457), the same way, with the Breakdance
 # copy from WPMCP_BREAKDANCE_SRC: its own install, its own database and
 # --fail-on-skipped.
@@ -522,13 +544,14 @@ if [ "$coverage" = true ] && [ "$targeted" = false ]; then
 	fi
 fi
 
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_breakdance" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_breakdance" = true ]; then
 	[ "$only_live_forms" = false ] || run_live_forms "${only_wp:-$default_wp}"
 	[ "$only_live_blocks" = false ] || run_live_blocks "${only_wp:-$default_wp}"
 	[ "$only_live_buddypress" = false ] || run_live_buddypress "${only_wp:-$default_wp}"
 	[ "$only_live_lms" = false ] || run_live_lms "${only_wp:-$default_wp}"
 	[ "$only_live_tablepress" = false ] || run_live_tablepress "${only_wp:-$default_wp}"
 	[ "$only_live_crm" = false ] || run_live_crm "${only_wp:-$default_wp}"
+	[ "$only_live_polylang" = false ] || run_live_polylang "${only_wp:-$default_wp}"
 	[ "$only_live_breakdance" = false ] || run_live_breakdance "${only_wp:-$default_wp}"
 elif [ -n "$only_wp" ]; then
 	run_suite "$only_wp" false
@@ -546,6 +569,7 @@ else
 		run_live_lms "$default_wp"
 		run_live_tablepress "$default_wp"
 		run_live_crm "$default_wp"
+		run_live_polylang "$default_wp"
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			run_live_breakdance "$default_wp"
 		fi
