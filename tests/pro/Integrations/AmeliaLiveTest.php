@@ -30,6 +30,9 @@ use WPMCP\Safety\Snapshot_Store;
  */
 class AmeliaLiveTest extends \WP_UnitTestCase
 {
+    /** Every Amelia table these tests write, directly or through Amelia. */
+    private const TABLES = [ 'appointments', 'customer_bookings', 'payments', 'users', 'services', 'providers_to_services', 'categories', 'providers_to_weekdays', 'providers_to_timeouts', 'providers_to_periods', 'providers_to_daysoff', 'providers_to_specialdays', 'providers_to_locations', 'providers_views', 'services_views', 'galleries', 'notifications_log', 'events', 'events_periods', 'events_tags', 'events_to_providers', 'events_to_tickets', 'customer_bookings_to_events_periods' ];
+
     private int $admin;
 
     private int $employee;
@@ -50,7 +53,7 @@ class AmeliaLiveTest extends \WP_UnitTestCase
         // Amelia commits its own transactions, which commits the test's too,
         // so rows outlive a test here: every test starts from empty tables.
         global $wpdb;
-        foreach ([ 'appointments', 'customer_bookings', 'payments', 'users', 'services', 'providers_to_services', 'categories', 'providers_to_weekdays', 'providers_to_timeouts', 'providers_to_daysoff', 'notifications_log', 'events', 'events_periods', 'customer_bookings_to_events_periods' ] as $name) {
+        foreach (self::TABLES as $name) {
             $wpdb->query($wpdb->prepare('DELETE FROM %i', $wpdb->prefix . 'amelia_' . $name));
         }
         $wpdb->query($wpdb->prepare('DELETE FROM %i', Snapshot_Store::table_name()));
@@ -103,30 +106,29 @@ class AmeliaLiveTest extends \WP_UnitTestCase
         return $out['error'];
     }
 
-    /** An employee working every day 09:00 to 17:00, made through Amelia's own controller (employee writes are not ops yet). */
+    /** An employee working every day 09:00 to 17:00. */
     private function employee(string $email): int
     {
-        $data = \WPMCP\Integrations\Amelia_Pack::api()->request('User\\Provider\\AddProviderController', [
-            'type'                         => 'provider',
-            'status'                       => 'visible',
-            'firstName'                    => 'Tom',
-            'lastName'                     => 'Hart',
-            'email'                        => $email,
-            'externalId'                   => '',
-            'phone'                        => '',
-            'note'                         => '',
-            'description'                  => '',
-            'countryPhoneIso'              => '',
-            'show'                         => 1,
-            'sendEmployeePanelAccessEmail' => false,
-            'weekDayList'                  => array_map(static fn (int $day): array => [ 'dayIndex' => $day, 'startTime' => '09:00:00', 'endTime' => '17:00:00', 'timeOutList' => [], 'periodList' => [] ], range(1, 7)),
-            'dayOffList'                   => [],
-            'specialDayList'               => [],
-            'serviceList'                  => [],
-            'timeOutList'                  => [],
-            'periodList'                   => [],
-        ]);
-        return (int) $data['user']['id'];
+        $week = array_map(static fn (string $day): array => [ 'day' => $day, 'start' => '09:00', 'end' => '17:00' ], [ 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday' ]);
+        return (int) $this->call('write', 'amelia-create-employee', [ 'first_name' => 'Tom', 'last_name' => 'Hart', 'email' => $email, 'working_week' => $week ])['result']['employee']['id'];
+    }
+
+    /** Every row of every Amelia table these tests write. */
+    private function all(): array
+    {
+        global $wpdb;
+        $out = [];
+        foreach (self::TABLES as $name) {
+            if ('notifications_log' !== $name) {
+                $out[ $name ] = $wpdb->get_results($wpdb->prepare('SELECT * FROM %i ORDER BY id ASC', $wpdb->prefix . 'amelia_' . $name), ARRAY_A);
+            }
+        }
+        return $out;
+    }
+
+    private function undo(array $out): void
+    {
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']), (string) wp_json_encode(Rollback_Service::take_warnings()));
     }
 
     private function service(): int
@@ -324,8 +326,7 @@ class AmeliaLiveTest extends \WP_UnitTestCase
     {
         $customer = $this->customer();
         $day      = $this->day(2);
-        // Event writes are not ops yet: the event and its booking are made
-        // through Amelia's own controllers.
+        // Made through Amelia's own controllers, independent of the event ops.
         $event = (int) \WPMCP\Integrations\Amelia_Pack::api()->request('Booking\\Event\\AddEventController', [
             'name'           => 'Yoga day',
             'price'          => 20,
@@ -356,6 +357,161 @@ class AmeliaLiveTest extends \WP_UnitTestCase
         $attendees = $this->call('read', 'amelia-list-event-attendees', [ 'event_id' => $event ])['result']['attendees'];
         $this->assertSame([ $customer ], array_column($attendees, 'customer_id'));
         $this->assertSame('sarah@example.com', $attendees[0]['email']);
+    }
+
+    public function test_employee_hours_breaks_and_days_off_drive_ameliass_slots_and_checks_and_roll_back(): void
+    {
+        $customer = $this->customer();
+        $before   = $this->all();
+        $day     = $this->day();
+        $weekday = strtolower((new \DateTimeImmutable($day, wp_timezone()))->format('l'));
+        $week    = array_map(static fn (string $name): array => [ 'day' => $name, 'start' => '09:00', 'end' => '17:00', 'breaks' => $name === $weekday ? [ [ 'start' => '12:00', 'end' => '13:00' ] ] : [] ], [ 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday' ]);
+
+        $created = $this->call('write', 'amelia-create-employee', [ 'first_name' => 'Anna', 'last_name' => 'Ray', 'email' => 'anna@example.com', 'phone' => '+15550123', 'working_week' => $week, 'days_off' => [ [ 'name' => 'Trip', 'start' => $this->day(1) ] ] ]);
+        $anna    = $created['result']['employee'];
+        $this->assertSame([ [ 'start' => '12:00', 'end' => '13:00' ] ], array_values(array_filter($anna['working_week'], static fn (array $d): bool => $d['day'] === $weekday))[0]['breaks']);
+        $this->assertSame([ [ 'name' => 'Trip', 'start' => $this->day(1), 'end' => $this->day(1), 'repeat' => false ] ], $anna['days_off']);
+        $this->assertSame([], $this->mail, 'Creating an employee sends nothing.');
+        $service = $this->call('write', 'amelia-create-service', [ 'name' => 'Facial', 'category_id' => $this->category, 'duration' => 60, 'price' => 40, 'employee_ids' => [ $anna['id'] ] ]);
+        $sid     = (int) $service['result']['service']['id'];
+
+        $slots = $this->call('read', 'amelia-get-slots', [ 'service_id' => $sid, 'from' => $day, 'days' => 2 ])['result']['slots'];
+        $times = array_column($slots[0]['times'], 'time');
+        $this->assertSame($day, $slots[0]['date']);
+        $this->assertContains('11:00', $times);
+        $this->assertNotContains('12:00', $times, 'The break is not free.');
+        $this->assertNotContains('12:30', $times);
+        $this->assertNotContains($this->day(1), array_column($slots, 'date'), 'The day off has no slots.');
+
+        $error = $this->refused('amelia-book-appointment', [ 'service_id' => $sid, 'employee_id' => $anna['id'], 'customer_id' => $customer, 'start' => $day . ' 12:00' ]);
+        $this->assertSame('slot_unavailable', $error['code'], 'Amelia refuses a booking over the break.');
+
+        $hours = $this->call('write', 'amelia-update-employee', [ 'employee_id' => $anna['id'], 'first_name' => 'Ana', 'working_week' => [ [ 'day' => $weekday, 'start' => '10:00', 'end' => '14:00' ] ], 'days_off' => [] ]);
+        $this->assertSame('Ana', $hours['result']['employee']['first_name']);
+        $this->assertSame('+15550123', $hours['result']['employee']['phone']);
+        $this->assertSame([ [ 'day' => $weekday, 'start' => '10:00', 'end' => '14:00', 'breaks' => [] ] ], $hours['result']['employee']['working_week']);
+        $this->assertSame([], $hours['result']['employee']['days_off']);
+        $error = $this->refused('amelia-book-appointment', [ 'service_id' => $sid, 'employee_id' => $anna['id'], 'customer_id' => $customer, 'start' => $day . ' 15:00' ]);
+        $this->assertSame('slot_unavailable', $error['code'], 'Amelia refuses a time outside the new hours.');
+
+        $this->undo($hours);
+        $this->assertSame($anna, $this->call('read', 'amelia-list-employees', [ 'search' => 'anna@' ])['result']['employees'][0], 'The undo puts the week, the break and the day off back.');
+        $this->undo($service);
+        $this->undo($created);
+        $this->assertSame($before, $this->all());
+    }
+
+    public function test_event_writes_and_attendees_with_a_capacity_check_run_through_amelia_and_roll_back(): void
+    {
+        $sarah  = $this->customer();
+        $ann    = $this->customer('ann@example.com');
+        $day    = $this->day(2);
+        $before = $this->all();
+
+        $created = $this->call('write', 'amelia-create-event', [ 'name' => 'Yoga day', 'periods' => [ [ 'start' => $day . ' 14:00', 'end' => $day . ' 16:00' ] ], 'max_capacity' => 2, 'price' => 20, 'employee_ids' => [ $this->employee ], 'description' => 'Bring a mat' ]);
+        $event   = $created['result']['event'];
+        $this->assertSame([ [ 'start' => $day . ' 14:00', 'end' => $day . ' 16:00' ] ], $event['periods']);
+        $this->assertSame([ $this->employee ], $event['employee_ids']);
+        $this->assertSame('approved', $event['status']);
+        global $wpdb;
+        $this->assertSame((new \DateTimeImmutable($day . ' 14:00', wp_timezone()))->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s'), $wpdb->get_var($wpdb->prepare('SELECT periodStart FROM %i WHERE eventId = %d', $wpdb->prefix . 'amelia_events_periods', $event['id'])));
+        $made = $this->all();
+
+        $added = $this->call('write', 'amelia-add-event-attendee', [ 'event_id' => $event['id'], 'customer_id' => $sarah ]);
+        $this->assertSame(1, $added['result']['event']['places_left']);
+        $this->assertSame($sarah, $added['result']['attendee']['customer_id']);
+        $this->assertSame([ 'sarah@example.com' ], array_column($added['result']['notifications']['held'], 'to'));
+        $this->assertNotContains('sarah@example.com', array_column($this->mail, 'to'), 'The customer email never reached wp_mail.');
+
+        $full = $this->refused('amelia-add-event-attendee', [ 'event_id' => $event['id'], 'customer_id' => $ann, 'persons' => 2 ]);
+        $this->assertSame('event_full', $full['code']);
+        $this->assertSame([ 'max_capacity' => 2, 'booked' => 1, 'places_left' => 1 ], $full['data']);
+
+        $this->assertFalse(Rollback_Service::restore_operation((string) $created['operation_id']), 'An event booked since cannot be undone from under its attendee.');
+        $this->assertStringContainsString('later customer bookings to events periods', implode(' ', Rollback_Service::take_warnings()));
+
+        $update = $this->call('write', 'amelia-update-event', [ 'event_id' => $event['id'], 'name' => 'Yoga evening', 'price' => 25, 'periods' => [ [ 'start' => $day . ' 18:00', 'end' => $day . ' 20:00' ] ] ]);
+        $this->assertSame('Yoga evening', $update['result']['event']['name']);
+        $this->assertSame([ [ 'start' => $day . ' 18:00', 'end' => $day . ' 20:00' ] ], $update['result']['event']['periods']);
+        $this->assertSame([ $this->employee ], $update['result']['event']['employee_ids'], 'An update keeps the employees it does not name.');
+        $this->assertSame(1, $update['result']['event']['booked'], 'The attendee stays booked.');
+        $this->assertNotContains('sarah@example.com', array_column($this->mail, 'to'));
+
+        $cancel = $this->call('write', 'amelia-set-event-status', [ 'event_id' => $event['id'], 'status' => 'canceled' ]);
+        $this->assertSame('rejected', $cancel['result']['event']['status']);
+        $this->assertContains('sarah@example.com', array_column($cancel['result']['notifications']['held'], 'to'));
+        $this->assertNotContains('sarah@example.com', array_column($this->mail, 'to'));
+        $this->assertSame('event_closed', $this->refused('amelia-add-event-attendee', [ 'event_id' => $event['id'], 'customer_id' => $ann ])['code']);
+
+        $mail = count($this->mail);
+        $this->undo($cancel);
+        $this->undo($update);
+        $this->undo($added);
+        $this->assertSame($made, $this->all());
+        $this->undo($created);
+        $this->assertSame($before, $this->all());
+        $this->assertCount($mail, $this->mail, 'The undo sent nothing.');
+    }
+
+    public function test_deletes_are_refused_while_in_use_and_otherwise_go_through_amelia_and_roll_back(): void
+    {
+        $service  = $this->service();
+        $customer = $this->customer();
+        $this->call('write', 'amelia-book-appointment', [ 'service_id' => $service, 'employee_id' => $this->employee, 'customer_id' => $customer, 'start' => $this->day() . ' 10:00' ]);
+        $before = $this->all();
+        foreach ([
+            [ 'amelia-delete-customer', [ 'customer_id' => $customer ] ],
+            [ 'amelia-delete-employee', [ 'employee_id' => $this->employee ] ],
+            [ 'amelia-delete-service', [ 'service_id' => $service ] ],
+            [ 'amelia-delete-category', [ 'category_id' => $this->category ] ],
+        ] as [$op, $args]) {
+            $this->assertSame('amelia_in_use', $this->refused($op, $args + [ 'confirm' => true ])['code'], $op);
+        }
+        $this->assertSame($before, $this->all());
+
+        $category = (int) $this->call('write', 'amelia-create-category', [ 'name' => 'Empty' ])['result']['category']['id'];
+        $unused   = (int) $this->call('write', 'amelia-create-service', [ 'name' => 'Unbooked', 'category_id' => $this->category, 'duration' => 30, 'price' => 30, 'employee_ids' => [ $this->employee ] ])['result']['service']['id'];
+        $ben      = $this->customer('ben@example.com');
+        $anna     = (int) $this->call('write', 'amelia-create-employee', [ 'first_name' => 'Anna', 'last_name' => 'Ray', 'email' => 'anna@example.com', 'working_week' => [ [ 'day' => 'monday', 'start' => '09:00', 'end' => '17:00', 'breaks' => [ [ 'start' => '12:00', 'end' => '12:30' ] ] ] ], 'days_off' => [ [ 'name' => 'Trip', 'start' => '2031-01-02' ] ] ])['result']['employee']['id'];
+        $before   = $this->all();
+
+        $deleted = [];
+        foreach ([
+            [ 'amelia-delete-service', [ 'service_id' => $unused ], 'services', $unused ],
+            [ 'amelia-delete-category', [ 'category_id' => $category ], 'categories', $category ],
+            [ 'amelia-delete-customer', [ 'customer_id' => $ben ], 'users', $ben ],
+            [ 'amelia-delete-employee', [ 'employee_id' => $anna ], 'users', $anna ],
+        ] as [$op, $args, $table, $id]) {
+            $out = $this->call('write', $op, $args + [ 'confirm' => true ]);
+            $this->assertSame($id, $out['result']['deleted']['id'], $op);
+            $this->assertNotContains((string) $id, array_column($this->all()[ $table ], 'id'), $op);
+            $deleted[] = $out;
+        }
+        global $wpdb;
+        $this->assertSame(0, (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE userId = %d', $wpdb->prefix . 'amelia_providers_to_weekdays', $anna)), 'Amelia removed the employee\'s week.');
+
+        foreach (array_reverse($deleted) as $out) {
+            $this->undo($out);
+        }
+        $this->assertSame($before, $this->all());
+    }
+
+    public function test_undoing_a_created_customer_service_category_or_employee_is_refused_once_booked(): void
+    {
+        $category = $this->call('write', 'amelia-create-category', [ 'name' => 'Bodywork' ]);
+        $service  = $this->call('write', 'amelia-create-service', [ 'name' => 'Reflexology', 'category_id' => (int) $category['result']['category']['id'], 'duration' => 60, 'price' => 40 ]);
+        $customer = $this->call('write', 'amelia-create-customer', [ 'first_name' => 'Ben', 'email' => 'ben@example.com' ]);
+        $employee = $this->call('write', 'amelia-create-employee', [ 'first_name' => 'Anna', 'last_name' => 'Ray', 'email' => 'anna@example.com', 'working_week' => array_map(static fn (string $day): array => [ 'day' => $day, 'start' => '09:00', 'end' => '17:00' ], [ 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday' ]) ]);
+        $sid      = (int) $service['result']['service']['id'];
+        $this->call('write', 'amelia-update-service', [ 'service_id' => $sid, 'employee_ids' => [ (int) $employee['result']['employee']['id'] ] ]);
+        $this->call('write', 'amelia-book-appointment', [ 'service_id' => $sid, 'employee_id' => (int) $employee['result']['employee']['id'], 'customer_id' => (int) $customer['result']['customer']['id'], 'start' => $this->day() . ' 10:00' ]);
+        $before = $this->all();
+
+        foreach ([ [ $customer, 'later customer bookings' ], [ $service, 'later appointments' ], [ $category, 'later services' ], [ $employee, 'later appointments' ] ] as [$out, $why]) {
+            $this->assertFalse(Rollback_Service::restore_operation((string) $out['operation_id']));
+            $this->assertStringContainsString($why, implode(' ', Rollback_Service::take_warnings()));
+        }
+        $this->assertSame($before, $this->all());
     }
 
     public function test_customer_records_export_and_erase_on_ameliass_own_tables(): void
