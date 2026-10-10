@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.157
+Stable tag: 0.8.158
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -110,6 +110,11 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.158 =
+* New (paid tier): Amelia bookings. On sites running Amelia, agents can read the booking setup, categories, services, employees with their working hours, customers, appointments, free slots, events with places left and event attendees, and create or change categories, services and customers, book, reschedule, approve, cancel or reject appointments. No new tools: the operations sit on the existing plugin-data pair.
+* Every booking change goes through Amelia's own checks, so a taken slot or a time outside working hours is refused with Amelia's reason. Times are in the site's timezone and stay right across daylight-saving changes. Customer emails are held unless the agent asks to notify, and each answer lists what Amelia sent. Every change can be undone with rollback-operation, which never re-sends anything and is refused while later bookings depend on it.
+* Amelia customer records are now included in Tools > Export Personal Data and Erase Personal Data.
 
 = 0.8.157 =
 * New (Pro): FluentCRM and MailPoet campaigns, bulk import and automations. Agents can draft, edit and duplicate campaigns, send a test to themselves, import contacts without resubscribing anyone who opted out, and switch automations on or off, through each plugin's own API, with rollback-operation to undo each.
@@ -779,6 +784,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.158 =
+New (paid tier): Amelia bookings. On sites running Amelia, agents can read the booking setup, categories, services, employees with their working hours, customers, appointments, free slots, events with places left and event attendees, and create or change categories, services and customers, book, reschedule, approve, cancel or reject appointments. No new tools: the operations sit on the existing plugin-data pair.
 
 = 0.8.157 =
 New (Pro): FluentCRM and MailPoet campaigns, bulk import and automations. Agents can draft, edit and duplicate campaigns, send a test to themselves, import contacts without resubscribing anyone who opted out, and switch automations on or off, through each plugin's own API, with rollback-operation to undo each.
