@@ -56,7 +56,7 @@ gate rather than substitute for one:
 
 ## Verification
 
-- [ ] Full test suite green on every WordPress version (`bin/test-local.sh --all`).
+- [ ] Full test suite green on every WordPress version and on the latest released MCP Adapter plugin (`bin/test-local.sh --all`; its summary names the adapter version).
 - [ ] All three artifacts built, each from the readme it ships:
       - `scripts/build-wporg-release.sh` (wp.org free, `scripts/flavors/wporg/readme.txt`)
       - `scripts/build-woo-release.sh` (WooCommerce, `scripts/flavors/woocommerce/readme.txt`)
