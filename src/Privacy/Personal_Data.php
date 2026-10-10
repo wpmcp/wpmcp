@@ -66,7 +66,12 @@ class Personal_Data
 
     public static function exporters($list): array
     {
-        $list      = (array) $list;
+        $list = (array) $list;
+        // Amelia's customer records (issue #499) go first, so the undo
+        // snapshot exporter and eraser after them see their final state.
+        if (Amelia_Customers::available()) {
+            $list[ Amelia_Customers::KEY ] = [ 'exporter_friendly_name' => Amelia_Customers::name(), 'callback' => [ Amelia_Customers::class, 'export' ] ];
+        }
         $callbacks = [
             'wpmcp-snapshots'     => 'export_snapshots',
             'wpmcp-activity-logs' => 'export_logs',
@@ -81,7 +86,10 @@ class Personal_Data
 
     public static function erasers($list): array
     {
-        $list      = (array) $list;
+        $list = (array) $list;
+        if (Amelia_Customers::available()) {
+            $list[ Amelia_Customers::KEY ] = [ 'eraser_friendly_name' => Amelia_Customers::name(), 'callback' => [ Amelia_Customers::class, 'erase' ] ];
+        }
         $callbacks = [
             'wpmcp-snapshots'     => 'erase_snapshots',
             'wpmcp-activity-logs' => 'erase_logs',
