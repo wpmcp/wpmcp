@@ -13,6 +13,9 @@ if (! defined('ABSPATH')) {
  *  - get-funnelkit-funnel: one funnel's steps in order, each with its type,
  *    linked post, status, linked product ids and basic counts.
  *
+ * Issue #500 adds the funnel, step and checkout product writes and the
+ * checkout product read (FunnelKit_Writes) on the same pair.
+ *
  * Both run at manage_woocommerce and declare a 'requires' check, so while
  * FunnelKit is not loaded they stay documented in list-operations
  * (dependency_met:false) and answer funnelkit_inactive. Presence is
@@ -97,7 +100,7 @@ final class FunnelKit_Pack
     {
         $requires = static fn () => Ops_Status_Packs::presence(self::is_active(), 'funnelkit_inactive', 'FunnelKit');
 
-        return [
+        return FunnelKit_Writes::operations($requires) + [
             'list-funnelkit-funnels' => [
                 'mode'         => 'read',
                 'tier'         => 'pro',

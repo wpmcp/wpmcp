@@ -135,6 +135,20 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'mailpoet/mailpoet.php' );
     }
 
+    // The live FunnelKit job (issue #500, WPMCP_LIVE_FUNNELKIT=1) runs the
+    // FunnelKit funnel writes through the free Funnel Builder's own REST
+    // controllers, beside the WooCommerce loaded above. Loaded only on
+    // request: the stub-backed FunnelKit tests seed its tables from a
+    // fixture and stand in for its controllers.
+    if ( getenv( 'WPMCP_LIVE_FUNNELKIT' ) ) {
+        // Funnel Builder decides whether WooCommerce is there from the
+        // active_plugins option, as on a site, and leaves out its checkout
+        // and thank you steps otherwise; the harness activates nothing.
+        add_filter( 'option_active_plugins', 'wpmcp_test_funnelkit_active_plugins' );
+        add_filter( 'default_option_active_plugins', 'wpmcp_test_funnelkit_active_plugins' );
+        wpmcp_maybe_require_plugin( 'funnel-builder/funnel-builder.php' );
+    }
+
     // The live Amelia job (issue #499, WPMCP_LIVE_AMELIA=1) runs the Amelia
     // ops through the real Amelia Lite. Loaded only on request: the
     // stub-backed Amelia tests build its tables from a fixture and fake its
@@ -169,6 +183,13 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'lifterlms/lifterlms.php' );
     }
 } );
+
+if ( ! function_exists( 'wpmcp_test_funnelkit_active_plugins' ) ) {
+    /** The active_plugins option as the live FunnelKit job's site has it. */
+    function wpmcp_test_funnelkit_active_plugins( $plugins ): array {
+        return array_values( array_unique( array_merge( (array) $plugins, [ 'woocommerce/woocommerce.php', 'funnel-builder/funnel-builder.php' ] ) ) );
+    }
+}
 
 if ( ! function_exists( 'wpmcp_test_buddypress_components' ) ) {
     /** The BuddyPress components the live BuddyPress job runs with. */
@@ -206,6 +227,16 @@ tests_add_filter( 'init', function () {
     // wp-admin; the live TablePress job grants them the same way.
     if ( getenv( 'WPMCP_LIVE_TABLEPRESS' ) && isset( \TablePress::$model_options ) ) {
         \TablePress::$model_options->add_access_capabilities();
+    }
+}, 20 );
+
+// The live FunnelKit job's funnel tables, built by Funnel Builder's own
+// routine once per run, before any test transaction starts. A no-op
+// everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_FUNNELKIT' ) && defined( 'WFFN_PLUGIN_FILE' ) ) {
+        require_once plugin_dir_path( WFFN_PLUGIN_FILE ) . 'admin/db/class-wffn-db-tables.php';
+        \WFFN_DB_Tables::get_instance()->add_if_needed();
     }
 }, 20 );
 
