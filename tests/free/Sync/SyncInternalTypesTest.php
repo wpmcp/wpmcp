@@ -99,13 +99,17 @@ class SyncInternalTypesTest extends \WP_UnitTestCase
         return $names;
     }
 
-    /** @return string[] WP MCP post types, from source and from the runtime registry */
+    /**
+     * WP MCP post types, from source. The runtime registry is not used: other
+     * tests register throwaway wpmcp_* types that are not the plugin's.
+     *
+     * @return string[]
+     */
     private static function own_post_types(): array
     {
         $types = array_merge(
             self::scan("/POST_TYPE\\s*=\\s*'(wpmcp_[a-z0-9_]+)'/"),
-            self::scan("/register_post_type\\(\\s*'(wpmcp_[a-z0-9_]+)'/"),
-            array_values(array_filter(get_post_types(), static fn ($t) => str_starts_with((string) $t, 'wpmcp_')))
+            self::scan("/register_post_type\\(\\s*'(wpmcp_[a-z0-9_]+)'/")
         );
         $types = array_values(array_unique($types));
         sort($types);
