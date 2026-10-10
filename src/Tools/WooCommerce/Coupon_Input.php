@@ -106,6 +106,9 @@ class Coupon_Input
                 'status must be one of: ' . esc_html(implode(', ', self::STATUSES)) . '. Use delete-coupon to trash a coupon.'
             );
         }
+        if (array_key_exists('status', $args)) {
+            \WPMCP\Tools\Content\Post_Status_Guard::assert('shop_coupon', (string) $args['status'], 0 === $exclude_id);
+        }
     }
 
     /** Apply only the fields present in $args. Call validate() first. */

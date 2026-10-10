@@ -141,6 +141,7 @@ class Apply_Product_Import
         $product->set_name((string) $desired['name']);
         $product->set_sku((string) $op['sku']);
         $product->set_status((string) $desired['status']);
+        \WPMCP\Tools\Content\Post_Status_Guard::assert('product', '' === (string) $desired['status'] ? 'publish' : (string) $desired['status'], true);
         if (array_key_exists('regular_price', $desired)) {
             $product->set_regular_price((string) $desired['regular_price']);
         }

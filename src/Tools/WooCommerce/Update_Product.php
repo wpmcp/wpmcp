@@ -74,6 +74,9 @@ class Update_Product
      */
     private function validate(\WC_Product $product, array $args): void
     {
+        if (array_key_exists('status', $args)) {
+            \WPMCP\Tools\Content\Post_Status_Guard::assert((string) get_post_type($product->get_id()), sanitize_key((string) $args['status']), false);
+        }
         if (array_key_exists('stock_quantity', $args)) {
             $quantity = $args['stock_quantity'];
             if (! is_int($quantity) && ! (is_string($quantity) && preg_match('/^-?\d+$/', $quantity))) {

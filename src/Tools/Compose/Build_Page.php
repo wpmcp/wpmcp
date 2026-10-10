@@ -4,6 +4,7 @@ namespace WPMCP\Tools\Compose;
 
 use WPMCP\Pro\Gate;
 use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\Content\Post_Status_Guard;
 use WPMCP\Tools\Elementor\Atomic_Prop_Schema;
 use WPMCP\Tools\Elementor\Elementor_Page_Data;
 use WPMCP\Tools\Elementor\Widget_Catalog;
@@ -171,6 +172,14 @@ class Build_Page
     private function inspect(array $spec): array
     {
         $problems = [];
+
+        // The build creates a page in the spec's status: the caller needs
+        // the page type's create_posts, and its publish_posts to publish
+        // (issue #482).
+        $denial = Post_Status_Guard::denial('page', (string) $spec['status'], true);
+        if (null !== $denial) {
+            $problems[] = esc_html($denial);
+        }
 
         if (! empty($spec['media']['featured'])) {
             $missing = $this->missing_attachment((int) $spec['media']['featured'], 'spec.media.featured');
