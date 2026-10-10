@@ -8,6 +8,8 @@
  *  - {prefix}bwf_funnels: admin/db/class-wffn-db-tables.php funnels(). The
  *    steps column holds the ordered step list as JSON,
  *    [{"type":"landing","id":12}, ...] (includes/class-wffn-funnel.php);
+ *  - {prefix}bwf_funnelmeta: admin/db/class-wffn-db-tables.php funnelmeta(),
+ *    one row per funnel meta key (issue #500's funnel snapshots carry them);
  *  - {prefix}wfco_report_views: woofunnels/contact/class-woofunnels-db-tables.php,
  *    session counts per object and day, by type (2 landing visited,
  *    3 landing converted, 4 checkout visited, 5 thank you visited,
@@ -47,6 +49,16 @@ if ( ! function_exists( 'wpmcp_test_create_funnelkit_tables' ) ) {
 			`steps` LONGTEXT NULL DEFAULT NULL,
 			PRIMARY KEY (`id`),
 			KEY `id` (`id`)
+		) {$charset}" );
+
+		$wpdb->query( "CREATE TABLE `{$wpdb->prefix}bwf_funnelmeta` (
+			meta_id bigint(20) unsigned NOT NULL auto_increment,
+			bwf_funnel_id bigint(20) unsigned NOT NULL default '0',
+			meta_key varchar(255) default NULL,
+			meta_value longtext,
+			PRIMARY KEY  (meta_id),
+			KEY bwf_funnel_id (bwf_funnel_id),
+			KEY meta_key (meta_key(191))
 		) {$charset}" );
 
 		$wpdb->query( "CREATE TABLE `{$wpdb->prefix}wfco_report_views` (
@@ -111,7 +123,7 @@ if ( ! function_exists( 'wpmcp_test_drop_funnelkit_tables' ) ) {
 	function wpmcp_test_drop_funnelkit_tables(): void {
 		global $wpdb;
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- test fixture DDL built from literals.
-		$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}bwf_funnels, {$wpdb->prefix}wfco_report_views, {$wpdb->prefix}wfacp_stats, {$wpdb->prefix}bwf_optin_entries, {$wpdb->prefix}wfocu_event" );
+		$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}bwf_funnels, {$wpdb->prefix}bwf_funnelmeta, {$wpdb->prefix}wfco_report_views, {$wpdb->prefix}wfacp_stats, {$wpdb->prefix}bwf_optin_entries, {$wpdb->prefix}wfocu_event" );
 	}
 }
 
