@@ -140,18 +140,20 @@ class Remote_Image_Guard
     /**
      * Download an allowlist-validated URL to a temp file with redirects
      * disabled and both declared and actual size enforced. Returns the temp
-     * file path; the caller owns (and must clean up) the file.
+     * file path; the caller owns (and must clean up) the file. upload-media
+     * (issue #471) passes the site's upload limit as $max and its own temp
+     * directory; every other caller keeps the remote media cap.
      *
      * @throws \RuntimeException on any transport, redirect, or size failure.
      */
-    public static function download(string $url): string
+    public static function download(string $url, ?int $max = null, string $dir = ''): string
     {
         if (! function_exists('wp_tempnam')) {
             require_once ABSPATH . 'wp-admin/includes/file.php';
         }
 
-        $max = self::max_bytes();
-        $tmp = wp_tempnam('wpmcp-remote-media');
+        $max = $max ?? self::max_bytes();
+        $tmp = wp_tempnam('wpmcp-remote-media', $dir);
 
         $response = wp_safe_remote_get($url, [
             'timeout'             => 30,
