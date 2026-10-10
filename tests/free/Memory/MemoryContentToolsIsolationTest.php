@@ -88,7 +88,13 @@ class MemoryContentToolsIsolationTest extends \WP_UnitTestCase
             $this->assertInstanceOf(\WP_Error::class, $ability->execute($input), $name . ' ran after its permission check refused it');
             return $permission;
         }
-        return $ability->execute($input);
+        // WordPress 7.1 turns an exception from the execute callback into a
+        // WP_Error; earlier versions let it propagate. Normalize both.
+        try {
+            return $ability->execute($input);
+        } catch (\Throwable $e) {
+            return new \WP_Error('tool_error', $e->getMessage());
+        }
     }
 
     private function assertRefusedNamingMemoryTools($result, string $what): void
