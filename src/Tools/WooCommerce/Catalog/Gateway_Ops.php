@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\WooCommerce\Catalog;
 
+use WPMCP\Tools\WooCommerce\Gateway_Secrets;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -14,7 +16,8 @@ if (! defined('ABSPATH')) {
  *    form-field settings. Every secret-like field (a key, secret, password,
  *    token, signature or credential by name, or any field of type password)
  *    is masked in every response, so no gateway credential reaches a model
- *    context.
+ *    context. The rule lives in Gateway_Secrets, which get-option and
+ *    call-rest mask with too (issue #507).
  *  - gateways.update changes the enabled flag, title, description and
  *    non-secret settings through the wc/v3 gateway endpoint (its own field
  *    validation), then answers with the masked view, never the endpoint's
@@ -33,8 +36,8 @@ final class Gateway_Ops
     /** WooCommerce's gateway display order option (gateway id => position). */
     public const ORDER_OPTION = 'woocommerce_gateway_order';
 
-    /** Field names that mark a value as a credential. */
-    public const SECRET_PATTERN = '/(key|secret|pass(word|wd|phrase)?|token|signature|credential|private)/i';
+    /** Field names that mark a value as a credential (the shared rule). */
+    public const SECRET_PATTERN = Gateway_Secrets::SECRET_PATTERN;
 
     /** Field types a write may set; anything else (headings, custom widgets) is refused. */
     private const WRITABLE_TYPES = [ 'text', 'textarea', 'checkbox', 'select', 'multiselect', 'radio', 'email', 'number', 'decimal', 'price', 'safe_text', 'tel', 'url' ];
@@ -181,7 +184,7 @@ final class Gateway_Ops
      */
     public static function is_secret(string $key, array $field): bool
     {
-        return 'password' === ($field['type'] ?? '') || 1 === preg_match(self::SECRET_PATTERN, $key);
+        return Gateway_Secrets::is_secret($key, $field);
     }
 
     /**
@@ -204,8 +207,8 @@ final class Gateway_Ops
             }
             $secret = self::is_secret((string) $key, $field);
             $value  = $gateway->get_option((string) $key);
-            if ($secret && '' !== $value && null !== $value && [] !== $value) {
-                $value = '[redacted]';
+            if ($secret) {
+                $value = Gateway_Secrets::mask($value);
             }
             $settings[ $key ] = [
                 'label'  => wp_strip_all_tags((string) ($field['title'] ?? $key)),
@@ -249,6 +252,11 @@ final class Gateway_Ops
             $field = isset($fields[ $key ]) && is_array($fields[ $key ]) ? $fields[ $key ] : null;
             if (null === $field) {
                 self::refuse('invalid_params', "This gateway has no setting \"{$key}\". Read it with gateways.get.", [ 'field' => $key ]);
+            }
+            // A secret sent back exactly as a read showed it (masked) means
+            // "leave it as stored" (issue #507); any other value is refused.
+            if (self::is_secret($key, $field) && Gateway_Secrets::is_masked($value)) {
+                continue;
             }
             if (self::is_secret($key, $field)) {
                 self::refuse('secret_field', "\"{$key}\" holds a credential and cannot be set here; set it in the store's payment settings.", [ 'field' => $key ]);
