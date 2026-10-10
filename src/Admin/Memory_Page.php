@@ -136,7 +136,7 @@ class Memory_Page
 
     /**
      * Persist the metabox fields. Refuses autosaves, bad/absent nonces, and
-     * users without manage_options. Validation is Memory_Store::update_fields
+     * users without the management capability. Validation is Memory_Store::update_fields
      * (i.e. Memory_Entry), the same path agent proposals take, so an admin
      * cannot store a malformed target or an untargeted block rule either.
      */
@@ -150,7 +150,7 @@ class Memory_Page
         if (! isset($posted[ self::NONCE ]) || ! wp_verify_nonce(sanitize_key($posted[ self::NONCE ]), self::NONCE)) {
             return;
         }
-        if (! current_user_can('manage_options')) {
+        if (! current_user_can(Management_Access::CAPABILITY)) {
             return;
         }
         if (! Memory_Store::is_entry($post_id)) {

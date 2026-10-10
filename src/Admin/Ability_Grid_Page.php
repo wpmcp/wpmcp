@@ -39,7 +39,7 @@ if (! defined('ABSPATH')) {
  *    (see Opt_In_Gates) stays the master gate, and the grid refuses rather
  *    than pretending.
  *
- * Every state-changing action requires manage_options AND a valid nonce,
+ * Every state-changing action requires the management capability AND a valid nonce,
  * matching Connection_Page.
  */
 class Ability_Grid_Page
@@ -61,7 +61,7 @@ class Ability_Grid_Page
             return null;
         }
 
-        if (! current_user_can('manage_options')) {
+        if (! current_user_can(Management_Access::CAPABILITY)) {
             return ['error' => __('You are not allowed to manage MCP abilities on this site.', 'wpmcp')];
         }
 
