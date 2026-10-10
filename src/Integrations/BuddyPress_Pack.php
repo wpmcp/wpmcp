@@ -15,7 +15,12 @@ if (! defined('ABSPATH')) {
  *
  * Reads run at the pair's own capability. Hidden groups, and hidden or spam
  * activity, are only listed for a moderator (bp_moderate, which BuddyPress
- * maps onto manage_options). Member email is only returned to a caller with
+ * maps onto manage_options). They follow BuddyPress's own visibility rules
+ * for private groups (issue #503): only the group's confirmed, unbanned
+ * members and moderators see its member list, pending and banned rows go
+ * only to the group's admins and mods and to moderators, and activity in a
+ * private or hidden group is listed only to those who can access the group,
+ * as bp_activity_user_can_read() decides. Member email is only returned to a caller with
  * list_users; a membership request's message and activity meta (where an IP
  * or other personal data can sit) are never returned. Activity content is.
  *
@@ -116,7 +121,7 @@ final class BuddyPress_Pack
             ],
             'buddypress-list-group-members'   => [
                 'mode'         => 'read',
-                'description'  => 'List a BuddyPress group\'s members (user id, name, role admin/mod/member/banned/pending, title). Email only for callers with list_users',
+                'description'  => 'List a BuddyPress group\'s members (user id, name, role admin/mod/member/banned/pending, title). Private groups for their members only; pending and banned rows for group admins and mods. Email only for callers with list_users',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -126,7 +131,7 @@ final class BuddyPress_Pack
                     'required'   => [ 'group_id' ],
                 ],
                 'requires'     => $groups,
-                'validate'     => static fn (array $args): ?array => self::group_refusal((int) $args['group_id']),
+                'validate'     => static fn (array $args): ?array => self::members_refusal((int) $args['group_id']),
                 'handler'      => static fn (array $args): array => self::list_members($args),
             ],
             'buddypress-list-activity'        => [
@@ -297,12 +302,72 @@ final class BuddyPress_Pack
         return $row;
     }
 
+    /** @return array{code: string, message: string, data: array} */
+    private static function group_not_found(int $id): array
+    {
+        return [ 'code' => 'group_not_found', 'message' => sprintf('BuddyPress group %d does not exist.', $id), 'data' => [] ];
+    }
+
     /** @return array{code: string, message: string, data: array}|null */
     private static function group_refusal(int $id): ?array
     {
         $row = self::group_row($id);
         if (null === $row || ('hidden' === $row['status'] && ! self::is_moderator())) {
-            return [ 'code' => 'group_not_found', 'message' => sprintf('BuddyPress group %d does not exist.', $id), 'data' => [] ];
+            return self::group_not_found($id);
+        }
+        return null;
+    }
+
+    /**
+     * The current user's confirmed, unbanned membership of a group: 'admin',
+     * 'mod' or 'member', or null when they are not a member (a pending
+     * request or a ban is no membership). Through BuddyPress's own checks
+     * while it is loaded, otherwise read from its members table the same way.
+     */
+    private static function membership(int $group): ?string
+    {
+        $user = get_current_user_id();
+        if ($user <= 0) {
+            return null;
+        }
+        if (function_exists('groups_is_user_member') && function_exists('groups_is_user_admin') && function_exists('groups_is_user_mod')) {
+            if (! groups_is_user_member($user, $group)) {
+                return null;
+            }
+            if (groups_is_user_admin($user, $group)) {
+                return 'admin';
+            }
+            return groups_is_user_mod($user, $group) ? 'mod' : 'member';
+        }
+
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- BuddyPress's own table, read live.
+        $row = $wpdb->get_row($wpdb->prepare('SELECT is_admin, is_mod FROM %i WHERE group_id = %d AND user_id = %d AND is_confirmed = 1 AND is_banned = 0 ORDER BY id ASC LIMIT 1', BuddyPress_Rows_Snapshot::table('bp_groups_members'), $group, $user), ARRAY_A);
+        if (! is_array($row)) {
+            return null;
+        }
+        if (1 === (int) $row['is_admin']) {
+            return 'admin';
+        }
+        return 1 === (int) $row['is_mod'] ? 'mod' : 'member';
+    }
+
+    /**
+     * A private (or hidden) group's member list is for its members and
+     * moderators only, as BuddyPress's own group members endpoint decides;
+     * anyone else is told the group does not exist, as for a hidden group.
+     *
+     * @return array{code: string, message: string, data: array}|null
+     */
+    private static function members_refusal(int $id): ?array
+    {
+        $refusal = self::group_refusal($id);
+        if (null !== $refusal) {
+            return $refusal;
+        }
+        $row = self::group_row($id);
+        if (null !== $row && 'public' !== $row['status'] && ! self::is_moderator() && null === self::membership($id)) {
+            return self::group_not_found($id);
         }
         return null;
     }
@@ -389,6 +454,11 @@ final class BuddyPress_Pack
             'pending' => 'is_confirmed = 0 AND is_banned = 0',
         ];
         $sql                 = 'group_id = %d' . (isset($args['role']) ? ' AND ' . $roles[ (string) $args['role'] ] : '');
+        // Pending requests and bans are for the group's admins and mods, and
+        // moderators, as on BuddyPress's group management screens.
+        if (! self::is_moderator() && ! in_array(self::membership($group), [ 'admin', 'mod' ], true)) {
+            $sql .= ' AND is_confirmed = 1 AND is_banned = 0';
+        }
         [$per_page, $offset] = self::paging($args);
         $table               = BuddyPress_Rows_Snapshot::table('bp_groups_members');
 
@@ -745,11 +815,25 @@ final class BuddyPress_Pack
                 $vals[]  = $args[ $column ];
             }
         }
+        $table = BuddyPress_Rows_Snapshot::table('bp_activity');
         if (! self::is_moderator()) {
             $where[] = 'hide_sitewide = 0 AND is_spam = 0';
+            if (true === self::requirement('groups')) {
+                // Activity in a group the caller cannot access, and replies
+                // under it, as bp_activity_user_can_read() decides: an item
+                // posted before its group went private stays visible
+                // site-wide in BuddyPress's own table.
+                $groups  = BuddyPress_Rows_Snapshot::table('bp_groups');
+                $members = BuddyPress_Rows_Snapshot::table('bp_groups_members');
+                $closed  = "SELECT g.id FROM %i g WHERE g.status <> 'public' AND g.id NOT IN (SELECT m.group_id FROM %i m WHERE m.user_id = %d AND m.is_confirmed = 1 AND m.is_banned = 0)";
+                $user    = get_current_user_id();
+                $where[] = "NOT (component = 'groups' AND item_id IN ({$closed}))";
+                array_push($vals, $groups, $members, $user);
+                $where[] = "NOT (type = 'activity_comment' AND item_id IN (SELECT p.id FROM %i p WHERE p.component = 'groups' AND p.item_id IN ({$closed})))";
+                array_push($vals, $table, $groups, $members, $user);
+            }
         }
         [$per_page, $offset] = self::paging($args);
-        $table               = BuddyPress_Rows_Snapshot::table('bp_activity');
         $sql                 = implode(' AND ', $where);
 
         // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; $sql holds only literals and placeholders, matched by the spread values.
