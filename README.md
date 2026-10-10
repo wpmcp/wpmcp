@@ -284,18 +284,19 @@ Snapshot history keeps the last 20 operations on every install; raise it with th
 
 ```bash
 composer install       # install dev dependencies
-composer test:local    # the test gate: lint, drift check, PHPUnit + WordPress suite, coverage floor
+composer test:local    # the test gate: lint, drift check, PHPUnit on the default and minimum WordPress, coverage floor
 composer lint          # PSR-12 with WordPress-idiomatic naming
 ```
 
-The PHPUnit suite does not run on GitHub Actions. It runs locally through `bin/test-local.sh`, and the pre-push hook in `.githooks/` runs it before every push. The first run of the script turns the hook on for the clone. GitHub keeps only the static gates: lint, the drift check, compliance and Plugin Check.
+The PHPUnit suite does not run on GitHub Actions. It runs locally through `bin/test-local.sh`, and the pre-push hook in `.githooks/` runs it before every push, on the default WordPress and on the `Requires at least` minimum. Every leg runs even when one fails, and the run ends with a pass/fail summary. The first run of the script turns the hook on for the clone. GitHub keeps only the static gates: lint, the drift check, compliance and Plugin Check.
 
 The script needs MariaDB and Subversion, and nothing else to configure:
 
 ```bash
 brew install mariadb@10.11 subversion   # keg-only, does not conflict with a mysql install
-bin/test-local.sh                       # default WordPress leg with the coverage floor
-bin/test-local.sh --all                 # also the `Requires at least` WordPress
+bin/test-local.sh                       # default WordPress with the coverage floor, the `Requires at least` WordPress, live groups
+bin/test-local.sh --all                 # the same on every WordPress in WP_VERSIONS
+bin/test-local.sh --plan                # list the legs a run would execute, run nothing
 bin/test-local.sh -- --filter SnapshotTest   # a targeted PHPUnit run
 ELEMENTOR_VERSION=latest bin/test-local.sh   # check for drift against the newest Elementor
 WPMCP_TEST_ADAPTER_PLUGIN=/path/to/mcp-adapter/mcp-adapter.php bin/test-local.sh   # against a canonical MCP Adapter build, e.g. its trunk after composer install --no-dev
