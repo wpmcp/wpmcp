@@ -202,6 +202,12 @@ return [
         // own tables and need neither class.
         'src/Integrations/Amelia_Pack.php',
         'src/Integrations/Amelia_Api.php',
+        // Page translation for Polylang and WPML (issue #498), paid-tier.
+        // strip.php takes out the lines in Plugin_Data_Integration that merge
+        // the ops and count the pack towards availability. I18n_Adapter, the
+        // free i18n tools' adapter, stays.
+        'src/Integrations/I18n_Pack.php',
+        'src/Integrations/I18n_Page_Text.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

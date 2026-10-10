@@ -1211,11 +1211,14 @@ class Rollback_Service
      * - post_modified, post_modified_gmt: wp_update_post() always stamps the
      *   current time and wp_insert_post() copies post_date, so every
      *   rollback reset them (issue #320).
+     * - post_date: a draft's date floats (post_date_gmt stays zero) and
+     *   wp_update_post() moves it to the current time on every save unless
+     *   edit_date is set, so a restored draft came back dated now (#498).
      *
      * A restore that promises the captured row should return the captured
      * row.
      */
-    private const VERBATIM_POST_COLUMNS = ['guid', 'post_modified', 'post_modified_gmt'];
+    private const VERBATIM_POST_COLUMNS = ['guid', 'post_date', 'post_modified', 'post_modified_gmt'];
 
     /**
      * Write the captured values of VERBATIM_POST_COLUMNS back byte for byte.
@@ -1366,6 +1369,19 @@ class Rollback_Service
         // skipped the checks in restore_operation() and restore_session().
         if (Snapshot_Redactor::is_erased($snapshot)) {
             throw new Mutation_Failed('Rollback refused: ' . esc_html(Snapshot_Redactor::refusal($snapshot)));
+        }
+        // A write that held the multilingual plugin's sync between
+        // translations off (apply-page-text, issue #498) is undone the same
+        // way, so restoring the translation never rewrites its source.
+        if (! empty($snapshot['data']['hold_translation_sync'])) {
+            unset($snapshot['data']['hold_translation_sync']);
+            do_action('wpmcp_rollback_hold_translation_sync');
+            try {
+                self::apply_snapshot($snapshot);
+            } finally {
+                do_action('wpmcp_rollback_release_translation_sync');
+            }
+            return;
         }
         // A post snapshot that also carries a compiled widget's enabled flag
         // (set-widget-status, update-custom-widget): restore the post first,
@@ -2215,6 +2231,13 @@ class Rollback_Service
                     }
                 }
                 continue;
+            }
+
+            // A translation leaves its source's translation group first
+            // (create-translation, issue #498), so the group is exactly as
+            // it was before, not left naming a post in the trash.
+            if (is_array($snapshot['data']['translation_group'] ?? null) && $post_id === (int) ($created[0]['post_id'] ?? 0)) {
+                do_action('wpmcp_rollback_translation_group', ['translation' => $post_id] + $snapshot['data']['translation_group']);
             }
 
             if ('trash' === $current->post_status) {

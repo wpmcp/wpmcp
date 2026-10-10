@@ -171,6 +171,17 @@ tests_add_filter( 'muplugins_loaded', function () {
     if ( getenv( 'WPMCP_LIVE_TABLEPRESS' ) ) {
         wpmcp_maybe_require_plugin( 'tablepress/tablepress.php' );
     }
+
+    // The live Polylang job (issue #498, WPMCP_LIVE_POLYLANG=1) runs the
+    // page translation ops through the real Polylang, which the shared suite
+    // loads but never boots: with no language defined and no wp-admin
+    // request, Polylang picks no context and never loads its API. The job
+    // boots it the way wp-admin does, so its API, its translation groups and
+    // its sync between translations are all live; the test adds languages.
+    if ( getenv( 'WPMCP_LIVE_POLYLANG' ) ) {
+        add_filter( 'pll_model', static fn () => 'PLL_Admin_Model' );
+        add_filter( 'pll_context', static fn () => 'PLL_Admin' );
+    }
     if ( 'lifterlms' === getenv( 'WPMCP_LIVE_LMS' ) ) {
         // LifterLMS reads its add-on catalog from lifterlms.com while it
         // boots and saves courses; an empty catalog keeps the run offline.

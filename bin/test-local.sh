@@ -37,7 +37,10 @@
 #  12. Runs the live FunnelKit group (issue #500): the FunnelKit funnel
 #      writes through the free Funnel Builder's own REST controllers, with
 #      WooCommerce, on their own install.
-#  13. Runs the live Breakdance group (issue #457) when WPMCP_BREAKDANCE_SRC
+#  13. Runs the live Polylang group (issue #498): the page translation ops
+#      through the real Polylang (booted as wp-admin boots it) and Elementor,
+#      on the shared install with its own database.
+#  14. Runs the live Breakdance group (issue #457) when WPMCP_BREAKDANCE_SRC
 #      names a local copy of Breakdance (a commercial plugin, so not
 #      downloadable here): pages saved by the real Breakdance are detected,
 #      read, edited and rolled back, and Breakdance still loads them.
@@ -72,6 +75,7 @@
 #   bin/test-local.sh --live-crm      only the live CRM group (real FluentCRM and MailPoet)
 #   bin/test-local.sh --live-funnelkit only the live FunnelKit group (real Funnel Builder + WooCommerce)
 #   bin/test-local.sh --live-amelia   only the live Amelia group (real Amelia Lite)
+#   bin/test-local.sh --live-polylang only the live Polylang group (real Polylang and Elementor)
 #   bin/test-local.sh --live-breakdance only the live Breakdance group (needs WPMCP_BREAKDANCE_SRC)
 #   bin/test-local.sh --live-adapter  only the adapter leg (both suites on the released MCP Adapter plugin)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments, default WordPress only; skips lint,
@@ -127,6 +131,7 @@ only_live_lms=false
 only_live_tablepress=false
 only_live_crm=false
 only_live_funnelkit=false
+only_live_polylang=false
 only_live_breakdance=false
 only_live_amelia=false
 only_live_adapter=false
@@ -145,6 +150,7 @@ while [ $# -gt 0 ]; do
 		--live-tablepress) only_live_tablepress=true ;;
 		--live-crm) only_live_crm=true ;;
 		--live-funnelkit) only_live_funnelkit=true ;;
+		--live-polylang) only_live_polylang=true ;;
 		--live-breakdance) only_live_breakdance=true ;;
 		--live-amelia) only_live_amelia=true ;;
 		--live-adapter) only_live_adapter=true ;;
@@ -193,7 +199,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_adapter" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_adapter" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -201,6 +207,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_tablepress" = false ] || LEGS+=("live-tablepress ${only_wp:-$default_wp}")
 	[ "$only_live_crm" = false ] || LEGS+=("live-crm ${only_wp:-$default_wp}")
 	[ "$only_live_funnelkit" = false ] || LEGS+=("live-funnelkit ${only_wp:-$default_wp}")
+	[ "$only_live_polylang" = false ] || LEGS+=("live-polylang ${only_wp:-$default_wp}")
 	[ "$only_live_breakdance" = false ] || LEGS+=("live-breakdance ${only_wp:-$default_wp}")
 	[ "$only_live_amelia" = false ] || LEGS+=("live-amelia ${only_wp:-$default_wp}")
 	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
@@ -226,7 +233,7 @@ else
 		LEGS+=("phpunit $floor_wp none")
 	fi
 	if [ "$targeted" = false ]; then
-		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp")
+		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp")
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			LEGS+=("live-breakdance $default_wp")
 		fi
@@ -594,6 +601,22 @@ run_live_amelia() {
 	unset WPMCP_LIVE_AMELIA
 }
 
+# The live Polylang group (issue #498): Polylang and Elementor are already in
+# the shared install, so it runs on that install with its own database, with
+# WPMCP_LIVE_POLYLANG=1 booting Polylang in tests/bootstrap.php, and
+# --fail-on-skipped.
+run_live_polylang() {
+	local version=$1 dir core config
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-polylang-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Polylang group on WordPress $version (real Polylang and Elementor)"
+	WPMCP_LIVE_POLYLANG=1 WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group polylang-live --fail-on-skipped
+}
+
 # The live Breakdance group (issue #457), the same way, with the Breakdance
 # copy from WPMCP_BREAKDANCE_SRC: its own install, its own database and
 # --fail-on-skipped.
@@ -739,6 +762,7 @@ run_leg_body() {
 		live-tablepress) run_live_tablepress "$wp" ;;
 		live-crm) run_live_crm "$wp" ;;
 		live-funnelkit) run_live_funnelkit "$wp" ;;
+		live-polylang) run_live_polylang "$wp" ;;
 		live-breakdance) run_live_breakdance "$wp" ;;
 		live-amelia) run_live_amelia "$wp" ;;
 		live-adapter) run_live_adapter "$wp" ;;

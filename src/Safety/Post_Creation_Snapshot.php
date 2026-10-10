@@ -47,10 +47,16 @@ class Post_Creation_Snapshot
      *                                 import-bundle (issue #297): an import
      *                                 already lands its specs inactive, so only
      *                                 removing them undoes it.
+     * @param array<string, mixed> $translation_group For a post created as
+     *                                 a translation (create-translation, issue
+     *                                 #498): the source's translation group as
+     *                                 I18n_Adapter::capture_translation_group()
+     *                                 captured it before the link, so the undo
+     *                                 takes the copy back out of the group.
      * @return string The operation id of the written row.
      * @throws Mutation_Failed When the row could not be written.
      */
-    public static function record(string $tool_name, array $post_ids, array $args, string $session_id, bool $remove_on_rollback = false): string
+    public static function record(string $tool_name, array $post_ids, array $args, string $session_id, bool $remove_on_rollback = false, array $translation_group = []): string
     {
         $post_ids = array_values(array_filter(array_map('intval', $post_ids)));
         if ([] === $post_ids) {
@@ -70,6 +76,9 @@ class Post_Creation_Snapshot
         $data = ['created' => $created];
         if ($remove_on_rollback) {
             $data['remove_on_rollback'] = true;
+        }
+        if ([] !== $translation_group) {
+            $data['translation_group'] = $translation_group;
         }
 
         $operation_id = wp_generate_uuid4();
