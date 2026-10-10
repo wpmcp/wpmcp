@@ -50,7 +50,7 @@ class AmeliaLiveTest extends \WP_UnitTestCase
         // Amelia commits its own transactions, which commits the test's too,
         // so rows outlive a test here: every test starts from empty tables.
         global $wpdb;
-        foreach ([ 'appointments', 'customer_bookings', 'payments', 'users', 'services', 'providers_to_services', 'categories', 'providers_to_weekdays', 'providers_to_timeouts', 'providers_to_daysoff', 'notifications_log' ] as $name) {
+        foreach ([ 'appointments', 'customer_bookings', 'payments', 'users', 'services', 'providers_to_services', 'categories', 'providers_to_weekdays', 'providers_to_timeouts', 'providers_to_daysoff', 'notifications_log', 'events', 'events_periods', 'customer_bookings_to_events_periods' ] as $name) {
             $wpdb->query($wpdb->prepare('DELETE FROM %i', $wpdb->prefix . 'amelia_' . $name));
         }
         $wpdb->query($wpdb->prepare('DELETE FROM %i', Snapshot_Store::table_name()));
@@ -318,6 +318,44 @@ class AmeliaLiveTest extends \WP_UnitTestCase
         $this->assertTrue(Rollback_Service::restore_operation((string) $global['operation_id']), (string) wp_json_encode(Rollback_Service::take_warnings()));
         $this->assertTrue(Rollback_Service::restore_operation((string) $update['operation_id']), (string) wp_json_encode(Rollback_Service::take_warnings()));
         $this->assertSame($before, $this->rows());
+    }
+
+    public function test_events_read_with_periods_places_left_and_attendees(): void
+    {
+        $customer = $this->customer();
+        $day      = $this->day(2);
+        // Event writes are not ops yet: the event and its booking are made
+        // through Amelia's own controllers.
+        $event = (int) \WPMCP\Integrations\Amelia_Pack::api()->request('Booking\\Event\\AddEventController', [
+            'name'           => 'Yoga day',
+            'price'          => 20,
+            'maxCapacity'    => 10,
+            'color'          => '#1a84ee',
+            'show'           => true,
+            'depositPayment' => 'disabled',
+            'deposit'        => 0,
+            'periods'        => [ [ 'periodStart' => $day . ' 14:00:00', 'periodEnd' => $day . ' 16:00:00' ] ],
+        ])['events'][0]['id'];
+        \WPMCP\Integrations\Amelia_Pack::api()->request('Booking\\Appointment\\AddBookingController', [
+            'type'                         => 'event',
+            'eventId'                      => $event,
+            'notifyParticipants'           => 0,
+            'runInstantPostBookingActions' => true,
+            'isBackendOrCabinet'           => true,
+            'payment'                      => [ 'gateway' => 'onSite' ],
+            'bookings'                     => [ [ 'eventId' => $event, 'customerId' => $customer, 'persons' => 1, 'status' => 'approved', 'customer' => [ 'id' => $customer, 'firstName' => 'Sarah', 'lastName' => 'Lane', 'email' => 'sarah@example.com', 'phone' => '+15550100', 'externalId' => '', 'countryPhoneIso' => '' ], 'customFields' => [], 'extras' => [], 'utcOffset' => null, 'couponCode' => null, 'deposit' => false ] ],
+        ]);
+
+        $events = $this->call('read', 'amelia-list-events', [ 'from' => $day, 'to' => $day ])['result']['events'];
+        $this->assertCount(1, $events);
+        $this->assertSame('Yoga day', $events[0]['name']);
+        $this->assertSame([ [ 'start' => $day . ' 14:00', 'end' => $day . ' 16:00' ] ], $events[0]['periods'], 'Amelia stores event periods in UTC; they read back site-local.');
+        $this->assertSame(1, $events[0]['booked']);
+        $this->assertSame(9, $events[0]['places_left']);
+
+        $attendees = $this->call('read', 'amelia-list-event-attendees', [ 'event_id' => $event ])['result']['attendees'];
+        $this->assertSame([ $customer ], array_column($attendees, 'customer_id'));
+        $this->assertSame('sarah@example.com', $attendees[0]['email']);
     }
 
     public function test_customer_records_export_and_erase_on_ameliass_own_tables(): void
