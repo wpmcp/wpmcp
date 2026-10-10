@@ -163,7 +163,10 @@ class Server
      */
     private static function prompts(): array
     {
-        if (! class_exists(McpPrompt::class)) {
+        // An older adapter copy that wins the autoload (WooCommerce 11.2
+        // bundles adapter 0.1.0) has the class but no fromArray(); without
+        // this check every REST request fatals on rest_api_init (issue #500).
+        if (! class_exists(McpPrompt::class) || ! method_exists(McpPrompt::class, 'fromArray')) {
             return [];
         }
 
@@ -190,7 +193,8 @@ class Server
      */
     private static function resources(): array
     {
-        if (! class_exists(McpResource::class)) {
+        // Same older adapter copies as prompts() above (issue #500).
+        if (! class_exists(McpResource::class) || ! method_exists(McpResource::class, 'fromArray')) {
             return [];
         }
 

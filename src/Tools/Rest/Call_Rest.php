@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Rest;
 
+use WPMCP\Tools\WooCommerce\Gateway_Secrets;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -86,6 +88,11 @@ class Call_Rest
         $request = new \WP_REST_Request($method, $route);
 
         $params = isset($args['params']) && is_array($args['params']) ? $args['params'] : [];
+        // A payment gateway write that sends a credential back masked, as
+        // a read showed it, leaves the stored one alone (issue #507).
+        if (! in_array($method, self::READ_METHODS, true)) {
+            $params = Gateway_Secrets::unmask_rest_params($route, $params);
+        }
         if (! empty($params)) {
             if (in_array($method, self::READ_METHODS, true)) {
                 $request->set_query_params($params);
@@ -95,10 +102,21 @@ class Call_Rest
         }
 
         $response = rest_do_request($request);
+        $body     = $response->get_data();
+
+        // WooCommerce's payment gateway routes return each gateway's
+        // settings, credentials included. They come back masked, by the
+        // same rule as every other gateway read (issue #507). The route the
+        // server matched is asked, not the one given, so any spelling that
+        // reaches those routes is masked.
+        $matched = (string) $response->get_matched_route();
+        if (Gateway_Secrets::is_gateway_route('' !== $matched ? $matched : $route)) {
+            $body = Gateway_Secrets::mask_rest_body($body);
+        }
 
         return [
             'status' => $response->get_status(),
-            'body'   => $response->get_data(),
+            'body'   => $body,
         ];
     }
 }

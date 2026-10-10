@@ -172,6 +172,9 @@ return [
         // FunnelKit funnel and step reads (issue #356), paid-tier. strip.php
         // takes out the line in Theme_Integration that merges them.
         'src/Integrations/FunnelKit_Pack.php',
+        // And its funnel, step and checkout product writes (issue #500),
+        // merged only by FunnelKit_Pack.
+        'src/Integrations/FunnelKit_Writes.php',
         // LMS course structure and enrollments (issue #394), paid-tier.
         // strip.php takes out the lines in Plugin_Data_Integration that merge
         // the ops, count the pack towards availability and name it in the
@@ -192,6 +195,13 @@ return [
         'src/Integrations/CRM_Adapter.php',
         'src/Integrations/CRM_FluentCRM.php',
         'src/Integrations/CRM_MailPoet.php',
+        // Amelia bookings (issue #499), paid-tier. strip.php takes out the
+        // lines in Plugin_Data_Integration that merge the ops and count the
+        // pack towards availability. Its snapshot type and the Amelia
+        // customer records in the privacy export stay: they act on Amelia's
+        // own tables and need neither class.
+        'src/Integrations/Amelia_Pack.php',
+        'src/Integrations/Amelia_Api.php',
         // Page translation for Polylang and WPML (issue #498), paid-tier.
         // strip.php takes out the lines in Plugin_Data_Integration that merge
         // the ops and count the pack towards availability. I18n_Adapter, the

@@ -11,7 +11,10 @@
 # BuddyPress only (bin/test-local.sh --live-buddypress), or, with
 # WPMCP_LIVE_TABLEPRESS=1, TablePress only (bin/test-local.sh --live-tablepress), or,
 # with WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
-# --live-crm). The script
+# --live-crm), or, with WPMCP_LIVE_AMELIA=1, Amelia Lite only
+# (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
+# WooCommerce and FunnelKit Funnel Builder only (bin/test-local.sh
+# --live-funnelkit). The script
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
 #
@@ -123,6 +126,28 @@ if [ "${WPMCP_LIVE_CRM:-}" = "1" ]; then
 	)
 fi
 
+# The live FunnelKit job (issue #500) runs the FunnelKit funnel writes through
+# the free Funnel Builder's own REST controllers, with the WooCommerce its
+# checkout steps need. Exclusive too: the stub-backed FunnelKit tests seed its
+# tables from a fixture and stand in for its controllers.
+if [ "${WPMCP_LIVE_FUNNELKIT:-}" = "1" ]; then
+	PLUGINS=(
+		"woocommerce:woocommerce.php"
+		"funnel-builder:funnel-builder.php"
+	)
+fi
+
+# The live Amelia job (issue #499) runs the Amelia ops through the real
+# Amelia Lite, so its own command handlers, slot checks and notifications run.
+# Only the free Lite edition is on wordpress.org; the paid editions are not
+# tested. Exclusive too: the stub-backed Amelia tests build its tables from a
+# fixture and fake its presence.
+if [ "${WPMCP_LIVE_AMELIA:-}" = "1" ]; then
+	PLUGINS=(
+		"ameliabooking:ameliabooking.php"
+	)
+fi
+
 # The live Breakdance job (issue #457) runs the Breakdance adapter against a
 # real Breakdance 1.x. Breakdance is a commercial plugin and not on
 # wordpress.org, so it is copied from a local directory holding it
@@ -143,7 +168,7 @@ fi
 
 download() {
 	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL "$1" -o "$2"
+		curl -fsSL --retry 5 --retry-all-errors "$1" -o "$2"
 	elif command -v wget >/dev/null 2>&1; then
 		wget -nv -O "$2" "$1"
 	else

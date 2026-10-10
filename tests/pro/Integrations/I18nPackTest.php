@@ -29,7 +29,7 @@ require_once __DIR__ . '/../../support/wpml-double.php';
 class I18nPackTest extends \WP_UnitTestCase
 {
     /** Every other plugin-data plugin, off so only the multilingual plugin decides whether the pair is available. */
-    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active', 'wpmcp_tutor_active', 'wpmcp_lifterlms_active', 'wpmcp_tablepress_active', 'wpmcp_fluentcrm_active', 'wpmcp_mailpoet_active' ];
+    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active', 'wpmcp_tutor_active', 'wpmcp_lifterlms_active', 'wpmcp_tablepress_active', 'wpmcp_fluentcrm_active', 'wpmcp_mailpoet_active', 'wpmcp_amelia_active' ];
 
     private const OPS = [
         'find-missing-translations' => 'read',

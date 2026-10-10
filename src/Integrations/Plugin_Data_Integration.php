@@ -30,6 +30,9 @@ if (! defined('ABSPATH')) {
  *  - Issue #477 adds the paid-tier CRM ops (CRM_Pack): FluentCRM and
  *    MailPoet contacts, lists, tags, campaigns and automations, with writes
  *    through each plugin's own API, snapshotted as 'crm_rows' images.
+ *  - Issue #499 adds the paid-tier Amelia ops (Amelia_Pack): services,
+ *    employees, customers, appointments and events, with writes through
+ *    Amelia's own application layer, snapshotted as 'amelia_rows' images.
  *  - Issue #498 adds the paid-tier page translation ops (I18n_Pack): for
  *    Polylang and WPML, find untranslated posts, create a linked
  *    translation, and read and write a page's text as segments.
@@ -62,6 +65,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             || LMS_Pack::active()
             || TablePress_Pack::active()
             || CRM_Pack::active()
+            || Amelia_Pack::active()
             || I18n_Pack::active();
     }
 
@@ -87,6 +91,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             LMS_Pack::operations(),
             TablePress_Pack::operations(),
             CRM_Pack::operations(),
+            Amelia_Pack::operations(),
             I18n_Pack::operations()
         );
     }

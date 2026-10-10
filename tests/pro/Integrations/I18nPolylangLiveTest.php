@@ -136,7 +136,7 @@ class I18nPolylangLiveTest extends \WP_UnitTestCase
     {
         $this->assertSame('polylang', I18n_Adapter::active_plugin());
         // Polylang alone: every other plugin-data plugin reads as absent.
-        $others = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active', 'wpmcp_tutor_active', 'wpmcp_lifterlms_active', 'wpmcp_tablepress_active', 'wpmcp_fluentcrm_active', 'wpmcp_mailpoet_active' ];
+        $others = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active', 'wpmcp_tutor_active', 'wpmcp_lifterlms_active', 'wpmcp_tablepress_active', 'wpmcp_fluentcrm_active', 'wpmcp_mailpoet_active', 'wpmcp_amelia_active' ];
         foreach ($others as $filter) {
             add_filter($filter, '__return_false');
         }

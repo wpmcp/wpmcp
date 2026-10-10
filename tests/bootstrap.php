@@ -37,6 +37,13 @@ tests_add_filter( 'muplugins_loaded', function () {
 
     $adapter_plugin = getenv( 'WPMCP_TEST_ADAPTER_PLUGIN' );
     if ( $adapter_plugin ) {
+        // The adapter plugin reports a second copy with _doing_it_wrong on
+        // init, long before any test case listens for it (issue #501).
+        // Record every call made while WordPress boots with both copies;
+        // AdapterPluginLiveTest asserts the list is empty.
+        $GLOBALS['wpmcp_adapter_boot_doing_it_wrong'] = [];
+        add_action( 'doing_it_wrong_run', 'wpmcp_record_adapter_boot_doing_it_wrong', 10, 3 );
+
         require $adapter_plugin;
 
         // Other plugins in the harness bundle their own adapter copies
@@ -128,6 +135,28 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'mailpoet/mailpoet.php' );
     }
 
+    // The live FunnelKit job (issue #500, WPMCP_LIVE_FUNNELKIT=1) runs the
+    // FunnelKit funnel writes through the free Funnel Builder's own REST
+    // controllers, beside the WooCommerce loaded above. Loaded only on
+    // request: the stub-backed FunnelKit tests seed its tables from a
+    // fixture and stand in for its controllers.
+    if ( getenv( 'WPMCP_LIVE_FUNNELKIT' ) ) {
+        // Funnel Builder decides whether WooCommerce is there from the
+        // active_plugins option, as on a site, and leaves out its checkout
+        // and thank you steps otherwise; the harness activates nothing.
+        add_filter( 'option_active_plugins', 'wpmcp_test_funnelkit_active_plugins' );
+        add_filter( 'default_option_active_plugins', 'wpmcp_test_funnelkit_active_plugins' );
+        wpmcp_maybe_require_plugin( 'funnel-builder/funnel-builder.php' );
+    }
+
+    // The live Amelia job (issue #499, WPMCP_LIVE_AMELIA=1) runs the Amelia
+    // ops through the real Amelia Lite. Loaded only on request: the
+    // stub-backed Amelia tests build its tables from a fixture and fake its
+    // presence.
+    if ( getenv( 'WPMCP_LIVE_AMELIA' ) ) {
+        wpmcp_maybe_require_plugin( 'ameliabooking/ameliabooking.php' );
+    }
+
     // The live LMS jobs (issue #394, WPMCP_LIVE_LMS=tutor or lifterlms) run
     // the LMS ops through the real Tutor LMS or LifterLMS, one per install.
     // Loaded only on request: the stub-backed LMS tests register the plugins'
@@ -165,6 +194,13 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'lifterlms/lifterlms.php' );
     }
 } );
+
+if ( ! function_exists( 'wpmcp_test_funnelkit_active_plugins' ) ) {
+    /** The active_plugins option as the live FunnelKit job's site has it. */
+    function wpmcp_test_funnelkit_active_plugins( $plugins ): array {
+        return array_values( array_unique( array_merge( (array) $plugins, [ 'woocommerce/woocommerce.php', 'funnel-builder/funnel-builder.php' ] ) ) );
+    }
+}
 
 if ( ! function_exists( 'wpmcp_test_buddypress_components' ) ) {
     /** The BuddyPress components the live BuddyPress job runs with. */
@@ -205,6 +241,16 @@ tests_add_filter( 'init', function () {
     }
 }, 20 );
 
+// The live FunnelKit job's funnel tables, built by Funnel Builder's own
+// routine once per run, before any test transaction starts. A no-op
+// everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_FUNNELKIT' ) && defined( 'WFFN_PLUGIN_FILE' ) ) {
+        require_once plugin_dir_path( WFFN_PLUGIN_FILE ) . 'admin/db/class-wffn-db-tables.php';
+        \WFFN_DB_Tables::get_instance()->add_if_needed();
+    }
+}, 20 );
+
 // The live CRM job's tables, built by FluentCRM's and MailPoet's own
 // activation routines once per run, before any test transaction starts.
 // FluentCRM reads its options table from init priority 5, so its tables are
@@ -221,6 +267,18 @@ tests_add_filter( 'init', function () {
         \MailPoet\DI\ContainerWrapper::getInstance()->get( \MailPoet\Config\Activator::class )->activate();
     }
 }, 20 );
+
+// The live Amelia job's tables, roles and settings, built by Amelia's own
+// activation routines once per run, before any test transaction starts. A
+// no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_AMELIA' ) && class_exists( '\\AmeliaBooking\\Plugin' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        \AmeliaBooking\Plugin::activation( false );
+        \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationRolesHook::init();
+        \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationSettingsHook::init();
+    }
+}, 1 );
 
 // Recreate the wpmcp snapshots table once per run, BEFORE any test
 // transaction starts. The table is otherwise created lazily by
@@ -301,4 +359,15 @@ tests_add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
     return $pre;
 }, 10, 3 );
 
+if ( ! function_exists( 'wpmcp_record_adapter_boot_doing_it_wrong' ) ) {
+    /** Records one boot-time _doing_it_wrong call for the adapter leg (issue #501). */
+    function wpmcp_record_adapter_boot_doing_it_wrong( $function_name, $message, $version ): void {
+        $GLOBALS['wpmcp_adapter_boot_doing_it_wrong'][] = sprintf( '%s: %s (%s)', $function_name, wp_strip_all_tags( (string) $message ), $version );
+    }
+}
+
 require $_tests_dir . '/includes/bootstrap.php';
+
+// WordPress has booted; from here on the test cases watch _doing_it_wrong
+// themselves, and expected calls must not land in the boot record.
+remove_action( 'doing_it_wrong_run', 'wpmcp_record_adapter_boot_doing_it_wrong', 10 );

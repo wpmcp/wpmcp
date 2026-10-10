@@ -1375,7 +1375,7 @@ $edits['src/Plugin.php'][] = [
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
     // The page translation ops (issue #498) are the paid add-on's too,
-    // removed by policy.php; their lines go first, so the CRM edits below
+    // removed by policy.php; their lines go first, so the Amelia edits below
     // still match.
     [
         " *  - Issue #498 adds the paid-tier page translation ops (I18n_Pack): for\n"
@@ -1385,14 +1385,36 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "            || CRM_Pack::active()\n"
+        "            || Amelia_Pack::active()\n"
             . "            || I18n_Pack::active();\n",
+        "            || Amelia_Pack::active();\n",
+        1,
+    ],
+    [
+        "            Amelia_Pack::operations(),\n"
+            . "            I18n_Pack::operations()\n",
+        "            Amelia_Pack::operations()\n",
+        1,
+    ],
+    // The Amelia ops (issue #499) are the paid add-on's too, removed by
+    // policy.php; their lines go first, so the CRM, LMS and TablePress edits
+    // below still match.
+    [
+        " *  - Issue #499 adds the paid-tier Amelia ops (Amelia_Pack): services,\n"
+            . " *    employees, customers, appointments and events, with writes through\n"
+            . " *    Amelia's own application layer, snapshotted as 'amelia_rows' images.\n",
+        '',
+        1,
+    ],
+    [
+        "            || CRM_Pack::active()\n"
+            . "            || Amelia_Pack::active();\n",
         "            || CRM_Pack::active();\n",
         1,
     ],
     [
         "            CRM_Pack::operations(),\n"
-            . "            I18n_Pack::operations()\n",
+            . "            Amelia_Pack::operations()\n",
         "            CRM_Pack::operations()\n",
         1,
     ],
