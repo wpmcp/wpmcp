@@ -75,22 +75,35 @@ class ChangeSetConversationIsolationTest extends \WP_UnitTestCase
 
     public function test_build_change_set_excludes_a_conversation_selected_by_id(): void
     {
-        $id = $this->conversation();
+        $id   = $this->conversation();
+        $page = self::factory()->post->create(['post_type' => 'page', 'post_title' => 'ordinary page']);
         wp_set_current_user($this->other_admin);
 
-        $built = wp_get_ability('wpmcp/build-change-set')->execute(['objects' => ['post:' . $id]]);
-        $this->assertIsArray($built, 'building a selection that names a conversation is not an error, the conversation is excluded');
+        $built = wp_get_ability('wpmcp/build-change-set')->execute(['objects' => ['post:' . $id, 'post:' . $page]]);
+        $this->assertIsArray($built, 'naming a conversation in a selection is not an error, the conversation is excluded');
+        $this->assertArrayHasKey('file', $built, 'the ordinary page still gets an artifact');
         $this->files[] = (string) $built['file'];
 
         $read = wp_get_ability('wpmcp/get-change-set')->execute(['path' => $built['file'], 'raw' => true]);
         $this->assertIsArray($read);
         $set = $read['change_set'];
 
-        $this->assertNotContains('post:' . $id, $this->keys($set));
-        $this->assertSame([], (array) $set['dependencies']);
+        $this->assertSame(['post:' . $page], $this->keys($set));
         $this->assertContains($id, array_map('intval', wp_list_pluck((array) $set['excluded'], 'object_id')), 'the exclusion is reported, not silent');
         $this->assertStringNotContainsString(self::SECRET, (string) wp_json_encode($read));
         $this->assertStringNotContainsString('_wpmcp_chat_messages', (string) wp_json_encode($read));
+    }
+
+    public function test_build_change_set_of_only_a_conversation_writes_no_artifact(): void
+    {
+        $id = $this->conversation();
+        wp_set_current_user($this->other_admin);
+
+        $built = wp_get_ability('wpmcp/build-change-set')->execute(['objects' => ['post:' . $id]]);
+        $this->assertIsArray($built);
+        $this->assertArrayNotHasKey('file', $built);
+        $this->assertContains($id, array_map('intval', wp_list_pluck((array) $built['excluded_rows'], 'object_id')));
+        $this->assertStringNotContainsString(self::SECRET, (string) wp_json_encode($built));
     }
 
     public function test_build_change_set_excludes_a_conversation_touched_in_the_session(): void
