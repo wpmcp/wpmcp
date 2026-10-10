@@ -46,6 +46,8 @@ class Create_Post
             }
         }
 
+        Post_Status_Guard::assert($post_type, $status, true);
+
         $postarr = [
             'post_type'    => $post_type,
             'post_status'  => $status,
