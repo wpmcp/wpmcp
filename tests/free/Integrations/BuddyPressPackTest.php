@@ -461,6 +461,76 @@ class BuddyPressPackTest extends \WP_UnitTestCase
         $this->assertSame($before, wpmcp_test_bp_dump());
     }
 
+    /**
+     * Issue #489: rows in the created group that the create did not make
+     * (another member, a membership request, a notification, a post) block
+     * its undo, which is refused with the reason and deletes nothing.
+     */
+    public function test_undoing_a_create_with_rows_it_did_not_make_is_refused_and_deletes_nothing(): void
+    {
+        $out = $this->write('buddypress-create-group', [ 'name' => 'Crowded' ]);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $id      = (int) $out['result']['group']['id'];
+        $member  = self::factory()->user->create();
+        $joined  = wpmcp_test_bp_member($id, $member);
+        $request = wpmcp_test_bp_insert('bp_invitations', [ 'user_id' => self::factory()->user->create(), 'inviter_id' => 0, 'invitee_email' => '', 'class' => 'BP_Groups_Invitation_Manager', 'item_id' => $id, 'secondary_item_id' => 0, 'type' => 'request', 'content' => '', 'date_modified' => '2026-01-02 03:04:05', 'invite_sent' => 0, 'accepted' => 0 ]);
+        $post    = wpmcp_test_bp_activity($member, 'Hello', [ 'component' => 'groups', 'item_id' => $id ]);
+        $before  = wpmcp_test_bp_dump();
+
+        $this->assertFalse(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $warnings = Rollback_Service::take_warnings();
+        $this->assertCount(1, $warnings, (string) wp_json_encode($warnings));
+        $this->assertStringContainsString('refused', $warnings[0]);
+        $this->assertStringContainsString('user ' . $member, $warnings[0]);
+        $this->assertStringContainsString('#' . $request, $warnings[0]);
+        $this->assertStringContainsString('#' . $post, $warnings[0]);
+        $this->assertSame($before, wpmcp_test_bp_dump(), 'nothing is deleted');
+        $this->assertGreaterThan(0, $joined);
+    }
+
+    public function test_a_session_rollback_skips_a_create_whose_group_others_joined(): void
+    {
+        $session = wp_generate_uuid4();
+        $created = $this->write('buddypress-create-group', [ 'name' => 'Session Crowd' ], false, $session);
+        $this->assertArrayNotHasKey('error', $created, (string) wp_json_encode($created));
+        $id = (int) $created['result']['group']['id'];
+        wpmcp_test_bp_member($id, self::factory()->user->create());
+        $before = wpmcp_test_bp_dump();
+
+        $this->assertSame(0, Rollback_Service::restore_session($session), 'the refused create is not counted as restored');
+        $warnings = Rollback_Service::take_warnings();
+        $this->assertCount(1, $warnings, (string) wp_json_encode($warnings));
+        $this->assertStringContainsString('skipped', $warnings[0]);
+        $this->assertSame($before, wpmcp_test_bp_dump());
+    }
+
+    public function test_a_create_snapshot_without_created_rows_is_refused_once_another_member_joined(): void
+    {
+        // Snapshots recorded before v0.8.86 track no created rows: the
+        // group's creator's own membership is the create's, anyone else's is not.
+        $out = $this->write('buddypress-create-group', [ 'name' => 'Legacy' ]);
+        $op  = (string) $out['operation_id'];
+        $id  = (int) $out['result']['group']['id'];
+        $row      = Snapshot_Store::get_by_operation($op);
+        $snapshot = (array) $row['snapshot'];
+        unset($snapshot['data']['created_rows']);
+        Snapshot_Store::update_snapshot($op, $snapshot);
+        $member = self::factory()->user->create();
+        $joined = wpmcp_test_bp_member($id, $member);
+        $before = wpmcp_test_bp_dump();
+
+        $this->assertFalse(Rollback_Service::restore_operation($op));
+        $this->assertStringContainsString('user ' . $member, implode(' ', Rollback_Service::take_warnings()));
+        $this->assertSame($before, wpmcp_test_bp_dump());
+
+        // Once that member has left, only the creator's rows remain and the undo goes ahead.
+        global $wpdb;
+        $wpdb->delete($wpdb->base_prefix . 'bp_groups_members', [ 'id' => $joined ]);
+        $this->assertTrue(Rollback_Service::restore_operation($op));
+        $this->assertSame([], Rollback_Service::take_warnings());
+        $this->assertNull($wpdb->get_var($wpdb->prepare('SELECT id FROM %i WHERE id = %d', $wpdb->base_prefix . 'bp_groups', $id)));
+    }
+
     public function test_rollback_of_a_create_leaves_a_group_that_is_no_longer_the_created_one(): void
     {
         global $wpdb;
