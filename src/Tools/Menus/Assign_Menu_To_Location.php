@@ -54,11 +54,13 @@ class Assign_Menu_To_Location
 
         $out = Safe_Mutation::run(
             [
-                'object_type' => 'option',
-                'object_id'   => $option_name,
-                'session_id'  => (string) ($args['session_id'] ?? 'default'),
-                'tool_name'   => 'assign-menu-to-location',
-                'args'        => $args,
+                'object_type'         => 'option',
+                'object_id'           => $option_name,
+                'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'           => 'assign-menu-to-location',
+                'args'                => $args,
+                // Below manage_options, so declared (issue #502).
+                'extra_snapshot_data' => [ 'restore_capability' => 'edit_theme_options' ],
             ],
             function () use ($menu_id, $location): void {
                 $locations              = (array) get_theme_mod('nav_menu_locations', []);

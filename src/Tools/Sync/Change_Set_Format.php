@@ -106,7 +106,8 @@ class Change_Set_Format
     ];
 
     /**
-     * Post types that are live-side data or pure bookkeeping. They are
+     * Post types that are live-side data, pure bookkeeping or private
+     * plugin stores (see INTERNAL_POST_TYPES). They are
      * excluded from export and refused on apply, whatever the artifact says:
      * pushing a local order table over a live store is the data-loss mode
      * the issue is written around. Filterable through
@@ -123,6 +124,33 @@ class Change_Set_Format
         'shop_subscription',
         'shop_coupon',
         'scheduled-action',
+        'wpmcp_chat_convo',
+        'wpmcp_memory',
+    ];
+
+    /**
+     * WP MCP's own stores that never travel in a change set, whatever the
+     * `wpmcp_sync_non_syncable_post_types` filter returns (issue #506).
+     * A chat conversation is one administrator's private exchange with
+     * their own model, including parked tool-call state; agent memory only
+     * goes live through an administrator publishing it, and an apply would
+     * otherwise publish a guardrail rule without that review. Named as
+     * literals so the guard holds where the store was never registered.
+     */
+    private const INTERNAL_POST_TYPES = [
+        'wpmcp_chat_convo',
+        'wpmcp_memory',
+    ];
+
+    /**
+     * WP MCP meta families that are per-user, per-site or link site-local
+     * ids: chat bookkeeping, memory rule fields and staged-edit links. Like
+     * VOLATILE_META they are never exported, hashed or written (issue #506).
+     */
+    private const INTERNAL_META_PREFIXES = [
+        '_wpmcp_chat_',
+        '_wpmcp_memory_',
+        '_wpmcp_stage_',
     ];
 
     /** Only these option families are syncable; everything else is site configuration. */
@@ -132,7 +160,8 @@ class Change_Set_Format
     public static function non_syncable_post_types(): array
     {
         $types = apply_filters('wpmcp_sync_non_syncable_post_types', self::NON_SYNCABLE_POST_TYPES);
-        return array_values(array_map('strval', (array) $types));
+        $types = array_merge(array_map('strval', (array) $types), self::INTERNAL_POST_TYPES);
+        return array_values(array_unique($types));
     }
 
     public static function is_syncable_post_type(string $post_type): bool
@@ -150,9 +179,21 @@ class Change_Set_Format
         return false;
     }
 
+    /** Meta that never leaves or enters a site through a change set: volatile or WP MCP internal. */
     public static function is_volatile_meta(string $key): bool
     {
-        return in_array($key, self::VOLATILE_META, true);
+        return in_array($key, self::VOLATILE_META, true) || self::is_internal_meta($key);
+    }
+
+    /** Whether a meta key belongs to one of WP MCP's internal families. */
+    public static function is_internal_meta(string $key): bool
+    {
+        foreach (self::INTERNAL_META_PREFIXES as $prefix) {
+            if (str_starts_with($key, $prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

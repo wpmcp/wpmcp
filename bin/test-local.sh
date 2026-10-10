@@ -32,13 +32,22 @@
 #      through the real TablePress, on its own install too.
 #  10. Runs the live CRM group (issue #477): the FluentCRM and MailPoet ops
 #      through the real plugins, on their own install.
-#  11. Runs the live FunnelKit group (issue #500): the FunnelKit funnel
+#  11. Runs the live Amelia group (issue #499): the Amelia ops through the
+#      real Amelia Lite, on its own install too.
+#  12. Runs the live FunnelKit group (issue #500): the FunnelKit funnel
 #      writes through the free Funnel Builder's own REST controllers, with
 #      WooCommerce, on their own install.
-#  12. Runs the live Breakdance group (issue #457) when WPMCP_BREAKDANCE_SRC
+#  13. Runs the live Breakdance group (issue #457) when WPMCP_BREAKDANCE_SRC
 #      names a local copy of Breakdance (a commercial plugin, so not
 #      downloadable here): pages saved by the real Breakdance are detected,
 #      read, edited and rolled back, and Breakdance still loads them.
+#  14. Under --all (or --live-adapter alone), runs the adapter leg (issue
+#      #501): the free and pro suites on the latest MCP Adapter plugin
+#      released on WordPress.org, loaded next to the bundled copy the way a
+#      site that installs the plugin runs us, with the version it tested in
+#      the output. Not part of the plain gate: it repeats the whole suite,
+#      several minutes on every push, for a dependency that only changes when
+#      it is released.
 #
 # Every leg runs even when an earlier one fails, so a red floor leg never
 # hides the live groups behind it. The run ends with a summary of every leg
@@ -62,7 +71,9 @@
 #   bin/test-local.sh --live-tablepress only the live TablePress group (real TablePress)
 #   bin/test-local.sh --live-crm      only the live CRM group (real FluentCRM and MailPoet)
 #   bin/test-local.sh --live-funnelkit only the live FunnelKit group (real Funnel Builder + WooCommerce)
+#   bin/test-local.sh --live-amelia   only the live Amelia group (real Amelia Lite)
 #   bin/test-local.sh --live-breakdance only the live Breakdance group (needs WPMCP_BREAKDANCE_SRC)
+#   bin/test-local.sh --live-adapter  only the adapter leg (both suites on the released MCP Adapter plugin)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments, default WordPress only; skips lint,
 #                                     drift, coverage, the floor leg and the live groups
 #   bin/test-local.sh --plan [...]    print the legs the other options would run, run nothing
@@ -76,6 +87,8 @@
 #   WPMCP_BREAKDANCE_SRC a local Breakdance plugin directory for the live
 #                        Breakdance group; without it that group is not run,
 #                        except under --live-breakdance, where it is an error
+#   WPMCP_ADAPTER_VERSION the MCP Adapter release the adapter leg tests (default:
+#                        the latest on WordPress.org, asked for on every run)
 #   ELEMENTOR_VERSION    passed to bin/install-test-plugins.sh ('latest' tests
 #                        against the newest Elementor in a separate install)
 
@@ -115,6 +128,8 @@ only_live_tablepress=false
 only_live_crm=false
 only_live_funnelkit=false
 only_live_breakdance=false
+only_live_amelia=false
+only_live_adapter=false
 coverage=true
 plan_only=false
 phpunit_args=()
@@ -131,6 +146,8 @@ while [ $# -gt 0 ]; do
 		--live-crm) only_live_crm=true ;;
 		--live-funnelkit) only_live_funnelkit=true ;;
 		--live-breakdance) only_live_breakdance=true ;;
+		--live-amelia) only_live_amelia=true ;;
+		--live-adapter) only_live_adapter=true ;;
 		--stop-db) stop_db=true ;;
 		--plan) plan_only=true ;;
 		--) shift; phpunit_args=("$@"); break ;;
@@ -176,7 +193,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_adapter" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -185,6 +202,8 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_crm" = false ] || LEGS+=("live-crm ${only_wp:-$default_wp}")
 	[ "$only_live_funnelkit" = false ] || LEGS+=("live-funnelkit ${only_wp:-$default_wp}")
 	[ "$only_live_breakdance" = false ] || LEGS+=("live-breakdance ${only_wp:-$default_wp}")
+	[ "$only_live_amelia" = false ] || LEGS+=("live-amelia ${only_wp:-$default_wp}")
+	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
 elif [ -n "$only_wp" ]; then
 	LEGS+=("phpunit $only_wp none")
 else
@@ -207,9 +226,13 @@ else
 		LEGS+=("phpunit $floor_wp none")
 	fi
 	if [ "$targeted" = false ]; then
-		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-crm $default_wp" "live-funnelkit $default_wp")
+		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp")
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			LEGS+=("live-breakdance $default_wp")
+		fi
+		# The adapter leg (issue #501) under --all only; see the header.
+		if [ "$run_all" = true ]; then
+			LEGS+=("live-adapter $default_wp")
 		fi
 	fi
 fi
@@ -328,6 +351,8 @@ install_wp() {
 	[ "${WPMCP_LIVE_CRM:-}" = 1 ] && flavor="-crm-live"
 	# And WPMCP_LIVE_FUNNELKIT=1 and Funnel Builder with WooCommerce.
 	[ "${WPMCP_LIVE_FUNNELKIT:-}" = 1 ] && flavor="-funnelkit-live"
+	# And WPMCP_LIVE_AMELIA=1 and Amelia Lite.
+	[ "${WPMCP_LIVE_AMELIA:-}" = 1 ] && flavor="-amelia-live"
 	# And WPMCP_LIVE_BREAKDANCE=1 and the local Breakdance copy.
 	[ "${WPMCP_LIVE_BREAKDANCE:-}" = 1 ] && flavor="-breakdance-live"
 	# The installers' hash is part of the directory, not a stamp inside it:
@@ -553,6 +578,22 @@ run_live_funnelkit() {
 	unset WPMCP_LIVE_FUNNELKIT
 }
 
+# The live Amelia group (issue #499), the same way: its own install with the
+# real Amelia Lite, its own database, and --fail-on-skipped.
+run_live_amelia() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_AMELIA=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-amelia-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Amelia group on WordPress $version (real Amelia Lite)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group amelia-live --fail-on-skipped
+	unset WPMCP_LIVE_AMELIA
+}
+
 # The live Breakdance group (issue #457), the same way, with the Breakdance
 # copy from WPMCP_BREAKDANCE_SRC: its own install, its own database and
 # --fail-on-skipped.
@@ -569,6 +610,80 @@ run_live_breakdance() {
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
 		"$PHP" vendor/bin/phpunit --group breakdance-live --fail-on-skipped
 	unset WPMCP_LIVE_BREAKDANCE
+}
+
+# ---------------------------------------------------------------- MCP Adapter
+
+# Prints the MCP Adapter release the adapter leg tests: WPMCP_ADAPTER_VERSION,
+# else the latest on WordPress.org. Offline, it falls back to the newest
+# release already in the cache and says so.
+adapter_release() {
+	local version="${WPMCP_ADAPTER_VERSION:-}" info
+	if [ -z "$version" ]; then
+		info=$(curl -fsSL --max-time 30 'https://api.wordpress.org/plugins/info/1.2/?action=plugin_information&request%5Bslug%5D=mcp-adapter&request%5Bfields%5D%5Bsections%5D=0' 2>/dev/null || true)
+		# shellcheck disable=SC2016 # PHP code, expanded by PHP.
+		version=$("$PHP" -r '$d = json_decode(stream_get_contents(STDIN), true); echo is_array($d) && isset($d["version"]) ? $d["version"] : "";' <<<"$info")
+		if [ -z "$version" ]; then
+			version=$(find "$CACHE/mcp-adapter" -mindepth 2 -maxdepth 2 -name .ready 2>/dev/null | sed 's#/\.ready$##; s#.*/##' | sort -V | tail -1 || true)
+			[ -n "$version" ] || die "could not ask WordPress.org for the latest MCP Adapter release, and none is cached"
+			say "WordPress.org did not answer; testing the newest cached MCP Adapter, $version." >&2
+		fi
+	fi
+	[[ "$version" =~ ^[0-9]+(\.[0-9]+)*(-[0-9A-Za-z.]+)?$ ]] || die "not an MCP Adapter version: $version"
+	echo "$version"
+}
+
+# Downloads MCP Adapter <version> from WordPress.org into the cache once and
+# prints the plugin directory. Cached by version, so a new release is fetched
+# and an old one is never overwritten.
+fetch_adapter() {
+	local version=$1 dir="$CACHE/mcp-adapter/$1"
+	if [ ! -f "$dir/.ready" ]; then
+		with_lock "mcp-adapter-$version" fetch_adapter_locked "$version" "$dir"
+	fi
+	echo "$dir/mcp-adapter"
+}
+
+fetch_adapter_locked() {
+	local version=$1 dir=$2 header
+	[ -f "$dir/.ready" ] && return 0
+	say "Downloading MCP Adapter $version from WordPress.org into $dir" >&2
+	rm -rf "$dir"
+	mkdir -p "$dir"
+	curl -fsSL --max-time 120 -o "$dir/mcp-adapter.zip" "https://downloads.wordpress.org/plugin/mcp-adapter.$version.zip" \
+		|| die "could not download MCP Adapter $version from WordPress.org"
+	unzip -q "$dir/mcp-adapter.zip" -d "$dir" || die "could not unpack MCP Adapter $version"
+	header=$(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$dir/mcp-adapter/mcp-adapter.php" | head -1 | tr -d '[:space:]')
+	[ "$header" = "$version" ] || die "the MCP Adapter $version download says it is version '$header'"
+	touch "$dir/.ready"
+}
+
+# The adapter leg (issue #501): the default install with the released MCP
+# Adapter plugin added to this run's own core copy, where a site keeps it,
+# and its own database. tests/bootstrap.php loads the plugin ahead of WP MCP,
+# as WordPress orders 'mcp-adapter/' before 'wpmcp/'. First the coexistence
+# group with --fail-on-skipped, then the free and pro suites in full.
+run_live_adapter() {
+	local version=$1 adapter_version src dir core config plugin
+	adapter_version=$(adapter_release)
+	src=$(fetch_adapter "$adapter_version")
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-adapter-live" "$core")
+	RUN_CONFIGS+=("$config")
+	rm -rf "$core/wp-content/plugins/mcp-adapter"
+	cp -R "$src" "$core/wp-content/plugins/mcp-adapter"
+	plugin="$core/wp-content/plugins/mcp-adapter/mcp-adapter.php"
+	[ -z "${LEG_NOTE:-}" ] || echo "mcp-adapter $adapter_version" >"$LEG_NOTE"
+	say "PHPUnit adapter group on WordPress $version (released MCP Adapter $adapter_version from WordPress.org)"
+	WPMCP_TEST_ADAPTER_PLUGIN="$plugin" WPMCP_TEST_ADAPTER_VERSION="$adapter_version" \
+		WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group adapter-live --fail-on-skipped
+	say "PHPUnit free and pro suites on WordPress $version (released MCP Adapter $adapter_version)"
+	WPMCP_TEST_ADAPTER_PLUGIN="$plugin" WPMCP_TEST_ADAPTER_VERSION="$adapter_version" \
+		WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit
 }
 
 cd "$ROOT"
@@ -625,6 +740,8 @@ run_leg_body() {
 		live-crm) run_live_crm "$wp" ;;
 		live-funnelkit) run_live_funnelkit "$wp" ;;
 		live-breakdance) run_live_breakdance "$wp" ;;
+		live-amelia) run_live_amelia "$wp" ;;
+		live-adapter) run_live_adapter "$wp" ;;
 		*) die "unknown leg: $kind" ;;
 	esac
 }
@@ -634,7 +751,12 @@ run_leg_body() {
 # used to stop the live groups without a word), and the summary names it.
 SUMMARY=()
 failed=0
+# A leg may leave a note for its summary line here (the adapter leg names the
+# MCP Adapter release it tested).
+mkdir -p "$CACHE/notes"
+LEG_NOTE=$(mktemp "$CACHE/notes/leg.XXXXXX")
 for leg in "${LEGS[@]}"; do
+	: >"$LEG_NOTE"
 	set +e
 	(
 		set -e
@@ -646,15 +768,17 @@ for leg in "${LEGS[@]}"; do
 	)
 	status=$?
 	set -e
+	note=$(cat "$LEG_NOTE")
 	if [ "$status" -eq 0 ]; then
-		SUMMARY+=("pass  $(leg_label "$leg")")
+		SUMMARY+=("pass  $(leg_label "$leg")${note:+ ($note)}")
 	else
-		SUMMARY+=("FAIL  $(leg_label "$leg") (exit $status)")
+		SUMMARY+=("FAIL  $(leg_label "$leg")${note:+ ($note)} (exit $status)")
 		failed=$((failed + 1))
 		printf '\033[31m[test-local]\033[0m leg failed: %s (exit %s); running the remaining legs.\n' "$(leg_label "$leg")" "$status" >&2
 	fi
 done
 
+rm -f "$LEG_NOTE"
 say "Summary:"
 for line in "${SUMMARY[@]}"; do
 	printf '  %s\n' "$line"

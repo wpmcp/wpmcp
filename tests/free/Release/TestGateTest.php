@@ -84,6 +84,30 @@ class TestGateTest extends TestCase
         );
     }
 
+    /**
+     * Issue #501: the leg that runs the suite on the released MCP Adapter
+     * plugin. It runs alone under --live-adapter and as part of --all, not in
+     * the plain gate: it repeats the whole suite, which would add minutes to
+     * every push for a dependency that changes only when it is released.
+     */
+    public function test_the_adapter_leg_runs_alone_and_under_all_but_not_in_the_plain_gate(): void
+    {
+        $leg = 'leg: live-adapter wp=' . $this->default_wordpress();
+
+        $this->assertSame([$leg], $this->plan('--live-adapter'));
+        $this->assertContains($leg, $this->plan('--all'));
+        $this->assertNotContains($leg, $this->plan(), 'the plain gate leaves the adapter leg to --all');
+    }
+
+    public function test_the_adapter_leg_runs_the_released_plugin_and_its_coexistence_checks(): void
+    {
+        $script = (string) file_get_contents($this->repository() . '/bin/test-local.sh');
+
+        $this->assertTrue(str_contains($script, 'https://downloads.wordpress.org/plugin/mcp-adapter.'), 'the leg downloads the released plugin from WordPress.org');
+        $this->assertTrue(str_contains($script, 'WPMCP_TEST_ADAPTER_PLUGIN='), 'the leg points the bootstrap at the downloaded plugin');
+        $this->assertTrue(str_contains($script, '--group adapter-live --fail-on-skipped'), 'the coexistence checks must not pass by skipping');
+    }
+
     public function test_the_pre_push_hook_runs_the_plain_gate(): void
     {
         $hook = (string) file_get_contents($this->repository() . '/.githooks/pre-push');

@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.151
+Stable tag: 0.8.159
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,6 +111,37 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.159 =
+* Fixed: on sites running the MCP Adapter plugin from WordPress.org (0.7.0), confirm prompts and background tasks work again for 2026-07-28 clients over HTTP, and tool listings carry their output schemas again.
+* The test gate can now run the whole suite against the latest released MCP Adapter plugin, so a future adapter release that breaks WP MCP is caught before it reaches sites.
+
+= 0.8.158 =
+* New (paid tier): Amelia bookings. On sites running Amelia, agents can read the booking setup, categories, services, employees with their working hours, customers, appointments, free slots, events with places left and event attendees, and create or change categories, services and customers, book, reschedule, approve, cancel or reject appointments. No new tools: the operations sit on the existing plugin-data pair.
+* Every booking change goes through Amelia's own checks, so a taken slot or a time outside working hours is refused with Amelia's reason. Times are in the site's timezone and stay right across daylight-saving changes. Customer emails are held unless the agent asks to notify, and each answer lists what Amelia sent. Every change can be undone with rollback-operation, which never re-sends anything and is refused while later bookings depend on it.
+* Amelia customer records are now included in Tools > Export Personal Data and Erase Personal Data.
+
+= 0.8.157 =
+* New (Pro): FluentCRM and MailPoet campaigns, bulk import and automations. Agents can draft, edit and duplicate campaigns, send a test to themselves, import contacts without resubscribing anyone who opted out, and switch automations on or off, through each plugin's own API, with rollback-operation to undo each.
+* Sending a campaign to real recipients is off until a site enables it, and always asks for confirmation with the recipient count first. Mail cannot be unsent, so a send or a test is never undone.
+
+= 0.8.156 =
+* Internal: the changelog lists the WordPress 6.9 global styles fix under 0.8.145, the release that shipped it. No change to the plugin itself.
+
+= 0.8.155 =
+* Security: local-live sync no longer reads or writes in-admin chat conversations or agent memory entries. Change sets exclude them by id or by session, and apply-change-set refuses them even when forced.
+* Sync never exports or writes WP MCP's internal bookkeeping meta (chat state, memory rule fields, staged-edit links), and apply checks the post an entry resolves to as well as the type it claims.
+
+= 0.8.154 =
+* Security: rolling back a session or operation no longer lets a user undo a site or store setting they could not change themselves. WooCommerce settings changes now take manage_woocommerce to roll back, and a settings snapshot that names no capability takes manage_options.
+* Menu location, sidebar widget, plugin activation, theme switch and integration settings changes record the capability they took, so the people who made them can still roll them back.
+
+= 0.8.153 =
+* Security: BuddyPress group members of a private group are now listed only to its members and moderators, and pending or banned rows only to the group's admins and mods.
+* Security: BuddyPress activity posted in a private or hidden group is no longer listed to callers who cannot access that group.
+
+= 0.8.152 =
+* Approving an OAuth client again no longer undoes the access level a site owner set on that connection: a read-only level or scoped identity binding stays in place, and the consent screen says so.
+
 = 0.8.151 =
 * Security: save-as-template now keeps a page's protection. A template saved from a password-protected page keeps the password, and one saved from a private or unpublished page is created private, so lower roles can no longer read that content through the template.
 
@@ -131,11 +162,11 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 = 0.8.146 =
 * New: TablePress tables (paid tier). Agents can list, read, export, render and find where a table is placed, create tables, edit cells, insert and delete rows and columns, update options, copy, rename the id, delete, import CSV, JSON or HTML, and place a table on a page, all through TablePress's own table model. Every write is snapshotted and can be rolled back.
 * TablePress ops run on the existing plugin-data tools, so they add no tools where those tools already appear, and edits that would leave a table with rows of unequal length are refused.
-* Fix: on WordPress 6.9, administrators without the unfiltered_html capability (multisite site admins, or sites that disallow unfiltered HTML) can save global styles again; palette changes were refused and rolled back whenever the styles contained a "/".
 
 = 0.8.145 =
 * New opt-in setting on the Connection screen, "Delete all WP MCP data when the plugin is deleted" (or define WPMCP_UNINSTALL_DELETE_DATA in wp-config.php): deleting the plugin then also removes its tables, settings, credentials and backup archives on every site. Off by default, so your data is kept.
 * Turning it on also revokes the application passwords WP MCP issued.
+* Fix: on WordPress 6.9, administrators without the unfiltered_html capability (multisite site admins, or sites that disallow unfiltered HTML) can save global styles again; palette changes were refused and rolled back whenever the styles contained a "/".
 
 = 0.8.144 =
 * New: limit who can manage WP MCP to chosen administrators, from the Connection screen or with WPMCP_MANAGEMENT_ADMINS in wp-config.php. By default every administrator can still manage it, so nothing changes until you set a list.
@@ -757,6 +788,30 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.159 =
+Fixed: on sites running the MCP Adapter plugin from WordPress.org (0.7.0), confirm prompts and background tasks work again for 2026-07-28 clients over HTTP, and tool listings carry their output schemas again.
+
+= 0.8.158 =
+New (paid tier): Amelia bookings. On sites running Amelia, agents can read the booking setup, categories, services, employees with their working hours, customers, appointments, free slots, events with places left and event attendees, and create or change categories, services and customers, book, reschedule, approve, cancel or reject appointments. No new tools: the operations sit on the existing plugin-data pair.
+
+= 0.8.157 =
+New (Pro): FluentCRM and MailPoet campaigns, bulk import and automations. Agents can draft, edit and duplicate campaigns, send a test to themselves, import contacts without resubscribing anyone who opted out, and switch automations on or off, through each plugin's own API, with rollback-operation to undo each.
+
+= 0.8.156 =
+Internal: the changelog lists the WordPress 6.9 global styles fix under 0.8.145, the release that shipped it. No change to the plugin itself.
+
+= 0.8.155 =
+Security: local-live sync no longer reads or writes in-admin chat conversations or agent memory entries. Change sets exclude them by id or by session, and apply-change-set refuses them even when forced.
+
+= 0.8.154 =
+Security: rolling back a session or operation no longer lets a user undo a site or store setting they could not change themselves. WooCommerce settings changes now take manage_woocommerce to roll back, and a settings snapshot that names no capability takes manage_options.
+
+= 0.8.153 =
+Security: BuddyPress group members of a private group are now listed only to its members and moderators, and pending or banned rows only to the group's admins and mods.
+
+= 0.8.152 =
+Approving an OAuth client again no longer undoes the access level a site owner set on that connection: a read-only level or scoped identity binding stays in place, and the consent screen says so.
 
 = 0.8.151 =
 Security: save-as-template now keeps a page's protection. A template saved from a password-protected page keeps the password, and one saved from a private or unpublished page is created private, so lower roles can no longer read that content through the template.

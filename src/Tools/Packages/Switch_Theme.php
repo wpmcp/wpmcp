@@ -67,10 +67,13 @@ class Switch_Theme
         $operation_ids = [];
         foreach (['template', 'stylesheet'] as $option_name) {
             $operation_id = wp_generate_uuid4();
+            $snapshot     = Snapshot::capture('option', $option_name);
+            // Whoever may switch themes may switch back (issue #502).
+            $snapshot['data']['restore_capability'] = 'switch_themes';
             Snapshot_Store::save(
                 $operation_id,
                 $session_id,
-                Snapshot::capture('option', $option_name),
+                $snapshot,
                 $tool_name,
                 $args_hash
             );

@@ -38,11 +38,12 @@ class Deactivate_Plugin
 
         $out = Safe_Mutation::run(
             [
-                'object_type' => 'option',
-                'object_id'   => 'active_plugins',
-                'session_id'  => (string) ($args['session_id'] ?? 'default'),
-                'tool_name'   => 'deactivate-plugin',
-                'args'        => $args,
+                'object_type'         => 'option',
+                'object_id'           => 'active_plugins',
+                'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'           => 'deactivate-plugin',
+                'args'                => $args,
+                'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ],
             ],
             function () use ($plugin): void {
                 deactivate_plugins([$plugin]);
