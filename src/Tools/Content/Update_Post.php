@@ -79,6 +79,9 @@ class Update_Post
         if (isset($args['status']) && ! in_array($args['status'], self::VALID_STATUSES, true)) {
             throw new \InvalidArgumentException('Invalid status.');
         }
+        if (! empty($args['status'])) {
+            Post_Status_Guard::assert((string) $post->post_type, sanitize_key((string) $args['status']), false);
+        }
 
         $old_status = (string) $post->post_status;
         $old_url    = 'publish' === $old_status ? (string) get_permalink($post_id) : '';

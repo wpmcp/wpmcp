@@ -97,6 +97,10 @@ class Update_Variation
                     'status must be one of: ' . esc_html(implode(', ', self::ALLOWED_STATUSES)) . '.'
                 );
             }
+            // create-variation checks a new variation itself, creation included.
+            if ($variation->get_id() > 0) {
+                \WPMCP\Tools\Content\Post_Status_Guard::assert('product_variation', $status, false);
+            }
         }
 
         if (array_key_exists('stock_quantity', $args)) {
