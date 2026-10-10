@@ -51,6 +51,9 @@ class Create_Variation
 
         $updater = new Update_Variation();
         $updater->validate($variation, $args);
+        // WooCommerce saves a variation without a status as published.
+        $status = array_key_exists('status', $args) ? sanitize_key((string) $args['status']) : (string) $variation->get_status();
+        \WPMCP\Tools\Content\Post_Status_Guard::assert('product_variation', '' === $status ? 'publish' : $status, true);
 
         $variation->set_attributes($attributes);
         if (array_key_exists('description', $args)) {
