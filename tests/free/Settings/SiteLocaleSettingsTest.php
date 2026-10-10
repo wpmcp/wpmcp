@@ -137,6 +137,13 @@ class SiteLocaleSettingsTest extends \WP_UnitTestCase
                 unlink($file);
             }
         }
+        $this->forget_language_files();
+    }
+
+    /** Core caches the language file listing; the upgrader clears it the same way after an install. */
+    private function forget_language_files(): void
+    {
+        $GLOBALS['wp_textdomain_registry']->invalidate_mo_files_cache(null, [ 'type' => 'translation', 'translations' => [ [ 'type' => 'core' ] ] ]);
     }
 
     public function test_get_settings_returns_the_locale_keys_in_general(): void
@@ -279,6 +286,50 @@ class SiteLocaleSettingsTest extends \WP_UnitTestCase
         $this->assertSame([], $out['skipped']);
         $this->assertSame('', $out['updated']['WPLANG']);
         $this->assertSame('', get_option('WPLANG'));
+    }
+
+    /**
+     * An installed locale is selected with no lookup and no install, so a
+     * user without install_languages (a site admin on multisite) can still
+     * pick any language the network already has.
+     */
+    public function test_installed_locale_is_selected_without_install_or_network(): void
+    {
+        update_option('WPLANG', '');
+        wp_mkdir_p(WP_LANG_DIR);
+        file_put_contents(WP_LANG_DIR . '/' . self::TEST_LOCALE . '.mo', 'installed');
+        $this->forget_language_files();
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'editor' ]));
+
+        $out = (new Update_Settings())->handle([ 'settings' => [ 'WPLANG' => self::TEST_LOCALE ] ]);
+
+        $this->assertSame([], $out['skipped']);
+        $this->assertSame(self::TEST_LOCALE, get_option('WPLANG'));
+
+        $this->rollback($out['operation_ids'][0]);
+        $this->assertSame('', get_option('WPLANG'));
+    }
+
+    /**
+     * On multisite core maps install_languages to do_not_allow for anyone
+     * but a super admin, so a site admin cannot install a network-wide pack.
+     * The same mapping is applied here to an administrator.
+     */
+    public function test_install_refused_when_install_languages_is_mapped_away_as_on_multisite(): void
+    {
+        $this->admin();
+        update_option('WPLANG', '');
+        $this->translations([ self::TEST_LOCALE ]);
+        $this->language_pack(self::TEST_LOCALE);
+        add_filter('map_meta_cap', static function ($caps, $cap) {
+            return 'install_languages' === $cap ? [ 'do_not_allow' ] : $caps;
+        }, 10, 2);
+
+        $out = (new Update_Settings())->handle([ 'settings' => [ 'WPLANG' => self::TEST_LOCALE ] ]);
+
+        $this->assertStringContainsString('install_languages', $this->skipped($out)['WPLANG']);
+        $this->assertSame('', get_option('WPLANG'));
+        $this->assertNotContains(self::TEST_LOCALE, get_available_languages());
     }
 
     public function test_uninstalled_locale_is_installed_then_selected_and_rolls_back(): void
