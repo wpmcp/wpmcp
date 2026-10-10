@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Meta;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Tools\WooCommerce\Gateway_Secrets;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -48,7 +49,10 @@ class Update_Option
             throw new \RuntimeException('Option writes are disabled. Enable them with the wpmcp_enable_option_write filter.');
         }
 
-        $value = $args['value'] ?? '';
+        // get-option masks a payment gateway's credentials, so a value
+        // written back from that read keeps each masked one as stored
+        // (issue #507) instead of saving the mask over it.
+        $value = Gateway_Secrets::unmask_option($name, $args['value'] ?? '');
 
         $out = Safe_Mutation::run(
             [
@@ -65,7 +69,7 @@ class Update_Option
 
         return [
             'name'         => $name,
-            'value'        => get_option($name),
+            'value'        => Gateway_Secrets::mask_option($name, get_option($name)),
             'operation_id' => $out['operation_id'],
             'recoverable'  => true,
         ];

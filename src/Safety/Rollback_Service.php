@@ -7,6 +7,7 @@
 namespace WPMCP\Safety;
 
 use WPMCP\Privacy\Snapshot_Redactor;
+use WPMCP\Tools\Content\Content_Guard;
 use WPMCP\Tools\Database\Database_Guard;
 use WPMCP\Tools\Builders\Avada_Cache;
 use WPMCP\Tools\Builders\Beaver_Builder_Cache;
@@ -145,6 +146,10 @@ class Rollback_Service
         if ('post' === $type) {
             $post_id = (int) ($snapshot['object_id'] ?? 0);
             $post    = $post_id > 0 ? get_post($post_id) : null;
+            $store   = self::refused_store($post instanceof \WP_Post ? (string) $post->post_type : (string) ($snapshot['data']['post']['post_type'] ?? ''), $post_id);
+            if (null !== $store) {
+                return $store;
+            }
             if ($post instanceof \WP_Post) {
                 return self::refused_post_capability('edit_post', $post);
             }
@@ -165,7 +170,8 @@ class Rollback_Service
             foreach ($ids as $post_id) {
                 $post = $post_id > 0 ? get_post($post_id) : null;
                 if ($post instanceof \WP_Post) {
-                    $refused = self::refused_post_capability('delete_post', $post);
+                    $refused = self::refused_store((string) $post->post_type, $post_id)
+                        ?? self::refused_post_capability('delete_post', $post);
                     if (null !== $refused) {
                         return $refused;
                     }
@@ -174,6 +180,23 @@ class Rollback_Service
         }
 
         return null;
+    }
+
+    /**
+     * Why a restore may not write a post of one of WP MCP's private stores
+     * (issue #517): agent memory entries and chat conversations are never
+     * written by the generic tools, so a snapshot of one, taken before that
+     * rule existed, must not put an entry back either. Restoring an agent
+     * memory entry would otherwise re-publish it without the administrator's
+     * approval.
+     */
+    private static function refused_store(string $post_type, int $post_id): ?string
+    {
+        if ('' === $post_type || Content_Guard::is_agent_readable_post_type($post_type)) {
+            return null;
+        }
+        $why = Content_Guard::store_refusal($post_type);
+        return sprintf('post %d belongs to a WP MCP internal store.', $post_id) . (null === $why ? '' : ' ' . $why);
     }
 
     private static function refused_post_capability(string $capability, \WP_Post $post): ?string
@@ -272,6 +295,13 @@ class Rollback_Service
         // webhook snapshot holds its signing secret, so restoring either takes
         // the capability their writes require (issue #292).
         if (in_array($type, [ Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE, Wc_Webhook_Snapshot::TYPE, Wc_Webhook_Snapshot::CREATE_TYPE ], true)) {
+            return [ [ 'manage_woocommerce' ] ];
+        }
+        // A FunnelKit funnel's snapshot puts back its row, its meta and its
+        // step posts (checkout products and prices included), and every
+        // funnel write takes manage_woocommerce, so restoring one takes it
+        // too (issue #500).
+        if (in_array($type, [ FunnelKit_Funnel_Snapshot::TYPE, FunnelKit_Funnel_Snapshot::CREATE_TYPE ], true)) {
             return [ [ 'manage_woocommerce' ] ];
         }
         // BuddyPress rows hold group memberships, activity content and
@@ -716,6 +746,10 @@ class Rollback_Service
         }
         if (Wc_Webhook_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
             return Wc_Webhook_Snapshot::TYPE . ':' . $snapshot['object_id'];
+        }
+        // And for a FunnelKit funnel a theme-write op created (issue #500).
+        if (FunnelKit_Funnel_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
+            return FunnelKit_Funnel_Snapshot::TYPE . ':' . $snapshot['object_id'];
         }
         // And for a product or variation an import created: its oldest
         // state is "did not exist yet", whatever later edits followed.
@@ -1200,11 +1234,14 @@ class Rollback_Service
      * - post_modified, post_modified_gmt: wp_update_post() always stamps the
      *   current time and wp_insert_post() copies post_date, so every
      *   rollback reset them (issue #320).
+     * - post_date: a draft's date floats (post_date_gmt stays zero) and
+     *   wp_update_post() moves it to the current time on every save unless
+     *   edit_date is set, so a restored draft came back dated now (#498).
      *
      * A restore that promises the captured row should return the captured
      * row.
      */
-    private const VERBATIM_POST_COLUMNS = ['guid', 'post_modified', 'post_modified_gmt'];
+    private const VERBATIM_POST_COLUMNS = ['guid', 'post_date', 'post_modified', 'post_modified_gmt'];
 
     /**
      * Write the captured values of VERBATIM_POST_COLUMNS back byte for byte.
@@ -1279,6 +1316,8 @@ class Rollback_Service
             'plugin_table_rows',
             'buddypress_rows',
             'crm_rows',
+            'funnelkit_funnel',
+            'funnelkit_funnel_create',
             'amelia_rows',
             'db_cleanup',
             'wc_tax_rate',
@@ -1353,6 +1392,19 @@ class Rollback_Service
         // skipped the checks in restore_operation() and restore_session().
         if (Snapshot_Redactor::is_erased($snapshot)) {
             throw new Mutation_Failed('Rollback refused: ' . esc_html(Snapshot_Redactor::refusal($snapshot)));
+        }
+        // A write that held the multilingual plugin's sync between
+        // translations off (apply-page-text, issue #498) is undone the same
+        // way, so restoring the translation never rewrites its source.
+        if (! empty($snapshot['data']['hold_translation_sync'])) {
+            unset($snapshot['data']['hold_translation_sync']);
+            do_action('wpmcp_rollback_hold_translation_sync');
+            try {
+                self::apply_snapshot($snapshot);
+            } finally {
+                do_action('wpmcp_rollback_release_translation_sync');
+            }
+            return;
         }
         // A post snapshot that also carries a compiled widget's enabled flag
         // (set-widget-status, update-custom-widget): restore the post first,
@@ -1485,6 +1537,18 @@ class Rollback_Service
         // Crm_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('crm_rows' === $snapshot['object_type']) {
             self::warn_if(Crm_Rows_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // FunnelKit_Funnel_Snapshot::TYPE and ::CREATE_TYPE, spelled as
+        // literals for the restorable-types parity test (issue #500).
+        if ('funnelkit_funnel' === $snapshot['object_type']) {
+            self::warn_if(FunnelKit_Funnel_Snapshot::restore($snapshot));
+            return;
+        }
+
+        if ('funnelkit_funnel_create' === $snapshot['object_type']) {
+            self::warn_if(FunnelKit_Funnel_Snapshot::undo_creation($snapshot));
             return;
         }
 
@@ -2190,6 +2254,13 @@ class Rollback_Service
                     }
                 }
                 continue;
+            }
+
+            // A translation leaves its source's translation group first
+            // (create-translation, issue #498), so the group is exactly as
+            // it was before, not left naming a post in the trash.
+            if (is_array($snapshot['data']['translation_group'] ?? null) && $post_id === (int) ($created[0]['post_id'] ?? 0)) {
+                do_action('wpmcp_rollback_translation_group', ['translation' => $post_id] + $snapshot['data']['translation_group']);
             }
 
             if ('trash' === $current->post_status) {

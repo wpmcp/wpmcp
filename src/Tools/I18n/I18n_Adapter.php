@@ -37,12 +37,34 @@ if (! defined('ABSPATH')) {
  */
 class I18n_Adapter
 {
+    /** Polylang's own taxonomies on a post: its language and its translation group. */
+    public const POLYLANG_TAXONOMIES = [ 'language', 'post_translations' ];
+
+    /** Test seam: the plugin active_plugin() reports, or null to detect it. */
+    private static ?string $plugin_override = null;
+
+    /**
+     * Force the reported plugin ('polylang', 'wpml' or ''), so the suite can
+     * run the WPML paths against a stand-in for WPML's hook API. Null
+     * restores detection. Guarded by WPMCP_TESTING.
+     */
+    public static function use_plugin_for_tests(?string $plugin): void
+    {
+        if (defined('WPMCP_TESTING') && WPMCP_TESTING) {
+            self::$plugin_override = $plugin;
+        }
+    }
+
     /**
      * Which i18n plugin is active: 'polylang', 'wpml', or '' when neither is.
      * Polylang is checked first, so it wins if both somehow report active.
      */
     public static function active_plugin(): string
     {
+        if (null !== self::$plugin_override) {
+            return self::$plugin_override;
+        }
+
         if (function_exists('pll_the_languages') || defined('POLYLANG_VERSION')) {
             return 'polylang';
         }
@@ -72,9 +94,13 @@ class I18n_Adapter
             return self::normalize_polylang_languages(is_array($languages) ? $languages : []);
         }
 
-        if ('wpml' === $active && function_exists('icl_get_languages')) {
-            $languages = icl_get_languages('skip_missing=0');
-            $default   = function_exists('icl_get_default_language') ? (string) icl_get_default_language() : '';
+        if ('wpml' === $active) {
+            // WPML's documented hook API (wpml_active_languages,
+            // wpml_default_language) rather than its icl_* functions.
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WPML's own filter API, not defining a hook.
+            $languages = apply_filters('wpml_active_languages', null, [ 'skip_missing' => 0 ]);
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WPML's own filter API, not defining a hook.
+            $default = (string) apply_filters('wpml_default_language', null);
             return self::normalize_wpml_languages(is_array($languages) ? $languages : [], $default);
         }
 
@@ -95,12 +121,17 @@ class I18n_Adapter
             return self::normalize_translations(is_array($translations) ? $translations : []);
         }
 
-        if ('wpml' === $active && function_exists('apply_filters')) {
-            // WPML's modern API returns translation elements keyed by language
-            // code, each exposing an ->element_id (the translated post id).
+        if ('wpml' === $active) {
+            // WPML's modern API returns a group's translation elements keyed
+            // by language code, each exposing an ->element_id (the translated
+            // post id). The group is named by its trid, not by a post id.
             $element_type = 'post_' . get_post_type($post_id);
+            $trid         = self::wpml_trid($post_id, $element_type);
+            if (null === $trid) {
+                return [];
+            }
             // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WPML's own filter API, not defining a hook.
-            $elements     = apply_filters('wpml_get_element_translations', null, $post_id, $element_type);
+            $elements     = apply_filters('wpml_get_element_translations', null, $trid, $element_type);
             $map          = [];
             foreach ((array) $elements as $code => $element) {
                 if (isset($element->element_id)) {
@@ -154,7 +185,7 @@ class I18n_Adapter
             return;
         }
 
-        if ('wpml' === $active && function_exists('do_action')) {
+        if ('wpml' === $active) {
             // WPML stores element language details via this action. Best-effort
             // and untested against a real WPML install (WPML is a paid plugin,
             // not installable from wordpress.org, so it is absent here).
@@ -190,7 +221,7 @@ class I18n_Adapter
             return;
         }
 
-        if ('wpml' === $active && function_exists('do_action')) {
+        if ('wpml' === $active) {
             // WPML links translations by assigning each post the same trid.
             // Best-effort and untested against a real WPML install (WPML is a
             // paid plugin, absent from wordpress.org and from this harness).
@@ -208,12 +239,331 @@ class I18n_Adapter
                         'language_code' => (string) $lang_code,
                     ]
                 );
-                if (null === $trid && function_exists('apply_filters')) {
-                    // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- reading WPML's own trid filter, not defining a hook.
-                    $trid = apply_filters('wpml_element_trid', null, $post_id, $element_type);
+                if (null === $trid) {
+                    $trid = self::wpml_trid($post_id, $element_type);
                 }
             }
         }
+    }
+
+    /**
+     * Whether the active plugin's API is usable in this request: Polylang
+     * loads its pll_* API only once it has booted on a site with languages,
+     * WPML answers through hooks once it is loaded at all.
+     */
+    public static function api_ready(): bool
+    {
+        $active = self::active_plugin();
+
+        if ('polylang' === $active) {
+            return function_exists('pll_save_post_translations') && function_exists('pll_get_post_language');
+        }
+
+        return 'wpml' === $active;
+    }
+
+    /** The language code of a post, or '' when it has none. */
+    public static function get_post_language(int $post_id): string
+    {
+        $active = self::active_plugin();
+
+        if ('polylang' === $active && function_exists('pll_get_post_language')) {
+            return (string) pll_get_post_language($post_id);
+        }
+
+        if ('wpml' === $active) {
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WPML's own filter API, not defining a hook.
+            $code = apply_filters('wpml_element_language_code', null, [ 'element_id' => $post_id, 'element_type' => 'post_' . get_post_type($post_id) ]);
+            return is_string($code) ? $code : '';
+        }
+
+        return '';
+    }
+
+    /** Whether the active plugin translates posts of this type. */
+    public static function is_translated_post_type(string $post_type): bool
+    {
+        $active = self::active_plugin();
+
+        if ('polylang' === $active && function_exists('pll_is_translated_post_type')) {
+            return (bool) pll_is_translated_post_type($post_type);
+        }
+
+        if ('wpml' === $active) {
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WPML's own filter API, not defining a hook.
+            return (bool) apply_filters('wpml_is_translated_post_type', false, $post_type);
+        }
+
+        return false;
+    }
+
+    /**
+     * The term standing for $term_id in $lang: the term itself when the
+     * taxonomy is not translated, its translation when it has one, 0 when
+     * it has none.
+     */
+    public static function get_term_translation(int $term_id, string $taxonomy, string $lang): int
+    {
+        $active = self::active_plugin();
+
+        if ('polylang' === $active && function_exists('pll_get_term')) {
+            if (function_exists('pll_is_translated_taxonomy') && ! pll_is_translated_taxonomy($taxonomy)) {
+                return $term_id;
+            }
+            return (int) pll_get_term($term_id, $lang);
+        }
+
+        if ('wpml' === $active) {
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WPML's own filter API, not defining a hook.
+            return (int) apply_filters('wpml_object_id', $term_id, $taxonomy, false, $lang);
+        }
+
+        return $term_id;
+    }
+
+    /** The translation of a media item into $lang, or the item itself when it has none. */
+    public static function get_attachment_translation(int $attachment_id, string $lang): int
+    {
+        $active = self::active_plugin();
+
+        if ('polylang' === $active && function_exists('pll_get_post')) {
+            return (int) pll_get_post($attachment_id, $lang) ?: $attachment_id;
+        }
+
+        if ('wpml' === $active) {
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WPML's own filter API, not defining a hook.
+            return (int) apply_filters('wpml_object_id', $attachment_id, 'attachment', true, $lang) ?: $attachment_id;
+        }
+
+        return $attachment_id;
+    }
+
+    /**
+     * Add $new_id to $source_id's translation group as its $lang version.
+     * A raw write like link_post_translations(); the caller captures the
+     * group first (capture_translation_group()) so the link can be undone.
+     */
+    public static function add_translation(int $source_id, int $new_id, string $lang): void
+    {
+        $active = self::active_plugin();
+
+        if ('polylang' === $active && function_exists('pll_save_post_translations')) {
+            $group          = (array) pll_get_post_translations($source_id);
+            $group[ $lang ] = $new_id;
+            pll_save_post_translations($group);
+            return;
+        }
+
+        if ('wpml' === $active) {
+            $element_type = 'post_' . get_post_type($source_id);
+            do_action(
+                // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WPML's own action API, not defining a hook.
+                'wpml_set_element_language_details',
+                [
+                    'element_id'           => $new_id,
+                    'element_type'         => $element_type,
+                    'trid'                 => self::wpml_trid($source_id, $element_type),
+                    'language_code'        => $lang,
+                    'source_language_code' => self::get_post_language($source_id),
+                ]
+            );
+        }
+    }
+
+    /**
+     * What undoing add_translation() on $source_id needs: for Polylang the
+     * group term and its stored map as they are now (term_id 0 when the
+     * source has no group yet), for WPML the source's trid.
+     *
+     * @return array<string, mixed>
+     */
+    public static function capture_translation_group(int $source_id): array
+    {
+        $active = self::active_plugin();
+
+        if ('polylang' === $active) {
+            $terms = wp_get_object_terms($source_id, 'post_translations');
+            $term  = is_array($terms) && [] !== $terms ? reset($terms) : null;
+            return [
+                'plugin'      => 'polylang',
+                'source'      => $source_id,
+                'term_id'     => $term instanceof \WP_Term ? (int) $term->term_id : 0,
+                'description' => $term instanceof \WP_Term ? (string) $term->description : '',
+            ];
+        }
+
+        if ('wpml' === $active) {
+            return [
+                'plugin' => 'wpml',
+                'source' => $source_id,
+                'trid'   => self::wpml_trid($source_id, 'post_' . get_post_type($source_id)),
+            ];
+        }
+
+        return [];
+    }
+
+    /**
+     * Take $new_id back out of the group captured before it was added, so
+     * the source's group is exactly what it was. On Polylang the captured
+     * group term gets its stored map back verbatim and loses $new_id, or,
+     * when the link made the group, the group term goes (unless other posts
+     * have joined it since, when only $new_id leaves). On WPML $new_id is
+     * moved into a group of its own (best-effort, untested against a real
+     * WPML install).
+     *
+     * Rollback_Service calls it through the
+     * wpmcp_rollback_translation_group action with one argument, the
+     * captured group, which then names the translation under 'translation'.
+     *
+     * @param array<string, mixed> $captured capture_translation_group()'s answer.
+     */
+    public static function restore_translation_group(array $captured, int $new_id = 0): void
+    {
+        $plugin = (string) ($captured['plugin'] ?? '');
+        $new_id = $new_id > 0 ? $new_id : (int) ($captured['translation'] ?? 0);
+        if ($new_id <= 0) {
+            return;
+        }
+
+        if ('polylang' === $plugin && taxonomy_exists('post_translations')) {
+            self::restore_polylang_group($captured, $new_id);
+            return;
+        }
+
+        if ('wpml' === $plugin) {
+            $element_type = 'post_' . get_post_type($new_id);
+            do_action(
+                // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WPML's own action API, not defining a hook.
+                'wpml_set_element_language_details',
+                [
+                    'element_id'    => $new_id,
+                    'element_type'  => $element_type,
+                    'trid'          => null,
+                    'language_code' => self::get_post_language($new_id),
+                ]
+            );
+        }
+    }
+
+    /** @param array<string, mixed> $captured */
+    private static function restore_polylang_group(array $captured, int $new_id): void
+    {
+        global $wpdb;
+
+        $term_id = (int) ($captured['term_id'] ?? 0);
+        $source  = (int) ($captured['source'] ?? 0);
+
+        if ($term_id > 0 && get_term($term_id, 'post_translations') instanceof \WP_Term) {
+            // The stored map goes back as captured, not through
+            // wp_update_term()'s description filters.
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- restoring a captured column verbatim; clean_term_cache() below invalidates.
+            $wpdb->update($wpdb->term_taxonomy, [ 'description' => (string) ($captured['description'] ?? '') ], [ 'term_id' => $term_id, 'taxonomy' => 'post_translations' ]);
+            clean_term_cache([ $term_id ], 'post_translations');
+            wp_remove_object_terms($new_id, $term_id, 'post_translations');
+            clean_object_term_cache([ $new_id, $source ], (string) get_post_type($source));
+            return;
+        }
+
+        $terms = wp_get_object_terms($new_id, 'post_translations');
+        $term  = is_array($terms) && [] !== $terms ? reset($terms) : null;
+        if (! $term instanceof \WP_Term) {
+            return;
+        }
+        $members = maybe_unserialize($term->description);
+        $others  = array_diff(array_map('intval', is_array($members) ? $members : []), [ $source, $new_id ]);
+        if ([] === $others) {
+            wp_delete_term((int) $term->term_id, 'post_translations');
+        } elseif (function_exists('PLL')) {
+            PLL()->model->post->delete_translation($new_id);
+        }
+        clean_object_term_cache([ $new_id, $source ], (string) get_post_type($source));
+    }
+
+    /** @var array<int, mixed> the sync option each open hold_sync() saved, innermost last */
+    private static array $held = [];
+
+    /** @var \Closure|null the answer to Polylang's copy filters while the sync is held */
+    private static ?\Closure $no_copies = null;
+
+    /**
+     * Run $write with the multilingual plugin's own sync between
+     * translations held off, so a write to one translation never reaches the
+     * others. Polylang copies post fields, custom fields and terms across a
+     * group according to its sync option; that option reads as empty for
+     * the duration, and its copy filters answer nothing. WPML copies from an
+     * original to its translations when the original is saved, never back,
+     * so there is nothing to hold for it.
+     *
+     * @template T
+     * @param callable(): T $write
+     * @return T
+     */
+    public static function without_sync(callable $write)
+    {
+        self::hold_sync();
+        try {
+            return $write();
+        } finally {
+            self::release_sync();
+        }
+    }
+
+    /**
+     * Start holding the sync off (see without_sync()). Every call needs its
+     * release_sync(); a rollback of a held write is wrapped the same way,
+     * through the wpmcp_rollback_hold_translation_sync and
+     * wpmcp_rollback_release_translation_sync actions.
+     */
+    public static function hold_sync(): void
+    {
+        $options        = self::polylang_options();
+        self::$held[]   = null === $options ? null : $options['sync'];
+        if (1 === count(self::$held)) {
+            self::$no_copies = self::$no_copies ?? static fn (): array => [];
+            // phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Polylang's own filters, answered while the write runs.
+            add_filter('pll_copy_post_metas', self::$no_copies, PHP_INT_MAX);
+            add_filter('pll_copy_taxonomies', self::$no_copies, PHP_INT_MAX);
+            // phpcs:enable
+        }
+        if (null !== $options) {
+            $options['sync'] = [];
+        }
+    }
+
+    /** Stop the innermost hold_sync(), putting the sync option back as it found it. */
+    public static function release_sync(): void
+    {
+        if ([] === self::$held) {
+            return;
+        }
+        $saved   = array_pop(self::$held);
+        $options = self::polylang_options();
+        if (null !== $options && null !== $saved) {
+            $options['sync'] = $saved;
+        }
+        if ([] === self::$held && null !== self::$no_copies) {
+            remove_filter('pll_copy_post_metas', self::$no_copies, PHP_INT_MAX);
+            remove_filter('pll_copy_taxonomies', self::$no_copies, PHP_INT_MAX);
+        }
+    }
+
+    /** Polylang's options store, or null when Polylang is not the active, booted plugin. */
+    private static function polylang_options(): ?\ArrayAccess
+    {
+        if ('polylang' !== self::active_plugin() || ! function_exists('PLL')) {
+            return null;
+        }
+        $options = PLL()->options ?? null;
+        return $options instanceof \ArrayAccess ? $options : null;
+    }
+
+    /** WPML's translation group id for an element, or null when it has none. */
+    private static function wpml_trid(int $element_id, string $element_type): ?int
+    {
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- reading WPML's own trid filter, not defining a hook.
+        $trid = apply_filters('wpml_element_trid', null, $element_id, $element_type);
+        return is_numeric($trid) && (int) $trid > 0 ? (int) $trid : null;
     }
 
     /**

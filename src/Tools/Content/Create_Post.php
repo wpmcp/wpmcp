@@ -30,7 +30,8 @@ class Create_Post
             $post_type = 'post';
         }
         if (! Content_Guard::is_writable_post_type($post_type)) {
-            throw new \InvalidArgumentException(sprintf('"%s" is not a writable post type.', esc_html($post_type)));
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- store_refusal() returns a plugin literal; the fallback escapes the type.
+            throw new \InvalidArgumentException(Content_Guard::store_refusal($post_type) ?? sprintf('"%s" is not a writable post type.', esc_html($post_type)));
         }
 
         $status = sanitize_key((string) ($args['status'] ?? 'draft'));
