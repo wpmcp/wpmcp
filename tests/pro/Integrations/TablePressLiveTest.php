@@ -110,21 +110,22 @@ class TablePressLiveTest extends \WP_UnitTestCase
         $this->assertSame([ [ 'Plan', 'Price' ], [ 'Basic', '10' ], [ 'Pro', '20' ] ], $this->model($id)['data']);
         $this->assertSame([ 1, 1, 1 ], $this->model($id)['visibility']['rows']);
 
+        // TablePress caches a visitor's render in a transient and lists the
+        // transients per table; a write or rollback must drop that list.
+        $cache = 'tablepress_c_' . md5($id);
         $this->assertStringContainsString('>10<', $this->visitor_render($id));
-        $this->assertStringContainsString('from cache', $this->visitor_render($id));
+        $this->assertNotFalse(get_transient($cache));
 
         $out = $this->call('write', 'tablepress-set-cells', [ 'table_id' => $id, 'cells' => [ [ 'row' => 1, 'column' => 1, 'value' => '12' ] ] ]);
         $this->assertSame('12', $this->model($id)['data'][1][1]);
-        $html = $this->visitor_render($id);
-        $this->assertStringContainsString('>12<', $html);
-        $this->assertStringNotContainsString('from cache', $html);
-        $this->assertStringContainsString('from cache', $this->visitor_render($id));
+        $this->assertFalse(get_transient($cache));
+        $this->assertStringContainsString('>12<', $this->visitor_render($id));
+        $this->assertNotFalse(get_transient($cache));
 
-        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']), implode('; ', Rollback_Service::take_warnings()));
         $this->assertSame($before, $this->stored($id));
-        $html = $this->visitor_render($id);
-        $this->assertStringContainsString('>10<', $html);
-        $this->assertStringNotContainsString('from cache', $html);
+        $this->assertFalse(get_transient($cache));
+        $this->assertStringContainsString('>10<', $this->visitor_render($id));
     }
 
     public function test_rows_and_columns_stay_rectangular_through_tablepress_prepare_table(): void

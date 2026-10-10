@@ -298,7 +298,7 @@ class TablePressPackTest extends \WP_UnitTestCase
         $this->assertStringContainsString('from cache', tablepress_get_table([ 'id' => $id ]));
         wp_set_current_user($this->admin);
 
-        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']), implode('; ', Rollback_Service::take_warnings()));
         $this->assertSame($before, $this->stored($id));
         wp_set_current_user(0);
         $html = tablepress_get_table([ 'id' => $id ]);
@@ -368,7 +368,7 @@ class TablePressPackTest extends \WP_UnitTestCase
         $this->assertSame([ 'Plans', 'June prices', false, 'x' ], [ $table['name'], $table['description'], $table['options']['use_datatables'], $table['options']['datatables_custom_commands'] ]);
         $this->assertSame('unknown_option', $this->code($this->write('tablepress-update-table', [ 'table_id' => $id, 'options' => [ 'nope' => 1 ] ])));
 
-        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']), implode('; ', Rollback_Service::take_warnings()));
         $this->assertSame($before, $this->stored($id));
     }
 
@@ -409,7 +409,7 @@ class TablePressPackTest extends \WP_UnitTestCase
         $this->assertFalse(\TablePress::$model_table->table_exists($id));
         $this->assertSame('Pricing', \TablePress::$model_table->load('pricing')['name']);
 
-        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']), implode('; ', Rollback_Service::take_warnings()));
         $this->assertTrue(\TablePress::$model_table->table_exists($id));
         $this->assertFalse(\TablePress::$model_table->table_exists('pricing'));
     }
@@ -484,7 +484,7 @@ class TablePressPackTest extends \WP_UnitTestCase
         $this->assertSame([ $block => [ 'block' ], $legacy => [ 'shortcode' ], $empty => [ 'shortcode' ] ], $usage);
         $this->assertSame([], $this->ok($this->read('tablepress-find-usage', [ 'table_id' => $id . '0' ]))['result']['posts']);
 
-        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']), implode('; ', Rollback_Service::take_warnings()));
         $this->assertSame("<!-- wp:paragraph -->\n<p>Prices</p>\n<!-- /wp:paragraph -->", get_post($block)->post_content);
     }
 
@@ -513,6 +513,8 @@ class TablePressPackTest extends \WP_UnitTestCase
         // A user holding the type-wide capability but refused this one table by TablePress's own mapping.
         get_userdata($editor)->add_cap('tablepress_edit_tables');
         get_userdata($editor)->add_cap('tablepress_list_tables');
+        wp_set_current_user(0);
+        wp_set_current_user($editor);
         $deny = static fn (array $caps, string $cap): array => 'tablepress_edit_table' === $cap ? [ 'do_not_allow' ] : $caps;
         add_filter('map_meta_cap', $deny, 20, 2);
         $out = $this->write('tablepress-set-cells', [ 'table_id' => $id, 'cells' => [ [ 'row' => 0, 'column' => 0, 'value' => 'x' ] ] ]);
@@ -523,6 +525,7 @@ class TablePressPackTest extends \WP_UnitTestCase
         $this->assertTrue(current_user_can('edit_post', TablePress_Pack::post_id_of($id)));
         $this->assertTrue(current_user_can('read_post', TablePress_Pack::post_id_of($id)));
         $this->assertFalse(current_user_can('delete_post', TablePress_Pack::post_id_of($id)));
+        $this->assertTrue(current_user_can('edit_others_tablepress_tables'));
         $this->assertTrue(current_user_can('edit_post', self::factory()->post->create([ 'post_author' => $editor ])));
     }
 }
