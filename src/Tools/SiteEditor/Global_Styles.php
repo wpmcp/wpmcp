@@ -40,6 +40,8 @@ if (! defined('ABSPATH')) {
  * CSS filter (the one kses applies to this post). Then it is one snapshot of
  * the user post by theme key (Site_Template_Snapshot), so rollback restores
  * the prior post byte for byte, or deletes it when the write created it.
+ * The save is verified by comparing the stored document with the written
+ * one as decoded JSON, since kses may re-encode it (issue #487).
  */
 class Global_Styles
 {
@@ -136,6 +138,7 @@ class Global_Styles
         $new     = (string) wp_json_encode($config, self::JSON_FLAGS);
 
         $post_id = null === $post ? 0 : $post->ID;
+        $stored  = '';
         $out     = $this->mutate($theme, $args, function () use (&$post_id, $new, $theme) {
             if ($post_id > 0) {
                 Save_Filters::update_post(wp_slash(['ID' => $post_id, 'post_content' => $new]));
@@ -155,18 +158,55 @@ class Global_Styles
             }
             self::forget_cache();
             return true;
-        }, function () use (&$post_id, $new) {
+        }, function () use (&$post_id, &$stored, $new) {
             clean_post_cache($post_id);
             $saved = $post_id > 0 ? get_post($post_id) : null;
-            return $saved && (string) $saved->post_content === $new;
+            if (! $saved) {
+                return false;
+            }
+            $stored = (string) $saved->post_content;
+            return self::same_document($stored, $new);
         });
 
         return [
             'operation_id' => $out['operation_id'],
             'entity'       => 'global_styles',
             'user_post_id' => $post_id,
-            'content_hash' => hash('sha256', $new),
+            'content_hash' => hash('sha256', $stored),
         ];
+    }
+
+    /**
+     * Whether the stored post holds the document that was written. Without
+     * unfiltered_html core's kses filter decodes and re-encodes this post,
+     * and on WordPress 6.9 it does so without JSON_UNESCAPED_SLASHES, so "/"
+     * comes back as "\/" (issue #487). Bytes are therefore not comparable;
+     * the decoded structures are, with object keys in any order. Anything
+     * the filter removed or changed still makes them differ, so a save it
+     * altered fails closed and rolls back.
+     */
+    private static function same_document(string $stored, string $written): bool
+    {
+        if ($stored === $written) {
+            return true;
+        }
+        $a = json_decode($stored, true);
+        $b = json_decode($written, true);
+        return is_array($a) && is_array($b) && self::canonical($a) === self::canonical($b);
+    }
+
+    /** $data with every JSON object's keys sorted, lists left in order. */
+    private static function canonical(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            if (is_array($value)) {
+                $data[ $key ] = self::canonical($value);
+            }
+        }
+        if (! array_is_list($data)) {
+            ksort($data, SORT_STRING);
+        }
+        return $data;
     }
 
     private function revert(string $theme, ?\WP_Post $post, array $args): array
