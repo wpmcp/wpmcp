@@ -25,7 +25,7 @@ class HandshakeSettingsTest extends \WP_UnitTestCase
         parent::tearDown();
     }
 
-    public function test_handshake_submenu_is_registered_under_manage_options(): void
+    public function test_handshake_submenu_is_registered_under_the_management_capability(): void
     {
         global $menu, $submenu;
         $menu    = [];
@@ -46,7 +46,7 @@ class HandshakeSettingsTest extends \WP_UnitTestCase
         }
 
         $this->assertNotNull($found, 'Expected a wpmcp-handshake submenu entry.');
-        $this->assertSame('manage_options', $found[1]);
+        $this->assertSame(\WPMCP\Admin\Management_Access::CAPABILITY, $found[1]);
     }
 
     public function test_setting_is_registered_with_a_sanitizing_callback(): void

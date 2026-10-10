@@ -37,7 +37,7 @@ if (! defined('ABSPATH')) {
  *  - Revocation calls the core WP_Application_Passwords API, so the hashed
  *    credential is deleted and the connected client is cut off immediately.
  *
- * Every state-changing action requires manage_options AND a valid nonce;
+ * Every state-changing action requires the management capability AND a valid nonce;
  * provisioning additionally requires edit_user on the target user and
  * defers to core's wp_is_application_passwords_available_for_user() check
  * rather than bypassing it.
@@ -62,7 +62,7 @@ class Connection_Page
             return null;
         }
 
-        if (! current_user_can('manage_options')) {
+        if (! current_user_can(Management_Access::CAPABILITY)) {
             return ['error' => __('You are not allowed to manage MCP connections on this site.', 'wpmcp')];
         }
 
@@ -91,6 +91,8 @@ class Connection_Page
                 return $this->set_oauth_access($post);
             case 'uninstall_data':
                 return $this->set_uninstall_data($post);
+            case 'management_access':
+                return $this->save_management_access($post);
         }
 
         return ['error' => __('Unknown action.', 'wpmcp')];
@@ -202,6 +204,29 @@ class Connection_Page
         return ['action' => 'uninstall_data', 'delete' => Data_Registry::delete_on_uninstall()];
     }
 
+    /**
+     * Save who may manage WP MCP (issue #479). Management_Access::save()
+     * refuses a self-lockout, a non-administrator, a stale form and any
+     * save while the wp-config.php constant is defined.
+     */
+    private function save_management_access(array $post): array
+    {
+        $ids = $post['management_ids'] ?? [];
+        $ids = is_array($ids) ? array_map(static fn ($id): string => self::str($id), $ids) : [];
+
+        $saved = Management_Access::save(
+            self::str($post['management_mode'] ?? ''),
+            $ids,
+            get_current_user_id(),
+            self::str($post['management_version'] ?? '')
+        );
+        if (is_wp_error($saved)) {
+            return ['error' => $saved->get_error_message()];
+        }
+
+        return ['action' => 'management_access'];
+    }
+
     private function revoke(array $post): array
     {
         $user_id = (int) ($post['user_id'] ?? 0);
@@ -242,7 +267,7 @@ class Connection_Page
 
     /**
      * admin_post handler for the desktop bundle download. GET + nonce (the
-     * download link is nonce'd) + manage_options. The bundle is secret-free
+     * download link is nonce'd) + the management capability. The bundle is secret-free
      * (see Bundle_Builder), so serving it discloses only the endpoint URL -
      * the same fact this screen already shows.
      *
@@ -254,7 +279,7 @@ class Connection_Page
     public function download_bundle(?callable $sender = null)
     {
         $nonce      = is_string($_GET['_wpnonce'] ?? null) ? sanitize_text_field(wp_unslash($_GET['_wpnonce'])) : '';
-        $authorized = current_user_can('manage_options')
+        $authorized = current_user_can(Management_Access::CAPABILITY)
             && '' !== $nonce
             && wp_verify_nonce($nonce, self::NONCE_ACTION);
 
@@ -303,6 +328,8 @@ class Connection_Page
                 <div class="notice notice-error"><p><?php echo esc_html($result['error']); ?></p></div>
             <?php elseif (isset($result['action']) && 'revoke' === $result['action']) : ?>
                 <div class="notice notice-success"><p><?php echo esc_html__('Application password revoked. The client it was issued to is disconnected.', 'wpmcp'); ?></p></div>
+            <?php elseif (isset($result['action']) && 'management_access' === $result['action']) : ?>
+                <div class="notice notice-success"><p><?php echo esc_html__('Management access saved.', 'wpmcp'); ?></p></div>
             <?php endif; ?>
 
             <h2><?php echo esc_html__('1. MCP surface', 'wpmcp'); ?></h2>
@@ -458,6 +485,7 @@ class Connection_Page
             <?php endif; ?>
 
             <?php $this->render_uninstall_data($nonce); ?>
+            <?php $this->render_management_access($nonce); ?>
         </div>
         <?php
     }
@@ -496,6 +524,90 @@ class Connection_Page
                 ); ?>
             </form>
         <?php endif; ?>
+        <?php
+    }
+
+    /**
+     * Who may manage WP MCP (issue #479). Read-only while the
+     * WPMCP_MANAGEMENT_ADMINS constant is defined, with listed ids that are
+     * not administrators flagged; otherwise every administrator or a chosen
+     * few. Agent execution is not affected either way.
+     */
+    private function render_management_access(string $nonce): void
+    {
+        $policy = Management_Access::policy();
+        ?>
+        <h2><?php echo esc_html__('Management access', 'wpmcp'); ?></h2>
+        <p class="description">
+            <?php echo esc_html__('Who can open these screens and change WP MCP settings. Administrators left out keep the rest of wp-admin, and what agents may do is still decided by identities and governance.', 'wpmcp'); ?>
+        </p>
+        <?php if ('constant' === $policy['source']) : ?>
+            <p>
+                <?php
+                echo esc_html(sprintf(
+                    /* translators: %s: constant name. */
+                    __('Set in wp-config.php by %s, so it is read-only here.', 'wpmcp'),
+                    Management_Access::CONSTANT
+                ));
+                ?>
+            </p>
+            <?php if ('closed' === $policy['mode']) : ?>
+                <div class="notice notice-error inline"><p><?php echo esc_html__('The constant is not valid, so nobody can manage WP MCP until it is fixed. Use \'all\', a comma-separated list of user ids, or an array of user ids.', 'wpmcp'); ?></p></div>
+            <?php elseif ('all' === $policy['mode']) : ?>
+                <p><?php echo esc_html__('Every administrator can manage WP MCP.', 'wpmcp'); ?></p>
+            <?php else : ?>
+                <?php $not_admin = Management_Access::non_admin_ids(); ?>
+                <ul style="margin-left: 1.5em; list-style: disc;">
+                    <?php foreach ($policy['ids'] as $id) : ?>
+                        <?php $listed = get_userdata($id); ?>
+                        <li>
+                            <?php echo esc_html($listed ? $listed->user_login . ' (#' . $id . ')' : '#' . $id); ?>
+                            <?php if (in_array($id, $not_admin, true)) : ?>
+                                <strong data-wpmcp-not-admin="<?php echo esc_attr((string) $id); ?>"><?php echo esc_html__('not an administrator of this site, so this entry grants nothing', 'wpmcp'); ?></strong>
+                            <?php endif; ?>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            <?php endif; ?>
+            <?php
+            return;
+        endif;
+        ?>
+        <form method="post">
+            <input type="hidden" name="wpmcp_connection_action" value="management_access">
+            <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($nonce); ?>">
+            <input type="hidden" name="management_version" value="<?php echo esc_attr(Management_Access::version()); ?>">
+            <p>
+                <label>
+                    <input type="radio" name="management_mode" value="all" <?php checked('list' !== $policy['mode']); ?>>
+                    <?php echo esc_html__('Every administrator', 'wpmcp'); ?>
+                </label>
+                <br>
+                <label>
+                    <input type="radio" name="management_mode" value="list" <?php checked('list', $policy['mode']); ?>>
+                    <?php echo esc_html__('Only these administrators', 'wpmcp'); ?>
+                </label>
+            </p>
+            <fieldset style="margin-left: 1.5em;">
+                <?php foreach (Management_Access::administrators() as $admin) : ?>
+                    <label style="display: block;">
+                        <input type="checkbox" name="management_ids[]" value="<?php echo esc_attr((string) $admin->ID); ?>" <?php checked(in_array((int) $admin->ID, $policy['ids'], true)); ?>>
+                        <?php echo esc_html($admin->display_name . ' (' . $admin->user_login . ')'); ?>
+                    </label>
+                <?php endforeach; ?>
+            </fieldset>
+            <p class="description">
+                <?php
+                echo esc_html(sprintf(
+                    /* translators: 1: constant name, 2: WP-CLI command. */
+                    __('You cannot remove yourself. To pin this in wp-config.php, define %1$s. If nobody on the list can log in, run %2$s.', 'wpmcp'),
+                    Management_Access::CONSTANT,
+                    'wp wpmcp management-access reset'
+                ));
+                ?>
+            </p>
+            <?php submit_button(__('Save management access', 'wpmcp'), 'secondary', 'submit', false); ?>
+        </form>
         <?php
     }
 

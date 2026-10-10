@@ -259,8 +259,9 @@ class MemoryStoreTest extends \WP_UnitTestCase
     /**
      * The registration itself: private, out of REST, editable in wp-admin so
      * approval is the ordinary publish flow, and every capability raised to
-     * manage_options because publishing an entry can silence a guardrail or
-     * broadcast text to every connecting agent.
+     * the management capability (manage_options narrowed by issue #479)
+     * because publishing an entry can silence a guardrail or broadcast text
+     * to every connecting agent.
      */
     public function test_ensure_post_type_registers_a_private_admin_only_type(): void
     {
@@ -274,8 +275,8 @@ class MemoryStoreTest extends \WP_UnitTestCase
         $this->assertFalse($object->show_in_rest);
         $this->assertTrue($object->show_ui);
         $this->assertFalse($object->show_in_menu);
-        $this->assertSame('manage_options', $object->cap->publish_posts);
-        $this->assertSame('manage_options', $object->cap->edit_posts);
+        $this->assertSame(\WPMCP\Admin\Management_Access::CAPABILITY, $object->cap->publish_posts);
+        $this->assertSame(\WPMCP\Admin\Management_Access::CAPABILITY, $object->cap->edit_posts);
         $this->assertSame('Agent Memory', $object->labels->name);
     }
 

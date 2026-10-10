@@ -58,6 +58,8 @@ described under WP MCP Cloud, which runs only if a cloud connection was
 saved, and, with OAuth switched on, the client metadata document fetch
 described below, which runs while an MCP client signs in.
 
+WP MCP keeps copies of site data it needs to work: undo snapshots of what an agent changed (which can include users, comments, orders and form entries), the request and governance audit logs, agent memory and the content search index. All of it stays on your site, and all of it takes part in WordPress's own personal data tools: Tools > Export Personal Data lists a person's records from each store, and Tools > Erase Personal Data redacts them from undo snapshots (a redacted snapshot can no longer be rolled back, and says so), anonymizes them in the logs and deletes the memory and index entries that hold them. WP MCP's erasure runs after your other plugins' own, so their copies in WP MCP's snapshots are covered too. Site backup archives made by WP MCP are full database copies and are left unchanged; the erasure says so when any exist.
+
 == External services ==
 
 = WordPress.org core checksums API (api.wordpress.org) =

@@ -20,7 +20,7 @@ if (! defined('ABSPATH')) {
  * agent's catalog, with no way to tell "not installed" from "installed and
  * rejected". Here it is named, with its validation error codes.
  *
- * manage_options like the rest of the wpmcp screens: the toggle changes what
+ * the management capability like the rest of the wpmcp screens: the toggle changes what
  * every connecting agent is told about this site.
  */
 class Skills_Settings_Page

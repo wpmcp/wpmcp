@@ -52,6 +52,9 @@ class Create_Product
             $product->set_stock_quantity((int) $args['stock_quantity']);
         }
 
+        // WooCommerce saves a product without a status as published.
+        \WPMCP\Tools\Content\Post_Status_Guard::assert('product', $product->get_status() ? $product->get_status() : 'publish', true);
+
         $id = $product->save();
         if (! $id) {
             throw new \RuntimeException('Could not create the product.');

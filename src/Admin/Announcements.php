@@ -61,7 +61,7 @@ class Announcements
     {
         $instance = new self();
         add_action('admin_notices', [$instance, 'render_notices']);
-        add_action('admin_post_' . self::DISMISS_ACTION, [$instance, 'handle_dismiss']);
+        Management_Access::add_handler('admin_post_' . self::DISMISS_ACTION, [$instance, 'handle_dismiss']);
         add_action('wpmcp_cloud_credentials_changed', [self::class, 'flush']);
     }
 
@@ -206,11 +206,11 @@ class Announcements
     /**
      * admin_notices callback: renders each undismissed announcement as a
      * plain dated notice with an inline dismiss link. Renders nothing off
-     * wpmcp screens, for users below manage_options, and on an empty feed.
+     * wpmcp screens, for users below the management capability, and on an empty feed.
      */
     public function render_notices(): void
     {
-        if (! $this->is_wpmcp_screen() || ! current_user_can('manage_options')) {
+        if (! $this->is_wpmcp_screen() || ! current_user_can(Management_Access::CAPABILITY)) {
             return;
         }
 
@@ -252,7 +252,7 @@ class Announcements
     }
 
     /**
-     * admin_post handler for dismissals: manage_options + nonce, then a
+     * admin_post handler for dismissals: the management capability + nonce, then a
      * redirect back to the referring wpmcp screen.
      *
      * @param callable|null $redirector Test seam: receives the redirect URL
@@ -263,7 +263,7 @@ class Announcements
     public function handle_dismiss(?callable $redirector = null)
     {
         $nonce      = is_string($_GET['_wpnonce'] ?? null) ? sanitize_text_field(wp_unslash($_GET['_wpnonce'])) : '';
-        $authorized = current_user_can('manage_options')
+        $authorized = current_user_can(Management_Access::CAPABILITY)
             && '' !== $nonce
             && wp_verify_nonce($nonce, self::NONCE_ACTION);
 
