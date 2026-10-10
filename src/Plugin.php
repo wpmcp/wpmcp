@@ -87,6 +87,7 @@ use WPMCP\Pro\Chat\Chat_Rest_Controller;
 use WPMCP\Pro\Chat\Conversation_Store;
 use WPMCP\Pro\Gate;
 use WPMCP\Memory\Memory_Store;
+use WPMCP\Privacy\Personal_Data;
 use WPMCP\Skills\Skills_Module;
 use WPMCP\Tools\Skills\Get_Skill;
 use WPMCP\Tools\Skills\List_Skills;
@@ -808,6 +809,11 @@ final class Plugin
             // upload-media grant:true (issue #471): the single-use upload
             // link route. The token is its only credential, checked inside.
             add_action('rest_api_init', [Upload_Grant::class, 'register_routes']);
+            // WordPress's personal data export and erasure (issue #478):
+            // the snapshots, activity logs, memory and search index are
+            // covered by Tools > Export / Erase Personal Data. Every tier,
+            // because a privacy request does not depend on a license.
+            Personal_Data::register();
             // In-admin AI chat (issue #73, PRO). The conversation CPT and the
             // purge that destroys conversations with their owner register
             // unconditionally, for the same reason the memory CPT above does:
