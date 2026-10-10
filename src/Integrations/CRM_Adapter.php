@@ -3,6 +3,7 @@
 namespace WPMCP\Integrations;
 
 use WPMCP\Safety\Crm_Rows_Snapshot;
+use WPMCP\Safety\Safe_Mutation;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -36,7 +37,23 @@ if (! defined('ABSPATH')) {
  *    refused from any list it would be added to;
  *  - rollback never sets anyone back to a mailable status (see
  *    Crm_Rows_Snapshot).
- * Sending or scheduling a campaign is not an op here.
+ *
+ * Bulk import (import-contacts) creates each new contact the way
+ * create-contact does and, with update_existing, updates an existing one;
+ * a contact who unsubscribed, bounced or complained, or left a list it
+ * would join, is skipped untouched. Each contact is its own snapshot, so
+ * rollback-session undoes the whole import.
+ *
+ * Campaigns: create, update and duplicate a draft through the plugin, each
+ * undone by rollback-operation while the campaign is still that draft; send
+ * a test of one to the current user; and send or schedule one to its lists
+ * (send-campaign). A campaign goes only to subscribed contacts, as the
+ * plugin counts them. send-campaign is off until a site enables it with the
+ * wpmcp_enable_crm_send filter, and an unconfirmed call answers with the
+ * recipient count through the confirmation path (elicitation where the
+ * client supports it). Mail cannot be unsent: a send or a test is
+ * snapshotted, but its undo is refused (Crm_Rows_Snapshot::refusal()).
+ * Automations: set one's status, undone by rollback-operation.
  *
  * Capabilities are the plugin's own, on top of the pair's: FluentCRM's
  * permission sets (fcrm_read_contacts, fcrm_manage_contacts, ...) and
@@ -55,6 +72,12 @@ abstract class CRM_Adapter
     /** Contact fields a write may set, beyond custom fields. */
     protected const CONTACT_FIELDS = [ 'first_name', 'last_name' ];
 
+    /** Contacts one import-contacts call takes. */
+    public const MAX_IMPORT = 100;
+
+    /** Campaign fields a write may set (title is FluentCRM's alone). */
+    protected const CAMPAIGN_FIELDS = [ 'title', 'subject', 'preheader', 'body', 'lists' ];
+
     /** Op name prefix and presence-filter slug, e.g. 'fluentcrm'. */
     abstract public function slug(): string;
 
@@ -66,8 +89,8 @@ abstract class CRM_Adapter
 
     /**
      * Whether the current user holds the plugin's own permission for one
-     * kind of access: read, write, delete, groups, groups_delete, campaigns
-     * or automations.
+     * kind of access: read, write, delete, groups, groups_delete, campaigns,
+     * campaigns_write, automations or automations_write.
      */
     abstract public function can(string $access): bool;
 
@@ -176,6 +199,73 @@ abstract class CRM_Adapter
     abstract protected function api_update_group(string $kind, int $id, array $changes): void;
 
     abstract protected function api_delete_group(string $kind, int $id): void;
+
+    /** The snapshot kind of a campaign draft write. */
+    abstract protected function campaign_kind(): string;
+
+    /** The snapshot kind of a test or a send. */
+    abstract protected function campaign_send_kind(): string;
+
+    /**
+     * One campaign (title, subject, preheader, body, status, lists,
+     * recipients, scheduled_at), or null.
+     */
+    abstract public function campaign(int $id): ?array;
+
+    /** How many contacts a campaign would go to now: subscribed ones only. */
+    abstract protected function campaign_recipients(int $id): int;
+
+    /** The schema of create-campaign's title, or null when the plugin has none. */
+    abstract protected function campaign_title_schema(): ?array;
+
+    /** @param array<string, mixed> $fields title, subject, preheader, body, lists */
+    abstract protected function api_create_campaign(array $fields): int;
+
+    /** @param array<string, mixed> $fields */
+    abstract protected function api_update_campaign(int $id, array $fields): void;
+
+    abstract protected function api_duplicate_campaign(int $id): int;
+
+    abstract protected function api_send_test(int $id, string $email): void;
+
+    /** Send now (null) or schedule at a site-local 'Y-m-d H:i:s'. */
+    abstract protected function api_send_campaign(int $id, ?string $at): void;
+
+    /** The snapshot kind of an automation status change. */
+    abstract protected function automation_kind(): string;
+
+    /** @return string[] the statuses set-automation-status may set */
+    abstract protected function automation_statuses(): array;
+
+    abstract protected function api_set_automation_status(int $id, string $status): void;
+
+    /**
+     * A plugin's own refusal of a campaign's fields (FluentCRM: a title
+     * another campaign holds), or null.
+     *
+     * @param array<string, mixed> $fields
+     */
+    protected function campaign_fields_refusal(array $fields, int $except): ?array
+    {
+        return null;
+    }
+
+    /** One automation by id, from the automations read. */
+    protected function automation(int $id): ?array
+    {
+        foreach ($this->automations() as $automation) {
+            if ((int) $automation['id'] === $id) {
+                return $automation;
+            }
+        }
+        return null;
+    }
+
+    /** Whether the site lets an agent send campaigns to real recipients. */
+    protected function send_enabled(): bool
+    {
+        return (bool) apply_filters('wpmcp_enable_crm_send', false, $this->slug());
+    }
 
     /** The snapshot kind of a list or tag. */
     protected function group_kind(string $kind): string
@@ -327,6 +417,8 @@ abstract class CRM_Adapter
             ],
         ];
 
+        $ops += $this->campaign_operations($base, $id, $ids);
+
         foreach ([ 'list' => 'lists', 'tag' => 'tags' ] as $kind => $plural) {
             $ops[ "{$p}-list-{$plural}" ]   = $base + [
                 'mode'         => 'read',
@@ -399,6 +491,156 @@ abstract class CRM_Adapter
         }
 
         return $ops;
+    }
+
+    /**
+     * The import, campaign and automation ops.
+     *
+     * @param array<string, mixed> $base
+     * @param array<string, mixed> $id
+     * @param array<string, mixed> $ids
+     * @return array<string, array<string, mixed>>
+     */
+    private function campaign_operations(array $base, array $id, array $ids): array
+    {
+        $p      = $this->slug();
+        $label  = $this->label();
+        $fields = [
+            'subject'   => [ 'type' => 'string', 'minLength' => 1, 'maxLength' => 190 ],
+            'preheader' => [ 'type' => 'string', 'maxLength' => 190 ],
+            'body'      => [ 'type' => 'string', 'minLength' => 1 ],
+            'lists'     => $ids,
+        ];
+        $title  = $this->campaign_title_schema();
+        if (null !== $title) {
+            $fields = [ 'title' => $title ] + $fields;
+        }
+        $by_id  = [
+            'type'       => 'object',
+            'properties' => [ 'id' => $id ],
+            'required'   => [ 'id' ],
+        ];
+        $import = [
+            'contacts'        => [
+                'type'     => 'array',
+                'minItems' => 1,
+                'maxItems' => self::MAX_IMPORT,
+                'items'    => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'email'         => [ 'type' => 'string', 'minLength' => 1, 'maxLength' => 150 ],
+                        'first_name'    => [ 'type' => 'string', 'maxLength' => 190 ],
+                        'last_name'     => [ 'type' => 'string', 'maxLength' => 190 ],
+                        'custom_fields' => [ 'type' => 'object' ],
+                    ],
+                    'required'   => [ 'email' ],
+                ],
+            ],
+            'lists'           => $ids,
+            'tags'            => $ids,
+            'update_existing' => [ 'type' => 'boolean' ],
+        ];
+        $status = $this->create_status_schema();
+        if (null !== $status) {
+            $import['status'] = $status;
+        }
+
+        return [
+            "{$p}-import-contacts"       => $base + [
+                'mode'              => 'write',
+                'self_snapshotting' => true,
+                'description'       => "Import up to " . self::MAX_IMPORT . " {$label} contacts into lists and tags, each created like create-contact (double opt-in). An existing contact is skipped, or updated with update_existing; one who unsubscribed or bounced is never touched. Undo: rollback-session",
+                'input_schema'      => [
+                    'type'       => 'object',
+                    'properties' => $import,
+                    'required'   => [ 'contacts' ],
+                ],
+                'validate'          => fn (array $args): ?array => $this->import_refusal($args),
+                'handler'           => fn (array $args, array $context): array => $this->import_contacts($args, $context),
+            ],
+            "{$p}-get-campaign"          => $base + [
+                'mode'         => 'read',
+                'description'  => "One {$label} campaign with its subject, body, lists, status and recipient count",
+                'input_schema' => $by_id,
+                'validate'     => fn (array $args): ?array => $this->permission_refusal('campaigns') ?? $this->campaign_refusal((int) $args['id'], false),
+                'handler'      => fn (array $args): array => [ 'campaign' => $this->campaign((int) $args['id']) ],
+            ],
+            "{$p}-create-campaign"       => $base + [
+                'mode'         => 'write',
+                'description'  => "Create a {$label} campaign draft: subject, HTML body, preheader and the lists it goes to (subscribed contacts only). Nothing is sent",
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => $fields,
+                    'required'   => [ 'subject', 'body' ],
+                ],
+                'validate'     => fn (array $args): ?array => $this->campaign_write_refusal($args, 0),
+                'snapshot'     => fn (array $args): array => $this->target($this->campaign_kind(), 0),
+                'handler'      => fn (array $args, array $context = []): array => $this->create_campaign($args, $context),
+            ],
+            "{$p}-update-campaign"       => $base + [
+                'mode'         => 'write',
+                'description'  => "Update a {$label} campaign draft's subject, body, preheader or lists. Only a draft is edited",
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [ 'id' => $id ] + $fields,
+                    'required'   => [ 'id' ],
+                ],
+                'validate'     => fn (array $args): ?array => $this->campaign_write_refusal($args, (int) $args['id']),
+                'snapshot'     => fn (array $args): array => $this->target($this->campaign_kind(), (int) $args['id']),
+                'handler'      => fn (array $args, array $context = []): array => $this->update_campaign($args, $context),
+            ],
+            "{$p}-duplicate-campaign"    => $base + [
+                'mode'         => 'write',
+                'description'  => "Copy a {$label} campaign into a new draft the way {$label} duplicates one",
+                'input_schema' => $by_id,
+                'validate'     => fn (array $args): ?array => $this->permission_refusal('campaigns_write') ?? $this->campaign_refusal((int) $args['id'], false),
+                'snapshot'     => fn (array $args): array => $this->target($this->campaign_kind(), 0),
+                'handler'      => fn (array $args, array $context = []): array => $this->duplicate_campaign((int) $args['id'], $context),
+            ],
+            "{$p}-send-test-campaign"    => $base + [
+                'mode'         => 'write',
+                'undoable'     => false,
+                'description'  => "Send a test of a {$label} campaign to the current user's email only. Mail cannot be unsent",
+                'input_schema' => $by_id,
+                'validate'     => fn (array $args): ?array => $this->permission_refusal('campaigns_write') ?? $this->campaign_refusal((int) $args['id'], false) ?? $this->test_recipient_refusal(),
+                'snapshot'     => fn (array $args): array => $this->target($this->campaign_send_kind(), (int) $args['id']) + [ 'extra_snapshot_data' => [ 'sent' => 'test', 'to' => $this->test_recipient() ] ],
+                'handler'      => fn (array $args, array $context = []): array => $this->send_test((int) $args['id'], $context),
+            ],
+            "{$p}-send-campaign"         => $base + [
+                'mode'               => 'destructive',
+                'undoable'           => false,
+                'enabled_by_default' => $this->send_enabled(),
+                'enable_hint'        => 'A site enables sending to real recipients with the wpmcp_enable_crm_send filter.',
+                'description'        => "Send a {$label} campaign draft to its lists' subscribed contacts now, or at send_at (Y-m-d H:i:s, site time). Off unless wpmcp_enable_crm_send; asks for confirmation with the recipient count. Mail cannot be unsent",
+                'input_schema'       => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'id'      => $id,
+                        'send_at' => [ 'type' => 'string', 'pattern' => '^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}(:\\d{2})?$' ],
+                    ],
+                    'required'   => [ 'id' ],
+                ],
+                'validate'           => fn (array $args): ?array => $this->send_refusal($args),
+                'confirm_preview'    => fn (array $args): array => $this->send_preview($args),
+                'snapshot'           => fn (array $args): array => $this->target($this->campaign_send_kind(), (int) $args['id']) + [ 'extra_snapshot_data' => [ 'sent' => isset($args['send_at']) ? 'schedule' : 'now', 'recipients' => $this->campaign_recipients((int) $args['id']) ] ],
+                'handler'            => fn (array $args, array $context = []): array => $this->send_campaign($args, $context),
+            ],
+            "{$p}-set-automation-status" => $base + [
+                'mode'         => 'write',
+                'description'  => "Set a {$label} automation's status (" . implode(', ', $this->automation_statuses()) . ") through {$label}",
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'id'     => $id,
+                        'status' => [ 'type' => 'string', 'enum' => $this->automation_statuses() ],
+                    ],
+                    'required'   => [ 'id', 'status' ],
+                ],
+                'validate'     => fn (array $args): ?array => $this->automation_refusal($args),
+                'snapshot'     => fn (array $args): array => $this->target($this->automation_kind(), (int) $args['id']),
+                'handler'      => fn (array $args, array $context = []): array => $this->set_automation_status($args, $context),
+            ],
+        ];
     }
 
     // ------------------------------------------------------------------
@@ -496,6 +738,15 @@ abstract class CRM_Adapter
                 'data'    => [ 'id' => $existing ],
             ];
         }
+        return $this->status_refusal($args)
+            ?? $this->groups_refusal('list', array_map('intval', (array) ($args['lists'] ?? [])))
+            ?? $this->groups_refusal('tag', array_map('intval', (array) ($args['tags'] ?? [])))
+            ?? $this->custom_refusal((array) ($args['custom_fields'] ?? []));
+    }
+
+    /** A refusal of the status a new contact is asked to start in, or null. */
+    private function status_refusal(array $args): ?array
+    {
         if (isset($args['status']) && null === $this->create_status_schema()) {
             return [
                 'code'    => 'invalid_args',
@@ -510,9 +761,147 @@ abstract class CRM_Adapter
                 'data'    => [],
             ];
         }
-        return $this->groups_refusal('list', array_map('intval', (array) ($args['lists'] ?? [])))
+        return null;
+    }
+
+    private function import_refusal(array $args): ?array
+    {
+        $custom = [];
+        foreach ((array) $args['contacts'] as $row) {
+            $custom += (array) ($row['custom_fields'] ?? []);
+        }
+        return $this->permission_refusal('write')
+            ?? $this->status_refusal($args)
+            ?? $this->groups_refusal('list', array_map('intval', (array) ($args['lists'] ?? [])))
             ?? $this->groups_refusal('tag', array_map('intval', (array) ($args['tags'] ?? [])))
-            ?? $this->custom_refusal((array) ($args['custom_fields'] ?? []));
+            ?? $this->custom_refusal($custom);
+    }
+
+    private function campaign_refusal(int $id, bool $draft): ?array
+    {
+        $campaign = $this->campaign($id);
+        if (null === $campaign) {
+            return [ 'code' => 'campaign_not_found', 'message' => sprintf('%s campaign %d does not exist.', $this->label(), $id), 'data' => [] ];
+        }
+        if ($draft && 'draft' !== $campaign['status']) {
+            return [
+                'code'    => 'campaign_not_draft',
+                'message' => sprintf('%s campaign %d is %s, not a draft; only a draft is changed or sent.', $this->label(), $id, (string) $campaign['status']),
+                'data'    => [ 'status' => (string) $campaign['status'] ],
+            ];
+        }
+        return null;
+    }
+
+    private function campaign_write_refusal(array $args, int $id): ?array
+    {
+        $refusal = $this->permission_refusal('campaigns_write') ?? ($id > 0 ? $this->campaign_refusal($id, true) : null);
+        if (null !== $refusal) {
+            return $refusal;
+        }
+        $fields = $this->campaign_fields($args);
+        if ($id > 0 && [] === $fields) {
+            return [ 'code' => 'nothing_to_update', 'message' => 'Name at least one of ' . implode(', ', array_keys($this->campaign_operations_fields())) . '.', 'data' => [] ];
+        }
+        return $this->groups_refusal('list', (array) ($fields['lists'] ?? [])) ?? $this->campaign_fields_refusal($fields, $id);
+    }
+
+    /** The campaign fields this plugin takes. @return array<string, true> */
+    private function campaign_operations_fields(): array
+    {
+        $fields = array_fill_keys(self::CAMPAIGN_FIELDS, true);
+        if (null === $this->campaign_title_schema()) {
+            unset($fields['title']);
+        }
+        return $fields;
+    }
+
+    private function test_recipient(): string
+    {
+        return (string) wp_get_current_user()->user_email;
+    }
+
+    private function test_recipient_refusal(): ?array
+    {
+        if (is_email($this->test_recipient())) {
+            return null;
+        }
+        return [ 'code' => 'invalid_args', 'message' => 'The current user has no email address to send a test to.', 'data' => [] ];
+    }
+
+    private function send_refusal(array $args): ?array
+    {
+        $id      = (int) $args['id'];
+        $refusal = $this->permission_refusal('campaigns_write') ?? $this->campaign_refusal($id, true);
+        if (null !== $refusal) {
+            return $refusal;
+        }
+        if (isset($args['send_at']) && null === self::send_at((string) $args['send_at'])) {
+            return [ 'code' => 'invalid_args', 'message' => 'send_at must be a future date and time, Y-m-d H:i:s in the site\'s timezone; leave it out to send now.', 'data' => [] ];
+        }
+        if (0 === $this->campaign_recipients($id)) {
+            return [
+                'code'    => 'no_recipients',
+                'message' => sprintf('%s campaign %d has no subscribed contact on its lists, so nobody would get it.', $this->label(), $id),
+                'data'    => [ 'lists' => (array) ($this->campaign($id)['lists'] ?? []) ],
+            ];
+        }
+        return null;
+    }
+
+    /** What a send would do, for the person to confirm. @return array{message: string, data: array<string, mixed>} */
+    private function send_preview(array $args): array
+    {
+        $id       = (int) $args['id'];
+        $campaign = (array) $this->campaign($id);
+        $count    = $this->campaign_recipients($id);
+        $at       = isset($args['send_at']) ? self::send_at((string) $args['send_at']) : null;
+        return [
+            'message' => sprintf(
+                'It sends %s campaign %d ("%s") to %d subscribed contact%s on list(s) %s, %s. Mail cannot be unsent.',
+                $this->label(),
+                $id,
+                (string) ($campaign['subject'] ?? ''),
+                $count,
+                1 === $count ? '' : 's',
+                implode(', ', (array) ($campaign['lists'] ?? [])),
+                null === $at ? 'now' : 'at ' . $at . ' site time'
+            ),
+            'data'    => [
+                'campaign'   => $id,
+                'subject'    => (string) ($campaign['subject'] ?? ''),
+                'lists'      => (array) ($campaign['lists'] ?? []),
+                'recipients' => $count,
+                'send_at'    => $at,
+            ],
+        ];
+    }
+
+    /** A site-local 'Y-m-d H:i:s' in the future, normalized, or null. */
+    private static function send_at(string $value): ?string
+    {
+        $value = 16 === strlen($value) ? $value . ':00' : $value;
+        $date  = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $value, wp_timezone());
+        if (false === $date || $date->format('Y-m-d H:i:s') !== $value || $date->getTimestamp() <= time()) {
+            return null;
+        }
+        return $value;
+    }
+
+    private function automation_refusal(array $args): ?array
+    {
+        $refusal = $this->permission_refusal('automations_write');
+        if (null !== $refusal) {
+            return $refusal;
+        }
+        $automation = $this->automation((int) $args['id']);
+        if (null === $automation) {
+            return [ 'code' => 'automation_not_found', 'message' => sprintf('%s automation %d does not exist.', $this->label(), (int) $args['id']), 'data' => [] ];
+        }
+        if ((string) $automation['status'] === (string) $args['status']) {
+            return [ 'code' => 'nothing_to_update', 'message' => sprintf('%s automation %d is already %s.', $this->label(), (int) $args['id'], (string) $args['status']), 'data' => [] ];
+        }
+        return null;
     }
 
     private function update_refusal(array $args): ?array
@@ -777,6 +1166,189 @@ abstract class CRM_Adapter
             return true;
         });
         return [ 'deleted' => $id ];
+    }
+
+    /**
+     * The campaign fields an op named, cleaned: subject, preheader and
+     * title as text, the body as post HTML, lists as ids.
+     *
+     * @return array<string, mixed>
+     */
+    private function campaign_fields(array $args): array
+    {
+        $out = [];
+        foreach (array_keys($this->campaign_operations_fields()) as $field) {
+            if (! isset($args[ $field ])) {
+                continue;
+            }
+            if ('lists' === $field) {
+                $out['lists'] = array_values(array_map('intval', (array) $args['lists']));
+            } elseif ('body' === $field) {
+                $out['body'] = wp_kses_post((string) $args['body']);
+            } else {
+                $out[ $field ] = sanitize_text_field((string) $args[ $field ]);
+            }
+        }
+        return $out;
+    }
+
+    private function require_campaign(int $id): array
+    {
+        $campaign = $id > 0 ? $this->campaign($id) : null;
+        if (null === $campaign) {
+            throw new Operation_Error('campaign_not_found', sprintf('No such %s campaign.', $this->label()));
+        }
+        return $campaign;
+    }
+
+    private function create_campaign(array $args, array $context): array
+    {
+        $fields = $this->campaign_fields($args);
+        $id     = (int) $this->tracked($context, fn (): int => $this->api_create_campaign($fields), static fn ($id): int => (int) $id);
+        return [ 'campaign' => $this->require_campaign($id) ];
+    }
+
+    private function update_campaign(array $args, array $context): array
+    {
+        $id     = (int) $args['id'];
+        $fields = $this->campaign_fields($args);
+        $this->tracked($context, function () use ($id, $fields): bool {
+            $this->api_update_campaign($id, $fields);
+            return true;
+        });
+        return [ 'campaign' => $this->require_campaign($id) ];
+    }
+
+    private function duplicate_campaign(int $id, array $context): array
+    {
+        $copy = (int) $this->tracked($context, fn (): int => $this->api_duplicate_campaign($id), static fn ($id): int => (int) $id);
+        return [ 'campaign' => $this->require_campaign($copy) ];
+    }
+
+    private function send_test(int $id, array $context): array
+    {
+        $to = $this->test_recipient();
+        $this->tracked($context, function () use ($id, $to): bool {
+            $this->api_send_test($id, $to);
+            return true;
+        });
+        return [ 'sent_to' => $to, 'campaign' => $id ];
+    }
+
+    private function send_campaign(array $args, array $context): array
+    {
+        $id    = (int) $args['id'];
+        $at    = isset($args['send_at']) ? self::send_at((string) $args['send_at']) : null;
+        $count = $this->campaign_recipients($id);
+        $this->tracked($context, function () use ($id, $at): bool {
+            $this->api_send_campaign($id, $at);
+            return true;
+        });
+        return [ 'recipients' => $count, 'send_at' => $at, 'campaign' => $this->require_campaign($id) ];
+    }
+
+    private function set_automation_status(array $args, array $context): array
+    {
+        $id = (int) $args['id'];
+        $this->tracked($context, function () use ($id, $args): bool {
+            $this->api_set_automation_status($id, (string) $args['status']);
+            return true;
+        });
+        return [ 'automation' => $this->automation($id) ];
+    }
+
+    /**
+     * Import contacts, each under its own snapshot in the call's session:
+     * a new one created like create-contact, an existing one updated only
+     * with update_existing, and a suppressed one, or one who left a list it
+     * would join, skipped untouched.
+     *
+     * @return array{result: array<string, mixed>, operation_ids: string[]}
+     */
+    private function import_contacts(array $args, array $context): array
+    {
+        $lists  = array_map('intval', (array) ($args['lists'] ?? []));
+        $tags   = array_map('intval', (array) ($args['tags'] ?? []));
+        $status = (string) ($args['status'] ?? 'pending');
+        $out    = [ 'created' => [], 'updated' => [], 'skipped' => [], 'failed' => [] ];
+        $ops    = [];
+        $seen   = [];
+
+        foreach ((array) $args['contacts'] as $row) {
+            $row   = (array) $row;
+            $raw   = trim((string) $row['email']);
+            $email = sanitize_email($raw);
+            if (! is_email($email)) {
+                $out['skipped'][] = [ 'email' => $raw, 'reason' => 'invalid_email' ];
+                continue;
+            }
+            if (isset($seen[ strtolower($email) ])) {
+                $out['skipped'][] = [ 'email' => $raw, 'reason' => 'duplicate' ];
+                continue;
+            }
+            $seen[ strtolower($email) ] = true;
+
+            $fields   = $this->name_fields($row);
+            $custom   = (array) ($row['custom_fields'] ?? []);
+            $existing = $this->contact_id_by_email($email);
+            if ($existing > 0) {
+                $contact = $this->contact($existing);
+                $refusal = null === $contact ? null : ($this->suppressed_refusal($contact) ?? ([] === $lists ? null : $this->list_rejoin_refusal($existing, $lists)));
+                if (null !== $refusal || null === $contact || empty($args['update_existing'])) {
+                    $out['skipped'][] = [ 'email' => $raw, 'reason' => null === $refusal ? 'contact_exists' : (string) $refusal['code'], 'id' => $existing ];
+                    continue;
+                }
+                $write = function () use ($existing, $fields, $custom, $lists, $tags): int {
+                    if ([] !== $fields || [] !== $custom) {
+                        $this->api_update_contact($existing, $fields, $custom);
+                    }
+                    foreach ([ 'list' => $lists, 'tag' => $tags ] as $kind => $ids) {
+                        if ([] !== $ids) {
+                            $this->api_attach($existing, $kind, $ids);
+                        }
+                    }
+                    return $existing;
+                };
+                $this->import_one($context, $args, $existing, $write, $email, 'updated', $out, $ops);
+                continue;
+            }
+            $write = fn (): int => $this->api_create_contact($email, $fields, $custom, $lists, $tags, $status);
+            $this->import_one($context, $args, 0, $write, $email, 'created', $out, $ops);
+        }
+
+        return [ 'result' => $out, 'operation_ids' => $ops ];
+    }
+
+    /**
+     * One imported contact under its own snapshot in the import's session.
+     * A refusal by the plugin is reported, and its undo point kept.
+     *
+     * @param array<string, mixed>      $context
+     * @param callable(): int           $write
+     * @param array<string, array>      $out
+     * @param string[]                  $ops
+     */
+    private function import_one(array $context, array $args, int $id, callable $write, string $email, string $bucket, array &$out, array &$ops): void
+    {
+        $operation_id = wp_generate_uuid4();
+        try {
+            $done  = Safe_Mutation::run(
+                [
+                    'operation_id' => $operation_id,
+                    'object_type'  => Crm_Rows_Snapshot::TYPE,
+                    'object_id'    => Crm_Rows_Snapshot::key($this->contact_kind(), $id),
+                    'session_id'   => (string) $context['session_id'],
+                    'tool_name'    => (string) $context['tool_name'],
+                    'args'         => [ 'operation' => (string) $context['operation'], 'args' => $args ],
+                ],
+                fn () => $this->tracked([ 'operation_id' => $operation_id ], $write, static fn ($id): int => (int) $id)
+            );
+            $ops[]            = $operation_id;
+            $out[ $bucket ][] = [ 'id' => (int) $done['result'], 'email' => $email ];
+        } catch (Operation_Error $e) {
+            $ops[]           = $operation_id;
+            $out['failed'][] = [ 'email' => $email, 'code' => $e->error_code(), 'message' => $e->getMessage() ];
+        }
     }
 
     // ------------------------------------------------------------------
