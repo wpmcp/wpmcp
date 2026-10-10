@@ -29,6 +29,8 @@ if (! defined('ABSPATH')) {
  * when the client asked only for that or the user chose read-only, `mcp`
  * otherwise; the choice is recorded in Client_Access for this client and
  * user. The reserved `gateway` scope is refused here with invalid_scope.
+ * A non-owner approving the same client again cannot widen a level a site
+ * owner set on that connection (issue #505, Client_Access::record_consent()).
  *
  * PKCE is validated here (S256 mandatory, method must be exactly 'S256', a
  * missing or 'plain' code_challenge_method is rejected) rather than only at
@@ -78,7 +80,9 @@ class Authorization_Grant
             'resource'              => $request['resource'],
         ]);
 
-        Client_Access::set($client_id, $user_id, $level, $identity);
+        // Issue #505: a level a site owner set on this connection is kept
+        // when the user's choice would widen it or drop an identity binding.
+        Client_Access::record_consent($client_id, $user_id, $level, $identity);
 
         self::audit(true, $client_id);
 

@@ -36,11 +36,12 @@ class Activate_Plugin
 
         $out = Safe_Mutation::run(
             [
-                'object_type' => 'option',
-                'object_id'   => 'active_plugins',
-                'session_id'  => (string) ($args['session_id'] ?? 'default'),
-                'tool_name'   => 'activate-plugin',
-                'args'        => $args,
+                'object_type'         => 'option',
+                'object_id'           => 'active_plugins',
+                'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'           => 'activate-plugin',
+                'args'                => $args,
+                'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ],
             ],
             function () use ($plugin) {
                 return activate_plugin($plugin);
