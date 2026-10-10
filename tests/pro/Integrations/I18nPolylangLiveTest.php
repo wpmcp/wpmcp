@@ -135,6 +135,12 @@ class I18nPolylangLiveTest extends \WP_UnitTestCase
     public function test_the_pair_registers_on_polylang_alone_within_the_tools_list_budget(): void
     {
         $this->assertSame('polylang', I18n_Adapter::active_plugin());
+        // Polylang alone: every other plugin-data plugin reads as absent.
+        $others = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active', 'wpmcp_tutor_active', 'wpmcp_lifterlms_active', 'wpmcp_tablepress_active', 'wpmcp_fluentcrm_active', 'wpmcp_mailpoet_active' ];
+        foreach ($others as $filter) {
+            add_filter($filter, '__return_false');
+        }
+        $this->assertTrue((new Plugin_Data_Integration())->is_available());
         $plugin   = Plugin::instance();
         $prop     = new \ReflectionProperty(Plugin::class, 'registrar');
         $original = $prop->getValue($plugin);
@@ -144,6 +150,9 @@ class I18nPolylangLiveTest extends \WP_UnitTestCase
             $abilities = $plugin->registrar()->all();
         } finally {
             $prop->setValue($plugin, $original);
+            foreach ($others as $filter) {
+                remove_filter($filter, '__return_false');
+            }
         }
         $this->assertContains('wpmcp/plugin-data-read', array_map(static fn ($a) => $a->name, $abilities));
         $payload = [];
@@ -203,12 +212,16 @@ class I18nPolylangLiveTest extends \WP_UnitTestCase
 
         $out = $this->call('write', 'create-translation', [ 'post_id' => $source, 'language' => 'de' ]);
         $new = (int) $out['result']['post_id'];
-        $this->assertSame([ 'en' => $source, 'fr' => $fr, 'de' => $new ], pll_get_post_translations($fr));
+        $group = pll_get_post_translations($fr);
+        ksort($group);
+        $this->assertSame([ 'de' => $new, 'en' => $source, 'fr' => $fr ], $group);
 
         $this->assertTrue(Rollback_Service::restore_operation($out['operation_ids'][0]));
         $this->assertSame($before, $this->stored($source));
         $this->assertSame($before_fr, $this->stored($fr));
-        $this->assertSame([ 'en' => $source, 'fr' => $fr ], pll_get_post_translations($fr));
+        $group = pll_get_post_translations($fr);
+        ksort($group);
+        $this->assertSame([ 'en' => $source, 'fr' => $fr ], $group);
     }
 
     public function test_get_and_apply_page_text_on_a_translation_leave_the_source_byte_identical_and_roll_back(): void
@@ -221,13 +234,14 @@ class I18nPolylangLiveTest extends \WP_UnitTestCase
         $text = $this->call('read', 'get-page-text', [ 'post_id' => $new ])['result'];
         $this->assertSame('elementor', $text['builder']);
         $this->assertSame('de', $text['language']);
-        $this->assertSame([ 'title', 'seo.title', 'seo.description', 'el:h1:title', 'el:tx1:editor', 'el:bt1:text' ], array_column($text['segments'], 'key'));
+        $this->assertSame([ 'title', 'excerpt', 'seo.title', 'seo.description', 'el:h1:title', 'el:tx1:editor', 'el:bt1:text' ], array_column($text['segments'], 'key'));
 
         $out = $this->call('write', 'apply-page-text', [
             'post_id'  => $new,
             'hash'     => $text['hash'],
             'segments' => [
                 [ 'key' => 'title', 'text' => 'Startseite' ],
+                [ 'key' => 'excerpt', 'text' => 'Kurzfassung' ],
                 [ 'key' => 'seo.title', 'text' => 'Startseite | Acme' ],
                 [ 'key' => 'seo.description', 'text' => 'Wir bauen Haeuser.' ],
                 [ 'key' => 'el:h1:title', 'text' => 'Willkommen' ],
@@ -235,8 +249,9 @@ class I18nPolylangLiveTest extends \WP_UnitTestCase
                 [ 'key' => 'el:bt1:text', 'text' => 'Kontakt' ],
             ],
         ]);
-        $this->assertSame(6, $out['result']['written']);
+        $this->assertSame(7, $out['result']['written']);
         $this->assertSame('Startseite', get_the_title($new));
+        $this->assertSame('Kurzfassung', get_post($new)->post_excerpt);
         $this->assertSame('Wir bauen Haeuser.', get_post_meta($new, '_yoast_wpseo_metadesc', true));
         $this->assertStringContainsString('Willkommen', (string) get_post_meta($new, '_elementor_data', true));
         $this->assertSame($source_state, $this->stored($source), 'Polylang synced nothing back into the source');

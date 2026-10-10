@@ -134,9 +134,9 @@ class I18nPackTest extends \WP_UnitTestCase
         ];
     }
 
-    private function elementor_page(string $lang = 'en'): int
+    private function elementor_page(string $lang = 'en', array $fields = []): int
     {
-        $id = $this->page($lang, [ 'post_title' => 'Home', 'post_content' => '<p>Rendered copy</p>' ]);
+        $id = $this->page($lang, $fields + [ 'post_title' => 'Home', 'post_content' => '<p>Rendered copy</p>' ]);
         update_post_meta($id, '_elementor_edit_mode', 'builder');
         update_post_meta($id, '_elementor_data', wp_slash(wp_json_encode(self::elementor_tree())));
         update_post_meta($id, '_wp_page_template', 'elementor_canvas');
@@ -384,10 +384,9 @@ class I18nPackTest extends \WP_UnitTestCase
         if (! wpmcp_elementor_active()) {
             $this->markTestSkipped('Elementor is not loaded.');
         }
-        $page = $this->elementor_page();
+        $page = $this->elementor_page('en', [ 'post_excerpt' => 'Short intro' ]);
         update_post_meta($page, '_yoast_wpseo_title', 'Home | Acme');
         update_post_meta($page, '_yoast_wpseo_metadesc', 'We build houses.');
-        wp_update_post([ 'ID' => $page, 'post_excerpt' => 'Short intro' ]);
 
         $out = $this->ok($this->read('get-page-text', [ 'post_id' => $page ]))['result'];
         $this->assertSame('elementor', $out['builder']);
@@ -535,8 +534,7 @@ class I18nPackTest extends \WP_UnitTestCase
             $this->markTestSkipped('Elementor is not loaded.');
         }
         $editor = self::factory()->user->create([ 'role' => 'editor' ]);
-        $page   = $this->elementor_page();
-        wp_update_post([ 'ID' => $page, 'post_author' => $editor ]);
+        $page   = $this->elementor_page('en', [ 'post_author' => $editor ]);
         wp_set_current_user($editor);
         $filter = static function (array $caps, string $cap) {
             return 'unfiltered_html' === $cap ? [ 'do_not_allow' ] : $caps;

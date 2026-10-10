@@ -1374,6 +1374,28 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The page translation ops (issue #498) are the paid add-on's too,
+    // removed by policy.php; their lines go first, so the CRM edits below
+    // still match.
+    [
+        " *  - Issue #498 adds the paid-tier page translation ops (I18n_Pack): for\n"
+            . " *    Polylang and WPML, find untranslated posts, create a linked\n"
+            . " *    translation, and read and write a page's text as segments.\n",
+        '',
+        1,
+    ],
+    [
+        "            || CRM_Pack::active()\n"
+            . "            || I18n_Pack::active();\n",
+        "            || CRM_Pack::active();\n",
+        1,
+    ],
+    [
+        "            CRM_Pack::operations(),\n"
+            . "            I18n_Pack::operations()\n",
+        "            CRM_Pack::operations()\n",
+        1,
+    ],
     // The CRM ops (issue #477) are the paid add-on's too, removed by
     // policy.php; their lines go first, so the LMS and TablePress edits below
     // still match.

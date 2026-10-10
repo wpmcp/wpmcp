@@ -1291,6 +1291,19 @@ class Rollback_Service
         if (Snapshot_Redactor::is_erased($snapshot)) {
             throw new Mutation_Failed('Rollback refused: ' . esc_html(Snapshot_Redactor::refusal($snapshot)));
         }
+        // A write that held the multilingual plugin's sync between
+        // translations off (apply-page-text, issue #498) is undone the same
+        // way, so restoring the translation never rewrites its source.
+        if (! empty($snapshot['data']['hold_translation_sync'])) {
+            unset($snapshot['data']['hold_translation_sync']);
+            do_action('wpmcp_rollback_hold_translation_sync');
+            try {
+                self::apply_snapshot($snapshot);
+            } finally {
+                do_action('wpmcp_rollback_release_translation_sync');
+            }
+            return;
+        }
         // A post snapshot that also carries a compiled widget's enabled flag
         // (set-widget-status, update-custom-widget): restore the post first,
         // then the flag, so the undo brings back the spec AND the compiled
@@ -2121,6 +2134,13 @@ class Rollback_Service
                     }
                 }
                 continue;
+            }
+
+            // A translation leaves its source's translation group first
+            // (create-translation, issue #498), so the group is exactly as
+            // it was before, not left naming a post in the trash.
+            if (is_array($snapshot['data']['translation_group'] ?? null) && $post_id === (int) ($created[0]['post_id'] ?? 0)) {
+                do_action('wpmcp_rollback_translation_group', ['translation' => $post_id] + $snapshot['data']['translation_group']);
             }
 
             if ('trash' === $current->post_status) {

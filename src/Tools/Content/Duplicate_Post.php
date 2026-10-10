@@ -206,17 +206,37 @@ class Duplicate_Post
     /** Copy one post row, its meta and its terms. Returns the new post id. */
     private function copy(\WP_Post $source, string $title, string $status, int $parent): int
     {
+        $new_id = self::insert_copy($source, [
+            'post_title'  => $title,
+            'post_status' => $status,
+            'post_parent' => $parent,
+        ]);
+        self::copy_terms($source, $new_id);
+
+        return $new_id;
+    }
+
+    /**
+     * Insert a copy of $source's row and meta (create-translation, issue
+     * #498, shares it), with $fields overriding the copied columns. Its terms
+     * are copied separately (copy_terms()), so a caller can give the copy a
+     * language before its terms are set. Returns the new post id.
+     *
+     * @param array<string, mixed> $fields
+     */
+    public static function insert_copy(\WP_Post $source, array $fields = []): int
+    {
         // wp_insert_post() and add_post_meta() unslash their input: slash
         // first, or block JSON escapes (\u003c) and Elementor's \/ are lost.
-        $new_id = wp_insert_post(wp_slash([
-            'post_title'     => $title,
+        $new_id = wp_insert_post(wp_slash($fields + [
+            'post_title'     => $source->post_title,
             'post_content'   => $source->post_content,
             'post_excerpt'   => $source->post_excerpt,
             'post_type'      => $source->post_type,
-            'post_status'    => $status,
+            'post_status'    => 'draft',
             // A copy is protected exactly like its source (issue #483).
             'post_password'  => $source->post_password,
-            'post_parent'    => $parent,
+            'post_parent'    => (int) $source->post_parent,
             'menu_order'     => $source->menu_order,
             'comment_status' => $source->comment_status,
             'ping_status'    => $source->ping_status,
@@ -247,13 +267,27 @@ class Duplicate_Post
             Elementor_Cache::invalidate_document($new_id);
         }
 
+        return $new_id;
+    }
+
+    /**
+     * Give $new_id $source's terms. $map, when given, decides each
+     * taxonomy's terms for the copy: it gets the taxonomy and the source's
+     * term ids and returns the ids to set, or null to leave the taxonomy off.
+     *
+     * @param (callable(string, int[]): ?array)|null $map
+     */
+    public static function copy_terms(\WP_Post $source, int $new_id, ?callable $map = null): void
+    {
         foreach (get_object_taxonomies($source->post_type) as $taxonomy) {
             $terms = wp_get_object_terms((int) $source->ID, $taxonomy, ['fields' => 'ids']);
+            if (! is_array($terms) || [] === $terms) {
+                continue;
+            }
+            $terms = null === $map ? $terms : $map($taxonomy, array_map('intval', $terms));
             if (is_array($terms) && [] !== $terms) {
                 wp_set_object_terms($new_id, $terms, $taxonomy);
             }
         }
-
-        return $new_id;
     }
 }

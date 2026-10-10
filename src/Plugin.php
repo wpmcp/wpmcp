@@ -494,6 +494,13 @@ final class Plugin
         // cache and refreshes the map (issue #481).
         [\WPMCP\Integrations\TablePress_Pack::class, 'after_options_restored'],
         [\WPMCP\Integrations\TablePress_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],
+        // A translation made by create-translation leaves its source's group
+        // when its creation is undone, and a page text write that held the
+        // multilingual plugin's sync off is undone with it held off too
+        // (issue #498).
+        [\WPMCP\Tools\I18n\I18n_Adapter::class, 'restore_translation_group', 'wpmcp_rollback_translation_group'],
+        [\WPMCP\Tools\I18n\I18n_Adapter::class, 'hold_sync', 'wpmcp_rollback_hold_translation_sync'],
+        [\WPMCP\Tools\I18n\I18n_Adapter::class, 'release_sync', 'wpmcp_rollback_release_translation_sync'],
     ];
 
     /**
