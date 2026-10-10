@@ -2,6 +2,7 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Safety\Save_Filters;
 use WPMCP\Tools\Elementor\Elementor_Page_Data;
 use WPMCP\Tools\SEO\SEO_Adapter;
 
@@ -157,7 +158,9 @@ final class I18n_Page_Text
             $columns['post_content'] = self::replace_runs((string) $post->post_content, $content);
         }
         if ([] !== $columns) {
-            $updated = wp_update_post(wp_slash([ 'ID' => $post_id ] + $columns), true);
+            // Only the columns written run through their save filters; the rest
+            // of the row stays as stored.
+            $updated = Save_Filters::update_post(wp_slash([ 'ID' => $post_id ] + $columns), true);
             if (is_wp_error($updated)) {
                 throw new Operation_Refused('write_failed', esc_html($updated->get_error_message()));
             }
