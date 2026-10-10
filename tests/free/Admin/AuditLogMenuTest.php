@@ -6,7 +6,7 @@ use WPMCP\Plugin;
 
 class AuditLogMenuTest extends \WP_UnitTestCase
 {
-    public function test_audit_log_submenu_is_registered_under_manage_options(): void
+    public function test_audit_log_submenu_is_registered_under_the_management_capability(): void
     {
         global $menu, $submenu;
         $menu    = [];
@@ -29,6 +29,6 @@ class AuditLogMenuTest extends \WP_UnitTestCase
         }
 
         $this->assertNotNull($found, 'Expected a wpmcp-audit-log submenu entry.');
-        $this->assertSame('manage_options', $found[1]);
+        $this->assertSame(\WPMCP\Admin\Management_Access::CAPABILITY, $found[1]);
     }
 }

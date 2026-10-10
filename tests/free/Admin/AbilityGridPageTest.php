@@ -543,7 +543,7 @@ class AbilityGridPageTest extends \WP_UnitTestCase
     // Menu + rendering
     // ---------------------------------------------------------------
 
-    public function test_abilities_submenu_is_registered_under_manage_options(): void
+    public function test_abilities_submenu_is_registered_under_the_management_capability(): void
     {
         global $menu, $submenu;
         $menu    = [];
@@ -559,7 +559,7 @@ class AbilityGridPageTest extends \WP_UnitTestCase
         }
 
         $this->assertNotNull($found, 'Expected a wpmcp-abilities submenu entry.');
-        $this->assertSame('manage_options', $found[1]);
+        $this->assertSame(\WPMCP\Admin\Management_Access::CAPABILITY, $found[1]);
     }
 
     public function test_render_outputs_every_domain_group_and_marks_dangerous_rows(): void
