@@ -37,7 +37,7 @@ class BuddyPressPrivateGroupLiveTest extends \WP_UnitTestCase
         // Built the way BuddyPress's screens build it: the creator becomes
         // the group's admin, members join, the group admin promotes and bans
         // (passing the admin's id, as BuddyPress's REST API does).
-        wp_set_current_user($this->ids['owner']);
+        $this->as_user($this->ids['owner']);
         $group = (int) groups_create_group([ 'creator_id' => $this->ids['owner'], 'name' => 'Recovery Support', 'description' => 'Members only', 'status' => 'public' ]);
         $this->assertGreaterThan(0, $group);
         $this->ids['group'] = $group;
@@ -59,18 +59,28 @@ class BuddyPressPrivateGroupLiveTest extends \WP_UnitTestCase
         $this->assertNotEmpty(groups_send_membership_request([ 'user_id' => $this->ids['pending'], 'group_id' => $group ]));
         $this->ids['public_post'] = (int) bp_activity_post_update([ 'content' => 'A public update', 'user_id' => $this->ids['member'] ]);
         $this->assertGreaterThan(0, $this->ids['public_post']);
-        wp_set_current_user(0);
+        $this->as_user(0);
+    }
+
+    /**
+     * Switch the current user for WordPress and for BuddyPress, which keeps
+     * its own logged-in user id from page load (bp_loggedin_user_id()).
+     */
+    private function as_user(int $user): void
+    {
+        wp_set_current_user($user);
+        buddypress()->loggedin_user->id = $user;
     }
 
     protected function tearDown(): void
     {
-        wp_set_current_user(0);
+        $this->as_user(0);
         parent::tearDown();
     }
 
     private function read(int $user, string $op, array $args = []): array
     {
-        wp_set_current_user($user);
+        $this->as_user($user);
         return (new Plugin_Data_Integration())->handle_read([ 'operation' => $op, 'args' => $args ]);
     }
 
@@ -88,7 +98,7 @@ class BuddyPressPrivateGroupLiveTest extends \WP_UnitTestCase
     public function test_buddypress_itself_agrees_on_who_may_see_the_private_group(): void
     {
         foreach ([ 'outsider' => false, 'pending' => false, 'banned' => false, 'member' => true, 'mod' => true, 'owner' => true, 'admin' => true ] as $key => $access) {
-            wp_set_current_user($this->ids[ $key ]);
+            $this->as_user($this->ids[ $key ]);
             $this->assertSame($access, bp_group_is_visible(groups_get_group($this->ids['group'])), "BuddyPress access for {$key}");
 
             $out = $this->read($this->ids[ $key ], 'buddypress-list-group-members', [ 'group_id' => $this->ids['group'] ]);
