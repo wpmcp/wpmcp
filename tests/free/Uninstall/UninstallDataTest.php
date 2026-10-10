@@ -259,6 +259,11 @@ class UninstallDataTest extends \WP_UnitTestCase
             $this->markTestSkipped('Runs under WP_MULTISITE=1.');
         }
 
+        // Elementor, loaded by the harness, still hooks the deprecated
+        // wpmu_new_blog action, so creating a site raises its notice.
+        if (has_action('wpmu_new_blog')) {
+            $this->setExpectedDeprecated('wpmu_new_blog');
+        }
         $site = self::factory()->blog->create();
         $this->seed();
         switch_to_blog($site);
@@ -297,10 +302,21 @@ class UninstallDataTest extends \WP_UnitTestCase
         // Uninstaller and Data_Registry run from uninstall.php with no
         // autoloader, so they may only reach the classes it requires.
         foreach ([ 'src/Uninstaller.php', 'src/Data_Registry.php' ] as $relative) {
-            preg_match_all('/\b(?:new\s+\\\\?|\\\\?)(WPMCP\\\\[A-Za-z_\\\\]+|[A-Z][A-Za-z]+_[A-Za-z_]+)::|\bnew\s+\\\\?(WPMCP\\\\[A-Za-z_\\\\]+)/', (string) file_get_contents("$root/$relative"), $m);
-            $used = array_filter(array_merge($m[1], $m[2]));
-            foreach ($used as $class) {
-                $this->assertContains(ltrim(str_replace('WPMCP\\', '', $class), '\\'), [ 'Cron_Registry', 'Data_Registry', 'Uninstaller', 'WP_Application_Passwords', 'WP_Filesystem_Direct' ], "$relative uses $class");
+            $tokens = array_values(array_filter(
+                token_get_all((string) file_get_contents("$root/$relative")),
+                static fn ($t) => ! is_array($t) || ! in_array($t[0], [ T_WHITESPACE, T_COMMENT, T_DOC_COMMENT ], true)
+            ));
+            foreach ($tokens as $i => $t) {
+                if (! is_array($t) || ! in_array($t[0], [ T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED ], true)) {
+                    continue;
+                }
+                $next = $tokens[ $i + 1 ] ?? null;
+                $prev = $tokens[ $i - 1 ] ?? null;
+                if (! (is_array($next) && T_DOUBLE_COLON === $next[0]) && ! (is_array($prev) && T_NEW === $prev[0])) {
+                    continue;
+                }
+                $class = substr((string) strrchr('\\' . ltrim($t[1], '\\'), '\\'), 1);
+                $this->assertContains($class, [ 'self', 'static', 'Cron_Registry', 'Data_Registry', 'Uninstaller', 'WP_Application_Passwords', 'WP_Filesystem_Direct' ], "$relative uses {$t[1]}");
             }
         }
     }

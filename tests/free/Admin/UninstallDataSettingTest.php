@@ -80,6 +80,21 @@ class UninstallDataSettingTest extends \WP_UnitTestCase
         $this->assertFalse((bool) get_site_option(Data_Registry::SETTING));
     }
 
+    public function test_on_a_network_only_a_network_admin_can_change_it(): void
+    {
+        if (! is_multisite()) {
+            $this->markTestSkipped('Runs under WP_MULTISITE=1.');
+        }
+        revoke_super_admin(get_current_user_id());
+
+        $result = (new Connection_Page())->handle_request($this->post('1'));
+        $html   = $this->render();
+
+        $this->assertArrayHasKey('error', $result);
+        $this->assertFalse(Data_Registry::delete_on_uninstall());
+        $this->assertStringNotContainsString('value="uninstall_data"', $html);
+    }
+
     public function test_render_says_data_is_kept_by_default(): void
     {
         $html = $this->render();

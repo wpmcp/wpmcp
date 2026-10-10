@@ -12,6 +12,7 @@ use WPMCP\Connect\Bundle_Builder;
 use WPMCP\Connect\Client_Config_Generator;
 use WPMCP\Connect\Connection_Tester;
 use WPMCP\Connect\Exposure;
+use WPMCP\Data_Registry;
 use WPMCP\Identity\Identity_Store;
 use WPMCP\Plugin;
 
@@ -88,6 +89,8 @@ class Connection_Page
                 return $this->decide_oauth_client($action, self::str($post['client_id'] ?? ''));
             case 'oauth_access':
                 return $this->set_oauth_access($post);
+            case 'uninstall_data':
+                return $this->set_uninstall_data($post);
         }
 
         return ['error' => __('Unknown action.', 'wpmcp')];
@@ -178,6 +181,25 @@ class Connection_Page
         }
 
         return ['action' => 'oauth_access', 'client_id' => $client_id];
+    }
+
+    /**
+     * The "delete all data when the plugin is deleted" opt-in (issue #480).
+     * One network-wide value, so on multisite only a network admin may
+     * change it. Refused while WPMCP_UNINSTALL_DELETE_DATA decides.
+     */
+    private function set_uninstall_data(array $post): array
+    {
+        if (Data_Registry::is_forced()) {
+            return ['error' => __('This setting is fixed by WPMCP_UNINSTALL_DELETE_DATA in wp-config.php.', 'wpmcp')];
+        }
+        if (is_multisite() && ! current_user_can('manage_network_options')) {
+            return ['error' => __('Only a network administrator can change this setting.', 'wpmcp')];
+        }
+
+        Data_Registry::set_delete_on_uninstall('1' === self::str($post['delete'] ?? ''));
+
+        return ['action' => 'uninstall_data', 'delete' => Data_Registry::delete_on_uninstall()];
     }
 
     private function revoke(array $post): array
@@ -434,9 +456,49 @@ class Connection_Page
                     </tbody>
                 </table>
             <?php endif; ?>
+
+            <?php $this->render_uninstall_data($nonce); ?>
         </div>
         <?php
     }
+
+    /** The "delete all data when the plugin is deleted" opt-in (issue #480). */
+    private function render_uninstall_data(string $nonce): void
+    {
+        $delete   = Data_Registry::delete_on_uninstall();
+        $forced   = Data_Registry::is_forced();
+        $editable = ! $forced && (! is_multisite() || current_user_can('manage_network_options'));
+        ?>
+        <h2><?php echo esc_html__('Delete all WP MCP data when the plugin is deleted', 'wpmcp'); ?></h2>
+        <p>
+            <?php if ($delete) : ?>
+                <strong><?php echo esc_html__('On.', 'wpmcp'); ?></strong>
+                <?php echo esc_html__('Deleting WP MCP from the Plugins screen will also delete its tables (snapshots, redirects, search index), settings, OAuth clients and tokens, scoped identities, the application passwords issued here, and its directories, including site backup archives and file backups, on every site of the network. This cannot be undone.', 'wpmcp'); ?>
+            <?php else : ?>
+                <strong><?php echo esc_html__('Off.', 'wpmcp'); ?></strong>
+                <?php echo esc_html__('WP MCP\'s data (snapshots, settings, credentials and backup archives) is kept when the plugin is deleted, so reinstalling picks up where you left off.', 'wpmcp'); ?>
+            <?php endif; ?>
+        </p>
+        <?php if ($forced) : ?>
+            <p class="description"><?php echo esc_html__('Set by WPMCP_UNINSTALL_DELETE_DATA in wp-config.php; remove the constant to change it here.', 'wpmcp'); ?></p>
+        <?php elseif (! $editable) : ?>
+            <p class="description"><?php echo esc_html__('Only a network administrator can change this setting.', 'wpmcp'); ?></p>
+        <?php else : ?>
+            <form method="post">
+                <input type="hidden" name="wpmcp_connection_action" value="uninstall_data">
+                <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($nonce); ?>">
+                <input type="hidden" name="delete" value="<?php echo $delete ? '0' : '1'; ?>">
+                <?php submit_button(
+                    $delete ? __('Keep data when the plugin is deleted', 'wpmcp') : __('Delete all data when the plugin is deleted', 'wpmcp'),
+                    $delete ? 'primary' : 'delete',
+                    'submit',
+                    false
+                ); ?>
+            </form>
+        <?php endif; ?>
+        <?php
+    }
+
     /**
      * Scoped identities and the client addresses each is pinned to (issue
      * #416). Read-only: identities are edited with create-identity. Hidden
