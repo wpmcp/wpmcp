@@ -111,26 +111,58 @@ class BuddyPressPrivateGroupLiveTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_a_member_sees_confirmed_members_only_and_admins_mods_and_moderators_see_every_row(): void
+    public function test_a_member_and_a_group_mod_see_confirmed_members_only_and_group_admins_and_moderators_see_every_row(): void
     {
         $confirmed = [ 'Group Mod' => 'mod', 'Group Owner' => 'admin', 'Secret Member' => 'member' ];
-        // BuddyPress keeps a membership request in its invitations table, not
-        // as a member row, so the applicant is not listed to anyone here; the
-        // harness test covers legacy pending member rows.
-        $all       = [ 'Banned Person' => 'banned', 'Group Mod' => 'mod', 'Group Owner' => 'admin', 'Secret Member' => 'member' ];
+        // The membership request is read from BuddyPress's invitations table
+        // (issue #518), so the applicant is listed as pending.
+        $all = [ 'Banned Person' => 'banned', 'Group Mod' => 'mod', 'Group Owner' => 'admin', 'Pending Applicant' => 'pending', 'Secret Member' => 'member' ];
 
         // The same confirmed list BuddyPress's own member loop shows.
         $theirs = array_map(static fn ($u): string => (string) $u->display_name, groups_get_group_members([ 'group_id' => $this->ids['group'], 'group_role' => [ 'admin', 'mod', 'member' ] ])['members']);
         sort($theirs);
         $this->assertSame(array_keys($confirmed), $theirs);
 
-        $this->assertSame($confirmed, $this->members_as($this->ids['member']));
-        $this->assertSame([], $this->members_as($this->ids['member'], [ 'role' => 'pending' ]));
-        $this->assertSame([], $this->members_as($this->ids['member'], [ 'role' => 'banned' ]));
-        $this->assertSame($all, $this->members_as($this->ids['owner']));
-        $this->assertSame([ 'Banned Person' => 'banned' ], $this->members_as($this->ids['mod'], [ 'role' => 'banned' ]));
-        $this->assertSame($all, $this->members_as($this->ids['mod']));
-        $this->assertSame($all, $this->members_as($this->ids['admin']));
+        foreach ([ 'member', 'mod' ] as $key) {
+            $this->assertSame($confirmed, $this->members_as($this->ids[ $key ]), $key);
+            $this->assertSame([], $this->members_as($this->ids[ $key ], [ 'role' => 'pending' ]), $key);
+            $this->assertSame([], $this->members_as($this->ids[ $key ], [ 'role' => 'banned' ]), $key);
+        }
+        foreach ([ 'owner', 'admin' ] as $key) {
+            $this->assertSame($all, $this->members_as($this->ids[ $key ]), $key);
+            $this->assertSame([ 'Banned Person' => 'banned' ], $this->members_as($this->ids[ $key ], [ 'role' => 'banned' ]), $key);
+        }
+    }
+
+    /**
+     * BuddyPress's own membership requests endpoint decides who may read a
+     * group's requests (its admins and bp_moderate), and groups_get_requests()
+     * says which requests are current; role: pending agrees with both.
+     */
+    public function test_role_pending_lists_the_current_membership_requests_to_whoever_buddypress_shows_them_to(): void
+    {
+        $requests = array_map(static fn ($r): int => (int) $r->user_id, groups_get_requests([ 'item_id' => $this->ids['group'] ]));
+        $this->assertSame([ $this->ids['pending'] ], $requests);
+
+        $route = '/' . bp_rest_namespace() . '/' . bp_rest_version() . '/groups/membership-requests';
+        foreach ([ 'member' => false, 'mod' => false, 'owner' => true, 'admin' => true ] as $key => $access) {
+            $this->as_user($this->ids[ $key ]);
+            $request = new \WP_REST_Request('GET', $route);
+            $request->set_param('group_id', $this->ids['group']);
+            $response = rest_do_request($request);
+            $this->assertSame($access, 200 === $response->get_status(), "BuddyPress's requests endpoint for {$key}: " . wp_json_encode($response->get_data()));
+
+            $out = $this->read($this->ids[ $key ], 'buddypress-list-group-members', [ 'group_id' => $this->ids['group'], 'role' => 'pending' ]);
+            $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+            $this->assertSame($access ? $requests : [], array_map('intval', array_column($out['result']['members'], 'user_id')), $key);
+            $this->assertSame($access ? 1 : 0, $out['result']['total'], $key);
+        }
+
+        // Once the group admin accepts it, it is a confirmed membership.
+        $this->as_user($this->ids['owner']);
+        $this->assertTrue(groups_accept_membership_request(0, $this->ids['pending'], $this->ids['group']));
+        $this->assertSame([], $this->members_as($this->ids['owner'], [ 'role' => 'pending' ]));
+        $this->assertSame('member', $this->members_as($this->ids['owner'])['Pending Applicant'] ?? null);
     }
 
     public function test_group_activity_is_listed_only_where_buddypress_lets_the_caller_read_it(): void
