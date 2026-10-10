@@ -117,6 +117,13 @@ tests_add_filter( 'muplugins_loaded', function () {
     if ( 'tutor' === getenv( 'WPMCP_LIVE_LMS' ) ) {
         wpmcp_maybe_require_plugin( 'tutor/tutor.php' );
     }
+
+    // The live TablePress job (issue #481, WPMCP_LIVE_TABLEPRESS=1) runs the
+    // TablePress ops through the real TablePress. Loaded only on request: the
+    // stub-backed TablePress tests define a stand-in TablePress class.
+    if ( getenv( 'WPMCP_LIVE_TABLEPRESS' ) ) {
+        wpmcp_maybe_require_plugin( 'tablepress/tablepress.php' );
+    }
     if ( 'lifterlms' === getenv( 'WPMCP_LIVE_LMS' ) ) {
         // LifterLMS reads its add-on catalog from lifterlms.com while it
         // boots and saves courses; an empty catalog keeps the run offline.
@@ -161,6 +168,11 @@ tests_add_filter( 'init', function () {
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         LLMS_Install::create_tables();
         LLMS_Roles::install();
+    }
+    // TablePress gives administrators its capabilities when it first runs in
+    // wp-admin; the live TablePress job grants them the same way.
+    if ( getenv( 'WPMCP_LIVE_TABLEPRESS' ) && isset( \TablePress::$model_options ) ) {
+        \TablePress::$model_options->add_access_capabilities();
     }
 }, 20 );
 
