@@ -500,7 +500,7 @@ class Change_Set_Builder
                 'object_id'    => $post_id,
                 'operation_id' => (string) ($row['operation_id'] ?? ''),
                 'tool_name'    => (string) ($row['tool_name'] ?? ''),
-                'reason'       => sprintf('excluded by design: %s posts are live-side data a sync must never overwrite', $post_type),
+                'reason'       => sprintf('excluded by design: %s posts are live-side or private plugin data a sync must never carry', $post_type),
             ];
             return null;
         }

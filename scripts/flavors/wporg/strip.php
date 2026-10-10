@@ -1374,6 +1374,28 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The Amelia ops (issue #499) are the paid add-on's too, removed by
+    // policy.php; their lines go first, so the CRM, LMS and TablePress edits
+    // below still match.
+    [
+        " *  - Issue #499 adds the paid-tier Amelia ops (Amelia_Pack): services,\n"
+            . " *    employees, customers, appointments and events, with writes through\n"
+            . " *    Amelia's own application layer, snapshotted as 'amelia_rows' images.\n",
+        '',
+        1,
+    ],
+    [
+        "            || CRM_Pack::active()\n"
+            . "            || Amelia_Pack::active();\n",
+        "            || CRM_Pack::active();\n",
+        1,
+    ],
+    [
+        "            CRM_Pack::operations(),\n"
+            . "            Amelia_Pack::operations()\n",
+        "            CRM_Pack::operations()\n",
+        1,
+    ],
     // The CRM ops (issue #477) are the paid add-on's too, removed by
     // policy.php; their lines go first, so the LMS and TablePress edits below
     // still match.
