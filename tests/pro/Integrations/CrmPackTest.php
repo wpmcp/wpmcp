@@ -4,6 +4,7 @@ namespace WPMCP\Tests\Pro\Integrations;
 
 use WPMCP\Integrations\CRM_Pack;
 use WPMCP\Integrations\Plugin_Data_Integration;
+use WPMCP\MCP\Elicitation;
 use WPMCP\Pro\Gate;
 use WPMCP\Safety\Crm_Rows_Snapshot;
 use WPMCP\Safety\Rollback_Service;
@@ -80,7 +81,7 @@ class CrmPackTest extends \WP_UnitTestCase
     {
         CRM_Pack::use_adapters_for_tests(null);
         Gate::set_pro_for_tests(null);
-        foreach (array_merge(self::OTHER_FILTERS, [ 'wpmcp_fluentcrm_active', 'wpmcp_mailpoet_active', 'wpmcp_crm_direct_subscribe' ]) as $filter) {
+        foreach (array_merge(self::OTHER_FILTERS, [ 'wpmcp_fluentcrm_active', 'wpmcp_mailpoet_active', 'wpmcp_crm_direct_subscribe', 'wpmcp_enable_crm_send' ]) as $filter) {
             remove_all_filters($filter);
         }
         parent::tearDown();
@@ -199,17 +200,20 @@ class CrmPackTest extends \WP_UnitTestCase
         $catalog = $this->ok($this->read('list-operations'));
         $names   = array_column($catalog['operations'], 'mode', 'name');
         foreach ([ 'fluentcrm', 'mailpoet' ] as $p) {
-            foreach ([ 'summary', 'list-contacts', 'get-contact', 'list-lists', 'list-tags', 'list-custom-fields', 'list-campaigns', 'list-automations' ] as $op) {
+            foreach ([ 'summary', 'list-contacts', 'get-contact', 'list-lists', 'list-tags', 'list-custom-fields', 'list-campaigns', 'get-campaign', 'list-automations' ] as $op) {
                 $this->assertSame('read', $names[ "{$p}-{$op}" ] ?? null, "{$p}-{$op}");
             }
-            foreach ([ 'create-contact', 'update-contact', 'update-contact-lists', 'update-contact-tags', 'create-list', 'update-list', 'create-tag', 'update-tag' ] as $op) {
+            foreach ([ 'create-contact', 'update-contact', 'update-contact-lists', 'update-contact-tags', 'create-list', 'update-list', 'create-tag', 'update-tag', 'import-contacts', 'create-campaign', 'update-campaign', 'duplicate-campaign', 'send-test-campaign', 'set-automation-status' ] as $op) {
                 $this->assertSame('write', $names[ "{$p}-{$op}" ] ?? null, "{$p}-{$op}");
             }
-            foreach ([ 'delete-contact', 'delete-list', 'delete-tag' ] as $op) {
+            foreach ([ 'delete-contact', 'delete-list', 'delete-tag', 'send-campaign' ] as $op) {
                 $this->assertSame('destructive', $names[ "{$p}-{$op}" ] ?? null, "{$p}-{$op}");
             }
         }
-        $this->assertArrayNotHasKey('fluentcrm-send-campaign', $names, 'sending to real recipients is not an op here');
+        $catalog = array_column($catalog['operations'], null, 'name');
+        $this->assertFalse($catalog['fluentcrm-send-campaign']['enabled'], 'sending to real recipients is off by default');
+        $this->assertTrue($catalog['fluentcrm-send-campaign']['requires_confirm']);
+        $this->assertTrue($catalog['mailpoet-send-test-campaign']['enabled'], 'a test goes only to the current user');
 
         Gate::set_pro_for_tests(false);
         $free = array_column($this->ok($this->read('list-operations'))['operations'], 'name');
@@ -694,6 +698,283 @@ class CrmPackTest extends \WP_UnitTestCase
         Rollback_Service::restore_session($session);
         $this->assertSame([], $this->rows('fc_subscribers'));
         $this->assertSame([], $this->rows('fc_subscriber_pivot'));
+    }
+
+    // ---------------------------------------------------------------
+    // Campaigns
+    // ---------------------------------------------------------------
+
+    /** Calls a double recorded, by name. */
+    private function calls(array $calls, string $name): array
+    {
+        return array_values(array_map(static fn (array $call): array => $call[1], array_filter($calls, static fn (array $call): bool => $name === $call[0])));
+    }
+
+    private function set_row(string $name, int $id, array $values): void
+    {
+        global $wpdb;
+        $this->assertNotFalse($wpdb->update($this->t($name), $values, [ 'id' => $id ]), $wpdb->last_error);
+    }
+
+    /** A FluentCRM list holding a subscribed, a pending and an unsubscribed contact. */
+    private function fc_audience(): int
+    {
+        $list = $this->fc_group('list', 'Newsletter');
+        foreach ([ 'ada@example.com' => 'subscribed', 'bob@example.com' => 'pending', 'carol@example.com' => 'unsubscribed' ] as $email => $status) {
+            $this->fc_member($this->fc_contact($email, $status), 'list', $list);
+        }
+        return $list;
+    }
+
+    /** A MailPoet list holding a subscribed and an unconfirmed subscriber, and one who left it. */
+    private function mp_audience(): int
+    {
+        $list = $this->mp_list('Newsletter');
+        $this->mp_member($this->mp_contact('ada@example.com', 'subscribed'), $list);
+        $this->mp_member($this->mp_contact('bob@example.com', 'unconfirmed'), $list);
+        $this->mp_member($this->mp_contact('carol@example.com', 'subscribed'), $list, 'unsubscribed');
+        return $list;
+    }
+
+    public function test_fluentcrm_campaign_drafts_create_update_duplicate_and_roll_back(): void
+    {
+        $list = $this->fc_audience();
+        $out  = $this->write('fluentcrm-create-campaign', [ 'title' => 'October news', 'subject' => 'Hello', 'preheader' => 'Pre', 'body' => '<p>Hi</p>', 'lists' => [ $list ] ]);
+        $new  = $this->ok($out)['campaign'];
+        $this->assertSame([ 'October news', 'Hello', 'Pre', 'draft', [ $list ], 1 ], [ $new['title'], $new['subject'], $new['preheader'], $new['status'], $new['lists'], $new['recipients'] ], 'only the subscribed contact is a recipient');
+        $this->assertSame('<p>Hi</p>', $this->ok($this->read('fluentcrm-get-campaign', [ 'id' => $new['id'] ]))['campaign']['body']);
+        $this->assertSame('list_not_found', $this->code($this->write('fluentcrm-create-campaign', [ 'subject' => 'X', 'body' => 'x', 'lists' => [ 999 ] ])));
+        $this->assertSame('campaign_exists', $this->code($this->write('fluentcrm-create-campaign', [ 'title' => 'october news', 'subject' => 'X', 'body' => 'x' ])));
+        $this->assertSame('campaign_not_found', $this->code($this->read('fluentcrm-get-campaign', [ 'id' => 999 ])));
+
+        $before = $this->rows('fc_campaigns');
+        $edit   = $this->write('fluentcrm-update-campaign', [ 'id' => $new['id'], 'subject' => 'Hello again', 'body' => '<p>New</p>' ]);
+        $this->assertSame('Hello again', $this->ok($edit)['campaign']['subject']);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $edit['operation_id']));
+        $this->assertSame($before, $this->rows('fc_campaigns'), 'the draft is back exactly');
+        $this->assertSame('nothing_to_update', $this->code($this->write('fluentcrm-update-campaign', [ 'id' => $new['id'] ])));
+
+        $copy = $this->write('fluentcrm-duplicate-campaign', [ 'id' => $new['id'] ]);
+        $dup  = $this->ok($copy)['campaign'];
+        $this->assertSame('draft', $dup['status']);
+        $this->assertNotSame($new['id'], $dup['id']);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $copy['operation_id']));
+        $this->assertSame($before, $this->rows('fc_campaigns'), 'undoing the duplicate removes the copy');
+
+        $this->set_row('fc_campaigns', $new['id'], [ 'status' => 'scheduled' ]);
+        $this->assertSame('campaign_not_draft', $this->code($this->write('fluentcrm-update-campaign', [ 'id' => $new['id'], 'subject' => 'Late' ])));
+        $this->set_row('fc_campaigns', $new['id'], [ 'status' => 'draft' ]);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame([], $this->rows('fc_campaigns'));
+        $this->assertSame([], array_values(array_filter($this->rows('fc_meta'), static fn (array $row): bool => 'option' !== $row['object_type'])), 'and the meta it created');
+    }
+
+    public function test_mailpoet_newsletter_drafts_create_update_duplicate_and_roll_back(): void
+    {
+        $list  = $this->mp_audience();
+        $other = $this->mp_list('Customers');
+        $out   = $this->write('mailpoet-create-campaign', [ 'subject' => 'Hello', 'body' => '<p>Hi</p>', 'lists' => [ $list ] ]);
+        $new   = $this->ok($out)['campaign'];
+        $this->assertSame([ 'Hello', 'draft', [ $list ], 1 ], [ $new['subject'], $new['status'], $new['lists'], $new['recipients'] ], 'only the subscribed member of the list is a recipient');
+        $this->assertStringContainsString('<p>Hi</p>', $this->ok($this->read('mailpoet-get-campaign', [ 'id' => $new['id'] ]))['campaign']['body']);
+
+        $before = [ $this->rows('mailpoet_newsletters'), $this->rows('mailpoet_newsletter_segment') ];
+        $edit   = $this->write('mailpoet-update-campaign', [ 'id' => $new['id'], 'subject' => 'Changed', 'lists' => [ $other ] ]);
+        $this->assertSame([ 'Changed', [ $other ] ], [ $this->ok($edit)['campaign']['subject'], $this->ok($edit)['campaign']['lists'] ]);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $edit['operation_id']));
+        $this->assertSame($before, [ $this->rows('mailpoet_newsletters'), $this->rows('mailpoet_newsletter_segment') ], 'subject and lists are back exactly');
+
+        $copy = $this->write('mailpoet-duplicate-campaign', [ 'id' => $new['id'] ]);
+        $this->assertSame([ 'draft', [ $list ] ], [ $this->ok($copy)['campaign']['status'], $this->ok($copy)['campaign']['lists'] ]);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $copy['operation_id']));
+        $this->assertSame($before, [ $this->rows('mailpoet_newsletters'), $this->rows('mailpoet_newsletter_segment') ]);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame([], $this->rows('mailpoet_newsletters'));
+        $this->assertSame([], $this->rows('mailpoet_newsletter_segment'));
+    }
+
+    public function test_a_campaign_edit_is_not_undone_once_the_draft_was_sent(): void
+    {
+        $list = $this->fc_audience();
+        $id   = $this->ok($this->write('fluentcrm-create-campaign', [ 'subject' => 'Hello', 'body' => 'x', 'lists' => [ $list ] ]))['campaign']['id'];
+        $edit = $this->write('fluentcrm-update-campaign', [ 'id' => $id, 'subject' => 'Sent subject' ]);
+        $this->ok($edit);
+        $this->set_row('fc_campaigns', $id, [ 'status' => 'archived' ]);
+
+        $this->assertFalse(Rollback_Service::restore_operation((string) $edit['operation_id']));
+        $this->assertStringContainsString('no longer a draft', implode(' ', Rollback_Service::take_warnings()));
+        $this->assertSame('Sent subject', $this->rows('fc_campaigns')[0]['email_subject']);
+    }
+
+    public function test_a_test_email_goes_to_the_current_user_and_is_never_undone(): void
+    {
+        $email = get_userdata($this->admin)->user_email;
+        foreach ([ 'fluentcrm' => $this->fc_audience(), 'mailpoet' => $this->mp_audience() ] as $p => $list) {
+            $id  = $this->ok($this->write("{$p}-create-campaign", [ 'subject' => 'Hello', 'body' => 'x', 'lists' => [ $list ] ]))['campaign']['id'];
+            $out = $this->write("{$p}-send-test-campaign", [ 'id' => $id ]);
+            $this->assertSame($email, $this->ok($out)['sent_to']);
+            $this->assertFalse($out['recoverable'], 'mail cannot be unsent');
+            $calls = 'fluentcrm' === $p ? Fake_FluentCRM::$calls : Fake_MailPoet::$calls;
+            $this->assertSame([ [ $id, $email ] ], $this->calls($calls, 'send_test'));
+            $this->assertSame([], $this->calls($calls, 'send_campaign'), 'nobody else is mailed');
+
+            $this->assertFalse(Rollback_Service::restore_operation((string) $out['operation_id']));
+            $this->assertStringContainsString('cannot be unsent', implode(' ', Rollback_Service::take_warnings()));
+        }
+    }
+
+    public function test_sending_is_off_until_enabled_and_asks_for_confirmation_with_the_recipient_count(): void
+    {
+        $list = $this->fc_audience();
+        $id   = $this->ok($this->write('fluentcrm-create-campaign', [ 'subject' => 'Hello', 'body' => 'x', 'lists' => [ $list ] ]))['campaign']['id'];
+
+        $off = $this->write('fluentcrm-send-campaign', [ 'id' => $id ], true);
+        $this->assertSame('operation_disabled', $this->code($off));
+        $this->assertStringContainsString('wpmcp_enable_crm_send', $off['error']['message']);
+
+        add_filter('wpmcp_enable_crm_send', '__return_true');
+        $ask = $this->write('fluentcrm-send-campaign', [ 'id' => $id ]);
+        $this->assertSame('confirmation_required', $this->code($ask));
+        $this->assertTrue(Elicitation::is_confirmation_refusal($ask), 'the person is asked through the confirmation path');
+        $this->assertSame(1, $ask['error']['data']['recipients']);
+        $this->assertStringContainsString('1 subscribed contact', $ask['error']['message']);
+        $this->assertSame([], $this->calls(Fake_FluentCRM::$calls, 'send_campaign'), 'nothing is sent before the person confirms');
+
+        $this->assertSame('invalid_args', $this->code($this->write('fluentcrm-send-campaign', [ 'id' => $id, 'send_at' => '2001-01-01 00:00:00' ], true)), 'a send time in the past');
+        $at   = wp_date('Y-m-d H:i:s', time() + DAY_IN_SECONDS);
+        $sent = $this->write('fluentcrm-send-campaign', [ 'id' => $id, 'send_at' => $at ], true);
+        $done = $this->ok($sent);
+        $this->assertSame([ 1, 'pending-scheduled', $at ], [ $done['recipients'], $done['campaign']['status'], $done['send_at'] ]);
+        $this->assertSame([ [ $id, $at ] ], $this->calls(Fake_FluentCRM::$calls, 'send_campaign'));
+        $this->assertFalse($sent['recoverable']);
+        $this->assertFalse(Rollback_Service::restore_operation((string) $sent['operation_id']));
+        $this->assertStringContainsString('cannot be unsent', implode(' ', Rollback_Service::take_warnings()));
+        $this->assertSame('pending-scheduled', $this->rows('fc_campaigns')[0]['status']);
+        $this->assertSame('campaign_not_draft', $this->code($this->write('fluentcrm-send-campaign', [ 'id' => $id ], true)));
+
+        $pending = $this->fc_group('list', 'Pending only');
+        $this->fc_member((int) $this->rows('fc_subscribers')[1]['id'], 'list', $pending);
+        $none = $this->ok($this->write('fluentcrm-create-campaign', [ 'subject' => 'Nobody', 'body' => 'x', 'lists' => [ $pending ] ]))['campaign']['id'];
+        $this->assertSame('no_recipients', $this->code($this->write('fluentcrm-send-campaign', [ 'id' => $none ], true)), 'a pending contact is never mailed a campaign');
+    }
+
+    public function test_mailpoet_send_now_queues_the_subscribed_members_and_is_never_undone(): void
+    {
+        add_filter('wpmcp_enable_crm_send', '__return_true');
+        $list = $this->mp_audience();
+        $id   = $this->ok($this->write('mailpoet-create-campaign', [ 'subject' => 'Hello', 'body' => 'x', 'lists' => [ $list ] ]))['campaign']['id'];
+        $ask  = $this->write('mailpoet-send-campaign', [ 'id' => $id ]);
+        $this->assertSame([ 'confirmation_required', 1 ], [ $this->code($ask), $ask['error']['data']['recipients'] ]);
+
+        $sent = $this->write('mailpoet-send-campaign', [ 'id' => $id ], true);
+        $this->assertSame([ 1, 'sending', null ], [ $this->ok($sent)['recipients'], $this->ok($sent)['campaign']['status'], $this->ok($sent)['send_at'] ]);
+        $this->assertSame('1', $this->rows('mailpoet_sending_queues')[0]['count_total']);
+        $this->assertFalse(Rollback_Service::restore_operation((string) $sent['operation_id']));
+        $this->assertSame('sending', $this->rows('mailpoet_newsletters')[0]['status']);
+    }
+
+    public function test_campaign_writes_need_the_plugins_email_permission(): void
+    {
+        $list = $this->mp_audience();
+        $this->editor();
+        $this->assertSame('operation_denied', $this->code($this->write('fluentcrm-create-campaign', [ 'subject' => 'X', 'body' => 'x' ])));
+        wp_set_current_user($this->admin);
+        get_userdata($this->admin)->remove_cap('mailpoet_manage_emails');
+        $this->assertSame('operation_denied', $this->code($this->write('mailpoet-create-campaign', [ 'subject' => 'X', 'body' => 'x', 'lists' => [ $list ] ])));
+        $this->assertSame('operation_denied', $this->code($this->read('mailpoet-get-campaign', [ 'id' => 1 ])));
+        get_userdata($this->admin)->remove_cap('mailpoet_manage_automations');
+        $this->assertSame('operation_denied', $this->code($this->write('mailpoet-set-automation-status', [ 'id' => 1, 'status' => 'draft' ])));
+    }
+
+    // ---------------------------------------------------------------
+    // Bulk import
+    // ---------------------------------------------------------------
+
+    public function test_fluentcrm_import_never_resubscribes_and_follows_double_optin(): void
+    {
+        $list    = $this->fc_group('list', 'Leads');
+        $known   = $this->fc_contact('known@example.com', 'subscribed', [ 'first_name' => 'Known' ]);
+        $gone    = $this->fc_contact('gone@example.com', 'unsubscribed');
+        $bounced = $this->fc_contact('bounce@example.com', 'bounced');
+        $before  = [ $this->rows('fc_subscribers'), $this->rows('fc_subscriber_pivot') ];
+
+        $out = $this->write('fluentcrm-import-contacts', [
+            'contacts' => [
+                [ 'email' => 'new@example.com', 'first_name' => 'New' ],
+                [ 'email' => 'known@example.com', 'first_name' => 'Changed' ],
+                [ 'email' => 'gone@example.com' ],
+                [ 'email' => 'bounce@example.com' ],
+                [ 'email' => 'NEW@example.com' ],
+                [ 'email' => 'not-an-email' ],
+            ],
+            'lists'    => [ $list ],
+        ]);
+        $done = $this->ok($out);
+        $this->assertSame([ 'new@example.com' ], array_column($done['created'], 'email'));
+        $this->assertSame('pending', $this->ok($this->read('fluentcrm-get-contact', [ 'email' => 'new@example.com' ]))['status'], 'a new contact confirms by double opt-in');
+        $this->assertSame([], $done['updated']);
+        $this->assertSame(
+            [ 'known@example.com' => 'contact_exists', 'gone@example.com' => 'contact_suppressed', 'bounce@example.com' => 'contact_suppressed', 'NEW@example.com' => 'duplicate', 'not-an-email' => 'invalid_email' ],
+            array_column($done['skipped'], 'reason', 'email')
+        );
+        $this->assertCount(1, $out['operation_ids']);
+        $this->assertSame([], array_filter($this->calls(Fake_FluentCRM::$calls, 'attach'), static fn (array $args): bool => in_array($args[0], [ $gone, $bounced, $known ], true)), 'nobody suppressed or existing is touched');
+
+        $again = $this->write('fluentcrm-import-contacts', [ 'contacts' => [ [ 'email' => 'known@example.com', 'first_name' => 'Changed' ], [ 'email' => 'gone@example.com' ] ], 'lists' => [ $list ], 'update_existing' => true ]);
+        $this->assertSame([ $known ], array_column($this->ok($again)['updated'], 'id'));
+        $this->assertSame([ 'gone@example.com' => 'contact_suppressed' ], array_column($this->ok($again)['skipped'], 'reason', 'email'), 'update_existing never reaches a suppressed contact');
+        $this->assertSame('Changed', $this->ok($this->read('fluentcrm-get-contact', [ 'id' => $known ]))['first_name']);
+
+        Rollback_Service::restore_session((string) $again['session_id']);
+        Rollback_Service::restore_session((string) $out['session_id']);
+        $this->assertSame($before, [ $this->rows('fc_subscribers'), $this->rows('fc_subscriber_pivot') ], 'rollback-session undoes each import');
+
+        $this->assertSame('double_optin_required', $this->code($this->write('fluentcrm-import-contacts', [ 'contacts' => [ [ 'email' => 'x@example.com' ] ], 'status' => 'subscribed' ])));
+        $this->assertSame('unknown_field', $this->code($this->write('fluentcrm-import-contacts', [ 'contacts' => [ [ 'email' => 'x@example.com', 'custom_fields' => [ 'nope' => 1 ] ] ] ])));
+    }
+
+    public function test_mailpoet_import_skips_who_left_a_list_and_follows_its_confirmation_setting(): void
+    {
+        $list = $this->mp_audience();
+        $out  = $this->write('mailpoet-import-contacts', [
+            'contacts'        => [ [ 'email' => 'new@example.com' ], [ 'email' => 'carol@example.com' ], [ 'email' => 'ada@example.com', 'last_name' => 'L' ] ],
+            'lists'           => [ $list ],
+            'update_existing' => true,
+        ]);
+        $done = $this->ok($out);
+        $this->assertSame('unconfirmed', $this->ok($this->read('mailpoet-get-contact', [ 'email' => 'new@example.com' ]))['status']);
+        $this->assertSame([ 'carol@example.com' => 'contact_suppressed' ], array_column($done['skipped'], 'reason', 'email'), 'who left the list is not put back on it');
+        $this->assertSame([ 'ada@example.com' ], array_column($done['updated'], 'email'));
+        $this->assertSame('invalid_args', $this->code($this->write('mailpoet-import-contacts', [ 'contacts' => [ [ 'email' => 'x@example.com' ] ], 'status' => 'subscribed' ])));
+        Rollback_Service::restore_session((string) $out['session_id']);
+        $this->assertSame([ 'ada@example.com', 'bob@example.com', 'carol@example.com' ], array_column($this->rows('mailpoet_subscribers'), 'email'));
+        $this->assertSame('Last', $this->rows('mailpoet_subscribers')[0]['last_name']);
+    }
+
+    // ---------------------------------------------------------------
+    // Automations
+    // ---------------------------------------------------------------
+
+    public function test_set_automation_status_and_roll_it_back(): void
+    {
+        $funnel = $this->insert('fc_funnels', [ 'title' => 'Welcome', 'trigger_name' => 'fluentcrm_contact_added_to_lists', 'status' => 'draft' ]);
+        $out    = $this->write('fluentcrm-set-automation-status', [ 'id' => $funnel, 'status' => 'published' ]);
+        $this->assertSame('published', $this->ok($out)['automation']['status']);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame('draft', $this->rows('fc_funnels')[0]['status']);
+        $this->assertSame('nothing_to_update', $this->code($this->write('fluentcrm-set-automation-status', [ 'id' => $funnel, 'status' => 'draft' ])));
+        $this->assertSame('invalid_args', $this->code($this->write('fluentcrm-set-automation-status', [ 'id' => $funnel, 'status' => 'active' ])));
+        $this->assertSame('automation_not_found', $this->code($this->write('fluentcrm-set-automation-status', [ 'id' => 999, 'status' => 'published' ])));
+
+        $auto   = $this->insert('mailpoet_automations', [ 'name' => 'Welcome', 'author' => $this->admin, 'status' => 'active' ]);
+        $this->insert('mailpoet_automation_versions', [ 'automation_id' => $auto, 'steps' => '{"root":{}}' ]);
+        $before = [ $this->rows('mailpoet_automations'), $this->rows('mailpoet_automation_versions') ];
+        $off    = $this->write('mailpoet-set-automation-status', [ 'id' => $auto, 'status' => 'deactivating' ]);
+        $this->assertSame('deactivating', $this->ok($off)['automation']['status']);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $off['operation_id']));
+        $this->assertSame($before, [ $this->rows('mailpoet_automations'), $this->rows('mailpoet_automation_versions') ], 'status and versions are back exactly');
     }
 
     // ---------------------------------------------------------------
