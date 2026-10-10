@@ -74,6 +74,11 @@ class Update_Rows
             throw new \RuntimeException(sprintf('Refusing to write to protected table "%s".', esc_html($table)));
         }
 
+        $store = Database_Guard::store_rows_refusal($table, $where, $data);
+        if (null !== $store) {
+            throw new \RuntimeException(esc_html($store));
+        }
+
         $probe  = Database_Guard::recoverability_probe($table, $where);
         $before = $probe['rows'];
 

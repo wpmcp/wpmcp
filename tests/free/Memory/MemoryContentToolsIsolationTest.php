@@ -67,11 +67,27 @@ class MemoryContentToolsIsolationTest extends \WP_UnitTestCase
         return $id;
     }
 
-    /** @return mixed */
+    /**
+     * Run an ability the way an MCP client reaches it. A refusal at
+     * permission time is returned as the permission WP_Error, which is what
+     * the MCP adapter hands the client (ToolsHandler); core's execute() then
+     * refuses too, behind its own generic message.
+     *
+     * @return mixed
+     */
     private function run_ability(string $name, array $input)
     {
         $ability = wp_get_ability($name);
         $this->assertNotNull($ability, $name . ' is not registered');
+
+        $permission = $ability->check_permissions($input);
+        if (is_wp_error($permission)) {
+            // execute() flags a permission WP_Error as incorrect usage
+            // before replacing it with ability_invalid_permissions.
+            $this->setExpectedIncorrectUsage('WP_Ability::execute');
+            $this->assertInstanceOf(\WP_Error::class, $ability->execute($input), $name . ' ran after its permission check refused it');
+            return $permission;
+        }
         return $ability->execute($input);
     }
 

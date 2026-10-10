@@ -7,6 +7,7 @@
 namespace WPMCP\Safety;
 
 use WPMCP\Privacy\Snapshot_Redactor;
+use WPMCP\Tools\Content\Content_Guard;
 use WPMCP\Tools\Database\Database_Guard;
 use WPMCP\Tools\Builders\Avada_Cache;
 use WPMCP\Tools\Builders\Beaver_Builder_Cache;
@@ -139,6 +140,10 @@ class Rollback_Service
         if ('post' === $type) {
             $post_id = (int) ($snapshot['object_id'] ?? 0);
             $post    = $post_id > 0 ? get_post($post_id) : null;
+            $store   = self::refused_store($post instanceof \WP_Post ? (string) $post->post_type : (string) ($snapshot['data']['post']['post_type'] ?? ''), $post_id);
+            if (null !== $store) {
+                return $store;
+            }
             if ($post instanceof \WP_Post) {
                 return self::refused_post_capability('edit_post', $post);
             }
@@ -159,7 +164,8 @@ class Rollback_Service
             foreach ($ids as $post_id) {
                 $post = $post_id > 0 ? get_post($post_id) : null;
                 if ($post instanceof \WP_Post) {
-                    $refused = self::refused_post_capability('delete_post', $post);
+                    $refused = self::refused_store((string) $post->post_type, $post_id)
+                        ?? self::refused_post_capability('delete_post', $post);
                     if (null !== $refused) {
                         return $refused;
                     }
@@ -168,6 +174,23 @@ class Rollback_Service
         }
 
         return null;
+    }
+
+    /**
+     * Why a restore may not write a post of one of WP MCP's private stores
+     * (issue #517): agent memory entries and chat conversations are never
+     * written by the generic tools, so a snapshot of one, taken before that
+     * rule existed, must not put an entry back either. Restoring an agent
+     * memory entry would otherwise re-publish it without the administrator's
+     * approval.
+     */
+    private static function refused_store(string $post_type, int $post_id): ?string
+    {
+        if ('' === $post_type || Content_Guard::is_agent_readable_post_type($post_type)) {
+            return null;
+        }
+        $why = Content_Guard::store_refusal($post_type);
+        return sprintf('post %d belongs to a WP MCP internal store.', $post_id) . (null === $why ? '' : ' ' . $why);
     }
 
     private static function refused_post_capability(string $capability, \WP_Post $post): ?string
