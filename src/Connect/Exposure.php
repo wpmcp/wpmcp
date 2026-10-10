@@ -3,6 +3,7 @@
 namespace WPMCP\Connect;
 
 use WPMCP\Plugin;
+use WPMCP\Admin\Management_Access;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -60,13 +61,13 @@ class Exposure
 
     /**
      * Admin-bar indicator, linked to the Connection screen. Shown only to
-     * users who could act on it (manage_options, matching the screen).
+     * users who could act on it (the management capability, matching the screen).
      *
      * @param \WP_Admin_Bar $wp_admin_bar
      */
     public static function admin_bar($wp_admin_bar): void
     {
-        if (! current_user_can('manage_options')) {
+        if (! current_user_can(Management_Access::CAPABILITY)) {
             return;
         }
 

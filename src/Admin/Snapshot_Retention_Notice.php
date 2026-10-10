@@ -31,13 +31,13 @@ class Snapshot_Retention_Notice
     public static function register(): void
     {
         add_action('admin_notices', [self::class, 'render']);
-        add_action('admin_post_' . self::ACK_ACTION, [self::class, 'handle_ack']);
+        Management_Access::add_handler('admin_post_' . self::ACK_ACTION, [self::class, 'handle_ack']);
     }
 
     /** admin_notices callback. Renders nothing unless a floor is standing. */
     public static function render(): void
     {
-        if (! current_user_can('manage_options') || ! Snapshot_Store::has_retention_floor()) {
+        if (! current_user_can(Management_Access::CAPABILITY) || ! Snapshot_Store::has_retention_floor()) {
             return;
         }
 
@@ -68,7 +68,7 @@ class Snapshot_Retention_Notice
     /** admin_post callback: capability + nonce, then release the floor. */
     public static function handle_ack(): void
     {
-        if (! current_user_can('manage_options')) {
+        if (! current_user_can(Management_Access::CAPABILITY)) {
             wp_die(esc_html__('You are not allowed to change snapshot retention.', 'wpmcp'), '', ['response' => 403]);
         }
         check_admin_referer(self::NONCE_ACTION);

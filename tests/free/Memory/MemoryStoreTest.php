@@ -260,7 +260,8 @@ class MemoryStoreTest extends \WP_UnitTestCase
      * The registration itself: private, out of REST, editable in wp-admin so
      * approval is the ordinary publish flow, and every capability raised to
      * the management capability (manage_options narrowed by issue #479)
-     * because publishing an entry can silence a guardrail or broadcast text to every connecting agent.
+     * because publishing an entry can silence a guardrail or broadcast text
+     * to every connecting agent.
      */
     public function test_ensure_post_type_registers_a_private_admin_only_type(): void
     {

@@ -3,6 +3,7 @@
 namespace WPMCP\Pro\Chat;
 
 use WPMCP\Plugin;
+use WPMCP\Admin\Management_Access;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -24,7 +25,7 @@ if (! defined('ABSPATH')) {
  * the exact ability and arguments of every call that would change the site.
  *
  * The page holds no capability of its own: every action the chat performs
- * goes through the chat REST controller, which re-checks manage_options and
+ * goes through the chat REST controller, which re-checks the management capability and
  * Pro\Gate per request, and every tool call runs through the same
  * governed ability path as external MCP calls. The form below is not an
  * alternate write path for the same reason: it posts to the same route with
@@ -62,7 +63,7 @@ class Chat_Page
 
     public function render(): void
     {
-        if (! current_user_can('manage_options')) {
+        if (! current_user_can(Management_Access::CAPABILITY)) {
             wp_die(esc_html__('Sorry, you are not allowed to access this page.', 'wpmcp'));
         }
 

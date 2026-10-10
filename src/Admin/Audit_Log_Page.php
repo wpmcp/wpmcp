@@ -22,7 +22,7 @@ if (! defined('ABSPATH')) {
  *    snapshot. Filterable by date, user, tool and outcome, with a redacted
  *    CSV export of the filtered rows (issue #303).
  *
- * Gated at manage_options, matching History_Page and Restore_Controller.
+ * Gated at the management capability, matching History_Page and Restore_Controller.
  * get_operations()/get_requests() are the testable seams: they return data
  * with no HTML, mirroring how List_Operations itself is unit-testable
  * independent of render().
@@ -68,7 +68,7 @@ class Audit_Log_Page
 
     /**
      * admin-post handler: the filtered request log as a redacted CSV
-     * download. Needs manage_options and the export nonce. $sender is the
+     * download. Needs the management capability and the export nonce. $sender is the
      * test seam; it receives the CSV and file name instead of the response.
      *
      * @return \WP_Error|null
@@ -76,7 +76,7 @@ class Audit_Log_Page
     public function export_requests(?callable $sender = null)
     {
         $nonce      = is_string($_GET['_wpnonce'] ?? null) ? sanitize_text_field(wp_unslash($_GET['_wpnonce'])) : '';
-        $authorized = current_user_can('manage_options')
+        $authorized = current_user_can(Management_Access::CAPABILITY)
             && '' !== $nonce
             && wp_verify_nonce($nonce, self::EXPORT_ACTION);
 

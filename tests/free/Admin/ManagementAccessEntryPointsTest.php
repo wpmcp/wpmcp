@@ -35,15 +35,17 @@ class ManagementAccessEntryPointsTest extends \WP_UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Management_Access::set_constant_for_tests(false);
         $this->listed   = self::factory()->user->create(['role' => 'administrator']);
         $this->off_list = self::factory()->user->create(['role' => 'administrator']);
-        update_option(Management_Access::OPTION, [$this->listed]);
+        // The allowlist comes from the constant seam, not the option: firing
+        // rest_api_init below can run DDL, whose implicit commit would keep a
+        // stored allowlist past this test's rollback.
+        Management_Access::set_constant_for_tests(true, (string) $this->listed);
     }
 
     protected function tearDown(): void
     {
-        delete_option(Management_Access::OPTION);
+        Management_Access::set_constant_for_tests(false);
         Gate::set_pro_for_tests(null);
         wp_set_current_user(0);
         global $wp_rest_server;
@@ -58,6 +60,9 @@ class ManagementAccessEntryPointsTest extends \WP_UnitTestCase
         $menu    = [];
         $submenu = [];
         Gate::set_pro_for_tests(true);
+        // add_submenu_page() skips an entry the registering user cannot
+        // open, so register as a listed administrator.
+        wp_set_current_user($this->listed);
 
         Plugin::instance()->register_admin_menu();
 
@@ -242,7 +247,8 @@ class ManagementAccessEntryPointsTest extends \WP_UnitTestCase
 
         $checked = 0;
         foreach ($wp_rest_server->get_routes() as $route => $endpoints) {
-            if (0 !== strpos($route, '/wpmcp/')) {
+            // The namespace index route is core's, with no callback of ours.
+            if (0 !== strpos($route, '/wpmcp/') || 1 === preg_match('#^/wpmcp/v[0-9]+$#', $route)) {
                 continue;
             }
             foreach (self::UNGATED_REST_PREFIXES as $prefix) {
@@ -270,7 +276,19 @@ class ManagementAccessEntryPointsTest extends \WP_UnitTestCase
 
     public function test_every_wpmcp_options_page_group_needs_the_management_capability(): void
     {
-        do_action('admin_init');
+        // Only WP MCP's own admin_init callbacks: the whole action also runs
+        // core's update checks and header-sending code.
+        global $wp_filter;
+        $src = (string) realpath(__DIR__ . '/../../../src');
+        foreach ($wp_filter['admin_init']->callbacks as $callbacks) {
+            foreach ($callbacks as $entry) {
+                // Redirect_Store::maybe_install is schema, not settings, and
+                // its DDL would commit this test's transaction.
+                if ($this->owned_by_wpmcp($entry['function'], $src) && [\WPMCP\Tools\Redirects\Redirect_Store::class, 'maybe_install'] !== $entry['function']) {
+                    call_user_func($entry['function']);
+                }
+            }
+        }
 
         $groups = [];
         foreach (get_registered_settings() as $name => $args) {
