@@ -102,6 +102,12 @@ class Rollback_Service
             self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
             return false;
         }
+        // Undoing an Amelia write that later bookings depend on (issue #499).
+        $refused = Amelia_Rows_Snapshot::refusal((array) $row['snapshot']);
+        if (null !== $refused) {
+            self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
+            return false;
+        }
         // Another user is editing the post this would restore (issue #452).
         $locked = Edit_Lock::restore_refusal([$row]);
         if (null !== $locked) {
@@ -284,6 +290,13 @@ class Rollback_Service
                 return [ [ Crm_Rows_Snapshot::mailpoet_capability($kind) ] ];
             }
             return [ [ 'edit_posts' ] ];
+        }
+        // Amelia rows are customers' personal data and bookings (issue
+        // #499); restoring one takes Amelia's own write capability for what
+        // it covers, the one the write itself took.
+        if ('amelia_rows' === $type) {
+            $capability = Amelia_Rows_Snapshot::capability((string) ($snapshot['data']['kind'] ?? ''));
+            return [ [ '' !== $capability ? $capability : 'manage_options' ] ];
         }
         // A database cleanup's rows are raw core table rows (comments with
         // their authors' emails and IPs, user meta), and the cleanup takes
@@ -487,7 +500,7 @@ class Rollback_Service
             // the person left it in, so later edits go back first.
             // Every snapshot this pass applies goes through the capability
             // check first: option_set rows (classic widgets, issue #502) as
-            // much as shipping zones, BuddyPress, CRM and cleanup rows.
+            // much as shipping zones, BuddyPress, CRM, Amelia and cleanup rows.
             if (! self::may_restore($snapshot)) {
                 self::warn(sprintf(
                     'snapshot %s skipped: restoring it requires the "%s" capability.',
@@ -513,12 +526,20 @@ class Rollback_Service
                     continue;
                 }
             }
+            // So is an Amelia write that later bookings depend on (issue #499).
+            if ('amelia_rows' === $snapshot['object_type']) {
+                $refused = Amelia_Rows_Snapshot::refusal($snapshot);
+                if (null !== $refused) {
+                    self::warn(sprintf('snapshot %s skipped: %s', self::object_identity($snapshot), $refused));
+                    continue;
+                }
+            }
             // Plugin table rows (Pods table storage, TranslatePress
             // dictionary rows, issue #299) too: each covers only the ids ONE
             // write named, and two writes can name overlapping sets.
             // A database cleanup (issue #414) too: each call's snapshot holds
             // only the rows that call deleted, one bounded batch of many.
-            if (in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'crm_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)) {
+            if (in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'crm_rows', 'amelia_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)) {
                 self::apply_snapshot($snapshot);
                 $count++;
                 continue;
@@ -1258,6 +1279,7 @@ class Rollback_Service
             'plugin_table_rows',
             'buddypress_rows',
             'crm_rows',
+            'amelia_rows',
             'db_cleanup',
             'wc_tax_rate',
             'php_snippet',
@@ -1463,6 +1485,12 @@ class Rollback_Service
         // Crm_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('crm_rows' === $snapshot['object_type']) {
             self::warn_if(Crm_Rows_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // Amelia_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('amelia_rows' === $snapshot['object_type']) {
+            self::warn_if(Amelia_Rows_Snapshot::restore($snapshot));
             return;
         }
 
