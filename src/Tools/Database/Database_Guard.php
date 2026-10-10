@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Database;
 
+use WPMCP\Tools\Content\Content_Guard;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -743,6 +745,92 @@ class Database_Guard
         }
         $protected = apply_filters('wpmcp_db_protected_tables', $defaults);
         return self::table_is_protected($table, (array) $protected);
+    }
+
+    /**
+     * Why a raw row write may not run because it reaches a post of one of
+     * WP MCP's private stores (issue #517), or null. Agent memory entries
+     * are published only by an administrator in wp-admin; with
+     * wpmcp_enable_db_writes on, update-rows on wp_posts would otherwise
+     * publish or rewrite one, insert-row would create one, an update could
+     * turn an ordinary post into one, and the meta rows that hold an entry's
+     * severity and targets could be changed under it. Chat conversations
+     * get the same rule, as everywhere else in the generic tools.
+     *
+     * $where is the write's WHERE map (empty for an insert) and $data the
+     * values it writes. The match runs against every row the WHERE selects,
+     * not the capped before-image, so a broad WHERE cannot slip past.
+     *
+     * @param array<string, mixed> $where
+     * @param array<string, mixed> $data
+     */
+    public static function store_rows_refusal(string $table, array $where, array $data): ?string
+    {
+        global $wpdb;
+
+        $types = Content_Guard::private_post_types();
+        $name  = strtolower($table);
+        $type  = null;
+
+        if (strtolower((string) $wpdb->posts) === $name) {
+            $written = isset($data['post_type']) && is_scalar($data['post_type']) ? (string) $data['post_type'] : '';
+            if (in_array($written, $types, true)) {
+                $type = $written;
+            } elseif ([] !== $where) {
+                $type = self::matched_store_type($table, $where, $types, false);
+            }
+        } elseif (strtolower((string) $wpdb->postmeta) === $name) {
+            $post_id = isset($data['post_id']) && is_numeric($data['post_id']) ? (int) $data['post_id'] : 0;
+            $written = $post_id > 0 ? (string) get_post_type($post_id) : '';
+            if (in_array($written, $types, true)) {
+                $type = $written;
+            } elseif ([] !== $where) {
+                $type = self::matched_store_type($table, $where, $types, true);
+            }
+        }
+
+        if (null === $type) {
+            return null;
+        }
+        $why = Content_Guard::store_refusal($type);
+        return 'Refusing to write rows of a WP MCP internal store (' . $type . ').' . (null === $why ? '' : ' ' . $why);
+    }
+
+    /**
+     * The private store type of any row $where selects in $table (wp_posts,
+     * or wp_postmeta joined to its post), or null when none does.
+     *
+     * @param array<string, mixed> $where
+     * @param string[]             $types
+     */
+    private static function matched_store_type(string $table, array $where, array $types, bool $meta): ?string
+    {
+        global $wpdb;
+
+        $alias      = $meta ? 'm' : 'p';
+        $conditions = [];
+        $values     = $meta ? [$table, $wpdb->posts] : [$table];
+        foreach ($where as $column => $value) {
+            if (null === $value) {
+                $conditions[] = '%i.%i IS NULL';
+                array_push($values, $alias, (string) $column);
+                continue;
+            }
+            $conditions[] = '%i.%i = %s';
+            array_push($values, $alias, (string) $column, $value);
+        }
+        $in = implode(', ', array_fill(0, count($types), '%s'));
+        foreach ($types as $type) {
+            $values[] = $type;
+        }
+
+        $from = $meta ? '%i AS m INNER JOIN %i AS p ON p.ID = m.post_id' : '%i AS p';
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- the format string is assembled only from literal fragments ('%i AS p', '%i.%i = %s', a run of '%s'); every identifier and value is bound through $values, which the sniffs cannot count.
+        $sql = $wpdb->prepare('SELECT p.post_type FROM ' . $from . ' WHERE ' . implode(' AND ', $conditions) . ' AND p.post_type IN (' . $in . ') LIMIT 1', $values);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- a guard read of the exact live rows the imminent raw write will touch, so a cache would let a stale answer through. $sql is prepared on the line above.
+        $found = $wpdb->get_var($sql);
+
+        return is_string($found) && '' !== $found ? $found : null;
     }
 
     /**
