@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tests\Free\Safety;
 
+use WPMCP\Integrations\Theme_Integration;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Menus\Assign_Menu_To_Location;
 use WPMCP\Tools\Rollback_Operation;
@@ -165,5 +166,31 @@ class OptionSnapshotRestoreCapabilityTest extends \WP_UnitTestCase
 
         $this->assertSame(0, $out['restored_count']);
         $this->assertSame($placed, array_values((array) get_option('sidebars_widgets')[ self::SIDEBAR ]));
+    }
+    public function test_an_integration_option_write_declares_the_capability_its_op_took(): void
+    {
+        set_theme_mod('header_textcolor', 'aabbcc');
+        $editor = $this->theme_editor();
+        wp_set_current_user($editor);
+        $enable = static fn () => true;
+        add_filter('wpmcp_enable_theme_write', $enable);
+        try {
+            $out = (new Theme_Integration())->handle_write([
+                'operation' => 'set-mods',
+                'args'      => [ 'values' => [ 'header_textcolor' => '336699' ] ],
+            ]);
+        } finally {
+            remove_filter('wpmcp_enable_theme_write', $enable);
+        }
+        $this->assertArrayHasKey('operation_id', $out, (string) wp_json_encode($out));
+        $this->assertSame('edit_theme_options', Snapshot_Store::get_by_operation($out['operation_id'])['snapshot']['data']['restore_capability'] ?? null);
+
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'author' ]));
+        $this->assertFalse((new Rollback_Operation())->handle([ 'operation_id' => $out['operation_id'] ])['restored']);
+        $this->assertSame('336699', get_theme_mod('header_textcolor'));
+
+        wp_set_current_user($editor);
+        $this->assertTrue((new Rollback_Operation())->handle([ 'operation_id' => $out['operation_id'] ])['restored']);
+        $this->assertSame('aabbcc', get_theme_mod('header_textcolor'));
     }
 }
