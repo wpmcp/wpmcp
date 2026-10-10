@@ -145,9 +145,12 @@ class AmeliaPackTest extends \WP_UnitTestCase
         return (new Plugin_Data_Integration())->handle_read([ 'operation' => $op, 'args' => $args ]);
     }
 
+    /** A write op; confirm:true in $args goes to the pair, where a destructive op reads it. */
     private function write(string $op, array $args): array
     {
-        return (new Plugin_Data_Integration())->handle_write([ 'operation' => $op, 'args' => $args ]);
+        $confirm = ! empty($args['confirm']);
+        unset($args['confirm']);
+        return (new Plugin_Data_Integration())->handle_write([ 'operation' => $op, 'args' => $args, 'confirm' => $confirm ]);
     }
 
     private function ok(array $out): array
@@ -602,6 +605,29 @@ class AmeliaPackTest extends \WP_UnitTestCase
         $this->assertCount($calls, Fake_Amelia_Api::$calls, 'An undo never calls Amelia.');
     }
 
+    public function test_an_appointment_snapshot_saved_by_the_first_release_still_rolls_back(): void
+    {
+        $appointment = $this->ok($this->book($this->future_day() . ' 10:00'))['appointment'];
+        $before      = $this->booking_state();
+        $cancel      = $this->write('amelia-set-appointment-status', [ 'appointment_id' => $appointment['id'], 'status' => 'canceled' ]);
+        $this->ok($cancel);
+
+        // v0.8.158 saved the payments set with its one hop as 'via' => [table, column].
+        $row      = Snapshot_Store::get_by_operation((string) $cancel['operation_id']);
+        $snapshot = $row['snapshot'];
+        foreach ($snapshot['data']['sets'] as $i => $set) {
+            if (isset($set['hops'])) {
+                $this->assertSame([ [ 'customer_bookings', 'id', 'appointmentId' ] ], $set['hops']);
+                unset($snapshot['data']['sets'][ $i ]['hops']);
+                $snapshot['data']['sets'][ $i ]['via'] = [ 'customer_bookings', 'appointmentId' ];
+            }
+        }
+        Snapshot_Store::update_snapshot((string) $cancel['operation_id'], $snapshot);
+
+        $this->undo($cancel);
+        $this->assertSame($before, $this->booking_state());
+    }
+
     public function test_undo_is_refused_while_later_bookings_depend_on_the_row(): void
     {
         $day = $this->future_day();
@@ -636,6 +662,7 @@ class AmeliaPackTest extends \WP_UnitTestCase
 
     public function test_employee_create_and_update_set_hours_breaks_and_days_off_through_amelia_and_roll_back_exactly(): void
     {
+        Fake_Amelia_Api::$edition = 'Pro';
         $before = $this->schedule_state();
 
         $created = $this->write('amelia-create-employee', [
@@ -670,7 +697,9 @@ class AmeliaPackTest extends \WP_UnitTestCase
         $this->assertSame([ 'monday', 'wednesday' ], array_column($week, 'day'), 'working_week replaces the whole week.');
         $this->assertSame([], $week[0]['breaks']);
         $this->assertSame([ [ 'start' => '15:00', 'end' => '15:15' ] ], $week[1]['breaks']);
-        $this->assertSame((int) $this->schedule_state()['providers_to_weekdays'][0]['id'], (int) end(Fake_Amelia_Api::$calls)[1]['weekDayList'][0]['id'], 'A day the employee already works keeps its Amelia row.');
+        global $wpdb;
+        $monday = (int) $wpdb->get_var($wpdb->prepare('SELECT id FROM %i WHERE userId = %d AND dayIndex = 1', $this->t('providers_to_weekdays'), $anna['id']));
+        $this->assertSame($monday, (int) end(Fake_Amelia_Api::$calls)[1]['weekDayList'][0]['id'], 'A day the employee already works keeps its Amelia row.');
 
         $off = $this->write('amelia-update-employee', [ 'employee_id' => $anna['id'], 'days_off' => [ [ 'name' => 'Holiday', 'start' => '2031-12-25', 'repeat' => true ] ] ]);
         $this->assertSame([ [ 'name' => 'Holiday', 'start' => '2031-12-25', 'end' => '2031-12-25', 'repeat' => true ] ], $this->ok($off)['employee']['days_off'], 'days_off replaces the list; a single day ends where it starts.');
@@ -699,12 +728,22 @@ class AmeliaPackTest extends \WP_UnitTestCase
         }
         $this->assertSame('invalid_date', $this->code($this->write('amelia-update-employee', [ 'employee_id' => $this->employee, 'days_off' => [ [ 'name' => 'X', 'start' => '2031-01-05', 'end' => '2031-01-02' ] ] ])));
         $this->assertSame('not_found', $this->code($this->write('amelia-update-employee', [ 'employee_id' => $this->customer, 'first_name' => 'X' ])));
+
+        // Amelia Lite works with its first employee only and leaves any other out of services, slots and bookings.
+        $lite = $this->write('amelia-create-employee', [ 'first_name' => 'Anna', 'last_name' => 'Ray', 'email' => 'anna@example.com' ]);
+        $this->assertSame('amelia_lite_limit', $this->code($lite));
+        $this->assertStringContainsString('#' . $this->employee, $lite['error']['message']);
+        $other = $this->insert('users', [ 'type' => 'provider', 'status' => 'visible', 'firstName' => 'Anna', 'lastName' => 'Ray', 'email' => 'anna@example.com' ]);
+        $this->assertSame('amelia_lite_limit', $this->code($this->write('amelia-update-service', [ 'service_id' => $this->service, 'employee_ids' => [ $this->employee, $other ] ])));
+        $this->assertSame('amelia_lite_limit', $this->code($this->write('amelia-update-employee', [ 'employee_id' => $other, 'first_name' => 'Ann' ])));
+        $this->assertSame('amelia_lite_limit', $this->code($this->write('amelia-create-event', [ 'name' => 'Yoga', 'periods' => [ [ 'start' => $this->future_day() . ' 10:00', 'end' => $this->future_day() . ' 11:00' ] ], 'max_capacity' => 5, 'price' => 0, 'employee_ids' => [ $other ] ])));
         $this->assertSame([], Fake_Amelia_Api::$calls, 'Nothing reaches Amelia.');
         $this->assertSame([], Snapshot_Store::list_by_session('default'), 'No undo point is left.');
     }
 
     public function test_undoing_a_created_employee_service_category_or_customer_is_refused_once_booked(): void
     {
+        Fake_Amelia_Api::$edition = 'Pro';
         $category = $this->write('amelia-create-category', [ 'name' => 'Bodywork' ]);
         $service  = $this->write('amelia-create-service', [ 'name' => 'Reflexology', 'category_id' => $this->ok($category)['category']['id'], 'duration' => 60, 'price' => 40 ]);
         $employee = $this->write('amelia-create-employee', [ 'first_name' => 'Anna', 'last_name' => 'Ray', 'email' => 'anna@example.com', 'working_week' => [ [ 'day' => strtolower($this->day_name()), 'start' => '09:00', 'end' => '17:00' ] ] ]);
@@ -771,7 +810,7 @@ class AmeliaPackTest extends \WP_UnitTestCase
         $added = $this->write('amelia-add-event-attendee', [ 'event_id' => $event['id'], 'customer_id' => $this->customer, 'persons' => 2 ]);
         $this->assertSame('Booking\\Appointment\\AddBookingController', end(Fake_Amelia_Api::$calls)[0]);
         $this->assertSame(1, $this->ok($added)['event']['places_left']);
-        $this->assertSame([ [ 'booking_id' => $this->ok($added)['attendee']['booking_id'], 'customer_id' => $this->customer, 'name' => 'Sarah Lane', 'email' => 'sarah@example.com', 'status' => 'approved', 'persons' => 2 ] ], [ $this->ok($added)['attendee'] ]);
+        $this->assertSame([ 'booking_id' => $this->ok($added)['attendee']['booking_id'], 'customer_id' => $this->customer, 'status' => 'approved', 'persons' => 2 ], $this->ok($added)['attendee'], 'Names and emails stay behind list-event-attendees.');
         $this->assertSame([ 'sarah@example.com' ], array_column($this->ok($added)['notifications']['held'], 'to'));
         $this->assertSame([ 'tom@example.com' ], array_column(Fake_Amelia_Api::$delivered, 'to'), 'Only the employee email left.');
 
@@ -780,6 +819,8 @@ class AmeliaPackTest extends \WP_UnitTestCase
         $this->assertSame('event_full', $this->code($full));
         $this->assertSame([ 'max_capacity' => 3, 'booked' => 2, 'places_left' => 1 ], $full['error']['data']);
         $this->assertCount($calls, Fake_Amelia_Api::$calls, 'Amelia does not check capacity for a backend booking, so nothing reaches it.');
+
+        $this->assertSame('invalid_capacity', $this->code($this->write('amelia-update-event', [ 'event_id' => $event['id'], 'max_capacity' => 1 ])), 'Capacity cannot drop below what is booked.');
 
         // Fewer periods would drop the attendee's booked periods.
         $this->assertSame('amelia_in_use', $this->code($this->write('amelia-update-event', [ 'event_id' => $event['id'], 'periods' => [ [ 'start' => $day . ' 15:00', 'end' => $day . ' 17:00' ] ] ])));
@@ -825,7 +866,9 @@ class AmeliaPackTest extends \WP_UnitTestCase
         $this->assertSame([], array_filter(Fake_Amelia_Api::$calls, static fn (array $call): bool => false !== strpos($call[0], 'Delete')), 'Nothing in use reaches Amelia.');
         $this->assertSame($before, $this->all_state());
 
-        // Unused ones go through Amelia's own delete and come back exactly.
+        // Unused ones go through Amelia's own delete and come back exactly
+        // (a paid edition, which works with more than one employee).
+        Fake_Amelia_Api::$edition = 'Pro';
         $category = $this->insert('categories', [ 'name' => 'Empty', 'status' => 'visible', 'position' => 2, 'color' => '#1788FB' ]);
         $service  = $this->insert('services', [ 'name' => 'Unbooked', 'price' => 30, 'status' => 'visible', 'categoryId' => $this->category, 'minCapacity' => 1, 'maxCapacity' => 1, 'duration' => 1800, 'priority' => 'least_expensive', 'color' => '#1788FB' ]);
         $this->insert('providers_to_services', [ 'userId' => $this->employee, 'serviceId' => $service, 'price' => 30, 'minCapacity' => 1, 'maxCapacity' => 1 ]);

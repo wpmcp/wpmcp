@@ -12,78 +12,159 @@ if (! defined('ABSPATH')) {
 /**
  * Snapshots of the Amelia rows one Amelia write touches (issue #499), keyed
  * "<kind>:<id>":
- *  - amelia_category:    the amelia_categories row;
- *  - amelia_service:     the amelia_services row and its employee
- *                        assignments (amelia_providers_to_services);
- *  - amelia_customer:    the amelia_users row of the customer;
- *  - amelia_appointment: the amelia_appointments row, its customer bookings
- *                        and their payments.
+ *  - amelia_category:         the amelia_categories row;
+ *  - amelia_service:          the amelia_services row and its employee
+ *                             assignments (amelia_providers_to_services);
+ *  - amelia_service_removal:  those, plus the service's view counts and
+ *                             gallery rows, which Amelia's delete removes;
+ *  - amelia_customer:         the amelia_users row of the customer;
+ *  - amelia_customer_removal: that row, plus every appointment left
+ *                             without a booking, which Amelia's user delete
+ *                             also removes;
+ *  - amelia_employee:         the employee's amelia_users row, services,
+ *                             locations, working week (days, breaks,
+ *                             periods and their links), days off and
+ *                             special days (with their periods and links);
+ *  - amelia_employee_removal: those, plus their view counts and every
+ *                             appointment left without a booking;
+ *  - amelia_appointment:      the amelia_appointments row, its customer
+ *                             bookings and their payments;
+ *  - amelia_event:            the amelia_events row, its periods, tags,
+ *                             employees and tickets;
+ *  - amelia_event_booking:    only what a booking on the event creates (the
+ *                             customer booking, its period links, tickets
+ *                             and payment), so an undo never rewrites the
+ *                             event's other attendees.
  *
  * A create has no id when its snapshot is taken: it is keyed "<kind>:0" and
  * tracked() re-keys it on the id Amelia assigned. While a write runs, the
  * highest id of every table its kind covers is noted, and the rows that
  * match the kind's sets afterwards and lie above it are recorded as created
  * ('created_rows'). The tables are always built from the site prefix,
- * Amelia's own "amelia_" prefix and a fixed allowlist of names, so a key can
- * never reach any other table.
+ * Amelia's own "amelia_" prefix and a fixed allowlist of names, and the
+ * columns from a fixed allowlist, so a key can never reach anything else.
  *
  * The restore removes the created rows and puts every saved row back by id,
  * verbatim, straight into Amelia's tables: Amelia's notifications are never
  * sent again by an undo. It is refused, before anything changes, while later
  * bookings depend on what it would undo (refusal()):
  *  - a created category that services were added to since, a created
- *    service that has been booked since, a created customer who has been
- *    booked since, a created appointment that other customers joined since;
+ *    service or employee that has been booked since, a created customer who
+ *    has been booked since, a created appointment that other customers
+ *    joined since, a created event that customers booked since;
  *  - an appointment whose saved time and status would overlap another
  *    approved or pending appointment of the same employee booked since
- *    (an undone cancel or reschedule would double-book the slot).
+ *    (an undone cancel or reschedule would double-book the slot);
+ *  - a deleted customer or employee whose email another Amelia user has
+ *    taken since.
  *
  * Restoring takes Amelia's own write capability for what the kind covers
- * (amelia_write_services, amelia_write_customers,
- * amelia_write_appointments), which Amelia grants administrators.
+ * (amelia_write_services, amelia_write_customers, amelia_write_employees,
+ * amelia_write_appointments, amelia_write_events), which Amelia grants
+ * administrators.
  */
 final class Amelia_Rows_Snapshot
 {
     public const TYPE = 'amelia_rows';
 
     /**
-     * kind => [capability, sets, dependents]. Each set is [table, key
-     * column] or [table, key column, via table, via column] for rows keyed
-     * on a child of the primary row (payments of the appointment's
-     * bookings). The first set is the primary row. Dependents are [table,
-     * column] holding rows that point at a created primary row.
+     * A set is [table, key column] or [table, key column, hops, filter].
+     * Hops reach rows keyed on a child of the object, innermost last: each
+     * is [table, selected column, column matched], so [['providers_to_weekdays',
+     * 'id', 'userId']] means "weekDayId IN (SELECT id FROM weekdays WHERE
+     * userId = <id>)". The filter is [column => fixed value]. 'orphans' =>
+     * true stands for every appointment without a booking, captured by id.
+     */
+    private const ORPHANS = [ 'appointments', 'id', 'orphans' => true ];
+
+    private const WEEKDAYS = [ [ 'providers_to_weekdays', 'id', 'userId' ] ];
+
+    private const SPECIAL_DAYS = [ [ 'providers_to_specialdays', 'id', 'userId' ] ];
+
+    private const EMPLOYEE_SETS = [
+        [ 'users', 'id' ],
+        [ 'providers_to_services', 'userId' ],
+        [ 'providers_to_locations', 'userId' ],
+        [ 'providers_to_weekdays', 'userId' ],
+        [ 'providers_to_timeouts', 'weekDayId', self::WEEKDAYS ],
+        [ 'providers_to_periods', 'weekDayId', self::WEEKDAYS ],
+        [ 'providers_to_periods_services', 'periodId', [ [ 'providers_to_periods', 'id', 'weekDayId' ], ...self::WEEKDAYS ] ],
+        [ 'providers_to_periods_location', 'periodId', [ [ 'providers_to_periods', 'id', 'weekDayId' ], ...self::WEEKDAYS ] ],
+        [ 'providers_to_daysoff', 'userId' ],
+        [ 'providers_to_specialdays', 'userId' ],
+        [ 'providers_to_specialdays_periods', 'specialDayId', self::SPECIAL_DAYS ],
+        [ 'providers_to_specialdays_periods_services', 'periodId', [ [ 'providers_to_specialdays_periods', 'id', 'specialDayId' ], ...self::SPECIAL_DAYS ] ],
+        [ 'providers_to_specialdays_periods_location', 'periodId', [ [ 'providers_to_specialdays_periods', 'id', 'specialDayId' ], ...self::SPECIAL_DAYS ] ],
+    ];
+
+    private const EVENT_BOOKINGS = [ [ 'customer_bookings_to_events_periods', 'customerBookingId', 'eventPeriodId' ], [ 'events_periods', 'id', 'eventId' ] ];
+
+    /**
+     * kind => [capability, sets, dependents, created_only]. The first set is
+     * the primary row. Dependents are sets holding rows that point at a
+     * created primary row. A created_only kind saves no rows: its undo only
+     * removes what the write created.
      */
     private const KINDS = [
-        'amelia_category'    => [
+        'amelia_category'         => [
             'capability' => 'amelia_write_services',
-            'sets'       => [
-                [ 'categories', 'id' ],
-            ],
+            'sets'       => [ [ 'categories', 'id' ] ],
             'dependents' => [ [ 'services', 'categoryId' ] ],
         ],
-        'amelia_service'     => [
+        'amelia_service'          => [
             'capability' => 'amelia_write_services',
-            'sets'       => [
-                [ 'services', 'id' ],
-                [ 'providers_to_services', 'serviceId' ],
-            ],
+            'sets'       => [ [ 'services', 'id' ], [ 'providers_to_services', 'serviceId' ] ],
             'dependents' => [ [ 'appointments', 'serviceId' ] ],
         ],
-        'amelia_customer'    => [
+        'amelia_service_removal'  => [
+            'capability' => 'amelia_write_services',
+            'sets'       => [ [ 'services', 'id' ], [ 'providers_to_services', 'serviceId' ], [ 'services_views', 'serviceId' ], [ 'galleries', 'entityId', [], [ 'entityType' => 'service' ] ] ],
+            'dependents' => [],
+        ],
+        'amelia_customer'         => [
             'capability' => 'amelia_write_customers',
-            'sets'       => [
-                [ 'users', 'id' ],
-            ],
+            'sets'       => [ [ 'users', 'id' ] ],
             'dependents' => [ [ 'customer_bookings', 'customerId' ] ],
         ],
-        'amelia_appointment' => [
+        'amelia_customer_removal' => [
+            'capability' => 'amelia_write_customers',
+            'sets'       => [ [ 'users', 'id' ], self::ORPHANS ],
+            'dependents' => [],
+        ],
+        'amelia_employee'         => [
+            'capability' => 'amelia_write_employees',
+            'sets'       => self::EMPLOYEE_SETS,
+            'dependents' => [ [ 'appointments', 'providerId' ], [ 'events_to_providers', 'userId' ] ],
+        ],
+        'amelia_employee_removal' => [
+            'capability' => 'amelia_write_employees',
+            'sets'       => [ ...self::EMPLOYEE_SETS, [ 'providers_views', 'userId' ], self::ORPHANS ],
+            'dependents' => [],
+        ],
+        'amelia_appointment'      => [
             'capability' => 'amelia_write_appointments',
             'sets'       => [
                 [ 'appointments', 'id' ],
                 [ 'customer_bookings', 'appointmentId' ],
-                [ 'payments', 'customerBookingId', 'customer_bookings', 'appointmentId' ],
+                [ 'payments', 'customerBookingId', [ [ 'customer_bookings', 'id', 'appointmentId' ] ] ],
             ],
             'dependents' => [ [ 'customer_bookings', 'appointmentId' ] ],
+        ],
+        'amelia_event'            => [
+            'capability' => 'amelia_write_events',
+            'sets'       => [ [ 'events', 'id' ], [ 'events_periods', 'eventId' ], [ 'events_tags', 'eventId' ], [ 'events_to_providers', 'eventId' ], [ 'events_to_tickets', 'eventId' ] ],
+            'dependents' => [ [ 'customer_bookings_to_events_periods', 'eventPeriodId', [ [ 'events_periods', 'id', 'eventId' ] ] ] ],
+        ],
+        'amelia_event_booking'    => [
+            'capability'   => 'amelia_write_events',
+            'created_only' => true,
+            'sets'         => [
+                [ 'customer_bookings', 'id', self::EVENT_BOOKINGS ],
+                [ 'customer_bookings_to_events_periods', 'eventPeriodId', [ [ 'events_periods', 'id', 'eventId' ] ] ],
+                [ 'customer_bookings_to_events_tickets', 'customerBookingId', self::EVENT_BOOKINGS ],
+                [ 'payments', 'customerBookingId', self::EVENT_BOOKINGS ],
+            ],
+            'dependents'   => [],
         ],
     ];
 
@@ -147,11 +228,12 @@ final class Amelia_Rows_Snapshot
     {
         $parsed = self::parse($key);
         $kind   = isset(self::KINDS[ $parsed['kind'] ]) ? $parsed['kind'] : '';
-        $sets   = '' === $kind ? [] : self::sets($kind, $parsed['id']);
+        $sets   = '' === $kind ? [] : self::sets($kind, $parsed['id'], true);
         $exists = [] !== $sets && self::tables_exist(...self::kind_tables($kind));
+        $saves  = '' !== $kind && empty(self::KINDS[ $kind ]['created_only']);
 
         foreach ($sets as $i => $set) {
-            $sets[ $i ]['rows'] = $exists && $parsed['id'] > 0 ? self::rows($set) : [];
+            $sets[ $i ]['rows'] = $exists && $saves && $parsed['id'] > 0 ? self::rows($set) : [];
         }
 
         return [
@@ -210,7 +292,8 @@ final class Amelia_Rows_Snapshot
     {
         $row  = Snapshot_Store::get_by_operation($operation_id);
         $data = (array) ($row['snapshot']['data'] ?? []);
-        if (null === $row || ! isset(self::KINDS[ (string) ($data['kind'] ?? '') ]) || empty($data['tables_exist'])) {
+        $kind = (string) ($data['kind'] ?? '');
+        if (null === $row || ! isset(self::KINDS[ $kind ]) || empty($data['tables_exist'])) {
             return true;
         }
         foreach ((array) ($data['created_rows'] ?? []) as $ids) {
@@ -218,7 +301,7 @@ final class Amelia_Rows_Snapshot
                 return false;
             }
         }
-        if ((int) ($data['id'] ?? 0) <= 0) {
+        if ((int) ($data['id'] ?? 0) <= 0 || ! empty(self::KINDS[ $kind ]['created_only'])) {
             return true;
         }
         foreach ((array) ($data['sets'] ?? []) as $set) {
@@ -233,7 +316,8 @@ final class Amelia_Rows_Snapshot
 
     /**
      * Why restoring this snapshot is refused, or null when it may go ahead:
-     * later bookings depend on what it would undo.
+     * later bookings depend on what it would undo, or a row it would put
+     * back has lost its email to another Amelia user.
      */
     public static function refusal(array $snapshot): ?string
     {
@@ -249,11 +333,12 @@ final class Amelia_Rows_Snapshot
         $created = (array) ($data['created_rows'] ?? []);
         $primary = (string) self::KINDS[ $kind ]['sets'][0][0];
 
-        if (in_array($id, array_map('intval', (array) ($created[ $primary ] ?? [])), true)) {
-            foreach (self::KINDS[ $kind ]['dependents'] as [$table, $column]) {
-                $known   = array_map('intval', (array) ($created[ $table ] ?? []));
+        if (empty(self::KINDS[ $kind ]['created_only']) && in_array($id, array_map('intval', (array) ($created[ $primary ] ?? [])), true)) {
+            foreach (self::KINDS[ $kind ]['dependents'] as $spec) {
+                $set     = self::set_of($spec, $id);
+                $known   = array_map('intval', (array) ($created[ $set['table'] ] ?? []));
                 $foreign = array_filter(
-                    self::rows([ 'table' => $table, 'column' => $column, 'id' => $id ]),
+                    self::rows($set),
                     static fn (array $row): bool => ! in_array((int) $row['id'], $known, true)
                 );
                 if ([] !== $foreign) {
@@ -261,12 +346,17 @@ final class Amelia_Rows_Snapshot
                         'Undo refused: the %s this operation created now has %d later %s row(s) depending on it (%s). Cancel or move those first.',
                         str_replace('amelia_', '', $kind),
                         count($foreign),
-                        str_replace('_', ' ', $table),
+                        str_replace('_', ' ', $set['table']),
                         implode(', ', array_map(static fn (array $row): string => '#' . $row['id'], array_slice(array_values($foreign), 0, 10)))
                     );
                 }
             }
             return null;
+        }
+
+        $taken = self::email_taken((array) ($data['sets'] ?? []));
+        if (null !== $taken) {
+            return $taken;
         }
 
         if ('amelia_appointment' === $kind) {
@@ -345,20 +435,46 @@ final class Amelia_Rows_Snapshot
     // Internals
     // -----------------------------------------------------------------
 
+    /** @return array<int, array<int|string, mixed>> every set and dependent spec of every kind. */
+    private static function specs(): array
+    {
+        $specs = [];
+        foreach (self::KINDS as $kind) {
+            array_push($specs, ...$kind['sets'], ...$kind['dependents']);
+        }
+        return $specs;
+    }
+
+    /** @return string[] the tables one spec reads, its own first. */
+    private static function spec_tables(array $spec): array
+    {
+        $names = [ (string) $spec[0] ];
+        foreach ((array) ($spec[2] ?? []) as $hop) {
+            $names[] = (string) $hop[0];
+        }
+        return $names;
+    }
+
     /** @return string[] every table any kind covers, unprefixed. */
     private static function table_names(): array
     {
         $names = [];
-        foreach (self::KINDS as $kind) {
-            foreach ($kind['sets'] as $set) {
-                $names[] = $set[0];
-                if (isset($set[2])) {
-                    $names[] = $set[2];
-                }
+        foreach (self::specs() as $spec) {
+            array_push($names, ...self::spec_tables($spec));
+        }
+        return array_values(array_unique($names));
+    }
+
+    /** @return string[] every column a spec may name. */
+    private static function column_names(): array
+    {
+        $names = [];
+        foreach (self::specs() as $spec) {
+            $names[] = (string) $spec[1];
+            foreach ((array) ($spec[2] ?? []) as $hop) {
+                array_push($names, (string) $hop[1], (string) $hop[2]);
             }
-            foreach ($kind['dependents'] as $dependent) {
-                $names[] = $dependent[0];
-            }
+            array_push($names, ...array_map('strval', array_keys((array) ($spec[3] ?? []))));
         }
         return array_values(array_unique($names));
     }
@@ -367,31 +483,80 @@ final class Amelia_Rows_Snapshot
     private static function kind_tables(string $kind): array
     {
         $names = [];
-        foreach (self::KINDS[ $kind ]['sets'] as $set) {
-            $names[] = $set[0];
-        }
-        foreach (self::KINDS[ $kind ]['dependents'] as $dependent) {
-            $names[] = $dependent[0];
+        foreach (array_merge(self::KINDS[ $kind ]['sets'], self::KINDS[ $kind ]['dependents']) as $spec) {
+            array_push($names, ...self::spec_tables($spec));
         }
         return array_values(array_unique($names));
     }
 
     /**
-     * A kind's sets for one id.
+     * One spec as a set for an id.
      *
-     * @return array<int, array{table: string, column: string, id: int, via?: array{0: string, 1: string}}>
+     * @return array{table: string, column: string, id: int, hops?: array, where?: array, ids?: int[]}
      */
-    private static function sets(string $kind, int $id): array
+    private static function set_of(array $spec, int $id, bool $capture = false): array
     {
-        $out = [];
-        foreach (self::KINDS[ $kind ]['sets'] as $set) {
-            $entry = [ 'table' => $set[0], 'column' => $set[1], 'id' => $id ];
-            if (isset($set[2])) {
-                $entry['via'] = [ $set[2], $set[3] ];
-            }
-            $out[] = $entry;
+        $set = [ 'table' => (string) $spec[0], 'column' => (string) $spec[1], 'id' => $id ];
+        if (! empty($spec[2])) {
+            $set['hops'] = (array) $spec[2];
         }
-        return $out;
+        if (! empty($spec[3])) {
+            $set['where'] = (array) $spec[3];
+        }
+        if (! empty($spec['orphans'])) {
+            $set['ids'] = $capture ? self::orphan_ids() : [];
+        }
+        return $set;
+    }
+
+    /**
+     * A kind's sets for one id. $capture also notes which appointments
+     * are without a booking right now (an Amelia user delete removes them).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private static function sets(string $kind, int $id, bool $capture = false): array
+    {
+        return array_map(static fn (array $spec): array => self::set_of($spec, $id, $capture), self::KINDS[ $kind ]['sets']);
+    }
+
+    /** @return int[] every appointment with no customer booking. */
+    private static function orphan_ids(): array
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Amelia's own tables, read live before a delete.
+        $ids = $wpdb->get_col($wpdb->prepare('SELECT a.id FROM %i a WHERE NOT EXISTS (SELECT 1 FROM %i cb WHERE cb.appointmentId = a.id) ORDER BY a.id ASC', self::table('appointments'), self::table('customer_bookings')));
+        return array_map('intval', (array) $ids);
+    }
+
+    /**
+     * A refusal when a users row the restore would insert again has lost
+     * its email to another Amelia user since, or null.
+     */
+    private static function email_taken(array $sets): ?string
+    {
+        global $wpdb;
+
+        foreach ($sets as $set) {
+            $set = (array) $set;
+            if ('users' !== ($set['table'] ?? '')) {
+                continue;
+            }
+            foreach ((array) ($set['rows'] ?? []) as $row) {
+                $row   = (array) $row;
+                $email = (string) ($row['email'] ?? '');
+                if ('' === $email || [] !== self::rows_by_id('users', [ (int) $row['id'] ])) {
+                    continue;
+                }
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Amelia's own table, read live before an undo.
+                $other = (int) $wpdb->get_var($wpdb->prepare('SELECT id FROM %i WHERE email = %s AND id <> %d LIMIT 1', self::table('users'), $email, (int) $row['id']));
+                if ($other > 0) {
+                    return sprintf('Undo refused: %s now belongs to Amelia user #%d, so #%d cannot be put back. Change or remove that user\'s email first.', $email, $other, (int) $row['id']);
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -428,8 +593,8 @@ final class Amelia_Rows_Snapshot
         global $wpdb;
 
         $marks = [];
-        foreach (self::KINDS[ $kind ]['sets'] as $set) {
-            $name = (string) $set[0];
+        foreach (self::KINDS[ $kind ]['sets'] as $spec) {
+            $name = (string) $spec[0];
             if (! isset($marks[ $name ])) {
                 // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Amelia's own table, read live around a write.
                 $marks[ $name ] = (int) $wpdb->get_var($wpdb->prepare('SELECT COALESCE(MAX(id), 0) FROM %i', self::table($name)));
@@ -454,16 +619,17 @@ final class Amelia_Rows_Snapshot
         $data     = (array) ($snapshot['data'] ?? []);
 
         if ((int) ($data['id'] ?? 0) !== $id) {
-            $sets = self::sets($kind, $id);
+            $sets  = self::sets($kind, $id);
+            $saves = empty(self::KINDS[ $kind ]['created_only']);
             foreach ($sets as $i => $set) {
                 // An existing row the write merged into (a booking added to
                 // an appointment already at that time) is saved as it is
                 // now, less what the write created, which the restore
                 // removes.
-                $sets[ $i ]['rows'] = array_values(array_filter(
+                $sets[ $i ]['rows'] = $saves ? array_values(array_filter(
                     self::rows($set),
                     static fn (array $current): bool => (int) $current['id'] <= ($marks[ (string) $set['table'] ] ?? PHP_INT_MAX)
-                ));
+                )) : [];
             }
             $data['id']            = $id;
             $data['sets']          = $sets;
@@ -491,7 +657,8 @@ final class Amelia_Rows_Snapshot
     }
 
     /**
-     * The rows one set matches, oldest id first, read live.
+     * The rows one set matches, oldest id first, read live. A set saved by
+     * an earlier release names its one hop as 'via' => [table, column].
      *
      * @param array<string, mixed> $set
      * @return array<int, array<string, string|null>>
@@ -500,23 +667,40 @@ final class Amelia_Rows_Snapshot
     {
         global $wpdb;
 
-        $column = (string) ($set['column'] ?? '');
-        if (! in_array($column, [ 'id', 'serviceId', 'categoryId', 'customerId', 'appointmentId', 'customerBookingId' ], true)) {
-            throw new \InvalidArgumentException('Not an Amelia key column.');
+        $columns = self::column_names();
+        $column  = (string) ($set['column'] ?? '');
+        $table   = self::table((string) $set['table']);
+        $hops    = (array) ($set['hops'] ?? []);
+        if (isset($set['via']) && is_string(((array) $set['via'])[0] ?? null)) {
+            $hops = [ [ (string) $set['via'][0], 'id', (string) $set['via'][1] ] ];
         }
-        $table = self::table((string) $set['table']);
-        $id    = (int) ($set['id'] ?? 0);
-        if (isset($set['via'])) {
-            [$via_table, $via_column] = array_map('strval', (array) $set['via']);
-            if ('appointmentId' !== $via_column) {
+        $check = static function (string $name) use ($columns): string {
+            if (! in_array($name, $columns, true)) {
                 throw new \InvalidArgumentException('Not an Amelia key column.');
             }
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a snapshot must read the live rows of Amelia's own tables; allowlisted tables and columns only.
-            $rows = $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE %i IN (SELECT id FROM %i WHERE %i = %d) ORDER BY id ASC', $table, $column, self::table($via_table), $via_column, $id), ARRAY_A);
-        } else {
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a snapshot must read the live rows of Amelia's own tables; allowlisted tables and columns only.
-            $rows = $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE %i = %d ORDER BY id ASC', $table, $column, $id), ARRAY_A);
+            return $name;
+        };
+
+        if (isset($set['ids'])) {
+            return self::rows_by_id((string) $set['table'], array_map('intval', (array) $set['ids']));
         }
+
+        // column IN (SELECT a FROM t1 WHERE b IN (SELECT c FROM t2 WHERE d = id)), innermost last.
+        $sql  = 'SELECT * FROM %i WHERE %i';
+        $vars = [ $table, $check($column) ];
+        foreach ($hops as $hop) {
+            $hop   = array_map('strval', (array) $hop);
+            $sql  .= ' IN (SELECT %i FROM %i WHERE %i';
+            array_push($vars, $check($hop[1]), self::table($hop[0]), $check($hop[2]));
+        }
+        $sql   .= ' = %d' . str_repeat(')', count($hops));
+        $vars[] = (int) ($set['id'] ?? 0);
+        foreach ((array) ($set['where'] ?? []) as $name => $value) {
+            $sql .= ' AND %i = %s';
+            array_push($vars, $check((string) $name), (string) $value);
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- a snapshot must read the live rows of Amelia's own tables; $sql holds only placeholders, and every table and column is allowlisted.
+        $rows = $wpdb->get_results($wpdb->prepare($sql . ' ORDER BY id ASC', ...$vars), ARRAY_A);
         if (! is_array($rows)) {
             throw new Mutation_Failed('Could not read the Amelia rows of ' . esc_html((string) $set['table']) . '.');
         }
