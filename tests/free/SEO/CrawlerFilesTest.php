@@ -57,11 +57,30 @@ class CrawlerFilesTest extends \WP_UnitTestCase
         parent::tearDown();
     }
 
+    /**
+     * robots.txt as core serves it. do_robots() sends a Content-Type header
+     * first; WordPress 6.9 calls header() unconditionally and the test
+     * bootstrap has already printed output, so PHP warns "headers already
+     * sent" (7.1 checks headers_sent() first). Only that one warning is
+     * ignored here; anything else still reaches PHPUnit (issue #488).
+     */
     private function robots(): string
     {
+        $previous = null;
+        $previous = set_error_handler(static function (int $errno, string $errstr, string $file = '', int $line = 0) use (&$previous): bool {
+            if (E_WARNING === $errno && str_starts_with($errstr, 'Cannot modify header information')) {
+                return true;
+            }
+            return is_callable($previous) ? (bool) $previous($errno, $errstr, $file, $line) : false;
+        });
         ob_start();
-        do_robots();
-        return (string) ob_get_clean();
+        try {
+            do_robots();
+        } finally {
+            $output = (string) ob_get_clean();
+            restore_error_handler();
+        }
+        return $output;
     }
 
     /** @return string[] the core sitemap index entries, as URLs. */
