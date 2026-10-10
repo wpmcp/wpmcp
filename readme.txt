@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.141
+Stable tag: 0.8.144
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -52,6 +52,8 @@ WP MCP Pro adds deep Elementor editing and building, custom widget/block builder
 = Privacy =
 
 The plugin collects nothing about you and sends nothing to us. Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing on the schedule ever makes a network request, and neither does activation. Every host it can reach is listed under "External services" below, and each request happens only while you or your agent are running the ability that needs it, with two exceptions: once you have connected WP MCP Cloud, the announcements feed checks it for notices when an administrator opens a WP MCP screen (see the WP MCP Cloud entry below), and with OAuth switched on, an MCP client that signs in with a client metadata document has that document fetched from the client's own URL (see the MCP client metadata documents entry below). Licensing (Freemius) and WP MCP Cloud sync are opt-in and inactive until you connect them. On activation Freemius shows its stock opt-in screen, which defaults to off and carries a Skip link. Skip or decline it and no connection is made, no licence data is exchanged, and the plugin keeps working; the one path that can still reach Freemius afterwards is the optional deactivation feedback form on the Plugins screen: if you submit it, the reason you enter is stored locally and sent to Freemius when the plugin is deleted, and if you untick "anonymous feedback" on that form your display name and email are sent as well. The api.freemius.com entry below spells this out.
+
+WP MCP keeps copies of site data it needs to work: undo snapshots of what an agent changed (which can include users, comments, orders and form entries), the request and governance audit logs, agent memory and the content search index, plus your chat conversations with Pro. All of it stays on your site, and all of it takes part in WordPress's own personal data tools: Tools > Export Personal Data lists a person's records from each store, and Tools > Erase Personal Data redacts them from undo snapshots (a redacted snapshot can no longer be rolled back, and says so), anonymizes them in the logs and deletes the memory and index entries that hold them and their chat conversations. WP MCP's erasure runs after your other plugins' own, so their copies in WP MCP's snapshots are covered too. Site backup archives made by WP MCP are full database copies and are left unchanged; the erasure says so when any exist.
 
 == External services ==
 
@@ -108,6 +110,20 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.144 =
+* New: limit who can manage WP MCP to chosen administrators, from the Connection screen or with WPMCP_MANAGEMENT_ADMINS in wp-config.php. By default every administrator can still manage it, so nothing changes until you set a list.
+* Administrators left off the list lose the WP MCP menu, screens and admin actions but keep the rest of wp-admin, and what agents may do is still decided by identities and governance. An invalid constant value closes management until it is fixed.
+* New WP-CLI recovery command: wp wpmcp management-access reset lets every administrator manage WP MCP again (refused while the constant is defined).
+
+= 0.8.143 =
+* WP MCP now takes part in WordPress's personal data tools: Tools > Export Personal Data lists a person's records from WP MCP's undo snapshots, activity logs, agent memory, search index and (Pro) chat, and Erase Personal Data removes them.
+* An erasure redacts the person inside undo snapshots instead of deleting them, and a redacted snapshot refuses to roll back with the reason, so erased data cannot be restored.
+* Large snapshot tables are processed in pages, and WP MCP's erasure runs after other plugins' own, so their copies in WP MCP's snapshots are covered too.
+
+= 0.8.142 =
+* Fixed: duplicate-post now keeps the password of a password-protected post on the copy, so a duplicate is protected exactly like its source.
+* Fixed: duplicate-post with include_children no longer copies a password-protected child the caller cannot edit; skipped children are listed in the response.
 
 = 0.8.141 =
 * Security: the content and store tools now follow WordPress's publishing permissions. Creating a post, page, product or coupon needs that type's create capability, and publishing, scheduling or making it private needs its publish capability, so Contributors can save drafts and submit for review but no longer publish, and Authors can no longer create pages. Editors, Administrators and Shop Managers are unaffected.
@@ -715,6 +731,15 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.144 =
+New: limit who can manage WP MCP to chosen administrators, from the Connection screen or with WPMCP_MANAGEMENT_ADMINS in wp-config.php. By default every administrator can still manage it, so nothing changes until you set a list.
+
+= 0.8.143 =
+WP MCP now takes part in WordPress's personal data tools: Tools > Export Personal Data lists a person's records from WP MCP's undo snapshots, activity logs, agent memory, search index and (Pro) chat, and Erase Personal Data removes them.
+
+= 0.8.142 =
+Fixed: duplicate-post now keeps the password of a password-protected post on the copy, so a duplicate is protected exactly like its source.
 
 = 0.8.141 =
 Security: the content and store tools now follow WordPress's publishing permissions. Creating a post, page, product or coupon needs that type's create capability, and publishing, scheduling or making it private needs its publish capability, so Contributors can save drafts and submit for review but no longer publish, and Authors can no longer create pages. Editors, Administrators and Shop Managers are unaffected.

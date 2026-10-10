@@ -17,7 +17,7 @@ class Restore_Controller
 
     public function handle(): void
     {
-        if (! current_user_can('manage_options') || ! check_ajax_referer('wpmcp_restore', 'nonce', false)) {
+        if (! current_user_can(Management_Access::CAPABILITY) || ! check_ajax_referer('wpmcp_restore', 'nonce', false)) {
             wp_send_json_error(['message' => 'Forbidden'], 403);
         }
 
