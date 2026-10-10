@@ -329,6 +329,24 @@ class OAuthDiscoveryInstallShapesTest extends \WP_UnitTestCase
         $this->assertNull($this->fetch('http://example.org/.well-known/oauth-protected-resource/shop/wp-json/wp/v2', $route));
     }
 
+    public function test_the_main_site_never_vouches_for_a_subsite_whose_home_is_on_another_host(): void
+    {
+        // A subsite stored at example.org/mapped/ whose home was moved to
+        // another host (domain mapping) has an issuer on that host. The main
+        // site of example.org must not serve that issuer at its own root: a
+        // client checking RFC 8414 3.3 would reject it, and the main site
+        // would be asserting metadata for an origin it does not own.
+        Network_Sites::set_test_sites([
+            'example.org/'        => 'http://example.org',
+            'example.org/mapped/' => 'http://mapped.example.net/mapped',
+        ]);
+        $route = static fn (string $url) => 'http://example.org';
+
+        $this->assertNull($this->fetch('http://example.org/.well-known/oauth-authorization-server/mapped', $route));
+        $this->assertNull($this->fetch('http://example.org/.well-known/openid-configuration/mapped', $route));
+        $this->assertNull($this->fetch('http://example.org/.well-known/oauth-protected-resource/mapped/wp-json/mcp/wpmcp-server', $route));
+    }
+
     public function test_path_insertion_is_not_answered_for_another_sites_path_when_oauth_is_off(): void
     {
         $route = $this->subdirectory_network();
