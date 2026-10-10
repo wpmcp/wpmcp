@@ -15,12 +15,19 @@ if (! defined('ABSPATH')) {
  * Each entry:
  *  - group:    which settings screen it belongs to (general/reading/writing/
  *              discussion/media/permalinks), used by the 'group' filter.
- *  - type:     'string'|'int'|'bool'|'enum', used both to coerce the raw
- *              option value on read and to validate/coerce a write.
+ *  - type:     'string'|'int'|'float'|'bool'|'enum', used both to coerce the
+ *              raw option value on read and to validate/coerce a write.
  *  - options:  for type 'enum' only, the allowed values.
  *  - min/max:  for type 'int' only, the range a write is clamped to.
+ *  - strict:   for type 'int' only, refuse a value outside min/max (or not a
+ *              whole number) instead of clamping it.
  *  - writable: false marks a read-only field (currently just admin_email,
  *              which needs its own confirmation flow outside these tools).
+ *
+ * The site language, timezone and date/time formats (issue #472) carry
+ * their own validation in Site_Locale: a locale must be installed or
+ * installable, a timezone must be a known identifier or a UTC offset, and a
+ * format must survive the settings screen's sanitizing unchanged.
  */
 class Settings_Registry
 {
@@ -30,6 +37,12 @@ class Settings_Registry
         'admin_email'         => ['group' => 'general', 'type' => 'string', 'writable' => false],
         'siteurl'             => ['group' => 'general', 'type' => 'string', 'writable' => false],
         'home'                => ['group' => 'general', 'type' => 'string', 'writable' => false],
+        'WPLANG'              => ['group' => 'general', 'type' => 'string', 'writable' => true],
+        'timezone_string'     => ['group' => 'general', 'type' => 'string', 'writable' => true],
+        'gmt_offset'          => ['group' => 'general', 'type' => 'float', 'writable' => true],
+        'date_format'         => ['group' => 'general', 'type' => 'string', 'writable' => true],
+        'time_format'         => ['group' => 'general', 'type' => 'string', 'writable' => true],
+        'start_of_week'       => ['group' => 'general', 'type' => 'int', 'min' => 0, 'max' => 6, 'strict' => true, 'writable' => true],
 
         'show_on_front'       => ['group' => 'reading', 'type' => 'enum', 'options' => ['posts', 'page'], 'writable' => true],
         'page_on_front'       => ['group' => 'reading', 'type' => 'int', 'min' => 0, 'max' => PHP_INT_MAX, 'writable' => true],
