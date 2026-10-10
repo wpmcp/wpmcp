@@ -31,6 +31,16 @@ if (! defined('ABSPATH')) {
  * suppressed, or has left one of the lists, is refused before it runs. A
  * delete moves the subscriber to MailPoet's trash, the way its admin
  * deletes one.
+ *
+ * Campaigns are standard newsletters, written through MailPoet's own
+ * newsletter, preview and sending queue endpoints and its newsletter save
+ * controller (\MailPoet\API\JSON\v1\Newsletters, SendingQueue,
+ * NewsletterSaveController), so its validation, its sending method and its
+ * queue and cron run. A body is the op's HTML in one text block, with
+ * MailPoet's unsubscribe footer added unless the HTML has an unsubscribe
+ * link. Automations take their status through MailPoet's
+ * UpdateAutomationController; MailPoet cancels pending runs when an active
+ * automation goes straight to draft, which an undo does not bring back.
  */
 class CRM_MailPoet extends CRM_Adapter
 {
@@ -42,8 +52,10 @@ class CRM_MailPoet extends CRM_Adapter
         'delete'        => 'mailpoet_manage_subscribers',
         'groups'        => 'mailpoet_manage_segments',
         'groups_delete' => 'mailpoet_manage_segments',
-        'campaigns'     => 'mailpoet_manage_emails',
-        'automations'   => 'mailpoet_manage_automations',
+        'campaigns'         => 'mailpoet_manage_emails',
+        'campaigns_write'   => 'mailpoet_manage_emails',
+        'automations'       => 'mailpoet_manage_automations',
+        'automations_write' => 'mailpoet_manage_automations',
     ];
 
     public function slug(): string
@@ -150,7 +162,7 @@ class CRM_MailPoet extends CRM_Adapter
                 'signup_confirmation' => $confirm,
                 'new_contact_status'  => false === $confirm ? 'subscribed' : 'unconfirmed',
             ],
-            'campaign_send' => false,
+            'campaign_send' => $this->send_enabled(),
         ];
     }
 
@@ -372,9 +384,127 @@ class CRM_MailPoet extends CRM_Adapter
                 return (int) $queued;
             }
         }
+        return $this->campaign_recipients($id);
+    }
+
+    /** How many subscribed contacts a newsletter's lists hold now, each once. */
+    protected function campaign_recipients(int $id): int
+    {
+        global $wpdb;
+
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MailPoet's own tables, read live.
-        $count = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT s.id) FROM %i ns JOIN %i ss ON ss.segment_id = ns.segment_id AND ss.status = 'subscribed' JOIN %i s ON s.id = ss.subscriber_id AND s.status = 'subscribed' AND s.deleted_at IS NULL WHERE ns.newsletter_id = %d", self::t('mailpoet_newsletter_segment'), self::t('mailpoet_subscriber_segment'), self::t('mailpoet_subscribers'), $id));
-        return $count;
+        return (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT s.id) FROM %i ns JOIN %i ss ON ss.segment_id = ns.segment_id AND ss.status = 'subscribed' JOIN %i s ON s.id = ss.subscriber_id AND s.status = 'subscribed' AND s.deleted_at IS NULL WHERE ns.newsletter_id = %d", self::t('mailpoet_newsletter_segment'), self::t('mailpoet_subscriber_segment'), self::t('mailpoet_subscribers'), $id));
+    }
+
+    protected function campaign_kind(): string
+    {
+        return 'mailpoet_newsletter';
+    }
+
+    protected function campaign_send_kind(): string
+    {
+        return 'mailpoet_newsletter_send';
+    }
+
+    protected function automation_kind(): string
+    {
+        return 'mailpoet_automation';
+    }
+
+    protected function automation_statuses(): array
+    {
+        return [ 'active', 'deactivating', 'draft' ];
+    }
+
+    protected function campaign_title_schema(): ?array
+    {
+        return null; // MailPoet names a newsletter by its subject.
+    }
+
+    public function campaign(int $id): ?array
+    {
+        global $wpdb;
+
+        if (! self::has_table(self::t('mailpoet_newsletters'))) {
+            return null;
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MailPoet's own table, read live.
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM %i WHERE id = %d AND type = 'standard' AND deleted_at IS NULL", self::t('mailpoet_newsletters'), $id), ARRAY_A);
+        if (! is_array($row)) {
+            return null;
+        }
+        return [
+            'id'           => (int) $row['id'],
+            'subject'      => (string) $row['subject'],
+            'preheader'    => (string) ($row['preheader'] ?? ''),
+            'body'         => self::body_html((string) ($row['body'] ?? '')),
+            'status'       => (string) $row['status'],
+            'lists'        => $this->campaign_lists($id),
+            'recipients'   => 'draft' === $row['status'] ? $this->campaign_recipients($id) : $this->recipients($id),
+            'scheduled_at' => $this->scheduled_at($id),
+            'sent_at'      => $row['sent_at'] ?? null,
+            'created_at'   => $row['created_at'] ?? null,
+            'updated_at'   => $row['updated_at'] ?? null,
+        ];
+    }
+
+    /** The HTML of a newsletter body's text blocks, in order. */
+    private static function body_html(string $body): string
+    {
+        $decoded = json_decode($body, true);
+        $html    = [];
+        $walk    = static function ($block) use (&$walk, &$html): void {
+            if (! is_array($block)) {
+                return;
+            }
+            if (in_array($block['type'] ?? '', [ 'text', 'footer', 'header' ], true) && isset($block['text'])) {
+                $html[] = (string) $block['text'];
+            }
+            foreach ((array) ($block['blocks'] ?? []) as $child) {
+                $walk($child);
+            }
+        };
+        $walk(is_array($decoded) ? ($decoded['content'] ?? null) : null);
+        return implode("\n", $html);
+    }
+
+    /**
+     * A newsletter body as MailPoet's editor stores it, laid out like its
+     * Simple Text template: the HTML in a text block, and MailPoet's
+     * unsubscribe footer unless the HTML already links to unsubscribing.
+     */
+    private static function newsletter_body(string $html): string
+    {
+        $blocks = [ [ 'type' => 'text', 'text' => $html ] ];
+        if (false === strpos($html, '[link:subscription_unsubscribe')) {
+            $blocks[] = [
+                'type'   => 'footer',
+                'text'   => '<p><a href="[link:subscription_unsubscribe_url]">Unsubscribe</a> | <a href="[link:subscription_manage_url]">Manage your subscription</a></p>',
+                'styles' => [
+                    'block' => [ 'backgroundColor' => 'transparent' ],
+                    'text'  => [ 'fontColor' => '#222222', 'fontFamily' => 'Arial', 'fontSize' => '12px', 'textAlign' => 'left' ],
+                    'link'  => [ 'fontColor' => '#6cb7d4', 'textDecoration' => 'none' ],
+                ],
+            ];
+        }
+        $container = static fn (string $orientation, array $children, string $background = 'transparent'): array => [
+            'type'        => 'container',
+            'orientation' => $orientation,
+            'styles'      => [ 'block' => [ 'backgroundColor' => $background ] ],
+            'blocks'      => $children,
+        ];
+        return (string) wp_json_encode([
+            'content'      => $container('vertical', [ $container('horizontal', [ $container('vertical', $blocks) ], '#ffffff') ]),
+            'globalStyles' => [
+                'text'    => [ 'fontColor' => '#000000', 'fontFamily' => 'Arial', 'fontSize' => '15px' ],
+                'h1'      => [ 'fontColor' => '#111111', 'fontFamily' => 'Trebuchet MS', 'fontSize' => '30px' ],
+                'h2'      => [ 'fontColor' => '#222222', 'fontFamily' => 'Trebuchet MS', 'fontSize' => '24px' ],
+                'h3'      => [ 'fontColor' => '#333333', 'fontFamily' => 'Trebuchet MS', 'fontSize' => '22px' ],
+                'link'    => [ 'fontColor' => '#21759B', 'textDecoration' => 'underline' ],
+                'wrapper' => [ 'backgroundColor' => '#ffffff' ],
+                'body'    => [ 'backgroundColor' => '#ffffff' ],
+            ],
+        ]);
     }
 
     /** @return int[] the lists a campaign goes to */
@@ -502,5 +632,105 @@ class CRM_MailPoet extends CRM_Adapter
     protected function api_delete_group(string $kind, int $id): void
     {
         self::api(static fn ($mp) => 'list' === $kind ? $mp->deleteList((string) $id) : $mp->deleteTag((string) $id));
+    }
+
+    /**
+     * Call one of MailPoet's JSON API endpoints the way its admin does,
+     * turning its error response into the op's error.
+     *
+     * @param class-string         $endpoint
+     * @param array<string, mixed> $data
+     * @return array<string, mixed> the response's data
+     */
+    private static function endpoint(string $endpoint, string $method, array $data): array
+    {
+        \WPMCP\Safety\Crm_Rows_Snapshot::flush('mailpoet');
+        try {
+            $response = \MailPoet\DI\ContainerWrapper::getInstance()->get($endpoint)->$method($data);
+        } catch (\Throwable $e) {
+            throw new Operation_Error('mailpoet_refused', 'MailPoet refused: ' . $e->getMessage());
+        } finally {
+            \WPMCP\Safety\Crm_Rows_Snapshot::flush('mailpoet');
+        }
+        $body = (array) $response->getData();
+        if ($response instanceof \MailPoet\API\JSON\ErrorResponse) {
+            $messages = array_filter(array_map(static fn ($error): string => (string) (is_array($error) ? ($error['message'] ?? '') : $error), (array) ($body['errors'] ?? [])));
+            throw new Operation_Error('mailpoet_refused', 'MailPoet refused: ' . ([] === $messages ? 'the request failed.' : implode(' ', $messages)));
+        }
+        return (array) ($body['data'] ?? []);
+    }
+
+    /** @return array<string, mixed> Newsletters::save() data for the fields an op named */
+    private static function newsletter_data(array $fields): array
+    {
+        $data = [];
+        foreach ([ 'subject', 'preheader' ] as $field) {
+            if (isset($fields[ $field ])) {
+                $data[ $field ] = (string) $fields[ $field ];
+            }
+        }
+        if (isset($fields['body'])) {
+            $data['body'] = self::newsletter_body((string) $fields['body']);
+        }
+        if (isset($fields['lists'])) {
+            $data['segments'] = array_map(static fn (int $list): array => [ 'id' => $list ], (array) $fields['lists']);
+        }
+        return $data;
+    }
+
+    protected function api_create_campaign(array $fields): int
+    {
+        $saved = self::endpoint(\MailPoet\API\JSON\v1\Newsletters::class, 'save', [ 'type' => 'standard', 'preheader' => '' ] + self::newsletter_data($fields));
+        return (int) ($saved['id'] ?? 0);
+    }
+
+    protected function api_update_campaign(int $id, array $fields): void
+    {
+        self::endpoint(\MailPoet\API\JSON\v1\Newsletters::class, 'save', [ 'id' => $id ] + self::newsletter_data($fields));
+    }
+
+    protected function api_duplicate_campaign(int $id): int
+    {
+        self::flush_mailpoet();
+        try {
+            $container = \MailPoet\DI\ContainerWrapper::getInstance();
+            $original  = $container->get(\MailPoet\Newsletter\NewslettersRepository::class)->findOneById($id);
+            if (null === $original) {
+                throw new Operation_Error('campaign_not_found', sprintf('MailPoet newsletter %d does not exist.', $id));
+            }
+            return (int) $container->get(\MailPoet\Newsletter\NewsletterSaveController::class)->duplicate($original)->getId();
+        } catch (Operation_Error $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            throw new Operation_Error('mailpoet_refused', 'MailPoet refused: ' . $e->getMessage());
+        } finally {
+            self::flush_mailpoet();
+        }
+    }
+
+    private static function flush_mailpoet(): void
+    {
+        \WPMCP\Safety\Crm_Rows_Snapshot::flush('mailpoet');
+    }
+
+    protected function api_send_test(int $id, string $email): void
+    {
+        self::endpoint(\MailPoet\API\JSON\v1\Newsletters::class, 'sendPreview', [ 'id' => $id, 'subscriber' => $email ]);
+    }
+
+    protected function api_send_campaign(int $id, ?string $at): void
+    {
+        // MailPoet reads a schedule from the newsletter's options, then queues it.
+        self::endpoint(\MailPoet\API\JSON\v1\Newsletters::class, 'save', [ 'id' => $id, 'options' => [ 'isScheduled' => null === $at ? '0' : '1', 'scheduledAt' => (string) $at ] ]);
+        self::endpoint(\MailPoet\API\JSON\v1\SendingQueue::class, 'add', [ 'newsletter_id' => $id ]);
+    }
+
+    protected function api_set_automation_status(int $id, string $status): void
+    {
+        try {
+            \MailPoet\DI\ContainerWrapper::getInstance()->get(\MailPoet\Automation\Engine\Builder\UpdateAutomationController::class)->updateAutomation($id, [ 'status' => $status ]);
+        } catch (\Throwable $e) {
+            throw new Operation_Error('mailpoet_refused', 'MailPoet refused: ' . $e->getMessage());
+        }
     }
 }

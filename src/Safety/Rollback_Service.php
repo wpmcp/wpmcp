@@ -94,6 +94,13 @@ class Rollback_Service
             self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
             return false;
         }
+        // Mail a CRM write sent cannot be unsent, and a campaign sent since
+        // its draft was edited is not edited back (issue #477).
+        $refused = Crm_Rows_Snapshot::refusal((array) $row['snapshot']);
+        if (null !== $refused) {
+            self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
+            return false;
+        }
         // Undoing an Amelia write that later bookings depend on (issue #499).
         $refused = Amelia_Rows_Snapshot::refusal((array) $row['snapshot']);
         if (null !== $refused) {
@@ -268,7 +275,7 @@ class Rollback_Service
         if ('crm_rows' === $type) {
             $kind = (string) ($snapshot['data']['kind'] ?? '');
             if ('mailpoet' === Crm_Rows_Snapshot::plugin($kind)) {
-                return [ [ 'mailpoet_subscriber' === $kind ? 'mailpoet_manage_subscribers' : 'mailpoet_manage_segments' ] ];
+                return [ [ Crm_Rows_Snapshot::mailpoet_capability($kind) ] ];
             }
             return [ [ 'edit_posts' ] ];
         }
@@ -483,6 +490,14 @@ class Rollback_Service
             // group holds rows the create did not make (issue #489).
             if ('buddypress_rows' === $snapshot['object_type']) {
                 $refused = BuddyPress_Rows_Snapshot::refusal($snapshot);
+                if (null !== $refused) {
+                    self::warn(sprintf('snapshot %s skipped: %s', self::object_identity($snapshot), $refused));
+                    continue;
+                }
+            }
+            // A CRM send is skipped, not counted: mail cannot be unsent.
+            if ('crm_rows' === $snapshot['object_type']) {
+                $refused = Crm_Rows_Snapshot::refusal($snapshot);
                 if (null !== $refused) {
                     self::warn(sprintf('snapshot %s skipped: %s', self::object_identity($snapshot), $refused));
                     continue;
