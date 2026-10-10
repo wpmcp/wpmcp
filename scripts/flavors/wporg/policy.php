@@ -172,6 +172,9 @@ return [
         // FunnelKit funnel and step reads (issue #356), paid-tier. strip.php
         // takes out the line in Theme_Integration that merges them.
         'src/Integrations/FunnelKit_Pack.php',
+        // And its funnel, step and checkout product writes (issue #500),
+        // merged only by FunnelKit_Pack.
+        'src/Integrations/FunnelKit_Writes.php',
         // LMS course structure and enrollments (issue #394), paid-tier.
         // strip.php takes out the lines in Plugin_Data_Integration that merge
         // the ops, count the pack towards availability and name it in the
