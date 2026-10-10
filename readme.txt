@@ -112,6 +112,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 == Changelog ==
 
 = 0.8.145 =
+* Fix: on WordPress 6.9, administrators without the unfiltered_html capability (multisite site admins, or sites that disallow unfiltered HTML) can save global styles again; palette changes were refused and rolled back whenever the styles contained a "/".
+
+= 0.8.145 =
 * New opt-in setting on the Connection screen, "Delete all WP MCP data when the plugin is deleted" (or define WPMCP_UNINSTALL_DELETE_DATA in wp-config.php): deleting the plugin then also removes its tables, settings, credentials and backup archives on every site. Off by default, so your data is kept.
 * Turning it on also revokes the application passwords WP MCP issued.
 
@@ -735,6 +738,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.145 =
+Fix: on WordPress 6.9, administrators without the unfiltered_html capability (multisite site admins, or sites that disallow unfiltered HTML) can save global styles again; palette changes were refused and rolled back whenever the styles contained a "/".
 
 = 0.8.145 =
 New opt-in setting on the Connection screen, "Delete all WP MCP data when the plugin is deleted" (or define WPMCP_UNINSTALL_DELETE_DATA in wp-config.php): deleting the plugin then also removes its tables, settings, credentials and backup archives on every site. Off by default, so your data is kept.
