@@ -11,7 +11,8 @@
 # BuddyPress only (bin/test-local.sh --live-buddypress), or, with
 # WPMCP_LIVE_TABLEPRESS=1, TablePress only (bin/test-local.sh --live-tablepress), or,
 # with WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
-# --live-crm). The script
+# --live-crm), or, with WPMCP_LIVE_AMELIA=1, Amelia Lite only
+# (bin/test-local.sh --live-amelia). The script
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
 #
@@ -120,6 +121,17 @@ if [ "${WPMCP_LIVE_CRM:-}" = "1" ]; then
 	PLUGINS=(
 		"fluent-crm:fluent-crm.php"
 		"mailpoet:mailpoet.php"
+	)
+fi
+
+# The live Amelia job (issue #499) runs the Amelia ops through the real
+# Amelia Lite, so its own command handlers, slot checks and notifications run.
+# Only the free Lite edition is on wordpress.org; the paid editions are not
+# tested. Exclusive too: the stub-backed Amelia tests build its tables from a
+# fixture and fake its presence.
+if [ "${WPMCP_LIVE_AMELIA:-}" = "1" ]; then
+	PLUGINS=(
+		"ameliabooking:ameliabooking.php"
 	)
 fi
 

@@ -128,6 +128,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'mailpoet/mailpoet.php' );
     }
 
+    // The live Amelia job (issue #499, WPMCP_LIVE_AMELIA=1) runs the Amelia
+    // ops through the real Amelia Lite. Loaded only on request: the
+    // stub-backed Amelia tests build its tables from a fixture and fake its
+    // presence.
+    if ( getenv( 'WPMCP_LIVE_AMELIA' ) ) {
+        wpmcp_maybe_require_plugin( 'ameliabooking/ameliabooking.php' );
+    }
+
     // The live LMS jobs (issue #394, WPMCP_LIVE_LMS=tutor or lifterlms) run
     // the LMS ops through the real Tutor LMS or LifterLMS, one per install.
     // Loaded only on request: the stub-backed LMS tests register the plugins'
@@ -210,6 +218,18 @@ tests_add_filter( 'init', function () {
         \MailPoet\DI\ContainerWrapper::getInstance()->get( \MailPoet\Config\Activator::class )->activate();
     }
 }, 20 );
+
+// The live Amelia job's tables, roles and settings, built by Amelia's own
+// activation routines once per run, before any test transaction starts. A
+// no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_AMELIA' ) && class_exists( '\\AmeliaBooking\\Plugin' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        \AmeliaBooking\Plugin::activation( false );
+        \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationRolesHook::init();
+        \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationSettingsHook::init();
+    }
+}, 1 );
 
 // Recreate the wpmcp snapshots table once per run, BEFORE any test
 // transaction starts. The table is otherwise created lazily by
