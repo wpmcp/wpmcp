@@ -1118,7 +1118,7 @@ $plugin_edits[] = [
 $plugin_edits[] = [
     "        // In-admin AI chat (issue #73): the chat drives the same governed\n"
         . "        // ability surface as external MCP clients under the admin's own\n"
-        . "        // identity, so viewing the screen is manage_options like the rest.\n"
+        . "        // identity, so viewing the screen needs the management capability.\n"
         . "        // The entry appears only where the feature can actually run: no dead\n"
         . "        // menu item and no locked screen on installs without it.\n"
         . "        if (Gate::is_pro()) {\n"
@@ -1126,7 +1126,7 @@ $plugin_edits[] = [
         . "                'wpmcp',\n"
         . "                self::page_title(__('Chat', 'wpmcp')),\n"
         . "                __('Chat', 'wpmcp'),\n"
-        . "                'manage_options',\n"
+        . "                Management_Access::CAPABILITY,\n"
         . "                Chat_Page::SLUG,\n"
         . "                [new Chat_Page(), 'render']\n"
         . "            );\n"

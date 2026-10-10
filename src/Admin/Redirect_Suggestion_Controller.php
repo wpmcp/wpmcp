@@ -20,7 +20,7 @@ if (! defined('ABSPATH')) {
  * ordinary, rollback-able create-redirect. There is deliberately no second
  * code path that can produce a redirect.
  *
- * Gated at manage_options with a nonce, matching Restore_Controller: creating
+ * Gated at the management capability with a nonce, matching Restore_Controller: creating
  * a redirect changes site-wide routing.
  */
 class Redirect_Suggestion_Controller
@@ -63,7 +63,7 @@ class Redirect_Suggestion_Controller
 
     public function handle(): void
     {
-        if (! current_user_can('manage_options') || ! check_ajax_referer(self::NONCE, 'nonce', false)) {
+        if (! current_user_can(Management_Access::CAPABILITY) || ! check_ajax_referer(self::NONCE, 'nonce', false)) {
             wp_send_json_error(['message' => 'Forbidden'], 403);
         }
 

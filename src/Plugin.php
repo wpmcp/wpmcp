@@ -14,6 +14,7 @@ if (! defined('ABSPATH')) {
 }
 
 use WPMCP\Admin\Audit_Log_Page;
+use WPMCP\Admin\Management_Access;
 use WPMCP\Admin\History_Page;
 use WPMCP\Admin\Restore_Controller;
 use WPMCP\Maintenance\Maintenance_Guard;
@@ -733,10 +734,15 @@ final class Plugin
                 add_action('wp_abilities_api_categories_init', [$this, 'register_ability_category']);
             }
             $this->register_builder_runtime_hooks();
+            // Who may manage WP MCP (issue #479): every screen, admin-post and
+            // AJAX handler, admin REST route and options.php group checks
+            // Management_Access::CAPABILITY. Handlers are registered through
+            // Management_Access::add_handler(), which refuses before they run.
+            Management_Access::register();
             add_action('admin_menu', [$this, 'register_admin_menu']);
-            add_action('wp_ajax_wpmcp_restore', [new Restore_Controller(), 'handle']);
+            Management_Access::add_handler('wp_ajax_wpmcp_restore', [new Restore_Controller(), 'handle']);
             // Redacted CSV export of the filtered request log (issue #303).
-            add_action('admin_post_' . Audit_Log_Page::EXPORT_ACTION, [new Audit_Log_Page(), 'export_requests']);
+            Management_Access::add_handler('admin_post_' . Audit_Log_Page::EXPORT_ACTION, [new Audit_Log_Page(), 'export_requests']);
             // Integrations that derive state from options rebuild it after a
             // rollback puts those options back. Wired only for the classes
             // this build ships; see register_rollback_refreshers().
@@ -788,7 +794,7 @@ final class Plugin
             // Confirm/dismiss for pending redirect suggestions. Confirming
             // calls the create-redirect tool, so there is no second path that
             // can produce a redirect. See Redirect_Suggestion_Controller.
-            add_action(
+            Management_Access::add_handler(
                 'wp_ajax_' . Redirect_Suggestion_Controller::ACTION,
                 [new Redirect_Suggestion_Controller(), 'handle']
             );
@@ -885,8 +891,8 @@ final class Plugin
             // the admin bar for manage_options users.
             Exposure::register();
             // Secret-free Claude Desktop bundle download from the Connection
-            // screen (nonce + manage_options enforced inside the handler).
-            add_action('admin_post_wpmcp_download_bundle', [new Connection_Page(), 'download_bundle']);
+            // screen (nonce + management capability enforced inside the handler).
+            Management_Access::add_handler('admin_post_wpmcp_download_bundle', [new Connection_Page(), 'download_bundle']);
             // Cloud announcements feed (issue #138): dismissible dated
             // notices on wpmcp screens only, never site-wide. 24h transient
             // cache, per-user dismissal, silent on any cloud failure.
@@ -973,12 +979,12 @@ final class Plugin
         $menu_title = $memory ? Memory_Page::badged(self::BRAND, $pending) : self::BRAND;
 
         // The history page views (and its Restore button rolls back) ALL
-        // users' site-wide agent mutations, so it is gated at manage_options,
-        // matching Restore_Controller::handle()'s ajax capability check.
+        // users' site-wide agent mutations, so it is gated at the management
+        // capability (issue #479), like Restore_Controller's ajax handler.
         add_menu_page(
             self::BRAND,
             $menu_title,
-            'manage_options',
+            Management_Access::CAPABILITY,
             'wpmcp',
             [new History_Page(), 'render']
         );
@@ -993,31 +999,31 @@ final class Plugin
             'wpmcp',
             self::BRAND,
             self::BRAND,
-            'manage_options',
+            Management_Access::CAPABILITY,
             'wpmcp',
             [new History_Page(), 'render']
         );
 
-        // Same manage_options gate as the top-level page and Restore_Controller's
+        // Same management gate as the top-level page and Restore_Controller's
         // ajax handler: this screen shows and can roll back every user's
         // site-wide agent mutations, so it needs the same trust level.
         add_submenu_page(
             'wpmcp',
             self::page_title(_x('Audit Log', 'admin menu', 'wpmcp')),
             _x('Audit Log', 'admin menu', 'wpmcp'),
-            'manage_options',
+            Management_Access::CAPABILITY,
             Audit_Log_Page::SLUG,
             [new Audit_Log_Page(), 'render']
         );
 
         // Handshake instructions (issue #80): the text on this screen is
         // broadcast to every connecting MCP client at initialize, so editing
-        // it is a site-wide trust decision - manage_options, like the rest.
+        // it is a site-wide trust decision - the management capability, like the rest.
         add_submenu_page(
             'wpmcp',
             self::page_title(__('Handshake Instructions', 'wpmcp')),
             _x('Handshake', 'admin menu', 'wpmcp'),
-            'manage_options',
+            Management_Access::CAPABILITY,
             'wpmcp-handshake',
             [new Handshake_Settings_Page(), 'render']
         );
@@ -1025,24 +1031,24 @@ final class Plugin
         // Connection manager (issue #76): provisions Application Passwords,
         // reveals them exactly once alongside filled client configs, serves
         // the desktop bundle, and hosts the master exposure switch - all
-        // site-wide trust decisions, so manage_options like the rest.
+        // site-wide trust decisions, so the management capability like the rest.
         add_submenu_page(
             'wpmcp',
             self::page_title(_x('Connection', 'admin menu', 'wpmcp')),
             _x('Connection', 'admin menu', 'wpmcp'),
-            'manage_options',
+            Management_Access::CAPABILITY,
             Connection_Page::SLUG,
             [new Connection_Page(), 'render']
         );
 
         // Ability toggle grid (issue #78): sees and narrows the full MCP
-        // ability surface - a site-wide trust decision, so manage_options
-        // like the rest.
+        // ability surface - a site-wide trust decision, so the management
+        // capability like the rest.
         add_submenu_page(
             'wpmcp',
             self::page_title(_x('Abilities', 'admin menu', 'wpmcp')),
             _x('Abilities', 'admin menu', 'wpmcp'),
-            'manage_options',
+            Management_Access::CAPABILITY,
             Ability_Grid_Page::SLUG,
             [new Ability_Grid_Page(), 'render']
         );
@@ -1050,12 +1056,12 @@ final class Plugin
         // Redirects (issue #128): shows the managed redirect table and the
         // pending suggestion queue, and is where a human confirms a
         // suggestion into a real redirect. Changing site-wide routing is a
-        // manage_options decision, like the rest.
+        // management decision, like the rest.
         add_submenu_page(
             'wpmcp',
             self::page_title(_x('Redirects', 'admin menu', 'wpmcp')),
             _x('Redirects', 'admin menu', 'wpmcp'),
-            'manage_options',
+            Management_Access::CAPABILITY,
             Redirects_Page::SLUG,
             [new Redirects_Page(), 'render']
         );
@@ -1067,14 +1073,14 @@ final class Plugin
             'wpmcp',
             self::page_title(__('Agent Skills', 'wpmcp')),
             _x('Skills', 'admin menu', 'wpmcp'),
-            'manage_options',
+            Management_Access::CAPABILITY,
             Skills_Settings_Page::SLUG,
             [new Skills_Settings_Page(), 'render']
         );
 
         // In-admin AI chat (issue #73): the chat drives the same governed
         // ability surface as external MCP clients under the admin's own
-        // identity, so viewing the screen is manage_options like the rest.
+        // identity, so viewing the screen needs the management capability.
         // The entry appears only where the feature can actually run: no dead
         // menu item and no locked screen on installs without it.
         if (Gate::is_pro()) {
@@ -1082,7 +1088,7 @@ final class Plugin
                 'wpmcp',
                 self::page_title(__('Chat', 'wpmcp')),
                 __('Chat', 'wpmcp'),
-                'manage_options',
+                Management_Access::CAPABILITY,
                 Chat_Page::SLUG,
                 [new Chat_Page(), 'render']
             );
@@ -1093,13 +1099,13 @@ final class Plugin
         // pending -> publish flow, with its list table, nonces, capability
         // checks and revisions, so there is no second approval path to audit.
         // Publishing an entry can enforce a server-side denial or broadcast
-        // text to every connecting agent, hence manage_options like the rest.
+        // text to every connecting agent, hence the management capability like the rest.
         if ($memory) {
             add_submenu_page(
                 'wpmcp',
                 self::page_title(__('Agent Memory', 'wpmcp')),
                 Memory_Page::badged(_x('Memory', 'admin menu', 'wpmcp'), $pending),
-                'manage_options',
+                Management_Access::CAPABILITY,
                 Memory_Page::submenu_slug()
             );
         }

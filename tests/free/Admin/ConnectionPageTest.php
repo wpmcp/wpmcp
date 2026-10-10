@@ -45,7 +45,7 @@ class ConnectionPageTest extends \WP_UnitTestCase
         ], $extra);
     }
 
-    public function test_connection_submenu_is_registered_under_manage_options(): void
+    public function test_connection_submenu_is_registered_under_the_management_capability(): void
     {
         global $menu, $submenu;
         $menu    = [];
@@ -61,7 +61,7 @@ class ConnectionPageTest extends \WP_UnitTestCase
         }
 
         $this->assertNotNull($found, 'Expected a wpmcp-connection submenu entry.');
-        $this->assertSame('manage_options', $found[1]);
+        $this->assertSame(\WPMCP\Admin\Management_Access::CAPABILITY, $found[1]);
     }
 
     public function test_provision_creates_an_application_password_and_returns_filled_configs(): void
