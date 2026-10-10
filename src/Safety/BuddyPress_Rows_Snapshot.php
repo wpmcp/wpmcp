@@ -56,15 +56,19 @@ if (! defined('ABSPATH')) {
  * reply sits in a restored activity thread, the thread is renumbered the way
  * BuddyPress numbers it, since the saved nested-set values would overlap it.
  * Two shapes still clear each set and re-insert the saved rows: a created
- * group, which did not exist before, so every row keyed on it goes with it,
- * and a snapshot recorded before created rows were tracked (no
+ * group, which did not exist before and is only undone once every row keyed
+ * on it is its own (see below), and a snapshot recorded before created rows were tracked (no
  * 'created_rows'), whose own rows only that clearing removes. The tables are
  * always built from BuddyPress's table prefix and a fixed allowlist of names,
  * so a key can never reach any other table.
  *
  * Undoing a create removes the group only while it is still the group the
  * create wrote (same slug, recorded as 'created'); otherwise it is left and
- * reported. Restoring takes manage_options, the capability every BuddyPress
+ * reported. It is also refused, with nothing deleted, while the group holds
+ * rows the create did not make, such as another member, their posts or a
+ * membership request (refusal(), issue #489); otherwise the group is deleted
+ * through BuddyPress's own groups_delete_group() while BuddyPress is loaded,
+ * so its cleanup runs and no activity is left pointing at the group. Restoring takes manage_options, the capability every BuddyPress
  * write here requires (BuddyPress maps its own bp_moderate onto it).
  */
 final class BuddyPress_Rows_Snapshot
@@ -317,6 +321,7 @@ final class BuddyPress_Rows_Snapshot
             return null;
         }
 
+        $gone = [];
         if ('group_created' === $kind && is_array($data['created'] ?? null)) {
             $current = self::rows([ 'table' => 'bp_groups', 'column' => 'id', 'ids' => [ $id ], 'object_type' => null ]);
             if ([] === $current) {
@@ -325,9 +330,25 @@ final class BuddyPress_Rows_Snapshot
             if ((string) ($data['created']['slug'] ?? '') !== (string) ($current[0]['slug'] ?? '')) {
                 return sprintf('BuddyPress group %d is not the group this operation created (its slug differs); it was left untouched.', $id);
             }
+            $refusal = self::refusal($snapshot);
+            if (null !== $refusal) {
+                return 'Rollback refused: ' . $refusal;
+            }
+            // Only the create's own rows are left: delete the group the way
+            // BuddyPress does, so its own cleanup (activity, notifications,
+            // invitations, member counts, avatars) runs too. What is left
+            // after it is cleared below.
+            if (function_exists('groups_delete_group')) {
+                // Its memberships, kept for the cache flush: BuddyPress
+                // lowers its members' group counts straight in the database.
+                $gone['bp_groups_members'][] = self::rows([ 'table' => 'bp_groups_members', 'column' => 'group_id', 'ids' => [ $id ], 'object_type' => null ]);
+                if (! groups_delete_group($id)) {
+                    throw new Mutation_Failed('BuddyPress could not delete group ' . (int) $id . '.');
+                }
+            }
         }
 
-        $touched = [];
+        $touched = $gone;
         $skipped = [];
 
         // The rows the write and its hooks created go first, each only while
@@ -389,6 +410,89 @@ final class BuddyPress_Rows_Snapshot
         return [] === $skipped ? null : sprintf(
             'BuddyPress rows this operation created have changed hands since and were left in place: %s.',
             implode(', ', $skipped)
+        );
+    }
+
+    /**
+     * Why undoing a group create must not go ahead, or null when it may
+     * (issue #489): the group now holds rows the create did not make
+     * (another member, an invitation or membership request, a notification,
+     * an activity item or a reply below one, a child group), and deleting
+     * the group would delete or orphan them. A row the create made counts as
+     * its own only while it still holds the owner columns recorded for it.
+     * A snapshot recorded before created rows were tracked counts the
+     * group's creator's own memberships and activity as the create's, and
+     * nothing else. Any other snapshot is never refused here.
+     */
+    public static function refusal(array $snapshot): ?string
+    {
+        $data = (array) ($snapshot['data'] ?? []);
+        $id   = (int) ($data['id'] ?? 0);
+        if ('group_created' !== ($data['kind'] ?? '') || $id <= 0 || empty($data['tables_exist']) || ! self::tables_exist('bp_groups', 'bp_groups_members')) {
+            return null;
+        }
+        $group = self::rows([ 'table' => 'bp_groups', 'column' => 'id', 'ids' => [ $id ], 'object_type' => null ])[0] ?? null;
+        if (null === $group || (is_array($data['created'] ?? null) && (string) ($data['created']['slug'] ?? '') !== (string) $group['slug'])) {
+            return null; // Gone, or not the created group: restore() leaves it.
+        }
+
+        $tracked = array_key_exists('created_rows', $data);
+        $own     = [];
+        foreach ((array) ($data['created_rows'] ?? []) as $name => $entries) {
+            foreach ((array) $entries as $entry) {
+                $own[ (string) $name ][ is_array($entry) ? (int) ($entry['id'] ?? 0) : (int) $entry ] = is_array($entry) ? (array) ($entry['owner'] ?? []) : null;
+            }
+        }
+        $creator = (string) $group['creator_id'];
+        $mine    = static function (string $name, array $row) use ($tracked, $own, $creator): bool {
+            if (! $tracked) {
+                return in_array($name, [ 'bp_groups_members', 'bp_activity' ], true) && (string) $row['user_id'] === $creator;
+            }
+            $row_id = (int) $row['id'];
+            if (! array_key_exists($row_id, $own[ $name ] ?? [])) {
+                return false;
+            }
+            return null === $own[ $name ][ $row_id ] || self::still_owned($row, $own[ $name ][ $row_id ]);
+        };
+
+        $found = [];
+        foreach (self::rows([ 'table' => 'bp_groups_members', 'column' => 'group_id', 'ids' => [ $id ], 'object_type' => null ]) as $row) {
+            if (! $mine('bp_groups_members', $row)) {
+                $found[] = sprintf('the membership of user %d', (int) $row['user_id']);
+            }
+        }
+        foreach (self::rows([ 'table' => 'bp_groups', 'column' => 'parent_id', 'ids' => [ $id ], 'object_type' => null ]) as $row) {
+            $found[] = sprintf('child group #%d', (int) $row['id']);
+        }
+        $optional = [
+            'bp_invitations'   => [ 'invitation or membership request', [ 'class' => self::GROUP_INVITATIONS ] ],
+            'bp_notifications' => [ 'notification', [ 'component_name' => 'groups' ] ],
+            'bp_activity'      => [ 'activity item', [ 'component' => 'groups' ] ],
+        ];
+        foreach ($optional as $name => [$label, $match]) {
+            if (! self::tables_exist($name)) {
+                continue;
+            }
+            $rows = self::rows([ 'table' => $name, 'column' => 'item_id', 'ids' => [ $id ], 'object_type' => null, 'match' => $match ]);
+            if ('bp_activity' === $name) {
+                // Replies below the group's items go with them.
+                $ids = [];
+                foreach ($rows as $row) {
+                    $ids = array_merge($ids, self::activity_thread((int) $row['id']));
+                }
+                $rows = [] === $ids ? [] : self::rows([ 'table' => $name, 'column' => 'id', 'ids' => array_values(array_unique($ids)), 'object_type' => null ]);
+            }
+            foreach ($rows as $row) {
+                if (! $mine($name, $row)) {
+                    $found[] = sprintf('%s #%d by user %d', $label, (int) $row['id'], (int) $row['user_id']);
+                }
+            }
+        }
+
+        return [] === $found ? null : sprintf(
+            'BuddyPress group %d now holds rows this operation did not create, and undoing the create would delete them: %s. Nothing was changed.',
+            $id,
+            implode(', ', $found)
         );
     }
 
@@ -634,7 +738,9 @@ final class BuddyPress_Rows_Snapshot
     /**
      * Run one write with the rows it created recorded into its snapshot. The
      * write returns its result, or [result, group] for a create that learns
-     * its group only once it ran. BuddyPress's own hooks are listened to only
+     * its group only once it ran; a group may carry 'rows' (table => ids),
+     * the rows a write that bypasses BuddyPress inserted, since no hook
+     * reports those. BuddyPress's own hooks are listened to only
      * while the write runs, and the rows are recorded even when the write
      * throws, so a half-done write stays fully undoable.
      *
@@ -669,6 +775,12 @@ final class BuddyPress_Rows_Snapshot
         } finally {
             foreach ($listeners as $hook => $listener) {
                 remove_action($hook, $listener, 10);
+            }
+            // A write that bypasses BuddyPress names the rows it inserted.
+            foreach ((array) ($group['rows'] ?? []) as $name => $ids) {
+                foreach ((array) $ids as $row_id) {
+                    $reported[ (string) $name ][ (int) $row_id ] = true;
+                }
             }
             self::record_created($operation_id, self::created_by_write($marks, $reported, $actor, $operation_id), $group);
         }
@@ -839,6 +951,10 @@ final class BuddyPress_Rows_Snapshot
         }
         if (class_exists('BP_Groups_Member')) {
             foreach ($column('bp_groups_members', 'user_id') as $user) {
+                // groups_delete_group() lowers the count straight in the
+                // database without dropping the cached user meta, which would
+                // then hide the recount.
+                wp_cache_delete($user, 'user_meta');
                 \BP_Groups_Member::refresh_total_group_count_for_user($user);
             }
         }
@@ -888,7 +1004,7 @@ final class BuddyPress_Rows_Snapshot
             $args[] = (string) $set['object_type'];
         }
         foreach ((array) ($set['match'] ?? []) as $name => $value) {
-            if (! in_array($name, [ 'class', 'component_name' ], true)) {
+            if (! in_array($name, [ 'class', 'component_name', 'component' ], true)) {
                 throw new \InvalidArgumentException('Not a BuddyPress filter column.');
             }
             $sql   .= ' AND %i = %s';

@@ -87,6 +87,13 @@ class Rollback_Service
             self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
             return false;
         }
+        // Undoing a BuddyPress group create would delete rows it did not
+        // make (issue #489).
+        $refused = BuddyPress_Rows_Snapshot::refusal((array) $row['snapshot']);
+        if (null !== $refused) {
+            self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
+            return false;
+        }
         // Another user is editing the post this would restore (issue #452).
         $locked = Edit_Lock::restore_refusal([$row]);
         if (null !== $locked) {
@@ -443,6 +450,15 @@ class Rollback_Service
                     (string) self::restore_capability($snapshot)
                 ));
                 continue;
+            }
+            // A BuddyPress group create is skipped, not counted, while the
+            // group holds rows the create did not make (issue #489).
+            if ('buddypress_rows' === $snapshot['object_type']) {
+                $refused = BuddyPress_Rows_Snapshot::refusal($snapshot);
+                if (null !== $refused) {
+                    self::warn(sprintf('snapshot %s skipped: %s', self::object_identity($snapshot), $refused));
+                    continue;
+                }
             }
             // Plugin table rows (Pods table storage, TranslatePress
             // dictionary rows, issue #299) too: each covers only the ids ONE
