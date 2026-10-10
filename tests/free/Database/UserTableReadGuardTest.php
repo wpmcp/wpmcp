@@ -14,6 +14,18 @@ use WPMCP\Tools\Database\Query;
  */
 class UserTableReadGuardTest extends \WP_UnitTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // The users tables are network-wide on multisite, so only a network
+        // operator may read them through query at all (issue #526).
+        if (is_multisite()) {
+            $super = (int) self::factory()->user->create();
+            grant_super_admin($super);
+            wp_set_current_user($super);
+        }
+    }
+
     protected function tearDown(): void
     {
         Database_Guard::set_no_backslash_escapes_override(null);

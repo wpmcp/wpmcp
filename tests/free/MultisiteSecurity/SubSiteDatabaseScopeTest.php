@@ -83,7 +83,8 @@ class SubSiteDatabaseScopeTest extends \WP_UnitTestCase
     /**
      * Run $call and return the refusal message, or null when it was allowed.
      * A refusal that is only a SQL error does not count: the scope guard's
-     * messages all name "this site".
+     * messages all name "this site" (an executable comment is refused
+     * earlier by the read-only guard).
      */
     private function refusal(callable $call): ?string
     {
@@ -98,7 +99,8 @@ class SubSiteDatabaseScopeTest extends \WP_UnitTestCase
     private function refused(callable $call): bool
     {
         $message = $this->refusal($call);
-        return null !== $message && false !== stripos($message, 'this site');
+        return null !== $message
+            && (false !== stripos($message, 'this site') || false !== stripos($message, 'executable comments'));
     }
 
     public function test_query_refuses_every_foreign_table_reference_form(): void
@@ -110,7 +112,7 @@ class SubSiteDatabaseScopeTest extends \WP_UnitTestCase
         $other = $wpdb->get_blog_prefix($this->other) . 'options';
 
         $leaks = [];
-        foreach ([
+        $queries = [
             "SELECT meta_value FROM {$meta} WHERE meta_key = 'site_admins'",
             "SELECT option_value FROM {$main} WHERE option_name = 'admin_email'",
             "SELECT option_value FROM {$other} WHERE option_name = 'admin_email'",
@@ -130,12 +132,14 @@ class SubSiteDatabaseScopeTest extends \WP_UnitTestCase
             "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = 'x'",
             "DESCRIBE {$meta}",
             "SHOW COLUMNS FROM {$meta}",
-            "SHOW CREATE TABLE `{$main}`",
+            "SHOW INDEX FROM `{$main}`",
+            "SHOW FULL COLUMNS FROM {$own} FROM `information_schema`",
             'SHOW TABLES',
             'SHOW TABLE STATUS',
             'SHOW DATABASES',
             'SHOW PROCESSLIST',
-        ] as $sql) {
+        ];
+        foreach ($queries as $sql) {
             if (! $this->refused(static fn () => (new Query())->handle(['sql' => $sql]))) {
                 $leaks[] = $sql;
             }
@@ -284,11 +288,13 @@ class SubSiteDatabaseScopeTest extends \WP_UnitTestCase
         wp_set_current_user($this->super);
         add_filter('wpmcp_enable_db_writes', '__return_true');
 
-        $this->assertTrue($this->refused(static fn () => (new Update_Rows())->handle([
+        $message = $this->refusal(static fn () => (new Update_Rows())->handle([
             'table'   => $wpdb->sitemeta,
             'data'    => ['meta_value' => 'x'],
             'where'   => ['meta_key' => 'wpmcp_probe_absent'],
             'confirm' => true,
-        ])));
+        ]));
+        $this->assertNotNull($message);
+        $this->assertStringContainsString('protected table', $message);
     }
 }

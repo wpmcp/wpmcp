@@ -1949,7 +1949,7 @@ class Rollback_Service
             return; // Nothing was captured, so there is nothing to restore.
         }
 
-        $table = \WPMCP\Tools\Database\Database_Guard::valid_table((string) ($data['table'] ?? ''));
+        $table = \WPMCP\Tools\Database\Database_Guard::scoped_table((string) ($data['table'] ?? ''));
         if (is_wp_error($table)) {
             throw new Mutation_Failed('Rollback refused: ' . esc_html($table->get_error_message()));
         }
