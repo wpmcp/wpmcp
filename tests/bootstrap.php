@@ -37,6 +37,13 @@ tests_add_filter( 'muplugins_loaded', function () {
 
     $adapter_plugin = getenv( 'WPMCP_TEST_ADAPTER_PLUGIN' );
     if ( $adapter_plugin ) {
+        // The adapter plugin reports a second copy with _doing_it_wrong on
+        // init, long before any test case listens for it (issue #501).
+        // Record every call made while WordPress boots with both copies;
+        // AdapterPluginLiveTest asserts the list is empty.
+        $GLOBALS['wpmcp_adapter_boot_doing_it_wrong'] = [];
+        add_action( 'doing_it_wrong_run', 'wpmcp_record_adapter_boot_doing_it_wrong', 10, 3 );
+
         require $adapter_plugin;
 
         // Other plugins in the harness bundle their own adapter copies
@@ -290,4 +297,15 @@ tests_add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
     return $pre;
 }, 10, 3 );
 
+if ( ! function_exists( 'wpmcp_record_adapter_boot_doing_it_wrong' ) ) {
+    /** Records one boot-time _doing_it_wrong call for the adapter leg (issue #501). */
+    function wpmcp_record_adapter_boot_doing_it_wrong( $function_name, $message, $version ): void {
+        $GLOBALS['wpmcp_adapter_boot_doing_it_wrong'][] = sprintf( '%s: %s (%s)', $function_name, wp_strip_all_tags( (string) $message ), $version );
+    }
+}
+
 require $_tests_dir . '/includes/bootstrap.php';
+
+// WordPress has booted; from here on the test cases watch _doing_it_wrong
+// themselves, and expected calls must not land in the boot record.
+remove_action( 'doing_it_wrong_run', 'wpmcp_record_adapter_boot_doing_it_wrong', 10 );
