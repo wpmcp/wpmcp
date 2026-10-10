@@ -21,13 +21,13 @@ if (! defined('ABSPATH')) {
  *  - min/max:  for type 'int' only, the range a write is clamped to.
  *  - strict:   for type 'int' only, refuse a value outside min/max (or not a
  *              whole number) instead of clamping it.
+ *  - writable: false marks a read-only field (currently just admin_email,
+ *              which needs its own confirmation flow outside these tools).
  *
  * The site language, timezone and date/time formats (issue #472) carry
  * their own validation in Site_Locale: a locale must be installed or
  * installable, a timezone must be a known identifier or a UTC offset, and a
  * format must survive the settings screen's sanitizing unchanged.
- *  - writable: false marks a read-only field (currently just admin_email,
- *              which needs its own confirmation flow outside these tools).
  */
 class Settings_Registry
 {
