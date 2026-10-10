@@ -816,11 +816,12 @@ final class Plugin
                 'wp_ajax_' . Redirect_Suggestion_Controller::ACTION,
                 [new Redirect_Suggestion_Controller(), 'handle']
             );
-            // Self-healing schema creation for sites that upgraded into the
-            // redirect feature without re-activating the plugin. Guarded by a
-            // db-version option and hooked in wp-admin only, so no front-end
-            // request ever risks DDL.
-            add_action('admin_init', [Redirect_Store::class, 'maybe_install']);
+            // Self-healing schema creation for every per-site table (issue
+            // #527): sites that upgraded without re-activating the plugin,
+            // sub-sites of a network, and sites created while network active.
+            // Guarded by one autoloaded version option and hooked on wp-admin
+            // and REST requests only, so no front-end page load risks DDL.
+            Site_Tables::register();
             // OAuth 2.1 + Dynamic Client Registration REST routes (issue #43).
             // Endpoints::register() itself no-ops unless OAuth_Config::is_enabled()
             // (default false), so this hook registration is always safe to add.
