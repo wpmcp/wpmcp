@@ -881,10 +881,10 @@ class CrmPackTest extends \WP_UnitTestCase
         $this->editor();
         $this->assertSame('operation_denied', $this->code($this->write('fluentcrm-create-campaign', [ 'subject' => 'X', 'body' => 'x' ])));
         wp_set_current_user($this->admin);
-        get_userdata($this->admin)->remove_cap('mailpoet_manage_emails');
+        wp_get_current_user()->remove_cap('mailpoet_manage_emails');
         $this->assertSame('operation_denied', $this->code($this->write('mailpoet-create-campaign', [ 'subject' => 'X', 'body' => 'x', 'lists' => [ $list ] ])));
         $this->assertSame('operation_denied', $this->code($this->read('mailpoet-get-campaign', [ 'id' => 1 ])));
-        get_userdata($this->admin)->remove_cap('mailpoet_manage_automations');
+        wp_get_current_user()->remove_cap('mailpoet_manage_automations');
         $this->assertSame('operation_denied', $this->code($this->write('mailpoet-set-automation-status', [ 'id' => 1, 'status' => 'draft' ])));
     }
 

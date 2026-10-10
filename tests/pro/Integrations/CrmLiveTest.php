@@ -40,6 +40,37 @@ class CrmLiveTest extends \WP_UnitTestCase
         Gate::set_pro_for_tests(true);
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
         reset_phpmailer_instance();
+        $this->capture_mailpoet_mail();
+    }
+
+    /**
+     * MailPoet sends through its SMTP method with a PHPMailer that records
+     * each message instead (Capturing_PHPMailer), so no mail leaves the
+     * test, a confirmation email included.
+     */
+    private function capture_mailpoet_mail(): void
+    {
+        $settings = \MailPoet\Settings\SettingsController::getInstance();
+        $settings->set('sender', [ 'name' => 'Live', 'address' => 'sender@example.com' ]);
+        $settings->set('mta_group', 'smtp');
+        $settings->set('mta', [ 'method' => 'SMTP', 'host' => '127.0.0.1', 'port' => 2525, 'authentication' => '-1', 'encryption' => '', 'login' => '', 'password' => '', 'frequency' => [ 'emails' => 100, 'interval' => 5 ] ]);
+        Capturing_PHPMailer::$sent = [];
+        add_filter('mailpoet_mailer_smtp_instance', static fn () => new Capturing_PHPMailer(true));
+        // MailPoet builds its default mailer once per request; build it again from these settings.
+        $factory = \MailPoet\DI\ContainerWrapper::getInstance()->get(\MailPoet\Mailer\MailerFactory::class);
+        (function (): void {
+            $this->defaultMailer = null;
+        })->call($factory);
+    }
+
+    /** @return string[] the bare addresses of captured mail ("Name <a@b>" gives "a@b") */
+    private static function addresses(iterable $mail): array
+    {
+        $out = [];
+        foreach ($mail as $message) {
+            $out[] = preg_match('/<([^>]+)>/', (string) $message['to'], $m) ? $m[1] : (string) $message['to'];
+        }
+        return $out;
     }
 
     protected function tearDown(): void
@@ -274,8 +305,10 @@ class CrmLiveTest extends \WP_UnitTestCase
         $this->assertNull(\FluentCrm\App\Models\Campaign::find($dup->id));
 
         // A test email goes to the current user only, through FluentCRM's mailer.
+        $this->assertSame([ 'live-bob@example.com', 'live-new@example.com' ], self::addresses($mail), 'only the double opt-in emails so far');
+        $mail->exchangeArray([]);
         $test = $this->call('write', 'fluentcrm-send-test-campaign', [ 'id' => $id ]);
-        $this->assertSame([ $admin ], array_column((array) $mail, 'to'));
+        $this->assertSame([ $admin ], self::addresses($mail));
         $this->assertStringContainsString('Live hello', $mail[0]['subject']);
         $this->assertFalse(Rollback_Service::restore_operation((string) $test['operation_id']));
         $this->assertStringContainsString('cannot be unsent', self::warnings());
@@ -292,7 +325,7 @@ class CrmLiveTest extends \WP_UnitTestCase
         $mail->exchangeArray([]);
         (new \FluentCrm\App\Services\CampaignProcessor($id))->processEmails(50, 20);
         (new \FluentCrm\App\Services\Libs\Mailer\Handler())->handle();
-        $this->assertSame([ 'live-ada@example.com' ], array_column((array) $mail, 'to'));
+        $this->assertSame([ 'live-ada@example.com' ], self::addresses($mail));
         $this->assertFalse(Rollback_Service::restore_operation((string) $sent['operation_id']));
         $this->assertStringContainsString('cannot be unsent', self::warnings());
 
@@ -308,12 +341,7 @@ class CrmLiveTest extends \WP_UnitTestCase
     {
         $this->block_http();
         $settings = \MailPoet\Settings\SettingsController::getInstance();
-        $settings->set('sender', [ 'name' => 'Live', 'address' => 'sender@example.com' ]);
-        $settings->set('mta_group', 'smtp');
-        $settings->set('mta', [ 'method' => 'SMTP', 'host' => '127.0.0.1', 'port' => 2525, 'authentication' => '-1', 'encryption' => '', 'frequency' => [ 'emails' => 100, 'interval' => 5 ] ]);
-        Capturing_PHPMailer::$sent = [];
-        add_filter('mailpoet_mailer_smtp_instance', static fn () => new Capturing_PHPMailer(true));
-        $mp   = \MailPoet\API\API::MP('v1');
+        $mp       = \MailPoet\API\API::MP('v1');
         $list = $this->call('write', 'mailpoet-create-list', [ 'title' => 'Live newsletter list' ])['result']['list']['id'];
 
         // Ada subscribes with sign-up confirmation off; the import runs with it on.
@@ -351,6 +379,7 @@ class CrmLiveTest extends \WP_UnitTestCase
         $this->assertNull($newsletters->findOneById($dup));
 
         // A test email goes to the current user only, through MailPoet's mailer.
+        Capturing_PHPMailer::$sent = [];
         $test = $this->call('write', 'mailpoet-send-test-campaign', [ 'id' => $id ]);
         $this->assertSame([ wp_get_current_user()->user_email ], array_column(Capturing_PHPMailer::$sent, 'to'));
         $this->assertFalse(Rollback_Service::restore_operation((string) $test['operation_id']));
@@ -369,16 +398,21 @@ class CrmLiveTest extends \WP_UnitTestCase
         $this->assertFalse(Rollback_Service::restore_operation((string) $sent['operation_id']));
         $this->assertStringContainsString('cannot be unsent', self::warnings());
 
-        // An automation deactivated, then undone.
-        $container  = \MailPoet\DI\ContainerWrapper::getInstance();
-        $automation = $container->get(\MailPoet\Automation\Engine\Builder\CreateAutomationFromTemplateController::class)->createAutomation('subscriber-welcome-email');
-        $automation->setStatus('active');
-        $container->get(\MailPoet\Automation\Engine\Storage\AutomationStorage::class)->updateAutomation($automation);
-        $off = $this->call('write', 'mailpoet-set-automation-status', [ 'id' => $automation->getId(), 'status' => 'deactivating' ]);
-        $storage = $container->get(\MailPoet\Automation\Engine\Storage\AutomationStorage::class);
-        $this->assertSame('deactivating', $storage->getAutomation($automation->getId())->getStatus());
-        $this->assertTrue(Rollback_Service::restore_operation((string) $off['operation_id']));
-        $this->assertSame('active', $storage->getAutomation($automation->getId())->getStatus());
+        // An automation activated through MailPoet's own validation, then undone.
+        $container = \MailPoet\DI\ContainerWrapper::getInstance();
+        $storage   = $container->get(\MailPoet\Automation\Engine\Storage\AutomationStorage::class);
+        $step      = static fn (string $id, string $type, string $key, array $args, ?string $next): \MailPoet\Automation\Engine\Data\Step => new \MailPoet\Automation\Engine\Data\Step($id, $type, $key, $args, null === $next ? [] : [ new \MailPoet\Automation\Engine\Data\NextStep($next) ]);
+        $auto      = $storage->createAutomation(new \MailPoet\Automation\Engine\Data\Automation('Live welcome', [
+            'root'  => $step('root', 'root', 'core:root', [], 'start'),
+            'start' => $step('start', 'trigger', 'mailpoet:someone-subscribes', [ 'segment_ids' => [] ], 'wait'),
+            'wait'  => $step('wait', 'action', 'core:delay', [ 'delay' => 1, 'delay_type' => 'HOURS' ], null),
+        ], wp_get_current_user()));
+        $this->assertSame('draft', $storage->getAutomation($auto)->getStatus());
+        $on = $this->call('write', 'mailpoet-set-automation-status', [ 'id' => $auto, 'status' => 'active' ]);
+        $this->assertSame('active', $storage->getAutomation($auto)->getStatus());
+        $this->assertSame('active', $on['result']['automation']['status']);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $on['operation_id']));
+        $this->assertSame('draft', $storage->getAutomation($auto)->getStatus());
     }
 }
 
