@@ -7,9 +7,17 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * upload-media: add a file to the Media Library from base64 bytes the client
- * sends, for agents that hold the file itself rather than a URL to it.
+ * upload-media: add a file to the Media Library from one of three sources
+ * (exactly one per call):
+ *  - data: base64 bytes the client sends, for small files the agent holds;
+ *  - url (issue #471): any allowed upload type fetched from a public https
+ *    URL through Remote_Image_Guard's SSRF layers (shape, public host only,
+ *    no redirects, declared and actual size capped at max_bytes());
+ *  - grant (issue #471): a single-use, short-lived upload URL bound to the
+ *    calling user (Upload_Grant), so large files never pass through the
+ *    model. The bytes arrive at a REST route and come back through store().
  *
+ * Every source ends in store(), so all of them get the same checks:
  * Nothing the client says about the file is trusted:
  *  - the payload must be strict base64 (an optional data: URI prefix is
  *    accepted and discarded) and fit under max_bytes(), checked on the
@@ -53,25 +61,83 @@ class Upload_Media
         return max(1, (int) apply_filters('wpmcp_upload_media_max_bytes', (int) wp_max_upload_size()));
     }
 
+    /**
+     * Where uploaded and downloaded bytes wait before they are verified.
+     * Filterable so tests can prove nothing is left behind on a refusal.
+     */
+    public static function temp_dir(): string
+    {
+        return trailingslashit((string) apply_filters('wpmcp_upload_media_temp_dir', get_temp_dir()));
+    }
+
     public function handle(array $args): array
     {
-        $filename = $this->filename($args);
-        $bytes    = $this->decode((string) ($args['data'] ?? ''));
+        $sources = array_keys(array_filter([
+            'data'  => '' !== trim((string) ($args['data'] ?? '')),
+            'url'   => '' !== trim((string) ($args['url'] ?? '')),
+            'grant' => ! empty($args['grant']),
+        ]));
+        if (1 !== count($sources)) {
+            throw new \InvalidArgumentException('Pass exactly one of "data" (base64), "url" or "grant": true.');
+        }
 
+        if (['url'] === $sources) {
+            return $this->from_url(trim((string) $args['url']), $args);
+        }
+
+        $filename = $this->filename((string) ($args['filename'] ?? ''), (string) ($args['mime_type'] ?? ''));
+
+        if (['grant'] === $sources) {
+            return Upload_Grant::issue($filename, $args);
+        }
+
+        $bytes = $this->decode((string) ($args['data'] ?? ''));
+        $tmp   = $this->temp_file('wpmcp-upload-media');
+        if (false === file_put_contents($tmp, $bytes)) {
+            wp_delete_file($tmp);
+            throw new \RuntimeException('The upload could not be written to a temporary file.');
+        }
+        unset($bytes);
+
+        return $this->store($tmp, $filename, $args, array_diff_key($args, ['data' => true]));
+    }
+
+    /**
+     * Verify a file already on this server and add it to the Media Library:
+     * size cap, byte sniffing and blocked types, then one 'media_import'
+     * snapshot. The temp file is moved into uploads on success and deleted
+     * on any failure, so callers never clean it up. $filename must already
+     * have passed filename().
+     *
+     * @param array<string, mixed> $args   title, alt, caption, post_id, session_id.
+     * @param array<string, mixed> $record what the history row stores as the call's arguments.
+     * @return array{operation_id: string, media_id: int, url: string, file: string, mime_type: string}
+     */
+    public function store(string $tmp, string $filename, array $args, array $record): array
+    {
         if (! function_exists('media_handle_sideload')) {
             require_once ABSPATH . 'wp-admin/includes/media.php';
             require_once ABSPATH . 'wp-admin/includes/file.php';
             require_once ABSPATH . 'wp-admin/includes/image.php';
         }
 
-        $tmp = wp_tempnam('wpmcp-upload-media');
         try {
-            if (false === file_put_contents($tmp, $bytes)) {
-                throw new \RuntimeException('The upload could not be written to a temporary file.');
+            clearstatcache(true, $tmp);
+            $size = is_file($tmp) ? (int) filesize($tmp) : 0;
+            $max  = self::max_bytes();
+            if ($size < 1) {
+                throw new \InvalidArgumentException('The file is empty.');
             }
-            unset($bytes);
+            if ($size > $max) {
+                throw new \InvalidArgumentException(sprintf('The file is %d bytes, above the %d byte upload limit.', (int) $size, (int) $max));
+            }
+            // On multisite, core folds the remaining quota into max_bytes()
+            // already; this names the reason when the space is all gone.
+            if (is_multisite() && function_exists('upload_is_user_over_quota') && upload_is_user_over_quota(false)) {
+                throw new \InvalidArgumentException('This site has used all of its upload space.');
+            }
 
-            [$filename, $mime] = $this->verify($tmp, $filename);
+            [$filename] = $this->verify($tmp, $filename);
 
             $post_data = [];
             $title     = trim((string) ($args['title'] ?? ''));
@@ -106,7 +172,7 @@ class Upload_Media
         $operation_id = Media_Import_Snapshot::record(
             'upload-media',
             $media_id,
-            array_diff_key($args, ['data' => true]),
+            $record,
             (string) ($args['session_id'] ?? 'default')
         );
 
@@ -119,12 +185,47 @@ class Upload_Media
         ];
     }
 
-    private function filename(array $args): string
+    /**
+     * Import from a public https URL. Every check that needs no request runs
+     * first: URL shape, public host, and the name's blocked extensions.
+     */
+    private function from_url(string $url, array $args): array
     {
-        $raw = trim(str_replace('\\', '/', (string) ($args['filename'] ?? '')));
+        $host = (string) wp_parse_url($url, PHP_URL_HOST);
+        Remote_Image_Guard::validate_url($url, [$host]);
+        Remote_Image_Guard::assert_public_host($host);
+
+        $raw = trim((string) ($args['filename'] ?? ''));
+        if ('' === $raw) {
+            // Decoded but NOT sanitized yet: sanitize_file_name() would turn
+            // "shell.php.pdf" into "shell.php_.pdf" and hide the segment.
+            $raw = rawurldecode(basename((string) wp_parse_url($url, PHP_URL_PATH)));
+        }
+        $filename = $this->filename($raw, (string) ($args['mime_type'] ?? ''), true);
+
+        $tmp = Remote_Image_Guard::download($url, self::max_bytes(), self::temp_dir());
+
+        return $this->store($tmp, $filename, $args, $args);
+    }
+
+    private function temp_file(string $prefix): string
+    {
+        if (! function_exists('wp_tempnam')) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+        }
+        return wp_tempnam($prefix, self::temp_dir());
+    }
+
+    /**
+     * Reduce a client-supplied name to a safe basename with an allowed-looking
+     * extension. Public so Upload_Grant re-checks names the same way.
+     */
+    public function filename(string $raw, string $mime_hint = '', bool $from_url = false): string
+    {
+        $raw = trim(str_replace('\\', '/', $raw));
         $raw = basename($raw);
         if ('' === $raw) {
-            throw new \InvalidArgumentException('A "filename" is required.');
+            throw new \InvalidArgumentException($from_url ? 'The url has no file name; pass a "filename" with an extension.' : 'A "filename" is required.');
         }
 
         // Check every dot segment, so "shell.php.jpg" is refused rather than
@@ -146,10 +247,12 @@ class Upload_Media
         }
 
         if ('' === (string) pathinfo($name, PATHINFO_EXTENSION)) {
-            $hint = sanitize_mime_type((string) ($args['mime_type'] ?? ''));
+            $hint = sanitize_mime_type($mime_hint);
             $ext  = '' !== $hint ? (string) wp_get_default_extension_for_mime_type($hint) : '';
             if ('' === $ext) {
-                throw new \InvalidArgumentException('The "filename" needs an extension (or pass a "mime_type" hint to derive one).');
+                throw new \InvalidArgumentException($from_url
+                    ? 'The url names no file extension; pass a "filename" with one.'
+                    : 'The "filename" needs an extension (or pass a "mime_type" hint to derive one).');
             }
             $name .= '.' . $ext;
         }

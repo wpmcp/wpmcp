@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.137
+Stable tag: 0.8.139
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -60,6 +60,7 @@ The plugin collects nothing about you and sends nothing to us. Its only schedule
 * api.wordpress.org, plugin directory - scan-security also asks whether any active plugin has been closed, sending the directory slug of each plugin it looks up (capped per run, then cached) through core's plugins_api(). Core's standard user agent goes with it, which carries the WordPress version and this site's address. Privacy policy: https://wordpress.org/about/privacy/
 * www.wpvulnerability.net, the WPVulnerability database - scan-security with vulnerabilities:true, and only then, looks up WordPress core, each installed plugin and each installed theme in this free, public vulnerability database. It needs no API key and no account. What is sent: the WordPress version (for core) and each plugin or theme slug, nothing else. Your plugin and theme versions and your site address are not sent: versions are compared on this site, and requests go out under a WPMCP-Security-Scanner/1.0 user agent with redirects off. Answers are cached on this site for a day (filterable with wpmcp_vulnerability_cache_ttl), so a repeat scan sends nothing, and a lookup that fails is reported as unchecked rather than clean. The service states that it stores no request data. Terms: https://www.wpvulnerability.com/license/ Privacy policy: https://www.wpvulnerability.com/privacy/
 * api.wordpress.org and downloads.wordpress.org, plugin and theme directory - search-plugins, get-plugin-info, install-plugin, update-plugin, search-themes, install-theme and update-theme send your search terms or a directory slug through core's plugins_api()/themes_api(), again with core's standard user agent, and installs and updates download the package archive from downloads.wordpress.org. Only directory slugs are accepted, never an arbitrary zip URL. manage-updates with type=core downloads the WordPress package that core's own update check offered, from downloads.wordpress.org. Privacy policy: https://wordpress.org/about/privacy/
+* api.wordpress.org and downloads.wordpress.org, language packs - update-settings with a WPLANG locale that is not installed yet, and only then, fetches the list of available core translations for this WordPress version through core's translations_api() and downloads that one locale's core language pack from downloads.wordpress.org through core's language pack upgrader, with core's standard user agent (WordPress version and this site's address). A locale that is already installed sends nothing. Privacy policy: https://wordpress.org/about/privacy/
 * api.openverse.org - search-stock-images. Openverse is the default provider, used whenever no other provider is named, and needs no key or setup, so it is not opt-in: running the search is what sends the request. Sends the search terms and paging under a WPMCP-Stock-Search/1.0 user agent. Terms: https://openverse.org/terms Privacy policy: https://openverse.org/privacy
 * api.pexels.com - search-stock-images, when the Pexels provider is used and you have saved a Pexels key. Sends the search terms, paging and your key, under the same pinned user agent. Terms: https://www.pexels.com/terms-of-service/ Privacy policy: https://www.pexels.com/privacy-policy/
 * api.unsplash.com - search-stock-images, when the Unsplash provider is used and you have saved an Unsplash key. Sends the search terms, paging and your key, under the same pinned user agent. Terms: https://unsplash.com/terms Privacy policy: https://unsplash.com/privacy
@@ -72,6 +73,7 @@ The plugin collects nothing about you and sends nothing to us. Its only schedule
 * Your own migration target - push-site-archive sends a site-backup archive (the full database, including password hashes, and wp-content if the archive has it) to the target_url you or your agent supply, signed in with credentials for that site, and only after you have allowed outgoing migrations with WPMCP_ALLOW_OUTGOING_MIGRATIONS. It contacts no other host. The receiving site must allow incoming migrations itself, and its owner's terms and privacy policy apply to what it stores.
 * Allowlisted media hosts - import-stock-image and upload-svg download the file you picked from a default allowlist of images.pexels.com, images.unsplash.com, plus.unsplash.com, upload.wikimedia.org (Wikimedia Commons, terms: https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use privacy policy: https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) and staticflickr.com (Flickr, terms: https://www.flickr.com/help/terms privacy policy: https://www.flickr.com/help/privacy), matched on the host or a subdomain of it. The site owner can change that list with the wpmcp_remote_media_allowed_hosts filter. The download carries WordPress's standard user agent.
 * Any host you name yourself - sideload-image passes the URL you or your agent supply to core's media_sideload_image(), so it can fetch an image from anywhere. It is not covered by the allowlist above; disable the ability if you do not want that reach.
+* Any https URL you name for upload-media - upload-media with a url downloads that one file so it can be added to the Media Library. It is not limited to the allowlist above, but only https on the default port is accepted, private, loopback and reserved addresses are refused before any request, redirects are not followed, and the download is capped at the site's upload limit. It carries WordPress's standard user agent. Disable the ability if you do not want that reach.
 * The AI provider the site owner configured - sideload-image with a prompt generates the image through WordPress core's AI client (WordPress 7.0+), with whichever provider and image model an administrator connected under Settings > Connectors and that connection's own credentials. This plugin holds no AI key and adds no provider. Nothing is sent when AI is disabled or no connected provider can make images. Otherwise the prompt, and the ratio if given, go to that provider; the image comes back as data, or is downloaded from the provider's https link with private addresses and redirects refused. That provider's own terms and privacy policy apply.
 * Any URL you measure - analyze-performance fetches the URL you give it under a WPMCP-Performance-Analyzer/1.0 user agent, refusing private, loopback and reserved addresses and following no redirects.
 * MCP client metadata documents (the https URL an OAuth client uses as its client ID) - only when OAuth is switched on (it is off by default) and an MCP client signs in with an https URL as its client ID, a Client ID Metadata Document. While a signed-in user authorizes that client, this site fetches that one URL to read the client's name and allowed redirect addresses. Nothing about your site or its users is sent: it is a plain GET under a WPMCP-OAuth-Client-Metadata/1.0 user agent. Private, loopback and reserved addresses are refused, redirects are not followed, the document is capped at 5 KB, and it is cached per its Cache-Control header (an hour by default), so a repeat sign-in sends nothing. Set the wpmcp_oauth_cimd_enabled filter to false to turn this off, or require approval of new clients on the WP MCP Connection screen. The client's publisher's own terms and privacy policy apply to the document it hosts.
@@ -106,6 +108,14 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.139 =
+* update-settings and get-settings now cover the site language (WPLANG), timezone (an identifier such as Europe/Berlin, or a UTC+N offset), date format, time format and first day of the week, each change undoable with rollback-operation.
+* Selecting a language that is not installed yet installs its core language pack first (needs the install_languages capability and direct filesystem access); an unknown locale or a failed install writes nothing and says why.
+
+= 0.8.138 =
+* New: upload-media can add PDFs, videos and other large files without sending the bytes through the chat. Pass an https url to import any allowed file type from a public address, or grant: true to get a short-lived, single-use upload link and a ready curl command for a file on your machine.
+* Files from a url or an upload link get the same name checks, type sniffing and blocked types as base64 uploads, are capped at the site's upload limit, and can be undone with rollback-operation. Private addresses and redirects are refused, and upload links are tied to the user who asked for them and logged in the governance audit log.
 
 = 0.8.137 =
 * Fix: deactivating the plugin now removes all of its scheduled events (the OAuth clean-up, backup schedules and background jobs); reactivating restores only the schedules your settings still ask for, at their configured times.
@@ -698,6 +708,12 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.139 =
+update-settings and get-settings now cover the site language (WPLANG), timezone (an identifier such as Europe/Berlin, or a UTC+N offset), date format, time format and first day of the week, each change undoable with rollback-operation.
+
+= 0.8.138 =
+New: upload-media can add PDFs, videos and other large files without sending the bytes through the chat. Pass an https url to import any allowed file type from a public address, or grant: true to get a short-lived, single-use upload link and a ready curl command for a file on your machine.
 
 = 0.8.137 =
 Fix: deactivating the plugin now removes all of its scheduled events (the OAuth clean-up, backup schedules and background jobs); reactivating restores only the schedules your settings still ask for, at their configured times.

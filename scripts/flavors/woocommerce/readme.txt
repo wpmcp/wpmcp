@@ -65,6 +65,10 @@ Used by the `scan-security` ability when it is run with `vulnerabilities:true`, 
 
 Used by the `search-plugins`, `get-plugin-info`, `install-plugin`, `update-plugin`, `search-themes`, `install-theme` and `update-theme` abilities, only when you or your agent run one of them. What is sent to api.wordpress.org: your search terms, or the directory slug of the plugin or theme in question, through core's `plugins_api()` and `themes_api()`, with core's standard user agent (WordPress version and this site's address). Installs and updates then download the package archive from downloads.wordpress.org. Only directory slugs are accepted; these abilities cannot be pointed at an arbitrary zip URL. `manage-updates` with type=core downloads the WordPress package that core's own update check offered, from downloads.wordpress.org. Privacy policy: https://wordpress.org/about/privacy/
 
+= WordPress.org language packs (api.wordpress.org, downloads.wordpress.org) =
+
+Used by the `update-settings` ability when it sets `WPLANG` to a locale that is not installed yet, and only then. It fetches the list of available core translations for this WordPress version from api.wordpress.org through core's `translations_api()`, then downloads that one locale's core language pack from downloads.wordpress.org through core's language pack upgrader, with core's standard user agent (WordPress version and this site's address). A locale that is already installed sends nothing. Privacy policy: https://wordpress.org/about/privacy/
+
 = Openverse (api.openverse.org) =
 
 Used by the `search-stock-images` ability. Openverse is the default provider, used whenever no other provider is named, and needs no key or setup, so it is not opt-in: it is contacted only when you or an agent run that search, and running it is what sends the request. What is sent: your search terms, the page number and the results-per-page count, under a `WPMCP-Stock-Search/1.0` user agent. No key and no account are required. Terms of use: https://openverse.org/terms Privacy policy: https://openverse.org/privacy

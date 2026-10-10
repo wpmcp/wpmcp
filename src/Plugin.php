@@ -171,6 +171,7 @@ use WPMCP\Tools\Media\Get_Media;
 use WPMCP\Tools\Media\Update_Media;
 use WPMCP\Tools\Media\Delete_Media;
 use WPMCP\Tools\Media\Sideload_Image;
+use WPMCP\Tools\Media\Upload_Grant;
 use WPMCP\Tools\Media\Upload_Media;
 use WPMCP\Tools\Media\List_Media;
 use WPMCP\Tools\Media\Find_Unused_Media;
@@ -804,6 +805,9 @@ final class Plugin
             // GET for a well-known path never fires. The handler answers
             // nothing while OAuth is off.
             OAuth_Endpoints::register_well_known();
+            // upload-media grant:true (issue #471): the single-use upload
+            // link route. The token is its only credential, checked inside.
+            add_action('rest_api_init', [Upload_Grant::class, 'register_routes']);
             // In-admin AI chat (issue #73, PRO). The conversation CPT and the
             // purge that destroys conversations with their owner register
             // unconditionally, for the same reason the memory CPT above does:
@@ -1606,12 +1610,14 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/upload-media',
             'free',
-            'Upload a file to the Media Library from base64 data. Type is sniffed from the bytes, not mime_type; executables and SVG refused; capped at the upload limit. Rollback deletes it',
+            'Upload a file to the Media Library from base64 data, an https url, or grant:true (returns a one-use upload URL and curl, for large files). Type sniffed from the bytes, not mime_type; executables and SVG refused; capped at the upload limit. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
                     'filename'   => [ 'type' => 'string' ],
                     'data'       => [ 'type' => 'string' ],
+                    'url'        => [ 'type' => 'string' ],
+                    'grant'      => [ 'type' => 'boolean' ],
                     'mime_type'  => [ 'type' => 'string' ],
                     'title'      => [ 'type' => 'string' ],
                     'alt'        => [ 'type' => 'string' ],
@@ -1619,7 +1625,6 @@ final class Plugin
                     'post_id'    => [ 'type' => 'integer' ],
                     'session_id' => [ 'type' => 'string' ],
                 ],
-                'required'   => [ 'filename', 'data' ],
             ],
             [$upload_media, 'handle'],
             'upload_files',
