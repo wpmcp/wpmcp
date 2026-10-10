@@ -48,6 +48,14 @@ class DuplicatePostPasswordTest extends \WP_UnitTestCase
         wp_set_current_user($caller);
         $out = (new Duplicate_Post())->handle([ 'post_id' => $source, 'status' => $status ]);
 
+        if ('private' === $status) {
+            // Core's wp_insert_post() clears the password of a private post:
+            // the copy is protected by its status instead, visible only to
+            // the caller (who can edit the source) and to Editors.
+            $this->assertSame('private', get_post_status($out['post_id']));
+            $this->assertSame('', get_post_field('post_password', $out['post_id']));
+            return;
+        }
         $this->assertSame('secret', get_post_field('post_password', $out['post_id']), "copy as {$status} keeps the password");
     }
 
