@@ -249,6 +249,13 @@ class Rollback_Service
         if (in_array($type, [ Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE, Wc_Webhook_Snapshot::TYPE, Wc_Webhook_Snapshot::CREATE_TYPE ], true)) {
             return [ [ 'manage_woocommerce' ] ];
         }
+        // A FunnelKit funnel's snapshot puts back its row, its meta and its
+        // step posts (checkout products and prices included), and every
+        // funnel write takes manage_woocommerce, so restoring one takes it
+        // too (issue #500).
+        if (in_array($type, [ FunnelKit_Funnel_Snapshot::TYPE, FunnelKit_Funnel_Snapshot::CREATE_TYPE ], true)) {
+            return [ [ 'manage_woocommerce' ] ];
+        }
         // BuddyPress rows hold group memberships, activity content and
         // profile field definitions, and every BuddyPress write takes
         // manage_options, so restoring one takes it too (issue #354).
@@ -654,6 +661,10 @@ class Rollback_Service
         }
         if (Wc_Webhook_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
             return Wc_Webhook_Snapshot::TYPE . ':' . $snapshot['object_id'];
+        }
+        // And for a FunnelKit funnel a theme-write op created (issue #500).
+        if (FunnelKit_Funnel_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
+            return FunnelKit_Funnel_Snapshot::TYPE . ':' . $snapshot['object_id'];
         }
         // And for a product or variation an import created: its oldest
         // state is "did not exist yet", whatever later edits followed.
@@ -1217,6 +1228,8 @@ class Rollback_Service
             'plugin_table_rows',
             'buddypress_rows',
             'crm_rows',
+            'funnelkit_funnel',
+            'funnelkit_funnel_create',
             'db_cleanup',
             'wc_tax_rate',
             'php_snippet',
@@ -1422,6 +1435,18 @@ class Rollback_Service
         // Crm_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('crm_rows' === $snapshot['object_type']) {
             self::warn_if(Crm_Rows_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // FunnelKit_Funnel_Snapshot::TYPE and ::CREATE_TYPE, spelled as
+        // literals for the restorable-types parity test (issue #500).
+        if ('funnelkit_funnel' === $snapshot['object_type']) {
+            self::warn_if(FunnelKit_Funnel_Snapshot::restore($snapshot));
+            return;
+        }
+
+        if ('funnelkit_funnel_create' === $snapshot['object_type']) {
+            self::warn_if(FunnelKit_Funnel_Snapshot::undo_creation($snapshot));
             return;
         }
 
