@@ -2,6 +2,7 @@
 
 namespace WPMCP\Auth;
 
+use WPMCP\Admin\Management_Access;
 use WPMCP\Gateway\Gateway_Guard;
 use WPMCP\Identity\Identity_Store;
 use WPMCP\MCP\Ability;
@@ -32,6 +33,14 @@ if (! defined('ABSPATH')) {
  *    also bind the connection to a scoped identity, which then narrows
  *    every call exactly as that identity does (domains, operations,
  *    abilities, allowed IPs) through the wpmcp_current_identity filter.
+ *
+ * Consent writes the row through record_consent(), never set() directly
+ * (issue #505). A row someone else set (a site owner on the Connection
+ * screen) that is narrower than full stays in place when the user approves
+ * the same client again: a non-owner's re-consent may keep or narrow it,
+ * never widen it to full or drop an identity binding. The consent screen
+ * reads owner_restriction() to tell the user so. The user's own earlier
+ * choice, and anything a site owner re-consents to, can change freely.
  *
  * Connections made before this existed have no row and a scope string that
  * is not `mcp:read`, so they keep full access until the owner changes them.
@@ -166,6 +175,47 @@ class Client_Access
         update_option(self::OPTION, $stored, false);
 
         return true;
+    }
+
+    /**
+     * The row a site owner set on this client and user that the current
+     * user may not widen by approving the client again (issue #505): one
+     * written by someone other than $user_id, narrower than full access,
+     * while the current user cannot manage WP MCP. Null when there is no
+     * such restriction, so the consent choice applies as made.
+     *
+     * @return array{client_id: string, user_id: int, level: string, identity: string, set_by: int, set_at: int}|null
+     */
+    public static function owner_restriction(string $client_id, int $user_id): ?array
+    {
+        $row = self::get($client_id, $user_id);
+        if (null === $row || self::FULL === (string) ($row['level'] ?? '') || (int) ($row['set_by'] ?? 0) === $user_id) {
+            return null;
+        }
+        if (current_user_can(Management_Access::CAPABILITY)) {
+            return null;
+        }
+
+        return $row;
+    }
+
+    /**
+     * Record the level chosen on the consent screen for one client and the
+     * approving user. Under an owner restriction the stored row is left
+     * exactly as it is, set_by included, so the restriction stays the
+     * owner's: a narrower choice still narrows the new token through its
+     * scope (Authorization_Grant), and a wider one changes nothing.
+     *
+     * @return bool True when the choice was stored, false when it was not
+     *              (an owner restriction was kept, or set() refused it).
+     */
+    public static function record_consent(string $client_id, int $user_id, string $level, string $identity = ''): bool
+    {
+        if (null !== self::owner_restriction($client_id, $user_id)) {
+            return false;
+        }
+
+        return self::set($client_id, $user_id, $level, $identity);
     }
 
     /** Drop every row for a client (the client was forgotten or blocked). */

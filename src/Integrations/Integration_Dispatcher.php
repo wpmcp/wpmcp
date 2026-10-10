@@ -39,6 +39,18 @@ if (! defined('ABSPATH')) {
  *      'enabled_by_default' bool (default true); a default-off op is refused
  *                           until the site opts in via the
  *                           wpmcp_integration_op_enabled filter
+ *      'enable_hint'        how a site turns a default-off op on, when it
+ *                           has a switch of its own; shown in the refusal
+ *      'confirm_preview'    destructive ops only: callable(array $args)
+ *                           returning ['message' => ..., 'data' => [...]],
+ *                           what the op would do. An unconfirmed call then
+ *                           runs schema validation and validate() first and
+ *                           answers confirmation_required with the preview
+ *                           (a send reports its recipient count), so the
+ *                           person confirms exactly that
+ *      'undoable'           false for a write that snapshots its target but
+ *                           whose effect cannot be undone (mail sent): the
+ *                           response says recoverable:false
  *      'requires'           callable(): true|array, a per-op dependency check
  *                           for an op that needs a companion plugin the
  *                           integration as a whole does not (CF7 entries need
@@ -111,7 +123,8 @@ if (! defined('ABSPATH')) {
  * effects and writes no snapshot):
  *   availability -> op exists in this channel -> enabled flag/filter ->
  *   op-level governance -> per-op capability -> per-op 'requires' dependency ->
- *   destructive confirm:true -> schema validation -> per-op validate() -> handler.
+ *   destructive confirm:true -> schema validation -> per-op validate() -> handler
+ *   (an op with a confirm_preview asks for confirm:true after validate()).
  *
  * Layering with the platform gates: the pair's own capability, Governance,
  * identity scope, and pro-tier gates all apply unchanged through
@@ -405,8 +418,9 @@ abstract class Integration_Dispatcher
 
         if (! $this->is_op_enabled($op, $def)) {
             return $this->error('operation_disabled', sprintf(
-                'Operation "%s" is disabled by default. Enable it with the wpmcp_integration_op_enabled filter.',
-                $op
+                'Operation "%s" is disabled by default. %s',
+                $op,
+                (string) ($def['enable_hint'] ?? 'Enable it with the wpmcp_integration_op_enabled filter.')
             ));
         }
 
@@ -435,7 +449,8 @@ abstract class Integration_Dispatcher
             );
         }
 
-        if ('destructive' === $def['mode'] && true !== ($args['confirm'] ?? false)) {
+        $unconfirmed = 'destructive' === $def['mode'] && true !== ($args['confirm'] ?? false);
+        if ($unconfirmed && ! isset($def['confirm_preview'])) {
             return $this->error('confirmation_required', sprintf(
                 'Operation "%s" is destructive and requires confirm:true.',
                 $op
@@ -472,6 +487,16 @@ abstract class Integration_Dispatcher
         }
 
         try {
+            if ($unconfirmed) {
+                // A previewed op is asked about only once its args pass, with
+                // what it would do in the question.
+                $preview = (array) ($def['confirm_preview'])($op_args);
+                return $this->error('confirmation_required', sprintf(
+                    'Operation "%s" requires confirm:true. %s',
+                    $op,
+                    (string) ($preview['message'] ?? '')
+                ), (array) ($preview['data'] ?? []));
+            }
             if ('read' === $channel) {
                 return $this->ok($op, ($def['handler'])($op_args));
             }
@@ -518,6 +543,9 @@ abstract class Integration_Dispatcher
                 'session_id' => $session_id,
                 'tool_name'  => sprintf('%s-write', $this->integration()),
                 'operation'  => $op,
+                // What the op took, for the restore capability an option
+                // snapshot it writes declares (issue #502).
+                'capability' => $this->op_capability($def),
             ]);
             $ids        = array_values((array) ($out['operation_ids'] ?? []));
 
@@ -553,13 +581,26 @@ abstract class Integration_Dispatcher
         if (! empty($target['extra_snapshot_data']) && is_array($target['extra_snapshot_data'])) {
             $context['extra_snapshot_data'] = $target['extra_snapshot_data'];
         }
+        // An option snapshot that names no restore capability needs
+        // manage_options to restore (issue #502), so it declares the one
+        // this op took: whoever could make the change can undo it, and no
+        // one below that can.
+        if (in_array($context['object_type'], [ 'option', 'option_set' ], true) && ! isset($context['extra_snapshot_data']['restore_capability'])) {
+            $context['extra_snapshot_data'] = (array) ($context['extra_snapshot_data'] ?? []) + [ 'restore_capability' => $this->op_capability($def) ];
+        }
 
         $out = Safe_Mutation::run($context, fn () => ($def['handler'])($op_args, [ 'session_id' => $session_id, 'target' => $target, 'operation_id' => $operation_id ]));
 
         return $this->ok($op, $out['result']) + [
             'operation_id' => $out['operation_id'],
-            'recoverable'  => true,
+            'recoverable'  => false !== ($def['undoable'] ?? true),
         ];
+    }
+
+    /** The capability an op takes: its own override, else the dispatcher's. */
+    private function op_capability(array $def): string
+    {
+        return (string) ($def['capability'] ?? $this->capability());
     }
 
     /**

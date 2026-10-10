@@ -28,6 +28,10 @@ if (! defined('ABSPATH')) {
  *  - a scoped identity (site owners only): the client is limited exactly as
  *    that identity is, including its allowed IPs.
  *
+ * When a site owner already set a narrower level on this user's
+ * connection to the client, the screen says that level stays (issue #505)
+ * and does not offer full access over a read-only restriction.
+ *
  * Nothing is shown and nothing redirects until Authorization_Grant::validate()
  * accepts the request, so the screen never names an unknown client and never
  * sends the browser to a redirect_uri the client did not register. The
@@ -143,6 +147,22 @@ class OAuth_Consent_Page
         $host      = (string) wp_parse_url($request['redirect_uri'], PHP_URL_HOST);
         $read_only = Client_Access::is_read_only_scope($request['scope']);
 
+        // Issue #505: a level a site owner set on this user's connection to
+        // the client is kept whatever is chosen here, so say so, and do not
+        // offer full access when it cannot be honored.
+        $restriction = Client_Access::owner_restriction($request['client_id'], (int) $user->ID);
+        $notice      = '';
+        if (null !== $restriction && Client_Access::IDENTITY === $restriction['level']) {
+            $notice = sprintf(
+                /* translators: %s: scoped identity name. */
+                __('A site owner has limited this application to the "%s" identity for your account. It stays limited that way whatever you choose here; choosing read only narrows it further.', 'wpmcp'),
+                (string) $restriction['identity']
+            );
+        } elseif (null !== $restriction) {
+            $read_only = true;
+            $notice    = __('A site owner has limited this application to read-only access for your account, so full access cannot be chosen here. Ask a site owner if it needs more.', 'wpmcp');
+        }
+
         $options = [];
         if (! $read_only) {
             $options[ Client_Access::FULL ] = [__('Full access', 'wpmcp'), __('It can do anything your account can do on this site, including changing content and settings.', 'wpmcp')];
@@ -175,6 +195,9 @@ class OAuth_Consent_Page
         $body .= wp_nonce_field(self::NONCE_ACTION, '_wpnonce', true, false);
         foreach ($params as $key => $value) {
             $body .= '<input type="hidden" name="' . esc_attr($key) . '" value="' . esc_attr($value) . '">';
+        }
+        if ('' !== $notice) {
+            $body .= '<p class="limit" role="status">' . esc_html($notice) . '</p>';
         }
         $body .= '<fieldset><legend>' . esc_html__('What may it do?', 'wpmcp') . '</legend>';
         $first = true;
@@ -232,7 +255,7 @@ class OAuth_Consent_Page
             . 'main{max-width:520px;margin:40px auto;background:#fff;border:1px solid #dcdcde;border-radius:4px;padding:24px}'
             . 'h1{font-size:20px;margin:0 0 12px}fieldset{border:0;padding:0;margin:16px 0}legend{font-weight:600;margin-bottom:8px}'
             . '.choice{display:flex;gap:8px;align-items:flex-start;padding:10px;border:1px solid #dcdcde;border-radius:4px;margin-bottom:8px;cursor:pointer}'
-            . '.help,.note{color:#50575e;font-size:13px}.actions{display:flex;gap:8px}'
+            . '.help,.note{color:#50575e;font-size:13px}.limit{background:#fcf9e8;border-left:4px solid #dba617;padding:8px 12px}.actions{display:flex;gap:8px}'
             . 'button{font:inherit;padding:8px 16px;border-radius:3px;border:1px solid #2271b1;background:#fff;color:#2271b1;cursor:pointer}'
             . 'button.primary{background:#2271b1;color:#fff}</style></head><body><main>'
             . $body

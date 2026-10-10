@@ -97,20 +97,57 @@ class Elementor_Template_Data
     }
 
     /**
+     * The status and password a template copied from $source must carry so
+     * it is no easier to read than the source (issue #504).
+     *
+     * A template is published by default, and any edit_posts caller then
+     * reads its element tree, so content copied out of a page keeps that
+     * page's protection: its post_password is carried over, and a source
+     * whose status is not public (private, draft, pending, future, ...)
+     * yields a private template. A revision is judged by the post it
+     * belongs to.
+     *
+     * @return array{post_status: string, post_password: string}
+     */
+    public static function visibility_of(\WP_Post $source): array
+    {
+        if ('revision' === $source->post_type && $source->post_parent > 0) {
+            $parent = get_post((int) $source->post_parent);
+            if ($parent instanceof \WP_Post) {
+                $source = $parent;
+            }
+        }
+
+        $status = get_post_status_object((string) get_post_status($source));
+        $public = $status instanceof \stdClass && ! empty($status->public);
+
+        return [
+            'post_status'   => $public ? 'publish' : 'private',
+            'post_password' => (string) $source->post_password,
+        ];
+    }
+
+    /**
      * Create a library template from an element tree.
      *
+     * $visibility is visibility_of() for a template copied from an existing
+     * post; a template built from caller-supplied elements leaves it empty
+     * and is published without a password, as before.
+     *
+     * @param array{post_status?: string, post_password?: string} $visibility
      * @return int|\WP_Error the new template post id.
      */
-    public static function create(string $title, string $type, array $elements)
+    public static function create(string $title, string $type, array $elements, array $visibility = [])
     {
         $type  = self::normalize_type($type);
         $title = sanitize_text_field($title);
 
         $id = wp_insert_post(
             wp_slash([
-                'post_title'  => '' !== $title ? $title : __('Untitled template', 'wpmcp'),
-                'post_status' => 'publish',
-                'post_type'   => self::POST_TYPE,
+                'post_title'    => '' !== $title ? $title : __('Untitled template', 'wpmcp'),
+                'post_status'   => 'private' === ($visibility['post_status'] ?? '') ? 'private' : 'publish',
+                'post_password' => (string) ($visibility['post_password'] ?? ''),
+                'post_type'     => self::POST_TYPE,
                 'meta_input'  => [
                     '_elementor_edit_mode'     => 'builder',
                     '_elementor_template_type' => $type,

@@ -869,11 +869,13 @@ final class TablePress_Pack
     {
         $out = Safe_Mutation::run(
             [
-                'object_type' => 'option',
-                'object_id'   => self::TABLES_OPTION,
-                'session_id'  => (string) $context['session_id'],
-                'tool_name'   => (string) $context['tool_name'],
-                'args'        => [ 'operation' => (string) $context['operation'], 'args' => $args ],
+                'object_type'         => 'option',
+                'object_id'           => self::TABLES_OPTION,
+                'session_id'          => (string) $context['session_id'],
+                'tool_name'           => (string) $context['tool_name'],
+                'args'                => [ 'operation' => (string) $context['operation'], 'args' => $args ],
+                // The table capability this op took (issue #502).
+                'extra_snapshot_data' => [ 'restore_capability' => (string) ($context['capability'] ?? 'manage_options') ],
             ],
             $write
         );
