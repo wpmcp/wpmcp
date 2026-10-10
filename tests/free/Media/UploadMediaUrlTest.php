@@ -144,6 +144,9 @@ class UploadMediaUrlTest extends \WP_UnitTestCase
         $out = (new Upload_Media())->handle(['url' => 'https://files.example.org/download?id=7', 'filename' => 'price-list.pdf']);
         $this->assertStringStartsWith('price-list', $out['file']);
 
+        wp_delete_attachment($out['media_id'], true);
+        $this->http_calls = 0;
+
         $this->assert_refused(['url' => 'https://files.example.org/download?id=8'], 0);
     }
 

@@ -360,6 +360,7 @@ class UploadGrantTest extends \WP_UnitTestCase
         wp_set_current_user(0);
         $this->assertSame(400, $this->put($grant, '')->get_status());
 
+        wp_set_current_user($this->admin);
         $grant = $this->grant();
         wp_set_current_user(0);
         $this->assertSame(415, $this->put($grant, $this->pdf(), ['Content-Type' => 'multipart/form-data; boundary=x'])->get_status());
@@ -404,15 +405,24 @@ class UploadGrantTest extends \WP_UnitTestCase
         $this->assertSame(1, $this->grant_rows());
     }
 
-    public function test_route_is_registered_and_transport_guarded(): void
+    public function test_route_is_registered_uncacheable_and_outside_the_gateway_surface(): void
     {
         $routes = rest_get_server()->get_routes();
         $this->assertNotEmpty(array_filter(array_keys($routes), static fn($r) => str_starts_with($r, '/wpmcp/v1/media-upload/')));
-        $this->assertTrue(Transport_Guard::is_guarded_route('/wpmcp/v1/media-upload/' . str_repeat('a', 48)));
+
+        // The token is the only credential: no MCP gateway credential may
+        // authenticate here, so the route stays off the guarded MCP surface.
+        $this->assertFalse(Transport_Guard::is_guarded_route('/wpmcp/v1/media-upload/' . str_repeat('a', 48)));
+
+        $grant = $this->grant();
+        wp_set_current_user(0);
+        $response = $this->put($grant, $this->pdf());
+        $this->assertStringContainsString('no-store', (string) ($response->get_headers()['Cache-Control'] ?? ''));
     }
 
     public function test_schema_advertises_url_and_grant_without_requiring_data(): void
     {
+        $this->assertArrayHasKey('wpmcp/upload-media', wp_get_abilities());
         $ability = Plugin::instance()->registrar()->get('wpmcp/upload-media');
         $this->assertNotNull($ability);
         $this->assertSame('string', $ability->input_schema['properties']['url']['type'] ?? null);
