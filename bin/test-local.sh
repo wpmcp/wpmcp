@@ -14,8 +14,10 @@
 #      one that other worktrees are running against. Stale installs are left
 #      behind; delete wp-* under the cache when nothing is running.
 #   3. Gives this checkout its own database, so worktrees can run side by side.
-#   4. Runs composer lint, composer drift:check, then the suite. The default
-#      leg also enforces the coverage floor when pcov is loaded.
+#   4. Runs composer lint, composer drift:check, then the suite on the default
+#      WordPress (with the coverage floor when pcov is loaded), then the suite
+#      on the `Requires at least` WordPress from readme.txt without coverage
+#      (issue #488), so the floor is tested on every push.
 #   5. Runs the live forms group (issue #66): the Contact Form 7 adapter
 #      against a real Contact Form 7 and Flamingo, on a separate install,
 #      because the harness doubles stand down once the real classes load.
@@ -38,14 +40,19 @@
 #      downloadable here): pages saved by the real Breakdance are detected,
 #      read, edited and rolled back, and Breakdance still loads them.
 #
+# Every leg runs even when an earlier one fails, so a red floor leg never
+# hides the live groups behind it. The run ends with a summary of every leg
+# and exits non-zero if any failed. Use --plan to list the legs of a run.
+#
 # MariaDB, not MySQL: the WordPress harness turns every CREATE TABLE into a
 # TEMPORARY table, and WooCommerce's order-sync query reads one of them twice
 # on admin_init. MySQL refuses that ("Can't reopen table: 'orders'"), which
 # breaks RestoreControllerAjaxTest. MariaDB lifted the limitation.
 #
 # Usage:
-#   bin/test-local.sh                 lint, drift, suite on the default WordPress, coverage floor
-#   bin/test-local.sh --all           the same, then the suite on every other WordPress below
+#   bin/test-local.sh                 lint, drift, suite on the default WordPress with the
+#                                     coverage floor, suite on the Requires at least WordPress, live groups
+#   bin/test-local.sh --all           the same, on every WordPress in WP_VERSIONS below
 #   bin/test-local.sh --wp 6.9        the suite on one WordPress version
 #   bin/test-local.sh --no-coverage   skip the coverage run and floor
 #   bin/test-local.sh --live-forms    only the live forms group (real Contact Form 7 + Flamingo)
@@ -56,7 +63,9 @@
 #   bin/test-local.sh --live-crm      only the live CRM group (real FluentCRM and MailPoet)
 #   bin/test-local.sh --live-funnelkit only the live FunnelKit group (real Funnel Builder + WooCommerce)
 #   bin/test-local.sh --live-breakdance only the live Breakdance group (needs WPMCP_BREAKDANCE_SRC)
-#   bin/test-local.sh -- --filter Foo PHPUnit arguments; skips lint, drift and coverage
+#   bin/test-local.sh -- --filter Foo PHPUnit arguments, default WordPress only; skips lint,
+#                                     drift, coverage, the floor leg and the live groups
+#   bin/test-local.sh --plan [...]    print the legs the other options would run, run nothing
 #   bin/test-local.sh --stop-db       stop the private MariaDB server and exit
 #
 # Environment:
@@ -74,8 +83,9 @@ set -euo pipefail
 
 # The WordPress releases the suite runs on. The first is the default leg and
 # must be the release the shipped headers declare (TESTED_UP_TO_FLOOR); the
-# `Requires at least` floor must be in the list too. ReleaseHeadersTest parses
-# this exact line, so keep it one quoted, space-separated list.
+# `Requires at least` floor must be in the list too; a plain run tests both.
+# ReleaseHeadersTest parses this exact line, so keep it one quoted,
+# space-separated list.
 WP_VERSIONS="7.1 6.9"
 
 # Line coverage floor for the default leg. A ratchet: only ever raise it.
@@ -106,6 +116,7 @@ only_live_crm=false
 only_live_funnelkit=false
 only_live_breakdance=false
 coverage=true
+plan_only=false
 phpunit_args=()
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -121,6 +132,7 @@ while [ $# -gt 0 ]; do
 		--live-funnelkit) only_live_funnelkit=true ;;
 		--live-breakdance) only_live_breakdance=true ;;
 		--stop-db) stop_db=true ;;
+		--plan) plan_only=true ;;
 		--) shift; phpunit_args=("$@"); break ;;
 		-h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
 		*) die "unknown option: $1 (see --help)" ;;
@@ -151,6 +163,71 @@ mariadb_dir() {
 	fi
 	die "MariaDB not found. Install it with: brew install mariadb@10.11 (keg-only, does not conflict with mysql), or set WPMCP_MARIADB_BIN."
 }
+
+# ---------------------------------------------------------------- plan
+
+read -r -a versions <<<"$WP_VERSIONS"
+default_wp=${versions[0]}
+floor_wp=$(sed -n 's/^Requires at least:[[:space:]]*//p' "$ROOT/readme.txt" | head -1 | tr -d '[:space:]')
+[ -n "$floor_wp" ] || die "readme.txt has no Requires at least header"
+
+targeted=false
+[ ${#phpunit_args[@]} -gt 0 ] && targeted=true
+
+# The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
+LEGS=()
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ]; then
+	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
+	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
+	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
+	[ "$only_live_lms" = false ] || LEGS+=("live-lms ${only_wp:-$default_wp}")
+	[ "$only_live_tablepress" = false ] || LEGS+=("live-tablepress ${only_wp:-$default_wp}")
+	[ "$only_live_crm" = false ] || LEGS+=("live-crm ${only_wp:-$default_wp}")
+	[ "$only_live_funnelkit" = false ] || LEGS+=("live-funnelkit ${only_wp:-$default_wp}")
+	[ "$only_live_breakdance" = false ] || LEGS+=("live-breakdance ${only_wp:-$default_wp}")
+elif [ -n "$only_wp" ]; then
+	LEGS+=("phpunit $only_wp none")
+else
+	if [ "$targeted" = false ]; then
+		LEGS+=("lint" "drift")
+	fi
+	if [ "$coverage" = true ] && [ "$targeted" = false ]; then
+		LEGS+=("phpunit $default_wp floor")
+	else
+		LEGS+=("phpunit $default_wp none")
+	fi
+	# The floor leg (issue #488): part of every plain run, so the pre-push
+	# hook and the merge queue gate test the oldest WordPress the plugin
+	# claims to support. --all runs every version in WP_VERSIONS instead.
+	if [ "$run_all" = true ]; then
+		for version in "${versions[@]:1}"; do
+			LEGS+=("phpunit $version none")
+		done
+	elif [ "$targeted" = false ] && [ "$floor_wp" != "$default_wp" ]; then
+		LEGS+=("phpunit $floor_wp none")
+	fi
+	if [ "$targeted" = false ]; then
+		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-crm $default_wp" "live-funnelkit $default_wp")
+		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
+			LEGS+=("live-breakdance $default_wp")
+		fi
+	fi
+fi
+
+# "phpunit 6.9 none" -> "phpunit wp=6.9 coverage=none"; "live-forms 7.1" -> "live-forms wp=7.1".
+leg_label() {
+	local kind wp cov
+	read -r kind wp cov <<<"$1"
+	printf '%s%s%s' "$kind" "${wp:+ wp=$wp}" "${cov:+ coverage=$cov}"
+}
+
+if [ "$plan_only" = true ]; then
+	for leg in "${LEGS[@]}"; do
+		echo "leg: $(leg_label "$leg")"
+	done
+	echo "on-failure: continue"
+	exit 0
+fi
 
 BIN=$(mariadb_dir)
 
@@ -522,19 +599,6 @@ composer_install() { [ -x vendor/bin/phpunit ] || composer install --no-interact
 
 start_db
 
-read -r -a versions <<<"$WP_VERSIONS"
-default_wp=${versions[0]}
-
-targeted=false
-[ ${#phpunit_args[@]} -gt 0 ] && targeted=true
-
-if [ "$targeted" = false ]; then
-	say "composer lint"
-	composer lint
-	say "composer drift:check"
-	composer drift:check
-fi
-
 want_coverage=false
 if [ "$coverage" = true ] && [ "$targeted" = false ]; then
 	# Capture first: grep -q exits on the first match and, under pipefail, the
@@ -547,36 +611,55 @@ if [ "$coverage" = true ] && [ "$targeted" = false ]; then
 	fi
 fi
 
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ]; then
-	[ "$only_live_forms" = false ] || run_live_forms "${only_wp:-$default_wp}"
-	[ "$only_live_blocks" = false ] || run_live_blocks "${only_wp:-$default_wp}"
-	[ "$only_live_buddypress" = false ] || run_live_buddypress "${only_wp:-$default_wp}"
-	[ "$only_live_lms" = false ] || run_live_lms "${only_wp:-$default_wp}"
-	[ "$only_live_tablepress" = false ] || run_live_tablepress "${only_wp:-$default_wp}"
-	[ "$only_live_crm" = false ] || run_live_crm "${only_wp:-$default_wp}"
-	[ "$only_live_funnelkit" = false ] || run_live_funnelkit "${only_wp:-$default_wp}"
-	[ "$only_live_breakdance" = false ] || run_live_breakdance "${only_wp:-$default_wp}"
-elif [ -n "$only_wp" ]; then
-	run_suite "$only_wp" false
-else
-	run_suite "$default_wp" "$want_coverage"
-	if [ "$run_all" = true ]; then
-		for version in "${versions[@]:1}"; do
-			run_suite "$version" false
-		done
-	fi
-	if [ "$targeted" = false ]; then
-		run_live_forms "$default_wp"
-		run_live_blocks "$default_wp"
-		run_live_buddypress "$default_wp"
-		run_live_lms "$default_wp"
-		run_live_tablepress "$default_wp"
-		run_live_crm "$default_wp"
-		run_live_funnelkit "$default_wp"
-		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
-			run_live_breakdance "$default_wp"
-		fi
-	fi
-fi
+run_leg_body() {
+	local kind=$1 wp=${2:-} cov=${3:-}
+	case "$kind" in
+		lint) say "composer lint"; composer lint ;;
+		drift) say "composer drift:check"; composer drift:check ;;
+		phpunit) if [ "$cov" = floor ]; then run_suite "$wp" "$want_coverage"; else run_suite "$wp" false; fi ;;
+		live-forms) run_live_forms "$wp" ;;
+		live-blocks) run_live_blocks "$wp" ;;
+		live-buddypress) run_live_buddypress "$wp" ;;
+		live-lms) run_live_lms "$wp" ;;
+		live-tablepress) run_live_tablepress "$wp" ;;
+		live-crm) run_live_crm "$wp" ;;
+		live-funnelkit) run_live_funnelkit "$wp" ;;
+		live-breakdance) run_live_breakdance "$wp" ;;
+		*) die "unknown leg: $kind" ;;
+	esac
+}
 
+# Each leg runs in a subshell with errexit on, so its first failing command
+# ends that leg only. The next leg still runs (issue #488: a red floor leg
+# used to stop the live groups without a word), and the summary names it.
+SUMMARY=()
+failed=0
+for leg in "${LEGS[@]}"; do
+	set +e
+	(
+		set -e
+		RUN_CORES=()
+		RUN_CONFIGS=()
+		trap cleanup_run EXIT
+		# shellcheck disable=SC2086 # the leg is "<kind> [WordPress] [coverage]".
+		run_leg_body $leg
+	)
+	status=$?
+	set -e
+	if [ "$status" -eq 0 ]; then
+		SUMMARY+=("pass  $(leg_label "$leg")")
+	else
+		SUMMARY+=("FAIL  $(leg_label "$leg") (exit $status)")
+		failed=$((failed + 1))
+		printf '\033[31m[test-local]\033[0m leg failed: %s (exit %s); running the remaining legs.\n' "$(leg_label "$leg")" "$status" >&2
+	fi
+done
+
+say "Summary:"
+for line in "${SUMMARY[@]}"; do
+	printf '  %s\n' "$line"
+done
+if [ "$failed" -gt 0 ]; then
+	die "$failed of ${#LEGS[@]} legs failed."
+fi
 say "All green."
