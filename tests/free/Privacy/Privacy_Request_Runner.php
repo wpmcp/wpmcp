@@ -66,6 +66,9 @@ trait Privacy_Request_Runner
             add_action('wp_ajax_' . $action, $handler, 1);
         }
         $this->_setRole('administrator');
+        // On a network, handling another person's privacy request is the
+        // network administrator's (issue #530).
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->pages_requested = [];
         $out                   = [];
         $index                 = 0;
@@ -80,12 +83,19 @@ trait Privacy_Request_Runner
                 $_POST['security']      = wp_create_nonce($action . '-' . $request_id);
                 $_POST['sendAsEmail']   = 'false';
                 $this->_last_response   = '';
+                // A real request to admin-ajax.php has this; without it the
+                // bundled Freemius SDK's admin page check reads a null match
+                // on multisite and prints a deprecation into the JSON (#530).
+                $php_self             = $_SERVER['PHP_SELF'] ?? null;
+                $_SERVER['PHP_SELF']  = '/wp-admin/admin-ajax.php';
                 try {
                     $this->_handleAjax($action);
                 } catch (\WPAjaxDieContinueException $e) {
                     unset($e);
                 } catch (\WPAjaxDieStopException $e) {
                     $this->fail(sprintf('%s page %d stopped: %s', $key, $page, $e->getMessage()));
+                } finally {
+                    $_SERVER['PHP_SELF'] = $php_self;
                 }
                 $response = json_decode($this->_last_response, true);
                 $this->assertIsArray($response, sprintf('%s page %d returned no JSON: %s', $key, $page, $this->_last_response));

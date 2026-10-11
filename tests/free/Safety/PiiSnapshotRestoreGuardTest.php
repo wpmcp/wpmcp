@@ -45,6 +45,7 @@ class PiiSnapshotRestoreGuardTest extends \WP_UnitTestCase
     private function delete_entry_with_snapshot(): string
     {
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $id  = $this->entry_id;
         $out = Safe_Mutation::run(
             [
@@ -118,6 +119,7 @@ class PiiSnapshotRestoreGuardTest extends \WP_UnitTestCase
     {
         $post = self::factory()->post->create([ 'post_content' => 'before' ]);
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $out = Safe_Mutation::run(
             [
                 'object_type' => 'post',
@@ -145,6 +147,7 @@ class PiiSnapshotRestoreGuardTest extends \WP_UnitTestCase
 
         $post = self::factory()->post->create([ 'post_content' => 'before' ]);
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $out = Safe_Mutation::run(
             [
                 'object_type' => 'post',

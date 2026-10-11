@@ -227,6 +227,7 @@ class ContentWriteFilterTest extends \WP_UnitTestCase
     {
         $this->use_block_theme();
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $write = new Site_Templates_Write();
         $first = $write->handle(['entity' => 'template_part', 'id' => 'footer', 'content' => "<!-- wp:paragraph -->\n<p>First</p>\n<!-- /wp:paragraph -->"]);
         $wp_id = (int) $first['wp_id'];
@@ -246,6 +247,7 @@ class ContentWriteFilterTest extends \WP_UnitTestCase
     {
         $this->use_block_theme();
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $write   = new Site_Templates_Write();
         $first   = $write->handle(['entity' => 'global_styles', 'attrs' => ['settings.color.palette.theme.base.color' => '#123456']]);
         $post_id = (int) $first['user_post_id'];
@@ -270,6 +272,7 @@ class ContentWriteFilterTest extends \WP_UnitTestCase
     public function test_change_set_writes_only_the_text_columns_that_differ(): void
     {
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $id = (int) self::factory()->post->create(['post_status' => 'publish']);
         $this->make_raw($id);
 
@@ -300,6 +303,7 @@ class ContentWriteFilterTest extends \WP_UnitTestCase
     public function test_publishing_a_stage_leaves_the_unchanged_title_and_excerpt_alone(): void
     {
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $original = (int) self::factory()->post->create(['post_status' => 'publish']);
         $this->make_raw($original);
         $stage = (int) (new Duplicate_Post())->handle(['post_id' => $original, 'stage' => true])['post_id'];

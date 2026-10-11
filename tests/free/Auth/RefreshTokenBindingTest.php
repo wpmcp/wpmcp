@@ -62,7 +62,7 @@ class RefreshTokenBindingTest extends \WP_UnitTestCase
         $user_id = self::factory()->user->create(['role' => 'administrator']);
         $token   = Refresh_Token_Store::issue('client_a', $user_id, 'read');
 
-        wp_delete_user($user_id);
+        wpmcp_test_delete_account($user_id);
 
         $this->assertSame('credential_changed', Refresh_Token_Store::redeem($token)['status']);
     }

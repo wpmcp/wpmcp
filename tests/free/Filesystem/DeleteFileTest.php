@@ -33,6 +33,7 @@ class DeleteFileTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $this->expectException(\InvalidArgumentException::class);
         try {
@@ -47,6 +48,7 @@ class DeleteFileTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $result = (new Delete_File())->handle(['path' => $this->rel_dir . '/gone.txt', 'confirm' => true]);
 
@@ -70,6 +72,7 @@ class DeleteFileTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         add_filter('wpmcp_fs_protected_paths', function ($paths) {
             $paths[] = 'gone.txt';
