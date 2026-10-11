@@ -117,6 +117,16 @@ class Run_Backup_Job
             return;
         }
 
+        // A job a schedule queued on multisite runs only when that
+        // schedule's creator is a network admin (issue #541): a sub-site
+        // admin's pre-v0.8.168 schedule must not produce one more
+        // network-wide archive.
+        $refusal = Backup_Schedule::job_refusal($job);
+        if (null !== $refusal) {
+            Backup_Job_Store::update($job_id, [ 'status' => 'canceled', 'error' => $refusal ]);
+            return;
+        }
+
         // The producer receives the post-update record, not the record as it
         // was read a line earlier: handing it a job that still claims to be
         // queued would make any status the producer reads or logs a lie.
