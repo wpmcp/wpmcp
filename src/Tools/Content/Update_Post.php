@@ -67,7 +67,8 @@ class Update_Post
             throw new \InvalidArgumentException('Post not found');
         }
         if (! Content_Guard::is_writable_post_type((string) $post->post_type)) {
-            throw new \InvalidArgumentException('That post type is not writable here.');
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- store_refusal() returns a plugin literal.
+            throw new \InvalidArgumentException(Content_Guard::store_refusal((string) $post->post_type) ?? 'That post type is not writable here.');
         }
         if (isset($args['meta']) && is_array($args['meta'])) {
             $guard = Content_Guard::check_meta($args['meta']);
