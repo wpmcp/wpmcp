@@ -31,7 +31,8 @@ if (! defined('ABSPATH')) {
  *
  * Tool arguments are NOT recorded by default: they routinely carry post
  * bodies, credentials and API keys, and this option is readable by anything
- * that can read options. Capture is opt-in (the wpmcp_request_log_capture_args
+ * that can read options (though not the generic get-option tool, which
+ * refuses it since issue #550). Capture is opt-in (the wpmcp_request_log_capture_args
  * option or filter) and even then values whose key looks like a secret are
  * replaced with REDACTED, and every value is truncated, so switching debug on
  * cannot dump a credential or a megabyte of post content into wp_options.

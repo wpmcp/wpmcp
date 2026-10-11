@@ -81,11 +81,47 @@ class Filesystem_Guard
      */
     public static function is_protected(string $abs): bool
     {
+        if (self::in_site_backup_dir($abs)) {
+            return true;
+        }
+
         $base      = strtolower(basename($abs));
         $protected = ['wp-config.php', '.htaccess'];
         /** Filter the write/delete-protected basenames. */
         $protected = (array) apply_filters('wpmcp_fs_protected_paths', $protected, $abs);
         return in_array($base, array_map('strtolower', $protected), true);
+    }
+
+    /** The site backup directory under uploads (Site_Backup_Dir::DIR_NAME). */
+    private const SITE_BACKUP_DIR = 'wpmcp-site-backups';
+
+    /**
+     * Whether $abs is the site backup directory or inside it (issue #550).
+     * It holds full database dumps (the archives, and while a backup or
+     * restore runs, or after one dies, the plaintext .sql they are built
+     * from or extracted to): every option and row, payment gateway
+     * credentials and password hashes included. The generic file tools
+     * never read, list, search, write or delete it, whatever the
+     * wpmcp_fs_protected_paths filter says; the backup tools are the way in.
+     */
+    public static function in_site_backup_dir(string $abs): bool
+    {
+        $uploads = wp_upload_dir(null, false);
+        if (empty($uploads['basedir'])) {
+            return false;
+        }
+        $dir  = rtrim((string) $uploads['basedir'], '/\\') . '/' . self::SITE_BACKUP_DIR;
+        $real = realpath($dir);
+        $dirs = array_unique(array_filter([ $dir, false === $real ? '' : $real ]));
+
+        $path = strtolower(rtrim(str_replace('\\', '/', $abs), '/'));
+        foreach ($dirs as $candidate) {
+            $candidate = strtolower(rtrim(str_replace('\\', '/', $candidate), '/'));
+            if ($path === $candidate || 0 === strpos($path, $candidate . '/')) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
