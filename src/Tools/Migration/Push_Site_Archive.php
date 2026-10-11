@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Migration;
 
+use WPMCP\Tools\Backup\Network_Scope;
 use WPMCP\Tools\Backup\Archive_Locator;
 
 if (! defined('ABSPATH')) {
@@ -67,6 +68,9 @@ class Push_Site_Archive
     {
         if (! Migration_Guard::allows_outgoing()) {
             return Migration_Guard::outgoing_disabled_error();
+        }
+        if (! Network_Scope::allows_current_user()) {
+            return new \WP_Error('wpmcp_migration_network_only', 'Pushing a site archive on a multisite network sends every site\'s tables and the network users, so it needs a network administrator (manage_network_options).', ['status' => 403]);
         }
 
         try {

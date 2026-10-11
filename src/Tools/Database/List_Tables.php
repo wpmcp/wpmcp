@@ -8,7 +8,9 @@ if (! defined('ABSPATH')) {
 
 /**
  * Read-only listing of database tables with estimated row counts and sizes,
- * via information_schema. No snapshot: nothing is mutated here.
+ * via information_schema. On multisite, a caller without network rights
+ * sees only the current site's tables (Database_Guard::table_in_scope()).
+ * No snapshot: nothing is mutated here.
  */
 class List_Tables
 {
@@ -28,6 +30,9 @@ class List_Tables
 
         $tables = [];
         foreach ((array) $rows as $row) {
+            if (! Database_Guard::table_in_scope((string) $row['n'])) {
+                continue;
+            }
             $tables[] = [
                 'table'      => (string) $row['n'],
                 'rows'       => (int) $row['r'],

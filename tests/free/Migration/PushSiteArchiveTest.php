@@ -43,7 +43,12 @@ class PushSiteArchiveTest extends \WP_UnitTestCase
         add_filter('wpmcp_allow_outgoing_migrations', '__return_true');
         add_filter('wpmcp_rate_limit_enabled', '__return_false');
         add_filter('pre_http_request', [$this, 'route_to_this_site'], 10, 3);
-        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        $admin = self::factory()->user->create(['role' => 'administrator']);
+        // On multisite these tools are network-admin only (issue #525).
+        if (is_multisite()) {
+            grant_super_admin($admin);
+        }
+        wp_set_current_user($admin);
     }
 
     protected function tearDown(): void

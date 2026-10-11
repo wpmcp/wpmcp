@@ -90,6 +90,8 @@ class Restore_Site_Backup
 
     public function handle(array $args): array
     {
+        Network_Scope::assert_caller('Restore');
+
         $dry_run          = ! isset($args['dry_run']) || (bool) $args['dry_run'];
         $include_files    = ! empty($args['include_files']);
         $preserve_session = ! isset($args['preserve_session']) || (bool) $args['preserve_session'];

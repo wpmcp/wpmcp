@@ -245,6 +245,7 @@ use WPMCP\Tools\Cron\Schedule_Event;
 use WPMCP\Tools\Cron\Unschedule_Event;
 use WPMCP\Tools\Cron\Run_Event;
 use WPMCP\Tools\Backup\Trigger_Backup;
+use WPMCP\Tools\Backup\Network_Scope;
 use WPMCP\Tools\Backup\Get_Backup_Status;
 use WPMCP\Tools\Backup\List_Backup_Jobs;
 use WPMCP\Tools\Backup\Cancel_Backup_Job;
@@ -816,11 +817,12 @@ final class Plugin
                 'wp_ajax_' . Redirect_Suggestion_Controller::ACTION,
                 [new Redirect_Suggestion_Controller(), 'handle']
             );
-            // Self-healing schema creation for sites that upgraded into the
-            // redirect feature without re-activating the plugin. Guarded by a
-            // db-version option and hooked in wp-admin only, so no front-end
-            // request ever risks DDL.
-            add_action('admin_init', [Redirect_Store::class, 'maybe_install']);
+            // Self-healing schema creation for every per-site table (issue
+            // #527): sites that upgraded without re-activating the plugin,
+            // sub-sites of a network, and sites created while network active.
+            // Guarded by one autoloaded version option and hooked on wp-admin
+            // and REST requests only, so no front-end page load risks DDL.
+            Site_Tables::register();
             // OAuth 2.1 + Dynamic Client Registration REST routes (issue #43).
             // Endpoints::register() itself no-ops unless OAuth_Config::is_enabled()
             // (default false), so this hook registration is always safe to add.
@@ -5209,7 +5211,9 @@ final class Plugin
      * artifact and flips the job's status, so a backup on a large site does
      * not have to complete within a single MCP request/response cycle.
      *
-     * All seven are gated at manage_options, matching Export's and Cron's
+     * On multisite all seven take manage_network_options instead (issue
+     * #525, Network_Scope): an archive there holds the whole network.
+     * On single site all seven are gated at manage_options, matching Export's and Cron's
      * capability (both are comparable site-operations-level tool groups, and
      * this plugin's only precedent for a stronger, pro-tier gate is the
      * Elementor deep-editing tools specifically, not "heavy" operations in
@@ -5242,6 +5246,9 @@ final class Plugin
         $get_backup_manifest   = new Get_Backup_Manifest();
         $delete_backup_archive = new Delete_Backup_Archive();
         $restore_site_backup   = new Restore_Site_Backup();
+        // A sub-site admin must not back up or restore the whole network
+        // (issue #525): see Network_Scope.
+        $network_cap = Network_Scope::capability();
 
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
@@ -5260,7 +5267,7 @@ final class Plugin
                 ],
             ],
             [$trigger_backup, 'handle'],
-            'manage_options',
+            $network_cap,
             'backup',
             'create'
         ));
@@ -5276,7 +5283,7 @@ final class Plugin
                 'required'   => [ 'job_id' ],
             ],
             [$get_backup_status, 'handle'],
-            'manage_options',
+            $network_cap,
             'backup',
             'read'
         ));
@@ -5291,7 +5298,7 @@ final class Plugin
                 ],
             ],
             [$list_backup_jobs, 'handle'],
-            'manage_options',
+            $network_cap,
             'backup',
             'read'
         ));
@@ -5307,7 +5314,7 @@ final class Plugin
                 'required'   => [ 'job_id' ],
             ],
             [$cancel_backup_job, 'handle'],
-            'manage_options',
+            $network_cap,
             'backup',
             'update'
         ));
@@ -5323,7 +5330,7 @@ final class Plugin
                 ],
             ],
             [$get_backup_manifest, 'handle'],
-            'manage_options',
+            $network_cap,
             'backup',
             'read'
         ));
@@ -5339,7 +5346,7 @@ final class Plugin
                 ],
             ],
             [$delete_backup_archive, 'handle'],
-            'manage_options',
+            $network_cap,
             'backup',
             'delete'
         ));
@@ -5358,7 +5365,7 @@ final class Plugin
                 ],
             ],
             [$restore_site_backup, 'handle'],
-            'manage_options',
+            $network_cap,
             'backup',
             'update',
             false,
@@ -5371,7 +5378,8 @@ final class Plugin
      * Site-to-site migration tools (issue #191). Phase 1 only so far:
      * rewrite-site-urls, the serialization-aware URL rewrite pass a
      * restored site needs when the target's URL differs from the origin's.
-     * Free-tier at manage_options, matching the backup group it builds on
+     * Free-tier at manage_options (manage_network_options on multisite,
+     * issue #525), matching the backup group it builds on
      * (and listed alongside it in every flavor allowlist: a vertical build
      * that can restore an archive needs the rewrite that follows a restore).
      * 'update' verb with explicit annotations: applying rewrites six core
@@ -5398,6 +5406,7 @@ final class Plugin
         $rewrite_site_urls    = new Rewrite_Site_Urls();
         $push_site_archive    = new Push_Site_Archive();
         $receive_site_archive = new Receive_Site_Archive();
+        $network_cap          = Network_Scope::capability();
 
         $registrar->register(new Ability(
             'wpmcp/rewrite-site-urls',
@@ -5421,7 +5430,7 @@ final class Plugin
                 'required'   => [ 'from_url', 'to_url' ],
             ],
             [$rewrite_site_urls, 'handle'],
-            'manage_options',
+            $network_cap,
             'migration',
             'update',
             false,
@@ -5453,7 +5462,7 @@ final class Plugin
                 'required'   => [ 'target_url' ],
             ],
             [$push_site_archive, 'handle'],
-            'manage_options',
+            $network_cap,
             'migration',
             'update',
             false,
@@ -5486,7 +5495,7 @@ final class Plugin
                 'required'   => [ 'action' ],
             ],
             [$receive_site_archive, 'handle'],
-            'manage_options',
+            $network_cap,
             'migration',
             'update',
             false,
