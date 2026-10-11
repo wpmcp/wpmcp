@@ -1498,7 +1498,10 @@ $edits['src/Plugin.php'][] = [
         . "        // keeps its table id map in memory; a rollback of either drops the\n"
         . "        // cache and refreshes the map (issue #481).\n"
         . "        [\\WPMCP\\Integrations\\TablePress_Pack::class, 'after_options_restored'],\n"
-        . "        [\\WPMCP\\Integrations\\TablePress_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],\n",
+        . "        [\\WPMCP\\Integrations\\TablePress_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],\n"
+        . "        // An undo of a TablePress id map write puts back only the entries\n"
+        . "        // that write touched, so later tables stay (issue #555).\n"
+        . "        [\\WPMCP\\Integrations\\TablePress_Pack::class, 'narrow_map_restore', 'wpmcp_rollback_option_snapshot'],\n",
     '',
     1,
 ];
