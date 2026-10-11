@@ -1130,6 +1130,20 @@ class CrmPackTest extends \WP_UnitTestCase
         $this->assertSame($before, [ $this->rows('mailpoet_tags'), $this->rows('mailpoet_subscriber_tag') ]);
     }
 
+    public function test_a_snapshot_recorded_before_removals_were_tracked_re_adds_nothing(): void
+    {
+        $id  = $this->fc_contact('ada@example.com');
+        $out = $this->write('fluentcrm-delete-contact', [ 'id' => $id ], true);
+        $this->ok($out);
+        $row = Snapshot_Store::get_by_operation((string) $out['operation_id']);
+        unset($row['snapshot']['data']['deleted_rows']);
+        Snapshot_Store::update_snapshot((string) $out['operation_id'], $row['snapshot']);
+
+        Rollback_Service::restore_operation((string) $out['operation_id']);
+        $this->assertSame([], $this->rows('fc_subscribers'), 'without the record, a missing row is never assumed to be the write\'s own');
+        $this->assertStringContainsString(sprintf('fc_subscribers #%d (missing, and this operation predates', $id), implode(' ', Rollback_Service::take_warnings()));
+    }
+
     // ---------------------------------------------------------------
     // The snapshot type
     // ---------------------------------------------------------------
