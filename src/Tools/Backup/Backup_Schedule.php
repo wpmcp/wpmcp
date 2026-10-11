@@ -34,11 +34,31 @@ if (! defined('ABSPATH')) {
  * last run's status and error are read live from its job record, so the
  * report cannot drift from the job history. Times come from
  * Backup_Job_Store's injectable clock.
+ *
+ * Multisite (issue #541): whole-database backups are network
+ * administration (issue #525, Network_Scope), but a schedule runs on
+ * WP-Cron with no signed-in user, which Network_Scope lets through. So a
+ * run checks the schedule's creator (set_by, stored since #455) instead:
+ * when that user no longer exists or lacks manage_network_options, or no
+ * creator is recorded at all (fail closed), the run queues nothing and
+ * the schedule is disabled. A disabled schedule keeps its record with a
+ * disabled { reason, at, set_by } entry, its event is removed, the
+ * completed archives it made are flagged with a review note (left on disk
+ * for a network admin to judge), and the same reason goes into a network
+ * option that list-backup-jobs reports on every site of the network, so a
+ * network admin sees it without visiting each sub-site. A job such a
+ * schedule queued before the upgrade is canceled by Run_Backup_Job
+ * (job_refusal()), and plugin activation does not bring the schedule
+ * back. A network admin setting the schedule again replaces the record
+ * and clears the network entry. Single site is unchanged.
  */
 class Backup_Schedule
 {
     public const OPTION = 'wpmcp_backup_schedules';
     public const HOOK   = 'wpmcp_run_backup_schedule';
+
+    /** Network option: schedules disabled on multisite, keyed "blog_id:type" (issue #541). */
+    public const NETWORK_DISABLED_OPTION = 'wpmcp_disabled_backup_schedules';
 
     public const DEFAULT_KEEP = 7;
     public const MAX_KEEP     = 100;
@@ -83,6 +103,7 @@ class Backup_Schedule
 
         wp_clear_scheduled_hook(self::HOOK, [ $type ]);
         $schedules = self::load();
+        self::forget_network_entry($type);
 
         if ('off' === $parsed['recurrence']) {
             unset($schedules[ $type ]);
@@ -92,6 +113,7 @@ class Backup_Schedule
         }
 
         $previous = $schedules[ $type ] ?? [];
+        unset($previous['disabled']);
         $first    = self::first_run($parsed);
         if (true !== wp_schedule_event($first, $parsed['recurrence'], self::HOOK, [ $type ], true)) {
             return new \WP_Error('wpmcp_backup_schedule_failed', 'WP-Cron refused the schedule.');
@@ -132,6 +154,9 @@ class Backup_Schedule
         foreach (self::load() as $type => $schedule) {
             $parsed = self::parse((string) ($schedule['every'] ?? ''));
             if (null === $parsed || 'off' === $parsed['recurrence'] || false !== wp_next_scheduled(self::HOOK, [ $type ])) {
+                continue;
+            }
+            if (null !== self::vet((string) $type)) {
                 continue;
             }
             if (true === wp_schedule_event(self::first_run($parsed), $parsed['recurrence'], self::HOOK, [ $type ], true)) {
@@ -222,14 +247,177 @@ class Backup_Schedule
             return;
         }
 
+        if (null !== self::vet($type)) {
+            wp_clear_scheduled_hook(self::HOOK, [ $type ]);
+            return;
+        }
+
         $schedule = $schedules[ $type ];
-        $job      = Backup_Job_Store::create($type, (string) $schedule['scope'], [ 'schedule' => $type ]);
+        $job      = Backup_Job_Store::create($type, (string) $schedule['scope'], [
+            'schedule' => $type,
+            'set_by'   => (int) ($schedule['set_by'] ?? 0),
+        ]);
         wp_schedule_single_event(time(), Run_Backup_Job::HOOK, [ $job['id'] ]);
 
         $schedules[ $type ]['last_job_id'] = $job['id'];
         $schedules[ $type ]['last_run_at'] = Backup_Job_Store::now();
         $schedules[ $type ]['pruned']      = [];
         self::save($schedules);
+    }
+
+    /**
+     * Why a schedule's creator may not run whole-database backups here, or
+     * null when they may. Always null on single site. On multisite the
+     * creator must exist and hold manage_network_options; a missing
+     * creator is refused (fail closed).
+     */
+    private static function creator_refusal(?int $user_id): ?string
+    {
+        if (! is_multisite()) {
+            return null;
+        }
+
+        if (null === $user_id || $user_id <= 0) {
+            $who = 'the schedule has no recorded creator';
+        } elseif (false === get_userdata($user_id)) {
+            $who = sprintf('the schedule was set by user #%d, who no longer exists', $user_id);
+        } elseif (! user_can($user_id, Network_Scope::NETWORK_CAPABILITY)) {
+            $who = sprintf('the schedule was set by user #%d, who is not a network administrator', $user_id);
+        } else {
+            return null;
+        }
+
+        return sprintf(
+            'Disabled on this multisite network: %s. A backup here holds every site\'s tables and the network user table, so a scheduled run needs a creator with %s. Archives it already made are kept and flagged for review; a network administrator can set the schedule again.',
+            $who,
+            Network_Scope::NETWORK_CAPABILITY
+        );
+    }
+
+    /**
+     * Check the stored schedule for $type, disabling it when its creator
+     * may not run it. Returns the reason it may not run (an existing
+     * disabled reason included), or null when it may or no schedule exists.
+     */
+    private static function vet(string $type): ?string
+    {
+        $schedules = self::load();
+        if (! isset($schedules[ $type ])) {
+            return null;
+        }
+        if (is_array($schedules[ $type ]['disabled'] ?? null)) {
+            return (string) $schedules[ $type ]['disabled']['reason'];
+        }
+
+        $set_by = isset($schedules[ $type ]['set_by']) ? (int) $schedules[ $type ]['set_by'] : null;
+        $reason = self::creator_refusal($set_by);
+        if (null !== $reason) {
+            self::disable($type, $reason);
+        }
+
+        return $reason;
+    }
+
+    /**
+     * Run_Backup_Job's check before it runs a job a schedule queued: the
+     * reason to cancel it instead, or null to run it. A manual job, and any
+     * job on single site, is never refused here. A job records the creator
+     * of its schedule; one queued before that was recorded is judged by the
+     * schedule as stored now, and refused when that schedule is gone.
+     */
+    public static function job_refusal(array $job): ?string
+    {
+        $type = (string) ($job['schedule'] ?? '');
+        if ('' === $type || ! is_multisite()) {
+            return null;
+        }
+
+        if (array_key_exists('set_by', $job)) {
+            $reason = self::creator_refusal((int) $job['set_by']);
+            if (null !== $reason) {
+                self::vet($type);
+            }
+            return $reason;
+        }
+
+        return isset(self::load()[ $type ]) ? self::vet($type) : self::creator_refusal(null);
+    }
+
+    /**
+     * Disable a schedule: remove its event, record the reason on it and in
+     * the network list, flag the archives it made, and audit log it.
+     */
+    private static function disable(string $type, string $reason): void
+    {
+        wp_clear_scheduled_hook(self::HOOK, [ $type ]);
+
+        $schedules = self::load();
+        if (! isset($schedules[ $type ])) {
+            return;
+        }
+        $schedule = $schedules[ $type ];
+        $set_by   = isset($schedule['set_by']) ? (int) $schedule['set_by'] : null;
+        $now      = Backup_Job_Store::now();
+
+        $flagged = [];
+        foreach (Backup_Job_Store::list('completed') as $job) {
+            if ($type !== ($job['schedule'] ?? null)
+                || (int) $job['created_at'] < (int) ($schedule['set_at'] ?? 0)
+                || (array_key_exists('set_by', $job) && (int) $job['set_by'] !== (int) $set_by)
+                || isset($job['review'])
+            ) {
+                continue;
+            }
+            Backup_Job_Store::update((int) $job['id'], [ 'review' => $reason ]);
+            $flagged[] = (int) $job['id'];
+        }
+
+        $schedules[ $type ]['disabled'] = [ 'reason' => $reason, 'at' => $now, 'set_by' => $set_by ];
+        self::save($schedules);
+
+        $network = self::network_entries();
+        $network[ get_current_blog_id() . ':' . $type ] = [
+            'blog_id' => get_current_blog_id(),
+            'type'    => $type,
+            'set_by'  => $set_by,
+            'reason'  => $reason,
+            'at'      => $now,
+            'flagged' => $flagged,
+        ];
+        update_site_option(self::NETWORK_DISABLED_OPTION, $network);
+
+        Governance_Audit_Log::record_quietly(self::ABILITY, false, 'backup-schedule:' . $type . ':disabled-needs-network-admin');
+    }
+
+    /** @return array<string, array<string,mixed>> */
+    private static function network_entries(): array
+    {
+        $stored = get_site_option(self::NETWORK_DISABLED_OPTION, []);
+        return is_array($stored) ? array_filter($stored, 'is_array') : [];
+    }
+
+    private static function forget_network_entry(string $type): void
+    {
+        if (! is_multisite()) {
+            return;
+        }
+        $network = self::network_entries();
+        $key     = get_current_blog_id() . ':' . $type;
+        if (isset($network[ $key ])) {
+            unset($network[ $key ]);
+            update_site_option(self::NETWORK_DISABLED_OPTION, $network);
+        }
+    }
+
+    /**
+     * Every schedule disabled across the network (issue #541), for
+     * list-backup-jobs on multisite.
+     *
+     * @return array<int, array<string,mixed>>
+     */
+    public static function network_report(): array
+    {
+        return array_values(self::network_entries());
     }
 
     /**
@@ -321,6 +509,7 @@ class Backup_Schedule
         $next     = wp_next_scheduled(self::HOOK, [ $type ]);
         $interval = self::INTERVALS[ $schedule['recurrence'] ] ?? DAY_IN_SECONDS;
         $since    = (int) ($schedule['last_run_at'] ?? $schedule['set_at'] ?? 0);
+        $disabled = is_array($schedule['disabled'] ?? null) ? $schedule['disabled'] : null;
 
         $last = null;
         $job  = null === ($schedule['last_job_id'] ?? null) ? null : Backup_Job_Store::get((int) $schedule['last_job_id']);
@@ -341,8 +530,9 @@ class Backup_Schedule
             'keep'     => (int) $schedule['keep'],
             'next_run' => false === $next ? null : (int) $next,
             'next_run_local' => false === $next ? null : wp_date('Y-m-d H:i T', (int) $next),
-            'overdue'  => Backup_Job_Store::now() - $since > 2 * $interval,
+            'overdue'  => null === $disabled && Backup_Job_Store::now() - $since > 2 * $interval,
             'last_run' => $last,
+            'disabled' => $disabled,
         ];
     }
 
