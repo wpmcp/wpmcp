@@ -24,15 +24,23 @@ if (! defined('ABSPATH')) {
  * controllers its admin pages call, so Amelia's permission, slot and
  * working-hours checks, its events and integrations all run, and a taken
  * slot or a time outside working hours is refused with Amelia's own reason:
- * category, service and customer create and update, and appointment book,
- * reschedule and status (approved, pending, canceled, rejected).
- * Appointments are never deleted here.
+ * category, service, employee and customer create and update (an employee's
+ * working week with breaks, and days off), appointment book, reschedule and
+ * status (approved, pending, canceled, rejected), event create, update and
+ * open or cancel, and adding an event attendee, refused when fewer places
+ * are left (Amelia's own backend booking does not check). Categories,
+ * services, employees and customers are deleted with confirm:true, and only
+ * while nothing uses them: Amelia's own delete would take their
+ * appointments, bookings or services with it. Appointments and events are
+ * cancelled, never deleted.
  *
  * Times are site-local "Y-m-d H:i" in and out (Amelia stores appointments in
  * UTC; a local time that does not exist, inside a daylight-saving jump, is
  * refused), and durations are minutes. What Amelia Lite cannot store (group
- * capacity, buffer time before and after, more than one person per booking)
- * is refused by name instead of being silently dropped.
+ * capacity, buffer time before and after, more than one person per booking,
+ * and any employee but its first: Lite leaves the others out of every
+ * service, slot and booking) is refused by name instead of being silently
+ * dropped.
  *
  * Notifications: customer emails and SMS that Amelia sends during a write
  * are held unless the call says notify:true, and every write answers with
@@ -45,8 +53,10 @@ if (! defined('ABSPATH')) {
  * depend on what it would undo.
  *
  * Capabilities are Amelia's own, on top of the pair's: amelia_read_* for
- * reads and amelia_write_services, amelia_write_customers and
- * amelia_write_appointments for writes. Customers are personal data, so
+ * reads, amelia_write_services, amelia_write_employees,
+ * amelia_write_customers, amelia_write_appointments and amelia_write_events
+ * for writes, and amelia_delete_services, amelia_delete_employees and
+ * amelia_delete_customers for deletes. Customers are personal data, so
  * every op that returns them needs amelia_read_customers or
  * amelia_read_appointments.
  *
@@ -85,7 +95,25 @@ final class Amelia_Pack
         'events',
         'events_periods',
         'customer_bookings_to_events_periods',
+        'events_to_providers',
+        'providers_to_periods_services',
+        'providers_to_specialdays_periods_services',
+        'providers_to_google_calendar',
+        'providers_to_outlook_calendar',
+        'packages_to_services',
+        'packages_to_customers',
+        'packages_customers_to_services',
+        'packages_services_to_providers',
+        'extras',
+        'custom_fields_services',
+        'coupons_to_services',
+        'taxes_to_entities',
+        'resources_to_entities',
+        'notifications_to_entities',
     ];
+
+    /** Amelia's event statuses for the two this pack sets: open and canceled. */
+    private const EVENT_STATUSES = [ 'open' => 'approved', 'canceled' => 'rejected' ];
 
     private static ?Amelia_Api $api = null;
 
@@ -145,6 +173,59 @@ final class Amelia_Pack
             'max_capacity'  => [ 'type' => 'integer', 'minimum' => 1 ],
             'time_before'   => $minutes,
             'time_after'    => $minutes,
+        ];
+        $clock    = [ 'type' => 'string', 'pattern' => '^\d{2}:\d{2}$' ];
+        $name     = [ 'type' => 'string', 'minLength' => 1, 'maxLength' => 255 ];
+        $employee = [
+            'first_name'   => $name,
+            'last_name'    => $name,
+            'email'        => [ 'type' => 'string', 'format' => 'email' ],
+            'phone'        => [ 'type' => 'string', 'maxLength' => 63 ],
+            'note'         => [ 'type' => 'string' ],
+            'description'  => [ 'type' => 'string' ],
+            'working_week' => [
+                'type'     => 'array',
+                'maxItems' => 7,
+                'items'    => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'day'    => [ 'type' => 'string', 'enum' => array_values(self::DAYS) ],
+                        'start'  => $clock,
+                        'end'    => $clock,
+                        'breaks' => [ 'type' => 'array', 'items' => [ 'type' => 'object', 'properties' => [ 'start' => $clock, 'end' => $clock ], 'required' => [ 'start', 'end' ] ] ],
+                    ],
+                    'required'   => [ 'day', 'start', 'end' ],
+                ],
+            ],
+            'days_off'     => [
+                'type'  => 'array',
+                'items' => [
+                    'type'       => 'object',
+                    'properties' => [ 'name' => $name, 'start' => $date, 'end' => $date, 'repeat' => [ 'type' => 'boolean' ] ],
+                    'required'   => [ 'name', 'start' ],
+                ],
+            ],
+        ];
+        $event    = [
+            'name'         => $name,
+            'periods'      => [ 'type' => 'array', 'minItems' => 1, 'items' => [ 'type' => 'object', 'properties' => [ 'start' => $time, 'end' => $time ], 'required' => [ 'start', 'end' ] ] ],
+            'max_capacity' => [ 'type' => 'integer', 'minimum' => 1 ],
+            'price'        => [ 'type' => 'number', 'minimum' => 0 ],
+            'description'  => [ 'type' => 'string' ],
+            'employee_ids' => [ 'type' => 'array', 'items' => $id ],
+        ];
+        $delete   = static fn (string $what, string $capability, string $key, string $kind, string $refused): array => $base + [
+            'mode'         => 'destructive',
+            'capability'   => $capability,
+            'description'  => sprintf('Delete an Amelia %s (confirm:true); refused while %s. Undo: rollback-operation', $what, $refused),
+            'input_schema' => [
+                'type'       => 'object',
+                'properties' => [ $key => $id ],
+                'required'   => [ $key ],
+            ],
+            'validate'     => static fn (array $args): ?array => self::in_use_refusal($what, (int) $args[ $key ]),
+            'snapshot'     => $rows($kind, $key),
+            'handler'      => static fn (array $args, array $context): array => self::delete($what, (int) $args[ $key ], $args, $context),
         ];
         $customer = [
             'first_name' => [ 'type' => 'string', 'minLength' => 1, 'maxLength' => 255 ],
@@ -384,6 +465,93 @@ final class Amelia_Pack
                 'snapshot'     => $rows('amelia_appointment', 'appointment_id'),
                 'handler'      => static fn (array $args, array $context): array => self::set_status($args, $context),
             ],
+            'amelia-create-employee'    => $base + [
+                'mode'         => 'write',
+                'capability'   => 'amelia_write_employees',
+                'description'  => 'Create an Amelia employee (Lite: one only): names, email, working_week (day, start, end, breaks; site-local H:i), days_off. Assign services with amelia-update-service. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => $employee + $notify,
+                    'required'   => [ 'first_name', 'last_name', 'email' ],
+                ],
+                'validate'     => static fn (array $args): ?array => self::employee_args_refusal($args) ?? self::lite_employees_refusal([], true),
+                'snapshot'     => $rows('amelia_employee', ''),
+                'handler'      => static fn (array $args, array $context): array => self::save_employee(0, $args, $context),
+            ],
+            'amelia-update-employee'    => $base + [
+                'mode'         => 'write',
+                'capability'   => 'amelia_write_employees',
+                'description'  => 'Change an Amelia employee. working_week replaces the whole week (days left out are off), days_off replaces the days off. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [ 'employee_id' => $id ] + $employee + $notify,
+                    'required'   => [ 'employee_id' ],
+                ],
+                'validate'     => static fn (array $args): ?array => self::employee_refusal((int) $args['employee_id']) ?? self::lite_employees_refusal([ (int) $args['employee_id'] ]) ?? self::employee_args_refusal($args),
+                'snapshot'     => $rows('amelia_employee', 'employee_id'),
+                'handler'      => static fn (array $args, array $context): array => self::save_employee((int) $args['employee_id'], $args, $context),
+            ],
+            'amelia-create-event'       => $base + [
+                'mode'         => 'write',
+                'capability'   => 'amelia_write_events',
+                'description'  => 'Create an Amelia event: name, periods (site-local start and end), max_capacity, price, employee_ids. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => $event + $notify,
+                    'required'   => [ 'name', 'periods', 'max_capacity', 'price' ],
+                ],
+                'validate'     => static fn (array $args): ?array => self::event_args_refusal($args),
+                'snapshot'     => $rows('amelia_event', ''),
+                'handler'      => static fn (array $args, array $context): array => self::save_event(0, $args, $context),
+            ],
+            'amelia-update-event'       => $base + [
+                'mode'         => 'write',
+                'capability'   => 'amelia_write_events',
+                'description'  => 'Change an Amelia event; periods replaces its periods in order, employee_ids its employees. Attendee messages held unless notify:true. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [ 'event_id' => $id ] + $event + $notify,
+                    'required'   => [ 'event_id' ],
+                ],
+                'validate'     => static fn (array $args): ?array => self::exists('events', (int) $args['event_id'], 'Event') ?? self::event_args_refusal($args),
+                'snapshot'     => $rows('amelia_event', 'event_id'),
+                'handler'      => static fn (array $args, array $context): array => self::save_event((int) $args['event_id'], $args, $context),
+            ],
+            'amelia-set-event-status'   => $base + [
+                'mode'         => 'write',
+                'capability'   => 'amelia_write_events',
+                'description'  => 'Open or cancel an Amelia event (never deleted). Attendee messages held unless notify:true. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [ 'event_id' => $id, 'status' => [ 'type' => 'string', 'enum' => array_keys(self::EVENT_STATUSES) ] ] + $notify,
+                    'required'   => [ 'event_id', 'status' ],
+                ],
+                'validate'     => static fn (array $args): ?array => self::exists('events', (int) $args['event_id'], 'Event') ?? self::event_status_refusal($args),
+                'snapshot'     => $rows('amelia_event', 'event_id'),
+                'handler'      => static fn (array $args, array $context): array => self::set_event_status($args, $context),
+            ],
+            'amelia-add-event-attendee' => $base + [
+                'mode'         => 'write',
+                'capability'   => 'amelia_write_events',
+                'description'  => 'Book a customer on an open Amelia event for persons (default 1), refused when fewer places are left. Customer messages held unless notify:true. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'event_id'    => $id,
+                        'customer_id' => $id,
+                        'persons'     => [ 'type' => 'integer', 'minimum' => 1 ],
+                        'status'      => [ 'type' => 'string', 'enum' => self::ACTIVE ],
+                    ] + $notify,
+                    'required'   => [ 'event_id', 'customer_id' ],
+                ],
+                'validate'     => static fn (array $args): ?array => self::exists('events', (int) $args['event_id'], 'Event') ?? self::customer_refusal((int) $args['customer_id']) ?? self::attendee_refusal($args),
+                'snapshot'     => $rows('amelia_event_booking', 'event_id'),
+                'handler'      => static fn (array $args, array $context): array => self::add_attendee($args, $context),
+            ],
+            'amelia-delete-category'    => $delete('category', 'amelia_delete_services', 'category_id', 'amelia_category', 'it has services'),
+            'amelia-delete-service'     => $delete('service', 'amelia_delete_services', 'service_id', 'amelia_service_removal', 'it has appointments or is linked to packages, extras, coupons or custom fields'),
+            'amelia-delete-employee'    => $delete('employee', 'amelia_delete_employees', 'employee_id', 'amelia_employee_removal', 'they have appointments or events, or a connected calendar'),
+            'amelia-delete-customer'    => $delete('customer', 'amelia_delete_customers', 'customer_id', 'amelia_customer_removal', 'they have bookings or packages'),
         ];
     }
 
@@ -548,6 +716,38 @@ final class Amelia_Pack
         );
     }
 
+    /** The one employee Amelia Lite works with: its first that is not disabled, or 0. */
+    private static function lite_employee(): int
+    {
+        global $wpdb;
+
+        return (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM %i WHERE type = 'provider' AND status <> 'disabled' ORDER BY id ASC LIMIT 1", self::t('users')));
+    }
+
+    /**
+     * Refuses, on Amelia Lite, any employee but the one Lite works with:
+     * Lite keeps the others' rows but leaves them out of every service,
+     * slot and booking. With no ids, refuses adding a second employee.
+     *
+     * @param int[] $ids
+     */
+    private static function lite_employees_refusal(array $ids, bool $adding = false): ?array
+    {
+        if (! self::lite()) {
+            return null;
+        }
+        $first = self::lite_employee();
+        if ($adding && $first > 0) {
+            return self::refusal('amelia_lite_limit', sprintf('Amelia Lite works with one employee (#%d) and leaves any other out of services, slots and bookings; a second employee needs a paid Amelia edition.', $first), [ 'fields' => [ 'employee' ] ]);
+        }
+        foreach ($ids as $id) {
+            if ((int) $id !== $first) {
+                return self::refusal('amelia_lite_limit', sprintf('Amelia Lite works with one employee (#%d); employee %d needs a paid Amelia edition.', $first, (int) $id), [ 'fields' => [ 'employee_ids' ] ]);
+            }
+        }
+        return null;
+    }
+
     private static function service_args_refusal(array $args): ?array
     {
         if (isset($args['category_id'])) {
@@ -561,6 +761,10 @@ final class Amelia_Pack
             if (null !== $refused) {
                 return $refused;
             }
+        }
+        $refused = self::lite_employees_refusal(array_map('intval', (array) ($args['employee_ids'] ?? [])));
+        if (null !== $refused) {
+            return $refused;
         }
         if (isset($args['min_capacity'], $args['max_capacity']) && (int) $args['min_capacity'] > (int) $args['max_capacity']) {
             return self::refusal('invalid_capacity', 'min_capacity is above max_capacity.');
@@ -583,6 +787,7 @@ final class Amelia_Pack
     {
         return self::service_refusal((int) $args['service_id'])
             ?? self::employee_refusal((int) $args['employee_id'], (int) $args['service_id'])
+            ?? self::lite_employees_refusal([ (int) $args['employee_id'] ])
             ?? self::customer_refusal((int) $args['customer_id'])
             ?? self::time_refusal((string) $args['start'])
             ?? self::lite_refusal((int) ($args['persons'] ?? 1) > 1 ? [ 'persons' => 'more than one person per booking' ] : []);
@@ -595,6 +800,184 @@ final class Amelia_Pack
             return self::refusal('no_change', sprintf('Appointment %d is already %s.', (int) $args['appointment_id'], (string) $args['status']));
         }
         return null;
+    }
+
+    /** Minutes since midnight for "H:i" (24:00 allowed as an end), or null. */
+    private static function clock(string $time, bool $end = false): ?int
+    {
+        if (1 !== preg_match('/^(\d{2}):(\d{2})$/', $time, $m) || (int) $m[2] > 59) {
+            return null;
+        }
+        $minutes = 60 * (int) $m[1] + (int) $m[2];
+        return $minutes < 1440 || ($end && 1440 === $minutes) ? $minutes : null;
+    }
+
+    /** Refuses a working week or days off Amelia could not hold as given. */
+    private static function employee_args_refusal(array $args): ?array
+    {
+        $seen = [];
+        foreach ((array) ($args['working_week'] ?? []) as $day) {
+            $day   = (array) $day;
+            $name  = (string) $day['day'];
+            $start = self::clock((string) $day['start']);
+            $end   = self::clock((string) $day['end'], true);
+            if (isset($seen[ $name ])) {
+                return self::refusal('invalid_hours', sprintf('%s is listed twice in working_week.', ucfirst($name)));
+            }
+            $seen[ $name ] = true;
+            if (null === $start || null === $end || $end <= $start) {
+                return self::refusal('invalid_hours', sprintf('%s: %s to %s is not a working day (H:i, start before end).', ucfirst($name), (string) $day['start'], (string) $day['end']));
+            }
+            $breaks = (array) ($day['breaks'] ?? []);
+            usort($breaks, static fn ($a, $b): int => strcmp((string) ((array) $a)['start'], (string) ((array) $b)['start']));
+            $last = $start;
+            foreach ($breaks as $break) {
+                $break = (array) $break;
+                $from  = self::clock((string) $break['start']);
+                $to    = self::clock((string) $break['end'], true);
+                if (null === $from || null === $to || $to <= $from || $from < $last || $to > $end) {
+                    return self::refusal('invalid_hours', sprintf('%s: the break %s to %s must lie inside the working hours and not overlap another.', ucfirst($name), (string) $break['start'], (string) $break['end']));
+                }
+                $last = $to;
+            }
+        }
+        foreach ((array) ($args['days_off'] ?? []) as $off) {
+            $off     = (array) $off;
+            $refused = self::date_refusal((string) $off['start']) ?? (isset($off['end']) ? self::date_refusal((string) $off['end']) : null);
+            if (null !== $refused) {
+                return $refused;
+            }
+            if (isset($off['end']) && (string) $off['end'] < (string) $off['start']) {
+                return self::refusal('invalid_date', sprintf('The day off "%s" ends before it starts.', (string) $off['name']));
+            }
+        }
+        return null;
+    }
+
+    /** Refuses event periods that do not exist or run backwards, and unknown employees. */
+    private static function event_args_refusal(array $args): ?array
+    {
+        foreach ((array) ($args['periods'] ?? []) as $period) {
+            $period  = (array) $period;
+            $refused = self::time_refusal((string) $period['start']) ?? self::time_refusal((string) $period['end']);
+            if (null !== $refused) {
+                return $refused;
+            }
+            if ((string) self::to_utc((string) $period['end']) <= (string) self::to_utc((string) $period['start'])) {
+                return self::refusal('invalid_period', sprintf('The period %s to %s ends before it starts.', (string) $period['start'], (string) $period['end']));
+            }
+        }
+        foreach ((array) ($args['employee_ids'] ?? []) as $employee) {
+            $refused = self::employee_refusal((int) $employee);
+            if (null !== $refused) {
+                return $refused;
+            }
+        }
+        $refused = self::lite_employees_refusal(array_map('intval', (array) ($args['employee_ids'] ?? [])));
+        if (null !== $refused) {
+            return $refused;
+        }
+        if (isset($args['event_id'], $args['max_capacity']) && (int) $args['max_capacity'] < self::event_booked((int) $args['event_id'])) {
+            return self::refusal('invalid_capacity', sprintf('Event %d already has %d place(s) booked, more than max_capacity %d.', (int) $args['event_id'], self::event_booked((int) $args['event_id']), (int) $args['max_capacity']));
+        }
+        if (isset($args['event_id'], $args['periods']) && count((array) $args['periods']) < count(self::event_periods((int) $args['event_id'])) && [] !== self::event_bookings((int) $args['event_id'])) {
+            return self::refusal('amelia_in_use', sprintf('Event %d has attendees booked on its periods, so it keeps as many periods; move them instead.', (int) $args['event_id']));
+        }
+        return null;
+    }
+
+    private static function event_status_refusal(array $args): ?array
+    {
+        global $wpdb;
+
+        $status = (string) $wpdb->get_var($wpdb->prepare('SELECT status FROM %i WHERE id = %d', self::t('events'), (int) $args['event_id']));
+        if (self::EVENT_STATUSES[ (string) $args['status'] ] === $status) {
+            return self::refusal('no_change', sprintf('Event %d is already %s.', (int) $args['event_id'], (string) $args['status']));
+        }
+        return null;
+    }
+
+    /** Refuses a booking on an event that is not open or has too few places left. */
+    private static function attendee_refusal(array $args): ?array
+    {
+        global $wpdb;
+
+        $event = (array) $wpdb->get_row($wpdb->prepare('SELECT * FROM %i WHERE id = %d', self::t('events'), (int) $args['event_id']), ARRAY_A);
+        if ('approved' !== (string) ($event['status'] ?? '')) {
+            return self::refusal('event_closed', sprintf('Event %d is %s, not open for bookings.', (int) $args['event_id'], (string) ($event['status'] ?? '')));
+        }
+        $booked  = self::event_booked((int) $args['event_id']);
+        $left    = max(0, (int) $event['maxCapacity'] - $booked);
+        $persons = (int) ($args['persons'] ?? 1);
+        if ($persons > $left) {
+            return self::refusal(
+                'event_full',
+                sprintf('Event %d has %d place(s) left; %d asked for.', (int) $args['event_id'], $left, $persons),
+                [ 'max_capacity' => (int) $event['maxCapacity'], 'booked' => $booked, 'places_left' => $left ]
+            );
+        }
+        return null;
+    }
+
+    /**
+     * Refuses deleting something Amelia still uses, or that does not exist.
+     * What Amelia's own delete would take with it (past appointments of a
+     * service or employee, a customer's bookings, a category's services) is
+     * use here: appointments and events are cancelled, never deleted.
+     */
+    private static function in_use_refusal(string $what, int $id): ?array
+    {
+        global $wpdb;
+
+        $missing = match ($what) {
+            'category' => self::exists('categories', $id, 'Category'),
+            'service'  => self::service_refusal($id),
+            'employee' => self::employee_refusal($id) ?? self::lite_employees_refusal([ $id ]),
+            default    => self::customer_refusal($id),
+        };
+        if (null !== $missing) {
+            return $missing;
+        }
+        $count = static fn (string $table, string $column, string $extra = ''): int => (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE %i = %d' . $extra, self::t($table), $column, $id)); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $extra is one of the literals below.
+        $uses  = match ($what) {
+            'category' => [ 'service(s)' => $count('services', 'categoryId') ],
+            'service'  => [
+                'appointment(s)'          => $count('appointments', 'serviceId'),
+                'package link(s)'         => $count('packages_to_services', 'serviceId') + $count('packages_customers_to_services', 'serviceId'),
+                'extra(s)'                => $count('extras', 'serviceId'),
+                'custom field link(s)'    => $count('custom_fields_services', 'serviceId'),
+                'coupon link(s)'          => $count('coupons_to_services', 'serviceId'),
+                'tax link(s)'             => $count('taxes_to_entities', 'entityId', " AND entityType = 'service'"),
+                'resource link(s)'        => $count('resources_to_entities', 'entityId', " AND entityType = 'service'"),
+                'custom notification(s)'  => $count('notifications_to_entities', 'entityId'),
+                'working period link(s)'  => $count('providers_to_periods_services', 'serviceId') + $count('providers_to_specialdays_periods_services', 'serviceId'),
+            ],
+            'employee' => [
+                'appointment(s)'          => $count('appointments', 'providerId'),
+                'event(s)'                => $count('events_to_providers', 'userId') + $count('events', 'organizerId'),
+                'package link(s)'         => $count('packages_services_to_providers', 'userId') + $count('packages_customers_to_services', 'providerId'),
+                'resource link(s)'        => $count('resources_to_entities', 'entityId', " AND entityType = 'employee'"),
+                'connected calendar(s)'   => $count('providers_to_google_calendar', 'userId') + $count('providers_to_outlook_calendar', 'userId'),
+            ],
+            default    => [
+                'customer booking(s)'     => $count('customer_bookings', 'customerId'),
+                'package purchase(s)'     => $count('packages_to_customers', 'customerId'),
+            ],
+        };
+        $uses = array_filter($uses);
+        if ([] === $uses) {
+            return null;
+        }
+        return self::refusal(
+            'amelia_in_use',
+            sprintf(
+                'Amelia %s %d is in use (%s), so it is not deleted: Amelia would delete those with it, and appointments and events are cancelled, never deleted.',
+                $what,
+                $id,
+                implode(', ', array_map(static fn (string $label, int $n): string => $n . ' ' . $label, array_keys($uses), $uses))
+            ),
+            [ 'uses' => $uses ]
+        );
     }
 
     // ------------------------------------------------------------------
@@ -726,39 +1109,50 @@ final class Amelia_Pack
         // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $where holds only placeholders and literals.
         $rows = (array) $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE ' . $where . ' ORDER BY id ASC', ...$vars), ARRAY_A);
 
-        $out = [];
-        foreach ($rows as $row) {
-            $id    = (int) $row['id'];
-            $days  = (array) $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE userId = %d ORDER BY dayIndex ASC', self::t('providers_to_weekdays'), $id), ARRAY_A);
-            $week  = [];
-            foreach ($days as $day) {
-                $breaks = (array) $wpdb->get_results($wpdb->prepare('SELECT startTime, endTime FROM %i WHERE weekDayId = %d ORDER BY startTime ASC', self::t('providers_to_timeouts'), (int) $day['id']), ARRAY_A);
-                $week[] = [
-                    'day'    => self::DAYS[ (int) $day['dayIndex'] ] ?? (string) $day['dayIndex'],
-                    'start'  => substr((string) $day['startTime'], 0, 5),
-                    'end'    => substr((string) $day['endTime'], 0, 5),
-                    'breaks' => array_map(static fn (array $b): array => [ 'start' => substr((string) $b['startTime'], 0, 5), 'end' => substr((string) $b['endTime'], 0, 5) ], $breaks),
-                ];
-            }
-            $off   = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE userId = %d AND type = 'dayOff' ORDER BY startDate ASC", self::t('providers_to_daysoff'), $id), ARRAY_A);
-            $out[] = [
-                'id'          => $id,
-                'first_name'  => (string) $row['firstName'],
-                'last_name'   => (string) $row['lastName'],
-                'email'       => (string) ($row['email'] ?? ''),
-                'phone'       => (string) ($row['phone'] ?? ''),
-                'status'      => (string) $row['status'],
-                'service_ids' => array_map('intval', (array) $wpdb->get_col($wpdb->prepare('SELECT serviceId FROM %i WHERE userId = %d ORDER BY serviceId ASC', self::t('providers_to_services'), $id))),
-                'working_week' => $week,
-                'days_off'    => array_map(static fn (array $d): array => [
-                    'name'   => (string) $d['name'],
-                    'start'  => substr((string) $d['startDate'], 0, 10),
-                    'end'    => substr((string) $d['endDate'], 0, 10),
-                    'repeat' => (bool) $d['repeat'],
-                ], $off),
+        return array_map(static fn (array $row): array => self::employee_shape($row), $rows);
+    }
+
+    private static function employee_row(int $id): ?array
+    {
+        global $wpdb;
+
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM %i WHERE id = %d AND type = 'provider'", self::t('users'), $id), ARRAY_A);
+        return is_array($row) ? $row : null;
+    }
+
+    private static function employee_shape(array $row): array
+    {
+        global $wpdb;
+
+        $id   = (int) $row['id'];
+        $days = (array) $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE userId = %d ORDER BY dayIndex ASC', self::t('providers_to_weekdays'), $id), ARRAY_A);
+        $week = [];
+        foreach ($days as $day) {
+            $breaks = (array) $wpdb->get_results($wpdb->prepare('SELECT startTime, endTime FROM %i WHERE weekDayId = %d ORDER BY startTime ASC', self::t('providers_to_timeouts'), (int) $day['id']), ARRAY_A);
+            $week[] = [
+                'day'    => self::DAYS[ (int) $day['dayIndex'] ] ?? (string) $day['dayIndex'],
+                'start'  => substr((string) $day['startTime'], 0, 5),
+                'end'    => substr((string) $day['endTime'], 0, 5),
+                'breaks' => array_map(static fn (array $b): array => [ 'start' => substr((string) $b['startTime'], 0, 5), 'end' => substr((string) $b['endTime'], 0, 5) ], $breaks),
             ];
         }
-        return $out;
+        $off = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE userId = %d AND type = 'dayOff' ORDER BY startDate ASC", self::t('providers_to_daysoff'), $id), ARRAY_A);
+        return [
+            'id'           => $id,
+            'first_name'   => (string) $row['firstName'],
+            'last_name'    => (string) $row['lastName'],
+            'email'        => (string) ($row['email'] ?? ''),
+            'phone'        => (string) ($row['phone'] ?? ''),
+            'status'       => (string) $row['status'],
+            'service_ids'  => array_map('intval', (array) $wpdb->get_col($wpdb->prepare('SELECT serviceId FROM %i WHERE userId = %d ORDER BY serviceId ASC', self::t('providers_to_services'), $id))),
+            'working_week' => $week,
+            'days_off'     => array_map(static fn (array $d): array => [
+                'name'   => (string) $d['name'],
+                'start'  => substr((string) $d['startDate'], 0, 10),
+                'end'    => substr((string) $d['endDate'], 0, 10),
+                'repeat' => (bool) $d['repeat'],
+            ], $off),
+        ];
     }
 
     private static function customers(array $args): array
@@ -947,23 +1341,43 @@ final class Amelia_Pack
         // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $where holds only placeholders.
         $rows = (array) $wpdb->get_results($wpdb->prepare('SELECT e.* FROM %i e WHERE ' . $where . ' ORDER BY e.id ASC', ...$vars), ARRAY_A);
 
-        $out = [];
-        foreach ($rows as $row) {
-            $id      = (int) $row['id'];
-            $periods = (array) $wpdb->get_results($wpdb->prepare('SELECT periodStart, periodEnd FROM %i WHERE eventId = %d ORDER BY periodStart ASC', self::t('events_periods'), $id), ARRAY_A);
-            $booked  = self::event_booked($id);
-            $out[]   = [
-                'id'           => $id,
-                'name'         => (string) $row['name'],
-                'status'       => (string) $row['status'],
-                'price'        => (float) $row['price'],
-                'max_capacity' => (int) $row['maxCapacity'],
-                'booked'       => $booked,
-                'places_left'  => max(0, (int) $row['maxCapacity'] - $booked),
-                'periods'      => array_map(static fn (array $p): array => [ 'start' => self::to_local((string) $p['periodStart']), 'end' => self::to_local((string) $p['periodEnd']) ], $periods),
-            ];
-        }
-        return $out;
+        return array_map(static fn (array $row): array => self::event_shape($row), $rows);
+    }
+
+    private static function event_row(int $id): ?array
+    {
+        global $wpdb;
+
+        $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM %i WHERE id = %d', self::t('events'), $id), ARRAY_A);
+        return is_array($row) ? $row : null;
+    }
+
+    /** The event's periods, oldest first, as stored (UTC). @return array<int, array<string, string|null>> */
+    private static function event_periods(int $event_id): array
+    {
+        global $wpdb;
+
+        return (array) $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE eventId = %d ORDER BY periodStart ASC, id ASC', self::t('events_periods'), $event_id), ARRAY_A);
+    }
+
+    private static function event_shape(array $row): array
+    {
+        global $wpdb;
+
+        $id     = (int) $row['id'];
+        $booked = self::event_booked($id);
+        return [
+            'id'           => $id,
+            'name'         => (string) $row['name'],
+            'status'       => (string) $row['status'],
+            'description'  => (string) ($row['description'] ?? ''),
+            'price'        => (float) $row['price'],
+            'max_capacity' => (int) $row['maxCapacity'],
+            'booked'       => $booked,
+            'places_left'  => max(0, (int) $row['maxCapacity'] - $booked),
+            'employee_ids' => array_map('intval', (array) $wpdb->get_col($wpdb->prepare('SELECT userId FROM %i WHERE eventId = %d ORDER BY userId ASC', self::t('events_to_providers'), $id))),
+            'periods'      => array_map(static fn (array $p): array => [ 'start' => self::to_local((string) $p['periodStart']), 'end' => self::to_local((string) $p['periodEnd']) ], self::event_periods($id)),
+        ];
     }
 
     /** The event's bookings, each once. @return array<int, array<string, string|null>> */
@@ -996,14 +1410,19 @@ final class Amelia_Pack
     {
         return [
             'event_id'  => $event_id,
-            'attendees' => array_map(static fn (array $b): array => [
-                'booking_id'  => (int) $b['id'],
-                'customer_id' => (int) $b['customerId'],
-                'name'        => trim((string) $b['firstName'] . ' ' . (string) $b['lastName']),
-                'email'       => (string) ($b['email'] ?? ''),
-                'status'      => (string) $b['status'],
-                'persons'     => (int) $b['persons'],
-            ], self::event_bookings($event_id)),
+            'attendees' => array_map(static fn (array $b): array => self::attendee_shape($b), self::event_bookings($event_id)),
+        ];
+    }
+
+    private static function attendee_shape(array $b): array
+    {
+        return [
+            'booking_id'  => (int) $b['id'],
+            'customer_id' => (int) $b['customerId'],
+            'name'        => trim((string) $b['firstName'] . ' ' . (string) $b['lastName']),
+            'email'       => (string) ($b['email'] ?? ''),
+            'status'      => (string) $b['status'],
+            'persons'     => (int) $b['persons'],
         ];
     }
 
@@ -1272,5 +1691,230 @@ final class Amelia_Pack
         [, $notes] = self::run($args, $context, static fn (): array => self::api()->request('Booking\\Appointment\\UpdateAppointmentStatusController', [ 'status' => (string) $args['status'] ], [ 'id' => $id ]));
         $row       = self::appointment_row($id);
         return [ 'appointment' => null === $row ? null : self::appointment_shape($row), 'notifications' => $notes ];
+    }
+
+    /** A working week as Amelia's weekDayList, reusing the row of each day the employee already works. */
+    private static function week_days(int $employee_id, array $week): array
+    {
+        global $wpdb;
+
+        $rows = 0 === $employee_id ? [] : (array) $wpdb->get_results($wpdb->prepare('SELECT id, dayIndex FROM %i WHERE userId = %d ORDER BY id ASC', self::t('providers_to_weekdays'), $employee_id), ARRAY_A);
+        $ids  = array_column($rows, 'id', 'dayIndex');
+        $out  = [];
+        foreach ($week as $day) {
+            $day    = (array) $day;
+            $index  = (int) array_search((string) $day['day'], self::DAYS, true);
+            $breaks = (array) ($day['breaks'] ?? []);
+            usort($breaks, static fn ($a, $b): int => strcmp((string) ((array) $a)['start'], (string) ((array) $b)['start']));
+            $entry = [
+                'dayIndex'    => $index,
+                'startTime'   => (string) $day['start'] . ':00',
+                'endTime'     => (string) $day['end'] . ':00',
+                'timeOutList' => array_map(static fn ($b): array => [ 'startTime' => (string) ((array) $b)['start'] . ':00', 'endTime' => (string) ((array) $b)['end'] . ':00' ], $breaks),
+                'periodList'  => [],
+            ];
+            $out[] = isset($ids[ $index ]) ? [ 'id' => (int) $ids[ $index ] ] + $entry : $entry;
+        }
+        usort($out, static fn (array $a, array $b): int => $a['dayIndex'] <=> $b['dayIndex']);
+        return $out;
+    }
+
+    private static function save_employee(int $id, array $args, array $context): array
+    {
+        global $wpdb;
+
+        $current = 0 === $id ? [] : (array) self::employee_row($id);
+        $fields  = [
+            'firstName' => (string) ($current['firstName'] ?? ''),
+            'lastName'  => (string) ($current['lastName'] ?? ''),
+            'email'     => (string) ($current['email'] ?? ''),
+            'phone'     => (string) ($current['phone'] ?? ''),
+        ];
+        foreach ([ 'first_name' => 'firstName', 'last_name' => 'lastName', 'phone' => 'phone' ] as $key => $field) {
+            if (array_key_exists($key, $args)) {
+                $fields[ $field ] = sanitize_text_field((string) $args[ $key ]);
+            }
+        }
+        if (array_key_exists('email', $args)) {
+            $fields['email'] = sanitize_email((string) $args['email']);
+        }
+        foreach ([ 'note', 'description' ] as $key) {
+            if (array_key_exists($key, $args)) {
+                $fields[ $key ] = sanitize_textarea_field((string) $args[ $key ]);
+            }
+        }
+        if (array_key_exists('working_week', $args)) {
+            $fields['weekDayList'] = self::week_days($id, (array) $args['working_week']);
+        }
+        if (array_key_exists('days_off', $args)) {
+            $fields['dayOffList'] = array_map(static fn ($off): array => [
+                'name'      => sanitize_text_field((string) ((array) $off)['name']),
+                'startDate' => (string) ((array) $off)['start'],
+                'endDate'   => (string) (((array) $off)['end'] ?? ((array) $off)['start']),
+                'repeat'    => empty(((array) $off)['repeat']) ? 0 : 1,
+            ], (array) $args['days_off']);
+            if ($id > 0) {
+                $fields['removedDayOffList'] = array_map(static fn (array $off): array => [
+                    'id'        => (int) $off['id'],
+                    'name'      => (string) $off['name'],
+                    'startDate' => substr((string) $off['startDate'], 0, 10),
+                    'endDate'   => substr((string) $off['endDate'], 0, 10),
+                    'repeat'    => (int) $off['repeat'],
+                ], (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE userId = %d AND type = 'dayOff' ORDER BY id ASC", self::t('providers_to_daysoff'), $id), ARRAY_A));
+            }
+        }
+
+        if (0 === $id) {
+            $fields += [
+                'type'                         => 'provider',
+                'status'                       => 'visible',
+                'externalId'                   => '',
+                'note'                         => '',
+                'description'                  => '',
+                'countryPhoneIso'              => '',
+                'show'                         => 1,
+                'sendEmployeePanelAccessEmail' => false,
+                'weekDayList'                  => [],
+                'dayOffList'                   => [],
+                'specialDayList'               => [],
+                'serviceList'                  => [],
+                'timeOutList'                  => [],
+                'periodList'                   => [],
+            ];
+            [$data, $notes] = self::run($args, $context, static fn (): array => self::api()->request('User\\Provider\\AddProviderController', $fields), self::id_from('user'));
+            $id             = (int) ($data['user']['id'] ?? 0);
+        } else {
+            [, $notes] = self::run($args, $context, static fn (): array => self::api()->request('User\\Provider\\UpdateProviderController', $fields, [ 'id' => $id ]));
+        }
+        $row = self::employee_row($id);
+        return [ 'employee' => null === $row ? null : self::employee_shape($row), 'notifications' => $notes ];
+    }
+
+    /** Delete an unused category, service, employee or customer through Amelia's own delete. */
+    private static function delete(string $what, int $id, array $args, array $context): array
+    {
+        global $wpdb;
+
+        $controller = [
+            'category' => 'Bookable\\Category\\DeleteCategoryController',
+            'service'  => 'Bookable\\Service\\DeleteServiceController',
+            'employee' => 'User\\DeleteUserController',
+            'customer' => 'User\\DeleteUserController',
+        ][ $what ];
+        $table      = [ 'category' => 'categories', 'service' => 'services' ][ $what ] ?? 'users';
+        $row        = (array) $wpdb->get_row($wpdb->prepare('SELECT * FROM %i WHERE id = %d', self::t($table), $id), ARRAY_A);
+        $name       = 'users' === $table ? trim((string) ($row['firstName'] ?? '') . ' ' . (string) ($row['lastName'] ?? '')) : (string) ($row['name'] ?? '');
+
+        [, $notes] = self::run($args, $context, static fn (): array => self::api()->request($controller, [], [ 'id' => $id ]));
+        $gone      = 0 === (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE id = %d', self::t($table), $id));
+        if (! $gone) {
+            throw new Operation_Error('amelia_refused', sprintf('Amelia kept %s %d.', $what, $id), [ 'operation_id' => (string) ($context['operation_id'] ?? ''), 'recoverable' => true ]);
+        }
+        return [ 'deleted' => [ 'type' => $what, 'id' => $id, 'name' => $name ], 'notifications' => $notes ];
+    }
+
+    private static function save_event(int $id, array $args, array $context): array
+    {
+        $periods = static fn (array $list): array => array_map(static fn ($p): array => [ 'periodStart' => (string) ((array) $p)['start'] . ':00', 'periodEnd' => (string) ((array) $p)['end'] . ':00' ], $list);
+        $staff   = static fn (array $ids): array => array_map(static fn ($user): array => [ 'id' => (int) $user ], array_values(array_unique(array_map('intval', $ids))));
+
+        if (0 === $id) {
+            $fields = [
+                'name'           => sanitize_text_field((string) $args['name']),
+                'price'          => (float) $args['price'],
+                'maxCapacity'    => (int) $args['max_capacity'],
+                'description'    => sanitize_textarea_field((string) ($args['description'] ?? '')),
+                'color'          => '#1788FB',
+                'show'           => true,
+                'depositPayment' => 'disabled',
+                'deposit'        => 0,
+                'periods'        => $periods((array) $args['periods']),
+                'providers'      => $staff((array) ($args['employee_ids'] ?? [])),
+                'tags'           => [],
+            ];
+            [$data, $notes] = self::run($args, $context, static fn (): array => self::api()->request('Booking\\Event\\AddEventController', $fields), static fn ($data): int => (int) (((array) $data)['events'][0]['id'] ?? 0));
+            $id             = (int) ($data['events'][0]['id'] ?? 0);
+        } else {
+            // Amelia's own event as its admin edits it, changed only where the call names.
+            $fields = (array) (self::api()->request('Booking\\Event\\GetEventController', [], [ 'id' => $id ], 'GET')['event'] ?? []);
+            foreach ([ 'name' => 'name', 'price' => 'price', 'max_capacity' => 'maxCapacity' ] as $key => $field) {
+                if (array_key_exists($key, $args)) {
+                    $fields[ $field ] = is_string($args[ $key ]) ? sanitize_text_field($args[ $key ]) : $args[ $key ];
+                }
+            }
+            if (array_key_exists('description', $args)) {
+                $fields['description'] = sanitize_textarea_field((string) $args['description']);
+            }
+            if (array_key_exists('employee_ids', $args)) {
+                $fields['providers'] = $staff((array) $args['employee_ids']);
+            }
+            if (array_key_exists('periods', $args)) {
+                $old               = array_values((array) ($fields['periods'] ?? []));
+                $fields['periods'] = [];
+                foreach ($periods((array) $args['periods']) as $i => $period) {
+                    $fields['periods'][] = isset($old[ $i ]['id']) ? [ 'id' => (int) $old[ $i ]['id'], 'eventId' => $id ] + $period : $period;
+                }
+            }
+            $fields = [ 'id' => $id, 'applyGlobally' => false, 'notifyParticipants' => 1 ] + $fields;
+            [, $notes] = self::run($args, $context, static fn (): array => self::api()->request('Booking\\Event\\UpdateEventController', $fields, [ 'id' => $id ]));
+        }
+        $row = self::event_row($id);
+        return [ 'event' => null === $row ? null : self::event_shape($row), 'notifications' => $notes ];
+    }
+
+    private static function set_event_status(array $args, array $context): array
+    {
+        $id        = (int) $args['event_id'];
+        $status    = self::EVENT_STATUSES[ (string) $args['status'] ];
+        [, $notes] = self::run($args, $context, static fn (): array => self::api()->request('Booking\\Event\\UpdateEventStatusController', [ 'status' => $status, 'applyGlobally' => false ], [ 'id' => $id ]));
+        $row       = self::event_row($id);
+        return [ 'event' => null === $row ? null : self::event_shape($row), 'notifications' => $notes ];
+    }
+
+    private static function add_attendee(array $args, array $context): array
+    {
+        $event_id = (int) $args['event_id'];
+        $customer = (array) self::customer_row((int) $args['customer_id']);
+        $payload  = [
+            'type'                         => 'event',
+            'eventId'                      => $event_id,
+            'notifyParticipants'           => 1,
+            'runInstantPostBookingActions' => true,
+            'isBackendOrCabinet'           => true,
+            'payment'                      => [ 'gateway' => 'onSite' ],
+            'bookings'                     => [
+                [
+                    'eventId'      => $event_id,
+                    'customerId'   => (int) $customer['id'],
+                    'persons'      => (int) ($args['persons'] ?? 1),
+                    'status'       => (string) ($args['status'] ?? 'approved'),
+                    'customer'     => [
+                        'id'              => (int) $customer['id'],
+                        'firstName'       => (string) $customer['firstName'],
+                        'lastName'        => (string) $customer['lastName'],
+                        'email'           => (string) ($customer['email'] ?? ''),
+                        'phone'           => (string) ($customer['phone'] ?? ''),
+                        'externalId'      => (string) ($customer['externalId'] ?? ''),
+                        'countryPhoneIso' => (string) ($customer['countryPhoneIso'] ?? ''),
+                    ],
+                    'customFields' => [],
+                    'extras'       => [],
+                    'utcOffset'    => null,
+                    'couponCode'   => null,
+                    'deposit'      => false,
+                ],
+            ],
+        ];
+        [$data, $notes] = self::run($args, $context, static fn (): array => self::api()->request('Booking\\Appointment\\AddBookingController', $payload));
+        $booking        = (int) ($data['booking']['id'] ?? 0);
+        $attendee       = null;
+        foreach (self::event_bookings($event_id) as $row) {
+            if ((int) $row['id'] === $booking) {
+                // The customer's name and email stay behind Amelia's own customer read capability (list-event-attendees).
+                $attendee = array_intersect_key(self::attendee_shape($row), array_flip([ 'booking_id', 'customer_id', 'status', 'persons' ]));
+            }
+        }
+        $row = self::event_row($event_id);
+        return [ 'event' => null === $row ? null : self::event_shape($row), 'attendee' => $attendee, 'notifications' => $notes ];
     }
 }
