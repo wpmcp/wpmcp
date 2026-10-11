@@ -359,7 +359,9 @@ if ( ! class_exists( 'TablePress', false ) ) {
 				}
 				return [] === $rows ? null : $rows;
 			}
-			return array_map( 'str_getcsv', preg_split( '/\r\n|\n|\r/', $data ) );
+			// The escape character is spelled out (PHP 8.4 deprecates relying on
+			// its default); a backslash is the default this parse always used.
+			return array_map( static fn ( string $line ): array => str_getcsv( $line, ',', '"', '\\' ), preg_split( '/\r\n|\n|\r/', $data ) );
 		}
 	}
 	// phpcs:enable

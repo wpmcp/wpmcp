@@ -129,7 +129,6 @@ class BlockSuitesLiveTest extends \WP_UnitTestCase
         foreach ([ 'GenerateBlocks_Block', 'GenerateBlocks_Block_Text', 'GenerateBlocks_Block_Element' ] as $class) {
             if (class_exists($class) && property_exists($class, 'block_ids')) {
                 $property = new \ReflectionProperty($class, 'block_ids');
-                $property->setAccessible(true);
                 $property->setValue(null, []);
             }
         }
