@@ -18,6 +18,14 @@
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
 #
+# WPMCP_PLUGIN_VERSIONS="slug=version ..." asks for exact versions instead
+# (issue #532): bin/test-local.sh resolves the latest stable release of every
+# unpinned plugin on WordPress.org, keys its install on those versions and
+# passes them here, so a new release gets a fresh install, and a plugin
+# already present at another version is reinstalled. --list prints the set
+# the current environment installs, one "slug main-file version" line each
+# ("latest" for an unpinned plugin), and changes nothing.
+#
 # Elementor is pinned (ELEMENTOR_VERSION, default below) because the suite
 # asserts against its live atomic-widget schema and runs alongside its own
 # MCP module: an unpinned install let Elementor 4.3.0 (2026-09-22) turn every
@@ -39,6 +47,10 @@ TMPDIR=$(echo "$TMPDIR" | sed -e "s/\/$//")
 WP_CORE_DIR=${WP_CORE_DIR-$TMPDIR/wordpress/}
 WP_CORE_DIR=$(echo "$WP_CORE_DIR" | sed "s:/\+$::")
 PLUGINS_DIR="$WP_CORE_DIR/wp-content/plugins"
+list_only=false
+if [ "${1:-}" = "--list" ]; then
+	list_only=true
+fi
 ELEMENTOR_VERSION=${ELEMENTOR_VERSION:-4.3.4}
 if [ "$ELEMENTOR_VERSION" != "latest" ] && ! [[ "$ELEMENTOR_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}(-[A-Za-z0-9.]+)?$ ]]; then
 	echo "ELEMENTOR_VERSION must be 'latest' or a version such as 4.3.4 (got '$ELEMENTOR_VERSION')." >&2
@@ -153,7 +165,9 @@ fi
 # wordpress.org, so it is copied from a local directory holding it
 # (WPMCP_BREAKDANCE_SRC) instead of downloaded. Exclusive too: the stub-backed
 # Breakdance tests stand in for its cache generator and toggle its presence.
-if [ "${WPMCP_LIVE_BREAKDANCE:-}" = "1" ]; then
+if [ "${WPMCP_LIVE_BREAKDANCE:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_BREAKDANCE:-}" = "1" ]; then
 	PLUGINS=()
 	src=${WPMCP_BREAKDANCE_SRC:-}
 	if [ -z "$src" ] || [ ! -f "$src/plugin.php" ]; then
@@ -177,12 +191,25 @@ download() {
 	fi
 }
 
-# Version to fetch for a slug: "latest" means the latest-stable zip.
-plugin_version() {
+# The version a slug is pinned to here: "latest" means the latest-stable zip.
+default_version() {
 	case "$1" in
 		elementor) echo "$ELEMENTOR_VERSION" ;;
 		*) echo "latest" ;;
 	esac
+}
+
+# Version to fetch for a slug: the one WPMCP_PLUGIN_VERSIONS asks for, else
+# the default above.
+plugin_version() {
+	local pair
+	for pair in ${WPMCP_PLUGIN_VERSIONS:-}; do
+		if [ "${pair%%=*}" = "$1" ] && [ -n "${pair#*=}" ]; then
+			echo "${pair#*=}"
+			return 0
+		fi
+	done
+	default_version "$1"
 }
 
 # The Version header of a plugin main file.
@@ -204,19 +231,30 @@ install_plugin() {
 	if [ -f "$target/$main_file" ]; then
 		local present
 		present=$(header_version "$target/$main_file")
-		# A pinned plugin must be the pinned version, or the pin means nothing
-		# on a reused install; "latest" keeps whatever is already there.
+		# A plugin asked for at a version must be that version, or the pin
+		# means nothing on a reused install; "latest" keeps whatever is
+		# already there.
 		if [ "$ref" = "latest-stable" ] || [ "$present" = "$version" ]; then
 			echo "Plugin '$slug' ${present} already installed, skipping."
 			return 0
 		fi
-		echo "Plugin '$slug' is ${present:-an unknown version}, pinned to ${version}: reinstalling."
+		echo "Plugin '$slug' is ${present:-an unknown version}, wanted ${version}: reinstalling."
 		rm -rf "$target"
 	fi
 
 	echo "Installing plugin '$slug' ($ref) from wordpress.org..."
 	local zip="$TMPDIR/${slug}.${ref}.zip"
-	download "https://downloads.wordpress.org/plugin/${slug}.${ref}.zip" "$zip"
+	if ! download "https://downloads.wordpress.org/plugin/${slug}.${ref}.zip" "$zip"; then
+		# A resolved latest release that WordPress.org keeps no versioned zip
+		# for (a plugin released from trunk) is the latest-stable zip.
+		if [ "$ref" = "latest-stable" ] || [ "$(default_version "$slug")" != "latest" ]; then
+			echo "Could not download '$slug' $ref from wordpress.org." >&2
+			exit 1
+		fi
+		echo "No versioned zip for '$slug' $ref; installing latest-stable instead."
+		zip="$TMPDIR/${slug}.latest-stable.zip"
+		download "https://downloads.wordpress.org/plugin/${slug}.latest-stable.zip" "$zip"
+	fi
 	unzip -q -o "$zip" -d "$PLUGINS_DIR"
 	rm -f "$zip"
 
@@ -228,6 +266,13 @@ install_plugin() {
 	installed=$(header_version "$target/$main_file")
 	echo "Installed plugin '$slug' ${installed}."
 }
+
+if [ "$list_only" = true ]; then
+	for entry in "${PLUGINS[@]+"${PLUGINS[@]}"}"; do
+		echo "${entry%%:*} ${entry##*:} $(default_version "${entry%%:*}")"
+	done
+	exit 0
+fi
 
 mkdir -p "$PLUGINS_DIR"
 
