@@ -49,6 +49,28 @@ class Switch_Theme
     }
 
     /**
+     * Refuse a theme this site may not use (issue #529). On a network a
+     * theme must be enabled for the network or for the site, which core's
+     * Themes screen checks with WP_Theme::is_allowed() before it switches;
+     * site administrators hold switch_themes, so without this check they
+     * could activate a theme the network administrator has not vetted.
+     * Always true on a single site. Works on a slug that is not installed
+     * yet, so install-theme can refuse before it downloads anything.
+     *
+     * @throws \RuntimeException When the theme is not enabled for this site.
+     */
+    public static function require_allowed(string $stylesheet): void
+    {
+        if (wp_get_theme($stylesheet)->is_allowed()) {
+            return;
+        }
+        throw new \RuntimeException(sprintf(
+            'Theme "%s" is not enabled for this site. A network administrator must enable it (Network Admin > Themes) before it can be activated.',
+            esc_html($stylesheet)
+        ));
+    }
+
+    /**
      * Snapshot 'template' and 'stylesheet', then switch_theme(). Shared with
      * Install_Theme's activate:true step so there is exactly one copy of this
      * block, one Gate call site for the wp.org build to rewrite, and one
@@ -61,6 +83,8 @@ class Switch_Theme
      */
     public static function snapshot_and_switch(string $stylesheet, string $tool_name, array $args): array
     {
+        self::require_allowed($stylesheet);
+
         $session_id = (string) ($args['session_id'] ?? 'default');
         $args_hash  = hash('sha256', wp_json_encode($args));
 
