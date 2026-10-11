@@ -31,6 +31,15 @@ class Database_Guard
     /** usermeta meta_keys whose meta_value is always masked when user-table reads are opted in. */
     public const SECRET_META_KEYS = ['session_tokens'];
 
+    /** Unprefixed names of the network-wide tables on multisite (base_prefix + name). */
+    public const NETWORK_TABLES = ['users', 'usermeta', 'blogs', 'blogmeta', 'signups', 'site', 'sitemeta', 'sitecategories', 'registration_log'];
+
+    /** Schemas that are never the site's own, whatever the server lists. */
+    public const SYSTEM_SCHEMAS = ['information_schema', 'performance_schema', 'mysql', 'sys'];
+
+    /** SHOW forms a site-scoped caller may run: they name one table, which the identifier scan then checks. */
+    private const SCOPED_SHOW_PATTERN = '/^SHOW\s+(?:(?:FULL|EXTENDED)\s+)*(?:COLUMNS|FIELDS|INDEX|INDEXES|KEYS)\b|^SHOW\s+CREATE\s+TABLE\b/i';
+
     /** Per-request cache of the detected NO_BACKSLASH_ESCAPES state. Null = not yet detected. */
     private static ?bool $no_backslash_escapes_cache = null;
 
@@ -174,8 +183,10 @@ class Database_Guard
         // MySQL executes the body of /*! ... *\/ executable comments, so the
         // guard cannot safely strip-and-trust them like ordinary comments.
         // Refuse any SQL containing the marker outright.
-        if (false !== strpos($sql, '/*!')) {
-            return new \WP_Error('executable_comment', 'MySQL executable comments (/*! ... */) are not allowed.');
+        // MariaDB does the same for /*M! ... *\/ (any case), so refuse that
+        // marker too.
+        if (false !== strpos($sql, '/*!') || false !== stripos($sql, '/*M!')) {
+            return new \WP_Error('executable_comment', 'Executable comments (/*! ... */, /*M! ... */) are not allowed.');
         }
 
         // Raw, sql_mode-independent file-access pre-scan. normalize_sql()
@@ -273,6 +284,8 @@ class Database_Guard
      * Identifier chars around the match are excluded on both sides, so
      * lookalike tables (wp_users_backup, my_wp_usermeta) do not match while
      * schema-qualified (db.wp_users) and aliased (wp_users u) forms do.
+     * sql_identifiers() is consulted as well, for the server's exact
+     * double-dash comment rule.
      */
     public static function sql_mentions_user_tables(string $sql): bool
     {
@@ -294,7 +307,16 @@ class Database_Guard
             }
         }
 
-        return false;
+        // normalize_sql() treats any "--" as a comment, but the server only
+        // does when whitespace follows, so "SELECT 1--1, user_pass FROM
+        // wp_users" hides the table from the probes above. The identifier
+        // scan applies the server's rule; an unparseable statement counts.
+        $identifiers = self::sql_identifiers($sql);
+        if (null === $identifiers) {
+            return true;
+        }
+
+        return [] !== array_intersect(array_map('strtolower', $names), $identifiers);
     }
 
     /**
@@ -379,6 +401,294 @@ class Database_Guard
     }
 
     /**
+     * Whether the current caller is limited to the current site's tables
+     * (issue #526). On multisite, manage_options is a per-site capability,
+     * but every site shares one database: without this limit a sub-site
+     * administrator could read wp_sitemeta, the main site's options or any
+     * other site's tables, and write sitemeta to become a super admin.
+     * Network operators (manage_network_options) and single-site installs
+     * are not limited.
+     */
+    public static function scope_restricted(): bool
+    {
+        return is_multisite() && ! current_user_can('manage_network_options');
+    }
+
+    /**
+     * Pure: does $table belong to the site whose prefix is $prefix? It must
+     * start with that prefix and not be a network-wide table. On the main
+     * site (prefix === base prefix) a name continuing with digits and an
+     * underscore is another site's table (wp_2_options), so it is out too.
+     * Matching is case-insensitive, like the rest of this guard.
+     */
+    public static function table_in_site_scope(string $table, string $prefix, string $base_prefix, array $global_tables): bool
+    {
+        $table  = strtolower($table);
+        $prefix = strtolower($prefix);
+
+        if ('' === $table || '' === $prefix || 0 !== strpos($table, $prefix)) {
+            return false;
+        }
+
+        if (in_array($table, array_map('strtolower', array_map('strval', $global_tables)), true)) {
+            return false;
+        }
+
+        if ($prefix === strtolower($base_prefix) && preg_match('/^[0-9]+_/', substr($table, strlen($prefix)))) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /** Whether the current caller may use $table (always true when not scope_restricted()). */
+    public static function table_in_scope(string $table): bool
+    {
+        if (! self::scope_restricted()) {
+            return true;
+        }
+
+        global $wpdb;
+        return self::table_in_site_scope($table, (string) $wpdb->prefix, (string) $wpdb->base_prefix, self::network_tables());
+    }
+
+    /** The network-wide table names on this install, including custom user tables. */
+    private static function network_tables(): array
+    {
+        global $wpdb;
+
+        $names = [ (string) $wpdb->users, (string) $wpdb->usermeta ];
+        foreach (self::NETWORK_TABLES as $name) {
+            $names[] = $wpdb->base_prefix . $name;
+        }
+
+        return array_values(array_unique($names));
+    }
+
+    private static function out_of_scope_error(string $table): \WP_Error
+    {
+        return new \WP_Error(
+            'table_out_of_scope',
+            sprintf(
+                'Table "%s" is outside this site. On a multisite network the database tools only reach the current site\'s tables unless the user can manage the network.',
+                $table
+            )
+        );
+    }
+
+    /**
+     * valid_table() plus the multisite site scope: the name is checked as
+     * given (so an out-of-scope table is refused the same way whether or not
+     * it exists) and again as resolved.
+     *
+     * @return string|\WP_Error
+     */
+    public static function scoped_table(string $table)
+    {
+        $requested = trim($table);
+        if ('' !== $requested && ! self::table_in_scope($requested)) {
+            return self::out_of_scope_error($requested);
+        }
+
+        $real = self::valid_table($table);
+        if (is_wp_error($real)) {
+            return $real;
+        }
+
+        if (! self::table_in_scope($real)) {
+            return self::out_of_scope_error($real);
+        }
+
+        return $real;
+    }
+
+    /**
+     * Read-path counterpart of scoped_table() for the `query` tool. A
+     * site-scoped caller's SQL may not name any table outside the current
+     * site, however it is written: in FROM, JOIN, comma lists, subqueries,
+     * CTEs or UNIONs, backtick-quoted, double-quoted (ANSI_QUOTES) or
+     * schema-qualified. Rather than trusting a grammar to find every table
+     * position, every identifier in the statement is checked: one that names
+     * a table outside the site (by WordPress naming or against the live table
+     * list) or a schema other than the site's database refuses the query.
+     * SHOW is limited to the forms that name one table, and SQL the scan
+     * cannot tokenize is refused (fail closed).
+     *
+     * @return true|\WP_Error
+     */
+    public static function guard_query_scope(string $sql)
+    {
+        if (! self::scope_restricted()) {
+            return true;
+        }
+
+        $normalized = trim(self::normalize_sql($sql));
+        if (preg_match('/^SHOW\b/i', $normalized) && ! preg_match(self::SCOPED_SHOW_PATTERN, $normalized)) {
+            return new \WP_Error(
+                'show_out_of_scope',
+                'On a multisite network only SHOW COLUMNS, SHOW INDEX and SHOW CREATE TABLE are available inside this site. Use list-tables for this site\'s tables.'
+            );
+        }
+
+        $identifiers = self::sql_identifiers($sql);
+        if (null === $identifiers) {
+            return new \WP_Error('query_scope_unverified', 'The query could not be parsed to confirm it stays inside this site, so it was refused.');
+        }
+
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the live table list decides which names are real tables; a cached list could miss a new network table.
+        $tables = array_map('strtolower', array_map('strval', (array) $wpdb->get_col('SHOW TABLES')));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the live schema list, so a query cannot reach another database on the same server.
+        $schemas = array_map('strtolower', array_map('strval', (array) $wpdb->get_col('SHOW DATABASES')));
+        $schemas = array_diff(array_unique(array_merge($schemas, self::SYSTEM_SCHEMAS)), [strtolower((string) DB_NAME)]);
+
+        $base_prefix = strtolower((string) $wpdb->base_prefix);
+        $globals     = self::network_tables();
+
+        foreach ($identifiers as $identifier) {
+            if (in_array($identifier, $schemas, true)) {
+                return new \WP_Error('schema_out_of_scope', sprintf('Schema "%s" is outside this site.', $identifier));
+            }
+
+            $wp_named  = '' !== $base_prefix && 0 === strpos($identifier, $base_prefix);
+            $candidate = $wp_named || in_array($identifier, $tables, true);
+            if ($candidate && ! self::table_in_site_scope($identifier, (string) $wpdb->prefix, (string) $wpdb->base_prefix, $globals)) {
+                return self::out_of_scope_error($identifier);
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Pure: every name in $sql that the server could read as an identifier,
+     * lowercased and de-duplicated: bare words, backtick-quoted names,
+     * double-quoted strings (identifiers under ANSI_QUOTES) and, to stay
+     * conservative, the words inside comments. Single-quoted literals are
+     * skipped. The SQL is lexed under both backslash-escape rules and both
+     * double-dash comment rules, and the results are unioned, so a literal
+     * boundary that differs between this scan and the live server cannot
+     * hide a name. Returns null when no lexing of $sql terminates cleanly.
+     *
+     * @return array<int, string>|null
+     */
+    public static function sql_identifiers(string $sql): ?array
+    {
+        $found  = [];
+        $parsed = false;
+
+        foreach ([false, true] as $no_backslash_escapes) {
+            foreach ([true, false] as $strict_double_dash) {
+                $identifiers = self::lex_identifiers($sql, $no_backslash_escapes, $strict_double_dash);
+                if (null === $identifiers) {
+                    continue;
+                }
+                $parsed = true;
+                foreach ($identifiers as $identifier) {
+                    $found[ $identifier ] = true;
+                }
+            }
+        }
+
+        return $parsed ? array_map('strval', array_keys($found)) : null;
+    }
+
+    /**
+     * One lexing pass for sql_identifiers(). With $strict_double_dash, "--"
+     * starts a comment only when followed by whitespace, a control character
+     * or the end (the MySQL and MariaDB rule, so "1--1" is arithmetic);
+     * otherwise any "--" does. Returns null on an unterminated quote,
+     * identifier or block comment.
+     *
+     * @return array<int, string>|null
+     */
+    private static function lex_identifiers(string $sql, bool $no_backslash_escapes, bool $strict_double_dash): ?array
+    {
+        $out = [];
+        $len = strlen($sql);
+        $i   = 0;
+
+        while ($i < $len) {
+            $c   = $sql[ $i ];
+            $two = substr($sql, $i, 2);
+
+            $dash_comment = '--' === $two
+                && (! $strict_double_dash || $i + 2 >= $len || ord($sql[ $i + 2 ]) <= 32);
+            if ('#' === $c || $dash_comment) {
+                $newline = strpos($sql, "\n", $i);
+                $end     = (false === $newline) ? $len : $newline;
+                self::collect_words(substr($sql, $i, $end - $i), $out);
+                $i = $end + 1;
+                continue;
+            }
+
+            if ('/*' === $two) {
+                $end = strpos($sql, '*/', $i + 2);
+                if (false === $end) {
+                    return null;
+                }
+                self::collect_words(substr($sql, $i + 2, $end - $i - 2), $out);
+                $i = $end + 2;
+                continue;
+            }
+
+            if ("'" === $c || '"' === $c || '`' === $c) {
+                $content = '';
+                $closed  = false;
+                $i++;
+                while ($i < $len) {
+                    $ch = $sql[ $i ];
+                    if ('`' !== $c && ! $no_backslash_escapes && '\\' === $ch) {
+                        $content .= substr($sql, $i + 1, 1);
+                        $i       += 2;
+                        continue;
+                    }
+                    if ($ch === $c) {
+                        if ($i + 1 < $len && $sql[ $i + 1 ] === $c) {
+                            $content .= $c;
+                            $i       += 2;
+                            continue;
+                        }
+                        $i++;
+                        $closed = true;
+                        break;
+                    }
+                    $content .= $ch;
+                    $i++;
+                }
+                if (! $closed) {
+                    return null;
+                }
+                if ("'" !== $c) {
+                    $out[] = strtolower($content);
+                }
+                continue;
+            }
+
+            if (preg_match('/[0-9A-Za-z_$\x80-\xFF]+/A', $sql, $match, 0, $i)) {
+                $out[] = strtolower($match[0]);
+                $i    += strlen($match[0]);
+                continue;
+            }
+
+            $i++;
+        }
+
+        return $out;
+    }
+
+    /** Add the bare words of a comment body to $out. */
+    private static function collect_words(string $text, array &$out): void
+    {
+        if (preg_match_all('/[0-9A-Za-z_$\x80-\xFF]+/', $text, $matches)) {
+            foreach ($matches[0] as $word) {
+                $out[] = strtolower($word);
+            }
+        }
+    }
+
+    /**
      * Resolve a table name against the live table list. Every query that
      * takes the result binds it with $wpdb->prepare()'s %i placeholder; the
      * validation is what keeps the tools on real, non-protected tables, and
@@ -422,13 +732,18 @@ class Database_Guard
     /**
      * Whether writes to $table are refused. Defaults to the users and
      * usermeta tables (credential/identity data with no business being
-     * touched by a generic row-write tool); sites may extend the list via
-     * the wpmcp_db_protected_tables filter.
+     * touched by a generic row-write tool) and, on multisite, sitemeta;
+     * sites may extend the list via the wpmcp_db_protected_tables filter.
      */
     public static function is_protected(string $table): bool
     {
         global $wpdb;
-        $protected = apply_filters('wpmcp_db_protected_tables', [$wpdb->users, $wpdb->usermeta]);
+        $defaults = [$wpdb->users, $wpdb->usermeta];
+        if (is_multisite()) {
+            // Network options, including site_admins (the super admin list).
+            $defaults[] = $wpdb->sitemeta;
+        }
+        $protected = apply_filters('wpmcp_db_protected_tables', $defaults);
         return self::table_is_protected($table, (array) $protected);
     }
 
