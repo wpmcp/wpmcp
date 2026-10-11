@@ -35,6 +35,8 @@ class Safety_Archive
      */
     public static function take(string $purpose, ?callable $producer = null): array
     {
+        Network_Scope::assert_caller('The ' . $purpose);
+
         $job = Backup_Job_Store::create('database', 'database');
         $id  = (int) $job['id'];
         Backup_Job_Store::update($id, ['purpose' => $purpose]);

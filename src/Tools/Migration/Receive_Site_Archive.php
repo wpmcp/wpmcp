@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Migration;
 
+use WPMCP\Tools\Backup\Network_Scope;
 use WPMCP\Tools\Backup\Restore_Site_Backup;
 use WPMCP\Tools\Backup\Safety_Archive;
 
@@ -73,6 +74,9 @@ class Receive_Site_Archive
     {
         if (! Migration_Guard::accepts_incoming()) {
             return Migration_Guard::incoming_disabled_error();
+        }
+        if (! Network_Scope::allows_current_user()) {
+            return new \WP_Error('wpmcp_migration_network_only', 'Receiving a site archive on a multisite network replaces every site\'s tables and the network users, so it needs a network administrator (manage_network_options).', ['status' => 403]);
         }
 
         $action = (string) ($args['action'] ?? '');
