@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.164
+Stable tag: 0.8.167
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,6 +111,16 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.8.167 =
+* Internal: the changelog now lists each release's changes under the version that shipped them, and uses one label for Pro features. No change to the plugin itself.
+
+= 0.8.166 =
+* Fixed: on a multisite network, sub-sites now get WP MCP's own tables (undo history, redirects, search index) on network activation, when a new site is created, and on the next admin or REST request, so undoable writes work on every site.
+
+= 0.8.165 =
+* Pro: Amelia employees and events. Agents can now create and change Amelia employees with their working hours, breaks and days off, create, change, open or cancel events, and add event attendees, refused when the event has too few places left. No new tools: the operations sit on the existing plugin-data pair.
+* Amelia categories, services, employees and customers can be deleted with confirmation, and only while nothing uses them; appointments and events are cancelled, never deleted. Amelia Lite's one-employee limit is refused by name. Customer emails stay held unless the agent asks to notify, and every change can be undone with rollback-operation.
+
 = 0.8.164 =
 * Security: agent memory entries can no longer be published, edited, created, copied, deleted or rolled back through the generic content, meta, staging, rollback or database row tools, even on an administrator connection. Entries are proposed with the memory tools and go live only when an administrator approves them in wp-admin.
 * The generic content tools no longer list or read agent memory entries; use memory-recall instead.
@@ -120,7 +130,7 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Fix: listing a BuddyPress group's pending members now includes current membership requests (BuddyPress 5.0 and later).
 
 = 0.8.162 =
-* New: translate a page in a few calls on Polylang and WPML sites (paid tier). Agents can list the posts still missing a translation into a language, create a linked draft translation (content, builder data, meta, template and featured image copied, categories and tags mapped to their translations), read all of a page's translatable text as numbered segments, and write the translations back as one change.
+* Pro: Translate a page in a few calls on Polylang and WPML sites. Agents can list the posts still missing a translation into a language, create a linked draft translation (content, builder data, meta, template and featured image copied, categories and tags mapped to their translations), read all of a page's translatable text as numbered segments, and write the translations back as one change.
 * Page text covers the title, excerpt, SEO title and description, Elementor widget text and block or classic content. Writes are checked against a content hash, refused as a whole if any segment is unknown, never change the source page, and can be rolled back.
 
 = 0.8.161 =
@@ -136,13 +146,12 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * The test gate can now run the whole suite against the latest released MCP Adapter plugin, so a future adapter release that breaks WP MCP is caught before it reaches sites.
 
 = 0.8.158 =
-* New (paid tier): Amelia bookings. On sites running Amelia, agents can read the booking setup, categories, services, employees with their working hours, customers, appointments, free slots, events with places left and event attendees, and create or change categories, services and customers, book, reschedule, approve, cancel or reject appointments. No new tools: the operations sit on the existing plugin-data pair.
+* Pro: Amelia bookings. On sites running Amelia, agents can read the booking setup, categories, services, employees with their working hours, customers, appointments, free slots, events with places left and event attendees, and create or change categories, services and customers, book, reschedule, approve, cancel or reject appointments. No new tools: the operations sit on the existing plugin-data pair.
 * Every booking change goes through Amelia's own checks, so a taken slot or a time outside working hours is refused with Amelia's reason. Times are in the site's timezone and stay right across daylight-saving changes. Customer emails are held unless the agent asks to notify, and each answer lists what Amelia sent. Every change can be undone with rollback-operation, which never re-sends anything and is refused while later bookings depend on it.
 * Amelia customer records are now included in Tools > Export Personal Data and Erase Personal Data.
 
 = 0.8.157 =
-* New (Pro): FluentCRM and MailPoet campaigns, bulk import and automations. Agents can draft, edit and duplicate campaigns, send a test to themselves, import contacts without resubscribing anyone who opted out, and switch automations on or off, through each plugin's own API, with rollback-operation to undo each.
-* Sending a campaign to real recipients is off until a site enables it, and always asks for confirmation with the recipient count first. Mail cannot be unsent, so a send or a test is never undone.
+* Internal: no change to the plugin itself. This release carried the notes for the FluentCRM and MailPoet campaigns work, which shipped in 0.8.151 and is now listed there.
 
 = 0.8.156 =
 * Internal: the changelog lists the WordPress 6.9 global styles fix under 0.8.145, the release that shipped it. No change to the plugin itself.
@@ -164,15 +173,17 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 = 0.8.151 =
 * Security: save-as-template now keeps a page's protection. A template saved from a password-protected page keeps the password, and one saved from a private or unpublished page is created private, so lower roles can no longer read that content through the template.
+* Pro: FluentCRM and MailPoet campaigns, bulk import and automations. Agents can draft, edit and duplicate campaigns, send a test to themselves, import contacts without resubscribing anyone who opted out, and switch automations on or off, through each plugin's own API, with rollback-operation to undo each.
+* Sending a campaign to real recipients is off until a site enables it, and always asks for confirmation with the recipient count first. Mail cannot be unsent, so a send or a test is never undone.
 
 = 0.8.150 =
 * Development: every push is now tested on the WordPress 6.9 minimum as well as 7.1, and a failing test run no longer skips the checks after it.
 
 = 0.8.149 =
-* Internal: the changelog now lists the WordPress 6.9 global styles fix under 0.8.146, the release that shipped it. No change to the plugin itself.
+* Internal: a changelog-only release that moved the WordPress 6.9 global styles fix to the 0.8.146 entry; 0.8.156 corrected it to 0.8.145, the release that shipped it. No change to the plugin itself.
 
 = 0.8.148 =
-* New (Pro): FluentCRM and MailPoet contacts, lists and tags. Agents can read contacts, lists, tags, custom fields, campaigns and automations, and create, update, tag, list and delete contacts and lists through each plugin's own API, so its hooks, automations and opt-in rules run. Every write can be undone with rollback-operation.
+* Pro: FluentCRM and MailPoet contacts, lists and tags. Agents can read contacts, lists, tags, custom fields, campaigns and automations, and create, update, tag, list and delete contacts and lists through each plugin's own API, so its hooks, automations and opt-in rules run. Every write can be undone with rollback-operation.
 * New contacts follow each plugin's opt-in rules. A contact who unsubscribed or bounced is never added back to a list, and an undo never sets them back to subscribed.
 
 = 0.8.147 =
@@ -180,7 +191,7 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Undoing a BuddyPress group create that holds only its own rows now deletes the group through BuddyPress itself, so no activity is left pointing at the deleted group.
 
 = 0.8.146 =
-* New: TablePress tables (paid tier). Agents can list, read, export, render and find where a table is placed, create tables, edit cells, insert and delete rows and columns, update options, copy, rename the id, delete, import CSV, JSON or HTML, and place a table on a page, all through TablePress's own table model. Every write is snapshotted and can be rolled back.
+* Pro: TablePress tables. Agents can list, read, export, render and find where a table is placed, create tables, edit cells, insert and delete rows and columns, update options, copy, rename the id, delete, import CSV, JSON or HTML, and place a table on a page, all through TablePress's own table model. Every write is snapshotted and can be rolled back.
 * TablePress ops run on the existing plugin-data tools, so they add no tools where those tools already appear, and edits that would leave a table with rows of unequal length are refused.
 
 = 0.8.145 =
@@ -494,7 +505,7 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Internal: the bundled compliance checker no longer reports superglobal names that appear only in code comments or docblocks.
 
 = 0.8.71 =
-* New (Pro): analyze-seo can look up keyword search volume, difficulty, CPC and intent, and backlink counts for a domain or URL, from your own DataForSEO account. Save the credentials once with set-seo-data-key; they are stored encrypted and never returned.
+* Pro: analyze-seo can look up keyword search volume, difficulty, CPC and intent, and backlink counts for a domain or URL, from your own DataForSEO account. Save the credentials once with set-seo-data-key; they are stored encrypted and never returned.
 * Lookups are cached for a day and back off automatically when the provider rate-limits, and without saved credentials nothing is sent.
 * The External services section discloses the new, opt-in call to the DataForSEO API.
 
@@ -668,7 +679,7 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Pro: a forms adapter pack for WPForms, Gravity Forms, Formidable, Ninja Forms and Fluent Forms, covering forms, fields, notifications, entries and reversible entry status changes. These integrations move from the free tier to Pro.
 
 = 0.8.28 =
-* New WooCommerce operations catalog (Pro): discover, read and write store data across products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks and settings through WooCommerce's own REST API, with WooCommerce's permission checks as the final gate.
+* Pro: New WooCommerce operations catalog to discover, read and write store data across products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks and settings through WooCommerce's own REST API, with WooCommerce's permission checks as the final gate.
 * Every change to existing store data is snapshotted and reversible, batches of up to 25 changes share one session for a single rollback, and changes a rollback could not undo are refused.
 * Destructive store operations such as deletes and refunds are off by default, need an explicit per-site opt-in and a confirmation on every call, and refunds never contact the payment gateway unless asked.
 
@@ -677,7 +688,7 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * get-rendered-html only ever fetches this site's own address: other hosts, IP addresses, non-web schemes and redirects that leave the site are refused, and drafts, private and password-protected posts are not fetched.
 
 = 0.8.26 =
-* New custom widget builder (Pro): describe an Elementor widget as a data spec and the plugin compiles it into a real widget class. The generated PHP is linted against a closed allowlist before it touches disk, and it loads only from a hardened sandbox through a hash-verified manifest, so a tampered file stops loading.
+* Pro: New custom widget builder. Describe an Elementor widget as a data spec and the plugin compiles it into a real widget class. The generated PHP is linted against a closed allowlist before it touches disk, and it loads only from a hardened sandbox through a hash-verified manifest, so a tampered file stops loading.
 * Compiling is opt-in through a filter and refuses without the edit_files capability or when DISALLOW_FILE_EDIT is set. Every control type escapes the same way in compiled and runtime rendering.
 
 = 0.8.25 =
@@ -691,7 +702,7 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 = 0.8.23 =
 * Deeper SEO support: SEOPress is now detected alongside Yoast, Rank Math, The SEO Framework and SureRank, and SEO edits now require permission to edit the target post.
-* New Pro SEO tools: read and write term-level SEO, set OpenGraph and Twitter images, read resolved social meta, and generate meta tags and JSON-LD schema (Article, WebPage, LocalBusiness, Product). Every SEO write is snapshotted and reversible.
+* Pro: New SEO tools. Read and write term-level SEO, set OpenGraph and Twitter images, read resolved social meta, and generate meta tags and JSON-LD schema (Article, WebPage, LocalBusiness, Product). Every SEO write is snapshotted and reversible.
 
 = 0.8.22 =
 * New gateway credential tools: provision, inspect and revoke a site-local gateway credential with no cloud dependency. The client secret and refresh token are shown exactly once, re-provisioning rotates everything, and provision and revoke both require explicit confirmation.
@@ -767,7 +778,7 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Sites can narrow the ability bridge to specific abilities or namespaces with the WPMCP_ABILITY_BRIDGE_ALLOWLIST constant or the wpmcp_ability_bridge_allowlist filter. The target ability's own permission check always still runs.
 
 = 0.8.5 =
-* New in-admin AI chat (Pro): talk to your site from wp-admin using your own Anthropic API key, stored encrypted per user and never sent to the browser. Chat runs every tool through the same permission, governance, rate-limit and snapshot path as any MCP client, under its own scoped identity that admins can narrow.
+* Pro: New in-admin AI chat. Talk to your site from wp-admin using your own Anthropic API key, stored encrypted per user and never sent to the browser. Chat runs every tool through the same permission, governance, rate-limit and snapshot path as any MCP client, under its own scoped identity that admins can narrow.
 * Any chat action that is not a pure read is shown as a proposal with its exact arguments and runs only after you approve it, with a single-use, server-verified approval bound to that call.
 * The External services section discloses the chat's call to the Anthropic API, which happens only when an admin opts in and sends a message.
 
@@ -804,10 +815,19 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Snapshot-before-every-write safety core with one-click and session rollback.
 * Six-layer governance, audit log, scoped identities, OAuth 2.1.
 * Elementor, Gutenberg, Bricks, Divi, WooCommerce, ACF, Meta Box, and major SEO/forms/events plugin integrations.
-* WP MCP Cloud sync client for widget and block specs (Pro).
+* Pro: WP MCP Cloud sync client for widget and block specs.
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.167 =
+Internal: the changelog now lists each release's changes under the version that shipped them, and uses one label for Pro features. No change to the plugin itself.
+
+= 0.8.166 =
+Fixed: on a multisite network, sub-sites now get WP MCP's own tables (undo history, redirects, search index) on network activation, when a new site is created, and on the next admin or REST request, so undoable writes work on every site.
+
+= 0.8.165 =
+Pro: Amelia employees and events. Agents can now create and change Amelia employees with their working hours, breaks and days off, create, change, open or cancel events, and add event attendees, refused when the event has too few places left. No new tools: the operations sit on the existing plugin-data pair.
 
 = 0.8.164 =
 Security: agent memory entries can no longer be published, edited, created, copied, deleted or rolled back through the generic content, meta, staging, rollback or database row tools, even on an administrator connection. Entries are proposed with the memory tools and go live only when an administrator approves them in wp-admin.
@@ -816,7 +836,7 @@ Security: agent memory entries can no longer be published, edited, created, copi
 Security: BuddyPress pending and banned group members are now listed only to the group's admins and to site moderators, matching BuddyPress, not to group mods.
 
 = 0.8.162 =
-New: translate a page in a few calls on Polylang and WPML sites (paid tier). Agents can list the posts still missing a translation into a language, create a linked draft translation (content, builder data, meta, template and featured image copied, categories and tags mapped to their translations), read all of a page's translatable text as numbered segments, and write the translations back as one change.
+Pro: Translate a page in a few calls on Polylang and WPML sites. Agents can list the posts still missing a translation into a language, create a linked draft translation (content, builder data, meta, template and featured image copied, categories and tags mapped to their translations), read all of a page's translatable text as numbered segments, and write the translations back as one change.
 
 = 0.8.161 =
 Security: payment gateway credentials (API keys, webhook secrets, tokens) are now masked when gateway settings are read through get-option or the REST passthrough, the same way the gateway tools already masked them.
@@ -828,10 +848,10 @@ Pro: Change FunnelKit funnels through FunnelKit itself. Agents can create, renam
 Fixed: on sites running the MCP Adapter plugin from WordPress.org (0.7.0), confirm prompts and background tasks work again for 2026-07-28 clients over HTTP, and tool listings carry their output schemas again.
 
 = 0.8.158 =
-New (paid tier): Amelia bookings. On sites running Amelia, agents can read the booking setup, categories, services, employees with their working hours, customers, appointments, free slots, events with places left and event attendees, and create or change categories, services and customers, book, reschedule, approve, cancel or reject appointments. No new tools: the operations sit on the existing plugin-data pair.
+Pro: Amelia bookings. On sites running Amelia, agents can read the booking setup, categories, services, employees with their working hours, customers, appointments, free slots, events with places left and event attendees, and create or change categories, services and customers, book, reschedule, approve, cancel or reject appointments. No new tools: the operations sit on the existing plugin-data pair.
 
 = 0.8.157 =
-New (Pro): FluentCRM and MailPoet campaigns, bulk import and automations. Agents can draft, edit and duplicate campaigns, send a test to themselves, import contacts without resubscribing anyone who opted out, and switch automations on or off, through each plugin's own API, with rollback-operation to undo each.
+Internal: no change to the plugin itself. This release carried the notes for the FluentCRM and MailPoet campaigns work, which shipped in 0.8.151 and is now listed there.
 
 = 0.8.156 =
 Internal: the changelog lists the WordPress 6.9 global styles fix under 0.8.145, the release that shipped it. No change to the plugin itself.
@@ -850,21 +870,22 @@ Approving an OAuth client again no longer undoes the access level a site owner s
 
 = 0.8.151 =
 Security: save-as-template now keeps a page's protection. A template saved from a password-protected page keeps the password, and one saved from a private or unpublished page is created private, so lower roles can no longer read that content through the template.
+Pro: FluentCRM and MailPoet campaigns, bulk import and automations. Agents can draft, edit and duplicate campaigns, send a test to themselves, import contacts without resubscribing anyone who opted out, and switch automations on or off, through each plugin's own API, with rollback-operation to undo each.
 
 = 0.8.150 =
 Development: every push is now tested on the WordPress 6.9 minimum as well as 7.1, and a failing test run no longer skips the checks after it.
 
 = 0.8.149 =
-Internal: the changelog now lists the WordPress 6.9 global styles fix under 0.8.146, the release that shipped it. No change to the plugin itself.
+Internal: a changelog-only release that moved the WordPress 6.9 global styles fix to the 0.8.146 entry; 0.8.156 corrected it to 0.8.145, the release that shipped it. No change to the plugin itself.
 
 = 0.8.148 =
-New (Pro): FluentCRM and MailPoet contacts, lists and tags. Agents can read contacts, lists, tags, custom fields, campaigns and automations, and create, update, tag, list and delete contacts and lists through each plugin's own API, so its hooks, automations and opt-in rules run. Every write can be undone with rollback-operation.
+Pro: FluentCRM and MailPoet contacts, lists and tags. Agents can read contacts, lists, tags, custom fields, campaigns and automations, and create, update, tag, list and delete contacts and lists through each plugin's own API, so its hooks, automations and opt-in rules run. Every write can be undone with rollback-operation.
 
 = 0.8.147 =
 Undoing a BuddyPress group create no longer deletes other members' data: once someone else has joined, been invited, been notified or posted in the group, the undo is refused with the reason and nothing is deleted.
 
 = 0.8.146 =
-New: TablePress tables (paid tier). Agents can list, read, export, render and find where a table is placed, create tables, edit cells, insert and delete rows and columns, update options, copy, rename the id, delete, import CSV, JSON or HTML, and place a table on a page, all through TablePress's own table model. Every write is snapshotted and can be rolled back.
+Pro: TablePress tables. Agents can list, read, export, render and find where a table is placed, create tables, edit cells, insert and delete rows and columns, update options, copy, rename the id, delete, import CSV, JSON or HTML, and place a table on a page, all through TablePress's own table model. Every write is snapshotted and can be rolled back.
 
 = 0.8.145 =
 New opt-in setting on the Connection screen, "Delete all WP MCP data when the plugin is deleted" (or define WPMCP_UNINSTALL_DELETE_DATA in wp-config.php): deleting the plugin then also removes its tables, settings, credentials and backup archives on every site. Off by default, so your data is kept.
@@ -1089,7 +1110,7 @@ New: read-only status for UpdraftPlus, Duplicator, Solid Security, MonsterInsigh
 Internal: the bundled compliance checker no longer reports superglobal names that appear only in code comments or docblocks.
 
 = 0.8.71 =
-New (Pro): analyze-seo can look up keyword search volume, difficulty, CPC and intent, and backlink counts for a domain or URL, from your own DataForSEO account. Save the credentials once with set-seo-data-key; they are stored encrypted and never returned.
+Pro: analyze-seo can look up keyword search volume, difficulty, CPC and intent, and backlink counts for a domain or URL, from your own DataForSEO account. Save the credentials once with set-seo-data-key; they are stored encrypted and never returned.
 
 = 0.8.70 =
 New: product review moderation on the WooCommerce ops. List reviews by product, rating and status, approve, hold, mark as spam, trash, edit the text or reply as the store; every change can be rolled back exactly, rating and verified flag included.
@@ -1218,13 +1239,13 @@ New find-replace-content ability: site-wide find and replace across post content
 New forms tools for Contact Form 7: list forms, fields and mail notifications, and read, trash, restore or delete Flamingo entries, with every status change snapshotted for rollback. Entry deletion needs confirmation and is off by default.
 
 = 0.8.28 =
-New WooCommerce operations catalog (Pro): discover, read and write store data across products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks and settings through WooCommerce's own REST API, with WooCommerce's permission checks as the final gate.
+Pro: New WooCommerce operations catalog to discover, read and write store data across products, variations, orders, refunds, coupons, customers, shipping, taxes, webhooks and settings through WooCommerce's own REST API, with WooCommerce's permission checks as the final gate.
 
 = 0.8.27 =
 New get-rendered-html ability returns the rendered front-end HTML a visitor sees for a published page on this site, in chunks, with optional script stripping or text-only output, so agents can verify edits against what visitors actually get.
 
 = 0.8.26 =
-New custom widget builder (Pro): describe an Elementor widget as a data spec and the plugin compiles it into a real widget class. The generated PHP is linted against a closed allowlist before it touches disk, and it loads only from a hardened sandbox through a hash-verified manifest, so a tampered file stops loading.
+Pro: New custom widget builder. Describe an Elementor widget as a data spec and the plugin compiles it into a real widget class. The generated PHP is linted against a closed allowlist before it touches disk, and it loads only from a hardened sandbox through a hash-verified manifest, so a tampered file stops loading.
 
 = 0.8.25 =
 New: sync your governance, exposure, skills and identity settings with WP MCP Cloud, with every synced change recorded and undoable through rollback.
@@ -1287,7 +1308,7 @@ Code quality: the remaining discouraged-function calls (serialization, base64 st
 Bridged third-party abilities are now governed one by one: each is checked against the same governance toggles, identity scope and block rules as built-in abilities before it runs, and refused abilities are hidden from discovery and logged.
 
 = 0.8.5 =
-New in-admin AI chat (Pro): talk to your site from wp-admin using your own Anthropic API key, stored encrypted per user and never sent to the browser. Chat runs every tool through the same permission, governance, rate-limit and snapshot path as any MCP client, under its own scoped identity that admins can narrow.
+Pro: New in-admin AI chat. Talk to your site from wp-admin using your own Anthropic API key, stored encrypted per user and never sent to the browser. Chat runs every tool through the same permission, governance, rate-limit and snapshot path as any MCP client, under its own scoped identity that admins can narrow.
 
 = 0.8.4 =
 New child theme scaffolding in the theme tools: create a child of the active theme with one confirmed call. It is off by default, never activates the child, and is fully reversible from the rollback history.

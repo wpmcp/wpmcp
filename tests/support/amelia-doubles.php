@@ -9,7 +9,12 @@
  * an appointment's end set back to its start once nobody holds it, and its
  * email notifications passed through the amelia_manipulate_email_data
  * filter, honouring skipSending. A taken slot or a time outside the
- * employee's working week is refused with Amelia's own message. Every call
+ * employee's working week is refused with Amelia's own message. Employees
+ * are written with their working week, breaks and days off; events with
+ * their periods (site-local in, UTC stored) and employees; an event booking
+ * links every period and, like Amelia's backend, does not check capacity;
+ * a user delete also clears every appointment left without a booking, as
+ * Amelia's does. Every call
  * is recorded in $calls and every message that was not skipped in
  * $delivered.
  *
@@ -110,6 +115,205 @@ if ( ! class_exists( Fake_Amelia_Api::class ) ) {
 					self::$delivered[] = [ 'to' => $email, 'subject' => $subject ];
 				}
 			}
+		}
+
+		/** Passes one email through Amelia's filter and records it unless it was skipped. */
+		private static function mail( string $email, string $subject ): void {
+			if ( '' === $email ) {
+				return;
+			}
+			$data = apply_filters( 'amelia_manipulate_email_data', [ 'email' => $email, 'subject' => $subject, 'body' => '', 'bcc' => [], 'attachments' => [] ] );
+			if ( empty( $data['skipSending'] ) ) {
+				self::$delivered[] = [ 'to' => $email, 'subject' => $subject ];
+			}
+		}
+
+		/** Amelia's emails for an event: each attendee's, then each of its employees'. */
+		private static function notify_event( int $event_id, string $what, int $only_booking = 0 ): void {
+			global $wpdb;
+			$event = self::row( 'events', $event_id );
+			foreach ( (array) $wpdb->get_results( $wpdb->prepare( 'SELECT DISTINCT cb.id, u.email FROM %i cb JOIN %i l ON l.customerBookingId = cb.id JOIN %i p ON p.id = l.eventPeriodId JOIN %i u ON u.id = cb.customerId WHERE p.eventId = %d ORDER BY cb.id ASC', self::t( 'customer_bookings' ), self::t( 'customer_bookings_to_events_periods' ), self::t( 'events_periods' ), self::t( 'users' ), $event_id ), ARRAY_A ) as $booking ) {
+				if ( 0 === $only_booking || (int) $booking['id'] === $only_booking ) {
+					self::mail( (string) $booking['email'], $event['name'] . ' ' . $what );
+				}
+			}
+			foreach ( (array) $wpdb->get_col( $wpdb->prepare( 'SELECT u.email FROM %i ep JOIN %i u ON u.id = ep.userId WHERE ep.eventId = %d ORDER BY ep.id ASC', self::t( 'events_to_providers' ), self::t( 'users' ), $event_id ) ) as $email ) {
+				self::mail( (string) $email, $event['name'] . ' ' . $what );
+			}
+		}
+
+		/** Amelia's employee add and update: profile, working week with breaks, days off. */
+		private static function save_provider( int $id, array $params ): array {
+			global $wpdb;
+			$fields = array_intersect_key( $params, array_flip( [ 'firstName', 'lastName', 'email', 'phone', 'note', 'description' ] ) );
+			foreach ( [ 'phone', 'note', 'description' ] as $nullable ) {
+				if ( isset( $fields[ $nullable ] ) && '' === $fields[ $nullable ] ) {
+					$fields[ $nullable ] = null;
+				}
+			}
+			if ( ! empty( $fields['email'] ) && (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i WHERE email = %s AND id <> %d', self::t( 'users' ), $fields['email'], $id ) ) > 0 ) {
+				throw new Operation_Error( 'amelia_refused', 'Amelia refused: Email already exist.', [ 'amelia' => [] ] );
+			}
+			if ( 0 === $id ) {
+				$wpdb->insert( self::t( 'users' ), $fields + [ 'type' => 'provider', 'status' => 'visible' ] );
+				$id = (int) $wpdb->insert_id;
+			} elseif ( [] !== $fields ) {
+				$wpdb->update( self::t( 'users' ), $fields, [ 'id' => $id ] );
+			}
+
+			if ( array_key_exists( 'weekDayList', $params ) ) {
+				$kept = [];
+				foreach ( (array) $params['weekDayList'] as $day ) {
+					$hours = [ 'dayIndex' => (int) $day['dayIndex'], 'startTime' => $day['startTime'], 'endTime' => $day['endTime'] ];
+					if ( ! empty( $day['id'] ) ) {
+						$day_id = (int) $day['id'];
+						$wpdb->update( self::t( 'providers_to_weekdays' ), $hours, [ 'id' => $day_id ] );
+						$wpdb->delete( self::t( 'providers_to_timeouts' ), [ 'weekDayId' => $day_id ] );
+						$wpdb->delete( self::t( 'providers_to_periods' ), [ 'weekDayId' => $day_id ] );
+					} else {
+						$wpdb->insert( self::t( 'providers_to_weekdays' ), $hours + [ 'userId' => $id ] );
+						$day_id = (int) $wpdb->insert_id;
+					}
+					$kept[] = $day_id;
+					foreach ( (array) ( $day['timeOutList'] ?? [] ) as $break ) {
+						$wpdb->insert( self::t( 'providers_to_timeouts' ), [ 'weekDayId' => $day_id, 'startTime' => $break['startTime'], 'endTime' => $break['endTime'] ] );
+					}
+				}
+				foreach ( (array) $wpdb->get_col( $wpdb->prepare( 'SELECT id FROM %i WHERE userId = %d', self::t( 'providers_to_weekdays' ), $id ) ) as $day_id ) {
+					if ( ! in_array( (int) $day_id, $kept, true ) ) {
+						$wpdb->delete( self::t( 'providers_to_timeouts' ), [ 'weekDayId' => (int) $day_id ] );
+						$wpdb->delete( self::t( 'providers_to_periods' ), [ 'weekDayId' => (int) $day_id ] );
+						$wpdb->delete( self::t( 'providers_to_weekdays' ), [ 'id' => (int) $day_id ] );
+					}
+				}
+			}
+			foreach ( (array) ( $params['removedDayOffList'] ?? [] ) as $off ) {
+				$wpdb->delete( self::t( 'providers_to_daysoff' ), [ 'id' => (int) $off['id'] ] );
+			}
+			foreach ( (array) ( $params['dayOffList'] ?? [] ) as $off ) {
+				if ( empty( $off['id'] ) ) {
+					$wpdb->insert( self::t( 'providers_to_daysoff' ), [ 'userId' => $id, 'name' => $off['name'], 'startDate' => $off['startDate'], 'endDate' => $off['endDate'], 'repeat' => (int) $off['repeat'], 'type' => 'dayOff' ] );
+				}
+			}
+			return [ 'user' => self::row( 'users', $id ) ];
+		}
+
+		/** Amelia's user delete: the user and their schedule, then every appointment left without a booking. */
+		private static function delete_user( int $id ): array {
+			global $wpdb;
+			$user = self::row( 'users', $id );
+			if ( 'provider' === ( $user['type'] ?? '' ) ) {
+				foreach ( (array) $wpdb->get_col( $wpdb->prepare( 'SELECT id FROM %i WHERE userId = %d', self::t( 'providers_to_weekdays' ), $id ) ) as $day_id ) {
+					$wpdb->delete( self::t( 'providers_to_timeouts' ), [ 'weekDayId' => (int) $day_id ] );
+					$wpdb->delete( self::t( 'providers_to_periods' ), [ 'weekDayId' => (int) $day_id ] );
+				}
+				foreach ( [ 'providers_to_weekdays', 'providers_to_daysoff', 'providers_to_specialdays', 'providers_to_services', 'providers_to_locations', 'providers_views', 'events_to_providers' ] as $table ) {
+					$wpdb->delete( self::t( $table ), [ 'userId' => $id ] );
+				}
+			}
+			$wpdb->delete( self::t( 'users' ), [ 'id' => $id ] );
+			$wpdb->query( $wpdb->prepare( 'DELETE a FROM %i a WHERE NOT EXISTS (SELECT 1 FROM %i cb WHERE cb.appointmentId = a.id)', self::t( 'appointments' ), self::t( 'customer_bookings' ) ) );
+			return [];
+		}
+
+		private static function add_event( array $params ): array {
+			global $wpdb;
+			$wpdb->insert( self::t( 'events' ), [
+				'name'               => (string) $params['name'],
+				'status'             => 'approved',
+				'maxCapacity'        => (int) $params['maxCapacity'],
+				'price'              => (float) $params['price'],
+				'description'        => (string) ( $params['description'] ?? '' ),
+				'color'              => (string) ( $params['color'] ?? '#1788FB' ),
+				'show'               => (int) ( $params['show'] ?? 1 ),
+				'notifyParticipants' => 1,
+				'created'            => gmdate( 'Y-m-d H:i:s' ),
+			] );
+			$event = (int) $wpdb->insert_id;
+			$wpdb->update( self::t( 'events' ), [ 'parentId' => $event ], [ 'id' => $event ] );
+			foreach ( (array) $params['periods'] as $period ) {
+				$wpdb->insert( self::t( 'events_periods' ), [ 'eventId' => $event, 'periodStart' => self::utc( (string) $period['periodStart'] )->format( 'Y-m-d H:i:s' ), 'periodEnd' => self::utc( (string) $period['periodEnd'] )->format( 'Y-m-d H:i:s' ) ] );
+			}
+			foreach ( (array) ( $params['providers'] ?? [] ) as $provider ) {
+				$wpdb->insert( self::t( 'events_to_providers' ), [ 'eventId' => $event, 'userId' => (int) $provider['id'] ] );
+			}
+			return [ 'events' => [ self::event_array( $event ) ] ];
+		}
+
+		/** An event the way Amelia's GetEventController answers: periods in site-local time. */
+		private static function event_array( int $id ): array {
+			global $wpdb;
+			$row     = (array) self::row( 'events', $id );
+			$local   = static fn ( string $utc ): string => ( new \DateTimeImmutable( $utc, new \DateTimeZone( 'UTC' ) ) )->setTimezone( wp_timezone() )->format( 'Y-m-d H:i:s' );
+			$periods = array_map(
+				static fn ( array $p ): array => [ 'id' => (int) $p['id'], 'eventId' => $id, 'periodStart' => $local( $p['periodStart'] ), 'periodEnd' => $local( $p['periodEnd'] ), 'bookings' => [] ],
+				(array) $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE eventId = %d ORDER BY id ASC', self::t( 'events_periods' ), $id ), ARRAY_A )
+			);
+			return [
+				'id'            => $id,
+				'name'          => $row['name'] ?? '',
+				'description'   => $row['description'] ?? '',
+				'price'         => (float) ( $row['price'] ?? 0 ),
+				'maxCapacity'   => (int) ( $row['maxCapacity'] ?? 0 ),
+				'color'         => $row['color'] ?? '',
+				'show'          => (bool) ( $row['show'] ?? true ),
+				'status'        => $row['status'] ?? '',
+				'periods'       => $periods,
+				'providers'     => array_map( static fn ( $user ): array => [ 'id' => (int) $user ], (array) $wpdb->get_col( $wpdb->prepare( 'SELECT userId FROM %i WHERE eventId = %d ORDER BY id ASC', self::t( 'events_to_providers' ), $id ) ) ),
+				'tags'          => [],
+				'customTickets' => [],
+				'gallery'       => [],
+				'bookings'      => [],
+			];
+		}
+
+		/** Amelia's event update: fields, periods by id, employees replaced; attendees told of a new time. */
+		private static function update_event( int $id, array $params ): array {
+			global $wpdb;
+			$before = (array) $wpdb->get_results( $wpdb->prepare( 'SELECT periodStart, periodEnd FROM %i WHERE eventId = %d ORDER BY id ASC', self::t( 'events_periods' ), $id ), ARRAY_A );
+			$wpdb->update( self::t( 'events' ), [ 'name' => (string) $params['name'], 'description' => (string) $params['description'], 'price' => (float) $params['price'], 'maxCapacity' => (int) $params['maxCapacity'] ], [ 'id' => $id ] );
+			$kept = [];
+			foreach ( (array) $params['periods'] as $period ) {
+				$times = [ 'periodStart' => self::utc( (string) $period['periodStart'] )->format( 'Y-m-d H:i:s' ), 'periodEnd' => self::utc( (string) $period['periodEnd'] )->format( 'Y-m-d H:i:s' ) ];
+				if ( ! empty( $period['id'] ) ) {
+					$wpdb->update( self::t( 'events_periods' ), $times, [ 'id' => (int) $period['id'] ] );
+					$kept[] = (int) $period['id'];
+				} else {
+					$wpdb->insert( self::t( 'events_periods' ), $times + [ 'eventId' => $id ] );
+					$kept[] = (int) $wpdb->insert_id;
+				}
+			}
+			foreach ( (array) $wpdb->get_col( $wpdb->prepare( 'SELECT id FROM %i WHERE eventId = %d', self::t( 'events_periods' ), $id ) ) as $period_id ) {
+				if ( ! in_array( (int) $period_id, $kept, true ) ) {
+					$wpdb->delete( self::t( 'events_periods' ), [ 'id' => (int) $period_id ] );
+				}
+			}
+			$wpdb->delete( self::t( 'events_to_providers' ), [ 'eventId' => $id ] );
+			foreach ( (array) ( $params['providers'] ?? [] ) as $provider ) {
+				$wpdb->insert( self::t( 'events_to_providers' ), [ 'eventId' => $id, 'userId' => (int) $provider['id'] ] );
+			}
+			$after = (array) $wpdb->get_results( $wpdb->prepare( 'SELECT periodStart, periodEnd FROM %i WHERE eventId = %d ORDER BY id ASC', self::t( 'events_periods' ), $id ), ARRAY_A );
+			if ( $before !== $after && ! empty( $params['notifyParticipants'] ) ) {
+				self::notify_event( $id, 'Event Rescheduled' );
+			}
+			return [ 'events' => [ 'edited' => [ self::event_array( $id ) ] ] ];
+		}
+
+		/** Amelia's backend event booking: it does not check the event's capacity. */
+		private static function add_event_booking( array $params ): array {
+			global $wpdb;
+			$booking = (array) $params['bookings'][0];
+			$event   = self::row( 'events', (int) $params['eventId'] );
+			$wpdb->insert( self::t( 'customer_bookings' ), [ 'customerId' => (int) $booking['customerId'], 'status' => (string) $booking['status'], 'price' => (float) $event['price'], 'persons' => (int) $booking['persons'], 'created' => gmdate( 'Y-m-d H:i:s' ) ] );
+			$booking_id = (int) $wpdb->insert_id;
+			$first      = null;
+			foreach ( (array) $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE eventId = %d ORDER BY id ASC', self::t( 'events_periods' ), (int) $event['id'] ), ARRAY_A ) as $period ) {
+				$first = $first ?? $period['periodStart'];
+				$wpdb->insert( self::t( 'customer_bookings_to_events_periods' ), [ 'customerBookingId' => $booking_id, 'eventPeriodId' => (int) $period['id'] ] );
+			}
+			$wpdb->insert( self::t( 'payments' ), [ 'customerBookingId' => $booking_id, 'amount' => 0, 'dateTime' => $first, 'status' => 'pending', 'gateway' => 'onSite', 'entity' => 'event' ] );
+			self::notify_event( (int) $event['id'], 'Event Booked', $booking_id );
+			return [ 'type' => 'event', 'event' => self::event_array( (int) $event['id'] ), 'booking' => self::row( 'customer_bookings', $booking_id ) ];
 		}
 
 		public function request( string $controller, array $params, array $args = [], string $method = 'POST' ): array {
@@ -229,6 +433,44 @@ if ( ! class_exists( Fake_Amelia_Api::class ) ) {
 					$wpdb->update( self::t( 'customer_bookings' ), [ 'status' => $status ], [ 'appointmentId' => $id ] );
 					self::notify( $id, $status );
 					return [ 'appointment' => self::row( 'appointments', $id ) ];
+
+				case 'User\\Provider\\AddProviderController':
+				case 'User\\Provider\\UpdateProviderController':
+					return self::save_provider( $id, $params );
+
+				case 'User\\DeleteUserController':
+					return self::delete_user( $id );
+
+				case 'Bookable\\Service\\DeleteServiceController':
+					if ( (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM %i WHERE serviceId = %d AND status IN ('approved', 'pending') AND bookingStart >= %s", self::t( 'appointments' ), $id, gmdate( 'Y-m-d H:i:s' ) ) ) > 0 ) {
+						throw new Operation_Error( 'amelia_refused', 'Amelia refused: Could not delete service.', [ 'amelia' => [] ] );
+					}
+					$wpdb->delete( self::t( 'providers_to_services' ), [ 'serviceId' => $id ] );
+					$wpdb->delete( self::t( 'services_views' ), [ 'serviceId' => $id ] );
+					$wpdb->delete( self::t( 'galleries' ), [ 'entityId' => $id, 'entityType' => 'service' ] );
+					$wpdb->delete( self::t( 'services' ), [ 'id' => $id ] );
+					return [];
+
+				case 'Bookable\\Category\\DeleteCategoryController':
+					$wpdb->delete( self::t( 'categories' ), [ 'id' => $id ] );
+					return [];
+
+				case 'Booking\\Event\\AddEventController':
+					return self::add_event( $params );
+
+				case 'Booking\\Event\\GetEventController':
+					return [ 'event' => self::event_array( $id ) ];
+
+				case 'Booking\\Event\\UpdateEventController':
+					return self::update_event( (int) $params['id'], $params );
+
+				case 'Booking\\Event\\UpdateEventStatusController':
+					$wpdb->update( self::t( 'events' ), [ 'status' => (string) $params['status'] ], [ 'id' => $id ] );
+					self::notify_event( $id, 'Event ' . ucfirst( (string) $params['status'] ) );
+					return [ 'status' => (string) $params['status'] ];
+
+				case 'Booking\\Appointment\\AddBookingController':
+					return self::add_event_booking( $params );
 
 				case 'Booking\\Appointment\\GetTimeSlotsController':
 					$service = self::row( 'services', (int) $params['serviceId'] );
