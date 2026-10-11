@@ -48,13 +48,8 @@ class CronLifecycleTest extends \WP_UnitTestCase
         update_option('timezone_string', 'UTC');
         update_option('gmt_offset', 0);
         Backup_Job_Store::set_clock_for_tests(self::NOW);
-        $admin = self::factory()->user->create(['role' => 'administrator']);
-        if (is_multisite()) {
-            // Backup schedules are network-wide on a network, so changing
-            // one takes a network administrator (issue #541).
-            grant_super_admin($admin);
-        }
-        wp_set_current_user($admin);
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->clear_plugin_events();
     }
 
