@@ -12,8 +12,10 @@ if (! defined('ABSPATH')) {
  * execution; writes, DDL, stacked statements, executable comments, and
  * file-access SQL are all rejected there. Reads touching the users or
  * usermeta tables are additionally refused by
- * Database_Guard::guard_user_table_read() (credential and session data);
- * sites can opt in via wpmcp_db_allow_user_table_reads, in which case
+ * Database_Guard::guard_user_table_read() (credential and session data).
+ * On multisite, a caller without manage_network_options may only reference
+ * the current site's tables (Database_Guard::guard_query_scope()). For the
+ * users tables, sites can opt in via wpmcp_db_allow_user_table_reads, in which case
  * secret values are still masked in results unless
  * wpmcp_db_mask_user_secrets is filtered to false. Results are capped so a
  * broad query cannot pull the whole database into a single response.
@@ -37,6 +39,13 @@ class Query
         $user_table_read = Database_Guard::guard_user_table_read($sql);
         if (is_wp_error($user_table_read)) {
             throw new \RuntimeException(esc_html($user_table_read->get_error_message()));
+        }
+
+        // Multisite: a caller without network rights stays inside the
+        // current site's tables (issue #526).
+        $scope = Database_Guard::guard_query_scope($sql);
+        if (is_wp_error($scope)) {
+            throw new \RuntimeException(esc_html($scope->get_error_message()));
         }
 
         global $wpdb;
@@ -63,6 +72,10 @@ class Query
         if (true === $user_table_read && apply_filters('wpmcp_db_mask_user_secrets', true)) {
             $rows = Database_Guard::mask_user_secrets($rows);
         }
+
+        // Payment gateway credentials are masked on every read path
+        // (issues #507, #528).
+        $rows = Database_Guard::mask_gateway_secrets($rows);
 
         return [
             'rows'      => $rows,

@@ -26,6 +26,9 @@ class InstallPluginTest extends \WP_UnitTestCase
         $user    = new \WP_User($user_id);
         $user->add_cap($capability);
         wp_set_current_user($user_id);
+        // On a network only a super admin activates plugins while the
+        // sub-site Plugins menu is off (issue #530).
+        wpmcp_test_grant_network_admin($user_id);
     }
 
     /**
@@ -41,6 +44,12 @@ class InstallPluginTest extends \WP_UnitTestCase
         $user    = new \WP_User($user_id);
         $user->add_cap($capability, false);
         wp_set_current_user($user_id);
+        // On a network only a super admin holds install_plugins, and a super admin is
+        // denied a capability through map_meta_cap only (issue #530).
+        if (is_multisite()) {
+            wpmcp_test_grant_network_admin($user_id);
+            wpmcp_test_deny_capability($capability);
+        }
 
         $this->assertFalse(current_user_can($capability));
         $this->assertTrue(current_user_can('install_plugins'));
@@ -136,7 +145,23 @@ class InstallPluginTest extends \WP_UnitTestCase
 
         $before = (array) get_option('active_plugins', []);
 
-        $out = (new Install_Plugin())->activate_installed('does-not-exist/does-not-exist.php', []);
+        // On a network core reads the file for its Network header before
+        // validating it, which warns on a missing file, so there the plugin
+        // that fails to activate is a file with no plugin header (issue #530).
+        $plugin = 'does-not-exist/does-not-exist.php';
+        if (is_multisite()) {
+            $plugin = 'wpmcp-headerless-' . getmypid() . '/plugin.php';
+            wp_mkdir_p(WP_PLUGIN_DIR . '/' . dirname($plugin));
+            file_put_contents(WP_PLUGIN_DIR . '/' . $plugin, "<?php\n");
+        }
+        try {
+            $out = (new Install_Plugin())->activate_installed($plugin, []);
+        } finally {
+            if (is_multisite()) {
+                @unlink(WP_PLUGIN_DIR . '/' . $plugin);
+                @rmdir(WP_PLUGIN_DIR . '/' . dirname($plugin));
+            }
+        }
 
         $this->assertFalse($out['activated']);
         $this->assertTrue($out['rolled_back']);

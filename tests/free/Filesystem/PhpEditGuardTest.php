@@ -348,6 +348,9 @@ class PhpEditGuardTest extends \WP_UnitTestCase
 
     public function test_inactive_plugin_file_is_syntax_checked_only(): void
     {
+        if (is_multisite()) {
+            $this->markTestSkipped('Single-site by nature: on a network another site may run the plugin, so Php_Edit_Guard::is_loaded() treats every file as loaded.');
+        }
         $slug = 'wpmcp-guard-inactive-' . getmypid();
         $dir  = WP_PLUGIN_DIR . '/' . $slug;
         wp_mkdir_p($dir);

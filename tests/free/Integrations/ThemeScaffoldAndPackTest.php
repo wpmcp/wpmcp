@@ -25,6 +25,7 @@ class ThemeScaffoldAndPackTest extends \WP_UnitTestCase
         Snapshot_Store::install();
         $this->theme = new Theme_Integration();
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         add_filter('wpmcp_enable_theme_write', '__return_true');
         $this->remove_scaffold();
     }

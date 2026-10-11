@@ -15,7 +15,9 @@ if (! defined('ABSPATH')) {
  * WHERE is mandatory, which prevents an unqualified/unbounded update (a
  * bare, WHERE-less write that would touch every row in a table); it does not
  * limit how many rows a broad but valid WHERE can still match. Refuses
- * protected tables (users/usermeta by default).
+ * protected tables (users/usermeta by default). The before_image in the
+ * response has payment gateway credentials masked; the snapshot and audit
+ * copies stay raw so rollback is exact (issue #528).
  *
  * Recoverability (issue #82): when an exact restore can genuinely be
  * promised - the table has a PRIMARY KEY, the WHERE matched no more rows
@@ -65,7 +67,7 @@ class Update_Rows
             throw new \InvalidArgumentException('A non-empty where object is required for update.');
         }
 
-        $table = Database_Guard::valid_table((string) ($args['table'] ?? ''));
+        $table = Database_Guard::scoped_table((string) ($args['table'] ?? ''));
         if (is_wp_error($table)) {
             throw new \RuntimeException(esc_html($table->get_error_message()));
         }
@@ -100,7 +102,7 @@ class Update_Rows
             return [
                 'table'              => $table,
                 'affected'           => $affected,
-                'before_image'       => $before,
+                'before_image'       => Database_Guard::mask_gateway_secrets($before),
                 'recoverable'        => false,
                 'recoverable_reason' => 'Not snapshot-backed: ' . $probe['reason'] . '.',
             ];
@@ -130,7 +132,7 @@ class Update_Rows
         return [
             'table'        => $table,
             'affected'     => (int) $out['result'],
-            'before_image' => $before,
+            'before_image' => Database_Guard::mask_gateway_secrets($before),
             'recoverable'  => true,
             'operation_id' => $out['operation_id'],
             'caveats'      => [

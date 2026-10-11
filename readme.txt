@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.167
+Stable tag: 0.8.173
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -110,6 +110,25 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.173 =
+* Security: payment gateway credentials are now masked in database tool results too, including the before-image returned by row updates and deletes. Rollback still restores the exact stored values. Please update.
+
+= 0.8.172 =
+* Every change is now also tested on a WordPress multisite network before release, so problems that only appear on a network are caught before they ship.
+
+= 0.8.171 =
+* Fixed: on a multisite network, switch-theme and install-theme with activate now refuse a theme the network administrator has not enabled for the site, matching the WordPress Themes screen.
+
+= 0.8.170 =
+* The test suite now runs against Elementor 4.3.4, the current Elementor release, with its recorded atomic widget schemas checked against that version.
+
+= 0.8.169 =
+* Security: on multisite, the database tools now stay inside the current site for anyone who cannot manage the network. A site administrator can no longer read or change network tables, the main site's tables or other sites' tables, and network options are write-protected by default. Please update.
+* Security: the query tool no longer lets "1--1" style arithmetic hide a read of the users table, and MariaDB executable comments are refused.
+
+= 0.8.168 =
+* Security: on a multisite network, whole-database backup, restore and migration tools (trigger-backup, restore-site-backup, the backup job tools, rewrite-site-urls, push-site-archive and receive-site-archive) now require a network administrator. A sub-site administrator could previously back up every site's tables including password hashes, or restore network tables to become a super admin. Single-site installs are unchanged.
 
 = 0.8.167 =
 * Internal: the changelog now lists each release's changes under the version that shipped them, and uses one label for Pro features. No change to the plugin itself.
@@ -819,6 +838,24 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.173 =
+Security: payment gateway credentials are now masked in database tool results too, including the before-image returned by row updates and deletes. Rollback still restores the exact stored values. Please update.
+
+= 0.8.172 =
+Every change is now also tested on a WordPress multisite network before release, so problems that only appear on a network are caught before they ship.
+
+= 0.8.171 =
+Fixed: on a multisite network, switch-theme and install-theme with activate now refuse a theme the network administrator has not enabled for the site, matching the WordPress Themes screen.
+
+= 0.8.170 =
+The test suite now runs against Elementor 4.3.4, the current Elementor release, with its recorded atomic widget schemas checked against that version.
+
+= 0.8.169 =
+Security: on multisite, the database tools now stay inside the current site for anyone who cannot manage the network. A site administrator can no longer read or change network tables, the main site's tables or other sites' tables, and network options are write-protected by default. Please update.
+
+= 0.8.168 =
+Security: on a multisite network, whole-database backup, restore and migration tools (trigger-backup, restore-site-backup, the backup job tools, rewrite-site-urls, push-site-archive and receive-site-archive) now require a network administrator. A sub-site administrator could previously back up every site's tables including password hashes, or restore network tables to become a super admin. Single-site installs are unchanged.
 
 = 0.8.167 =
 Internal: the changelog now lists each release's changes under the version that shipped them, and uses one label for Pro features. No change to the plugin itself.

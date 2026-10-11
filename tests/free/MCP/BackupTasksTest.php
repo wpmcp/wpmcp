@@ -39,7 +39,12 @@ class BackupTasksTest extends \WP_UnitTestCase
         Backup_Job_Store::set_clock_for_tests(1_790_000_387);
         Rate_Limiter::set_clock_override(fn() => 1_790_000_387);
         add_filter('wpmcp_rate_limit', fn() => 100000);
-        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        $admin = self::factory()->user->create(['role' => 'administrator']);
+        // On multisite the backup tools are network-admin only (issue #525).
+        if (is_multisite()) {
+            grant_super_admin($admin);
+        }
+        wp_set_current_user($admin);
     }
 
     protected function tearDown(): void

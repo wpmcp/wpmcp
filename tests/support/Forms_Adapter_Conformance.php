@@ -357,6 +357,7 @@ abstract class Forms_Adapter_Conformance extends \WP_UnitTestCase
         $this->assertSame('operation_denied', $denied['error']['code'] ?? null, "{$slug}: an editor may not read a submission");
 
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $list = self::ok($integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => $fixture['form_id'] ] ]));
         $ids  = array_map(static fn ($e) => (int) ((array) $e)['id'], $list['entries']);
         sort($ids);
@@ -389,6 +390,7 @@ abstract class Forms_Adapter_Conformance extends \WP_UnitTestCase
         }
         $this->assertNotNull($fixture['status'], "{$slug} offers update-entry-status, so its fixture must exercise it");
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $id   = $fixture['entry_ids'][0];
         $read = $fixture['status']['read'];

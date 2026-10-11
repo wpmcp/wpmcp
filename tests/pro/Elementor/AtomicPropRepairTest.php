@@ -284,6 +284,7 @@ class AtomicPropRepairTest extends Structural_Harness
             '4.3.0-beta1' => ['4.3.0-beta1', 'escaped-html'],
             '4.3.0'       => ['4.3.0', 'escaped-html'],
             '4.3.2'       => ['4.3.2', 'escaped-html'],
+            '4.3.4'       => ['4.3.4', 'escaped-html'],
             '5.0.0'       => ['5.0.0', 'escaped-html'],
         ];
     }

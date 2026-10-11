@@ -30,6 +30,7 @@ class IncidentResponseTest extends \WP_UnitTestCase
         parent::setUp();
         $this->admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($this->admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->tmp = sys_get_temp_dir() . '/wpmcp-ir-' . bin2hex(random_bytes(6));
         mkdir($this->tmp, 0777, true);
         unset($GLOBALS['wp_rest_application_password_uuid']);
@@ -84,6 +85,7 @@ class IncidentResponseTest extends \WP_UnitTestCase
         wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
         $this->assertFalse($ability->check_permissions());
         wp_set_current_user($this->admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->assertTrue($ability->check_permissions());
 
         $description = $ability->get_description();

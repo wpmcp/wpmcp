@@ -132,7 +132,7 @@ class BearerAuthTest extends \WP_UnitTestCase
         $token   = Token_Store::issue('client_abc', $user_id, 'read');
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
 
-        wp_delete_user($user_id);
+        wpmcp_test_delete_account($user_id);
 
         $this->assertSame(0, Bearer_Auth::resolve(0));
     }

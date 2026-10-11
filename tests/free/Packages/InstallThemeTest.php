@@ -46,6 +46,12 @@ class InstallThemeTest extends \WP_UnitTestCase
         $user    = new \WP_User($user_id);
         $user->add_cap($capability, false);
         wp_set_current_user($user_id);
+        // On a network only a super admin holds install_themes, and a super admin is
+        // denied a capability through map_meta_cap only (issue #530).
+        if (is_multisite()) {
+            wpmcp_test_grant_network_admin($user_id);
+            wpmcp_test_deny_capability($capability);
+        }
 
         $this->assertFalse(current_user_can($capability));
         $this->assertTrue(current_user_can('install_themes'));
@@ -55,6 +61,8 @@ class InstallThemeTest extends \WP_UnitTestCase
     {
         foreach (array_keys(wp_get_themes()) as $slug) {
             if ($slug !== get_stylesheet()) {
+                // On a network only an enabled theme may be activated (#529).
+                add_filter('allowed_themes', static fn ($allowed) => array_merge((array) $allowed, [$slug => true]));
                 return $slug;
             }
         }

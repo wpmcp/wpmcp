@@ -32,6 +32,7 @@ class GlobalStylesTest extends \WP_UnitTestCase
         parent::setUp();
         Snapshot_Store::install();
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->read  = new Site_Templates_Read();
         $this->write = new Site_Templates_Write();
     }

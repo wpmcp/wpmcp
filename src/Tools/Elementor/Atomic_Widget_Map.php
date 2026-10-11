@@ -19,7 +19,7 @@ if (! defined('ABSPATH')) {
 class Atomic_Widget_Map
 {
     /**
-     * Inline tags Elementor 4.3.2 allows in each rich-text prop
+     * Inline tags Elementor 4.3.4 allows in each rich-text prop
      * (Escaped_Html_Prop_Type::get_allowed_html_tags_for_prop). Used only when
      * the installed Elementor does not expose that method itself.
      */

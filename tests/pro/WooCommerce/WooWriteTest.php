@@ -47,6 +47,7 @@ class WooWriteTest extends \WP_UnitTestCase
         wp_roles();
 
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         global $wp_rest_server;
         $wp_rest_server = null;

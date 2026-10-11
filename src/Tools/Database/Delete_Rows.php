@@ -15,7 +15,9 @@ if (! defined('ABSPATH')) {
  * non-empty WHERE is mandatory, which prevents an unqualified/unbounded
  * delete (a bare, WHERE-less write that would touch every row in a table);
  * it does not limit how many rows a broad but valid WHERE can still match.
- * Refuses protected tables (users/usermeta by default).
+ * Refuses protected tables (users/usermeta by default). The before_image
+ * in the response has payment gateway credentials masked; the snapshot and
+ * audit copies stay raw so rollback is exact (issue #528).
  *
  * Recoverability (issue #82): same stance as Update_Rows (see its docblock).
  * When the table has a PRIMARY KEY, the WHERE matched no more rows than the
@@ -55,7 +57,7 @@ class Delete_Rows
             throw new \InvalidArgumentException('A non-empty where object is required for delete.');
         }
 
-        $table = Database_Guard::valid_table((string) ($args['table'] ?? ''));
+        $table = Database_Guard::scoped_table((string) ($args['table'] ?? ''));
         if (is_wp_error($table)) {
             throw new \RuntimeException(esc_html($table->get_error_message()));
         }
@@ -90,7 +92,7 @@ class Delete_Rows
             return [
                 'table'              => $table,
                 'affected'           => $affected,
-                'before_image'       => $before,
+                'before_image'       => Database_Guard::mask_gateway_secrets($before),
                 'recoverable'        => false,
                 'recoverable_reason' => 'Not snapshot-backed: ' . $probe['reason'] . '.',
             ];
@@ -120,7 +122,7 @@ class Delete_Rows
         return [
             'table'        => $table,
             'affected'     => (int) $out['result'],
-            'before_image' => $before,
+            'before_image' => Database_Guard::mask_gateway_secrets($before),
             'recoverable'  => true,
             'operation_id' => $out['operation_id'],
             'caveats'      => [

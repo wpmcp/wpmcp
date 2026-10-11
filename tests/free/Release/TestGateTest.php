@@ -76,6 +76,7 @@ class TestGateTest extends TestCase
         $this->assertContains('on-failure: continue', $output, 'a failing leg must not stop the legs after it');
     }
 
+    /** A targeted run (the merge queue's fast re-check) stays on the single-site default leg. */
     public function test_a_targeted_run_stays_on_the_default_leg(): void
     {
         $this->assertSame(
@@ -106,6 +107,41 @@ class TestGateTest extends TestCase
         $this->assertTrue(str_contains($script, 'https://downloads.wordpress.org/plugin/mcp-adapter.'), 'the leg downloads the released plugin from WordPress.org');
         $this->assertTrue(str_contains($script, 'WPMCP_TEST_ADAPTER_PLUGIN='), 'the leg points the bootstrap at the downloaded plugin');
         $this->assertTrue(str_contains($script, '--group adapter-live --fail-on-skipped'), 'the coexistence checks must not pass by skipping');
+    }
+
+    /**
+     * Issue #530: no leg ran on multisite, so network-only bugs (a sub-site
+     * admin reaching network tables, sub-sites missing plugin tables) went
+     * unnoticed. The multisite leg runs the suite with WP_MULTISITE=1 on the
+     * default WordPress, without coverage, in the plain gate, and alone under
+     * --multisite.
+     */
+    public function test_the_multisite_leg_runs_in_the_plain_gate_and_alone(): void
+    {
+        $leg = 'leg: multisite wp=' . $this->default_wordpress() . ' coverage=none';
+
+        $this->assertContains($leg, $this->plan(), 'the plain gate (pre-push hook, merge queue) must run the suite on multisite');
+        $this->assertContains($leg, $this->plan('--all'));
+        $this->assertSame([$leg], $this->plan('--multisite'));
+        $this->assertSame([$leg], $this->plan('--multisite', '--', '--filter', 'SomeTest'), 'a targeted multisite run runs only that leg');
+    }
+
+    public function test_the_multisite_leg_runs_before_the_live_groups(): void
+    {
+        $plan      = $this->plan();
+        $multisite = array_search('leg: multisite wp=' . $this->default_wordpress() . ' coverage=none', $plan, true);
+        $live      = array_search('leg: live-forms wp=' . $this->default_wordpress(), $plan, true);
+
+        $this->assertIsInt($multisite);
+        $this->assertIsInt($live);
+        $this->assertLessThan($live, $multisite);
+    }
+
+    public function test_the_multisite_leg_tells_the_test_library_to_install_a_network(): void
+    {
+        $script = (string) file_get_contents($this->repository() . '/bin/test-local.sh');
+
+        $this->assertTrue(str_contains($script, 'WP_MULTISITE=1'), 'the WordPress test library installs multisite only when WP_MULTISITE=1 is exported');
     }
 
     public function test_the_pre_push_hook_runs_the_plain_gate(): void

@@ -73,6 +73,7 @@ class PackagesCapabilityTest extends \WP_UnitTestCase
 
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->assertTrue(
             $abilities['wpmcp/list-plugins']->check_permissions(),
             'wpmcp/list-plugins must allow a user holding activate_plugins'
@@ -92,6 +93,7 @@ class PackagesCapabilityTest extends \WP_UnitTestCase
 
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->assertTrue(
             $abilities['wpmcp/delete-plugin']->check_permissions(),
             'wpmcp/delete-plugin must allow a user holding delete_plugins'

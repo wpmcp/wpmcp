@@ -33,6 +33,7 @@ class WriteFileTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $result = (new Write_File())->handle(['path' => $this->rel_dir . '/new.txt', 'content' => 'hello world']);
 
@@ -47,6 +48,7 @@ class WriteFileTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         file_put_contents(ABSPATH . $this->rel_dir . '/new.txt', 'original content');
 
@@ -88,6 +90,7 @@ class WriteFileTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         add_filter('wpmcp_fs_protected_paths', function ($paths) {
             $paths[] = 'new.txt';
@@ -117,6 +120,7 @@ class WriteFileTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $outside_target = sys_get_temp_dir() . '/wpmcp-escape1-' . uniqid() . '.txt';
         $link            = ABSPATH . $this->rel_dir . '/evil';

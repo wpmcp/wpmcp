@@ -62,6 +62,7 @@ class TablePressPackTest extends \WP_UnitTestCase
             $user->add_cap($cap);
         }
         wp_set_current_user($this->admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
         add_filter('wpmcp_tablepress_active', '__return_true');
         foreach (self::OTHER_FILTERS as $filter) {
             add_filter($filter, '__return_false');
@@ -273,6 +274,9 @@ class TablePressPackTest extends \WP_UnitTestCase
 
         $deny = static fn (array $caps): array => array_diff_key($caps, [ 'unfiltered_html' => true ]);
         add_filter('user_has_cap', $deny);
+        if (is_multisite()) {
+            wpmcp_test_deny_capability('unfiltered_html'); // a super admin skips user_has_cap (issue #530)
+        }
         $out = $this->write('tablepress-create-table', [ 'name' => 'Bad', 'options' => [ 'datatables_custom_commands' => 'alert(1)' ] ]);
         remove_filter('user_has_cap', $deny);
         $this->assertSame('operation_denied', $this->code($out));
@@ -287,6 +291,7 @@ class TablePressPackTest extends \WP_UnitTestCase
         $this->assertStringContainsString('<td>10</td>', tablepress_get_table([ 'id' => $id ]));
         $this->assertStringContainsString('from cache', tablepress_get_table([ 'id' => $id ]));
         wp_set_current_user($this->admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $out = $this->ok($this->write('tablepress-set-cells', [ 'table_id' => $id, 'cells' => [ [ 'row' => 1, 'column' => 1, 'value' => 12 ], [ 'row' => 2, 'column' => 0, 'value' => null ] ] ]));
         $this->assertTrue($out['recoverable']);
@@ -297,6 +302,7 @@ class TablePressPackTest extends \WP_UnitTestCase
         $this->assertStringNotContainsString('from cache', $html);
         $this->assertStringContainsString('from cache', tablepress_get_table([ 'id' => $id ]));
         wp_set_current_user($this->admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']), implode('; ', Rollback_Service::take_warnings()));
         $this->assertSame($before, $this->stored($id));

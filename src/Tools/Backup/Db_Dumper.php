@@ -88,6 +88,9 @@ class Db_Dumper
      */
     public function dump(callable $write, ?array $tables = null): array
     {
+        // Before the header is written: a refused dump emits nothing.
+        Network_Scope::assert_caller('A database dump');
+
         $all = $this->tables();
         // Never dump a table that is not ours: $tables is caller-supplied, so
         // the intersection against the enumerated list is what keeps every

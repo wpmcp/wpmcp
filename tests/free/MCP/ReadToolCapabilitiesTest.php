@@ -42,6 +42,11 @@ class ReadToolCapabilitiesTest extends \WP_UnitTestCase
 
         // A fresh user granted exactly the expected capability must be allowed,
         // proving the gate is that specific cap and not the old edit_posts.
+        // On a network activate_plugins also needs the sub-site Plugins menu
+        // the network administrator can turn on (issue #530).
+        if (is_multisite()) {
+            update_site_option('menu_items', [ 'plugins' => '1' ]);
+        }
         foreach (self::EXPECTED as $name => $cap) {
             $user = self::factory()->user->create(['role' => 'subscriber']);
             get_user_by('id', $user)->add_cap($cap);

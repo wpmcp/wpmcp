@@ -413,6 +413,10 @@ class RestoreSiteBackupExecuteTest extends \WP_UnitTestCase
     {
         global $wpdb;
         $admin = self::factory()->user->create(['role' => 'administrator']);
+        // On multisite these tools are network-admin only (issue #525).
+        if (is_multisite()) {
+            grant_super_admin($admin);
+        }
         wp_set_current_user($admin);
         $archive = $this->archive_of($this->posts_tables());
 
