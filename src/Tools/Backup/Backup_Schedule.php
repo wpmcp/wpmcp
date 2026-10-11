@@ -56,9 +56,9 @@ class Backup_Schedule
      */
     public static function set(string $type, string $scope, string $every, ?int $keep)
     {
-        if (! current_user_can('manage_options')) {
+        if (! current_user_can(Network_Scope::capability())) {
             Governance_Audit_Log::record_quietly(self::ABILITY, false, 'backup-schedule:refused-capability');
-            return new \WP_Error('wpmcp_backup_schedule_forbidden', 'Changing a backup schedule requires the manage_options capability.');
+            return new \WP_Error('wpmcp_backup_schedule_forbidden', sprintf('Changing a backup schedule requires the %s capability.', Network_Scope::capability()));
         }
 
         if (! in_array($type, Run_Backup_Job::ARCHIVE_TYPES, true)) {

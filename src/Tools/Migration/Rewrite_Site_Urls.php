@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Migration;
 
+use WPMCP\Tools\Backup\Network_Scope;
 use WPMCP\Tools\Backup\Safety_Archive;
 use WPMCP\Tools\Backup\Url_Rewriter;
 use WPMCP\Tools\Database\Database_Guard;
@@ -114,6 +115,8 @@ class Rewrite_Site_Urls
      */
     public function handle(array $args, ?array $recovery_point = null): array
     {
+        Network_Scope::assert_caller('rewrite-site-urls');
+
         $from_url = isset($args['from_url']) ? untrailingslashit((string) $args['from_url']) : '';
         $to_url   = isset($args['to_url']) ? untrailingslashit((string) $args['to_url']) : '';
         // Only a literal false turns the dry run off; anything else (absent,
