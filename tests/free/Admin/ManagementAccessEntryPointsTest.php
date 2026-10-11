@@ -290,9 +290,9 @@ class ManagementAccessEntryPointsTest extends \WP_UnitTestCase
         $src = (string) realpath(__DIR__ . '/../../../src');
         foreach ($wp_filter['admin_init']->callbacks as $callbacks) {
             foreach ($callbacks as $entry) {
-                // Redirect_Store::maybe_install is schema, not settings, and
+                // Site_Tables::maybe_install is schema, not settings, and
                 // its DDL would commit this test's transaction.
-                if ($this->owned_by_wpmcp($entry['function'], $src) && [\WPMCP\Tools\Redirects\Redirect_Store::class, 'maybe_install'] !== $entry['function']) {
+                if ($this->owned_by_wpmcp($entry['function'], $src) && [\WPMCP\Site_Tables::class, 'maybe_install'] !== $entry['function']) {
                     call_user_func($entry['function']);
                 }
             }
