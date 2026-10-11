@@ -604,4 +604,36 @@ class AmeliaLiveTest extends \WP_UnitTestCase
         $this->assertCount(1, $listed, 'The booking itself is kept.');
         $this->assertStringNotContainsString('Lane', (string) wp_json_encode($listed));
     }
+
+    public function test_an_erasure_reaches_amelias_rows_in_undo_snapshots_and_an_undo_keeps_them_erased(): void
+    {
+        global $wpdb;
+        $service     = $this->service();
+        $customer    = $this->customer();
+        $appointment = (int) $this->call('write', 'amelia-book-appointment', [ 'service_id' => $service, 'employee_id' => $this->employee, 'customer_id' => $customer, 'start' => $this->day() . ' 10:00' ])['result']['appointment']['id'];
+        // What Amelia's booking form stores on the booking.
+        $wpdb->update($wpdb->prefix . 'amelia_customer_bookings', [ 'info' => '{"firstName":"Sarah","lastName":"Lane","phone":"+15550100","locale":"en_US"}', 'customFields' => '{"1":{"label":"Medical notes","value":"Pregnant, back injury","type":"text"}}' ], [ 'appointmentId' => $appointment ]);
+        // Through Amelia's own status controller.
+        $cancel = $this->call('write', 'amelia-set-appointment-status', [ 'appointment_id' => $appointment, 'status' => 'canceled' ]);
+        $this->assertStringContainsString('back injury', (string) wp_json_encode(Snapshot_Store::get_by_operation((string) $cancel['operation_id'])['snapshot']));
+
+        foreach (\WPMCP\Privacy\Personal_Data::erasers([]) as $key => $eraser) {
+            for ($page = 1; $page < 50; $page++) {
+                if (! empty(call_user_func($eraser['callback'], 'sarah@example.com', $page)['done'])) {
+                    continue 2;
+                }
+            }
+            $this->fail($key . ' never finished.');
+        }
+
+        $blob = (string) wp_json_encode(Snapshot_Store::get_by_operation((string) $cancel['operation_id'])['snapshot']);
+        $this->assertStringNotContainsString('+15550100', $blob);
+        $this->assertStringNotContainsString('back injury', $blob);
+
+        $this->undo($cancel);
+        $booking = $wpdb->get_row($wpdb->prepare('SELECT status, info, customFields FROM %i WHERE appointmentId = %d', $wpdb->prefix . 'amelia_customer_bookings', $appointment), ARRAY_A);
+        $this->assertSame('approved', $booking['status'], 'The undo itself still works.');
+        $this->assertNull($booking['info']);
+        $this->assertNull($booking['customFields']);
+    }
 }
