@@ -228,6 +228,8 @@ final class Output_Schemas
 
         $backup_jobs                            = self::listing($backup_job);
         $backup_jobs['properties']['schedules'] = [ 'type' => 'array', 'items' => [ 'type' => 'object' ] ];
+        // Multisite only (issue #541).
+        $backup_jobs['properties']['disabled_schedules'] = [ 'type' => 'array', 'items' => [ 'type' => 'object' ] ];
 
         $dispatched                          = $handle;
         $dispatched['properties']['command'] = [ 'type' => 'string' ];
