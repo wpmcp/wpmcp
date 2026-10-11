@@ -7,6 +7,10 @@
 
 namespace WPMCP\Privacy;
 
+use WPMCP\Safety\Amelia_Rows_Snapshot;
+use WPMCP\Safety\Snapshot;
+use WPMCP\Safety\Snapshot_Store;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -25,12 +29,37 @@ if (! defined('ABSPATH')) {
  * the profile, and the custom field answers and contact details Amelia
  * copies into each booking. The bookings themselves stay, as the business's
  * record of what was booked and paid, so the eraser reports them retained.
- * It runs before WP MCP's undo snapshot eraser, so the snapshots of those
- * rows are redacted after.
+ *
+ * Amelia's booking rows key the person by Amelia's own customer id and hold
+ * no email, so WP MCP's generic undo snapshot eraser cannot find them
+ * (issue #552). This eraser therefore also rewrites the person's rows in
+ * every Amelia undo snapshot (amelia_rows) to exactly what it wrote live,
+ * a page of snapshots at a time: an undo of an earlier write still works
+ * and puts none of it back. Amelia_Rows_Snapshot::restore() also keeps an
+ * erased customer's fields erased for a snapshot this did not reach. It
+ * runs before WP MCP's undo snapshot eraser.
  */
 class Amelia_Customers
 {
     public const KEY = 'wpmcp-amelia-customers';
+
+    /** What the erasure writes over an Amelia customer profile (amelia_users). */
+    public const ERASED_PROFILE = [
+        'firstName'    => Snapshot_Redactor::REDACTED,
+        'lastName'     => '',
+        'email'        => null,
+        'phone'        => null,
+        'birthday'     => null,
+        'gender'       => null,
+        'note'         => null,
+        'customFields' => null,
+        'externalId'   => null,
+    ];
+
+    /** What the erasure writes over each of their bookings (amelia_customer_bookings). */
+    public const ERASED_BOOKING = [ 'customFields' => null, 'info' => null ];
+
+    private const IDS_PREFIX = 'wpmcp_privacy_amelia_ids_';
 
     /** Whether Amelia's customer tables are on this site. */
     public static function available(): bool
@@ -135,38 +164,69 @@ class Amelia_Customers
         return [ 'data' => $items, 'done' => true ];
     }
 
+    /**
+     * Page 1 erases the live records and notes the person's Amelia customer
+     * ids; every page then rewrites their rows in one page of undo
+     * snapshots, until the snapshots run out.
+     */
     public static function erase($email, $page = 1): array
     {
         global $wpdb;
 
-        unset($page);
+        $email    = trim((string) $email);
+        $page     = (int) $page;
+        $after    = Personal_Data::cursor('erase-amelia-snapshots', $email, $page);
+        $key      = self::IDS_PREFIX . md5(strtolower($email));
         $removed  = false;
         $retained = false;
-        foreach (self::customers(trim((string) $email)) as $customer) {
-            $id = (int) $customer['id'];
-            $wpdb->update(self::t('users'), [
-                'firstName'    => Snapshot_Redactor::REDACTED,
-                'lastName'     => '',
-                'email'        => null,
-                'phone'        => null,
-                'birthday'     => null,
-                'gender'       => null,
-                'note'         => null,
-                'customFields' => null,
-                'externalId'   => null,
-            ], [ 'id' => $id ]);
-            $removed = true;
-            $count   = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE customerId = %d', self::t('customer_bookings'), $id));
-            if ($count > 0) {
-                $wpdb->update(self::t('customer_bookings'), [ 'customFields' => null, 'info' => null ], [ 'customerId' => $id ]);
-                $retained = true;
+        if ($page <= 1) {
+            $ids = [];
+            foreach (self::customers($email) as $customer) {
+                $id    = (int) $customer['id'];
+                $ids[] = $id;
+                $wpdb->update(self::t('users'), self::ERASED_PROFILE, [ 'id' => $id ]);
+                $removed = true;
+                $count   = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE customerId = %d', self::t('customer_bookings'), $id));
+                if ($count > 0) {
+                    $wpdb->update(self::t('customer_bookings'), self::ERASED_BOOKING, [ 'customerId' => $id ]);
+                    $retained = true;
+                }
+            }
+            set_transient($key, $ids, HOUR_IN_SECONDS);
+        } else {
+            $ids = array_map('intval', (array) get_transient($key));
+        }
+
+        $rows = [] === $ids ? [] : Snapshot_Store::page_after($after, Personal_Data::SNAPSHOT_PAGE);
+        $last = 0;
+        foreach ($rows as $row) {
+            $last = (int) $row['id'];
+            if (Amelia_Rows_Snapshot::TYPE !== (string) $row['object_type']) {
+                continue;
+            }
+            try {
+                $snapshot = Snapshot::unserialize((string) $row['before_blob']);
+            } catch (\RuntimeException $e) {
+                unset($e);
+                continue;
+            }
+            $erased = Amelia_Rows_Snapshot::erase_customers($snapshot, $ids);
+            if (null !== $erased) {
+                Snapshot_Store::replace_snapshot($last, $erased);
+                $removed = true;
             }
         }
+        $done = count($rows) < Personal_Data::SNAPSHOT_PAGE;
+        Personal_Data::advance('erase-amelia-snapshots', $email, $last, $done);
+        if ($done) {
+            delete_transient($key);
+        }
+
         return [
             'items_removed'  => $removed,
             'items_retained' => $retained,
             'messages'       => $retained ? [ __('Amelia bookings were kept as the business record of what was booked, without the person\'s name, contact details or form answers.', 'wpmcp') ] : [],
-            'done'           => true,
+            'done'           => $done,
         ];
     }
 }
