@@ -113,6 +113,38 @@ class Filesystem_Guard
     }
 
     /**
+     * The capability the read tools (read-file, list-directory,
+     * search-files) are registered with (issue #559). On multisite ABSPATH
+     * holds every site's files (other sites' uploads, private exports,
+     * backups, debug.log) and core gives a sub-site administrator no file
+     * access, so reads take manage_network_options there, like the write
+     * tools whose edit_files is super-admin only on multisite.
+     * manage_network_options rather than edit_files so DISALLOW_FILE_EDIT
+     * keeps blocking writes without also blocking a super admin's reads.
+     */
+    public static function read_capability(): string
+    {
+        return is_multisite() ? 'manage_network_options' : 'manage_options';
+    }
+
+    /**
+     * Repeat the read gate inside the handlers, so a path that reaches them
+     * without the ability permission check is refused too. Single site is
+     * unchanged, and a request with no signed-in user is let through as in
+     * Network_Scope: no ability can reach a handler without the gate.
+     *
+     * @throws \RuntimeException When a signed-in user on multisite lacks the network capability.
+     */
+    public static function assert_reads_allowed(): void
+    {
+        if (! is_multisite() || 0 === get_current_user_id() || current_user_can('manage_network_options')) {
+            return;
+        }
+
+        throw new \RuntimeException('On a multisite network the files belong to every site, so reading them needs a network administrator (manage_network_options).');
+    }
+
+    /**
      * Pure: gate write/edit/delete on the edit_files capability and honor
      * DISALLOW_FILE_EDIT.
      *
