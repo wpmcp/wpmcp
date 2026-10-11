@@ -33,8 +33,8 @@ if (! defined('ABSPATH')) {
  * fixed at creation, so a mismatch means a different funnel holds the id,
  * and it is left alone.
  *
- * Restoring either takes manage_woocommerce, the capability the funnel
- * writes take (Rollback_Service).
+ * Restoring either takes what the funnel writes take (Rollback_Service):
+ * manage_woocommerce, and FunnelKit's own funnel access check (issue #551).
  */
 final class FunnelKit_Funnel_Snapshot
 {
@@ -43,6 +43,22 @@ final class FunnelKit_Funnel_Snapshot
 
     /** The post types FunnelKit stores its steps as. */
     public const STEP_POST_TYPES = [ 'wffn_landing', 'wffn_optin', 'wffn_oty', 'wfacp_checkout', 'wfocu_funnel', 'wfocu_offer', 'wffn_ty' ];
+
+    /**
+     * Whether FunnelKit's own access check lets the current user edit
+     * funnels: the check its funnel REST routes, and so every funnel write,
+     * go through (administrators, and roles with manage_options unless the
+     * wffn_user_access_capabilities filter says otherwise). With FunnelKit's
+     * check unavailable, its default, manage_options, is asked instead, so
+     * the answer fails closed.
+     */
+    public static function current_user_may_edit_funnels(): bool
+    {
+        if (class_exists('WFFN_Role_Capability') && method_exists('WFFN_Role_Capability', 'get_instance')) {
+            return false !== \WFFN_Role_Capability::get_instance()->user_access('funnel', 'write');
+        }
+        return current_user_can('manage_options');
+    }
 
     public static function funnels_table(): string
     {
