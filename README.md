@@ -216,8 +216,8 @@ The table covers the core tools. The full reference for all 407 is at [wpmcp-pro
 | `create-user` | write (safe) | Create a non-admin user; auto-generates a strong password (never returned) and emails the user; rejects admin and unknown roles. Undo (needs `delete_users`) deletes the user only while it has no content and is unchanged |
 | `update-user` | write (safe) | Update a non-admin user's profile fields; refuses admin-capable users; never changes role or password |
 | `list-plugins` | read | List installed plugins with active status, protected-package flag, and pending update info; `updates: true` lists available core, plugin and theme updates with auto-update state |
-| `activate-plugin` | write (safe) | Activate an installed plugin; snapshots the prior `active_plugins` option |
-| `deactivate-plugin` | write (safe) | Deactivate a plugin; refuses protected packages (wpmcp, Elementor); snapshots the prior `active_plugins` option |
+| `activate-plugin` | write (safe) | Activate an installed plugin; snapshots the prior `active_plugins` option. On multisite it stays on the current site (a network-only plugin is refused) unless a network admin passes `network_wide: true`, which also snapshots `active_sitewide_plugins` |
+| `deactivate-plugin` | write (safe) | Deactivate a plugin; refuses protected packages (wpmcp, Elementor); snapshots the prior `active_plugins` option. On multisite a network-active plugin is only deactivated network-wide, by a network admin passing `network_wide: true` (also snapshots `active_sitewide_plugins`) |
 | `install-plugin` | write | Install a plugin from wordpress.org by slug, optionally activating it |
 | `search-plugins` | read | Search the wordpress.org plugin directory by keyword, with optional tag/author filters and a capped `per_page` |
 | `get-plugin-info` | read | Fetch full wordpress.org plugin directory info for a slug: version, rating, installs, homepage, download link, and compatibility |

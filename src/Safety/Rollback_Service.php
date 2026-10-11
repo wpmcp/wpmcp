@@ -436,7 +436,13 @@ class Rollback_Service
                 return [];
             }
             $declared = $snapshot['data']['restore_capability'] ?? null;
-            return [ [ is_string($declared) && '' !== $declared ? $declared : 'manage_options' ] ];
+            $caps     = [ [ is_string($declared) && '' !== $declared ? $declared : 'manage_options' ] ];
+            // A network plugin write also put back active_sitewide_plugins
+            // (issue #557), which only a network admin may change.
+            if (is_array($snapshot['data']['network_plugins'] ?? null)) {
+                $caps[] = [ 'manage_network_plugins' ];
+            }
+            return $caps;
         }
         // A comment snapshot holds the whole comment row, author email and
         // IP included, so restoring one takes moderate_comments, the
@@ -745,6 +751,14 @@ class Rollback_Service
                 // The post half still goes through the oldest-first pass.
                 unset($snapshot['data']['compiled_widget_entry']);
             }
+            // A network plugin write's active_sitewide_plugins (issue #557)
+            // likewise: unwound newest first, every one, so the network list
+            // lands on its pre-session value even when the session's oldest
+            // active_plugins snapshot was a site-only write that holds none.
+            if (is_array($snapshot['data']['network_plugins'] ?? null)) {
+                self::restore_network_plugins($snapshot['data']['network_plugins']);
+                unset($snapshot['data']['network_plugins']);
+            }
             $legacy[] = [ 'snapshot' => $snapshot, 'id' => $row_id, 'live' => true ];
         }
 
@@ -1031,6 +1045,22 @@ class Rollback_Service
     {
         return 'option' === $snapshot['object_type']
             && is_array($snapshot['data']['compiled_widget'] ?? null);
+    }
+
+    /**
+     * Put the network's active_sitewide_plugins back as a network plugin
+     * write found it (issue #557, Plugin_Network_Scope::snapshot_data()).
+     */
+    private static function restore_network_plugins(array $state): void
+    {
+        if (! is_multisite()) {
+            return;
+        }
+        if (! empty($state['existed'])) {
+            update_site_option('active_sitewide_plugins', (array) ($state['value'] ?? []));
+        } else {
+            delete_site_option('active_sitewide_plugins');
+        }
     }
 
     private static function restore_compiled_widget_entry(array $state): void
@@ -1717,6 +1747,15 @@ class Rollback_Service
         // (set-widget-status, update-custom-widget): restore the post first,
         // then the flag, so the undo brings back the spec AND the compiled
         // path it was rendering through.
+        // A network plugin write (issue #557) put back the site's
+        // active_plugins and the network's active_sitewide_plugins.
+        if (is_array($snapshot['data']['network_plugins'] ?? null)) {
+            $network = $snapshot['data']['network_plugins'];
+            unset($snapshot['data']['network_plugins']);
+            self::apply_snapshot($snapshot);
+            self::restore_network_plugins($network);
+            return;
+        }
         if (is_array($snapshot['data']['compiled_widget_entry'] ?? null)) {
             $entry = $snapshot['data']['compiled_widget_entry'];
             unset($snapshot['data']['compiled_widget_entry']);
