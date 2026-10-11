@@ -389,4 +389,26 @@ class BackupScheduleTest extends \WP_UnitTestCase
         $entry = Governance_Audit_Log::list(1)[0];
         $this->assertSame('backup-schedule:full:pruned=' . $first, $entry['reason']);
     }
+
+    /**
+     * Issue #541 only touches multisite: on single site a schedule keeps
+     * running whoever set it, even a record with no creator at all.
+     */
+    public function test_single_site_schedules_run_regardless_of_their_recorded_creator(): void
+    {
+        if (is_multisite()) {
+            $this->markTestSkipped('Single site only.');
+        }
+        (new Trigger_Backup())->handle(['type' => 'full', 'every' => 'daily']);
+        $schedules = get_option(Backup_Schedule::OPTION);
+        unset($schedules['full']['set_by']);
+        update_option(Backup_Schedule::OPTION, $schedules, false);
+        wp_set_current_user(0);
+
+        $job_id = $this->run_schedule('full');
+
+        $this->assertSame('completed', Backup_Job_Store::get($job_id)['status']);
+        $this->assertNotNull($this->event('full'));
+        $this->assertNull($this->schedule_report('full')['disabled']);
+    }
 }
