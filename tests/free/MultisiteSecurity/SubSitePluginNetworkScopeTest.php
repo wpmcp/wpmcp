@@ -255,14 +255,10 @@ class SubSitePluginNetworkScopeTest extends \WP_UnitTestCase
         $out = (new Activate_Plugin())->handle(['plugin' => $this->regular, 'network_wide' => true]);
 
         wp_set_current_user($this->admin);
-        $error = null;
-        try {
-            (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
-        } catch (\Throwable $e) {
-            $error = $e->getMessage();
-        }
+        $restored = (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
 
-        $this->assertNotNull($error, 'Restoring active_sitewide_plugins must take manage_network_plugins.');
+        $this->assertFalse($restored['restored'], 'Restoring active_sitewide_plugins must take manage_network_plugins.');
+        $this->assertStringContainsString('manage_network_plugins', implode(' ', (array) ($restored['warnings'] ?? [])));
         $this->assertTrue(is_plugin_active_for_network($this->regular));
     }
 }

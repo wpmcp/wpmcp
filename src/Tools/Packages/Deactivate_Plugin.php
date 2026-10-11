@@ -18,6 +18,10 @@ if (! defined('ABSPATH')) {
  *
  * Protected packages (wpmcp itself, Elementor free/pro) refuse outright:
  * see Package_Guard.
+ *
+ * On a multisite network a plugin active for the network is only
+ * deactivated network-wide, by a network admin passing network_wide: true;
+ * see Plugin_Network_Scope.
  */
 class Deactivate_Plugin
 {
@@ -36,6 +40,8 @@ class Deactivate_Plugin
             require_once ABSPATH . 'wp-admin/includes/plugin.php';
         }
 
+        $network_wide = Plugin_Network_Scope::for_deactivation($plugin, $args);
+
         $out = Safe_Mutation::run(
             [
                 'object_type'         => 'option',
@@ -43,13 +49,13 @@ class Deactivate_Plugin
                 'session_id'          => (string) ($args['session_id'] ?? 'default'),
                 'tool_name'           => 'deactivate-plugin',
                 'args'                => $args,
-                'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ],
+                'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ] + Plugin_Network_Scope::snapshot_data($network_wide),
             ],
-            function () use ($plugin): void {
-                deactivate_plugins([$plugin]);
+            function () use ($plugin, $network_wide): void {
+                deactivate_plugins([$plugin], false, $network_wide);
             }
         );
 
-        return ['operation_id' => $out['operation_id'], 'plugin' => $plugin, 'deactivated' => true];
+        return ['operation_id' => $out['operation_id'], 'plugin' => $plugin, 'deactivated' => true, 'network_wide' => $network_wide];
     }
 }

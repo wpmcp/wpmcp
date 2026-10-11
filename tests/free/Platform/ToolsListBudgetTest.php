@@ -244,7 +244,13 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  plugin-data pair, whose two descriptions name them in 24 bytes each,
      *  paid for by "matching args" to "its args" in the integration
      *  dispatcher read template (19 pairs) without dropping a rule:
-     *  208983 -> 208936 bytes over 407 tools. */
+     *  208983 -> 208936 bytes over 407 tools.
+     *  Network plugin scope (#557) added no tool: network_wide on
+     *  activate-plugin, deactivate-plugin and install-plugin (102 bytes),
+     *  paid for by "Undoable" in place of the active_plugins snapshot
+     *  wording and the rollbackable operation_id phrase on those three
+     *  descriptions without dropping a rule: 208936 -> 208990 bytes over
+     *  407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
