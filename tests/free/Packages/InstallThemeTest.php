@@ -61,6 +61,8 @@ class InstallThemeTest extends \WP_UnitTestCase
     {
         foreach (array_keys(wp_get_themes()) as $slug) {
             if ($slug !== get_stylesheet()) {
+                // On a network only an enabled theme may be activated (#529).
+                add_filter('allowed_themes', static fn ($allowed) => array_merge((array) $allowed, [$slug => true]));
                 return $slug;
             }
         }

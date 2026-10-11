@@ -25,7 +25,8 @@ if (! defined('ABSPATH')) {
  * switch_themes, while the ability itself is registered under install_themes.
  * The extra capability is therefore checked explicitly, and before the
  * download runs, so a partial request never leaves a theme on disk it was not
- * allowed to activate.
+ * allowed to activate. The same goes for a network that has not enabled the
+ * theme for this site (issue #529): that is refused up front too.
  *
  * wordpress.org-only: the slug must be a bare theme directory slug (letters,
  * digits, dashes, underscores), never a URL or filesystem path. themes_api()
@@ -49,6 +50,8 @@ class Install_Theme
         $activate = ! empty($args['activate']);
         if ($activate) {
             self::require_switch_capability();
+            // On a network, a theme this site may not use (issue #529).
+            Switch_Theme::require_allowed($slug);
         }
 
         if (! Package_Guard::filesystem_ready()) {

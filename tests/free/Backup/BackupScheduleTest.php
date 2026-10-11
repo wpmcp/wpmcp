@@ -39,6 +39,10 @@ class BackupScheduleTest extends \WP_UnitTestCase
         update_option('gmt_offset', 0);
         Backup_Job_Store::set_clock_for_tests(self::NOW);
         $this->admin = self::factory()->user->create(['role' => 'administrator']);
+        // On multisite these tools are network-admin only (issue #525).
+        if (is_multisite()) {
+            grant_super_admin($this->admin);
+        }
         wp_set_current_user($this->admin);
     }
 

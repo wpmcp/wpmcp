@@ -19,7 +19,7 @@ class Describe_Table
             throw new \InvalidArgumentException('A table name is required.');
         }
 
-        $table = Database_Guard::valid_table($requested);
+        $table = Database_Guard::scoped_table($requested);
         if (is_wp_error($table)) {
             throw new \RuntimeException(esc_html($table->get_error_message()));
         }

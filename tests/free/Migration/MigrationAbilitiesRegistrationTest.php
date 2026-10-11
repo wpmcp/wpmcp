@@ -44,6 +44,10 @@ class MigrationAbilitiesRegistrationTest extends \WP_UnitTestCase
         }
 
         $admin = self::factory()->user->create(['role' => 'administrator']);
+        // On multisite these tools are network-admin only (issue #525).
+        if (is_multisite()) {
+            grant_super_admin($admin);
+        }
         wp_set_current_user($admin);
         foreach (self::NAMES as $name) {
             $this->assertTrue($abilities[ $name ]->check_permissions(), "{$name} must allow an administrator");
