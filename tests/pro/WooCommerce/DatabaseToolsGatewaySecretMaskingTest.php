@@ -197,6 +197,8 @@ class DatabaseToolsGatewaySecretMaskingTest extends \WP_UnitTestCase
         $queries = [
             $wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::OPTION),
             $wpdb->prepare("SELECT option_name AS n, option_value AS v FROM {$wpdb->options} WHERE option_name = %s", self::OPTION),
+            // Not valid serialized data any more: scrubbed as plain text.
+            $wpdb->prepare("SELECT SUBSTRING(option_value, 2) AS s FROM {$wpdb->options} WHERE option_name = %s", self::OPTION),
         ];
         foreach ($queries as $sql) {
             $out = (new Query())->handle([ 'sql' => $sql ]);
