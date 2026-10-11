@@ -21,7 +21,9 @@ class AbilitiesInitCoverageTest extends \WP_UnitTestCase
             $this->markTestSkipped('This run collects no coverage.');
         }
 
-        $lines = $coverage->getData()->lineCoverage();
+        // Raw: the processed view would include every uncovered src/ file
+        // into this process mid-run.
+        $lines = $coverage->getData(true)->lineCoverage();
 
         // The category registration only ever runs inside the registry's
         // first build, which is the listener's.
