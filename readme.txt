@@ -112,7 +112,7 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 == Changelog ==
 
 = 0.8.165 =
-* New (paid tier): Amelia employees and events. Agents can now create and change Amelia employees with their working hours, breaks and days off, create, change, open or cancel events, and add event attendees, refused when the event has too few places left. No new tools: the operations sit on the existing plugin-data pair.
+* Pro: Amelia employees and events. Agents can now create and change Amelia employees with their working hours, breaks and days off, create, change, open or cancel events, and add event attendees, refused when the event has too few places left. No new tools: the operations sit on the existing plugin-data pair.
 * Amelia categories, services, employees and customers can be deleted with confirmation, and only while nothing uses them; appointments and events are cancelled, never deleted. Amelia Lite's one-employee limit is refused by name. Customer emails stay held unless the agent asks to notify, and every change can be undone with rollback-operation.
 
 = 0.8.164 =
@@ -815,7 +815,7 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 == Upgrade Notice ==
 
 = 0.8.165 =
-New (paid tier): Amelia employees and events. Agents can now create and change Amelia employees with their working hours, breaks and days off, create, change, open or cancel events, and add event attendees, refused when the event has too few places left. No new tools: the operations sit on the existing plugin-data pair.
+Pro: Amelia employees and events. Agents can now create and change Amelia employees with their working hours, breaks and days off, create, change, open or cancel events, and add event attendees, refused when the event has too few places left. No new tools: the operations sit on the existing plugin-data pair.
 
 = 0.8.164 =
 Security: agent memory entries can no longer be published, edited, created, copied, deleted or rolled back through the generic content, meta, staging, rollback or database row tools, even on an administrator connection. Entries are proposed with the memory tools and go live only when an administrator approves them in wp-admin.
