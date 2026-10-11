@@ -14,6 +14,18 @@ use WPMCP\Tools\Database\Query;
  */
 class UserTableReadGuardTest extends \WP_UnitTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // The users tables are network-wide on multisite, so only a network
+        // operator may read them through query at all (issue #526).
+        if (is_multisite()) {
+            $super = (int) self::factory()->user->create();
+            grant_super_admin($super);
+            wp_set_current_user($super);
+        }
+    }
+
     protected function tearDown(): void
     {
         Database_Guard::set_no_backslash_escapes_override(null);
@@ -92,6 +104,17 @@ class UserTableReadGuardTest extends \WP_UnitTestCase
             );
         }
         Database_Guard::set_no_backslash_escapes_override(null);
+    }
+
+    public function test_double_dash_arithmetic_cannot_hide_a_user_table_read(): void
+    {
+        global $wpdb;
+        // "1--1" is 1 minus -1 to MySQL and MariaDB: "--" only starts a
+        // comment when whitespace follows, so the rest of the line is live.
+        $sql = "SELECT 1--1, user_pass FROM {$wpdb->users} LIMIT 1";
+
+        $this->assertTrue(Database_Guard::sql_mentions_user_tables($sql));
+        $this->assertSame('users_table_read_blocked', $this->guard_code($sql));
     }
 
     public function test_lookalike_tables_do_not_match(): void

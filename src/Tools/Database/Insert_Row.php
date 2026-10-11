@@ -35,7 +35,7 @@ class Insert_Row
             throw new \InvalidArgumentException('A non-empty data object is required.');
         }
 
-        $table = Database_Guard::valid_table((string) ($args['table'] ?? ''));
+        $table = Database_Guard::scoped_table((string) ($args['table'] ?? ''));
         if (is_wp_error($table)) {
             throw new \RuntimeException(esc_html($table->get_error_message()));
         }
