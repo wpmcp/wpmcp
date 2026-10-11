@@ -256,6 +256,12 @@ class Post_Stage
         }
 
         $original = get_post($of);
+        // The original must be writable here too (issue #517): the link is
+        // only meta, and a stage must never carry content onto a post the
+        // content tools may not write, such as an agent memory entry.
+        if ($original instanceof \WP_Post && ! Content_Guard::is_writable_post_type((string) $original->post_type)) {
+            throw new \InvalidArgumentException('Post ' . (int) $stage_id . ' is not a stage.');
+        }
         $live     = $original instanceof \WP_Post && 'trash' !== $original->post_status;
         if ($need_original && ! $live) {
             throw new \RuntimeException('The original of stage ' . (int) $stage_id . ' is gone; discard the stage.');

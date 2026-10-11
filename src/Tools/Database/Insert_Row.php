@@ -44,6 +44,11 @@ class Insert_Row
             throw new \RuntimeException(sprintf('Refusing to write to protected table "%s".', esc_html($table)));
         }
 
+        $store = Database_Guard::store_rows_refusal($table, [], $data);
+        if (null !== $store) {
+            throw new \RuntimeException(esc_html($store));
+        }
+
         global $wpdb;
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- The tool's purpose is a direct insert into an arbitrary Database_Guard-validated table; wpdb::insert() parameterizes the values and core has no API for arbitrary tables.
         $affected = $wpdb->insert($table, $data);
