@@ -302,6 +302,11 @@ class ThemeScaffoldAndPackTest extends \WP_UnitTestCase
             'session_id' => 's-69-session',
         ]);
         $this->assertTrue($out['result']['created']);
+        if (is_multisite()) {
+            // A network administrator enables a theme before a site may
+            // switch to it (issue #529).
+            \WP_Theme::network_enable_theme(self::SLUG);
+        }
 
         \WPMCP\Tools\Packages\Switch_Theme::snapshot_and_switch(self::SLUG, 'switch-theme', [ 'session_id' => 's-69-session' ]);
         $this->assertSame(self::SLUG, get_option('stylesheet'));
