@@ -7,13 +7,11 @@ use WPMCP\Tools\Multisite\Multisite_Adapter;
 /**
  * Multisite_Adapter's live-network methods (network_info(), list_sites(),
  * site_details()) call get_network(), get_sites(), get_site(), etc., which
- * are only meaningful on an actual WordPress network. This unit-test harness
- * boots WordPress in single-site mode (is_multisite() is false), so those
- * live paths cannot be exercised here; that is a production-only concern,
- * matching how I18nAdapterTest treats Polylang/WPML methods that need a
- * booted plugin.
+ * are only meaningful on an actual WordPress network; the multisite leg
+ * (bin/test-local.sh --multisite, issue #530) runs them through the tool
+ * tests next to this one.
  *
- * What IS testable here, without a network, is the pure normalization logic:
+ * What is testable without a network is the pure normalization logic:
  * given already-fetched WP_Site-shaped data, does the adapter map it to the
  * plain-array neutral shape correctly. Those normalizers are exercised below
  * with hand-built stdClass fixtures so the mapping is covered independently
@@ -23,6 +21,9 @@ class MultisiteAdapterTest extends \WP_UnitTestCase
 {
     public function test_is_network_reports_false_in_this_single_site_harness(): void
     {
+        if (is_multisite()) {
+            $this->markTestSkipped('Single-site by nature: asserts the answer outside a network; the multisite leg (issue #530) runs this on one.');
+        }
         $this->assertFalse(Multisite_Adapter::is_network());
     }
 

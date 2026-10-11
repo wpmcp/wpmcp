@@ -33,6 +33,7 @@ class ManageUpdatesTest extends \WP_UnitTestCase
         Snapshot_Store::install();
         delete_option(Backup_Job_Store::OPTION);
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->core_calls = [];
         $this->db_calls   = 0;
     }
@@ -234,6 +235,9 @@ class ManageUpdatesTest extends \WP_UnitTestCase
 
     public function test_plugin_auto_update_toggle_is_snapshotted_and_undoable(): void
     {
+        if (is_multisite()) {
+            $this->markTestSkipped('Single-site by nature: on a network auto-updates are network-wide and the tool refuses (see test_auto_update_toggle_refuses_on_a_network).');
+        }
         update_option('auto_update_plugins', []);
 
         $out = $this->tool()->handle(['type' => 'plugin', 'item' => 'akismet/akismet.php', 'enabled' => true]);
@@ -249,6 +253,9 @@ class ManageUpdatesTest extends \WP_UnitTestCase
 
     public function test_theme_auto_update_toggle_is_snapshotted_and_undoable(): void
     {
+        if (is_multisite()) {
+            $this->markTestSkipped('Single-site by nature: on a network auto-updates are network-wide and the tool refuses (see test_auto_update_toggle_refuses_on_a_network).');
+        }
         $theme = get_stylesheet();
         update_option('auto_update_themes', [ $theme ]);
 
@@ -264,6 +271,9 @@ class ManageUpdatesTest extends \WP_UnitTestCase
 
     public function test_auto_update_toggle_refuses_unknown_items_and_missing_enabled(): void
     {
+        if (is_multisite()) {
+            $this->markTestSkipped('Single-site by nature: on a network auto-updates are network-wide and the tool refuses (see test_auto_update_toggle_refuses_on_a_network).');
+        }
         try {
             $this->tool()->handle(['type' => 'plugin', 'item' => 'ghost/ghost.php', 'enabled' => true]);
             $this->fail('Expected unknown plugin refusal.');
@@ -273,6 +283,22 @@ class ManageUpdatesTest extends \WP_UnitTestCase
 
         $this->expectException(\InvalidArgumentException::class);
         $this->tool()->handle(['type' => 'theme', 'item' => get_stylesheet()]);
+    }
+
+    public function test_auto_update_toggle_refuses_on_a_network(): void
+    {
+        if (! is_multisite()) {
+            $this->markTestSkipped('Needs a network: runs in the multisite leg (bin/test-local.sh --multisite, issue #530).');
+        }
+        update_site_option('auto_update_plugins', []);
+
+        try {
+            $this->tool()->handle(['type' => 'plugin', 'item' => 'akismet/akismet.php', 'enabled' => true]);
+            $this->fail('Expected the network-wide refusal.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Network Admin', $e->getMessage());
+        }
+        $this->assertSame([], (array) get_site_option('auto_update_plugins'));
     }
 
     public function test_unknown_type_is_refused(): void

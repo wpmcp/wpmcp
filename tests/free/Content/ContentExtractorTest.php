@@ -86,6 +86,7 @@ class ContentExtractorTest extends \WP_UnitTestCase
         // unfiltered_html capability; wp_kses_post strips form controls
         // otherwise. An administrator has it on single-site installs.
         wp_set_current_user($this->factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $id = $this->post(
             '<form><label for="email">Email</label><input id="email" type="email">'

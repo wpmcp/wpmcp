@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Database;
 
 use WPMCP\Tools\Content\Content_Guard;
+use WPMCP\Tools\WooCommerce\Gateway_Secrets;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -398,6 +399,183 @@ class Database_Guard
         }
 
         return $rows;
+    }
+
+    /**
+     * Shortest stored credential the value scrub in mask_gateway_secrets()
+     * looks for anywhere in a result: shorter values ("yes", "live") would
+     * mask unrelated text. Credentials of any length are still masked by key
+     * on a row that names its gateway settings option.
+     */
+    public const GATEWAY_SECRET_SCRUB_MIN = 8;
+
+    /**
+     * Mask payment gateway credentials in database tool output (issue
+     * #528), with the shared Gateway_Secrets rule that get-option and
+     * call-rest use (#507). Two layers:
+     *  - a row whose option_name is a registered gateway's settings option
+     *    gets its option_value unserialized, masked by key with
+     *    Gateway_Secrets::mask_option() and serialized again;
+     *  - every other string cell (an aliased or option_name-less select, a
+     *    before_image, a JOIN) is scrubbed of the stored credential values
+     *    themselves, inside serialized arrays or as plain substrings.
+     * SQL that transforms a value (HEX, REVERSE...) can still evade the
+     * scrub, as it can mask_user_secrets(). Only the returned copy changes:
+     * callers keep the raw rows for snapshots and the audit log, so a
+     * rollback restores the exact stored credentials.
+     *
+     * @param array<int, mixed> $rows
+     * @return array<int, mixed>
+     */
+    public static function mask_gateway_secrets(array $rows): array
+    {
+        if (! function_exists('WC') || ! class_exists('WC_Payment_Gateway')) {
+            return $rows;
+        }
+
+        // A before_image outlives the value it captured (the write has
+        // already replaced or deleted it), so the gateway rows in $rows add
+        // their own credentials to what is stored now.
+        $secrets = self::gateway_secret_values($rows);
+
+        foreach ($rows as $index => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $option = isset($row['option_name']) && is_string($row['option_name']) ? $row['option_name'] : '';
+            foreach ($row as $column => $value) {
+                if (! is_string($value)) {
+                    continue;
+                }
+                $masked = ('option_value' === $column && '' !== $option)
+                    ? self::mask_gateway_option_value($option, $value)
+                    : $value;
+                $rows[ $index ][ $column ] = self::scrub_gateway_secrets($masked, $secrets);
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * The non-empty credential values of every registered payment gateway,
+     * as stored now and as carried by any gateway settings row in $rows,
+     * longest first.
+     *
+     * @param array<int, mixed> $rows
+     * @return array<int, string>
+     */
+    private static function gateway_secret_values(array $rows): array
+    {
+        $registry = WC()->payment_gateways();
+        $gateways = is_object($registry) && method_exists($registry, 'payment_gateways') ? (array) $registry->payment_gateways() : [];
+
+        $values = [];
+        foreach ($gateways as $gateway) {
+            if ($gateway instanceof \WC_Payment_Gateway) {
+                $stored = get_option($gateway->get_option_key());
+                if (is_array($stored)) {
+                    self::collect_gateway_secrets($gateway, $stored, $values);
+                }
+            }
+        }
+
+        foreach ($rows as $row) {
+            if (! is_array($row) || ! is_string($row['option_name'] ?? null) || ! is_string($row['option_value'] ?? null)) {
+                continue;
+            }
+            $gateway  = Gateway_Secrets::gateway_for_option($row['option_name']);
+            $settings = null === $gateway ? null : self::unserialize_array($row['option_value']);
+            if (null !== $settings) {
+                self::collect_gateway_secrets($gateway, $settings, $values);
+            }
+        }
+
+        $values = array_values(array_unique($values));
+        usort($values, static fn (string $a, string $b): int => strlen($b) - strlen($a));
+        return $values;
+    }
+
+    /**
+     * Add a gateway's credential values from $settings to $values, skipping
+     * those too short to scrub safely.
+     *
+     * @param array<mixed>      $settings
+     * @param array<int, string> $values
+     */
+    private static function collect_gateway_secrets(\WC_Payment_Gateway $gateway, array $settings, array &$values): void
+    {
+        foreach (Gateway_Secrets::secret_keys($gateway, $settings) as $key) {
+            $value = $settings[ $key ] ?? null;
+            if (is_scalar($value) && strlen((string) $value) >= self::GATEWAY_SECRET_SCRUB_MIN) {
+                $values[] = (string) $value;
+            }
+        }
+    }
+
+    /** A serialized gateway settings option_value with its secrets masked by key. */
+    private static function mask_gateway_option_value(string $option, string $value): string
+    {
+        $settings = self::unserialize_array($value);
+        if (null === $settings) {
+            return $value;
+        }
+
+        $masked = Gateway_Secrets::mask_option($option, $settings);
+        return $masked === $settings ? $value : serialize($masked); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- re-encodes an option_value in the same serialized form the options table stores.
+    }
+
+    /**
+     * Replace every stored credential in $value with the mask: element by
+     * element inside a serialized array (so the result stays valid
+     * serialized data), as a substring otherwise.
+     *
+     * @param array<int, string> $secrets
+     */
+    private static function scrub_gateway_secrets(string $value, array $secrets): string
+    {
+        $hit = false;
+        foreach ($secrets as $secret) {
+            if (false !== strpos($value, $secret)) {
+                $hit = true;
+                break;
+            }
+        }
+        if (! $hit) {
+            return $value;
+        }
+
+        $array = self::unserialize_array($value);
+        if (null !== $array) {
+            array_walk_recursive(
+                $array,
+                static function (&$item) use ($secrets): void {
+                    if (is_string($item)) {
+                        $item = str_replace($secrets, Gateway_Secrets::MASK, $item);
+                    }
+                }
+            );
+            return serialize($array); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- re-encodes a serialized cell in the same form it was read in.
+        }
+
+        return str_replace($secrets, Gateway_Secrets::MASK, $value);
+    }
+
+    /**
+     * A serialized array decoded without instantiating any class, or null
+     * when $value is not one.
+     *
+     * @return array<mixed>|null
+     */
+    private static function unserialize_array(string $value): ?array
+    {
+        if (! is_serialized($value)) {
+            return null;
+        }
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize -- allowed_classes:false never instantiates an object; the value is only re-encoded for display.
+        $decoded = @unserialize($value, [ 'allowed_classes' => false ]);
+        return is_array($decoded) ? $decoded : null;
     }
 
     /**

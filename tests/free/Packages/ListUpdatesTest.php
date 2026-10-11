@@ -15,6 +15,7 @@ class ListUpdatesTest extends \WP_UnitTestCase
     {
         parent::setUp();
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
     }
 
     protected function tearDown(): void
@@ -40,7 +41,7 @@ class ListUpdatesTest extends \WP_UnitTestCase
         set_site_transient('update_themes', (object) [
             'response' => [ $theme => [ 'theme' => $theme, 'new_version' => '99.2' ] ],
         ]);
-        update_option('auto_update_plugins', [ 'akismet/akismet.php' ]);
+        update_site_option('auto_update_plugins', [ 'akismet/akismet.php' ]);
 
         $out = (new List_Plugins())->handle(['updates' => true]);
 

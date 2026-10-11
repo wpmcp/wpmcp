@@ -279,6 +279,10 @@ class WooObjectCapabilityTest extends \WP_UnitTestCase
     {
         $admin = self::factory()->user->create([ 'role' => 'administrator' ]);
         wp_set_current_user(self::factory()->user->create([ 'role' => $role ]));
+        // On a network only a super admin edits another account (issue #530).
+        if ('administrator' === $role) {
+            wpmcp_test_grant_network_admin(get_current_user_id());
+        }
         $this->granted = 'manage_woocommerce';
 
         $this->assertSame('administrator' === $role, $this->permits('customers.update', [ 'id' => $admin, 'first_name' => 'x' ]));

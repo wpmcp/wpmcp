@@ -73,6 +73,10 @@ class Query
             $rows = Database_Guard::mask_user_secrets($rows);
         }
 
+        // Payment gateway credentials are masked on every read path
+        // (issues #507, #528).
+        $rows = Database_Guard::mask_gateway_secrets($rows);
+
         return [
             'rows'      => $rows,
             'row_count' => count($rows),

@@ -94,7 +94,7 @@ class RestoreSessionTest extends \WP_UnitTestCase
     {
         $admin    = self::factory()->user->create(['role' => 'administrator']);
         $captured = Restore_Session::capture($admin);
-        wp_delete_user($admin);
+        wpmcp_test_delete_account($admin);
 
         $out = Restore_Session::reapply($captured);
 

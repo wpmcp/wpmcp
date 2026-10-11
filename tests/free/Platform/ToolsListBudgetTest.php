@@ -252,6 +252,12 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
     {
         $tools = [];
         foreach (RegisteredAbilities::all() as $ability) {
+            // The budget pins the single-site surface every change is
+            // measured on; a network's three extra tools (issue #530) are
+            // left out so the multisite leg measures the same thing.
+            if (in_array($ability->name, RegisteredAbilities::NETWORK_ONLY, true)) {
+                continue;
+            }
             $tools[] = [
                 'name'        => $ability->name,
                 'description' => $ability->description,
