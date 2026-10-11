@@ -293,6 +293,11 @@ class InternalStoreGatewaySecretReadTest extends \WP_UnitTestCase
         $this->assertSame($wpdb->options, $last['table']);
         $this->assertMaskedSettings($last['before'][0]['option_value'], 'query on the audit log row');
 
+        // Without the option_name column the row is still recognized.
+        $bare = (new Query())->handle([ 'sql' => $wpdb->prepare("SELECT option_value AS v FROM {$wpdb->options} WHERE option_name = %s", Database_Guard::AUDIT_OPTION) ]);
+        $this->assertSame(1, $bare['row_count']);
+        $this->assertNoCredential($bare, 'query on the audit log value without its option_name');
+
         // SELECT * reaches the same row.
         $all = (new Query())->handle([ 'sql' => "SELECT * FROM {$wpdb->options} WHERE option_name LIKE 'wpmcp\\_db\\_write\\_audit%'" ]);
         $this->assertGreaterThan(0, $all['row_count']);
