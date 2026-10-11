@@ -495,6 +495,9 @@ final class Plugin
         // cache and refreshes the map (issue #481).
         [\WPMCP\Integrations\TablePress_Pack::class, 'after_options_restored'],
         [\WPMCP\Integrations\TablePress_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],
+        // An undo of a TablePress id map write puts back only the entries
+        // that write touched, so later tables stay (issue #555).
+        [\WPMCP\Integrations\TablePress_Pack::class, 'narrow_map_restore', 'wpmcp_rollback_option_snapshot'],
         // A translation made by create-translation leaves its source's group
         // when its creation is undone, and a page text write that held the
         // multilingual plugin's sync off is undone with it held off too

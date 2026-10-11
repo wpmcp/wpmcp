@@ -808,7 +808,14 @@ class Rollback_Service
             return;
         }
 
-        $name = (string) $snapshot['data']['name'];
+        /*
+         * Filter: the option snapshot a rollback is about to put back. An
+         * option holding many independent entries (TablePress's table id
+         * map, issue #555) narrows it to the entries the undone write
+         * touched, so entries written since are kept.
+         */
+        $snapshot = (array) apply_filters('wpmcp_rollback_option_snapshot', $snapshot);
+        $name     = (string) $snapshot['data']['name'];
         if ($snapshot['data']['existed']) {
             update_option($name, $snapshot['data']['value']);
         } else {
