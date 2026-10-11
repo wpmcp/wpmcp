@@ -7,12 +7,20 @@
 # What it does, in order:
 #   1. Starts a private MariaDB server under the cache directory, if one is not
 #      already running. It never touches a system MySQL or MariaDB.
-#   2. Installs WordPress, its test library and the pinned test plugins once per
+#   2. Installs WordPress, its test library and the test plugins once per
 #      WordPress version into the cache. The install directory is keyed on a
 #      hash of bin/install-wp-tests.sh and bin/install-test-plugins.sh, so a
 #      branch that edits either script gets its own install instead of wiping
-#      one that other worktrees are running against. Stale installs are left
-#      behind; delete wp-* under the cache when nothing is running.
+#      one that other worktrees are running against, and on the version of
+#      every test plugin (issue #532): the pinned ones, and for the rest the
+#      latest stable release, asked of WordPress.org once per run. A new
+#      release therefore gets a new install, built from the newest install of
+#      the same installers with only the changed plugins reinstalled. Offline,
+#      the run uses that newest cached install and says so. Each leg's summary
+#      line names the plugin versions it ran against. An install keyed this
+#      way that no run has used for three days is deleted when a new one is
+#      built; installs from before issue #532 are left behind: delete wp-*
+#      under the cache when nothing is running.
 #   3. Gives this checkout its own database, so worktrees can run side by side.
 #   4. Runs composer lint, composer drift:check, then the suite on the default
 #      WordPress (with the coverage floor when pcov is loaded), then the suite
@@ -81,6 +89,8 @@
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments, default WordPress only; skips lint,
 #                                     drift, coverage, the floor leg and the live groups
 #   bin/test-local.sh --plan [...]    print the legs the other options would run, run nothing
+#   bin/test-local.sh --resolve-plugins [--wp V] print the test plugin versions and the
+#                                     install a run would use, install nothing
 #   bin/test-local.sh --stop-db       stop the private MariaDB server and exit
 #
 # Environment:
@@ -95,6 +105,8 @@
 #                        the latest on WordPress.org, asked for on every run)
 #   ELEMENTOR_VERSION    passed to bin/install-test-plugins.sh ('latest' tests
 #                        against the newest Elementor in a separate install)
+#   WPMCP_PLUGIN_INFO_URL where to ask for a plugin's latest release, %s for
+#                        the slug (default: the WordPress.org plugins info API)
 
 set -euo pipefail
 
@@ -137,6 +149,7 @@ only_live_amelia=false
 only_live_adapter=false
 coverage=true
 plan_only=false
+resolve_only=false
 phpunit_args=()
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -156,6 +169,7 @@ while [ $# -gt 0 ]; do
 		--live-adapter) only_live_adapter=true ;;
 		--stop-db) stop_db=true ;;
 		--plan) plan_only=true ;;
+		--resolve-plugins) resolve_only=true ;;
 		--) shift; phpunit_args=("$@"); break ;;
 		-h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
 		*) die "unknown option: $1 (see --help)" ;;
@@ -259,7 +273,9 @@ if [ "$plan_only" = true ]; then
 	exit 0
 fi
 
-BIN=$(mariadb_dir)
+# --resolve-plugins needs no database.
+BIN=""
+[ "$resolve_only" = true ] || BIN=$(mariadb_dir)
 
 db_ping() { "$BIN/mariadb-admin" --no-defaults --socket="$SOCK" -uroot ping >/dev/null 2>&1; }
 
@@ -339,9 +355,10 @@ start_db_locked() {
 
 # ---------------------------------------------------------------- WordPress
 
-# Installs WordPress <version> once and prints the install directory.
-install_wp() {
-	local version=$1 flavor="" dir hash
+# The flavor of the current environment's install: which plugin set
+# bin/install-test-plugins.sh installs.
+install_flavor() {
+	local flavor=""
 	[ "${ELEMENTOR_VERSION:-}" = latest ] && flavor="-elementor-latest"
 	# WPMCP_LIVE_FORMS=1 makes bin/install-test-plugins.sh install Contact
 	# Form 7 and Flamingo INSTEAD of the usual set, so it gets its own install.
@@ -362,32 +379,151 @@ install_wp() {
 	[ "${WPMCP_LIVE_AMELIA:-}" = 1 ] && flavor="-amelia-live"
 	# And WPMCP_LIVE_BREAKDANCE=1 and the local Breakdance copy.
 	[ "${WPMCP_LIVE_BREAKDANCE:-}" = 1 ] && flavor="-breakdance-live"
-	# The installers' hash is part of the directory, not a stamp inside it:
-	# branches carrying different installers (a moved plugin pin, say) get
-	# separate installs, so one run never deletes an install another run is
-	# testing against.
-	hash=$(cat "$ROOT/bin/install-wp-tests.sh" "$ROOT/bin/install-test-plugins.sh" | shasum | cut -c1-12)
-	dir="$CACHE/wp-$version$flavor-$hash"
+	echo "$flavor"
+}
 
-	if [ ! -f "$dir/.ready" ]; then
-		with_lock "install-$version$flavor-$hash" install_wp_locked "$version" "$flavor" "$dir"
+# Prints the latest release of WordPress.org plugin <slug>, or nothing when
+# WordPress.org does not answer.
+wporg_latest() {
+	local url info version
+	url=${WPMCP_PLUGIN_INFO_URL:-'https://api.wordpress.org/plugins/info/1.2/?action=plugin_information&request%5Bslug%5D=%s&request%5Bfields%5D%5Bsections%5D=0'}
+	info=$(curl -fsSL --max-time 30 "${url//%s/$1}" 2>/dev/null || true)
+	# shellcheck disable=SC2016 # PHP code, expanded by PHP.
+	version=$("$PHP" -r '$d = json_decode(stream_get_contents(STDIN), true); echo is_array($d) && isset($d["version"]) && is_string($d["version"]) ? $d["version"] : "";' <<<"$info")
+	[[ "$version" =~ ^[0-9]+(\.[0-9]+)*(-[0-9A-Za-z.]+)?$ ]] && echo "$version"
+	return 0
+}
+
+# Prints "slug=version" for every WordPress.org plugin the current
+# environment's install carries: its pin, or else its latest release. Each
+# release is asked for once per run and kept in $RESOLVED, so every leg of a
+# run keys on the same versions. Fails when a release cannot be resolved.
+plugin_versions() {
+	local slug main pinned version
+	while read -r slug main pinned; do
+		[ -n "$slug" ] || continue
+		version=$pinned
+		if [ "$pinned" = latest ]; then
+			if grep -q "^$slug=" "$RESOLVED" 2>/dev/null; then
+				version=$(sed -n "s/^$slug=//p" "$RESOLVED" | head -1)
+			else
+				version=$(wporg_latest "$slug")
+				echo "$slug=$version" >>"$RESOLVED"
+			fi
+			[ -n "$version" ] || return 1
+		fi
+		echo "$slug=$version"
+	done < <(bash "$ROOT/bin/install-test-plugins.sh" --list)
+}
+
+# The newest ready install keyed on plugin versions under <base>, if any.
+newest_install() {
+	local d best=""
+	for d in "$1"-plugins-*/; do
+		d=${d%/}
+		[ -f "$d/.ready" ] || continue
+		if [ -z "$best" ] || [ "$d/.ready" -nt "$best/.ready" ]; then
+			best=$d
+		fi
+	done
+	echo "$best"
+}
+
+# Prints the install directory for WordPress <version> in the current
+# environment. The installers' hash is part of the directory, not a stamp
+# inside it: branches carrying different installers (a moved plugin pin, say)
+# get separate installs, so one run never deletes an install another run is
+# testing against. So are the plugin versions (issue #532), so a new release
+# gets an install of its own. When WordPress.org does not answer, it is the
+# newest cached install of these installers.
+install_target() {
+	local version=$1 base pins dir
+	base="$CACHE/wp-$version$(install_flavor)-$(cat "$ROOT/bin/install-wp-tests.sh" "$ROOT/bin/install-test-plugins.sh" | shasum | cut -c1-12)"
+	if pins=$(plugin_versions); then
+		echo "$base-plugins-$(printf '%s\n' "$pins" | shasum | cut -c1-8)"
+		return 0
 	fi
+	dir=$(newest_install "$base")
+	[ -n "$dir" ] || die "could not ask WordPress.org for the latest test plugin releases, and no $(basename "$base") install is cached"
+	say "WordPress.org did not answer; testing the newest cached install, $(basename "$dir")." >&2
+	echo "$dir"
+}
+
+# Installs WordPress <version> once and prints the install directory.
+install_wp() {
+	local version=$1 dir
+	dir=$(install_target "$version") || exit 1
+	if [ ! -f "$dir/.ready" ]; then
+		with_lock "install-$(basename "$dir")" install_wp_locked "$version" "$dir"
+	fi
+	# Marks the install as in use, so pruning leaves it alone.
+	touch "$dir/.last-used"
+	plugin_note "$dir"
 	echo "$dir"
 }
 
 install_wp_locked() {
-	local version=$1 flavor=$2 dir=$3
+	local version=$1 dir=$2 pins from
 	[ -f "$dir/.ready" ] && return 0
 	command -v svn >/dev/null 2>&1 || die "svn is required by bin/install-wp-tests.sh: brew install subversion"
-	say "Installing WordPress $version$flavor into $dir" >&2
+	pins=$(plugin_versions | tr '\n' ' ') || die "could not resolve the test plugin versions"
+	from=$(newest_install "${dir%-plugins-*}")
 	rm -rf "$dir"
 	mkdir -p "$dir/tmp"
-	(
-		export TMPDIR="$dir/tmp" WP_CORE_DIR="$dir/wordpress/" WP_TESTS_DIR="$dir/wordpress-tests-lib"
-		bash "$ROOT/bin/install-wp-tests.sh" wpmcp_unused "$DB_USER" "$DB_PASS" "127.0.0.1:$PORT" "$version" true
-		bash "$ROOT/bin/install-test-plugins.sh"
-	) >"$dir/install.log" 2>&1 || die "WordPress $version install failed, see $dir/install.log"
-	touch "$dir/.ready"
+	if [ -n "$from" ]; then
+		# Only the plugins whose version moved are downloaded again: the
+		# installer keeps a plugin already present at the wanted version.
+		say "Updating $(basename "$from") into $dir (plugins: $pins)" >&2
+		clone_dir "$from/wordpress" "$dir/wordpress"
+		clone_dir "$from/wordpress-tests-lib" "$dir/wordpress-tests-lib"
+		TMPDIR="$dir/tmp" WP_CORE_DIR="$dir/wordpress/" WPMCP_PLUGIN_VERSIONS="$pins" \
+			bash "$ROOT/bin/install-test-plugins.sh" >"$dir/install.log" 2>&1 || die "updating the test plugins failed, see $dir/install.log"
+	else
+		say "Installing WordPress $version into $dir (plugins: $pins)" >&2
+		(
+			export TMPDIR="$dir/tmp" WP_CORE_DIR="$dir/wordpress/" WP_TESTS_DIR="$dir/wordpress-tests-lib" WPMCP_PLUGIN_VERSIONS="$pins"
+			bash "$ROOT/bin/install-wp-tests.sh" wpmcp_unused "$DB_USER" "$DB_PASS" "127.0.0.1:$PORT" "$version" true
+			bash "$ROOT/bin/install-test-plugins.sh"
+		) >"$dir/install.log" 2>&1 || die "WordPress $version install failed, see $dir/install.log"
+	fi
+	touch "$dir/.last-used" "$dir/.ready"
+	prune_installs "$dir"
+}
+
+# Copies directory <from> to <to>: an instant copy-on-write clone on APFS.
+clone_dir() {
+	cp -cR "$1" "$2" 2>/dev/null || { rm -rf "$2"; cp -R "$1" "$2"; }
+}
+
+# Deletes the installs keyed on plugin versions, other than <keep>, that no
+# run has used for three days: superseded by a newer release, or by a change
+# to the installers. Every run touches .last-used on the installs it uses, and
+# a run lasts minutes, so nothing in use is removed. Installs from before
+# issue #532 have no plugins key and are never touched here.
+prune_installs() {
+	local keep=$1 d
+	for d in "$CACHE"/wp-*-plugins-*/; do
+		d=${d%/}
+		[ -d "$d" ] && [ "$d" != "$keep" ] || continue
+		[ -e "$d/.last-used" ] || continue
+		if [ -n "$(find "$d/.last-used" -mtime +3 2>/dev/null)" ]; then
+			say "Removing the unused install $(basename "$d")" >&2
+			rm -rf "$d"
+		fi
+	done
+}
+
+# Adds the versions of the plugins in <install dir> to this leg's summary
+# line, as installed (their Version headers).
+plugin_note() {
+	local dir=$1 slug main pinned v line=""
+	[ -n "${LEG_NOTE:-}" ] || return 0
+	while read -r slug main pinned; do
+		[ -n "$slug" ] || continue
+		v=$(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$dir/wordpress/wp-content/plugins/$slug/$main" 2>/dev/null | head -1 | tr -d '[:space:]')
+		line+="${line:+, }$slug ${v:-unknown}"
+	done < <(bash "$ROOT/bin/install-test-plugins.sh" --list)
+	[ -z "$line" ] || echo "$line" >>"$LEG_NOTE"
 }
 
 # Gives this run its own copy of the WordPress install and prints its path.
@@ -698,7 +834,7 @@ run_live_adapter() {
 	rm -rf "$core/wp-content/plugins/mcp-adapter"
 	cp -R "$src" "$core/wp-content/plugins/mcp-adapter"
 	plugin="$core/wp-content/plugins/mcp-adapter/mcp-adapter.php"
-	[ -z "${LEG_NOTE:-}" ] || echo "mcp-adapter $adapter_version" >"$LEG_NOTE"
+	[ -z "${LEG_NOTE:-}" ] || echo "mcp-adapter $adapter_version" >>"$LEG_NOTE"
 	say "PHPUnit adapter group on WordPress $version (released MCP Adapter $adapter_version from WordPress.org)"
 	WPMCP_TEST_ADAPTER_PLUGIN="$plugin" WPMCP_TEST_ADAPTER_VERSION="$adapter_version" \
 		WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
@@ -711,6 +847,18 @@ run_live_adapter() {
 
 cd "$ROOT"
 
+# Each test plugin's latest release, asked of WordPress.org once per run.
+mkdir -p "$CACHE/notes"
+RESOLVED=$(mktemp "$CACHE/notes/resolved.XXXXXX")
+
+if [ "$resolve_only" = true ]; then
+	trap 'rm -f "$RESOLVED"' EXIT
+	dir=$(install_target "${only_wp:-$default_wp}") || exit 1
+	echo "install: $(basename "$dir")"
+	plugin_versions || true
+	exit 0
+fi
+
 RUN_CORES=()
 RUN_CONFIGS=()
 cleanup_run() {
@@ -722,7 +870,7 @@ cleanup_run() {
 		rm -f "$c"
 	done
 }
-trap cleanup_run EXIT
+trap 'cleanup_run; rm -f "$RESOLVED"' EXIT
 
 # Point git at the versioned hooks, so the pre-push gate is on in every
 # worktree of this clone once anyone has run the suite.
@@ -792,7 +940,7 @@ for leg in "${LEGS[@]}"; do
 	)
 	status=$?
 	set -e
-	note=$(cat "$LEG_NOTE")
+	note=$(paste -sd ';' "$LEG_NOTE" | sed 's/;/; /g')
 	if [ "$status" -eq 0 ]; then
 		SUMMARY+=("pass  $(leg_label "$leg")${note:+ ($note)}")
 	else
