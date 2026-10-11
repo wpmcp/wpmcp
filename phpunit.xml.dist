@@ -7,6 +7,8 @@
   <listeners>
     <!-- Fails any test that makes an unmocked HTTP request (issue #323). -->
     <listener class="WPMCP\Tests\Support\Network_Guard_Listener"/>
+    <!-- Fires wp_abilities_api_init once, before the first test class (issue #534). -->
+    <listener class="WPMCP\Tests\Support\Abilities_Init_Listener"/>
   </listeners>
   <coverage processUncoveredFiles="true">
     <include>

@@ -63,7 +63,6 @@ class AmeliaLiveTest extends \WP_UnitTestCase
         update_option('timezone_string', 'America/New_York');
         // Amelia reads the site timezone once per request and keeps it.
         $zone = new \ReflectionProperty(\AmeliaBooking\Domain\Services\DateTime\DateTimeService::class, 'timeZone');
-        $zone->setAccessible(true);
         $zone->setValue(null, null);
 
         $settings                                  = json_decode((string) get_option('amelia_settings'), true);

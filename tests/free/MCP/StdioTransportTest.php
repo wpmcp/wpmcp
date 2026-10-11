@@ -416,7 +416,6 @@ class StdioTransportTest extends \WP_UnitTestCase
         wp_cache_set('stdio-reset-canary', 'kept', 'wpmcp-test');
 
         $reset = new \ReflectionMethod(Stdio_Transport::class, 'reset_per_message_state');
-        $reset->setAccessible(true);
 
         try {
             $reset->invoke(null);
@@ -438,7 +437,6 @@ class StdioTransportTest extends \WP_UnitTestCase
     public function test_the_rate_limit_counter_survives_the_per_message_reset(): void
     {
         $reset = new \ReflectionMethod(Stdio_Transport::class, 'reset_per_message_state');
-        $reset->setAccessible(true);
 
         $key   = 'stdio-reset-' . wp_generate_uuid4();
         $first = Rate_Limiter::check($key);
@@ -462,11 +460,9 @@ class StdioTransportTest extends \WP_UnitTestCase
     public function test_the_per_message_reset_drops_the_memoized_memory_rules(): void
     {
         $memo = new \ReflectionProperty(\WPMCP\Memory\Memory_Store::class, 'rules_cache');
-        $memo->setAccessible(true);
         $memo->setValue(null, [ [ 'entry' => 'stale' ] ]);
 
         $reset = new \ReflectionMethod(Stdio_Transport::class, 'reset_per_message_state');
-        $reset->setAccessible(true);
         $reset->invoke(null);
 
         $this->assertNull($memo->getValue(), 'A memoized block rule must not survive a message boundary.');

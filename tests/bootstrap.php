@@ -19,6 +19,7 @@ require $_tests_dir . '/includes/functions.php';
 
 require __DIR__ . '/support/plugins.php';
 require __DIR__ . '/support/network-guard.php';
+require __DIR__ . '/support/abilities-init.php';
 
 // No test may reach the network (issue #323). See tests/support/network-guard.php.
 \WPMCP\Tests\Support\Network_Guard::register();
