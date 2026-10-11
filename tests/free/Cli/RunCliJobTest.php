@@ -21,6 +21,9 @@ use WPMCP\Tools\Cli\Wp_Cli_Guard;
  */
 class RunCliJobTest extends \WP_UnitTestCase
 {
+    // Issue #562: on multisite these tools need a network administrator.
+    use \WPMCP\Tests\Free\MultisiteSecurity\Network_Exec_Caller;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -28,10 +31,12 @@ class RunCliJobTest extends \WP_UnitTestCase
         delete_option(Governance_Audit_Log::OPTION);
         Cli_Job_Store::set_clock_for_tests(null);
         Wp_Cli_Guard::set_environment_override('local');
+        $this->act_as_network_exec_caller();
     }
 
     protected function tearDown(): void
     {
+        $this->release_network_exec_caller();
         remove_all_filters('wpmcp_allow_wp_cli');
         remove_all_filters('wpmcp_allow_wp_cli_on_production');
         remove_all_filters('wpmcp_wp_cli_allowlist');
@@ -82,7 +87,7 @@ class RunCliJobTest extends \WP_UnitTestCase
         $calls = [];
         (new Run_Cli_Job($this->recording_executor($calls)))->handle($job['id']);
 
-        $this->assertSame([$bin, 'plugin', 'list'], $calls[0]['argv']);
+        $this->assertSame(array_merge([$bin, 'plugin', 'list'], $this->expected_site_args()), $calls[0]['argv']);
         $this->assertSame(120, $calls[0]['timeout']);
 
         $done = Cli_Job_Store::get($job['id']);

@@ -320,6 +320,8 @@ Issues and pull requests are welcome. Please keep the safety invariant intact: n
 
 wpmcp edits live sites and executes agent instructions, so security is a first-class concern: admin actions are capability-checked and nonce-protected, all output is escaped, and all database access is parameterized. If you find a vulnerability, please open a private security advisory rather than a public issue.
 
+On a multisite network the code execution tools (`run-php-snippet`, `activate-php-snippet`, `run-wp-cli` and `dispatch-cli-job`) need a network administrator (`manage_network_options`) on top of their opt-in, because that opt-in is shared by every site and a sub-site administrator holds `manage_options` on their own site. A network that wants its sub-site administrators to run code can grant it explicitly with the `wpmcp_allow_subsite_code_exec` filter, which receives the surface (`php` or `wp-cli`), the user id and the blog id and defaults to `false`. WP-CLI commands run against the caller's own site (`--url` is set to it). A queued CLI job is re-checked against the user who queued it when it runs.
+
 ## License
 
 [GPL-2.0-or-later](LICENSE). Study it, fork it, ship it.
