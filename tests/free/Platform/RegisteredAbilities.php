@@ -28,6 +28,18 @@ use WPMCP\Pro\Gate;
  */
 final class RegisteredAbilities
 {
+    /**
+     * Abilities that register only on a multisite network (see
+     * Plugin::register_multisite_abilities()). The manifest and the tools/list
+     * budget pin the single-site surface; the multisite leg (issue #530)
+     * expects exactly these on top of it.
+     */
+    public const NETWORK_ONLY = [
+        'wpmcp/get-network-info',
+        'wpmcp/get-site-details',
+        'wpmcp/list-network-sites',
+    ];
+
     /** @return Ability[] every ability, keyed by nothing, in registration order. */
     public static function all(): array
     {

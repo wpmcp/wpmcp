@@ -51,6 +51,7 @@ class I18nPackTest extends \WP_UnitTestCase
         WPML_Double::install();
         $this->admin = self::factory()->user->create([ 'role' => 'administrator' ]);
         wp_set_current_user($this->admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
     }
 
     protected function tearDown(): void

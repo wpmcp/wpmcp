@@ -44,6 +44,9 @@ class PackObjectCapabilityTest extends \WP_UnitTestCase
         foreach (['contributor', 'author', 'editor', 'administrator'] as $role) {
             $this->users[ $role ] = self::factory()->user->create(['role' => $role]);
         }
+        // On a network only a super admin edits other accounts, so the
+        // administrator row is the network's administrator there (issue #530).
+        wpmcp_test_grant_network_admin($this->users['administrator']);
         $this->owner     = self::factory()->user->create(['role' => 'author']);
         $this->published = self::factory()->post->create(['post_author' => $this->owner]);
         $this->draft     = self::factory()->post->create(['post_author' => $this->owner, 'post_status' => 'draft']);

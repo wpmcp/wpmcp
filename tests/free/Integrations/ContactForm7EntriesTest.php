@@ -83,6 +83,7 @@ class ContactForm7EntriesTest extends \WP_UnitTestCase
         ]);
 
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        wpmcp_test_grant_network_admin(get_current_user_id());
     }
 
     protected function tearDown(): void
@@ -493,6 +494,7 @@ class ContactForm7EntriesTest extends \WP_UnitTestCase
         $this->assertSame('operation_denied', $denied['error']['code']);
 
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         add_filter('wpmcp_contactform7_flamingo_active', '__return_false');
         $absent = $this->integration->handle_write([ 'operation' => 'update-entry-status', 'args' => [ 'entry_id' => $this->entries_a[0], 'status' => 'trash' ] ]);
         $this->assertSame('flamingo_unavailable', $absent['error']['code']);

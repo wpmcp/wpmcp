@@ -39,6 +39,8 @@ class SwitchThemeTest extends \WP_UnitTestCase
         if (null === $target) {
             $this->markTestSkipped('Only one theme installed in this environment.');
         }
+        // On a network only an enabled theme may be activated (#529).
+        add_filter('allowed_themes', static fn ($allowed) => array_merge((array) $allowed, [$target => true]));
 
         $original_stylesheet = get_option('stylesheet');
         $original_template   = get_option('template');

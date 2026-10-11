@@ -31,6 +31,7 @@ class SiteTemplatesTest extends \WP_UnitTestCase
         parent::setUp();
         Snapshot_Store::install();
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->read  = new Site_Templates_Read();
         $this->write = new Site_Templates_Write();
     }
@@ -402,6 +403,7 @@ class SiteTemplatesTest extends \WP_UnitTestCase
         $this->use_block_theme();
         add_filter('map_meta_cap', [self::class, 'deny_unfiltered_html'], 10, 2);
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->assertFalse(current_user_can('unfiltered_html'));
 
         $link   = '<!-- wp:navigation-link {"label":"Base / Two","url":"https://example.org/a/b/","kind":"custom"} /-->';
@@ -593,6 +595,7 @@ class SiteTemplatesTest extends \WP_UnitTestCase
             $this->assertFalse($abilities[ $name ]->check_permissions(), "{$name} must deny an editor");
 
             wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+            wpmcp_test_grant_network_admin(get_current_user_id());
             $this->assertTrue($abilities[ $name ]->check_permissions(), "{$name} must allow an administrator");
         }
     }
