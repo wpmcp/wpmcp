@@ -39,9 +39,9 @@ TMPDIR=$(echo "$TMPDIR" | sed -e "s/\/$//")
 WP_CORE_DIR=${WP_CORE_DIR-$TMPDIR/wordpress/}
 WP_CORE_DIR=$(echo "$WP_CORE_DIR" | sed "s:/\+$::")
 PLUGINS_DIR="$WP_CORE_DIR/wp-content/plugins"
-ELEMENTOR_VERSION=${ELEMENTOR_VERSION:-4.3.2}
+ELEMENTOR_VERSION=${ELEMENTOR_VERSION:-4.3.4}
 if [ "$ELEMENTOR_VERSION" != "latest" ] && ! [[ "$ELEMENTOR_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}(-[A-Za-z0-9.]+)?$ ]]; then
-	echo "ELEMENTOR_VERSION must be 'latest' or a version such as 4.3.2 (got '$ELEMENTOR_VERSION')." >&2
+	echo "ELEMENTOR_VERSION must be 'latest' or a version such as 4.3.4 (got '$ELEMENTOR_VERSION')." >&2
 	exit 1
 fi
 

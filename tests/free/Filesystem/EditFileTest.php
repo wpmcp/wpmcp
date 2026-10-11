@@ -37,6 +37,7 @@ class EditFileTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $result = (new Edit_File())->handle([
             'path'       => $this->rel_dir . '/edit.txt',
@@ -64,6 +65,7 @@ class EditFileTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         file_put_contents(ABSPATH . $this->rel_dir . '/edit.txt', "repeat repeat\n");
 
@@ -80,6 +82,7 @@ class EditFileTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         file_put_contents(ABSPATH . $this->rel_dir . '/edit.txt', "repeat repeat\n");
 
@@ -99,6 +102,7 @@ class EditFileTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $this->expectException(\RuntimeException::class);
         (new Edit_File())->handle([
@@ -113,6 +117,7 @@ class EditFileTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         add_filter('wpmcp_fs_protected_paths', function ($paths) {
             $paths[] = 'edit.txt';

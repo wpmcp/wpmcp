@@ -40,6 +40,7 @@ class BlockSuitePatternDirectoryTest extends \WP_UnitTestCase
         Snapshot_Store::install();
         Gate::set_pro_for_tests(true);
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->presence = static fn ($default, string $suite): bool => 'kadence-blocks' === $suite;
         add_filter('wpmcp_block_suite_active', $this->presence, 10, 2);
         add_filter('pre_http_request', [ $this, 'serve' ], 10, 3);

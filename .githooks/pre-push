@@ -2,8 +2,9 @@
 #
 # Runs the test gate (bin/test-local.sh) before every push that sends commits.
 # PHPUnit does not run on GitHub Actions, so this is where a red suite is caught.
-# A plain run covers the default WordPress with the coverage floor and the
-# `Requires at least` WordPress (issue #488); any failing leg blocks the push.
+# A plain run covers the default WordPress with the coverage floor, the
+# `Requires at least` WordPress (issue #488) and the default WordPress as a
+# multisite network (issue #530); any failing leg blocks the push.
 #
 # Skip it for one push with WPMCP_SKIP_LOCAL_TESTS=1 git push, or git push --no-verify.
 

@@ -44,6 +44,7 @@ class DiagnosticsAbilitiesRegistrationTest extends \WP_UnitTestCase
 
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
         foreach (self::NAMES as $name) {
             $this->assertTrue($abilities[ $name ]->check_permissions(), "{$name} must allow an administrator");
         }

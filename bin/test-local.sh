@@ -17,7 +17,9 @@
 #   4. Runs composer lint, composer drift:check, then the suite on the default
 #      WordPress (with the coverage floor when pcov is loaded), then the suite
 #      on the `Requires at least` WordPress from readme.txt without coverage
-#      (issue #488), so the floor is tested on every push.
+#      (issue #488), so the floor is tested on every push, then the suite on
+#      the default WordPress installed as a multisite network (WP_MULTISITE=1,
+#      issue #530), also without coverage.
 #   5. Runs the live forms group (issue #66): the Contact Form 7 adapter
 #      against a real Contact Form 7 and Flamingo, on a separate install,
 #      because the harness doubles stand down once the real classes load.
@@ -44,7 +46,7 @@
 #      names a local copy of Breakdance (a commercial plugin, so not
 #      downloadable here): pages saved by the real Breakdance are detected,
 #      read, edited and rolled back, and Breakdance still loads them.
-#  14. Under --all (or --live-adapter alone), runs the adapter leg (issue
+#  15. Under --all (or --live-adapter alone), runs the adapter leg (issue
 #      #501): the free and pro suites on the latest MCP Adapter plugin
 #      released on WordPress.org, loaded next to the bundled copy the way a
 #      site that installs the plugin runs us, with the version it tested in
@@ -63,10 +65,13 @@
 #
 # Usage:
 #   bin/test-local.sh                 lint, drift, suite on the default WordPress with the
-#                                     coverage floor, suite on the Requires at least WordPress, live groups
+#                                     coverage floor, suite on the Requires at least WordPress,
+#                                     suite on multisite, live groups
 #   bin/test-local.sh --all           the same, on every WordPress in WP_VERSIONS below
 #   bin/test-local.sh --wp 6.9        the suite on one WordPress version
 #   bin/test-local.sh --no-coverage   skip the coverage run and floor
+#   bin/test-local.sh --multisite     only the suite on the default WordPress as a multisite network;
+#                                     takes PHPUnit arguments after -- like a targeted run
 #   bin/test-local.sh --live-forms    only the live forms group (real Contact Form 7 + Flamingo)
 #   bin/test-local.sh --live-blocks   only the live blocks group (real block suites)
 #   bin/test-local.sh --live-buddypress only the live BuddyPress group (real BuddyPress)
@@ -135,6 +140,7 @@ only_live_polylang=false
 only_live_breakdance=false
 only_live_amelia=false
 only_live_adapter=false
+only_multisite=false
 coverage=true
 plan_only=false
 phpunit_args=()
@@ -154,6 +160,7 @@ while [ $# -gt 0 ]; do
 		--live-breakdance) only_live_breakdance=true ;;
 		--live-amelia) only_live_amelia=true ;;
 		--live-adapter) only_live_adapter=true ;;
+		--multisite) only_multisite=true ;;
 		--stop-db) stop_db=true ;;
 		--plan) plan_only=true ;;
 		--) shift; phpunit_args=("$@"); break ;;
@@ -211,6 +218,8 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_breakdance" = false ] || LEGS+=("live-breakdance ${only_wp:-$default_wp}")
 	[ "$only_live_amelia" = false ] || LEGS+=("live-amelia ${only_wp:-$default_wp}")
 	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
+elif [ "$only_multisite" = true ]; then
+	LEGS+=("multisite ${only_wp:-$default_wp} none")
 elif [ -n "$only_wp" ]; then
 	LEGS+=("phpunit $only_wp none")
 else
@@ -231,6 +240,12 @@ else
 		done
 	elif [ "$targeted" = false ] && [ "$floor_wp" != "$default_wp" ]; then
 		LEGS+=("phpunit $floor_wp none")
+	fi
+	# The multisite leg (issue #530): the whole suite on the default
+	# WordPress installed as a network, in every plain run, so a write or a
+	# permission check that only breaks on multisite fails before a push.
+	if [ "$targeted" = false ]; then
+		LEGS+=("multisite $default_wp none")
 	fi
 	if [ "$targeted" = false ]; then
 		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp")
@@ -468,6 +483,22 @@ run_suite() {
 	if [ "$with_coverage" = true ]; then
 		"$PHP" bin/check-coverage.php coverage/clover.xml "$COVERAGE_FLOOR"
 	fi
+}
+
+# The multisite leg (issue #530): the suite on the shared install with its
+# own database, which the WordPress test library installs as a multisite
+# network because WP_MULTISITE=1 is exported. Tests that only make sense on
+# a single site skip themselves with is_multisite().
+run_multisite() {
+	local version=$1 dir core config
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-multisite" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit on WordPress $version as a multisite network"
+	WP_MULTISITE=1 WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit "${phpunit_args[@]+"${phpunit_args[@]}"}"
 }
 
 # The live forms group (issue #66) on its own install and database. It runs
@@ -755,6 +786,7 @@ run_leg_body() {
 		lint) say "composer lint"; composer lint ;;
 		drift) say "composer drift:check"; composer drift:check ;;
 		phpunit) if [ "$cov" = floor ]; then run_suite "$wp" "$want_coverage"; else run_suite "$wp" false; fi ;;
+		multisite) run_multisite "$wp" ;;
 		live-forms) run_live_forms "$wp" ;;
 		live-blocks) run_live_blocks "$wp" ;;
 		live-buddypress) run_live_buddypress "$wp" ;;

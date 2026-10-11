@@ -94,6 +94,12 @@ class PerPostCapabilityRegistryTest extends \WP_UnitTestCase
             if ([] === $id_keys) {
                 continue;
             }
+            // On a network some capabilities (install_plugins, say) belong to
+            // super admins alone, so no Contributor can hold them and the
+            // per-post check is never reached (issue #530).
+            if (is_multisite() && in_array('do_not_allow', map_meta_cap($a->capability, $contributor), true)) {
+                continue;
+            }
             $walked[]      = $a->name;
             $this->granted = $a->capability;
 

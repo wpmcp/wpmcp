@@ -3,11 +3,14 @@
 /**
  * Recorded Elementor atomic prop metadata (issue #137).
  *
- * Transcribed from Elementor 4.3.2's own `define_props_schema()` declarations
+ * Transcribed from Elementor 4.3.4's own `define_props_schema()` declarations
  * (modules/atomic-widgets/elements/*), in the shape Atomic_Prop_Schema emits:
  * every prop's `$$type` key, the aliases Elementor itself declares for it, and
  * the enum it constrains string values to. CI pins that Elementor release
  * (bin/install-test-plugins.sh); re-record this file when the pin moves.
+ * Re-recorded for 4.3.4 (issue #533): no recorded element's schema changed
+ * from 4.3.2 (4.3.4 only reworded the image alt description and added a
+ * div-block widget description, neither of which this file records).
  *
  * Elementor 4.3.0 moved the heading, paragraph and button text props from
  * html-v3 ({ content: { $$type: string, value }, children }) to escaped-html

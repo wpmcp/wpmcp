@@ -235,7 +235,7 @@ class RefreshGrantTest extends \WP_UnitTestCase
     {
         $session = $this->connect();
 
-        wp_delete_user($session['user_id']);
+        wpmcp_test_delete_account($session['user_id']);
 
         $result = $this->refresh($session['client'], $session['tokens']['refresh_token']);
 

@@ -32,7 +32,9 @@ class PluginAbilitiesTest extends \WP_UnitTestCase
         // pair (issue #299), which follows JetEngine, Pods and TranslatePress
         // the same way.
         $forms = array_merge(wpmcp_forms_pair_names(), [ 'wpmcp/plugin-data-read', 'wpmcp/plugin-data-write' ]);
-        $this->assertCount(264, array_diff($names, $forms));
+        // A network also registers its three tools (issue #530).
+        $network = is_multisite() ? count(\WPMCP\Tests\Free\Platform\RegisteredAbilities::NETWORK_ONLY) : 0;
+        $this->assertCount(264 + $network, array_diff($names, $forms));
         $this->assertLessThanOrEqual(10, count(array_intersect($names, $forms)));
     }
 
