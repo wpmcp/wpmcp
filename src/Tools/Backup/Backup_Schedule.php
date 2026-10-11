@@ -361,11 +361,11 @@ class Backup_Schedule
 
         $flagged = [];
         foreach (Backup_Job_Store::list('completed') as $job) {
-            if ($type !== ($job['schedule'] ?? null)
-                || (int) $job['created_at'] < (int) ($schedule['set_at'] ?? 0)
-                || (array_key_exists('set_by', $job) && (int) $job['set_by'] !== (int) $set_by)
-                || isset($job['review'])
-            ) {
+            $mine = $type === ($job['schedule'] ?? null)
+                && (int) $job['created_at'] >= (int) ($schedule['set_at'] ?? 0)
+                && (! array_key_exists('set_by', $job) || (int) $job['set_by'] === (int) $set_by)
+                && ! isset($job['review']);
+            if (! $mine) {
                 continue;
             }
             Backup_Job_Store::update((int) $job['id'], [ 'review' => $reason ]);
