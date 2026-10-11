@@ -7,10 +7,7 @@ namespace WPMCP;
 use WPMCP\Auth\OAuth_Config;
 use WPMCP\Auth\Oauth_Gc;
 use WPMCP\Cloud\Cloud_Credentials;
-use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Backup\Backup_Schedule;
-use WPMCP\Tools\Redirects\Redirect_Store;
-use WPMCP\Tools\Search\Search_Index_Store;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -21,17 +18,12 @@ class Activator
     /** @param bool $network_wide Passed by core for a network activation. */
     public static function activate($network_wide = false): void
     {
-        Snapshot_Store::install();
-        Redirect_Store::install();
-
-        // The content search index table (issue #83). Search_Index_Store also
-        // self-heals on first use, so an update that never re-runs activation
-        // still works; creating it here keeps the common path free of DDL.
-        // class_exists-guarded because vertical builds (wpmcp-for-woocommerce)
-        // prune src/Tools/Search from the zip along with its ability group.
-        if (class_exists(Search_Index_Store::class)) {
-            Search_Index_Store::install();
-        }
+        // Every per-site table (snapshots, redirects, search index), on every
+        // site of the network for a network activation (issue #527): each
+        // table uses the site's prefix, so the main site's copy serves no
+        // other site. Site_Tables also covers sites created later and sites
+        // still missing them.
+        Site_Tables::install_all((bool) $network_wide);
 
         // Daily OAuth store sweep (issue #133). Only scheduled when the
         // OAuth subsystem is actually on; boot() re-ensures it if OAuth is

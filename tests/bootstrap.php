@@ -309,6 +309,10 @@ tests_add_filter( 'muplugins_loaded', function () {
     // a test would implicitly commit that test's transaction and leak rows.
     $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}wpmcp_search_index" );
     \WPMCP\Tools\Search\Search_Index_Store::install();
+
+    // Record the set as current (issue #527), so Site_Tables::maybe_install()
+    // on admin_init and rest_api_init stays a no-op inside tests.
+    update_option( \WPMCP\Site_Tables::VERSION_OPTION, \WPMCP\Site_Tables::VERSION, true );
 }, 20 );
 
 // WooCommerce needs its install routine to run against the test DB so its custom
