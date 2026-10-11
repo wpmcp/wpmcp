@@ -55,6 +55,7 @@ class FilesystemInputTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $this->expectException(\RuntimeException::class);
         (new Write_File())->handle(['path' => '../../../../etc/passwd', 'content' => 'x']);
@@ -75,6 +76,7 @@ class FilesystemInputTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $this->expectException(\InvalidArgumentException::class);
         (new Edit_File())->handle([
@@ -89,6 +91,7 @@ class FilesystemInputTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $this->expectException(\RuntimeException::class);
         (new Edit_File())->handle([
@@ -103,6 +106,7 @@ class FilesystemInputTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $this->expectException(\RuntimeException::class);
         (new Edit_File())->handle([
@@ -123,6 +127,7 @@ class FilesystemInputTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $this->expectException(\InvalidArgumentException::class);
         (new Delete_File())->handle(['path' => $this->rel_dir . '/existing.txt']);
@@ -133,6 +138,7 @@ class FilesystemInputTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_fs_writes', '__return_true');
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         $this->expectException(\RuntimeException::class);
         (new Delete_File())->handle(['path' => $this->rel_dir . '/does-not-exist.txt', 'confirm' => true]);

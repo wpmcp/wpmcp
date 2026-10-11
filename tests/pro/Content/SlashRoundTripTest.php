@@ -26,6 +26,7 @@ class SlashRoundTripTest extends \WP_UnitTestCase
         Gate::set_pro_for_tests(true);
         Snapshot_Store::install();
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
     }
 
     protected function tearDown(): void

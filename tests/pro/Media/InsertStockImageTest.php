@@ -154,6 +154,7 @@ class InsertStockImageTest extends \WP_UnitTestCase
     {
         Gate::set_pro_for_tests(true);
         wp_set_current_user((int) $this->factory->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $post_id = (int) $this->factory->post->create(['post_content' => wp_slash(self::body())]);
         $this->assertSame(self::body(), get_post($post_id)->post_content, 'Fixture stored as intended.');
 

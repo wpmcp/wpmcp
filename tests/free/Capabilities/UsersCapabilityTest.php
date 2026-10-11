@@ -61,6 +61,7 @@ class UsersCapabilityTest extends \WP_UnitTestCase
 
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->assertTrue(
             $abilities['wpmcp/list-users']->check_permissions(),
             'wpmcp/list-users must allow a user holding list_users'
@@ -80,6 +81,7 @@ class UsersCapabilityTest extends \WP_UnitTestCase
 
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->assertTrue(
             $abilities['wpmcp/create-user']->check_permissions(),
             'wpmcp/create-user must allow a user holding create_users'
@@ -99,6 +101,7 @@ class UsersCapabilityTest extends \WP_UnitTestCase
 
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $this->assertTrue(
             $abilities['wpmcp/update-user']->check_permissions(),
             'wpmcp/update-user must allow a user holding edit_users'

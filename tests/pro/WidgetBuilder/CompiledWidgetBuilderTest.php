@@ -31,6 +31,7 @@ class CompiledWidgetBuilderTest extends \WP_UnitTestCase
         parent::setUp();
         Gate::set_pro_for_tests(true);
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
 
         // Inside wp-content on purpose: sandbox_dir() confines the filter, so
         // a value outside the install is ignored (see the test for it below).

@@ -86,6 +86,15 @@ class AbilityManifestTest extends \WP_UnitTestCase
      */
     private static function without_conditional_abilities(array $expected): array
     {
+        // The manifest pins single-site; a network adds its three tools, all
+        // free, and nothing else (issue #530).
+        if (is_multisite()) {
+            foreach (RegisteredAbilities::NETWORK_ONLY as $name) {
+                $expected[ $name ] = 'free';
+            }
+            ksort($expected);
+        }
+
         if (\WPMCP\Tools\Elementor\Atomic_Element::registration_supported()) {
             return $expected;
         }
@@ -121,15 +130,16 @@ class AbilityManifestTest extends \WP_UnitTestCase
     {
         $manifest = self::load_manifest();
         $expected = self::without_conditional_abilities($manifest['abilities']);
-        $missing  = count($manifest['abilities']) - count($expected);
+        $network  = is_multisite() ? count(RegisteredAbilities::NETWORK_ONLY) : 0;
+        $missing  = count($manifest['abilities']) + $network - count($expected);
 
         $actual = RegisteredAbilities::manifest_map();
         $tiers  = array_count_values($actual);
 
         // The four conditional abilities are all pro, so a builder that cannot
         // register them moves the pro and total counts and nothing else.
-        $this->assertSame($manifest['total'] - $missing, count($actual), 'Total registered-ability count drifted.');
-        $this->assertSame($manifest['free'], $tiers['free'] ?? 0, 'Free-tier ability count drifted.');
+        $this->assertSame($manifest['total'] + $network - $missing, count($actual), 'Total registered-ability count drifted.');
+        $this->assertSame($manifest['free'] + $network, $tiers['free'] ?? 0, 'Free-tier ability count drifted.');
         $this->assertSame($manifest['pro'] - $missing, $tiers['pro'] ?? 0, 'Pro-tier ability count drifted.');
     }
 

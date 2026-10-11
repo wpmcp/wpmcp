@@ -42,6 +42,7 @@ class InstallPackageFromZipTest extends \WP_UnitTestCase
             $user->add_cap($cap);
         }
         wp_set_current_user($admin);
+        wpmcp_test_grant_network_admin(get_current_user_id());
     }
 
     protected function tearDown(): void
@@ -283,6 +284,9 @@ class InstallPackageFromZipTest extends \WP_UnitTestCase
         $this->open_gate();
         $user = wp_get_current_user();
         $user->add_cap('install_themes', false);
+        if (is_multisite()) {
+            wpmcp_test_deny_capability('install_themes'); // a super admin skips user-level denials (issue #530)
+        }
         [$id, $hash] = $this->upload_zip($this->theme_entries('1.0.0'));
 
         $this->assertRefusedWithNothingWritten(
@@ -298,6 +302,9 @@ class InstallPackageFromZipTest extends \WP_UnitTestCase
         (new Install_Package_From_Zip())->handle($this->args($id, $hash));
 
         wp_get_current_user()->add_cap('update_plugins', false);
+        if (is_multisite()) {
+            wpmcp_test_deny_capability('update_plugins'); // a super admin skips user-level denials (issue #530)
+        }
         [$id2, $hash2] = $this->upload_zip($this->plugin_entries('2.0.0'));
 
         $before = $this->snapshot_count();

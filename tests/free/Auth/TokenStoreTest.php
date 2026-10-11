@@ -114,7 +114,7 @@ class TokenStoreTest extends \WP_UnitTestCase
         $user_id = self::factory()->user->create(['role' => 'subscriber']);
         $token   = Token_Store::issue('client_abc', $user_id, 'read');
 
-        wp_delete_user($user_id);
+        wpmcp_test_delete_account($user_id);
 
         $this->assertNull(Token_Store::validate($token));
     }

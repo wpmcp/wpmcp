@@ -25,6 +25,7 @@ class AddCustomJsTest extends \WP_UnitTestCase
         parent::set_up();
         $this->tool = new Add_Custom_Js();
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
         delete_option(Governance_Audit_Log::OPTION);
     }
 

@@ -21,6 +21,7 @@ class AddScopedCssTest extends \WP_UnitTestCase
         parent::set_up();
         $this->tool = new Add_Scoped_Css();
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        wpmcp_test_grant_network_admin(get_current_user_id());
     }
 
     private function store(int $post_id, string $css, array $extra = []): array
