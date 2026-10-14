@@ -16,7 +16,8 @@ if (! defined('ABSPATH')) {
  *
  * An install that arrives with more snapshots than the cap keeps them: the
  * retention floor in Snapshot_Store holds the existing depth until somebody
- * decides otherwise. This notice is how the site owner is told that a
+ * decides otherwise. The same floor holds the history of a site whose Pro
+ * licence has ended (Pro\Snapshot_History). This notice is how the site owner is told that a
  * decision is waiting, and is one of the two ways to make it (the other is
  * the wpmcp_snapshot_history_limit filter). Nothing is deleted until then,
  * which is the point: undo state is not something to discard as a side
@@ -51,7 +52,7 @@ class Snapshot_Retention_Notice
             '<div class="notice notice-warning"><p>%s</p><p><code>%s</code></p><p><a class="button" href="%s">%s</a></p></div>',
             esc_html(sprintf(
                 /* translators: 1: existing snapshot count, 2: the flat retention cap. */
-                __('WP MCP now keeps the same number of snapshots on every install: %2$d. This site has %1$d, and they are being kept until you decide. Set the filter below to choose your own depth, or trim to %2$d now, which also deletes the file backups behind the older snapshots.', 'wpmcp'),
+                __('WP MCP keeps %2$d snapshots by default. This site has %1$d, for example after an update or after a Pro licence ended, and they are being kept until you decide. Set the filter below to choose your own depth, or trim to %2$d now, which also deletes the file backups behind the older snapshots.', 'wpmcp'),
                 $depth,
                 Snapshot_Store::DEFAULT_HISTORY_LIMIT
             )),

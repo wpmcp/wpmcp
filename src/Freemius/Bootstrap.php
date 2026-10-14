@@ -195,6 +195,10 @@ class Bootstrap
 
         wpmcp_fs();
 
+        // Pro history depth: decided once WordPress is up, because the
+        // licence state is only known after the SDK has initialised.
+        add_action('init', [\WPMCP\Pro\Snapshot_History::class, 'register']);
+
         // Pin the connect-screen icon to a shipped asset (scripts/build-release.sh
         // stages assets/ and gates on this path). Left unset, the SDK's
         // get_local_icon_url() finds no local icon, and on localhost installs
