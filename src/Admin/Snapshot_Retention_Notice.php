@@ -52,7 +52,7 @@ class Snapshot_Retention_Notice
             '<div class="notice notice-warning"><p>%s</p><p><code>%s</code></p><p><a class="button" href="%s">%s</a></p></div>',
             esc_html(sprintf(
                 /* translators: 1: existing snapshot count, 2: the flat retention cap. */
-                __('WP MCP keeps %2$d snapshots by default. This site has %1$d, for example after an update or after a Pro licence ended, and they are being kept until you decide. Set the filter below to choose your own depth, or trim to %2$d now, which also deletes the file backups behind the older snapshots.', 'wpmcp'),
+                __('WP MCP keeps %2$d snapshots by default. This site has %1$d, left over from an earlier setting, and they are being kept until you decide. Set the filter below to choose your own depth, or trim to %2$d now, which also deletes the file backups behind the older snapshots.', 'wpmcp'),
                 $depth,
                 Snapshot_Store::DEFAULT_HISTORY_LIMIT
             )),
