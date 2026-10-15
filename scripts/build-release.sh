@@ -33,6 +33,10 @@ find "$ROOT/languages" -maxdepth 1 \( -name '*.po' -o -name '*.mo' -o -name '*.l
 composer install --working-dir="$STAGE" --no-dev --optimize-autoloader --quiet --no-interaction
 rm -f "$STAGE/composer.json" "$STAGE/composer.lock"
 
+# Freemius refuses a zip whose fs_dynamic_init() argument is not a literal
+# array, so the staged copy gets the config inlined (scripts/lib/inline-fs-config.php).
+php "$ROOT/scripts/lib/inline-fs-config.php" "$ROOT" "$STAGE"
+
 mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/wpmcp-pro-$VERSION.zip"
 rm -f "$ZIP"
@@ -43,6 +47,16 @@ rm -f "$ZIP"
 for asset in $(grep -rhoE "WPMCP_DIR \. 'assets/[^']+'" "$ROOT/src" | sed -E "s/.*'(assets\/[^']+)'/\1/" | sort -u); do
     unzip -Z1 "$ZIP" | grep -Fx "wpmcp/$asset" >/dev/null || { echo "gate: $asset is referenced from src/ but missing from $ZIP" >&2; exit 1; }
 done
+
+# Gate: the Freemius deployment validator needs the literal array (see above).
+FS_FILE="$(unzip -p "$ZIP" wpmcp/src/Freemius/wpmcp-fs.php)"
+case "$FS_FILE" in
+    *"Bootstrap::config()"*) echo "gate: wpmcp-fs.php still calls Bootstrap::config(); Freemius cannot deploy this zip" >&2; exit 1 ;;
+esac
+case "$FS_FILE" in
+    *"'public_key'"*"'has_paid_plans'"*) ;;
+    *) echo "gate: wpmcp-fs.php carries no inlined fs_dynamic_init config" >&2; exit 1 ;;
+esac
 
 echo "built $ZIP"
 unzip -l "$ZIP" | tail -2
