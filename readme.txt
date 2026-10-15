@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.178
+Stable tag: 0.8.179
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -110,6 +110,10 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authe
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.8.179 =
+* Pro: snapshot history is unlimited while a Pro licence is active. If a licence ends, the history is held at its current depth until you choose, so a lapse never deletes your undo points. The default for everyone else stays at 20.
+* Internal: the release zip can now be uploaded to Freemius, which was blocking the Pro download.
 
 = 0.8.178 =
 * Security: undoing a FunnelKit funnel change now requires FunnelKit's own permission to edit funnels, not only the store manager capability, so a user FunnelKit refuses can no longer delete or revert a funnel through rollback.
@@ -854,6 +858,9 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.8.179 =
+Pro keeps unlimited snapshot history, and a lapsed licence holds the history instead of deleting it. No change for free sites.
 
 = 0.8.178 =
 Security: undoing a FunnelKit funnel change now requires FunnelKit's own permission to edit funnels, not only the store manager capability, so a user FunnelKit refuses can no longer delete or revert a funnel through rollback.
