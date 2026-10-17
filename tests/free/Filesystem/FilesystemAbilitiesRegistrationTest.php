@@ -53,8 +53,19 @@ class FilesystemAbilitiesRegistrationTest extends \WP_UnitTestCase
 
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);
+        if (is_multisite()) {
+            // Issue #559: on multisite a site administrator reads no files;
+            // the network administrator does.
+            foreach (self::READ_NAMES as $name) {
+                $this->assertFalse($abilities[ $name ]->check_permissions(), "{$name} must deny a site administrator on multisite");
+            }
+            grant_super_admin($admin);
+        }
         foreach (array_merge(self::READ_NAMES, self::WRITE_NAMES) as $name) {
             $this->assertTrue($abilities[ $name ]->check_permissions(), "{$name} must allow an administrator");
+        }
+        if (is_multisite()) {
+            revoke_super_admin($admin);
         }
     }
 }
