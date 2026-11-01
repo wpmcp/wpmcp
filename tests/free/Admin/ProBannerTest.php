@@ -2,7 +2,10 @@
 
 namespace WPMCP\Tests\Free\Admin;
 
+use WPMCP\Admin\Audit_Log_Page;
 use WPMCP\Admin\Pro_Banner;
+use WPMCP\Memory\Memory_Store;
+use WPMCP\Plugin;
 use WPMCP\Pro\Gate;
 
 /**
@@ -216,6 +219,108 @@ class ProBannerTest extends \WP_UnitTestCase
         }
         $this->assertStringNotContainsString("\u{2014}", $html, 'em dash');
         $this->assertStringNotContainsString("\u{2013}", $html, 'en dash');
+    }
+
+    /**
+     * Core derives a submenu's screen id from the SANITIZED MENU TITLE of its
+     * parent (wp-admin/includes/plugin.php, add_menu_page writes
+     * $admin_page_hooks[$slug] = sanitize_title($menu_title)), and our title
+     * carries the pending-proposals badge, so with proposals waiting the
+     * Audit Log screen is "wpmcp-N_page_wpmcp-audit-log", not "wpmcp_page_".
+     * The id is taken from core here, never typed by hand.
+     */
+    public function test_shows_on_the_real_submenu_screen_id_while_the_menu_carries_a_badge(): void
+    {
+        if (! post_type_exists(Memory_Store::POST_TYPE)) {
+            $this->markTestSkipped('memory group off in this flavor');
+        }
+        require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        self::factory()->post->create(['post_type' => Memory_Store::POST_TYPE, 'post_status' => 'pending']);
+        self::factory()->post->create(['post_type' => Memory_Store::POST_TYPE, 'post_status' => 'pending']);
+        self::factory()->post->create(['post_type' => Memory_Store::POST_TYPE, 'post_status' => 'pending']);
+
+        $saved = [$GLOBALS['admin_page_hooks'] ?? null, $GLOBALS['menu'] ?? null, $GLOBALS['submenu'] ?? null, $GLOBALS['_registered_pages'] ?? null];
+        try {
+            Plugin::instance()->register_admin_menu();
+            $screen_id = get_plugin_page_hookname(Audit_Log_Page::SLUG, 'wpmcp');
+
+            $this->assertStringStartsWith('wpmcp-3_page_', $screen_id, 'the badge changes the hook prefix; if core stopped doing that, this test needs a new premise');
+
+            set_current_screen($screen_id);
+            $this->assertNotSame('', $this->rendered(), 'the banner must follow the screen id core really produces');
+        } finally {
+            [$GLOBALS['admin_page_hooks'], $GLOBALS['menu'], $GLOBALS['submenu'], $GLOBALS['_registered_pages']] = $saved;
+        }
+    }
+
+    public function test_the_last_allowed_dismissal_is_labelled_as_permanent(): void
+    {
+        $now = 1_800_000_000;
+        Pro_Banner::set_now_for_tests($now);
+        $this->assertStringContainsString('Hide for 30 days', $this->rendered());
+        $this->dismiss_with_nonce();
+
+        Pro_Banner::set_now_for_tests($now + 31 * DAY_IN_SECONDS);
+        $this->assertStringContainsString('Hide for 30 days', $this->rendered(), 'the second dismissal is still a snooze');
+        $this->dismiss_with_nonce();
+
+        Pro_Banner::set_now_for_tests($now + 62 * DAY_IN_SECONDS);
+        $html = $this->rendered();
+        $this->assertStringContainsString('Do not show this again', $html, 'the third click is permanent and must say so');
+        $this->assertStringNotContainsString('Hide for 30 days', $html);
+    }
+
+    public function test_dismissing_while_already_hidden_does_not_use_up_the_budget(): void
+    {
+        $now = 1_800_000_000;
+        Pro_Banner::set_now_for_tests($now);
+        $this->dismiss_with_nonce();
+        Pro_Banner::set_now_for_tests($now + 60);
+        $this->dismiss_with_nonce();
+        $this->dismiss_with_nonce();
+
+        $state = get_user_meta($this->admin_id, Pro_Banner::META_KEY, true);
+        $this->assertSame(1, $state['dismissals'], 'stale tabs clicking Hide must not make the hide permanent');
+        $this->assertSame($now, $state['dismissed_at'], 'the snooze clock is not restarted either');
+    }
+
+    public function test_a_refused_dismissal_writes_nothing(): void
+    {
+        $editor = self::factory()->user->create(['role' => 'editor']);
+        wp_set_current_user($editor);
+        $_GET['_wpnonce'] = wp_create_nonce(Pro_Banner::NONCE_ACTION);
+
+        (new Pro_Banner())->handle_dismiss(static function (): void {
+        });
+
+        $this->assertSame('', get_user_meta($editor, Pro_Banner::META_KEY, true));
+        $this->assertSame('', get_user_meta($this->admin_id, Pro_Banner::META_KEY, true));
+    }
+
+    public function test_the_snooze_ends_one_second_after_30_days(): void
+    {
+        $now = 1_800_000_000;
+        Pro_Banner::set_now_for_tests($now);
+        $this->dismiss_with_nonce();
+
+        Pro_Banner::set_now_for_tests($now + 30 * DAY_IN_SECONDS);
+        $this->assertSame('', $this->rendered(), 'exactly 30 days: still hidden');
+
+        Pro_Banner::set_now_for_tests($now + 30 * DAY_IN_SECONDS + 1);
+        $this->assertNotSame('', $this->rendered());
+    }
+
+    public function test_corrupt_meta_counts_as_never_dismissed(): void
+    {
+        update_user_meta($this->admin_id, Pro_Banner::META_KEY, 'garbage');
+        $this->assertNotSame('', $this->rendered());
+
+        update_user_meta($this->admin_id, Pro_Banner::META_KEY, ['dismissed_at' => 'soon', 'dismissals' => -5]);
+        $this->assertNotSame('', $this->rendered());
+
+        $this->dismiss_with_nonce();
+        $state = get_user_meta($this->admin_id, Pro_Banner::META_KEY, true);
+        $this->assertSame(1, $state['dismissals'], 'a negative count never lets a user exceed the budget');
     }
 
     public function test_register_hooks_the_notice_and_the_dismiss_handler(): void
