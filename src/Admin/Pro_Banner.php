@@ -17,7 +17,7 @@ if (! defined('ABSPATH')) {
  * coupon and UTM parameters so the sale can be attributed to this surface.
  *
  * Deliberately narrow, like Announcements:
- *  - manage_options users only, and never while the licence allows premium
+ *  - users with the management capability only (issue #479), and never while the licence allows premium
  *    code, so a paying customer never sees it;
  *  - only on the Dashboard, the Plugins list and the plugin's own screens,
  *    never on content editors or other plugins' settings;
@@ -68,12 +68,15 @@ class Pro_Banner
     /**
      * Hooks the notice and the dismiss handler. Both callbacks self-gate
      * (capability, licence, screen, nonce), so registration is always safe.
+     * The dismiss handler sits behind the management check like every WP
+     * MCP admin-post handler (issue #479), so the banner is shown only to
+     * users who can also dismiss it.
      */
     public static function register(): self
     {
         $instance = new self();
         add_action('admin_notices', [$instance, 'render']);
-        add_action('admin_post_' . self::DISMISS_ACTION, [$instance, 'handle_dismiss']);
+        Management_Access::add_handler('admin_post_' . self::DISMISS_ACTION, [$instance, 'handle_dismiss']);
 
         return $instance;
     }
@@ -212,7 +215,7 @@ class Pro_Banner
     /** admin_notices callback. */
     public function render(): void
     {
-        if (! current_user_can('manage_options') || ! function_exists('get_current_screen')) {
+        if (! current_user_can(Management_Access::CAPABILITY) || ! function_exists('get_current_screen')) {
             return;
         }
         $screen = get_current_screen();
@@ -282,7 +285,7 @@ class Pro_Banner
     }
 
     /**
-     * admin_post handler for dismissals: manage_options + nonce, then a
+     * admin_post handler for dismissals: management capability + nonce, then a
      * redirect back to the referring screen.
      *
      * @param callable|null $redirector Test seam: receives the redirect URL
@@ -293,7 +296,7 @@ class Pro_Banner
     public function handle_dismiss(?callable $redirector = null)
     {
         $nonce      = is_string($_GET['_wpnonce'] ?? null) ? sanitize_text_field(wp_unslash($_GET['_wpnonce'])) : '';
-        $authorized = current_user_can('manage_options')
+        $authorized = current_user_can(Management_Access::CAPABILITY)
             && '' !== $nonce
             && wp_verify_nonce($nonce, self::NONCE_ACTION);
 
