@@ -3,6 +3,7 @@
 namespace WPMCP\Tests\Free\Admin;
 
 use WPMCP\Admin\Audit_Log_Page;
+use WPMCP\Admin\Guarded_Handler;
 use WPMCP\Admin\Pro_Banner;
 use WPMCP\Memory\Memory_Store;
 use WPMCP\Plugin;
@@ -217,8 +218,8 @@ class ProBannerTest extends \WP_UnitTestCase
         foreach (['upgrade to unlock', 'unlock this feature', 'pro feature', 'premium feature', 'available in pro', 'only in pro', 'upgrade now', 'go pro', 'buy now', 'upgrade to pro'] as $phrase) {
             $this->assertStringNotContainsString($phrase, $html, "compliance phrase present: {$phrase}");
         }
-        $this->assertStringNotContainsString("\u{2014}", $html, 'em dash');
-        $this->assertStringNotContainsString("\u{2013}", $html, 'en dash');
+        $this->assertStringNotContainsString("\u{2014}", $html, 'em dash'); // dash-guard-ignore: the test looks for the character
+        $this->assertStringNotContainsString("\u{2013}", $html, 'en dash'); // dash-guard-ignore: the test looks for the character
     }
 
     /**
@@ -325,12 +326,22 @@ class ProBannerTest extends \WP_UnitTestCase
 
     public function test_register_hooks_the_notice_and_the_dismiss_handler(): void
     {
+        global $wp_filter;
+        $hook   = 'admin_post_' . Pro_Banner::DISMISS_ACTION;
+        $before = isset($wp_filter[$hook]) ? count($wp_filter[$hook]->callbacks[10] ?? []) : 0;
+
         $banner = Pro_Banner::register();
 
         $this->assertNotFalse(has_action('admin_notices', [$banner, 'render']));
-        $this->assertNotFalse(has_action('admin_post_' . Pro_Banner::DISMISS_ACTION, [$banner, 'handle_dismiss']));
+
+        // Issue #479: every WP MCP admin-post handler sits behind the
+        // management check, so the registered callback is the guard, not the
+        // bare method (ManagementAccessEntryPointsTest enumerates them).
+        $callbacks = array_values($wp_filter[$hook]->callbacks[10] ?? []);
+        $this->assertCount($before + 1, $callbacks);
+        $this->assertInstanceOf(Guarded_Handler::class, end($callbacks)['function']);
 
         remove_action('admin_notices', [$banner, 'render']);
-        remove_action('admin_post_' . Pro_Banner::DISMISS_ACTION, [$banner, 'handle_dismiss']);
+        remove_action($hook, end($callbacks)['function']);
     }
 }
