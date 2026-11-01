@@ -36,6 +36,10 @@ return [
         // has nothing left to bite on.
         'src/Pro',
         'src/Freemius',
+        // The in-admin Pro banner links a free install to the paid tier. This
+        // build has no paid tier to link to, and guideline 11 keeps upgrade
+        // notices off a directory plugin anyway.
+        'src/Admin/Pro_Banner.php',
         // Paid ability groups, whole. These are the add-on.
         // Note: src/Cloud stays. Cloud_Client and Cloud_Config are a plain
         // HTTP seam and an option store with no paid gating in them, and the

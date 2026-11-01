@@ -96,6 +96,22 @@ class WporgStripTest extends TestCase
         }
     }
 
+    /**
+     * The in-admin Pro banner links a free install to the paid tier, so it
+     * leaves with the tier: the file through the policy, its import and its
+     * registration call through strip.php's count-validated Plugin.php edits.
+     * A survivor of either kind would fatal this build at boot (the class is
+     * gone) or ship an upgrade notice into a directory plugin.
+     */
+    public function test_the_pro_banner_leaves_with_the_paid_tier(): void
+    {
+        $this->assertContains('src/Admin/Pro_Banner.php', self::$policy['removed_paths'], 'the policy stopped removing the Pro banner');
+        $this->assertFileDoesNotExist(self::$stage . '/src/Admin/Pro_Banner.php', 'the Pro banner is still in the directory cut');
+
+        $plugin = (string) file_get_contents(self::$stage . '/src/Plugin.php');
+        $this->assertStringNotContainsString('Pro_Banner', $plugin, 'the stripped Plugin.php still names the Pro banner');
+    }
+
     public function test_pro_gate_and_licensing_bootstrap_are_absent(): void
     {
         $this->assertContains('src/Pro', self::$policy['removed_paths'], 'the policy stopped removing src/Pro');
