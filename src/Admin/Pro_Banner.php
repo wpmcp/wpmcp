@@ -137,6 +137,13 @@ class Pro_Banner
     /**
      * Whether the banner belongs on a screen. Exact ids come from the
      * filterable list; every WP MCP submenu screen matches by prefix.
+     *
+     * Core builds a submenu's screen id from the parent's SANITIZED MENU
+     * TITLE, not its slug (add_menu_page writes $admin_page_hooks[$slug] =
+     * sanitize_title($menu_title)), and our title carries the pending
+     * memory-proposal badge, so with proposals waiting the prefix is
+     * "wpmcp-3_page_". The real hook is read back from that global when the
+     * menu has been registered; the plain prefix stays as the fallback.
      */
     public static function screen_allowed(string $screen_id): bool
     {
@@ -145,8 +152,14 @@ class Pro_Banner
         }
         $screens = apply_filters('wpmcp_pro_banner_screens', self::SCREENS);
         $screens = is_array($screens) ? array_map('strval', $screens) : self::SCREENS;
+        if (in_array($screen_id, $screens, true)) {
+            return true;
+        }
 
-        return in_array($screen_id, $screens, true) || 0 === strpos($screen_id, self::SCREEN_PREFIX);
+        $hook = $GLOBALS['admin_page_hooks']['wpmcp'] ?? '';
+        $real = is_string($hook) && '' !== $hook ? $hook . '_page_' : self::SCREEN_PREFIX;
+
+        return 0 === strpos($screen_id, self::SCREEN_PREFIX) || 0 === strpos($screen_id, $real);
     }
 
     /**
@@ -159,25 +172,41 @@ class Pro_Banner
             return false;
         }
 
-        $state = $this->state($user_id);
-        if ($state['dismissals'] >= self::MAX_DISMISSALS) {
-            return false;
-        }
-
-        return $state['dismissed_at'] + self::SNOOZE_DAYS * DAY_IN_SECONDS < $this->now();
+        return ! $this->is_hidden_by($this->state($user_id));
     }
 
-    /** Records one dismissal for a user at the current time. */
+    /**
+     * Records one dismissal for a user at the current time. A dismissal that
+     * arrives while the banner is already hidden (a stale tab, a double
+     * click) changes nothing: it must not restart the snooze clock or use up
+     * one of the MAX_DISMISSALS.
+     */
     public function dismiss(int $user_id): void
     {
         if ($user_id <= 0) {
             return;
         }
         $state = $this->state($user_id);
+        if ($this->is_hidden_by($state)) {
+            return;
+        }
         update_user_meta($user_id, self::META_KEY, [
             'dismissed_at' => $this->now(),
             'dismissals'   => $state['dismissals'] + 1,
         ]);
+    }
+
+    /** Whether this is the dismissal that hides the banner for good. */
+    private function next_dismissal_is_permanent(int $user_id): bool
+    {
+        return $this->state($user_id)['dismissals'] >= self::MAX_DISMISSALS - 1;
+    }
+
+    /** @param array{dismissed_at: int, dismissals: int} $state */
+    private function is_hidden_by(array $state): bool
+    {
+        return $state['dismissals'] >= self::MAX_DISMISSALS
+            || $state['dismissed_at'] + self::SNOOZE_DAYS * DAY_IN_SECONDS >= $this->now();
     }
 
     /** admin_notices callback. */
@@ -236,11 +265,15 @@ class Pro_Banner
                 </span>
                 <a href="<?php echo esc_url($dismiss_url); ?>">
                     <?php
-                    printf(
-                        /* translators: %d: number of days the banner stays hidden. */
-                        esc_html__('Hide for %d days', 'wpmcp'),
-                        (int) self::SNOOZE_DAYS
-                    );
+                    if ($this->next_dismissal_is_permanent(get_current_user_id())) {
+                        esc_html_e('Do not show this again', 'wpmcp');
+                    } else {
+                        printf(
+                            /* translators: %d: number of days the banner stays hidden. */
+                            esc_html__('Hide for %d days', 'wpmcp'),
+                            (int) self::SNOOZE_DAYS
+                        );
+                    }
                     ?>
                 </a>
             </p>
