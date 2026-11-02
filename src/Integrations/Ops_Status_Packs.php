@@ -17,6 +17,7 @@ if (! defined('ABSPATH')) {
  *  - get-duplicator-status (Duplicator_Status)
  *  - get-solid-security-status (Solid_Security_Status)
  *  - get-monsterinsights-status (MonsterInsights_Status)
+ *  - get-wordfence-status and the Wordfence lists and writes (Wordfence_Integration)
  *  - get-w3tc-status and purge-w3tc-cache (W3TC_Status)
  *
  * Every op runs at manage_options, the capability each plugin gates its own
@@ -52,6 +53,7 @@ final class Ops_Status_Packs
             Duplicator_Status::operations(),
             Solid_Security_Status::operations(),
             MonsterInsights_Status::operations(),
+            Wordfence_Integration::operations(),
             W3TC_Status::operations()
         );
     }
