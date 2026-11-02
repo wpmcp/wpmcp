@@ -523,6 +523,12 @@ class Stdio_Transport
         $ability_name = self::ability_for_tool($tool_name);
 
         if (null === $ability_name) {
+            // A declared 'pro' tier tool is not registered on a free install
+            // (Registrar::tier_permitted), so the client would otherwise be
+            // told it does not exist. Name the plan and the upgrade instead.
+            if (self::is_declared_pro_tool($tool_name)) {
+                return self::error_response($id, -32602, Pro_Refusal::message(sprintf('The tool "%s"', $tool_name)));
+            }
             return self::error_response($id, -32602, sprintf('Unknown tool: %s', $tool_name));
         }
 
@@ -785,6 +791,20 @@ class Stdio_Transport
      * rewrites out-of-charset ones), so guessing where the '/' was is wrong
      * for exactly the names that are hardest to debug.
      */
+    /** Whether a tool name belongs to a declared ability the free tier withholds. */
+    private static function is_declared_pro_tool(string $tool_name): bool
+    {
+        if ('' === $tool_name || ! class_exists('\\WPMCP\\Plugin')) {
+            return false;
+        }
+        foreach (\WPMCP\Plugin::instance()->declared_abilities() as $ability) {
+            if ('pro' === $ability->tier && self::tool_name($ability->name) === $tool_name) {
+                return ! Registrar::tier_permitted('pro');
+            }
+        }
+        return false;
+    }
+
     private static function ability_for_tool(string $tool_name): ?string
     {
         if (
