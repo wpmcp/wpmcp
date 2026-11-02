@@ -67,10 +67,7 @@ class Get_Skill
         if (true === ($skill['locked'] ?? false)) {
             return new \WP_Error(
                 'wpmcp_skill_locked',
-                sprintf(
-                    'The skill "%s" is part of the premium skill library and needs an active WP MCP Pro license on this site.',
-                    $slug
-                ),
+                \WPMCP\MCP\Pro_Refusal::message(sprintf('The skill "%s"', $slug)),
                 [
                     'slug' => $slug,
                     'tier' => 'pro',

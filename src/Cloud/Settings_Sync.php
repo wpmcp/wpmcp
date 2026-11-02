@@ -215,7 +215,7 @@ class Settings_Sync
         if (! Gate::is_pro()) {
             return new \WP_Error(
                 'cloud_settings_sync_pro_only',
-                'Settings sync is a paid WP MCP Cloud feature.'
+                \WPMCP\MCP\Pro_Refusal::message('Settings sync')
             );
         }
         if (! current_user_can('manage_options')) {
