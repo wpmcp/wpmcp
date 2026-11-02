@@ -149,6 +149,33 @@ if ( ! function_exists( 'wpmcp_test_llms_caps' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wpmcp_test_register_learndash_types' ) ) {
+	/**
+	 * LearnDash post types (includes/class-ld-cpt.php): sfwd-courses,
+	 * sfwd-lessons, sfwd-topic, sfwd-quiz and sfwd-question, all
+	 * capability_type post, so administrators hold every capability already.
+	 */
+	function wpmcp_test_register_learndash_types(): void {
+		foreach ( [ 'sfwd-courses', 'sfwd-lessons', 'sfwd-topic', 'sfwd-quiz' ] as $type ) {
+			register_post_type( $type, [
+				'public'          => true,
+				'capability_type' => 'post',
+				'map_meta_cap'    => true,
+				'supports'        => [ 'title', 'editor', 'thumbnail', 'excerpt', 'author', 'page-attributes' ],
+			] );
+		}
+		register_post_type( 'sfwd-question', [ 'public' => false, 'capability_type' => 'post', 'map_meta_cap' => true, 'supports' => [ 'title', 'editor', 'page-attributes' ] ] );
+	}
+
+	function wpmcp_test_unregister_learndash_types(): void {
+		foreach ( [ 'sfwd-courses', 'sfwd-lessons', 'sfwd-topic', 'sfwd-quiz', 'sfwd-question' ] as $type ) {
+			if ( post_type_exists( $type ) ) {
+				unregister_post_type( $type );
+			}
+		}
+	}
+}
+
 if ( ! function_exists( 'wpmcp_test_create_lms_tables' ) ) {
 	function wpmcp_test_create_lms_tables(): void {
 		global $wpdb;
