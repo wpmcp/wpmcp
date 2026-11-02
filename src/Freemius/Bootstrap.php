@@ -193,6 +193,10 @@ class Bootstrap
         // convention), so it is declared in a dedicated non-namespaced file.
         require_once __DIR__ . '/wpmcp-fs.php';
 
+        // Before the instance exists: a staging copy resolves as a temporary
+        // duplicate and keeps Pro without using a licence site.
+        Staging_Copy::boot();
+
         wpmcp_fs();
 
         // Pro history depth: decided once WordPress is up, because the
