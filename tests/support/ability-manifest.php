@@ -15,8 +15,8 @@
  */
 
 return [
-    'total'     => 407,
-    'free'      => 274,
+    'total'     => 409,
+    'free'      => 276,
     'pro'       => 133,
     'abilities' => [
         'wpmcp/acf-read' => 'free',
@@ -44,6 +44,8 @@ return [
         'wpmcp/apply-template' => 'pro',
         'wpmcp/assign-menu-to-location' => 'free',
         'wpmcp/batch-update' => 'pro',
+        'wpmcp/bbpress-read' => 'free',
+        'wpmcp/bbpress-write' => 'free',
         'wpmcp/block-suites-read' => 'pro',
         'wpmcp/block-suites-write' => 'pro',
         'wpmcp/build-change-set' => 'free',

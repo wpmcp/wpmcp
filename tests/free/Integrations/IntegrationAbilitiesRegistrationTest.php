@@ -29,6 +29,8 @@ class IntegrationAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/tec-write',
         'wpmcp/give-read',
         'wpmcp/give-write',
+        'wpmcp/bbpress-read',
+        'wpmcp/bbpress-write',
         'wpmcp/pmpro-read',
         'wpmcp/pmpro-write',
         'wpmcp/theme-read',
