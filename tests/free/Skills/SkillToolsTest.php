@@ -182,7 +182,9 @@ class SkillToolsTest extends \WP_UnitTestCase
         $this->assertStringContainsString('https://wpmcp-pro.com/pricing.html', $message);
         $this->assertStringContainsString('utm_medium=tool-refusal', $message);
         $this->assertStringContainsString('WPMCP20', $message);
-        $this->assertDoesNotMatchRegularExpression('/[\x{2013}\x{2014}]/u', $message, 'refusal copy carries a dash');
+        // The house rule: no em or en dash in anything a client relays.
+        $this->assertStringNotContainsString(mb_chr(0x2013, 'UTF-8'), $message, 'refusal copy carries an en dash');
+        $this->assertStringNotContainsString(mb_chr(0x2014, 'UTF-8'), $message, 'refusal copy carries an em dash');
     }
 
     public function test_a_licensed_site_gets_the_pro_skill_body(): void
