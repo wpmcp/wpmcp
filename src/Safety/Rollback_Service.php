@@ -77,10 +77,10 @@ class Rollback_Service
         }
         if (! self::may_restore($row['snapshot'])) {
             self::warn(sprintf(
-                'operation %s refused: %s restoring it requires the "%s" capability.',
+                'operation %s refused: %s restoring it requires %s.',
                 $operation_id,
                 self::refusal_subject($row['snapshot'], 'its snapshot'),
-                (string) self::restore_capability($row['snapshot'])
+                self::restore_capability($row['snapshot'])
             ));
             return false;
         }
@@ -269,11 +269,23 @@ class Rollback_Service
             : sprintf('%s holds personal data and', $subject);
     }
 
-    /** The capability this snapshot demands, or null when it holds no PII. */
-    private static function restore_capability(array $snapshot): ?string
+    /**
+     * What restoring this snapshot demands, worded for a refusal: the
+     * capabilities, plus FunnelKit's own funnel access for a funnel.
+     */
+    private static function restore_capability(array $snapshot): string
     {
-        $names = array_map(static fn (array $cap): string => $cap[0], self::restore_capabilities($snapshot));
-        return [] === $names ? null : implode('" and "', $names);
+        $names  = array_map(static fn (array $cap): string => $cap[0], self::restore_capabilities($snapshot));
+        $phrase = [] === $names ? '' : sprintf('the "%s" capability', implode('" and "', $names));
+        if (self::is_funnelkit($snapshot)) {
+            $phrase .= ('' === $phrase ? '' : ' and ') . 'FunnelKit\'s own permission to edit funnels';
+        }
+        return $phrase;
+    }
+
+    private static function is_funnelkit(array $snapshot): bool
+    {
+        return in_array($snapshot['object_type'] ?? '', [ FunnelKit_Funnel_Snapshot::TYPE, FunnelKit_Funnel_Snapshot::CREATE_TYPE ], true);
     }
 
     /**
@@ -300,7 +312,8 @@ class Rollback_Service
         // A FunnelKit funnel's snapshot puts back its row, its meta and its
         // step posts (checkout products and prices included), and every
         // funnel write takes manage_woocommerce, so restoring one takes it
-        // too (issue #500).
+        // too (issue #500), and FunnelKit's own access check as well, which
+        // may_restore() asks (issue #551).
         if (in_array($type, [ FunnelKit_Funnel_Snapshot::TYPE, FunnelKit_Funnel_Snapshot::CREATE_TYPE ], true)) {
             return [ [ 'manage_woocommerce' ] ];
         }
@@ -415,6 +428,13 @@ class Rollback_Service
             if (! current_user_can(...$capability)) {
                 return false;
             }
+        }
+        // Every FunnelKit write also passes FunnelKit's own funnel access
+        // check (manage_options by default), so a store manager FunnelKit
+        // refuses cannot delete or revert a funnel by undoing someone
+        // else's write either (issue #551).
+        if (self::is_funnelkit($snapshot) && ! FunnelKit_Funnel_Snapshot::current_user_may_edit_funnels()) {
+            return false;
         }
         return true;
     }
@@ -533,9 +553,9 @@ class Rollback_Service
             // much as shipping zones, BuddyPress, CRM, Amelia and cleanup rows.
             if (! self::may_restore($snapshot)) {
                 self::warn(sprintf(
-                    'snapshot %s skipped: restoring it requires the "%s" capability.',
+                    'snapshot %s skipped: restoring it requires %s.',
                     self::object_identity($snapshot),
-                    (string) self::restore_capability($snapshot)
+                    self::restore_capability($snapshot)
                 ));
                 continue;
             }
@@ -619,10 +639,10 @@ class Rollback_Service
                 // One refused snapshot must not abort the rest of the unwind,
                 // but it must be visible and must NOT be counted as restored.
                 self::warn(sprintf(
-                    'snapshot %s skipped: %s restoring it requires the "%s" capability.',
+                    'snapshot %s skipped: %s restoring it requires %s.',
                     $key,
                     self::refusal_subject($snapshot, 'it'),
-                    (string) self::restore_capability($snapshot)
+                    self::restore_capability($snapshot)
                 ));
                 continue;
             }
