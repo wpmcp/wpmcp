@@ -226,4 +226,56 @@ class FunnelKitLiveTest extends \WP_UnitTestCase
         $this->assertSame('funnelkit_access_denied', $out['error']['code'] ?? '', (string) wp_json_encode($out));
         $this->assertSame($before, $this->state($id));
     }
+
+    /**
+     * Issue #551: a rollback of a FunnelKit write takes the access the write
+     * took, FunnelKit's own funnel write check as well as
+     * manage_woocommerce. A store manager FunnelKit refuses can neither
+     * delete an administrator's funnel by undoing its create nor revert its
+     * content by undoing an update or a delete; an administrator can, and so
+     * can a role a site grants funnel access with FunnelKit's own filter.
+     */
+    public function test_a_rollback_takes_funnelkits_own_access_check_as_well_as_manage_woocommerce(): void
+    {
+        $created = $this->ok('create-funnelkit-funnel', [ 'title' => 'Admin funnel' ]);
+        $id      = (int) $created['result']['funnel']['id'];
+        $landing = (int) $this->ok('add-funnelkit-step', [ 'funnel_id' => $id, 'type' => 'landing', 'title' => 'Welcome' ])['result']['step_id'];
+        $renamed = $this->ok('update-funnelkit-funnel', [ 'id' => $id, 'title' => 'Renamed by admin' ]);
+        $kept    = (int) $this->ok('create-funnelkit-funnel', [ 'title' => 'Doomed' ])['result']['funnel']['id'];
+        $deleted = $this->ok('delete-funnelkit-funnel', [ 'id' => $kept ], [ 'confirm' => true ]);
+        $after   = $this->state($id);
+
+        $manager = self::factory()->user->create([ 'role' => 'editor' ]);
+        get_userdata($manager)->add_cap('manage_woocommerce');
+        wp_set_current_user($manager);
+        $denied = $this->write('delete-funnelkit-funnel', [ 'id' => $id ], [ 'confirm' => true ]);
+        $this->assertSame('funnelkit_access_denied', $denied['error']['code'] ?? '', (string) wp_json_encode($denied));
+
+        $this->assertFalse(Rollback_Service::restore_operation((string) $created['operation_ids'][0]), 'A user FunnelKit refuses deleted the admin\'s funnel through rollback.');
+        $this->assertStringContainsString('FunnelKit', implode(' ', Rollback_Service::take_warnings()));
+        $this->assertFalse(Rollback_Service::restore_operation((string) $renamed['operation_id']), 'A user FunnelKit refuses reverted the admin\'s funnel through rollback.');
+        $this->assertFalse(Rollback_Service::restore_operation((string) $deleted['operation_id']), 'A user FunnelKit refuses brought a deleted funnel back through rollback.');
+        $this->assertSame($after, $this->state($id));
+        $this->assertNotNull(get_post($landing));
+        $this->assertNull(FunnelKit_Funnel_Snapshot::row($kept));
+
+        // A role the site grants funnel write access through FunnelKit's own filter may undo.
+        $grant = static function (array $config): array {
+            $config['editor'] = [ 'menu' => [ 'read', 'write' ], 'funnel' => [ 'read', 'write' ], 'analytics' => [ 'read', 'write' ] ];
+            return $config;
+        };
+        add_filter('wffn_user_access_capabilities', $grant);
+        try {
+            $this->assertTrue(Rollback_Service::restore_operation((string) $renamed['operation_id']), implode(' ', Rollback_Service::take_warnings()));
+        } finally {
+            remove_filter('wffn_user_access_capabilities', $grant);
+        }
+
+        // And an administrator still can.
+        wp_set_current_user($this->admin);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $deleted['operation_id']), implode(' ', Rollback_Service::take_warnings()));
+        $this->assertNotNull(FunnelKit_Funnel_Snapshot::row($kept));
+        $this->assertTrue(Rollback_Service::restore_operation((string) $created['operation_ids'][0]), implode(' ', Rollback_Service::take_warnings()));
+        $this->assertNull(FunnelKit_Funnel_Snapshot::row($id));
+    }
 }

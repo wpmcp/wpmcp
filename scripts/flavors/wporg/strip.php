@@ -1169,6 +1169,23 @@ $plugin_edits[] = [
     1,
 ];
 
+// The in-admin Pro banner (src/Admin/Pro_Banner.php) leaves with the paid
+// tier (policy.php removed_paths), so its import and its one registration
+// call have to go too or this build would name a class it does not ship and
+// fatal at boot.
+$plugin_edits[] = [
+    "use WPMCP\\Admin\\Pro_Banner;\n",
+    '',
+    1,
+];
+$plugin_edits[] = [
+    "            // In-admin Pro banner: a dismissible pricing-page link for free\n"
+        . "            // installs on the Dashboard, the Plugins list and WP MCP screens\n"
+        . "            // (docs/superpowers/specs/2026-11-01-pro-upgrade-banner.md).\n"
+        . "            Pro_Banner::register();\n",
+    '',
+    1,
+];
 $edits['src/Plugin.php'] = $plugin_edits;
 
 // The chat surface is add-on-only, so the directory build must not carry the

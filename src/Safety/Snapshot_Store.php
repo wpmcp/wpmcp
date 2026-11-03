@@ -632,6 +632,20 @@ class Snapshot_Store
         return self::ensure_retention_floor() > 0 && ! has_filter('wpmcp_snapshot_history_limit');
     }
 
+    /**
+     * Hold history at $depth until the owner decides, the same way an
+     * upgraded install is held. For a caller that is about to lower the cap
+     * on its own (a lapsed licence), so the drop is the owner's choice and
+     * not a side effect of the next write. A depth at or under the cap has
+     * nothing to protect.
+     */
+    public static function hold_retention_floor(int $depth): void
+    {
+        if ($depth > self::DEFAULT_HISTORY_LIMIT) {
+            update_option(self::HISTORY_FLOOR_OPTION, $depth, true);
+        }
+    }
+
     /** The owner has decided: pruning may proceed down to the cap. */
     public static function acknowledge_retention_floor(): void
     {

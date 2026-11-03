@@ -78,6 +78,7 @@ use WPMCP\Admin\Handshake_Settings_Page;
 use WPMCP\Admin\Connection_Page;
 use WPMCP\Admin\Announcements;
 use WPMCP\Admin\Snapshot_Retention_Notice;
+use WPMCP\Admin\Pro_Banner;
 use WPMCP\Admin\Ability_Grid_Page;
 use WPMCP\Admin\Memory_Page;
 use WPMCP\Admin\Redirect_Suggestion_Controller;
@@ -921,6 +922,10 @@ final class Plugin
             // a deeper history than the flat cap keeps it until the owner
             // decides, and this is the notice that asks.
             Snapshot_Retention_Notice::register();
+            // In-admin Pro banner: a dismissible pricing-page link for free
+            // installs on the Dashboard, the Plugins list and WP MCP screens
+            // (docs/superpowers/specs/2026-11-01-pro-upgrade-banner.md).
+            Pro_Banner::register();
             // Compact tool-surface mode (issue #79): in compact mode the
             // adapter's advertised tools/list collapses to the meta-tools
             // plus connection basics. Exposure-only - registration and
