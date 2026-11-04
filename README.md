@@ -72,7 +72,7 @@ Snapshots cover WordPress data: posts and their content, meta and terms, options
 
 - **Package updates and deletes.** `update-plugin`, `update-theme`, the core update in `manage-updates`, `delete-plugin` and `delete-theme` do not back up package files. Off by default, and each needs `confirm: true`.
 - **Raw database row writes.** `update-rows` and `delete-rows` write a before-image to a capped audit log, not a restorable snapshot. Off by default.
-- **File writes and deletes.** `write-file`, `edit-file` and `delete-file` keep a byte-for-byte backup copy, but no tool restores it in one call yet and these writes do not appear in `list-operations` ([#602](https://github.com/wpmcp/wpmcp/issues/602)). Off by default.
+- **A `.php` file undo whose site check cannot run.** File writes and deletes are undoable since [#602](https://github.com/wpmcp/wpmcp/issues/602), but a `.php` restore is refused when the site check cannot run, and the response gives the backup path for a manual copy. File tools are off by default.
 - **Media file bytes.** Rolling back a force-deleted attachment restores its record, not its files ([#24](https://github.com/wpmcp/wpmcp/issues/24)). Media force-delete is off by default.
 - **Other one-way actions.** Deleting a menu, importing content, the security incident tools (ending sessions, rotating salts), and other plugins' abilities run through the abilities bridge (`execute-site-ability`).
 - **Snapshot coverage.** Excerpt and parent are not yet captured, and history keeps the last 20 operations by default (see [Known limitations](#known-limitations)).
