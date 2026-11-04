@@ -199,6 +199,36 @@ class TermCrudTest extends \WP_UnitTestCase
         $this->assertSame(1, $out['objects_affected']);
     }
 
+    public function test_undoing_a_delete_takes_back_the_default_category_it_added(): void
+    {
+        // Issue #595: deleting a post's only category moves the post to the
+        // default category. The undo must put it back in the deleted term
+        // ONLY, while a post that was already in the default category keeps
+        // it.
+        $default = (int) get_option('default_category');
+        $created = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Only Home']);
+        $term_id = $created['term']['term_id'];
+
+        $only = self::factory()->post->create(['post_status' => 'draft']);
+        wp_set_object_terms($only, [$term_id], 'category');
+
+        $both = self::factory()->post->create();
+        wp_set_object_terms($both, [$term_id, $default], 'category');
+
+        $out = (new Delete_Term())->handle(['taxonomy' => 'category', 'term_id' => $term_id]);
+        $this->assertSame([$default], array_map('intval', wp_get_object_terms($only, 'category', ['fields' => 'ids'])));
+
+        Rollback_Service::restore_operation((string) $out['operation_id']);
+
+        $this->assertSame([$term_id], array_map('intval', wp_get_object_terms($only, 'category', ['fields' => 'ids'])), 'The post that was only in the deleted term must be only in it again.');
+
+        $kept = array_map('intval', wp_get_object_terms($both, 'category', ['fields' => 'ids']));
+        sort($kept);
+        $expected = [$term_id, $default];
+        sort($expected);
+        $this->assertSame($expected, $kept, 'A post already in the default category before the delete keeps it.');
+    }
+
     public function test_refuses_to_delete_the_default_term(): void
     {
         $default = (int) get_option('default_category');

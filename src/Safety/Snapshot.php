@@ -360,6 +360,7 @@ class Snapshot
         $meta      = [];
         $objects   = [];
         $truncated = false;
+        $around    = [];
 
         if (is_array($term) && isset($term['term_id'])) {
             $term_id = (int) $term['term_id'];
@@ -383,6 +384,10 @@ class Snapshot
                 $objects   = array_slice($objects, 0, self::MAX_TERM_OBJECTS);
                 $truncated = true;
             }
+
+            // What wp_delete_term() changes around the term, so its undo can
+            // put that back too (see Term_Restore).
+            $around = Term_Restore::capture($term_id, $taxonomy, $objects);
         }
 
         return [
@@ -396,7 +401,7 @@ class Snapshot
                 'meta'             => $meta,
                 'objects'          => $objects,
                 'objects_truncated' => $truncated,
-            ],
+            ] + $around,
         ];
     }
 

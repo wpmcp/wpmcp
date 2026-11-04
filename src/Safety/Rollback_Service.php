@@ -2633,6 +2633,10 @@ class Rollback_Service
         // with assignments made after the operation.
         if ($was_missing) {
             self::restore_term_objects($term_id, $taxonomy, $data);
+            // Then what the delete changed around the term (Term_Restore).
+            foreach (Term_Restore::after_refile($term_id, $taxonomy, $data) as $warning) {
+                self::warn($warning);
+            }
         }
     }
 
