@@ -333,4 +333,76 @@ class FileWriteUndoTest extends \WP_UnitTestCase
     {
         $this->assertContains('file_write', Rollback_Service::restorable_object_types());
     }
+
+    /** Issue #593: a file write undone once is refused the second time, and a newer write survives. */
+    public function test_a_second_undo_of_a_file_write_is_refused_and_keeps_the_newer_content(): void
+    {
+        file_put_contents(ABSPATH . $this->path('notes.txt'), "v0\n");
+        $out = $this->call('edit-file', ['path' => $this->path('notes.txt'), 'old_string' => 'v0', 'new_string' => 'v1']);
+
+        $this->assertTrue($this->call('rollback-operation', ['operation_id' => $out['operation_id']])['restored']);
+        $this->assertSame("v0\n", $this->bytes('notes.txt'));
+        $this->call('write-file', ['path' => $this->path('notes.txt'), 'content' => "newer\n"]);
+
+        $again = $this->call('rollback-operation', ['operation_id' => $out['operation_id']]);
+        $this->assertFalse($again['restored'], wp_json_encode($again));
+        $this->assertStringContainsString('already undone', implode(' ', $again['warnings']));
+        $this->assertSame("newer\n", $this->bytes('notes.txt'));
+
+        $listed = $this->call('list-operations', ['limit' => 20]);
+        $row    = current(array_filter($listed['operations'], static fn ($op) => $op['operation_id'] === $out['operation_id']));
+        $this->assertFalse($row['rollback_available']);
+        $this->assertNotNull($row['rolled_back_at']);
+    }
+
+    /** Issue #593: undoing a created file twice does not remove a file written there since. */
+    public function test_a_second_undo_of_a_file_create_does_not_remove_a_newer_file(): void
+    {
+        $out = $this->call('write-file', ['path' => $this->path('made.txt'), 'content' => 'one']);
+        $this->assertTrue($this->call('rollback-operation', ['operation_id' => $out['operation_id']])['restored']);
+        $this->assertNull($this->bytes('made.txt'));
+
+        file_put_contents(ABSPATH . $this->path('made.txt'), 'someone else');
+        $this->assertFalse($this->call('rollback-operation', ['operation_id' => $out['operation_id']])['restored']);
+        $this->assertSame('someone else', $this->bytes('made.txt'));
+    }
+
+    /**
+     * A file restore its site check refused (issue #602) is not recorded as
+     * undone (issue #593): the operation stays restorable and a retry works.
+     */
+    public function test_a_refused_php_restore_stays_restorable(): void
+    {
+        $original = "<?php\nfunction wpmcp_undo_retry_fixture() { return 'old'; }\n";
+        $edited   = "<?php\nfunction wpmcp_undo_retry_fixture() { return 'new'; }\n";
+        file_put_contents(ABSPATH . $this->path('functions.php'), $original);
+        $out = $this->call('write-file', ['path' => $this->path('functions.php'), 'content' => $edited]);
+
+        $this->responder = static fn () => new \WP_Error('http_request_failed', 'loopback blocked');
+        $this->assertFalse($this->call('rollback-operation', ['operation_id' => $out['operation_id']])['restored']);
+        $this->assertNull(Snapshot_Store::rolled_back_at(Snapshot_Store::get_by_operation($out['operation_id'])));
+
+        $this->responder = static fn (): array => [200, true];
+        $retry = $this->call('rollback-operation', ['operation_id' => $out['operation_id']]);
+        $this->assertTrue($retry['restored'], wp_json_encode($retry));
+        $this->assertSame($original, $this->bytes('functions.php'));
+    }
+
+    /** Issue #593: a second rollback-session of file writes changes nothing. */
+    public function test_a_second_rollback_session_of_file_writes_changes_nothing(): void
+    {
+        file_put_contents(ABSPATH . $this->path('keep.txt'), "v1\n");
+        $session = 'fs-undo-' . wp_generate_password(8, false);
+        $this->call('edit-file', ['path' => $this->path('keep.txt'), 'old_string' => 'v1', 'new_string' => 'v2', 'session_id' => $session]);
+        $this->call('delete-file', ['path' => $this->path('keep.txt'), 'confirm' => true, 'session_id' => $session]);
+
+        $this->assertSame(2, $this->call('rollback-session', ['session_id' => $session])['restored_count']);
+        $this->assertSame("v1\n", $this->bytes('keep.txt'));
+        file_put_contents(ABSPATH . $this->path('keep.txt'), "later\n");
+
+        $again = $this->call('rollback-session', ['session_id' => $session]);
+        $this->assertSame(0, $again['restored_count']);
+        $this->assertStringContainsString('already undone', implode(' ', $again['warnings']));
+        $this->assertSame("later\n", $this->bytes('keep.txt'));
+    }
 }
