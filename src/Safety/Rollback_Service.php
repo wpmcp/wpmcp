@@ -116,7 +116,14 @@ class Rollback_Service
             return false;
         }
         self::apply_for_caller($row['snapshot']);
-        return true;
+        // A file restore can be refused by its own site check (issue #602).
+        return ! self::file_restore_failed($row['snapshot']);
+    }
+
+    /** Whether $snapshot is a file write whose restore just now left the file unrestored. */
+    private static function file_restore_failed(array $snapshot): bool
+    {
+        return File_Write_Snapshot::TYPE === ($snapshot['object_type'] ?? '') && ! File_Write_Snapshot::last_restored();
     }
 
     /**
@@ -387,6 +394,13 @@ class Rollback_Service
         // itself gates at update_core, so restoring one takes it too (#382).
         if (Core_Files_Snapshot::TYPE === $type) {
             return [ [ 'update_core' ] ];
+        }
+        // Undoing write-file, edit-file or delete-file rewrites a file in the
+        // install, so it takes what those tools take: manage_options and
+        // edit_files (which DISALLOW_FILE_EDIT denies to everyone), not the
+        // rollback tools' edit_posts (issue #602).
+        if (File_Write_Snapshot::TYPE === $type) {
+            return [ [ 'manage_options' ], [ 'edit_files' ] ];
         }
         if ('post' !== $type) {
             return [];
@@ -660,7 +674,9 @@ class Rollback_Service
                 continue;
             }
             self::apply_for_caller($snapshot);
-            $count++;
+            if (! self::file_restore_failed($snapshot)) {
+                $count++;
+            }
         }
         foreach ($deferred as $snapshot) {
             self::apply_for_caller($snapshot);
@@ -775,6 +791,12 @@ class Rollback_Service
         // state is "did not exist yet", whatever later edits followed.
         if ('wc_product_create' === $snapshot['object_type']) {
             return 'post:' . $snapshot['object_id'];
+        }
+        // A file write's object_id is its operation id; the object is the
+        // file, so a session that wrote one file several times unwinds to the
+        // oldest snapshot of it: the file as it was before the session.
+        if (File_Write_Snapshot::TYPE === $snapshot['object_type']) {
+            return 'file:' . ($snapshot['data']['path'] ?? $snapshot['object_id']);
         }
         // Users, like posts, are identified by an int object_id, so the raw
         // object_type:object_id key is already stable and distinct.
@@ -1356,6 +1378,7 @@ class Rollback_Service
             'option_set',
             'site_template',
             'core_files',
+            'file_write',
         ];
     }
 
@@ -1634,6 +1657,14 @@ class Rollback_Service
 
         if ('package_install' === $snapshot['object_type']) {
             self::apply_package_install_snapshot($snapshot);
+            return;
+        }
+
+        // File_Write_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('file_write' === $snapshot['object_type']) {
+            foreach (File_Write_Snapshot::restore($snapshot) as $warning) {
+                self::warn($warning);
+            }
             return;
         }
 
