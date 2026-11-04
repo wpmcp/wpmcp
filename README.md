@@ -150,6 +150,8 @@ Keep `Authorization:${WPMCP_AUTH_HEADER}` without a space; the value with its sp
 
 - **Custom connector (needs OAuth).** Settings -> Connectors -> "Add custom connector" in Claude Desktop or on claude.ai, with the endpoint as the URL. This route signs in with OAuth and cannot send an application password. See the next section.
 
+**If a Claude Desktop chat reports 0 WP MCP tools** while Settings lists them (issue #582): update the plugin first. Before this fix, `tools/list` on MCP `2026-07-28` sent no-argument tools with `"properties":[]` (#586, #591), in compact mode too (`get-site-context` and `get-connection-info` are two of its five tools), and a client that validates the whole list can drop all of it. If it persists on a fixed version, the cause is on the client side: check the web server log for requests from Claude while the chat lists tools (if none arrive, the app is not asking the site), and note the Claude Desktop version when reporting it. The desktop bundle and the `mcp-remote` entry above are a working route meanwhile: Claude Desktop listed and called all tools through `mcp-remote` in the #582 test.
+
 ### OAuth and the custom connector
 
 OAuth 2.1 (with dynamic client registration) is **off by default**, and stays off until the site owner opts in. Clients that use an application password do not need it. The Claude Desktop and claude.ai custom connector does: with OAuth off, the discovery addresses (`/.well-known/oauth-protected-resource/...`, `/.well-known/oauth-authorization-server`) return 404, the endpoint's 401 carries no `WWW-Authenticate` header, and the connector fails with "Couldn't register with WP MCP's sign-in service".

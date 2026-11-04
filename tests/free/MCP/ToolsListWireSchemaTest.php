@@ -185,7 +185,7 @@ class ToolsListWireSchemaTest extends \WP_UnitTestCase
      *
      * @return array<string,object> Tool name to tool object.
      */
-    private function tools(string $raw): array
+    private function tools(string $raw, int $at_least = 101): array
     {
         $body = json_decode($raw, false);
         $this->assertIsObject($body, $raw);
@@ -195,7 +195,7 @@ class ToolsListWireSchemaTest extends \WP_UnitTestCase
         foreach ($body->result->tools as $tool) {
             $tools[ $tool->name ] = $tool;
         }
-        $this->assertGreaterThan(100, count($tools), 'Sanity: the sweep must cover the full surface.');
+        $this->assertGreaterThanOrEqual($at_least, count($tools), 'Sanity: the sweep must cover the whole surface it is given.');
 
         return $tools;
     }
@@ -256,12 +256,12 @@ class ToolsListWireSchemaTest extends \WP_UnitTestCase
         }
     }
 
-    private function assert_wire_schemas(string $raw, string $transport): void
+    private function assert_wire_schemas(string $raw, string $transport, int $at_least = 101): void
     {
         $this->assertStringNotContainsString('"properties":[]', $raw, $transport . ': raw tools/list has an empty properties array.');
 
         $errors = [];
-        foreach ($this->tools($raw) as $name => $tool) {
+        foreach ($this->tools($raw, $at_least) as $name => $tool) {
             $this->assertIsObject($tool->inputSchema ?? null, $transport . ': ' . $name . ' inputSchema is not an object');
             $this->assertSame('object', $tool->inputSchema->type ?? null, $transport . ': ' . $name . ' inputSchema type');
             $this->sweep($tool->inputSchema, $name . '.inputSchema', $errors);
@@ -317,5 +317,29 @@ class ToolsListWireSchemaTest extends \WP_UnitTestCase
 
         $this->assert_wire_schemas($raw, 'stdio 2025-11-25');
         $this->assert_named_tools($raw, 'stdio 2025-11-25');
+    }
+
+    /**
+     * Issue #582: compact mode is not a way around #586. Two of its five
+     * tools, get-site-context and get-connection-info, take no arguments,
+     * so on 2026-07-28 a compact tools/list sent "properties":[] too. A
+     * client that validates the whole result against the MCP schema, rather
+     * than tool by tool as Claude Code does, can reject all of it, which
+     * reads as 0 tools. The compact list must be clean on both revisions.
+     */
+    public function test_compact_tools_list_is_clean_on_both_revisions(): void
+    {
+        update_option(Tool_Exposure::OPTION, Tool_Exposure::MODE_COMPACT);
+
+        foreach ([ 'HTTP 2026-07-28' => $this->http_modern_tools_list(), 'HTTP 2025-11-25' => $this->http_session_tools_list(), 'stdio 2026-07-28' => $this->stdio_tools_list(true) ] as $transport => $raw) {
+            $names = array_keys($this->tools($raw, 1));
+            sort($names);
+            $this->assertSame(
+                [ 'wpmcp-call-tool', 'wpmcp-get-connection-info', 'wpmcp-get-site-context', 'wpmcp-get-tool-schema', 'wpmcp-list-tools' ],
+                $names,
+                $transport
+            );
+            $this->assert_wire_schemas($raw, $transport . ' compact', 5);
+        }
     }
 }
