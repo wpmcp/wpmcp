@@ -24,7 +24,7 @@ if (! defined('ABSPATH')) {
  *     loopback, the technique the theme and plugin file editor uses
  *     (wp_start_scraping_edited_file_errors() in wp-settings.php reports the
  *     last fatal of a request carrying a matching key and nonce), on the
- *     front end and in admin;
+ *     front end as a visitor and in admin signed in as the current user;
  *  5. restores the backup (or removes a new file) in the same call when the
  *     site fatals, or stops answering the check, after the save.
  *
@@ -39,6 +39,8 @@ class Php_Edit_Guard
     public const LOCK_OPTION = 'wpmcp_php_edit_lock';
     public const LOCK_TTL    = 300;
     public const TIMEOUT     = 30;
+    /** Lifetime of the session the admin leg of the check signs in with; destroyed as soon as the check ends. */
+    public const SESSION_TTL = 120;
 
     private static ?string $lock_token = null;
 
@@ -271,6 +273,15 @@ class Php_Edit_Guard
      * Request the front end, then admin, with a scrape key and nonce, and
      * read core's verdict from the response.
      *
+     * The admin request must be signed in, or wp-admin answers with the
+     * login page and no verdict. Core's file editor forwards the browser's
+     * cookies; an MCP call has none (it arrives over REST with an
+     * Application Password or a bearer token), so the admin leg signs in
+     * with auth cookies made for the current user on a session of its own,
+     * destroyed when the check ends (issue #601). The cookies go only to
+     * admin_url() and never into the result. With no current user the admin
+     * leg gets the login page, and the check reports that it cannot run.
+     *
      * @return array{state: string, detail: string} state is ok, fatal or unreachable.
      */
     public static function probe(): array
@@ -282,15 +293,23 @@ class Php_Edit_Guard
         $end   = "###### wp_scraping_result_end:$key ######";
         // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- applying core's loopback SSL filter, as core's file editor and Site Health do for this same request, not defining one.
         $sslverify = (bool) apply_filters('https_local_ssl_verify', false);
+        $user_id   = get_current_user_id();
+        $session   = null;
 
         try {
             foreach (['front end', 'admin'] as $where) {
-                $params   = ['wp_scrape_key' => $key, 'wp_scrape_nonce' => $nonce];
-                $url      = 'admin' === $where ? admin_url() : home_url('/');
+                $params  = ['wp_scrape_key' => $key, 'wp_scrape_nonce' => $nonce];
+                $url     = 'admin' === $where ? admin_url() : home_url('/');
+                $cookies = [];
+                if ('admin' === $where && $user_id > 0) {
+                    $session = \WP_Session_Tokens::get_instance($user_id)->create(time() + self::SESSION_TTL);
+                    $cookies = self::auth_cookies($user_id, $session, $url);
+                }
                 $response = wp_remote_get(add_query_arg($params, $url), [
                     'timeout'   => self::TIMEOUT,
                     'headers'   => ['Cache-Control' => 'no-cache'],
                     'sslverify' => $sslverify,
+                    'cookies'   => $cookies,
                 ]);
 
                 if (is_wp_error($response)) {
@@ -325,9 +344,38 @@ class Php_Edit_Guard
             }
         } finally {
             delete_transient('scrape_key_' . $key);
+            if (null !== $session) {
+                \WP_Session_Tokens::get_instance($user_id)->destroy($session);
+            }
         }
 
         return ['state' => 'ok', 'detail' => ''];
+    }
+
+    /**
+     * The cookies a browser signed in as $user_id sends to wp-admin, for
+     * both schemes, since whether the loopback arrives over HTTPS depends
+     * on the server, not only on admin_url(). Made with
+     * wp_generate_auth_cookie() rather than wp_set_auth_cookie(), so no
+     * Set-Cookie header reaches the MCP response and no login hooks fire.
+     * Each cookie is host-only for $url's host and path: a plain name and
+     * value would be sent on to any host a redirect points at.
+     *
+     * @return array<int, \WP_Http_Cookie>
+     */
+    private static function auth_cookies(int $user_id, string $session, string $url): array
+    {
+        $expires = time() + self::SESSION_TTL;
+        $cookies = [];
+        foreach ([AUTH_COOKIE => 'auth', SECURE_AUTH_COOKIE => 'secure_auth', LOGGED_IN_COOKIE => 'logged_in'] as $name => $scheme) {
+            $cookies[] = new \WP_Http_Cookie([
+                'name'      => $name,
+                'value'     => wp_generate_auth_cookie($user_id, $expires, $scheme, $session),
+                'expires'   => $expires,
+                'host_only' => true,
+            ], $url);
+        }
+        return $cookies;
     }
 
     private static function invalidate(string $abs): void
