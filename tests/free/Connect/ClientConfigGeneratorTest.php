@@ -72,4 +72,21 @@ class ClientConfigGeneratorTest extends \WP_UnitTestCase
         $this->assertStringContainsString('claude mcp add', $configs['claude-code']['command']);
         $this->assertStringContainsString(Client_Config_Generator::endpoint(), $configs['claude-code']['command']);
     }
+
+    /**
+     * Issue #580: the Connection screen's Claude Desktop config is a stdio
+     * entry (mcp-remote) Claude Desktop accepts, with the filled credential
+     * in env rather than in an argument.
+     */
+    public function test_claude_desktop_config_is_a_stdio_bridge_entry(): void
+    {
+        $configs = (new Client_Config_Generator())->configs('alice', 'secret-pass');
+        $server  = json_decode($configs['claude-desktop']['snippet'], true)['mcpServers']['wpmcp'];
+
+        $this->assertArrayNotHasKey('url', $server);
+        $this->assertArrayNotHasKey('type', $server);
+        $this->assertSame('npx', $server['command']);
+        $this->assertSame(['-y', 'mcp-remote', Client_Config_Generator::endpoint(), '--header', 'Authorization:${WPMCP_AUTH_HEADER}'], $server['args']);
+        $this->assertSame('Basic ' . base64_encode('alice:secret-pass'), $server['env']['WPMCP_AUTH_HEADER']);
+    }
 }

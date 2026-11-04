@@ -29,6 +29,9 @@ class Client_Config_Generator
 {
     public const ROUTE = '/wp-json/mcp/wpmcp-server';
 
+    /** The env var the Claude Desktop entry hands its Authorization value in. */
+    public const DESKTOP_AUTH_ENV = 'WPMCP_AUTH_HEADER';
+
     public static function endpoint(): string
     {
         return home_url(self::ROUTE);
@@ -63,8 +66,8 @@ class Client_Config_Generator
             'claude-desktop' => [
                 'label'       => 'Claude Desktop',
                 'config_file' => 'claude_desktop_config.json',
-                'snippet'     => $this->mcp_servers_snippet($endpoint, $auth),
-                'note'        => __('Easiest: download the desktop bundle below and double-click it. Alternatively, merge this block into claude_desktop_config.json under "mcpServers" and restart Claude Desktop.', 'wpmcp'),
+                'snippet'     => self::desktop_snippet($endpoint, $auth),
+                'note'        => __('Easiest: download the desktop bundle below and double-click it. Alternatively, merge this block into claude_desktop_config.json under "mcpServers", then fully quit and reopen Claude Desktop. Claude Desktop\'s config file only runs local servers, so this block starts the mcp-remote bridge to the endpoint, which needs Node.js installed.', 'wpmcp'),
             ],
             'cursor'         => [
                 'label'       => 'Cursor',
@@ -96,6 +99,36 @@ class Client_Config_Generator
                 'note'        => __('The common "mcpServers" shape: a streamable-HTTP server with an Authorization header.', 'wpmcp'),
             ],
         ];
+    }
+
+    /**
+     * The claude_desktop_config.json entry for this site (issue #580).
+     *
+     * Claude Desktop's config file only runs local stdio servers: an entry
+     * with "type", "url" and "headers" is skipped as not a valid MCP server
+     * configuration. Remote servers are added in the app as a custom
+     * connector, which signs in with OAuth and cannot send an Authorization
+     * header. So the config-file route runs mcp-remote, the stdio-to-HTTP
+     * bridge, through npx. The header value travels in env and the argument
+     * names it without a space: mcp-remote expands ${VAR} in --header, and a
+     * space inside an argument is split on Windows.
+     *
+     * @param string $auth The Authorization header value (or a placeholder).
+     */
+    public static function desktop_snippet(string $endpoint, string $auth): string
+    {
+        return (string) wp_json_encode(
+            [
+                'mcpServers' => [
+                    'wpmcp' => [
+                        'command' => 'npx',
+                        'args'    => [ '-y', 'mcp-remote', $endpoint, '--header', 'Authorization:${' . self::DESKTOP_AUTH_ENV . '}' ],
+                        'env'     => [ self::DESKTOP_AUTH_ENV => $auth ],
+                    ],
+                ],
+            ],
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+        );
     }
 
     private function mcp_servers_snippet(string $endpoint, string $auth): string
