@@ -229,6 +229,47 @@ class TermCrudTest extends \WP_UnitTestCase
         $this->assertSame($expected, $kept, 'A post already in the default category before the delete keeps it.');
     }
 
+    public function test_undoing_a_delete_restores_the_parent_of_its_children(): void
+    {
+        // Issue #596: wp_delete_term() moves the deleted term's direct
+        // children up to its own parent. The undo must hang them back under
+        // the restored term, two levels down included.
+        $top    = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Tree Top'])['term']['term_id'];
+        $parent = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Tree Parent', 'parent' => $top])['term']['term_id'];
+        $child  = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Tree Child', 'parent' => $parent])['term']['term_id'];
+        $grand  = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Tree Grandchild', 'parent' => $child])['term']['term_id'];
+        $link   = get_term_link($child, 'category');
+
+        $out = (new Delete_Term())->handle(['taxonomy' => 'category', 'term_id' => $parent]);
+        $this->assertSame($top, (int) get_term($child, 'category')->parent);
+
+        Rollback_Service::restore_operation((string) $out['operation_id']);
+
+        $this->assertSame($parent, (int) get_term($child, 'category')->parent, 'The child must be under the restored term again.');
+        $this->assertSame($child, (int) get_term($grand, 'category')->parent);
+        $this->assertSame($link, get_term_link($child, 'category'), 'The child keeps its old address.');
+        $this->assertSame([], Rollback_Service::take_warnings());
+    }
+
+    public function test_undoing_a_delete_leaves_a_child_moved_since_and_warns(): void
+    {
+        // A child moved somewhere else after the delete was moved on
+        // purpose; the undo leaves it there and says so.
+        $parent = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Old Parent'])['term']['term_id'];
+        $other  = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'New Parent'])['term']['term_id'];
+        $child  = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Moved Child', 'parent' => $parent])['term']['term_id'];
+
+        $out = (new Delete_Term())->handle(['taxonomy' => 'category', 'term_id' => $parent]);
+        wp_update_term($child, 'category', ['parent' => $other]);
+
+        Rollback_Service::restore_operation((string) $out['operation_id']);
+
+        $this->assertSame($other, (int) get_term($child, 'category')->parent);
+        $warnings = implode(' ', Rollback_Service::take_warnings());
+        $this->assertStringContainsString((string) $child, $warnings);
+        $this->assertStringContainsString('parent', $warnings);
+    }
+
     public function test_refuses_to_delete_the_default_term(): void
     {
         $default = (int) get_option('default_category');

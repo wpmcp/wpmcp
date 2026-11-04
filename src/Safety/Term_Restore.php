@@ -13,7 +13,11 @@ if (! defined('ABSPATH')) {
  * wp_delete_term() makes side writes the term restore did not undo:
  *  - an object whose only term in the taxonomy was the deleted one is filed
  *    under the taxonomy's default term (Uncategorized, for categories), so
- *    after a plain refile it sat in both (issue #595).
+ *    after a plain refile it sat in both (issue #595);
+ *  - the term's direct children are moved up to the term's own parent, so
+ *    after the undo they stayed at the wrong level of the tree, with a
+ *    changed address (issue #596). Grandchildren are not touched by the
+ *    delete: they keep their own parent, which is one of these children.
  *
  * Snapshot::capture_term() records what these need through capture(), and
  * Rollback_Service::apply_term_snapshot() calls after_refile() once a
@@ -73,9 +77,23 @@ class Term_Restore
             }
         }
 
+        // The direct children, which the delete moves up a level.
+        $children = [];
+        if (is_taxonomy_hierarchical($taxonomy)) {
+            $ids = get_terms([
+                'taxonomy'               => $taxonomy,
+                'parent'                 => $term_id,
+                'fields'                 => 'ids',
+                'hide_empty'             => false,
+                'update_term_meta_cache' => false,
+            ]);
+            $children = is_array($ids) ? array_values(array_map('intval', $ids)) : [];
+        }
+
         return [
             'default_term_id'    => $default,
             'objects_in_default' => array_values(array_unique($in_default)),
+            'children'           => $children,
         ];
     }
 
@@ -87,8 +105,72 @@ class Term_Restore
      */
     public static function after_refile(int $term_id, string $taxonomy, array $data): array
     {
-        $warnings = [];
         self::remove_added_default($term_id, $taxonomy, $data);
+        return self::restore_children($term_id, $taxonomy, $data);
+    }
+
+    /**
+     * Hang the term's direct children back under it. A child is moved back
+     * only while it still sits where the delete put it (the deleted term's
+     * own parent); one that was moved elsewhere since, or deleted, was
+     * changed on purpose after the operation and is left alone with a
+     * warning.
+     *
+     * The parent column is written directly, as wp_delete_term() itself
+     * moved it: wp_update_term() would send each child's name and slug
+     * through their save filters again.
+     *
+     * @return string[]
+     */
+    private static function restore_children(int $term_id, string $taxonomy, array $data): array
+    {
+        global $wpdb;
+
+        $warnings  = [];
+        $moved     = [];
+        $delete_to = (int) ($data['term']['parent'] ?? 0);
+
+        foreach (array_map('intval', (array) ($data['children'] ?? [])) as $child_id) {
+            if ($child_id <= 0 || $child_id === $term_id) {
+                continue;
+            }
+            $child = get_term($child_id, $taxonomy);
+            if (! $child instanceof \WP_Term) {
+                $warnings[] = sprintf(
+                    'Child term %d of term %d in %s no longer exists, so it could not be put back under it.',
+                    $child_id,
+                    $term_id,
+                    $taxonomy
+                );
+                continue;
+            }
+            $now = (int) $child->parent;
+            if ($now === $term_id) {
+                continue;
+            }
+            if ($now !== $delete_to) {
+                $warnings[] = sprintf(
+                    'Child term %d of term %d in %s was moved to parent %d after the delete, so it was left there.',
+                    $child_id,
+                    $term_id,
+                    $taxonomy,
+                    $now
+                );
+                continue;
+            }
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverses the direct parent update wp_delete_term() makes; clean_term_cache() below invalidates.
+            $wpdb->update(
+                $wpdb->term_taxonomy,
+                ['parent' => $term_id],
+                ['term_id' => $child_id, 'taxonomy' => $taxonomy]
+            );
+            $moved[] = $child_id;
+        }
+
+        if ([] !== $moved) {
+            clean_term_cache($moved, $taxonomy);
+        }
+
         return $warnings;
     }
 
