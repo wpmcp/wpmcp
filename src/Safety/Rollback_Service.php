@@ -2685,7 +2685,11 @@ class Rollback_Service
             ));
         }
 
-        wp_update_term_count_now($objects ? [$term_id] : [], $taxonomy);
+        // Only with an object refiled: an empty list reaches
+        // clean_term_cache() as "term_taxonomy_id IN ()", a SQL error.
+        if ([] !== $objects) {
+            wp_update_term_count_now([$term_id], $taxonomy);
+        }
     }
 
     /**
