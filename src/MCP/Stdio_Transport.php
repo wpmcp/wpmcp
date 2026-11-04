@@ -495,11 +495,17 @@ class Stdio_Transport
                 'description' => is_object($ability) && method_exists($ability, 'get_description')
                     ? (string) $ability->get_description()
                     : '',
-                'inputSchema' => is_object($ability) && method_exists($ability, 'get_input_schema')
-                    ? (array) $ability->get_input_schema()
-                    : [ 'type' => 'object' ],
+                // Wire_Schema turns the empty PHP arrays a schema is written
+                // with into the JSON objects JSON Schema requires, at any
+                // depth (issues #586, #591): this list serves stdio and the
+                // HTTP 2026-07-28 path, which the adapter's own DTOs never see.
+                'inputSchema' => Wire_Schema::input(
+                    is_object($ability) && method_exists($ability, 'get_input_schema')
+                        ? $ability->get_input_schema()
+                        : []
+                ),
                 // Issue #387; see Output_Schemas for why these live at the wire.
-                'outputSchema' => Output_Schemas::for_ability($name),
+                'outputSchema' => Wire_Schema::schema(Output_Schemas::for_ability($name)),
             ];
         }
 
