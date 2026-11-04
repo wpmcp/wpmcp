@@ -23,6 +23,13 @@ class Database_Guard
     public const AUDIT_OPTION = 'wpmcp_db_write_audit_log';
     public const AUDIT_MAX = 100;
 
+    /**
+     * Set once an audit log written before PR #584's write-time masking has
+     * been masked in place. Under the locked wpmcp_db_write_audit_log prefix,
+     * so update-option cannot clear it (clearing would only re-run the pass).
+     */
+    public const AUDIT_MASKED_OPTION = 'wpmcp_db_write_audit_log_masked';
+
     /** Placeholder written over secret values in query results. */
     public const SECRET_MASK = '[REDACTED]';
 
@@ -1530,9 +1537,19 @@ class Database_Guard
      * non-recoverable cases (no primary key, cap exceeded, binary values -
      * see recoverability_probe()) the before-image captured here is the only
      * trail a human has to manually reconstruct a change if needed.
+     *
+     * Payment gateway credentials in the before-image are masked as it is
+     * written (issue #550, PR #584 review): the log row sits in wp_options,
+     * where query can wrap option_value in CONCAT, REVERSE, TO_BASE64 or any
+     * other expression that no read-time mask can see through, and a
+     * rotated credential is no longer recognizable by value. Rollback never
+     * reads this log (it restores from the snapshot ledger, which keeps the
+     * exact copy), so masking here does not change what an undo restores.
      */
     public static function audit(string $operation, string $table, int $affected, array $before = []): void
     {
+        self::mask_internal_stores();
+
         $log = get_option(self::AUDIT_OPTION, []);
         if (! is_array($log)) {
             $log = [];
@@ -1542,7 +1559,7 @@ class Database_Guard
             'op'       => $operation,
             'table'    => $table,
             'affected' => $affected,
-            'before'   => $before,
+            'before'   => self::mask_gateway_secrets($before),
             'user'     => get_current_user_id(),
             'time'     => time(),
         ];
@@ -1552,5 +1569,78 @@ class Database_Guard
         }
 
         update_option(self::AUDIT_OPTION, $log, false);
+    }
+
+    /**
+     * One-time pass over WP MCP's internal logs written before their values
+     * were masked on write (issue #550, PR #584 review): mask the gateway
+     * credentials in every audit log before-image, and drop the captured
+     * arguments of request log rows. Runs before query reads anything and
+     * before the next audit write. The audit log pass needs WooCommerce to
+     * recognize the credentials, so until WooCommerce is loaded it is not
+     * marked done and runs again next time.
+     */
+    public static function mask_internal_stores(): void
+    {
+        if (class_exists(\WPMCP\MCP\Request_Log::class)) {
+            \WPMCP\MCP\Request_Log::drop_legacy_arguments();
+        }
+
+        if ('1' === (string) get_option(self::AUDIT_MASKED_OPTION, '')) {
+            return;
+        }
+        if (! function_exists('WC') || ! class_exists('WC_Payment_Gateway')) {
+            return;
+        }
+
+        $log = get_option(self::AUDIT_OPTION, []);
+        if (is_array($log) && [] !== $log) {
+            $changed = false;
+            foreach ($log as $index => $entry) {
+                if (! is_array($entry) || ! is_array($entry['before'] ?? null)) {
+                    continue;
+                }
+                $masked = self::mask_gateway_secrets($entry['before']);
+                if ($masked !== $entry['before']) {
+                    $log[ $index ]['before'] = $masked;
+                    $changed                 = true;
+                }
+            }
+            if ($changed) {
+                update_option(self::AUDIT_OPTION, $log, false);
+            }
+        }
+
+        update_option(self::AUDIT_MASKED_OPTION, '1', false);
+    }
+
+    /**
+     * Every string in $data with the payment gateway credentials stored now
+     * replaced by the mask, element by element (issue #550). For logs that
+     * keep caller input, such as the request log's captured arguments,
+     * recorded after the call ran, so a credential that call just stored is
+     * already among the stored values.
+     *
+     * @param array<mixed> $data
+     * @return array<mixed>
+     */
+    public static function scrub_gateway_secrets_in(array $data): array
+    {
+        if (! function_exists('WC') || ! class_exists('WC_Payment_Gateway')) {
+            return $data;
+        }
+        $secrets = self::gateway_secret_values([]);
+        if ([] === $secrets) {
+            return $data;
+        }
+        array_walk_recursive(
+            $data,
+            static function (&$item) use ($secrets): void {
+                if (is_string($item)) {
+                    $item = self::scrub_gateway_secrets($item, $secrets);
+                }
+            }
+        );
+        return $data;
     }
 }

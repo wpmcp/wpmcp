@@ -48,6 +48,9 @@ class Query
         if (is_wp_error($store_read)) {
             throw new \RuntimeException(esc_html($store_read->get_error_message()));
         }
+        // The audit and request logs are masked when written; a log written
+        // before that is masked now, before any SQL can read it.
+        Database_Guard::mask_internal_stores();
 
         // Multisite: a caller without network rights stays inside the
         // current site's tables (issue #526).

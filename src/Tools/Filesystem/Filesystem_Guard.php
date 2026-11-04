@@ -96,30 +96,33 @@ class Filesystem_Guard
     private const SITE_BACKUP_DIR = 'wpmcp-site-backups';
 
     /**
-     * Whether $abs is the site backup directory or inside it (issue #550).
+     * Whether $abs is a site backup directory or inside one (issue #550).
      * It holds full database dumps (the archives, and while a backup or
      * restore runs, or after one dies, the plaintext .sql they are built
      * from or extracted to): every option and row, payment gateway
      * credentials and password hashes included. The generic file tools
      * never read, list, search, write or delete it, whatever the
      * wpmcp_fs_protected_paths filter says; the backup tools are the way in.
+     *
+     * Any path with a segment named wpmcp-site-backups (case-insensitive)
+     * counts, not only the current site's folder (PR #584 review): on a
+     * network the file tools are gated at site-level manage_options and
+     * confined to ABSPATH, so a sub-site admin could otherwise reach the
+     * main site's folder, which holds the whole network's dump, or another
+     * site's. Over-matching a look-alike folder only refuses more.
      */
     public static function in_site_backup_dir(string $abs): bool
     {
-        $uploads = wp_upload_dir(null, false);
-        if (empty($uploads['basedir'])) {
-            return false;
+        $segments = explode('/', strtolower(str_replace('\\', '/', $abs)));
+        if (in_array(self::SITE_BACKUP_DIR, $segments, true)) {
+            return true;
         }
-        $dir  = rtrim((string) $uploads['basedir'], '/\\') . '/' . self::SITE_BACKUP_DIR;
-        $real = realpath($dir);
-        $dirs = array_unique(array_filter([ $dir, false === $real ? '' : $real ]));
 
-        $path = strtolower(rtrim(str_replace('\\', '/', $abs), '/'));
-        foreach ($dirs as $candidate) {
-            $candidate = strtolower(rtrim(str_replace('\\', '/', $candidate), '/'));
-            if ($path === $candidate || 0 === strpos($path, $candidate . '/')) {
-                return true;
-            }
+        // The canonical form too, in case a symlinked parent hides the name.
+        $real = realpath($abs);
+        if (false !== $real && $real !== $abs) {
+            $segments = explode('/', strtolower(str_replace('\\', '/', $real)));
+            return in_array(self::SITE_BACKUP_DIR, $segments, true);
         }
         return false;
     }
