@@ -155,15 +155,22 @@ class Php_Edit_Guard
      * RuntimeException, with the file left as it was, on any refusal or
      * rollback.
      *
+     * $content null removes the file instead, with the same lock and site
+     * check (undoing a write that created a .php file, issue #602).
+     * $backup, when given, is the copy of $abs's current bytes to revert to
+     * ('' when $abs does not exist yet); left null, one is made with
+     * Filesystem_Guard::backup(). $restore words the refusals for a
+     * rollback, which has no unchecked argument to suggest.
+     *
      * @return array{bytes: int, backup: string, php_check: string}
      */
-    public static function write(string $abs, string $content, bool $unchecked): array
+    public static function write(string $abs, ?string $content, bool $unchecked, ?string $backup = null, bool $restore = false): array
     {
         if (self::is_own_file($abs)) {
             throw new \RuntimeException('wpmcp does not edit its own PHP files through this tool; that could take the MCP endpoint down.');
         }
 
-        $parse = self::lint($content);
+        $parse = null === $content ? null : self::lint($content);
         if (null !== $parse) {
             throw new \RuntimeException(esc_html(sprintf(
                 'PHP syntax error on line %d: %s. Nothing was written.',
@@ -177,14 +184,14 @@ class Php_Edit_Guard
         }
 
         try {
-            return self::write_locked($abs, $content, $unchecked);
+            return self::write_locked($abs, $content, $unchecked, $backup, $restore);
         } finally {
             self::release_lock();
         }
     }
 
     /** @return array{bytes: int, backup: string, php_check: string} */
-    private static function write_locked(string $abs, string $content, bool $unchecked): array
+    private static function write_locked(string $abs, ?string $content, bool $unchecked, ?string $backup, bool $restore): array
     {
         $check = self::is_loaded($abs) ? 'loopback' : 'syntax only (inactive plugin or theme, not loaded)';
 
@@ -193,7 +200,9 @@ class Php_Edit_Guard
             if ('ok' !== $before['state']) {
                 if (! $unchecked) {
                     throw new \RuntimeException(esc_html(sprintf(
-                        'The site check for PHP edits cannot run (%s), so nothing was written. Pass unchecked:true to write without it; the backup still allows restore.',
+                        $restore
+                            ? 'The site check for PHP edits cannot run (%s), so nothing was written.'
+                            : 'The site check for PHP edits cannot run (%s), so nothing was written. Pass unchecked:true to write without it; the backup still allows restore.',
                         $before['detail']
                     )));
                 }
@@ -201,16 +210,26 @@ class Php_Edit_Guard
             }
         }
 
-        $backup = Filesystem_Guard::backup($abs);
-        if (is_wp_error($backup)) {
-            throw new \RuntimeException(esc_html($backup->get_error_message()));
+        if (null === $backup) {
+            $backup = Filesystem_Guard::backup($abs);
+            if (is_wp_error($backup)) {
+                throw new \RuntimeException(esc_html($backup->get_error_message()));
+            }
         }
-        if (! wp_mkdir_p(dirname($abs))) {
-            throw new \RuntimeException('Could not create the parent directory.');
-        }
-        $bytes = file_put_contents($abs, $content);
-        if (false === $bytes) {
-            throw new \RuntimeException('Could not write the file (check permissions).');
+        if (null === $content) {
+            wp_delete_file($abs);
+            if (file_exists($abs)) {
+                throw new \RuntimeException('Could not delete the file (check permissions).');
+            }
+            $bytes = 0;
+        } else {
+            if (! wp_mkdir_p(dirname($abs))) {
+                throw new \RuntimeException('Could not create the parent directory.');
+            }
+            $bytes = file_put_contents($abs, $content);
+            if (false === $bytes) {
+                throw new \RuntimeException('Could not write the file (check permissions).');
+            }
         }
         self::invalidate($abs);
 
@@ -242,7 +261,7 @@ class Php_Edit_Guard
             )));
         }
         throw new \RuntimeException(esc_html(sprintf(
-            'The edit broke the site (%s), so %s and nothing changed.',
+            $restore ? 'The restore broke the site (%s), so it was reverted (%s) and nothing changed.' : 'The edit broke the site (%s), so %s and nothing changed.',
             $after['detail'],
             $what
         )));
