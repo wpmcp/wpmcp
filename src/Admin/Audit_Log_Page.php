@@ -182,6 +182,9 @@ class Audit_Log_Page
                     esc_attr($nonce),
                     esc_html__('Restore', 'wpmcp')
                 );
+            } elseif (! empty($op['rolled_back_at'])) {
+                // Already undone (issue #593): no second Restore.
+                echo esc_html(History_Page::undone_label((string) $op['rolled_back_at']));
             }
             echo '</td></tr>';
         }

@@ -118,9 +118,9 @@ The HTTP route is mounted by the official [WordPress MCP adapter](https://github
 | --- | --- | --- |
 | `get-page` | read | Read a page's title, content, and whether it is an Elementor page |
 | `update-blocks` | write (safe) | Replace a page's Gutenberg block markup, snapshotted and verified |
-| `list-operations` | safety | List recent agent operations (no snapshot payload leaked) |
-| `rollback-operation` | safety | Undo a single operation by id |
-| `rollback-session` | safety | Unwind an entire agent session to its pre-session state |
+| `list-operations` | safety | List recent agent operations (no snapshot payload leaked); an undone one reports `rollback_available: false` and its `rolled_back_at` |
+| `rollback-operation` | safety | Undo a single operation by id; one that was already undone is refused with the reason and nothing changes |
+| `rollback-session` | safety | Unwind an entire agent session to its pre-session state; undo points already undone are skipped, never applied twice |
 | `list-post-types` | read | List registered post types (posts, pages, custom post types) |
 | `list-taxonomies` | read | List registered taxonomies (categories, tags, custom taxonomies) |
 | `create-post` | write | Create a post, page, or custom post type, with terms and meta |

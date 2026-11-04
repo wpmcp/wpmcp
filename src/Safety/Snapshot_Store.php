@@ -84,6 +84,7 @@ class Snapshot_Store
             before_blob LONGBLOB NOT NULL,
             user_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
+            rolled_back_at DATETIME NULL DEFAULT NULL,
             PRIMARY KEY (id),
             KEY operation_id (operation_id),
             KEY session_id (session_id)
@@ -194,6 +195,123 @@ class Snapshot_Store
         }
         $row['snapshot'] = Snapshot::unserialize($row['before_blob']);
         return $row;
+    }
+
+    /**
+     * When this ledger row's operation was undone (UTC), or null while it
+     * has not been (issue #593). A row read without the column (INDEX_COLUMNS)
+     * reads as not undone.
+     */
+    public static function rolled_back_at(array $row): ?string
+    {
+        $at = $row['rolled_back_at'] ?? null;
+        return null === $at || '' === $at ? null : (string) $at;
+    }
+
+    /**
+     * Record that an operation was undone, unless it already is (issue
+     * #593). Atomic: the rows are claimed only while rolled_back_at is still
+     * empty, so of two undos racing for one operation exactly one wins and
+     * the other restores nothing. Every ledger row of the operation is
+     * claimed together.
+     *
+     * @return bool True when this call claimed the operation, false when it
+     *              was already undone or has no ledger row.
+     * @throws Mutation_Failed When the claim could not be written: the undo
+     *                         is refused rather than left unrecorded.
+     */
+    public static function claim_rollback(string $operation_id): bool
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; the claim must be one atomic conditional write.
+        $claimed = $wpdb->query($wpdb->prepare(
+            'UPDATE %i SET rolled_back_at = %s WHERE operation_id = %s AND rolled_back_at IS NULL',
+            self::table_name(),
+            current_time('mysql', true),
+            $operation_id
+        ));
+        return self::claimed($claimed) > 0;
+    }
+
+    /**
+     * Claim ledger rows by row id, for rollback-session, which undoes a
+     * session row by row. Same atomic semantics as claim_rollback(): true
+     * only when every given row was still unclaimed and this call claimed
+     * it. On a partial claim (a concurrent undo took some of them) the rows
+     * this call stamped are released again and false is returned, so the
+     * caller restores nothing.
+     *
+     * @param int[] $ids
+     * @throws Mutation_Failed When the claim could not be written.
+     */
+    public static function claim_rows(array $ids): bool
+    {
+        global $wpdb;
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if ([] === $ids) {
+            return false;
+        }
+        $at    = current_time('mysql', true);
+        $in    = self::id_list_sql(count($ids));
+        $claim = "UPDATE %i SET rolled_back_at = %s WHERE id IN ({$in}) AND rolled_back_at IS NULL";
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- wpmcp_snapshots is this plugin's own ledger; $claim is a literal with an id_list_sql() list of %d placeholders, all bound on this line.
+        $claimed = self::claimed($wpdb->query($wpdb->prepare($claim, array_merge([ self::table_name(), $at ], $ids))));
+        if ($claimed === count($ids)) {
+            return true;
+        }
+        if ($claimed > 0) {
+            $release = "UPDATE %i SET rolled_back_at = NULL WHERE id IN ({$in}) AND rolled_back_at = %s";
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- same literal shape as $claim; releases only the rows this call stamped.
+            $wpdb->query($wpdb->prepare($release, array_merge([ self::table_name() ], $ids, [ $at ])));
+        }
+        return false;
+    }
+
+    /** "%d, %d, ..." for $count ids: a literal placeholder list, never data. */
+    private static function id_list_sql(int $count): string
+    {
+        return implode(', ', array_fill(0, max(1, $count), '%d'));
+    }
+
+    /**
+     * Release a claim whose restore then failed, so the operation stays
+     * restorable: by operation id (claim_rollback()) or by row ids
+     * (claim_rows()).
+     *
+     * @param int[] $ids
+     */
+    public static function release_rollback(string $operation_id, array $ids = []): void
+    {
+        global $wpdb;
+        if ('' !== $operation_id) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger.
+            $wpdb->query($wpdb->prepare('UPDATE %i SET rolled_back_at = NULL WHERE operation_id = %s', self::table_name(), $operation_id));
+        }
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if ([] !== $ids) {
+            $release = 'UPDATE %i SET rolled_back_at = NULL WHERE id IN (' . self::id_list_sql(count($ids)) . ')';
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- wpmcp_snapshots is this plugin's own ledger; $release is a literal with an id_list_sql() list of %d placeholders, all bound on this line.
+            $wpdb->query($wpdb->prepare($release, array_merge([ self::table_name() ], $ids)));
+        }
+    }
+
+    /**
+     * The row count a claim query affected.
+     *
+     * @param int|bool $affected What $wpdb->query() returned.
+     * @throws Mutation_Failed When the claim query failed.
+     */
+    private static function claimed($affected): int
+    {
+        global $wpdb;
+        if (false === $affected) {
+            throw new Mutation_Failed(
+                'Nothing was restored: the undo could not be recorded in the snapshot history'
+                    . ($wpdb->last_error ? ' (' . esc_html($wpdb->last_error) . ')' : '')
+                    . ', and an unrecorded undo could be applied a second time.'
+            );
+        }
+        return (int) $affected;
     }
 
     /**
