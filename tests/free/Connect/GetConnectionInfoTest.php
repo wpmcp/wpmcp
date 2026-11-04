@@ -73,4 +73,48 @@ class GetConnectionInfoTest extends \WP_UnitTestCase
             $this->assertArrayNotHasKey('command', $server, $client);
         }
     }
+
+    /**
+     * Issue #581: the Claude Desktop (and claude.ai) custom connector signs
+     * in with OAuth, which is off by default. The tool says so, and says
+     * exactly how to switch it on, instead of leaving the operator with
+     * "Couldn't register with WP MCP's sign-in service".
+     */
+    public function test_custom_connector_entry_says_oauth_is_off_and_how_to_switch_it_on(): void
+    {
+        remove_all_filters('wpmcp_oauth_enabled');
+
+        $out       = (new Get_Connection_Info())->handle([]);
+        $connector = $out['clients']['custom-connector'] ?? null;
+
+        $this->assertIsArray($connector, 'get-connection-info must cover the custom connector.');
+        $this->assertSame($out['endpoint'], $connector['url']);
+        $this->assertFalse($connector['oauth_enabled'], 'OAuth stays off by default (#581 decision).');
+
+        $text = (string) wp_json_encode($connector, JSON_UNESCAPED_SLASHES);
+        $this->assertStringContainsString("define('WPMCP_OAUTH_ENABLED', true);", $text);
+        $this->assertStringContainsString('wp-config.php', $text);
+        $this->assertStringContainsString('wpmcp_oauth_enabled', $text);
+        $this->assertStringContainsString('Add custom connector', $text);
+        $this->assertStringContainsString('requires OAuth', $connector['note']);
+    }
+
+    public function test_custom_connector_entry_reports_oauth_on_when_it_is(): void
+    {
+        add_filter('wpmcp_oauth_enabled', '__return_true');
+        $connector = (new Get_Connection_Info())->handle([])['clients']['custom-connector'];
+        remove_filter('wpmcp_oauth_enabled', '__return_true');
+
+        $this->assertTrue($connector['oauth_enabled']);
+        $this->assertStringContainsString('OAuth is on', $connector['note']);
+    }
+
+    /** The Desktop config-file note points at the connector route too. */
+    public function test_desktop_note_mentions_the_custom_connector_needs_oauth(): void
+    {
+        $out = (new Get_Connection_Info())->handle([]);
+
+        $this->assertStringContainsString('custom connector', $out['clients']['claude-desktop']['note']);
+        $this->assertStringContainsString('OAuth', $out['clients']['claude-desktop']['note']);
+    }
 }

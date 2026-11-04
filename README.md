@@ -148,6 +148,26 @@ Claude Desktop does not read `url` entries from `claude_desktop_config.json`: th
 
 Keep `Authorization:${WPMCP_AUTH_HEADER}` without a space; the value with its space goes in `env`.
 
+- **Custom connector (needs OAuth).** Settings -> Connectors -> "Add custom connector" in Claude Desktop or on claude.ai, with the endpoint as the URL. This route signs in with OAuth and cannot send an application password. See the next section.
+
+### OAuth and the custom connector
+
+OAuth 2.1 (with dynamic client registration) is **off by default**, and stays off until the site owner opts in. Clients that use an application password do not need it. The Claude Desktop and claude.ai custom connector does: with OAuth off, the discovery addresses (`/.well-known/oauth-protected-resource/...`, `/.well-known/oauth-authorization-server`) return 404, the endpoint's 401 carries no `WWW-Authenticate` header, and the connector fails with "Couldn't register with WP MCP's sign-in service".
+
+Switch OAuth on with either of these:
+
+```php
+// wp-config.php, above "That's all, stop editing!"
+define('WPMCP_OAUTH_ENABLED', true);
+```
+
+```php
+// a plugin or mu-plugin
+add_filter('wpmcp_oauth_enabled', '__return_true');
+```
+
+Then add the connector: Settings -> Connectors (under Customize in current versions) -> "Add custom connector", enter `https://your-site.com/wp-json/mcp/wpmcp-server`, leave the OAuth Client ID and secret empty, click Connect, and approve the sign-in in the browser. The wpmcp -> Connection screen and the `get-connection-info` tool (`clients.custom-connector`) show whether OAuth is on and repeat these steps.
+
 ### Protocol revisions and the MCP adapter
 
 Both transports (the HTTP endpoint above and `wp mcp-stdio serve`) speak MCP `2026-07-28` and `2025-11-25`. A `2025-11-25` client runs the usual `initialize` session; a `2026-07-28` client calls the sessionless `server/discover` and then tags each request with the revision, with no session at all. `server/discover` lists both revisions and returns the same handshake instructions `initialize` does.
