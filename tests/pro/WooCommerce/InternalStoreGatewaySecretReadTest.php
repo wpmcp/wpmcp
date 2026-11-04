@@ -3,6 +3,7 @@
 namespace WPMCP\Tests\Pro\WooCommerce;
 
 use WPMCP\Governance\Governance;
+use WPMCP\MCP\Request_Log;
 use WPMCP\Pro\Gate;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
@@ -282,7 +283,6 @@ class InternalStoreGatewaySecretReadTest extends \WP_UnitTestCase
         $read = (new Query())->handle([ 'sql' => $sql ]);
         $this->assertSame(1, $read['row_count']);
         $this->assertNoCredential($read, 'query on the audit log row');
-        $this->assertStringNotContainsString('_NEW999', (string) wp_json_encode($read), 'the live credential leaked through query on the audit log row');
 
         // The masked copy is still a readable audit log: the entry is there
         // with every non-secret field intact.
@@ -303,15 +303,180 @@ class InternalStoreGatewaySecretReadTest extends \WP_UnitTestCase
         $this->assertGreaterThan(0, $all['row_count']);
         $this->assertNoCredential($all, 'SELECT * on the audit log row');
 
-        // The stored audit log stays the raw manual-recovery trail.
-        wp_cache_delete(Database_Guard::AUDIT_OPTION, 'options');
-        $audit = (array) get_option(Database_Guard::AUDIT_OPTION, []);
-        $raw   = end($audit);
-        $this->assertSame(self::SECRETS['secret_key'], unserialize($raw['before'][0]['option_value'], [ 'allowed_classes' => false ])['secret_key']);
+        // The stored audit log itself holds no credential (PR #584 review):
+        // it is masked when written, so no SQL transform can unwrap it.
+        $this->assertStoredAuditLogHoldsNoCredential();
 
         // Rollback restores the exact credentials that were rotated away.
         $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
         $this->assertSame(serialize($original), $this->raw_row());
+    }
+
+    private function assertStoredAuditLogHoldsNoCredential(): void
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the test reads the exact stored bytes.
+        $raw = (string) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", Database_Guard::AUDIT_OPTION));
+        $this->assertNotSame('', $raw, 'Precondition: the write was audited.');
+        $this->assertNoCredential($raw, 'the stored database write audit log');
+    }
+
+    /** Rotate every credential through update-rows; the old values live on only in the audit trail and the ledger. */
+    private function rotate_through_update_rows(): array
+    {
+        global $wpdb;
+        $original = $this->stored();
+        $rotated  = $original;
+        foreach (array_keys(self::SECRETS) as $key) {
+            $rotated[ $key ] = 'rotated_' . $key . '_NEW999';
+        }
+        $out = (new Update_Rows())->handle([
+            'table'   => $wpdb->options,
+            'data'    => [ 'option_value' => serialize($rotated) ],
+            'where'   => [ 'option_name' => self::OPTION ],
+            'confirm' => true,
+        ]);
+        $this->assertSame(1, $out['affected']);
+        return [ $out, $original ];
+    }
+
+    /**
+     * Each wrapping expression a caller can put around option_value, with
+     * how to turn its output back into the stored text.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function audit_log_transforms(): array
+    {
+        return [
+            'CONCAT'           => [ "CONCAT(option_value, '')", 'none' ],
+            'SUBSTRING'        => [ 'SUBSTRING(option_value, 1)', 'none' ],
+            'REVERSE'          => [ 'REVERSE(option_value)', 'strrev' ],
+            'TO_BASE64'        => [ 'TO_BASE64(option_value)', 'base64' ],
+            'HEX'              => [ 'HEX(option_value)', 'hex' ],
+            'LOWER'            => [ 'LOWER(option_value)', 'none' ],
+            'CAST'             => [ 'CAST(option_value AS CHAR)', 'none' ],
+        ];
+    }
+
+    private static function decode(string $value, string $how): string
+    {
+        switch ($how) {
+            case 'strrev':
+                return strrev($value);
+            case 'base64':
+                return (string) base64_decode(str_replace([ "\n", "\r" ], '', $value), true);
+            case 'hex':
+                return (string) hex2bin($value);
+        }
+        return $value;
+    }
+
+    private function assertTransformsHoldNoCredential(string $option, string $where): void
+    {
+        global $wpdb;
+        foreach (self::audit_log_transforms() as $label => [ $expr, $how ]) {
+            foreach ([
+                $wpdb->prepare("SELECT {$expr} AS v FROM {$wpdb->options} WHERE option_name = %s", $option),
+                // The log's name nowhere in the SQL. The live gateway row is
+                // left out: a transform over the live settings is the known
+                // limit of #528's read-time mask, not an internal store.
+                $wpdb->prepare("SELECT {$expr} AS v FROM {$wpdb->options} WHERE option_name <> %s", self::OPTION),
+            ] as $sql) {
+                $read = (new Query())->handle([ 'sql' => $sql ]);
+                $text = implode("\n", array_map(static fn ($row) => self::decode((string) ($row['v'] ?? ''), $how), (array) $read['rows']));
+                foreach (self::SECRETS as $key => $value) {
+                    $this->assertStringNotContainsString(strtolower($value), strtolower($text), "{$key} leaked from {$where} through {$label}: {$sql}");
+                }
+            }
+        }
+    }
+
+    /** PR #584 review: masking at read time is defeated by any wrapping expression. */
+    public function test_query_cannot_unwrap_a_rotated_credential_from_the_audit_log(): void
+    {
+        $this->as('administrator');
+        add_filter('wpmcp_enable_db_writes', '__return_true');
+        [ $out, $original ] = $this->rotate_through_update_rows();
+
+        $this->assertTransformsHoldNoCredential(Database_Guard::AUDIT_OPTION, 'the database write audit log');
+        $this->assertStoredAuditLogHoldsNoCredential();
+
+        // The audit trail is still useful: the entry is there, non-secret fields intact.
+        $log  = (array) get_option(Database_Guard::AUDIT_OPTION, []);
+        $last = end($log);
+        $this->assertSame('update', $last['op']);
+        $this->assertMaskedSettings($last['before'][0]['option_value'], 'the stored audit log');
+
+        // Rollback reads the ledger, not the audit log, so it stays exact.
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assertSame(serialize($original), $this->raw_row());
+    }
+
+    /** An audit log written before the fix is masked before query can read it. */
+    public function test_a_raw_audit_log_from_before_the_fix_is_masked_before_query_reads_it(): void
+    {
+        global $wpdb;
+        $this->as('administrator');
+        $raw_row = $this->raw_row();
+        update_option(Database_Guard::AUDIT_OPTION, [ [
+            'op'       => 'update',
+            'table'    => $wpdb->options,
+            'affected' => 1,
+            'before'   => [ [ 'option_id' => 1, 'option_name' => self::OPTION, 'option_value' => $raw_row, 'autoload' => 'yes' ] ],
+            'user'     => 1,
+            'time'     => time(),
+        ] ], false);
+        delete_option(Database_Guard::AUDIT_MASKED_OPTION);
+
+        $this->assertTransformsHoldNoCredential(Database_Guard::AUDIT_OPTION, 'a legacy audit log');
+        $this->assertStoredAuditLogHoldsNoCredential();
+    }
+
+    /** The request log row is reachable by query too; it must never store a credential. */
+    public function test_request_log_capture_never_stores_a_gateway_credential(): void
+    {
+        global $wpdb;
+        $this->as('administrator');
+        update_option(Request_Log::CAPTURE_OPTION, true);
+        delete_option(Request_Log::OPTION);
+
+        // What the registrar records after an update-rows that wrote the settings.
+        Request_Log::record([
+            'tool' => 'wpmcp/update-rows',
+            'ok'   => true,
+            'args' => [
+                'table' => $wpdb->options,
+                'data'  => [ 'option_value' => (string) $this->raw_row() ],
+                'where' => [ 'option_name' => self::OPTION ],
+                'note'  => 'rotating to ' . self::SECRETS['publishable_key'],
+            ],
+        ]);
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the test reads the exact stored bytes.
+        $stored = (string) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", Request_Log::OPTION));
+        $this->assertNotSame('', $stored, 'Precondition: the call was logged.');
+        $this->assertNoCredential($stored, 'the stored request log');
+        $this->assertTransformsHoldNoCredential(Request_Log::OPTION, 'the request log');
+        $this->assertStringContainsString('rotating to', $stored, 'The rest of the captured argument is kept.');
+    }
+
+    /** Request log rows captured before the fix lose their arguments before query can read them. */
+    public function test_request_log_arguments_from_before_the_fix_are_dropped_before_query_reads_them(): void
+    {
+        $this->as('administrator');
+        update_option(Request_Log::OPTION, [ [
+            'timestamp' => time(),
+            'tool'      => 'wpmcp/update-rows',
+            'ok'        => true,
+            'args'      => [ 'data' => [ 'option_value' => (string) $this->raw_row() ] ],
+        ] ], false);
+        delete_option(Request_Log::ARGS_SCRUBBED_OPTION);
+
+        $this->assertTransformsHoldNoCredential(Request_Log::OPTION, 'a legacy request log');
+        $rows = (array) get_option(Request_Log::OPTION, []);
+        $this->assertSame('wpmcp/update-rows', $rows[0]['tool'], 'The row itself is kept.');
+        $this->assertArrayNotHasKey('args', $rows[0]);
     }
 
     /** @return array<string, array{0: string}> */

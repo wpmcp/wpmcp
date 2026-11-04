@@ -240,10 +240,12 @@ class DatabaseToolsGatewaySecretMaskingTest extends \WP_UnitTestCase
         $this->assertNoCredential($out, 'update-rows before_image');
         $this->assertMaskedSettings($out['before_image'][0]['option_value'], 'update-rows before_image');
 
-        // The audit copy stays raw: it is the manual-recovery trail.
+        // The audit copy is masked as it is written (issue #550, PR #584
+        // review): query could otherwise unwrap it with any SQL transform.
+        // The ledger keeps the exact copy, so the rollback below is exact.
         $audit = (array) get_option(Database_Guard::AUDIT_OPTION, []);
         $last  = end($audit);
-        $this->assertSame($original, $last['before'][0]['option_value'] ?? null);
+        $this->assertMaskedSettings($last['before'][0]['option_value'] ?? '', 'the stored audit log');
 
         $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
         $this->assertSame($original, $this->raw_row(), 'Rollback did not restore the exact stored credentials');

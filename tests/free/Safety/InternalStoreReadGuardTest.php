@@ -73,9 +73,64 @@ class InternalStoreReadGuardTest extends \WP_UnitTestCase
                 $out = (new Read_File())->handle([ 'path' => $this->rel($abs) ]);
                 $this->fail('read-file returned a database dump: ' . wp_json_encode($out));
             } catch (\RuntimeException $e) {
-                $this->assertStringNotContainsString(self::MARKER, $e->getMessage());
+                $this->assertSame('This file is protected from reads.', $e->getMessage(), 'Refused for the wrong reason.');
             }
         }
+    }
+
+    /**
+     * PR #584 review: on a network the file tools are gated at site-level
+     * manage_options and confined to ABSPATH, so a sub-site admin must not
+     * reach the main site's backup folder (the whole network's dump) or any
+     * other site's.
+     */
+    public function test_no_site_backup_folder_is_readable_from_a_sub_site(): void
+    {
+        if (! is_multisite()) {
+            $this->markTestSkipped('Multisite leg only.');
+        }
+        $this->setExpectedDeprecated('wpmu_new_blog');
+        $other = (int) self::factory()->blog->create();
+        switch_to_blog($other);
+        $other_dir = trailingslashit(wp_upload_dir()['basedir']) . 'wpmcp-site-backups';
+        restore_current_blog();
+        wp_mkdir_p($other_dir);
+        file_put_contents($other_dir . '/db-other550.sql', self::MARKER . "\n");
+
+        $sub = (int) self::factory()->blog->create();
+        $admin = (int) self::factory()->user->create([ 'role' => 'administrator' ]);
+        add_user_to_blog($sub, $admin, 'administrator');
+        switch_to_blog($sub);
+        wp_set_current_user($admin);
+
+        try {
+            foreach ([ $this->dir . '/db-test550.sql', $other_dir . '/db-other550.sql' ] as $abs) {
+                $this->assertStringNotContainsString('/sites/' . $sub . '/', $abs, 'Precondition: not the current site\'s own folder.');
+                try {
+                    $out = (new Read_File())->handle([ 'path' => $this->rel($abs) ]);
+                    $this->fail('A sub-site read another site\'s database dump: ' . wp_json_encode($out));
+                } catch (\RuntimeException $e) {
+                    $this->assertSame('This file is protected from reads.', $e->getMessage());
+                }
+            }
+        } finally {
+            restore_current_blog();
+            @unlink($other_dir . '/db-other550.sql');
+            @rmdir($other_dir);
+        }
+    }
+
+    public function test_any_path_through_a_site_backup_folder_is_protected(): void
+    {
+        foreach ([
+            WP_CONTENT_DIR . '/uploads/wpmcp-site-backups/x.zip',
+            WP_CONTENT_DIR . '/uploads/sites/7/wpmcp-site-backups/db.sql',
+            WP_CONTENT_DIR . '/uploads/sites/7/WPMCP-SITE-BACKUPS/restore-1/db.sql',
+            WP_CONTENT_DIR . '/blogs.dir/3/files/wpmcp-site-backups',
+        ] as $abs) {
+            $this->assertTrue(Filesystem_Guard::is_protected($abs), $abs);
+        }
+        $this->assertFalse(Filesystem_Guard::is_protected(WP_CONTENT_DIR . '/uploads/sites/7/wpmcp-site-backups-old/x.sql'));
     }
 
     public function test_search_and_list_do_not_reach_into_the_site_backup_dir(): void
