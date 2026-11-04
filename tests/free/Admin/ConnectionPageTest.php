@@ -201,6 +201,36 @@ class ConnectionPageTest extends \WP_UnitTestCase
         $this->assertStringContainsString('wpmcp_connection_action', $html);
     }
 
+    /**
+     * Issue #581: the screen says the custom connector needs OAuth, whether
+     * it is on, and how to switch it on, on every render (no password
+     * needed, since the connector never uses one).
+     */
+    public function test_render_explains_the_custom_connector_needs_oauth_and_how_to_switch_it_on(): void
+    {
+        remove_all_filters('wpmcp_oauth_enabled');
+        set_current_screen('admin_page_' . Connection_Page::SLUG);
+
+        ob_start();
+        (new Connection_Page())->render();
+        $html = ob_get_clean();
+
+        $this->assertStringContainsString('Custom connector', $html);
+        $this->assertStringContainsString('OAuth is off', $html);
+        $this->assertStringContainsString(esc_html("define('WPMCP_OAUTH_ENABLED', true);"), $html);
+        $this->assertStringContainsString('wp-config.php', $html);
+        $this->assertStringContainsString('wpmcp_oauth_enabled', $html);
+
+        add_filter('wpmcp_oauth_enabled', '__return_true');
+        ob_start();
+        (new Connection_Page())->render();
+        $on = ob_get_clean();
+        remove_filter('wpmcp_oauth_enabled', '__return_true');
+
+        $this->assertStringContainsString('OAuth is on', $on);
+        $this->assertStringNotContainsString('OAuth is off', $on);
+    }
+
     /** Issue #416: each scoped identity is listed with the addresses it is pinned to. */
     public function test_render_lists_each_identity_with_its_allowed_addresses(): void
     {
