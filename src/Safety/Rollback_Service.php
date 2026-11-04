@@ -611,7 +611,8 @@ class Rollback_Service
         // object; for partial captures the only correct unwind is to undo
         // each operation in reverse chronological order, letting older
         // before-images overwrite newer ones where they overlap.
-        $legacy = [];
+        $legacy        = [];
+        $created_terms = [];
         foreach ($rows as $r) {
             $row_id  = (int) $r['id'];
             $is_live = null === Snapshot_Store::rolled_back_at($r);
@@ -636,6 +637,10 @@ class Rollback_Service
                 }
                 continue;
             }
+            // Terms any write of the session created are removed after the
+            // whole unwind, from every row, the deduplicated ones included
+            // (issue #588).
+            $created_terms = array_merge($created_terms, Term_Restore::take_created($snapshot));
             // An acf_options snapshot is partial in the same way: it covers
             // the rows under the field names ONE write named, and two writes
             // to one options page can name overlapping sets.
@@ -794,6 +799,9 @@ class Rollback_Service
             if (self::claim_and_apply($group['snapshot'], $group['live'], true, 'snapshot ' . $key)) {
                 $count += count($group['live']);
             }
+        }
+        foreach (Term_Restore::remove_created($created_terms) as $warning) {
+            self::warn($warning);
         }
         return $count;
     }
@@ -1616,6 +1624,17 @@ class Rollback_Service
             unset($snapshot['data']['compiled_widget_entry']);
             self::apply_snapshot($snapshot);
             self::restore_compiled_widget_entry($entry);
+            return;
+        }
+
+        // Terms the write created as a side effect go once the rest of the
+        // snapshot is back (issue #588, Term_Restore::remove_created()).
+        $created_terms = Term_Restore::take_created($snapshot);
+        if ([] !== $created_terms) {
+            self::apply_snapshot($snapshot);
+            foreach (Term_Restore::remove_created($created_terms) as $warning) {
+                self::warn($warning);
+            }
             return;
         }
 
@@ -2633,6 +2652,10 @@ class Rollback_Service
         // with assignments made after the operation.
         if ($was_missing) {
             self::restore_term_objects($term_id, $taxonomy, $data);
+            // Then what the delete changed around the term (Term_Restore).
+            foreach (Term_Restore::after_refile($term_id, $taxonomy, $data) as $warning) {
+                self::warn($warning);
+            }
         }
     }
 
@@ -2662,7 +2685,11 @@ class Rollback_Service
             ));
         }
 
-        wp_update_term_count_now($objects ? [$term_id] : [], $taxonomy);
+        // Only with an object refiled: an empty list reaches
+        // clean_term_cache() as "term_taxonomy_id IN ()", a SQL error.
+        if ([] !== $objects) {
+            wp_update_term_count_now([$term_id], $taxonomy);
+        }
     }
 
     /**
