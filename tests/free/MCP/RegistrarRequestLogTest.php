@@ -106,29 +106,25 @@ class RegistrarRequestLogTest extends \WP_UnitTestCase
     }
 
     /**
-     * The wrapper re-throws a handler exception rather than swallowing it, so
-     * whatever the Abilities API does with it is unchanged, while the log
-     * keeps the real exception class behind it.
-     *
-     * What the caller sees is version-dependent and deliberately not the
-     * point of this test: WP 7.0+ catches Throwable in WP_Ability and hands
-     * back a generic ability_callback_exception WP_Error (which tells an
-     * admin nothing about what actually broke, hence this log), while WP 6.9
-     * has no such catch and lets the exception out. CI runs 6.9, so both
-     * paths are asserted.
+     * A handler exception comes back as the WP_Error WordPress 7.1 core
+     * builds for it, on every supported WordPress (issue #612): 6.9's
+     * WP_Ability has no catch, so before this the exception left execute()
+     * there and the REST run endpoint answered a plain refusal with a 500.
+     * The WP_Error keeps the handler's message; the log keeps the real
+     * exception class, which the WP_Error does not carry.
      */
-    public function test_a_thrown_exception_is_logged_with_its_class_and_still_propagates(): void
+    public function test_a_thrown_exception_is_logged_with_its_class_and_returned_as_a_wp_error(): void
     {
         $this->admin_user();
 
-        try {
-            $result = $this->ability('wpmcp/get-post')->execute(['post_id' => 99999999]);
+        $result = $this->ability('wpmcp/get-post')->execute(['post_id' => 99999999]);
 
-            $this->assertInstanceOf(\WP_Error::class, $result);
-            $this->assertSame('ability_callback_exception', $result->get_error_code());
-        } catch (\InvalidArgumentException $e) {
-            $this->assertSame('Post not found', $e->getMessage());
-        }
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('ability_callback_exception', $result->get_error_code());
+        $this->assertSame(
+            'Ability "wpmcp/get-post" callback threw an exception: Post not found',
+            $result->get_error_message()
+        );
 
         $row = $this->row_for('wpmcp/get-post');
 

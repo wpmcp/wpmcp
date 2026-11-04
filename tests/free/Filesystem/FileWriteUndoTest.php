@@ -223,7 +223,10 @@ class FileWriteUndoTest extends \WP_UnitTestCase
 
         $ability = wp_get_ability('wpmcp/write-file');
         $result  = $ability->execute(['path' => $this->path('functions.php'), 'content' => "<?php\nfunction broken( {\n"]);
+        // A WP_Error carrying the reason on every supported WordPress, not
+        // an exception out of execute() on 6.9 (issue #612).
         $this->assertWPError($result);
+        $this->assertStringContainsString('Nothing was written.', $result->get_error_message());
 
         $this->assertSame($before, Snapshot_Store::row_count(), 'a write refused before anything changed must not leave an undo point');
         $this->assertSame("<?php\nfunction wpmcp_undo_fixture() {}\n", $this->bytes('functions.php'));
