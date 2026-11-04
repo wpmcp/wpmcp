@@ -11,18 +11,32 @@ use WPMCP\RateLimit\Rate_Limiter;
 
 /**
  * Every schema in tools/list reaches the wire as JSON Schema, on every
- * transport and every protocol revision (issue #586).
+ * transport and every protocol revision (issues #586, #591).
  *
- * PHP has one array type, so an empty `'properties' => []` serializes as
- * a JSON array. Clients that validate the schema (Claude Code) then drop
- * the tool. The assertions here read the raw JSON text and decode it
- * with objects kept as objects, because a json_decode(..., true) round
- * trip turns `{}` and `[]` into the same PHP value and cannot tell a
- * correct response from a broken one.
+ * PHP has one array type, so an empty `'properties' => []` or a
+ * type-less `'value' => []` serializes as a JSON array. Clients that
+ * validate the schema (Claude Code) then drop the tool. The assertions
+ * here read the raw JSON text and decode it with objects kept as objects,
+ * because a json_decode(..., true) round trip turns `{}` and `[]` into the
+ * same PHP value and cannot tell a correct response from a broken one.
+ * The sweep walks every registered tool's input and output schema to any
+ * depth, so a new definition with an empty schema fails here (#591).
  */
 class ToolsListWireSchemaTest extends \WP_UnitTestCase
 {
     private const ROUTE = '/mcp/wpmcp-server';
+
+    /** Keywords whose value is an object mapping names to schemas. */
+    private const SCHEMA_MAPS = [ 'properties', 'patternProperties', 'definitions', '$defs', 'dependentSchemas' ];
+
+    /** Keywords whose value is one schema. */
+    private const SCHEMA_SINGLES = [
+        'items', 'additionalProperties', 'additionalItems', 'not', 'if', 'then', 'else',
+        'contains', 'propertyNames', 'unevaluatedProperties', 'unevaluatedItems', 'contentSchema',
+    ];
+
+    /** Keywords whose value is a list of schemas. */
+    private const SCHEMA_LISTS = [ 'allOf', 'anyOf', 'oneOf', 'prefixItems' ];
 
     public static function wpSetUpBeforeClass(): void
     {
@@ -186,20 +200,80 @@ class ToolsListWireSchemaTest extends \WP_UnitTestCase
         return $tools;
     }
 
-    private function assert_wire_schemas(string $raw, string $transport): void
+    /**
+     * Collects every place a schema is not a JSON object or boolean, or a
+     * schema-map keyword is not a JSON object, at any depth.
+     *
+     * @param mixed    $node   A decoded schema.
+     * @param string[] $errors Collected paths.
+     */
+    private function sweep($node, string $path, array &$errors): void
     {
-        $this->assertStringNotContainsString('"properties":[]', $raw, $transport . ': raw tools/list has an empty properties array.');
+        if (is_bool($node)) {
+            return;
+        }
+        if (! is_object($node)) {
+            $errors[] = $path . ' is ' . wp_json_encode($node) . ', not a schema object';
+            return;
+        }
 
-        foreach ($this->tools($raw) as $name => $tool) {
-            $this->assertIsObject($tool->inputSchema ?? null, $transport . ': ' . $name . ' inputSchema is not an object');
-            $this->assertSame('object', $tool->inputSchema->type ?? null, $transport . ': ' . $name . ' inputSchema type');
-            if (property_exists($tool->inputSchema, 'properties')) {
-                $this->assertIsObject($tool->inputSchema->properties, $transport . ': ' . $name . ' inputSchema.properties');
+        foreach (self::SCHEMA_MAPS as $keyword) {
+            if (! property_exists($node, $keyword)) {
+                continue;
+            }
+            if (! is_object($node->$keyword)) {
+                $errors[] = $path . '.' . $keyword . ' is ' . wp_json_encode($node->$keyword) . ', not an object';
+                continue;
+            }
+            foreach (get_object_vars($node->$keyword) as $name => $child) {
+                $this->sweep($child, $path . '.' . $keyword . '.' . $name, $errors);
+            }
+        }
+        foreach (self::SCHEMA_SINGLES as $keyword) {
+            if (! property_exists($node, $keyword)) {
+                continue;
+            }
+            if ('items' === $keyword && is_array($node->items) && [] !== $node->items) {
+                // Draft-04 tuple form: a non-empty list of schemas.
+                foreach ($node->items as $i => $child) {
+                    $this->sweep($child, $path . '.items[' . $i . ']', $errors);
+                }
+                continue;
+            }
+            $this->sweep($node->$keyword, $path . '.' . $keyword, $errors);
+        }
+        foreach (self::SCHEMA_LISTS as $keyword) {
+            if (! property_exists($node, $keyword)) {
+                continue;
+            }
+            if (! is_array($node->$keyword)) {
+                $errors[] = $path . '.' . $keyword . ' is not a list';
+                continue;
+            }
+            foreach ($node->$keyword as $i => $child) {
+                $this->sweep($child, $path . '.' . $keyword . '[' . $i . ']', $errors);
             }
         }
     }
 
-    /** The tool the issue names, checked on the exact bytes. */
+    private function assert_wire_schemas(string $raw, string $transport): void
+    {
+        $this->assertStringNotContainsString('"properties":[]', $raw, $transport . ': raw tools/list has an empty properties array.');
+
+        $errors = [];
+        foreach ($this->tools($raw) as $name => $tool) {
+            $this->assertIsObject($tool->inputSchema ?? null, $transport . ': ' . $name . ' inputSchema is not an object');
+            $this->assertSame('object', $tool->inputSchema->type ?? null, $transport . ': ' . $name . ' inputSchema type');
+            $this->sweep($tool->inputSchema, $name . '.inputSchema', $errors);
+            if (property_exists($tool, 'outputSchema')) {
+                $this->sweep($tool->outputSchema, $name . '.outputSchema', $errors);
+            }
+        }
+
+        $this->assertSame([], $errors, $transport . ": schemas that are not JSON objects:\n" . implode("\n", $errors));
+    }
+
+    /** The two tools the issues name, checked on the exact bytes. */
     private function assert_named_tools(string $raw, string $transport): void
     {
         $tools = $this->tools($raw);
@@ -207,6 +281,10 @@ class ToolsListWireSchemaTest extends \WP_UnitTestCase
         $this->assertArrayHasKey('wpmcp-get-site-context', $tools);
         $this->assertEquals(new \stdClass(), $tools['wpmcp-get-site-context']->inputSchema->properties ?? new \stdClass(), $transport);
         $this->assertStringNotContainsString('"properties":[]', (string) wp_json_encode($tools['wpmcp-get-site-context']), $transport . ' (#586)');
+
+        $this->assertArrayHasKey('wpmcp-set-term-meta', $tools);
+        $this->assertIsObject($tools['wpmcp-set-term-meta']->inputSchema->properties->value, $transport . ' (#591)');
+        $this->assertStringContainsString('"value":{}', (string) wp_json_encode($tools['wpmcp-set-term-meta']), $transport . ' (#591)');
     }
 
     public function test_http_2026_07_28_tools_list_sends_every_schema_as_an_object(): void
