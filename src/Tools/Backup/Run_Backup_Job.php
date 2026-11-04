@@ -170,10 +170,16 @@ class Run_Backup_Job
             return;
         }
 
-        // The producer receives the post-update record, not the record as it
-        // was read a line earlier: handing it a job that still claims to be
-        // queued would make any status the producer reads or logs a lie.
-        $job = Backup_Job_Store::update($job_id, ['status' => 'running']) ?? $job;
+        // Claim the job: queued to running in one locked step (issue #607),
+        // so a second delivery of the same event that read "queued" a moment
+        // ago cannot run it as well. The producer receives the post-update
+        // record: handing it a job that still claims to be queued would make
+        // any status the producer reads or logs a lie.
+        $claimed = Backup_Job_Store::transition($job_id, 'queued', ['status' => 'running']);
+        if (null === $claimed) {
+            return;
+        }
+        $job = $claimed;
 
         try {
             $artifact = ($this->producer)($job);
