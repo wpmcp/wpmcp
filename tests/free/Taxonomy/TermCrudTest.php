@@ -183,6 +183,22 @@ class TermCrudTest extends \WP_UnitTestCase
         $this->assertContains($term_id, array_map('intval', (array) $terms), 'The post must be filed under the restored term again.');
     }
 
+    public function test_delete_counts_a_draft_post_as_an_affected_object(): void
+    {
+        // Issue #597: the term's count column counts published posts only, so
+        // a term whose only post is a draft reported 0 objects affected while
+        // the delete moved that draft to the default category.
+        $created = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Draft Holder']);
+        $term_id = $created['term']['term_id'];
+
+        $draft = self::factory()->post->create(['post_status' => 'draft']);
+        wp_set_object_terms($draft, [$term_id], 'category');
+
+        $out = (new Delete_Term())->handle(['taxonomy' => 'category', 'term_id' => $term_id]);
+
+        $this->assertSame(1, $out['objects_affected']);
+    }
+
     public function test_refuses_to_delete_the_default_term(): void
     {
         $default = (int) get_option('default_category');
