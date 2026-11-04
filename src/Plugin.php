@@ -6059,7 +6059,8 @@ final class Plugin
                 ],
             ],
             [$get_debug_log, 'handle'],
-            'manage_options',
+            // One debug.log for the whole network (issue #559).
+            Filesystem_Guard::read_capability(),
             'diagnostics',
             'read'
         ));

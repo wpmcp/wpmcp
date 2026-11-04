@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tests\Free\MultisiteSecurity;
 
+use WPMCP\Tools\Diagnostics\Get_Debug_Log;
 use WPMCP\Tools\Filesystem\List_Directory;
 use WPMCP\Tools\Filesystem\Read_File;
 use WPMCP\Tools\Filesystem\Search_Files;
@@ -23,6 +24,9 @@ class SubSiteFilesystemReadTest extends \WP_UnitTestCase
         'wpmcp/read-file',
         'wpmcp/list-directory',
         'wpmcp/search-files',
+        // debug.log is one file for the whole network, so its reader takes
+        // the same gate as read-file.
+        'wpmcp/get-debug-log',
     ];
 
     private int $blog = 0;
@@ -182,5 +186,27 @@ class SubSiteFilesystemReadTest extends \WP_UnitTestCase
 
         $found = (new Search_Files())->handle(['query' => 'other-site-secret-559', 'path' => $other]);
         $this->assertNotEmpty($found['matches']);
+    }
+
+    public function test_get_debug_log_refuses_a_sub_site_admin(): void
+    {
+        $log             = WP_CONTENT_DIR . '/issue-559-debug.log';
+        $this->planted[] = $log;
+        file_put_contents($log, 'PHP Notice: network-wide-559');
+
+        $read    = null;
+        $refused = null;
+        try {
+            $read = (new Get_Debug_Log())->handle(['path' => $log]);
+        } catch (\RuntimeException $e) {
+            $refused = $e->getMessage();
+        }
+
+        $this->assertNull($read, 'A sub-site admin read the network-wide debug log');
+        $this->assertNotNull($refused);
+
+        wp_set_current_user($this->super_admin);
+        $read = (new Get_Debug_Log())->handle(['path' => $log]);
+        $this->assertStringContainsString('network-wide-559', (string) $read['content']);
     }
 }
