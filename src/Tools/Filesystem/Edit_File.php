@@ -51,6 +51,11 @@ class Edit_File
         if (! Filesystem_Guard::is_utf8($content)) {
             throw new \RuntimeException('Cannot edit a binary file.');
         }
+        // A copy of wp-config.php under any name (issue #606): its "found" and
+        // "not found" answers would otherwise be an oracle for the secrets.
+        if (Filesystem_Guard::holds_wp_secrets($content)) {
+            throw new \RuntimeException('This file is protected from writes.');
+        }
 
         $old = (string) ($args['old_string'] ?? '');
         $new = (string) ($args['new_string'] ?? '');
