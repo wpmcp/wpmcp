@@ -94,6 +94,9 @@ class Snapshot
         if (Core_Files_Snapshot::TYPE === $object_type) {
             return Core_Files_Snapshot::capture((string) $object_id);
         }
+        if (File_Write_Snapshot::TYPE === $object_type) {
+            return File_Write_Snapshot::capture((string) $object_id);
+        }
         if ('acf_structure' === $object_type) {
             return self::capture_acf_structure((string) $object_id);
         }

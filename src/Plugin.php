@@ -2614,13 +2614,14 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/write-file',
             'free',
-            'Create or overwrite a file in the WordPress install. Backs up an existing file (restore recovers it). Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT. PHP must parse; a fatal on the front end or admin after saving reverts it; if that check cannot run, refused unless unchecked:true',
+            'Create or overwrite a file in the WordPress install. Undo: rollback-operation. Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT. PHP must parse; a fatal on the front end or admin after saving reverts it; if that check cannot run, refused unless unchecked:true',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'path'      => [ 'type' => 'string' ],
-                    'content'   => [ 'type' => 'string' ],
-                    'unchecked' => [ 'type' => 'boolean' ],
+                    'path'       => [ 'type' => 'string' ],
+                    'content'    => [ 'type' => 'string' ],
+                    'unchecked'  => [ 'type' => 'boolean' ],
+                    'session_id' => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'path', 'content' ],
             ],
@@ -2632,7 +2633,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/edit-file',
             'free',
-            'Replace an exact string in a file (must match once unless replace_all). Backs up the original (restore recovers it). Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT. PHP is checked and reverted as in write-file',
+            'Replace an exact string in a file (must match once unless replace_all). Undo: rollback-operation. Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT. PHP is checked and reverted as in write-file',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2641,6 +2642,7 @@ final class Plugin
                     'new_string'  => [ 'type' => 'string' ],
                     'replace_all' => [ 'type' => 'boolean' ],
                     'unchecked'   => [ 'type' => 'boolean' ],
+                    'session_id'  => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'path', 'old_string', 'new_string' ],
             ],
@@ -2652,12 +2654,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-file',
             'free',
-            'Delete a file in the WordPress install. Needs confirm:true. Backs up the file (restore recovers it). Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT',
+            'Delete a file in the WordPress install. Needs confirm:true. Undo: rollback-operation. Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'path'    => [ 'type' => 'string' ],
-                    'confirm' => [ 'type' => 'boolean' ],
+                    'path'       => [ 'type' => 'string' ],
+                    'confirm'    => [ 'type' => 'boolean' ],
+                    'session_id' => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'path' ],
             ],

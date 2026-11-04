@@ -35,7 +35,7 @@ class List_Operations
         [$where, $params] = $this->build_where($args);
         $where_sql         = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
 
-        $sql = "SELECT operation_id, session_id, tool_name, object_type, object_id, user_id, created_at "
+        $sql = "SELECT operation_id, session_id, tool_name, object_type, object_id, user_id, created_at, rolled_back_at "
             . "FROM %i {$where_sql} ORDER BY id DESC LIMIT %d";
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- wpmcp_snapshots is this plugin's own audit table; $sql is literal fragments from build_where() (this file) with %i/%s/%d placeholders, all bound on this line, which the sniffs cannot follow through the variable. The log must never be stale.
         $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge([$table], $params, [$limit])), ARRAY_A);
@@ -52,6 +52,9 @@ class List_Operations
 
         $ops = array_map(function (array $r) use ($abilities_by_tool, $restorable) {
             $domain = $abilities_by_tool[$r['tool_name']] ?? null;
+            // An undone operation is never undone again (issue #593), so it
+            // is not offered as restorable either.
+            $rolled_back_at = Snapshot_Store::rolled_back_at($r);
             return [
                 'operation_id'       => $r['operation_id'],
                 'session_id'         => $r['session_id'],
@@ -61,7 +64,8 @@ class List_Operations
                 'created_at'         => $r['created_at'],
                 'user_id'            => (int) $r['user_id'],
                 'domain'             => $domain,
-                'rollback_available' => in_array($r['object_type'], $restorable, true),
+                'rollback_available' => null === $rolled_back_at && in_array($r['object_type'], $restorable, true),
+                'rolled_back_at'     => $rolled_back_at,
             ];
         }, $rows);
 

@@ -10,8 +10,10 @@ if (! defined('ABSPATH')) {
  * Replace an exact string in a file (must match exactly once unless
  * replace_all). Disabled by default: sites must opt in via the
  * wpmcp_enable_fs_writes filter. Requires the edit_files capability and
- * honors DISALLOW_FILE_EDIT. Refuses wp-config.php/.htaccess. Backs up the
- * original file before editing it, so the change is genuinely recoverable.
+ * honors DISALLOW_FILE_EDIT. Refuses wp-config.php/.htaccess. Records the
+ * edit as an undoable operation (File_Write_Operation): the original is
+ * backed up first and rollback-operation with the returned operation_id
+ * writes it back byte for byte (issue #602).
  * A .php target is syntax-checked and site-checked first (Php_Edit_Guard).
  */
 class Edit_File
@@ -73,21 +75,21 @@ class Edit_File
             $updated = substr($content, 0, $pos) . $new . substr($content, $pos + strlen($old));
         }
 
-        $php_check = null;
-        if (Php_Edit_Guard::applies($abs)) {
-            $done      = Php_Edit_Guard::write($abs, $updated, ! empty($args['unchecked']));
-            $backup    = $done['backup'];
-            $php_check = $done['php_check'];
-        } else {
-            $backup = Filesystem_Guard::backup($abs);
-            if (is_wp_error($backup)) {
-                throw new \RuntimeException(esc_html($backup->get_error_message()));
+        $done = File_Write_Operation::run(
+            'edit-file',
+            $abs,
+            $args,
+            static function (string $backup) use ($abs, $updated, $args): ?string {
+                if (Php_Edit_Guard::applies($abs)) {
+                    return Php_Edit_Guard::write($abs, $updated, ! empty($args['unchecked']), $backup)['php_check'];
+                }
+                if (false === file_put_contents($abs, $updated)) {
+                    throw new \RuntimeException('Could not write the file (check permissions).');
+                }
+                return null;
             }
-
-            if (false === file_put_contents($abs, $updated)) {
-                throw new \RuntimeException('Could not write the file (check permissions).');
-            }
-        }
+        );
+        $php_check = $done['result'];
 
         $rel = Filesystem_Guard::to_relative($abs);
         Filesystem_Guard::log('edit', $rel);
@@ -95,8 +97,9 @@ class Edit_File
         return [
             'path'         => $rel,
             'replacements' => $replace_all ? $count : 1,
-            'backup'       => $backup ? Filesystem_Guard::to_relative($backup) : null,
-            'recoverable'  => '' !== $backup,
+            'operation_id' => $done['operation_id'],
+            'backup'       => Filesystem_Guard::to_relative($done['backup']),
+            'recoverable'  => true,
         ] + (null === $php_check ? [] : ['php_check' => $php_check]);
     }
 }
