@@ -21,11 +21,93 @@ if (! defined('ABSPATH')) {
  *
  * Snapshot::capture_term() records what these need through capture(), and
  * Rollback_Service::apply_term_snapshot() calls after_refile() once a
- * deleted term is back with its objects. Kept out of Rollback_Service so the
- * term-specific restore lives in one small place.
+ * deleted term is back with its objects.
+ *
+ * It also removes the terms any other write created as a side effect
+ * (take_created(), remove_created(), issue #588). Kept out of
+ * Rollback_Service so the term-specific restore lives in one small place.
  */
 class Term_Restore
 {
+    /**
+     * Snapshot data key listing the terms a write created as a side effect,
+     * as [{term_id, taxonomy}], written by Safe_Mutation::run().
+     */
+    public const CREATED_KEY = 'created_terms';
+
+    /**
+     * Take the created-terms list off a snapshot, so the rest of it can be
+     * restored on its own and the terms removed once that is done.
+     *
+     * @return array<int, array{term_id: int, taxonomy: string}>
+     */
+    public static function take_created(array &$snapshot): array
+    {
+        $created = $snapshot['data'][ self::CREATED_KEY ] ?? null;
+        unset($snapshot['data'][ self::CREATED_KEY ]);
+        return is_array($created) ? array_values($created) : [];
+    }
+
+    /**
+     * Remove the terms a write created, once the objects it touched are
+     * restored (issue #588). A term that is still in use, by an object the
+     * restore did not cover or one filed under it since, is kept with a
+     * warning, as is one that has child terms; deleting either would be a
+     * second change nobody asked the undo for. A term already gone, or one
+     * that has become the taxonomy's default, is left alone.
+     *
+     * @param array<int, array{term_id?: int, taxonomy?: string}> $created
+     * @return string[] Warnings for the rollback result.
+     */
+    public static function remove_created(array $created): array
+    {
+        $warnings = [];
+        $done     = [];
+        foreach ($created as $entry) {
+            $term_id  = (int) ($entry['term_id'] ?? 0);
+            $taxonomy = (string) ($entry['taxonomy'] ?? '');
+            if ($term_id <= 0 || '' === $taxonomy || isset($done[ $taxonomy . ':' . $term_id ])) {
+                continue;
+            }
+            $done[ $taxonomy . ':' . $term_id ] = true;
+
+            $term = get_term($term_id, $taxonomy);
+            if (! $term instanceof \WP_Term || self::default_term_id($taxonomy) === $term_id) {
+                continue;
+            }
+
+            $objects  = get_objects_in_term([$term_id], [$taxonomy]);
+            $used     = is_array($objects) ? count($objects) : 0;
+            $children = is_taxonomy_hierarchical($taxonomy)
+                ? get_terms(['taxonomy' => $taxonomy, 'parent' => $term_id, 'fields' => 'ids', 'hide_empty' => false])
+                : [];
+            $children = is_array($children) ? count($children) : 0;
+
+            if ($used > 0 || $children > 0) {
+                $warnings[] = sprintf(
+                    'Term %d ("%s") in %s was created by this operation but is now used by %d object(s) and has %d child term(s), so it was kept.',
+                    $term_id,
+                    (string) $term->name,
+                    $taxonomy,
+                    $used,
+                    $children
+                );
+                continue;
+            }
+
+            $deleted = wp_delete_term($term_id, $taxonomy);
+            if (true !== $deleted) {
+                $warnings[] = sprintf(
+                    'Term %d ("%s") in %s was created by this operation and could not be removed.',
+                    $term_id,
+                    (string) $term->name,
+                    $taxonomy
+                );
+            }
+        }
+        return $warnings;
+    }
+
     /**
      * The taxonomy's default term, the one wp_delete_term() refiles orphaned
      * objects under, or 0 when it has none. Mirrors the lookup in core:

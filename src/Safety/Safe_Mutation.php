@@ -47,7 +47,27 @@ class Safe_Mutation
         // undo point, so it must never be advertised before it exists.
         Operation_Context::note($operation_id);
         Snapshot_Store::prune();
-        $result = $mutation();
+
+        // Terms the write creates as a side effect (wp_set_object_terms()
+        // inserts a term for every name it does not find) are no part of the
+        // object snapshot, so they are noted as they appear and added to the
+        // undo point, which removes them again (issue #588, see
+        // Term_Restore::remove_created()).
+        $created_terms = [];
+        $note_term     = static function ($term_id, $tt_id, $taxonomy) use (&$created_terms): void {
+            unset($tt_id);
+            $created_terms[] = ['term_id' => (int) $term_id, 'taxonomy' => (string) $taxonomy];
+        };
+        add_action('created_term', $note_term, 10, 3);
+        try {
+            $result = $mutation();
+        } finally {
+            remove_action('created_term', $note_term, 10);
+            if ([] !== $created_terms) {
+                $snapshot['data'][ Term_Restore::CREATED_KEY ] = $created_terms;
+                Snapshot_Store::update_snapshot($operation_id, $snapshot);
+            }
+        }
         if ($verify && ! $verify($result)) {
             self::restore($snapshot);
             throw new Mutation_Failed('Verification failed; change rolled back.');
