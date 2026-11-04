@@ -105,6 +105,8 @@ No. Snapshots are fine-grained, per-operation undo, not full-site backups. Keep 
 
 Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authentication works via OAuth 2.1 or WordPress application passwords.
 
+OAuth is off by default. Clients configured with an application password (Claude Code, Cursor, the Claude Desktop bundle or config file) do not need it. The Claude Desktop and claude.ai "Add custom connector" option does: it can only sign in with OAuth, and on a site with OAuth off it fails with "Couldn't register with WP MCP's sign-in service". To switch OAuth on, add define('WPMCP_OAUTH_ENABLED', true); to wp-config.php, or return true from the wpmcp_oauth_enabled filter. The WP MCP Connection screen shows whether OAuth is on and the steps to add the connector.
+
 = Is it really free? =
 
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
