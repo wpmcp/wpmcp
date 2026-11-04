@@ -4,11 +4,13 @@
 
 # wpmcp
 
-### The AI agent that builds and edits your WordPress site, and physically cannot wreck it.
+### Let an AI agent build and edit your WordPress site, with an undo for every supported write.
 
-An MCP server for WordPress with snapshot-before-every-write and one-click rollback baked into the core.
+An MCP server for WordPress: 407 abilities (274 in the free plugin) across 61 domains, page builder support from Gutenberg to Elementor, and a snapshot before every supported write with one-click rollback in the core.
 
-[![CI](https://github.com/fahdi/wpmcp/actions/workflows/ci.yml/badge.svg)](https://github.com/fahdi/wpmcp/actions/workflows/ci.yml)
+**Docs and Pro: [wpmcp-pro.com](https://wpmcp-pro.com/)**
+
+[![CI](https://github.com/wpmcp/wpmcp/actions/workflows/ci.yml/badge.svg)](https://github.com/wpmcp/wpmcp/actions/workflows/ci.yml)
 [![License: GPL v2+](https://img.shields.io/badge/License-GPL%20v2%2B-blue.svg)](LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-%3E%3D8.1-8892BF.svg)](https://php.net)
 [![WordPress](https://img.shields.io/badge/WordPress-%3E%3D6.9-21759B.svg)](https://wordpress.org)
@@ -18,22 +20,34 @@ An MCP server for WordPress with snapshot-before-every-write and one-click rollb
 
 ---
 
-Give an AI agent (Claude, Cursor, or any MCP client) the keys to your WordPress site and one thing becomes terrifying: a bad edit on a live client site that you cannot take back. Every other WordPress AI tool asks you to trust the model. **wpmcp does the opposite: it assumes the agent will get something wrong, and makes sure nothing it does is permanent.**
+Give an AI agent (Claude, Cursor, or any MCP client) the keys to your WordPress site and the real risk is a bad edit on a live client site that you cannot take back. **wpmcp is built on the assumption that the agent will sometimes get it wrong, so every supported write can be undone.**
 
-Every write is snapshotted before it happens. If a change breaks the page, it rolls back automatically. If you do not like what the agent did, you undo one operation, or the agent's entire session, with one click. That is the whole product: an AI site builder you can actually let near a live site.
+Every supported write is snapshotted before it happens. If a post-write check fails (for example, block markup that no longer parses), the change rolls back on its own. If you do not like what the agent did, you undo one operation, or the agent's entire session, from the AI or with one click in wp-admin. A few kinds of change cannot be snapshotted, and this README lists them in [What cannot be undone](#what-cannot-be-undone) instead of leaving you to find out.
 
-> **Status:** early MVP. The safety engine and the first tools are shipped and tested. See the [Roadmap](#roadmap) for what is next.
+> **Status:** version 0.8.180, for WordPress 6.9 to 7.1 and PHP 8.1 or later. The pre-push test gate runs the PHPUnit suite on the minimum and the current WordPress, on multisite, and against real installs of the third-party plugins wpmcp integrates with. A full manual test pass of 0.8.180 is under way ([#579](https://github.com/wpmcp/wpmcp/issues/579)) and the bugs it finds are tracked as open issues. What is next is in the [Roadmap](#roadmap).
+
+**What is in it.** 407 abilities (MCP tools) across 61 domains: 274 in the free plugin and 133 Pro. Which abilities a site has depends on which integrations are active: tools for optional plugins (ACF, SEO and translation plugins, form plugins and the other integrations) register only where that plugin is active, and a single site with none of them sees about 350, about 240 of them free. `list-tool-catalog` lists exactly what your site has. The count is pinned by the ability manifest (`tests/support/ability-manifest.php`), which the test suite checks on every run.
+
+## Page builder support
+
+| Builder | Free | Pro |
+| --- | --- | --- |
+| **Gutenberg** (block editor) | Read, add, update, move, duplicate and remove blocks, insert patterns, convert HTML to blocks; block markup is verified after every edit | Kadence Blocks, GenerateBlocks, Spectra, Otter Blocks and Blocksy blocks; a custom block builder |
+| **Elementor** | Widget list and schemas, global settings, CSS regeneration, and search across Elementor element text | Deep editing of the element tree: add, update, move, duplicate and remove widgets and containers, batch updates, global colors, typography, classes and variables, theme builder templates and conditions, popups, dynamic tags, custom CSS, brand kits, custom widgets, and Elementor 4 atomic elements |
+| **Bricks, Divi, Beaver Builder, Breakdance, Oxygen, Oxygen Classic, WPBakery, Avada, Thrive Architect** | Bricks element text is covered by site-wide search | Detect the builder, read its content, and edit it (`detect-builder`, `get-builder-content`, `update-builder-content`), each edit snapshotted; Bricks and Breakdance design systems (classes, variables, palettes) |
+
+Because snapshots are taken at the WordPress data layer, rollback works the same for every builder in the table. Docs and Pro are at [wpmcp-pro.com](https://wpmcp-pro.com/).
 
 ## Why wpmcp
 
-- **Recoverable by design.** No mutating tool can touch the database except through a wrapper that snapshots first. This is enforced in code, not by convention.
+- **Recoverable by design.** Every supported write goes through one wrapper that snapshots first. This is enforced in code, not by convention, and the writes that cannot be snapshotted are [listed](#what-cannot-be-undone) and say so in their response.
 - **Builder-agnostic safety.** Snapshots are taken at the WordPress data layer (post content, meta, options), so rollback works for any page builder without parsing its format.
 - **Runs inside WordPress.** A single plugin on the official [WordPress Abilities API](https://developer.wordpress.org/), not a separate local proxy process. One install, works with any MCP client.
 - **Free and open.** GPL-2.0. The whole safety engine and the Gutenberg tooling are free.
 
 ## How it works
 
-Every mutating tool routes through one orchestrator, `Safe_Mutation::run()`:
+Every snapshotted write routes through one orchestrator, `Safe_Mutation::run()`:
 
 ```
 snapshot (before)  ->  apply the change  ->  verify  ->  ok?
@@ -52,6 +66,19 @@ You can drive rollback from the AI (the `rollback-operation` and `rollback-sessi
 
 **Audit Log** in wp-admin has two tabs. *Mutations* lists agent writes with Restore. *Requests* is the MCP request outcome log: one row per tool call, reads included, with the calling client, ok or the error code, how long it took, and, when the call took a snapshot, a link straight to that operation's undo point in History. It is a capped ring buffer (200 rows by default, `wpmcp_request_log_cap`), and tool arguments are not recorded unless you switch on the `wpmcp_request_log_capture_args` option or filter, which still redacts secret-looking values and truncates long ones.
 
+## What cannot be undone
+
+Snapshots cover WordPress data: posts and their content, meta and terms, options, users, and the plugin data the integrations snapshot. Some changes fall outside that, and wpmcp tells you rather than claiming an undo it cannot do. Most of these are off by default, and each says so in its response (`recoverable: false`, `files_recoverable: false` or `reversible: false`):
+
+- **Package updates and deletes.** `update-plugin`, `update-theme`, the core update in `manage-updates`, `delete-plugin` and `delete-theme` do not back up package files. Off by default, and each needs `confirm: true`.
+- **Raw database row writes.** `update-rows` and `delete-rows` write a before-image to a capped audit log, not a restorable snapshot. Off by default.
+- **File writes and deletes.** `write-file`, `edit-file` and `delete-file` keep a byte-for-byte backup copy, but no tool restores it in one call yet and these writes do not appear in `list-operations` ([#602](https://github.com/wpmcp/wpmcp/issues/602)). Off by default.
+- **Media file bytes.** Rolling back a force-deleted attachment restores its record, not its files ([#24](https://github.com/wpmcp/wpmcp/issues/24)). Media force-delete is off by default.
+- **Other one-way actions.** Deleting a menu, importing content, the security incident tools (ending sessions, rotating salts), and other plugins' abilities run through the abilities bridge (`execute-site-ability`).
+- **Snapshot coverage.** Excerpt and parent are not yet captured, and history keeps the last 20 operations by default (see [Known limitations](#known-limitations)).
+
+Rollback bugs found in the current test pass are tracked as open issues in this repo.
+
 ## Requirements
 
 | Dependency | Version |
@@ -65,7 +92,7 @@ You can drive rollback from the AI (the `rollback-operation` and `rollback-sessi
 wpmcp is not yet on the wp.org plugin directory (planned). For now, install from source:
 
 ```bash
-git clone https://github.com/fahdi/wpmcp.git wp-content/plugins/wpmcp
+git clone https://github.com/wpmcp/wpmcp.git wp-content/plugins/wpmcp
 cd wp-content/plugins/wpmcp
 composer install --no-dev
 ```
@@ -113,6 +140,8 @@ Clients that advertise the newer protocol features get them; everyone else keeps
 The HTTP route is mounted by the official [WordPress MCP adapter](https://github.com/WordPress/mcp-adapter). wpmcp bundles adapter 0.6.x so it works on its own, and prefers the canonical MCP Adapter plugin when that is active: the bundled copy is only a fallback and never shadows another copy's classes (see `src/adapter-guard.php`). Adapter 0.7.0 and later answer `2026-07-28` requests natively; with the bundled 0.6.x, wpmcp answers them itself, so clients see the same behavior either way.
 
 ## Available tools
+
+The table covers the core tools. The full reference for all 407 is at [wpmcp-pro.com](https://wpmcp-pro.com/), and `list-tool-catalog` or `list-tools` lists what your own site registers.
 
 | Tool | Type | What it does |
 | --- | --- | --- |
@@ -189,13 +218,13 @@ Every write tool is wrapped in the safety engine, except `sideload-image`, `crea
 
 ## Compact tool surface
 
-wpmcp registers 160+ tools. Some MCP clients cap tool counts outright, and all of them pay token cost for every `tools/list`. **Compact mode** collapses the advertised surface to five tools: `list-tools`, `get-tool-schema`, `call-tool`, plus the connection basics `get-connection-info` and `get-site-context`, while every other tool stays reachable through `call-tool`.
+wpmcp registers up to 407 tools, depending on licence and active plugins. Some MCP clients cap tool counts outright, and all of them pay token cost for every `tools/list`. **Compact mode** collapses the advertised surface to five tools: `list-tools`, `get-tool-schema`, `call-tool`, plus the connection basics `get-connection-info` and `get-site-context`, while every other tool stays reachable through `call-tool`.
 
 Compact mode is exposure-only and off by default. It never changes which abilities are registered and it is not a permission boundary: a dispatched call runs the target tool's own capability check, governance, identity scope, license check, rate limit, input validation, and snapshot/rollback behavior exactly as a direct call would (a conformance suite sweeps the entire surface in both modes to prove it). `call-tool` refuses abilities that were not registered by wpmcp.
 
 Choose the mode site-wide with the `wpmcp_tool_exposure_mode` option (`full` or `compact`), per scoped identity via the identity's `exposure` field (`create-identity` accepts it; it overrides the site setting for that agent), or in code via the `wpmcp_tool_exposure_mode` filter. The `wpmcp_compact_exposed_abilities` filter can add tools to the compact core (the three meta-tools are always included).
 
-Measured `tools/list` payload (test environment, all optional plugins active): **full** 72,897 bytes across 154 tools; **compact** 2,790 bytes across 5 tools, a **96.2% reduction**. The numbers are pinned by a checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) and re-measured on every test run.
+Measured `tools/list` payload for 0.8.180 (test environment, unlicensed, optional test plugins active): **full** 135,075 bytes across 270 tools; **compact** 2,265 bytes across 5 tools, a **98.3% reduction**. A checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) caps the compact payload and prints these numbers on every test run.
 
 ## Pinning an identity to IP ranges
 
@@ -256,7 +285,7 @@ The same content is also served through the MCP prompts and resources primitives
 
 ## Free vs Pro
 
-The free plugin (this repo) is fully functional: the safety engine, Gutenberg editing, one-click rollback, and snapshot history.
+The free plugin (this repo) is fully functional: the safety engine, Gutenberg editing, one-click rollback, and snapshot history. Pro adds 133 tools, including Elementor deep editing, the other page builders in [Page builder support](#page-builder-support), and the agent memory tools. Plans and licences are at [wpmcp-pro.com](https://wpmcp-pro.com/).
 
 Snapshot_Store itself has no licence check: `Snapshot_Store::history_limit()` returns the same flat cap (`DEFAULT_HISTORY_LIMIT`, 20) in every build, and the `wpmcp_snapshot_history_limit` filter raises or lowers it for free on any site (any whole number of 1 or more; a non-numeric or out-of-range return falls back to 20, since 0 would let the snapshots table grow without bound). A site that upgrades with a history deeper than the cap keeps it: the existing depth is recorded once as a floor and held until the owner sets the filter or acknowledges the admin notice, and pruning never deletes more than `PRUNE_BATCH_LIMIT` rows per write. The self-hosted Pro build lifts the cap to unlimited through that same filter (`WPMCP\Pro\Snapshot_History`, registered only while the licence is active), and if a licence that was active ends, the depth the site has then is held as the same floor so a lapse never deletes history. Pro (planned, via [Freemius](https://freemius.com/)) adds Elementor deep editing, change previews, and priority support. The Pro gate (`WPMCP\Pro\Gate`) and Freemius bootstrap are wired from day one; the plugin degrades gracefully when the Pro SDK is absent.
 
@@ -268,7 +297,6 @@ Credentials are already wired: `wpmcp.php` defines `WPMCP_FS_ID` and `WPMCP_FS_P
 
 ## Roadmap
 
-- [ ] Elementor deep editing (Pro)
 - [ ] `preview-change` dry-run diffs before applying
 - [ ] Session-aware retention so large agent sessions stay fully reversible
 - [ ] Broader snapshot capture (excerpt, parent)
