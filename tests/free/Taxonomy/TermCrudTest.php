@@ -260,6 +260,22 @@ class TermCrudTest extends \WP_UnitTestCase
         $this->assertGreaterThanOrEqual(5, $out['total'], 'The total must count every match, not just the page.');
     }
 
+    public function test_list_returns_terms_as_a_list_on_a_later_page(): void
+    {
+        // Issue #594: get_terms() with an offset keeps keys that do not start
+        // at 0, and a non-sequential array encodes as a JSON object. Every
+        // page must encode the same way, as a list.
+        for ($i = 0; $i < 5; $i++) {
+            (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Paged ' . $i]);
+        }
+
+        $out = (new List_Terms())->handle(['taxonomy' => 'category', 'per_page' => 2, 'page' => 2]);
+
+        $this->assertCount(2, $out['terms']);
+        $this->assertTrue(array_is_list($out['terms']), 'terms must be a list on page 2.');
+        $this->assertStringStartsWith('[', (string) wp_json_encode($out['terms']), 'terms must encode as a JSON array on page 2.');
+    }
+
     public function test_get_term_returns_the_ancestor_path(): void
     {
         $top = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Men']);
