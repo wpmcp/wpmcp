@@ -6918,7 +6918,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-custom-css',
             'pro',
-            'Add site-wide custom CSS via core Additional CSS, so it works on any site (Elementor Pro not required). Appends, or replaces with replace=true. Snapshot-first when the Additional-CSS post exists (undo: rollback-operation)',
+            'Add site-wide custom CSS via core Additional CSS, so it works on any site (Elementor Pro not required). Appends, or replaces with replace=true. Needs edit_css. Snapshot-first when the Additional-CSS post exists (undo: rollback-operation)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6954,7 +6954,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-code-snippet',
             'pro',
-            'Create an Elementor Custom Code snippet (elementor_snippet post). location: wp_head, wp_body_open or wp_footer. Stored on any site; renders where Elementor Pro Custom Code is active. Not snapshotted (creates only); remove with delete-code-snippet',
+            'Create an Elementor Custom Code snippet. location: wp_head, wp_body_open or wp_footer. Off by default: needs wpmcp_allow_js_injection + unfiltered_html. Renders via Elementor Pro Custom Code. Undo: delete-code-snippet',
             [
                 'type'       => 'object',
                 'properties' => [

@@ -16,11 +16,23 @@ if (! defined('ABSPATH')) {
  * Appends to the existing CSS by default, or replaces it with replace=true.
  * When the Additional-CSS post already exists the write is snapshot-first, so
  * the change is undoable via rollback-operation.
+ *
+ * Requires edit_css on top of the ability's manage_options (issue #558), the
+ * bar core's Customizer applies to Additional CSS and the one add-scoped-css
+ * enforces: core maps edit_css onto unfiltered_html, so multisite site admins
+ * and DISALLOW_UNFILTERED_HTML sites are refused, as they are in core.
  */
 class Add_Custom_Css
 {
     public function handle(array $args)
     {
+        if (! current_user_can('edit_css')) {
+            return new \WP_Error(
+                'edit_css_required',
+                'Storing Additional CSS requires the edit_css capability (unfiltered_html), the same bar WordPress core applies in the Customizer.'
+            );
+        }
+
         $css = (string) ($args['css'] ?? '');
         if ('' === trim($css)) {
             return new \WP_Error('missing_css', 'A non-empty css string is required.');
