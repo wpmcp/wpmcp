@@ -198,7 +198,7 @@ The table covers the core tools. The full reference for all 407 is at [wpmcp-pro
 | `create-post` | write | Create a post, page, or custom post type, with terms and meta |
 | `get-post` | read | Read a post's full content, status, terms, meta, and featured image |
 | `update-post` | write (safe) | Partially update a post's fields, terms, meta, or featured image |
-| `delete-post` | write (safe on force) | Trash a post by default, or permanently delete with `force: true` |
+| `delete-post` | write (safe) | Trash a post by default, or permanently delete with `force: true`; both return an `operation_id`, and undoing a trash takes the post back out of the trash with its earlier status, slug and comments |
 | `list-posts` | read | Search/list posts by type, status, search text, author, or parent |
 | `set-post-terms` | write (safe) | Assign taxonomy terms to a post: replace, append, or remove |
 | `search-content` | read | Search all of the site's text at once, including copy `post_content` search cannot see: Elementor/Bricks element settings, Gutenberg block attributes, template parts, reusable blocks, and nav menus. Every hit returns an addressable location (block path, element id, menu item id) plus a snippet |

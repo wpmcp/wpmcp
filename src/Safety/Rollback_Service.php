@@ -1484,10 +1484,49 @@ class Rollback_Service
      * has since reclaimed the same ID. post_date_gmt is set once at
      * creation and never changes on update, making it a reliable identity
      * check that costs nothing extra to capture.
+     *
+     * Except for a draft with a floating date (post_date_gmt still the zero
+     * date): its first save to any other status, trash included, stamps
+     * both dates with the time of that save (issue #589). The snapshot of
+     * such a draft has no fixed date to compare, so the post type stands in
+     * for it; an id is only ever reclaimed by an explicit import_id after
+     * the original row was deleted.
      */
     private static function is_same_post(array $current, array $snapshotted): bool
     {
-        return ($current['post_date_gmt'] ?? null) === ($snapshotted['post_date_gmt'] ?? null);
+        $captured = $snapshotted['post_date_gmt'] ?? null;
+        if ('0000-00-00 00:00:00' === $captured) {
+            return ($current['post_type'] ?? null) === ($snapshotted['post_type'] ?? null);
+        }
+        return ($current['post_date_gmt'] ?? null) === $captured;
+    }
+
+    /**
+     * Take a post the snapshot predates out of the trash the WordPress way
+     * before its columns are written back (issue #589): wp_untrash_post()
+     * fires untrash_post and untrashed_post, deletes _wp_trash_meta_status
+     * and _wp_trash_meta_time, gives the slug back from _wp_desired_post_slug
+     * and returns the comments wp_trash_post() moved to post-trashed. The
+     * status it restores is the snapshot's own, not core's default draft.
+     * A post that is not in the trash, or a snapshot taken while it already
+     * was, needs nothing here.
+     *
+     * @param array<string, mixed> $current     The post row as it is now.
+     * @param array<string, mixed> $snapshotted The post row the snapshot holds.
+     */
+    private static function untrash_for_restore(int $post_id, array $current, array $snapshotted): void
+    {
+        $status = (string) ($snapshotted['post_status'] ?? '');
+        if ('trash' !== ($current['post_status'] ?? '') || '' === $status || 'trash' === $status) {
+            return;
+        }
+        $to_status = static fn (): string => $status;
+        add_filter('wp_untrash_post_status', $to_status, PHP_INT_MAX);
+        try {
+            Save_Filters::untrash_post($post_id);
+        } finally {
+            remove_filter('wp_untrash_post_status', $to_status, PHP_INT_MAX);
+        }
     }
 
     /**
@@ -1877,6 +1916,7 @@ class Rollback_Service
         if ($snapshot['data']['post']) {
             $current = get_post($object_id, ARRAY_A);
             if ($current && self::is_same_post($current, $snapshot['data']['post'])) {
+                self::untrash_for_restore($object_id, $current, (array) $snapshot['data']['post']);
                 $postarr = array_merge(['ID' => $object_id], self::restore_columns($snapshot['data']['post'], false));
                 // wp_update_post() unslashes its input; the snapshot holds
                 // the raw stored columns, so they are slashed first or every

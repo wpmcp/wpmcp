@@ -1383,7 +1383,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-post',
             'free',
-            'Delete a post, page or CPT entry. Trash by default (reversible). force:true deletes permanently, is off until the wpmcp_enable_delete_post filter opts in, needs confirm:true, and is snapshotted (undoable)',
+            'Delete a post, page or CPT entry. Trash by default. force:true deletes permanently, is off until the wpmcp_enable_delete_post filter opts in and needs confirm:true. Both are snapshotted: rollback-operation untrashes to the earlier status, or restores a force-deleted post',
             [
                 'type'       => 'object',
                 'properties' => [
