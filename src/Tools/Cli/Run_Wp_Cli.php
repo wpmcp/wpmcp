@@ -61,13 +61,14 @@ class Run_Wp_Cli
             // succeeds; a failure here would mean it changed between calls
             // (e.g. a filter with side effects), so re-resolve defensively
             // rather than assume the earlier answer still holds.
-            $binary = Wp_Cli_Guard_Chain::resolve_binary_or_throw();
+            $binary    = Wp_Cli_Guard_Chain::resolve_binary_or_throw();
+            $site_args = Wp_Cli_Guard_Chain::site_args();
         } catch (\RuntimeException $e) {
             $this->audit(false);
             throw $e;
         }
 
-        $full_argv = array_merge([$binary], $subcommand_argv);
+        $full_argv = array_merge([$binary], $subcommand_argv, $site_args);
 
         $result = ($this->executor)($full_argv, Wp_Cli_Executor::DEFAULT_TIMEOUT_SECONDS);
 

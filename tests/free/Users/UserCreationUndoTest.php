@@ -47,7 +47,7 @@ class UserCreationUndoTest extends \WP_UnitTestCase
 
     public function test_undo_deletes_a_user_with_no_content_and_no_changes(): void
     {
-        $out = $this->create('undo-me');
+        $out = $this->create('undome');
 
         $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
 
@@ -58,7 +58,7 @@ class UserCreationUndoTest extends \WP_UnitTestCase
 
     public function test_rollback_session_deletes_the_user_the_session_created(): void
     {
-        $out = $this->create('session-user', 'users-598-session');
+        $out = $this->create('sessionuser', 'users-598-session');
 
         $this->assertSame(1, Rollback_Service::restore_session('users-598-session'));
 

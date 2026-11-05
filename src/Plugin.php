@@ -2160,12 +2160,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/activate-plugin',
             'free',
-            'Activate an installed plugin. Snapshots the prior active_plugins option (undoable)',
+            'Activate an installed plugin. Undoable',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'plugin'     => [ 'type' => 'string' ],
-                    'session_id' => [ 'type' => 'string' ],
+                    'plugin'       => [ 'type' => 'string' ],
+                    'network_wide' => [ 'type' => 'boolean' ],
+                    'session_id'   => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'plugin' ],
             ],
@@ -2177,12 +2178,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/deactivate-plugin',
             'free',
-            'Deactivate a plugin. Refuses protected packages (wpmcp, Elementor). Snapshots the prior active_plugins option (undoable)',
+            'Deactivate a plugin. Refuses protected packages (wpmcp, Elementor). Undoable',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'plugin'     => [ 'type' => 'string' ],
-                    'session_id' => [ 'type' => 'string' ],
+                    'plugin'       => [ 'type' => 'string' ],
+                    'network_wide' => [ 'type' => 'boolean' ],
+                    'session_id'   => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'plugin' ],
             ],
@@ -2194,12 +2196,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/install-plugin',
             'free',
-            'Install a plugin from wordpress.org by slug. activate: true also needs activate_plugins and returns a rollbackable operation_id',
+            'Install a plugin from wordpress.org by slug. activate:true needs activate_plugins and is undoable',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'slug'     => [ 'type' => 'string' ],
-                    'activate' => [ 'type' => 'boolean' ],
+                    'slug'         => [ 'type' => 'string' ],
+                    'activate'     => [ 'type' => 'boolean' ],
+                    'network_wide' => [ 'type' => 'boolean' ],
                 ],
                 'required'   => [ 'slug' ],
             ],

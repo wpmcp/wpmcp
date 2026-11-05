@@ -21,6 +21,9 @@ use WPMCP\Tools\Cli\Wp_Cli_Guard;
  */
 class DispatchCliJobTest extends \WP_UnitTestCase
 {
+    // Issue #562: on multisite these tools need a network administrator.
+    use \WPMCP\Tests\Free\MultisiteSecurity\Network_Exec_Caller;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -28,10 +31,12 @@ class DispatchCliJobTest extends \WP_UnitTestCase
         delete_option(Governance_Audit_Log::OPTION);
         Cli_Job_Store::set_clock_for_tests(null);
         Wp_Cli_Guard::set_environment_override('local');
+        $this->act_as_network_exec_caller();
     }
 
     protected function tearDown(): void
     {
+        $this->release_network_exec_caller();
         remove_all_filters('wpmcp_allow_wp_cli');
         remove_all_filters('wpmcp_allow_wp_cli_on_production');
         remove_all_filters('wpmcp_wp_cli_allowlist');
