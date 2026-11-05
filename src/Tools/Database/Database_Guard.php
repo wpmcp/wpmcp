@@ -1009,6 +1009,218 @@ class Database_Guard
     }
 
     /**
+     * Read-path refusal for option values (issue #621). A payment gateway's
+     * live settings row cannot be masked at rest, and mask_gateway_secrets()
+     * only sees a value that comes back intact: REVERSE(), TO_BASE64(), a
+     * subquery, or a LIKE on option_value in the WHERE clause gets around
+     * it. So when the SQL names an options table (any site's) and can read
+     * option_value (by name, or through a * wildcard), it must be a plain
+     * lookup of named options that get-option would also return:
+     *
+     *   SELECT <columns> FROM <options table> [alias]
+     *   WHERE option_name = '<name>' | option_name IN ('<name>', ...) [LIMIT n]
+     *
+     * with no subquery, string literal or comment in the column list, and
+     * no name that is denylisted (Option_Guard::is_denylisted()) or a
+     * gateway settings option (woocommerce_*_settings). Anything else that
+     * reads option_value is refused; queries that never read it (names,
+     * counts) are untouched. SQL the lexer cannot read in every mode is
+     * treated as reading it (fail closed).
+     *
+     * @return true|\WP_Error
+     */
+    public static function guard_option_value_read(string $sql)
+    {
+        $reads = false;
+        foreach ([false, true] as $no_backslash_escapes) {
+            foreach ([true, false] as $strict_double_dash) {
+                $tokens = self::lex_tokens($sql, $no_backslash_escapes, $strict_double_dash);
+                if (null === $tokens) {
+                    $reads = $reads || false !== stripos($sql, 'option');
+                    continue;
+                }
+                $reads = $reads || self::tokens_read_option_value($tokens);
+            }
+        }
+
+        if (! $reads || self::is_plain_option_lookup($sql)) {
+            return true;
+        }
+
+        return new \WP_Error(
+            'option_value_read_blocked',
+            'query reads option_value from the options table only as a plain lookup of named options: '
+            . "SELECT ... FROM <options table> WHERE option_name = '<name>' (or IN (...)), for options get-option "
+            . 'would return. Payment gateway settings and other sensitive options are not readable here; use '
+            . 'get-option, which masks gateway credentials.'
+        );
+    }
+
+    /** Whether $table is an options table of this site or any site of the network. */
+    public static function is_options_table(string $table): bool
+    {
+        global $wpdb;
+        $table = strtolower(trim($table));
+        if ('' === $table) {
+            return false;
+        }
+        if (isset($wpdb->options) && strtolower((string) $wpdb->options) === $table) {
+            return true;
+        }
+        $prefix = strtolower((string) ($wpdb->base_prefix ?? $wpdb->prefix ?? 'wp_'));
+        return 1 === preg_match('/^' . preg_quote($prefix, '/') . '(\d+_)?options$/', $table);
+    }
+
+    /** @param array<int, array{0: string, 1: string}> $tokens */
+    private static function tokens_read_option_value(array $tokens): bool
+    {
+        $names_options = false;
+        $reads_value   = false;
+        $previous      = null;
+        foreach ($tokens as $token) {
+            [ $type, $value ] = $token;
+            if ('id' === $type) {
+                $names_options = $names_options || self::is_options_table($value);
+                $reads_value   = $reads_value || 'option_value' === $value;
+            }
+            if ('p' === $type && '*' === $value && null !== $previous) {
+                // A wildcard column list: after SELECT, DISTINCT, ALL, a
+                // comma or a table qualifier. COUNT(*) and a * b are not.
+                $is_wildcard = ('id' === $previous[0] && in_array($previous[1], [ 'select', 'distinct', 'all', 'distinctrow' ], true))
+                    || ('p' === $previous[0] && in_array($previous[1], [ ',', '.' ], true));
+                $reads_value = $reads_value || $is_wildcard;
+            }
+            $previous = $token;
+        }
+        return $names_options && $reads_value;
+    }
+
+    /** Whether $sql is exactly the plain named-option lookup guard_option_value_read() allows. */
+    private static function is_plain_option_lookup(string $sql): bool
+    {
+        $name    = "'[A-Za-z0-9_.:\\-]+'";
+        $pattern = '/^\s*SELECT\s+(?<cols>[A-Za-z0-9_`.,()*+\-\s]+?)\s+FROM\s+`?(?<table>[A-Za-z0-9_$]+)`?'
+            . '(?:\s+(?:AS\s+)?`?(?<alias>[A-Za-z_][A-Za-z0-9_]*)`?)?'
+            . '\s+WHERE\s+(?:`?[A-Za-z_][A-Za-z0-9_]*`?\.)?`?option_name`?\s*'
+            . '(?:=\s*(?<one>' . $name . ')|IN\s*\((?<list>\s*' . $name . '(?:\s*,\s*' . $name . ')*\s*)\))'
+            . '(?:\s+LIMIT\s+\d+(?:\s*,\s*\d+)?)?\s*;?\s*$/i';
+        if (1 !== preg_match($pattern, $sql, $m)) {
+            return false;
+        }
+        if (! self::is_options_table($m['table'])) {
+            return false;
+        }
+        if (1 === preg_match('/\b(select|from|where|union|into|having|join)\b/i', $m['cols'])) {
+            return false;
+        }
+        $alias = strtolower((string) ($m['alias'] ?? ''));
+        if (in_array($alias, [ 'where', 'join', 'inner', 'left', 'right', 'cross', 'natural', 'straight_join' ], true)) {
+            return false;
+        }
+
+        preg_match_all("/'([^']*)'/", (string) ($m['one'] ?? '') . (string) ($m['list'] ?? ''), $names);
+        foreach ($names[1] as $option) {
+            $gateway = function_exists('WC') && null !== Gateway_Secrets::gateway_for_option($option);
+            $secret  = \WPMCP\Tools\Meta\Option_Guard::is_denylisted($option) || $gateway;
+            if ($secret || 1 === preg_match('/^woocommerce_.+_settings$/i', $option)) {
+                return false;
+            }
+        }
+        return [] !== $names[1];
+    }
+
+    /**
+     * One lexing pass for guard_option_value_read(), the same rules as
+     * lex_identifiers(): identifiers (bare, backticked or double-quoted,
+     * lower-cased) as ['id', name], single-quoted strings as ['s', ''],
+     * every other non-space character as ['p', char]. Comments are dropped,
+     * but their words count as identifiers, as in lex_identifiers(), so a
+     * name hidden in a comment still fails closed. Null on an unterminated
+     * quote or block comment.
+     *
+     * @return array<int, array{0: string, 1: string}>|null
+     */
+    private static function lex_tokens(string $sql, bool $no_backslash_escapes, bool $strict_double_dash): ?array
+    {
+        $out = [];
+        $len = strlen($sql);
+        $i   = 0;
+
+        while ($i < $len) {
+            $c   = $sql[ $i ];
+            $two = substr($sql, $i, 2);
+
+            $dash_comment = '--' === $two
+                && (! $strict_double_dash || $i + 2 >= $len || ord($sql[ $i + 2 ]) <= 32);
+            if ('#' === $c || $dash_comment || '/*' === $two) {
+                if ('/*' === $two) {
+                    $end = strpos($sql, '*/', $i + 2);
+                    if (false === $end) {
+                        return null;
+                    }
+                    $body = substr($sql, $i + 2, $end - $i - 2);
+                    $i    = $end + 2;
+                } else {
+                    $newline = strpos($sql, "\n", $i);
+                    $end     = (false === $newline) ? $len : $newline;
+                    $body    = substr($sql, $i, $end - $i);
+                    $i       = $end + 1;
+                }
+                $words = [];
+                self::collect_words($body, $words);
+                foreach ($words as $word) {
+                    $out[] = [ 'id', $word ];
+                }
+                continue;
+            }
+
+            if ("'" === $c || '"' === $c || '`' === $c) {
+                $content = '';
+                $closed  = false;
+                $i++;
+                while ($i < $len) {
+                    $ch = $sql[ $i ];
+                    if ('`' !== $c && ! $no_backslash_escapes && '\\' === $ch) {
+                        $content .= substr($sql, $i + 1, 1);
+                        $i       += 2;
+                        continue;
+                    }
+                    if ($ch === $c) {
+                        if ($i + 1 < $len && $sql[ $i + 1 ] === $c) {
+                            $content .= $c;
+                            $i       += 2;
+                            continue;
+                        }
+                        $i++;
+                        $closed = true;
+                        break;
+                    }
+                    $content .= $ch;
+                    $i++;
+                }
+                if (! $closed) {
+                    return null;
+                }
+                $out[] = "'" === $c ? [ 's', '' ] : [ 'id', strtolower($content) ];
+                continue;
+            }
+
+            if (preg_match('/[0-9A-Za-z_$\x80-\xFF]+/A', $sql, $match, 0, $i)) {
+                $out[] = [ 'id', strtolower($match[0]) ];
+                $i    += strlen($match[0]);
+                continue;
+            }
+
+            if (ord($c) > 32) {
+                $out[] = [ 'p', $c ];
+            }
+            $i++;
+        }
+
+        return $out;
+    }
+
+    /**
      * Whether writes to $table are refused. Defaults to the users and
      * usermeta tables (credential/identity data with no business being
      * touched by a generic row-write tool) and, on multisite, sitemeta;
