@@ -628,6 +628,9 @@ final class Plugin
         // Image optimization runs, tool-upload optimization and modern
         // format delivery (issue #432), gated on the media group.
         $this->register_image_optimization_runtime_hooks();
+        // File tool backups written before #609 kept their .php names under
+        // uploads; rename them once to names no server executes (issue #622).
+        add_action('init', [\WPMCP\Tools\Filesystem\Legacy_Backup_Migration::class, 'maybe_run'], 20);
         // Agent project memory (issue #131): the wpmcp_memory CPT is the
         // store AND the approval queue, so it is registered here rather than
         // lazily from the tools. Note this runs even though the three memory

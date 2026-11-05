@@ -378,7 +378,12 @@ class Filesystem_Guard
     public static function restore(string $backup_abs, string $target_abs): bool
     {
         if (! is_file($backup_abs)) {
-            return false;
+            // Renamed to a non-executable name by the upgrade (issue #622).
+            $renamed = Legacy_Backup_Migration::renamed_path($backup_abs);
+            if (null === $renamed) {
+                return false;
+            }
+            $backup_abs = $renamed;
         }
         return copy($backup_abs, $target_abs);
     }
