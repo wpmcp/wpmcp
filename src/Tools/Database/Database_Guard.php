@@ -23,6 +23,13 @@ class Database_Guard
     public const AUDIT_OPTION = 'wpmcp_db_write_audit_log';
     public const AUDIT_MAX = 100;
 
+    /**
+     * Set once an audit log written before PR #584's write-time masking has
+     * been masked in place. Under the locked wpmcp_db_write_audit_log prefix,
+     * so update-option cannot clear it (clearing would only re-run the pass).
+     */
+    public const AUDIT_MASKED_OPTION = 'wpmcp_db_write_audit_log_masked';
+
     /** Placeholder written over secret values in query results. */
     public const SECRET_MASK = '[REDACTED]';
 
@@ -451,6 +458,7 @@ class Database_Guard
                 $masked = ('option_value' === $column && '' !== $option)
                     ? self::mask_gateway_option_value($option, $value)
                     : $value;
+                $masked = self::mask_audit_log_value($masked);
                 $rows[ $index ][ $column ] = self::scrub_gateway_secrets($masked, $secrets);
             }
         }
@@ -512,6 +520,40 @@ class Database_Guard
                 $values[] = (string) $value;
             }
         }
+    }
+
+    /**
+     * A serialized database write audit log (AUDIT_OPTION) with the gateway
+     * credentials in every entry's before-image masked by key (issue #550).
+     * The log keeps the rows a write replaced, so it can hold a credential
+     * that has since been rotated away, which the scrub of the values stored
+     * now cannot recognize. Recognized by shape rather than by option_name,
+     * so a select that leaves the name out is masked too. Anything else
+     * comes back untouched.
+     */
+    private static function mask_audit_log_value(string $value): string
+    {
+        if (false === strpos($value, 's:6:"before";')) {
+            return $value;
+        }
+        $log = self::unserialize_array($value);
+        if (null === $log) {
+            return $value;
+        }
+
+        $changed = false;
+        foreach ($log as $index => $entry) {
+            if (! is_array($entry) || ! isset($entry['op'], $entry['table']) || ! is_array($entry['before'] ?? null)) {
+                continue;
+            }
+            $before = self::mask_gateway_secrets($entry['before']);
+            if ($before !== $entry['before']) {
+                $log[ $index ]['before'] = $before;
+                $changed = true;
+            }
+        }
+
+        return $changed ? serialize($log) : $value; // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- re-encodes the audit log in the same serialized form the options table stores.
     }
 
     /** A serialized gateway settings option_value with its secrets masked by key. */
@@ -908,6 +950,65 @@ class Database_Guard
     }
 
     /**
+     * Table-name suffixes of WP MCP's own stores that hold raw copies of
+     * what a write replaced (issue #550): the snapshot ledger
+     * ({prefix}wpmcp_snapshots, on every site of a network). Its payload is
+     * the exact undo copy, gateway credentials included, encoded as base64
+     * gzip that no result scrub can see into, so the generic database tools
+     * do not reach it at all; list-operations and the rollback tools are
+     * the way in.
+     */
+    public const INTERNAL_STORE_TABLE_SUFFIXES = ['wpmcp_snapshots'];
+
+    /** Whether $table is one of WP MCP's internal raw-copy stores (case-insensitive). */
+    public static function is_internal_store_table(string $table): bool
+    {
+        $table = strtolower(trim($table));
+        foreach (self::INTERNAL_STORE_TABLE_SUFFIXES as $suffix) {
+            if ('' !== $table && str_ends_with($table, $suffix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Read-path refusal for the internal raw-copy stores (issue #550): a
+     * query that names one anywhere (FROM, JOIN, a subquery, a UNION, quoted
+     * or schema-qualified, in any case) is refused, because once the table
+     * is reachable SELECT *, a UNION under positional aliases or a
+     * transform such as HEX() or FROM_BASE64() can carry the payload out
+     * under any column name. Single-quoted literals do not count; SQL the
+     * identifier scan cannot tokenize is refused when it contains a store's
+     * name at all (fail closed).
+     *
+     * @return true|\WP_Error
+     */
+    public static function guard_internal_store_read(string $sql)
+    {
+        $identifiers = self::sql_identifiers($sql);
+        if (null === $identifiers) {
+            $named = false;
+            foreach (self::INTERNAL_STORE_TABLE_SUFFIXES as $suffix) {
+                $named = $named || false !== stripos($sql, $suffix);
+            }
+        } else {
+            $named = [] !== array_filter($identifiers, [self::class, 'is_internal_store_table']);
+        }
+
+        if (! $named) {
+            return true;
+        }
+
+        return new \WP_Error(
+            'internal_store_read_blocked',
+            'Reads of the WP MCP snapshot ledger are blocked: it holds the exact undo copy of every '
+            . 'change, credentials included. Use list-operations to see the undo history and the '
+            . 'rollback tools to restore it.'
+        );
+    }
+
+    /**
      * Whether writes to $table are refused. Defaults to the users and
      * usermeta tables (credential/identity data with no business being
      * touched by a generic row-write tool) and, on multisite, sitemeta;
@@ -922,7 +1023,10 @@ class Database_Guard
             $defaults[] = $wpdb->sitemeta;
         }
         $protected = apply_filters('wpmcp_db_protected_tables', $defaults);
-        return self::table_is_protected($table, (array) $protected);
+        // The internal raw-copy stores are always protected, whatever the
+        // filter returns: update-rows and delete-rows echo the matched rows
+        // in before_image, and a write could forge an undo copy (#550).
+        return self::is_internal_store_table($table) || self::table_is_protected($table, (array) $protected);
     }
 
     /**
@@ -1433,9 +1537,19 @@ class Database_Guard
      * non-recoverable cases (no primary key, cap exceeded, binary values -
      * see recoverability_probe()) the before-image captured here is the only
      * trail a human has to manually reconstruct a change if needed.
+     *
+     * Payment gateway credentials in the before-image are masked as it is
+     * written (issue #550, PR #584 review): the log row sits in wp_options,
+     * where query can wrap option_value in CONCAT, REVERSE, TO_BASE64 or any
+     * other expression that no read-time mask can see through, and a
+     * rotated credential is no longer recognizable by value. Rollback never
+     * reads this log (it restores from the snapshot ledger, which keeps the
+     * exact copy), so masking here does not change what an undo restores.
      */
     public static function audit(string $operation, string $table, int $affected, array $before = []): void
     {
+        self::mask_internal_stores();
+
         $log = get_option(self::AUDIT_OPTION, []);
         if (! is_array($log)) {
             $log = [];
@@ -1445,7 +1559,7 @@ class Database_Guard
             'op'       => $operation,
             'table'    => $table,
             'affected' => $affected,
-            'before'   => $before,
+            'before'   => self::mask_gateway_secrets($before),
             'user'     => get_current_user_id(),
             'time'     => time(),
         ];
@@ -1455,5 +1569,78 @@ class Database_Guard
         }
 
         update_option(self::AUDIT_OPTION, $log, false);
+    }
+
+    /**
+     * One-time pass over WP MCP's internal logs written before their values
+     * were masked on write (issue #550, PR #584 review): mask the gateway
+     * credentials in every audit log before-image, and drop the captured
+     * arguments of request log rows. Runs before query reads anything and
+     * before the next audit write. The audit log pass needs WooCommerce to
+     * recognize the credentials, so until WooCommerce is loaded it is not
+     * marked done and runs again next time.
+     */
+    public static function mask_internal_stores(): void
+    {
+        if (class_exists(\WPMCP\MCP\Request_Log::class)) {
+            \WPMCP\MCP\Request_Log::drop_legacy_arguments();
+        }
+
+        if ('1' === (string) get_option(self::AUDIT_MASKED_OPTION, '')) {
+            return;
+        }
+        if (! function_exists('WC') || ! class_exists('WC_Payment_Gateway')) {
+            return;
+        }
+
+        $log = get_option(self::AUDIT_OPTION, []);
+        if (is_array($log) && [] !== $log) {
+            $changed = false;
+            foreach ($log as $index => $entry) {
+                if (! is_array($entry) || ! is_array($entry['before'] ?? null)) {
+                    continue;
+                }
+                $masked = self::mask_gateway_secrets($entry['before']);
+                if ($masked !== $entry['before']) {
+                    $log[ $index ]['before'] = $masked;
+                    $changed                 = true;
+                }
+            }
+            if ($changed) {
+                update_option(self::AUDIT_OPTION, $log, false);
+            }
+        }
+
+        update_option(self::AUDIT_MASKED_OPTION, '1', false);
+    }
+
+    /**
+     * Every string in $data with the payment gateway credentials stored now
+     * replaced by the mask, element by element (issue #550). For logs that
+     * keep caller input, such as the request log's captured arguments,
+     * recorded after the call ran, so a credential that call just stored is
+     * already among the stored values.
+     *
+     * @param array<mixed> $data
+     * @return array<mixed>
+     */
+    public static function scrub_gateway_secrets_in(array $data): array
+    {
+        if (! function_exists('WC') || ! class_exists('WC_Payment_Gateway')) {
+            return $data;
+        }
+        $secrets = self::gateway_secret_values([]);
+        if ([] === $secrets) {
+            return $data;
+        }
+        array_walk_recursive(
+            $data,
+            static function (&$item) use ($secrets): void {
+                if (is_string($item)) {
+                    $item = self::scrub_gateway_secrets($item, $secrets);
+                }
+            }
+        );
+        return $data;
     }
 }
