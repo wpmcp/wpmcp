@@ -46,6 +46,9 @@ class Create_User
             throw new \InvalidArgumentException('That role is not allowed. Only non-admin roles may be created.');
         }
 
+        // Multisite: the network's signup rules, as core applies them (#561).
+        Network_Signup_Rules::assert_allowed($username, $email);
+
         $password = wp_generate_password(24, true, true);
 
         $userdata = [
