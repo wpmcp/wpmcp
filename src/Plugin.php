@@ -229,6 +229,7 @@ use WPMCP\Tools\Filesystem\Search_Files;
 use WPMCP\Tools\Filesystem\Write_File;
 use WPMCP\Tools\Filesystem\Edit_File;
 use WPMCP\Tools\Filesystem\Delete_File;
+use WPMCP\Tools\Filesystem\Filesystem_Guard;
 use WPMCP\Tools\Performance\Analyze_Performance;
 use WPMCP\Tools\Security\Scan_Security;
 use WPMCP\Tools\Security\Incident_Response;
@@ -496,6 +497,9 @@ final class Plugin
         // cache and refreshes the map (issue #481).
         [\WPMCP\Integrations\TablePress_Pack::class, 'after_options_restored'],
         [\WPMCP\Integrations\TablePress_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],
+        // An undo of a TablePress id map write puts back only the entries
+        // that write touched, so later tables stay (issue #555).
+        [\WPMCP\Integrations\TablePress_Pack::class, 'narrow_map_restore', 'wpmcp_rollback_option_snapshot'],
         // A translation made by create-translation leaves its source's group
         // when its creation is undone, and a page text write that held the
         // multilingual plugin's sync off is undone with it held off too
@@ -2159,12 +2163,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/activate-plugin',
             'free',
-            'Activate an installed plugin. Snapshots the prior active_plugins option (undoable)',
+            'Activate an installed plugin. Undoable',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'plugin'     => [ 'type' => 'string' ],
-                    'session_id' => [ 'type' => 'string' ],
+                    'plugin'       => [ 'type' => 'string' ],
+                    'network_wide' => [ 'type' => 'boolean' ],
+                    'session_id'   => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'plugin' ],
             ],
@@ -2176,12 +2181,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/deactivate-plugin',
             'free',
-            'Deactivate a plugin. Refuses protected packages (wpmcp, Elementor). Snapshots the prior active_plugins option (undoable)',
+            'Deactivate a plugin. Refuses protected packages (wpmcp, Elementor). Undoable',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'plugin'     => [ 'type' => 'string' ],
-                    'session_id' => [ 'type' => 'string' ],
+                    'plugin'       => [ 'type' => 'string' ],
+                    'network_wide' => [ 'type' => 'boolean' ],
+                    'session_id'   => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'plugin' ],
             ],
@@ -2193,12 +2199,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/install-plugin',
             'free',
-            'Install a plugin from wordpress.org by slug. activate: true also needs activate_plugins and returns a rollbackable operation_id',
+            'Install a plugin from wordpress.org by slug. activate:true needs activate_plugins and is undoable',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'slug'     => [ 'type' => 'string' ],
-                    'activate' => [ 'type' => 'boolean' ],
+                    'slug'         => [ 'type' => 'string' ],
+                    'activate'     => [ 'type' => 'boolean' ],
+                    'network_wide' => [ 'type' => 'boolean' ],
                 ],
                 'required'   => [ 'slug' ],
             ],
@@ -2573,7 +2580,7 @@ final class Plugin
                 'required'   => [ 'path' ],
             ],
             [$read_file, 'handle'],
-            'manage_options',
+            Filesystem_Guard::read_capability(),
             'filesystem',
             'read'
         ));
@@ -2589,7 +2596,7 @@ final class Plugin
                 ],
             ],
             [$list_directory, 'handle'],
-            'manage_options',
+            Filesystem_Guard::read_capability(),
             'filesystem',
             'read'
         ));
@@ -2608,7 +2615,7 @@ final class Plugin
                 'required'   => [ 'query' ],
             ],
             [$search_files, 'handle'],
-            'manage_options',
+            Filesystem_Guard::read_capability(),
             'filesystem',
             'read'
         ));
@@ -6058,7 +6065,8 @@ final class Plugin
                 ],
             ],
             [$get_debug_log, 'handle'],
-            'manage_options',
+            // One debug.log for the whole network (issue #559).
+            Filesystem_Guard::read_capability(),
             'diagnostics',
             'read'
         ));

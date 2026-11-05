@@ -436,7 +436,13 @@ class Rollback_Service
                 return [];
             }
             $declared = $snapshot['data']['restore_capability'] ?? null;
-            return [ [ is_string($declared) && '' !== $declared ? $declared : 'manage_options' ] ];
+            $caps     = [ [ is_string($declared) && '' !== $declared ? $declared : 'manage_options' ] ];
+            // A network plugin write also put back active_sitewide_plugins
+            // (issue #557), which only a network admin may change.
+            if (is_array($snapshot['data']['network_plugins'] ?? null)) {
+                $caps[] = [ 'manage_network_plugins' ];
+            }
+            return $caps;
         }
         // A comment snapshot holds the whole comment row, author email and
         // IP included, so restoring one takes moderate_comments, the
@@ -745,6 +751,14 @@ class Rollback_Service
                 // The post half still goes through the oldest-first pass.
                 unset($snapshot['data']['compiled_widget_entry']);
             }
+            // A network plugin write's active_sitewide_plugins (issue #557)
+            // likewise: unwound newest first, every one, so the network list
+            // lands on its pre-session value even when the session's oldest
+            // active_plugins snapshot was a site-only write that holds none.
+            if (is_array($snapshot['data']['network_plugins'] ?? null)) {
+                self::restore_network_plugins($snapshot['data']['network_plugins']);
+                unset($snapshot['data']['network_plugins']);
+            }
             $legacy[] = [ 'snapshot' => $snapshot, 'id' => $row_id, 'live' => true ];
         }
 
@@ -766,7 +780,8 @@ class Rollback_Service
         foreach ($legacy as $entry) {
             $key   = self::object_identity($entry['snapshot']);
             $group = $owner[ $key ] ?? $key;
-            if (! isset($groups[ $group ])) {
+            $known = isset($groups[ $group ]);
+            if (! $known) {
                 $groups[ $group ] = [ 'snapshot' => $entry['snapshot'], 'rep_live' => $entry['live'], 'live' => [] ];
                 $owner[ $key ]    = $group;
                 // A creation row that covers several posts (duplicate-post
@@ -777,6 +792,13 @@ class Rollback_Service
                         $owner[ 'post:' . $created_id ] = $owner[ 'post:' . $created_id ] ?? $group;
                     }
                 }
+            }
+            // A FunnelKit funnel's oldest snapshot is restored for the whole
+            // session, so it takes on what every later write of the session
+            // did to the funnel: the steps they added are removed too, and
+            // the steps they removed come back (issue #554).
+            if ($known && FunnelKit_Funnel_Snapshot::TYPE === $entry['snapshot']['object_type']) {
+                $groups[ $group ]['snapshot'] = FunnelKit_Funnel_Snapshot::merge_effects($groups[ $group ]['snapshot'], $entry['snapshot']);
             }
             if ($entry['live']) {
                 $groups[ $group ]['live'][] = $entry['id'];
@@ -1033,6 +1055,22 @@ class Rollback_Service
             && is_array($snapshot['data']['compiled_widget'] ?? null);
     }
 
+    /**
+     * Put the network's active_sitewide_plugins back as a network plugin
+     * write found it (issue #557, Plugin_Network_Scope::snapshot_data()).
+     */
+    private static function restore_network_plugins(array $state): void
+    {
+        if (! is_multisite()) {
+            return;
+        }
+        if (! empty($state['existed'])) {
+            update_site_option('active_sitewide_plugins', (array) ($state['value'] ?? []));
+        } else {
+            delete_site_option('active_sitewide_plugins');
+        }
+    }
+
     private static function restore_compiled_widget_entry(array $state): void
     {
         $manifest = self::compiled_widget_manifest();
@@ -1073,7 +1111,14 @@ class Rollback_Service
             return;
         }
 
-        $name = (string) $snapshot['data']['name'];
+        /*
+         * Filter: the option snapshot a rollback is about to put back. An
+         * option holding many independent entries (TablePress's table id
+         * map, issue #555) narrows it to the entries the undone write
+         * touched, so entries written since are kept.
+         */
+        $snapshot = (array) apply_filters('wpmcp_rollback_option_snapshot', $snapshot);
+        $name     = (string) $snapshot['data']['name'];
         if ($snapshot['data']['existed']) {
             update_option($name, $snapshot['data']['value']);
         } else {
@@ -1717,6 +1762,15 @@ class Rollback_Service
         // (set-widget-status, update-custom-widget): restore the post first,
         // then the flag, so the undo brings back the spec AND the compiled
         // path it was rendering through.
+        // A network plugin write (issue #557) put back the site's
+        // active_plugins and the network's active_sitewide_plugins.
+        if (is_array($snapshot['data']['network_plugins'] ?? null)) {
+            $network = $snapshot['data']['network_plugins'];
+            unset($snapshot['data']['network_plugins']);
+            self::apply_snapshot($snapshot);
+            self::restore_network_plugins($network);
+            return;
+        }
         if (is_array($snapshot['data']['compiled_widget_entry'] ?? null)) {
             $entry = $snapshot['data']['compiled_widget_entry'];
             unset($snapshot['data']['compiled_widget_entry']);

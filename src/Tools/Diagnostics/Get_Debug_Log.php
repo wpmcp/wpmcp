@@ -31,6 +31,9 @@ class Get_Debug_Log
 
     public function handle(array $args): array
     {
+        // On multisite the log is shared by every site (issue #559).
+        Filesystem_Guard::assert_reads_allowed();
+
         $requested = isset($args['path']) ? (string) $args['path'] : null;
         $default   = Debug_Log_Path::resolve() ?? (WP_CONTENT_DIR . '/debug.log');
         $target    = $requested ?? $default;
