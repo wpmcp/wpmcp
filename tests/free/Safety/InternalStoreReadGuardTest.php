@@ -79,10 +79,12 @@ class InternalStoreReadGuardTest extends \WP_UnitTestCase
     }
 
     /**
-     * PR #584 review: on a network the file tools are gated at site-level
-     * manage_options and confined to ABSPATH, so a sub-site admin must not
-     * reach the main site's backup folder (the whole network's dump) or any
-     * other site's.
+     * PR #584 review: a sub-site admin must not reach the main site's backup
+     * folder (the whole network's dump) or any other site's. Since #559 the
+     * file reads on a network need manage_network_options, so the sub-site
+     * admin is turned away by that gate first. The backup guard is still
+     * checked past it: a super admin, who clears the network gate, gets
+     * "protected from reads" for the same folders.
      */
     public function test_no_site_backup_folder_is_readable_from_a_sub_site(): void
     {
@@ -103,17 +105,29 @@ class InternalStoreReadGuardTest extends \WP_UnitTestCase
         switch_to_blog($sub);
         wp_set_current_user($admin);
 
+        $paths = [ $this->dir . '/db-test550.sql', $other_dir . '/db-other550.sql' ];
         try {
-            foreach ([ $this->dir . '/db-test550.sql', $other_dir . '/db-other550.sql' ] as $abs) {
+            foreach ($paths as $abs) {
                 $this->assertStringNotContainsString('/sites/' . $sub . '/', $abs, 'Precondition: not the current site\'s own folder.');
                 try {
                     $out = (new Read_File())->handle([ 'path' => $this->rel($abs) ]);
                     $this->fail('A sub-site read another site\'s database dump: ' . wp_json_encode($out));
                 } catch (\RuntimeException $e) {
-                    $this->assertSame('This file is protected from reads.', $e->getMessage());
+                    $this->assertStringContainsString('manage_network_options', $e->getMessage(), 'A sub-site admin is refused by the network read gate (#559).');
+                }
+            }
+
+            grant_super_admin($admin);
+            foreach ($paths as $abs) {
+                try {
+                    $out = (new Read_File())->handle([ 'path' => $this->rel($abs) ]);
+                    $this->fail('A super admin read a database dump through read-file: ' . wp_json_encode($out));
+                } catch (\RuntimeException $e) {
+                    $this->assertSame('This file is protected from reads.', $e->getMessage(), 'The backup guard holds past the network gate.');
                 }
             }
         } finally {
+            revoke_super_admin($admin);
             restore_current_blog();
             @unlink($other_dir . '/db-other550.sql');
             @rmdir($other_dir);
