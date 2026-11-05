@@ -69,8 +69,11 @@ class Run_Cli_Job
         $argv = is_array($job['argv'] ?? null) ? array_values($job['argv']) : [];
 
         try {
-            Wp_Cli_Guard_Chain::assert_allowed($argv);
-            $binary = Wp_Cli_Guard_Chain::resolve_binary_or_throw();
+            // The multisite gate asks about the user who queued the job,
+            // not the (absent) cron user; a record with no owner fails it.
+            Wp_Cli_Guard_Chain::assert_allowed($argv, (int) ($job['user_id'] ?? 0));
+            $binary    = Wp_Cli_Guard_Chain::resolve_binary_or_throw();
+            $site_args = Wp_Cli_Guard_Chain::site_args();
         } catch (\RuntimeException $e) {
             Wp_Cli_Guard_Chain::audit(self::ABILITY, false);
             Cli_Job_Store::update($job_id, [
@@ -87,7 +90,7 @@ class Run_Cli_Job
         $timeout = max(1, min(Dispatch_Cli_Job::MAX_TIMEOUT_SECONDS, $timeout));
 
         try {
-            $result = ($this->executor)(array_merge([$binary], $argv), $timeout);
+            $result = ($this->executor)(array_merge([$binary], $argv, $site_args), $timeout);
             Wp_Cli_Guard_Chain::audit(self::ABILITY, true);
             Cli_Job_Store::update($job_id, [
                 'status' => 'completed',

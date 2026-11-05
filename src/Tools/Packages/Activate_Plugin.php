@@ -15,6 +15,10 @@ if (! defined('ABSPATH')) {
  * option, so it is routed through Safe_Mutation with object_type 'option':
  * the prior list is snapshotted and rollback-operation can restore it,
  * undoing the activation with a single call.
+ *
+ * On a multisite network the activation stays on the current site unless a
+ * network admin passes network_wide: true; see Plugin_Network_Scope, which
+ * also adds active_sitewide_plugins to the snapshot of a network write.
  */
 class Activate_Plugin
 {
@@ -34,6 +38,8 @@ class Activate_Plugin
             throw new \RuntimeException(sprintf('Plugin "%s" was not found.', esc_html($plugin)));
         }
 
+        $network_wide = Plugin_Network_Scope::for_activation($plugin, $args);
+
         $out = Safe_Mutation::run(
             [
                 'object_type'         => 'option',
@@ -41,16 +47,16 @@ class Activate_Plugin
                 'session_id'          => (string) ($args['session_id'] ?? 'default'),
                 'tool_name'           => 'activate-plugin',
                 'args'                => $args,
-                'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ],
+                'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ] + Plugin_Network_Scope::snapshot_data($network_wide),
             ],
-            function () use ($plugin) {
-                return activate_plugin($plugin);
+            function () use ($plugin, $network_wide) {
+                return activate_plugin($plugin, '', $network_wide);
             },
             function ($result) {
                 return ! is_wp_error($result);
             }
         );
 
-        return ['operation_id' => $out['operation_id'], 'plugin' => $plugin, 'activated' => true];
+        return ['operation_id' => $out['operation_id'], 'plugin' => $plugin, 'activated' => true, 'network_wide' => $network_wide];
     }
 }
