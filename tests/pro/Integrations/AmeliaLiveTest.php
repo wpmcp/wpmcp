@@ -604,4 +604,101 @@ class AmeliaLiveTest extends \WP_UnitTestCase
         $this->assertCount(1, $listed, 'The booking itself is kept.');
         $this->assertStringNotContainsString('Lane', (string) wp_json_encode($listed));
     }
+
+    /**
+     * A WP user holding Amelia's own $role (made by Amelia's activation, not
+     * by this test), linked to Amelia user row $amelia the way Amelia links
+     * them (externalId).
+     */
+    private function amelia_wp_user(string $wp_role, string $role, int $amelia): int
+    {
+        $this->assertInstanceOf(\WP_Role::class, get_role($role), 'Amelia\'s activation made ' . $role);
+        $this->assertTrue(get_role($role)->has_cap('amelia_read_appointments'), $role . ' holds amelia_read_appointments in Amelia itself');
+        $id = self::factory()->user->create([ 'role' => $wp_role ]);
+        (new \WP_User($id))->add_role($role);
+        global $wpdb;
+        $wpdb->update($wpdb->prefix . 'amelia_users', [ 'externalId' => $id ], [ 'id' => $amelia ]);
+        return $id;
+    }
+
+    /** appointment id => customer ids, as amelia-list-appointments returns them for the current user over $day. */
+    private function our_appointments(string $day): array
+    {
+        $out = [];
+        foreach ($this->call('read', 'amelia-list-appointments', [ 'from' => $day, 'to' => $day ])['result']['appointments'] as $a) {
+            $out[ (int) $a['id'] ] = array_map('intval', array_column($a['customers'], 'customer_id'));
+        }
+        ksort($out);
+        return $out;
+    }
+
+    /** appointment id => customer ids, as Amelia's own appointment list returns them for the current user over $day. */
+    private function ameliass_appointments(string $day): array
+    {
+        $data = \WPMCP\Integrations\Amelia_Pack::api()->request('Booking\\Appointment\\GetAppointmentsController', [ 'dates' => [ $day, $day ], 'asArray' => 1 ], [], 'GET');
+        $out  = [];
+        foreach ((array) ($data['appointments'] ?? []) as $a) {
+            $out[ (int) $a['id'] ] = array_map('intval', array_column((array) $a['bookings'], 'customerId'));
+        }
+        ksort($out);
+        return $out;
+    }
+
+    public function test_amelias_customer_and_employee_roles_see_only_what_amelia_itself_shows_them(): void
+    {
+        $service = $this->service();
+        $sarah   = $this->customer();
+        $kim     = $this->customer('kim@example.com');
+        $day     = $this->day();
+        $sarahs  = (int) $this->call('write', 'amelia-book-appointment', [ 'service_id' => $service, 'employee_id' => $this->employee, 'customer_id' => $sarah, 'start' => $day . ' 10:00' ])['result']['appointment']['id'];
+        $kims    = (int) $this->call('write', 'amelia-book-appointment', [ 'service_id' => $service, 'employee_id' => $this->employee, 'customer_id' => $kim, 'start' => $day . ' 13:00' ])['result']['appointment']['id'];
+
+        // A second employee's appointment with Sarah: Amelia Lite keeps the
+        // row but books only with its first employee, so it is written here.
+        global $wpdb;
+        $anna = $this->second_employee('anna@example.com');
+        $wpdb->insert($wpdb->prefix . 'amelia_appointments', [ 'status' => 'approved', 'bookingStart' => \WPMCP\Integrations\Amelia_Pack::to_utc($day . ' 15:00'), 'bookingEnd' => \WPMCP\Integrations\Amelia_Pack::to_utc($day . ' 16:00'), 'notifyParticipants' => 0, 'serviceId' => $service, 'providerId' => $anna ]);
+        $annas = (int) $wpdb->insert_id;
+        $wpdb->insert($wpdb->prefix . 'amelia_customer_bookings', [ 'appointmentId' => $annas, 'customerId' => $sarah, 'status' => 'approved', 'price' => 50, 'persons' => 1 ]);
+
+        // Sarah's event, run by Tom; Kim did not book it.
+        $event = (int) \WPMCP\Integrations\Amelia_Pack::api()->request('Booking\\Event\\AddEventController', [
+            'name'           => 'Yoga day',
+            'price'          => 20,
+            'maxCapacity'    => 10,
+            'color'          => '#1a84ee',
+            'show'           => true,
+            'depositPayment' => 'disabled',
+            'deposit'        => 0,
+            'providers'      => [ [ 'id' => $this->employee ] ],
+            'periods'        => [ [ 'periodStart' => $day . ' 18:00:00', 'periodEnd' => $day . ' 19:00:00' ] ],
+        ])['events'][0]['id'];
+        \WPMCP\Integrations\Amelia_Pack::api()->request('Booking\\Appointment\\AddBookingController', [
+            'type'                         => 'event',
+            'eventId'                      => $event,
+            'notifyParticipants'           => 0,
+            'runInstantPostBookingActions' => true,
+            'isBackendOrCabinet'           => true,
+            'payment'                      => [ 'gateway' => 'onSite' ],
+            'bookings'                     => [ [ 'eventId' => $event, 'customerId' => $sarah, 'persons' => 1, 'status' => 'approved', 'customer' => [ 'id' => $sarah, 'firstName' => 'Sarah', 'lastName' => 'Lane', 'email' => 'sarah@example.com', 'phone' => '+15550100', 'externalId' => '', 'countryPhoneIso' => '' ], 'customFields' => [], 'extras' => [], 'utcOffset' => null, 'couponCode' => null, 'deposit' => false ] ],
+        ]);
+        $this->assertSame([ $sarahs => [ $sarah ], $kims => [ $kim ], $annas => [ $sarah ] ], $this->our_appointments($day), 'The administrator sees everything.');
+
+        // Kim, a Contributor who booked once and so holds Amelia's customer role.
+        wp_set_current_user($this->amelia_wp_user('contributor', 'wpamelia-customer', $kim));
+        $this->assertSame([ $kims => [ $kim ] ], $this->ameliass_appointments($day), 'Amelia shows a customer only their own appointments.');
+        $this->assertSame($this->ameliass_appointments($day), $this->our_appointments($day));
+        $this->assertSame([], $this->call('read', 'amelia-list-events', [ 'from' => $day, 'to' => $day ])['result']['events']);
+        $out = (new Plugin_Data_Integration())->handle_read([ 'operation' => 'amelia-list-event-attendees', 'args' => [ 'event_id' => $event ] ]);
+        $this->assertSame('capability', (string) ($out['error']['data']['reason'] ?? ''), (string) wp_json_encode($out));
+        $this->assertStringNotContainsString('sarah@example.com', (string) wp_json_encode($out));
+
+        // Anna, an Amelia employee.
+        wp_set_current_user($this->amelia_wp_user('subscriber', 'wpamelia-provider', $anna));
+        $this->assertSame([ $annas => [ $sarah ] ], $this->ameliass_appointments($day), 'Amelia shows an employee only their own appointments.');
+        $this->assertSame($this->ameliass_appointments($day), $this->our_appointments($day));
+        $this->assertSame([], $this->call('read', 'amelia-list-events', [ 'from' => $day, 'to' => $day ])['result']['events'], 'Tom\'s event is not Anna\'s.');
+        $out = (new Plugin_Data_Integration())->handle_read([ 'operation' => 'amelia-list-event-attendees', 'args' => [ 'event_id' => $event ] ]);
+        $this->assertSame('capability', (string) ($out['error']['data']['reason'] ?? ''), (string) wp_json_encode($out));
+    }
 }
