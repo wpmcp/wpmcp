@@ -27,6 +27,11 @@ class CustomCodeTest extends \WP_UnitTestCase
         Gate::set_pro_for_tests(true);
         Snapshot_Store::install();
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        // add-custom-css needs edit_css and create-code-snippet needs
+        // unfiltered_html behind the default-off JS gate (issue #558); the
+        // refusals are covered by CodeSnippetScriptGateTest.
+        wpmcp_test_grant_network_admin(get_current_user_id());
+        add_filter('wpmcp_allow_js_injection', '__return_true');
 
         // Elementor Pro registers this; simulate it so the CPT tools are testable.
         if (! post_type_exists('elementor_snippet')) {
@@ -36,6 +41,7 @@ class CustomCodeTest extends \WP_UnitTestCase
 
     protected function tearDown(): void
     {
+        remove_all_filters('wpmcp_allow_js_injection');
         Gate::set_pro_for_tests(null);
         parent::tearDown();
     }

@@ -628,6 +628,9 @@ final class Plugin
         // Image optimization runs, tool-upload optimization and modern
         // format delivery (issue #432), gated on the media group.
         $this->register_image_optimization_runtime_hooks();
+        // File tool backups written before #609 kept their .php names under
+        // uploads; rename them once to names no server executes (issue #622).
+        add_action('init', [\WPMCP\Tools\Filesystem\Legacy_Backup_Migration::class, 'maybe_run'], 20);
         // Agent project memory (issue #131): the wpmcp_memory CPT is the
         // store AND the approval queue, so it is registered here rather than
         // lazily from the tools. Note this runs even though the three memory
@@ -5202,7 +5205,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/import-content',
             'free',
-            'Import a WXR file as new posts (title, content, status, post_type, postmeta). Off by default (wpmcp_enable_import filter), needs confirm:true, not snapshotted (recoverable:false); returns created_post_ids for delete-post. mirror:true + post_id restores that page from its export-content mirror (undoable)',
+            'Import a WXR from the exports dir as new posts (title, content, status, post_type, postmeta). Off by default (wpmcp_enable_import filter), needs confirm:true, not snapshotted (recoverable:false); returns created_post_ids for delete-post. mirror:true + post_id restores that page from its export-content mirror (undoable)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6926,7 +6929,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-custom-css',
             'pro',
-            'Add site-wide custom CSS via core Additional CSS, so it works on any site (Elementor Pro not required). Appends, or replaces with replace=true. Snapshot-first when the Additional-CSS post exists (undo: rollback-operation)',
+            'Add site-wide custom CSS via core Additional CSS, so it works on any site (Elementor Pro not required). Appends, or replaces with replace=true. Needs edit_css. Snapshot-first when the Additional-CSS post exists (undo: rollback-operation)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6962,7 +6965,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-code-snippet',
             'pro',
-            'Create an Elementor Custom Code snippet (elementor_snippet post). location: wp_head, wp_body_open or wp_footer. Stored on any site; renders where Elementor Pro Custom Code is active. Not snapshotted (creates only); remove with delete-code-snippet',
+            'Create an Elementor Custom Code snippet. location: wp_head, wp_body_open or wp_footer. Off by default: needs wpmcp_allow_js_injection + unfiltered_html. Renders via Elementor Pro Custom Code. Undo: delete-code-snippet',
             [
                 'type'       => 'object',
                 'properties' => [
