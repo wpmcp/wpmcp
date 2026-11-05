@@ -174,10 +174,10 @@ class Stdio_Transport
             // A throwing tool costs one HTTP request on the other
             // transport; here it would cost the whole session, and the
             // client would block forever on a request id that never gets
-            // an answer. WP_Ability::execute() does not catch Throwable on
-            // the WordPress versions this plugin targets, and
-            // Registrar::throttled() re-throws deliberately, so the loop
-            // owns the last line of defence.
+            // an answer. Registrar::throttled() turns a tool's exception
+            // into a WP_Error (issue #612), but the transport itself and a
+            // foreign ability can still throw, so the loop owns the last
+            // line of defence.
             try {
                 $response = $transport->handle_request($request);
             } catch (\Throwable $e) {
@@ -621,10 +621,10 @@ class Stdio_Transport
      *
      * The adapter's ToolsHandler::call_tool() catches Throwable and
      * returns an isError CallToolResult, so the HTTP route survives a
-     * throwing tool. WP_Ability::execute() does not catch Throwable on
-     * the WordPress versions this plugin targets, and
-     * Registrar::throttled() re-throws on purpose, so parity here has
-     * to be written rather than assumed.
+     * throwing tool. Registrar::throttled() returns a wpmcp tool's
+     * exception as a WP_Error on every WordPress (issue #612), but an
+     * ability registered by another plugin can still throw on 6.9, so
+     * parity here has to be written rather than assumed.
      *
      * @param object              $ability The WP_Ability.
      * @param array<string,mixed> $input
