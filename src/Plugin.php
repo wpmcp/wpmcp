@@ -1383,7 +1383,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-post',
             'free',
-            'Delete a post, page or CPT entry. Trash by default. force:true deletes permanently, is off until the wpmcp_enable_delete_post filter opts in and needs confirm:true. Both are snapshotted: rollback-operation untrashes to the earlier status, or restores a force-deleted post',
+            'Delete a post, page or CPT entry. Trash by default. force:true deletes permanently, is off until the wpmcp_enable_delete_post filter opts in, needs confirm:true. Both undoable',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1946,7 +1946,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-user',
             'free',
-            'Create a new non-admin user. Auto-generates a strong password (never returned) and emails the new user so they can set their own. Rejects admin and unknown roles; defaults to subscriber',
+            'Create a new non-admin user. Auto-generates a strong password (never returned) and emails the new user so they can set their own. Rejects admin and unknown roles; defaults to subscriber. Undoable while it has no content and is unchanged',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1956,6 +1956,7 @@ final class Plugin
                     'display_name' => [ 'type' => 'string' ],
                     'first_name'   => [ 'type' => 'string' ],
                     'last_name'    => [ 'type' => 'string' ],
+                    'session_id'   => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'username', 'email' ],
             ],
@@ -8428,11 +8429,12 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-menu',
             'free',
-            'Create a new navigation menu (a nav_menu term). Creation has no prior state to snapshot; a mistaken menu can be removed with delete-menu',
+            'Create a navigation menu (a nav_menu term). Undoable while unchanged, empty and in no location',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'name' => [ 'type' => 'string' ],
+                    'name'       => [ 'type' => 'string' ],
+                    'session_id' => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'name' ],
             ],
@@ -8444,18 +8446,19 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-menu-item',
             'free',
-            'Add an item to a navigation menu (custom link by title and url, or an object link via type, object, object_id). Additive; a mistaken item can be removed with remove-menu-item',
+            'Add an item to a navigation menu (custom link by title and url, or an object link via type, object, object_id). Undoable',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'menu_id'   => [ 'type' => 'integer' ],
-                    'title'     => [ 'type' => 'string' ],
-                    'url'       => [ 'type' => 'string' ],
-                    'parent'    => [ 'type' => 'integer' ],
-                    'position'  => [ 'type' => 'integer' ],
-                    'type'      => [ 'type' => 'string' ],
-                    'object'    => [ 'type' => 'string' ],
-                    'object_id' => [ 'type' => 'integer' ],
+                    'menu_id'    => [ 'type' => 'integer' ],
+                    'title'      => [ 'type' => 'string' ],
+                    'url'        => [ 'type' => 'string' ],
+                    'parent'     => [ 'type' => 'integer' ],
+                    'position'   => [ 'type' => 'integer' ],
+                    'type'       => [ 'type' => 'string' ],
+                    'object'     => [ 'type' => 'string' ],
+                    'object_id'  => [ 'type' => 'integer' ],
+                    'session_id' => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'menu_id' ],
             ],

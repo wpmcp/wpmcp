@@ -119,6 +119,14 @@ class Rollback_Service
             self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
             return false;
         }
+        // Undoing a create-menu or create-user that something has since
+        // built on (issue #598): refused before the claim, so it stays
+        // retryable once the menu or user is back as the call left it.
+        $refused = self::creation_refusal((array) $row['snapshot']);
+        if (null !== $refused) {
+            self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
+            return false;
+        }
         // Another user is editing the post this would restore (issue #452).
         $locked = Edit_Lock::restore_refusal([$row]);
         if (null !== $locked) {
@@ -161,6 +169,16 @@ class Rollback_Service
             $operation_id,
             '' === $at ? '' : ' at ' . $at . ' UTC'
         );
+    }
+
+    /**
+     * Why undoing this creation row would delete more than the operation
+     * made (issue #598), or null. Only create-menu and create-user rows can
+     * be refused this way; every other type returns null.
+     */
+    private static function creation_refusal(array $snapshot): ?string
+    {
+        return Menu_Creation_Snapshot::refusal($snapshot) ?? User_Creation_Snapshot::refusal($snapshot);
     }
 
     /**
@@ -451,6 +469,16 @@ class Rollback_Service
         // rollback tools' edit_posts (issue #602).
         if (File_Write_Snapshot::TYPE === $type) {
             return [ [ 'manage_options' ], [ 'edit_files' ] ];
+        }
+        // Undoing create-menu deletes a menu, which core gates at
+        // edit_theme_options like create-menu itself (issue #598).
+        if (Menu_Creation_Snapshot::OBJECT_TYPE === $type) {
+            return [ [ 'edit_theme_options' ] ];
+        }
+        // Undoing create-user deletes a user, which wp-admin gates at
+        // delete_users, not create-user's create_users (issue #598).
+        if (User_Creation_Snapshot::OBJECT_TYPE === $type) {
+            return [ [ 'delete_users' ] ];
         }
         if ('post' !== $type) {
             return [];
@@ -783,6 +811,19 @@ class Rollback_Service
                 $count += $counted_if_refused;
                 continue;
             }
+            // A created menu is undone after everything else, so the items
+            // the session added to it are removed first (issue #598); its
+            // refusal is asked then, once they are gone.
+            if (Menu_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
+                $deferred[ $key ] = $group;
+                continue;
+            }
+            $refused = self::creation_refusal($snapshot);
+            if (null !== $refused) {
+                self::warn(sprintf('snapshot %s skipped: %s', $key, $refused));
+                $count += $counted_if_refused;
+                continue;
+            }
             // A child-theme scaffold is undone LAST: its restore refuses to
             // delete the active theme, so the stylesheet/template options a
             // later switch-theme in the same session changed must be put back
@@ -796,6 +837,12 @@ class Rollback_Service
             }
         }
         foreach ($deferred as $key => $group) {
+            $refused = self::creation_refusal($group['snapshot']);
+            if (null !== $refused) {
+                self::warn(sprintf('snapshot %s skipped: %s', $key, $refused));
+                $count += count($group['live']) - ($group['rep_live'] ? 1 : 0);
+                continue;
+            }
             if (self::claim_and_apply($group['snapshot'], $group['live'], true, 'snapshot ' . $key)) {
                 $count += count($group['live']);
             }
@@ -934,6 +981,16 @@ class Rollback_Service
         // edit-comment in the same session cannot bring it back from the trash.
         if (Comment_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
             return 'comment:' . $snapshot['object_id'];
+        }
+        // And for a menu create-menu made, or a user create-user made (issue
+        // #598): keyed like the menu's term and the user's own snapshots, so
+        // a session that created and then edited one unwinds to "did not
+        // exist yet", whose refusal then keeps it if the edit stayed.
+        if (Menu_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
+            return 'nav_menu:' . $snapshot['object_id'];
+        }
+        if (User_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
+            return 'user:' . $snapshot['object_id'];
         }
         // And for an order orders.create made (issue #292): keyed like the
         // order's full snapshots, so a session that created and then edited
@@ -1574,6 +1631,8 @@ class Rollback_Service
             'wc_product_create',
             Post_Creation_Snapshot::OBJECT_TYPE,
             Comment_Creation_Snapshot::OBJECT_TYPE,
+            Menu_Creation_Snapshot::OBJECT_TYPE,
+            User_Creation_Snapshot::OBJECT_TYPE,
             'elementor_global_classes',
             'elementor_global_variables',
             'theme_scaffold',
@@ -1847,6 +1906,18 @@ class Rollback_Service
         // Comment_Creation_Snapshot::OBJECT_TYPE, spelled as a literal for the same reason.
         if ('comment_create' === $snapshot['object_type']) {
             self::apply_comment_create_snapshot($snapshot);
+            return;
+        }
+
+        // Menu_Creation_Snapshot::OBJECT_TYPE and User_Creation_Snapshot::OBJECT_TYPE,
+        // spelled as literals for the restorable-types parity test (issue #598).
+        if ('menu_create' === $snapshot['object_type']) {
+            self::warn_if(Menu_Creation_Snapshot::undo_creation($snapshot));
+            return;
+        }
+
+        if ('user_create' === $snapshot['object_type']) {
+            self::warn_if(User_Creation_Snapshot::undo_creation($snapshot));
             return;
         }
 
@@ -2481,7 +2552,9 @@ class Rollback_Service
      * it back, and a custom widget or block spec is deactivated instead,
      * unless the row is marked remove_on_rollback (import-bundle, issue #297),
      * in which case the spec is trashed like any other post. Nothing is
-     * permanently deleted.
+     * permanently deleted, except a menu item add-menu-item added (issue
+     * #598), which is removed the way remove-menu-item removes one: it is a
+     * link in a menu, not content, and a trashed item is listed nowhere.
      *
      * Each post gets the same identity check as the other creation restores:
      * post_type and post_date_gmt are fixed at creation, so a mismatch means
@@ -2503,6 +2576,17 @@ class Rollback_Service
 
             if (($entry['post_type'] ?? null) !== $current->post_type || ($entry['post_date_gmt'] ?? null) !== $current->post_date_gmt) {
                 self::warn("Post {$post_id} is not the post this operation created (the id was reclaimed); it was left untouched.");
+                continue;
+            }
+
+            // A menu item add-menu-item created is removed, the way
+            // remove-menu-item and core's wp_delete_nav_menu_item() remove
+            // one (issue #598): a menu item in the trash is listed nowhere
+            // and only holds its menu's position. It is a link, not content.
+            if ('nav_menu_item' === $current->post_type) {
+                if (! wp_delete_post($post_id, true)) {
+                    self::warn("Menu item {$post_id} created by this operation could not be removed; it was left in place.");
+                }
                 continue;
             }
 
