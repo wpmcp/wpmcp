@@ -28,6 +28,10 @@ if (! defined('ABSPATH')) {
  * are both enforced and a partial request never leaves a plugin on disk it
  * was not allowed to activate.
  *
+ * On a multisite network the activation follows activate-plugin's rules
+ * (Plugin_Network_Scope): it stays on the site unless a network admin passes
+ * network_wide: true, and a network write snapshots active_sitewide_plugins.
+ *
  * wordpress.org-only: the slug must be a bare plugin directory slug (letters,
  * digits, dashes, underscores), never a URL or filesystem path, so this tool
  * can never be turned into an arbitrary-zip-URL installer. plugins_api() is
@@ -51,6 +55,7 @@ class Install_Plugin
         $activate = ! empty($args['activate']);
         if ($activate) {
             self::require_activate_capability();
+            Plugin_Network_Scope::requested($args);
         }
 
         if (! Package_Guard::filesystem_ready()) {
@@ -112,6 +117,14 @@ class Install_Plugin
     public function activate_installed(string $plugin_file, array $args): array
     {
         self::require_activate_capability();
+        if (! function_exists('is_network_only_plugin')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+        try {
+            $network_wide = Plugin_Network_Scope::for_activation($plugin_file, $args);
+        } catch (\RuntimeException $e) {
+            throw new \RuntimeException(sprintf('Plugin "%s" was installed but not activated: %s', esc_html($plugin_file), esc_html($e->getMessage())));
+        }
 
         $error = '';
         try {
@@ -122,10 +135,10 @@ class Install_Plugin
                     'session_id'          => (string) ($args['session_id'] ?? 'default'),
                     'tool_name'           => 'install-plugin',
                     'args'                => $args,
-                    'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ],
+                    'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ] + Plugin_Network_Scope::snapshot_data($network_wide),
                 ],
-                function () use ($plugin_file, &$error) {
-                    $result = activate_plugin($plugin_file);
+                function () use ($plugin_file, $network_wide, &$error) {
+                    $result = activate_plugin($plugin_file, '', $network_wide);
                     if (is_wp_error($result)) {
                         $error = $result->get_error_message();
                     }

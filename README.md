@@ -216,8 +216,8 @@ The table covers the core tools. The full reference for all 407 is at [wpmcp-pro
 | `create-user` | write (safe) | Create a non-admin user; auto-generates a strong password (never returned) and emails the user; rejects admin and unknown roles. Undo (needs `delete_users`) deletes the user only while it has no content and is unchanged |
 | `update-user` | write (safe) | Update a non-admin user's profile fields; refuses admin-capable users; never changes role or password |
 | `list-plugins` | read | List installed plugins with active status, protected-package flag, and pending update info; `updates: true` lists available core, plugin and theme updates with auto-update state |
-| `activate-plugin` | write (safe) | Activate an installed plugin; snapshots the prior `active_plugins` option |
-| `deactivate-plugin` | write (safe) | Deactivate a plugin; refuses protected packages (wpmcp, Elementor); snapshots the prior `active_plugins` option |
+| `activate-plugin` | write (safe) | Activate an installed plugin; snapshots the prior `active_plugins` option. On multisite it stays on the current site (a network-only plugin is refused) unless a network admin passes `network_wide: true`, which also snapshots `active_sitewide_plugins` |
+| `deactivate-plugin` | write (safe) | Deactivate a plugin; refuses protected packages (wpmcp, Elementor); snapshots the prior `active_plugins` option. On multisite a network-active plugin is only deactivated network-wide, by a network admin passing `network_wide: true` (also snapshots `active_sitewide_plugins`) |
 | `install-plugin` | write | Install a plugin from wordpress.org by slug, optionally activating it |
 | `search-plugins` | read | Search the wordpress.org plugin directory by keyword, with optional tag/author filters and a capped `per_page` |
 | `get-plugin-info` | read | Fetch full wordpress.org plugin directory info for a slug: version, rating, installs, homepage, download link, and compatibility |
@@ -390,6 +390,8 @@ Issues and pull requests are welcome. Please keep the safety invariant intact: n
 ## Security
 
 wpmcp edits live sites and executes agent instructions, so security is a first-class concern: admin actions are capability-checked and nonce-protected, all output is escaped, and all database access is parameterized. If you find a vulnerability, please open a private security advisory rather than a public issue.
+
+On a multisite network the code execution tools (`run-php-snippet`, `activate-php-snippet`, `run-wp-cli` and `dispatch-cli-job`) need a network administrator (`manage_network_options`) on top of their opt-in, because that opt-in is shared by every site and a sub-site administrator holds `manage_options` on their own site. A network that wants its sub-site administrators to run code can grant it explicitly with the `wpmcp_allow_subsite_code_exec` filter, which receives the surface (`php` or `wp-cli`), the user id and the blog id and defaults to `false`. WP-CLI commands run against the caller's own site (`--url` is set to it). A queued CLI job is re-checked against the user who queued it when it runs.
 
 ## License
 

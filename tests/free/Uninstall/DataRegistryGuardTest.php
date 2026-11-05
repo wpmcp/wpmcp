@@ -72,7 +72,11 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             'scrape_key_*',
         ],
         'site_transient' => [],
-        'site_option'    => [],
+        'site_option'    => [
+            // Core's network plugin list, put back by a network plugin
+            // write's rollback (issue #557).
+            'active_sitewide_plugins',
+        ],
         'user_meta'      => [],
     ];
 

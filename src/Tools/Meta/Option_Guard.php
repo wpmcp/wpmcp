@@ -83,6 +83,20 @@ class Option_Guard
      */
     private const LOCKED_PREFIXES = [
         'wpmcp_custom_code',
+        // The database and filesystem write audit logs (issue #550,
+        // Database_Guard::AUDIT_OPTION and Filesystem_Guard::AUDIT_OPTION).
+        // The database log keeps the raw before-image of every row a write
+        // replaced, payment gateway credentials included, as the manual
+        // recovery trail; reading it back through get-option would undo the
+        // masking every other read path applies, and writing it would let a
+        // caller rewrite the trail. Locked, so no filter can reopen them.
+        'wpmcp_db_write_audit_log',
+        'wpmcp_fs_write_audit_log',
+        // The MCP request log (Request_Log::OPTION) and its argument capture
+        // switch. With capture on, a row keeps the first characters of every
+        // tool argument whose key does not look secret, such as an
+        // update-rows option_value that carries a gateway credential.
+        'wpmcp_request_log',
     ];
 
     public static function is_denylisted(string $name): bool

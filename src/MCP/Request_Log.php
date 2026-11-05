@@ -31,7 +31,8 @@ if (! defined('ABSPATH')) {
  *
  * Tool arguments are NOT recorded by default: they routinely carry post
  * bodies, credentials and API keys, and this option is readable by anything
- * that can read options. Capture is opt-in (the wpmcp_request_log_capture_args
+ * that can read options (though not the generic get-option tool, which
+ * refuses it since issue #550). Capture is opt-in (the wpmcp_request_log_capture_args
  * option or filter) and even then values whose key looks like a secret are
  * replaced with REDACTED, and every value is truncated, so switching debug on
  * cannot dump a credential or a megabyte of post content into wp_options.
@@ -42,6 +43,13 @@ class Request_Log
 
     /** Option (and filter) name for the opt-in argument capture debug mode. */
     public const CAPTURE_OPTION = 'wpmcp_request_log_capture_args';
+
+    /**
+     * Set once the captured arguments of rows recorded before PR #584 have
+     * been dropped (drop_legacy_arguments()). Under the locked
+     * wpmcp_request_log prefix.
+     */
+    public const ARGS_SCRUBBED_OPTION = 'wpmcp_request_log_args_scrubbed';
 
     /** Default rows kept, before the wpmcp_request_log_cap filter. */
     public const CAP = 200;
@@ -123,6 +131,13 @@ class Request_Log
 
         if (self::is_capturing_arguments()) {
             $args = is_array($entry['args'] ?? null) ? $entry['args'] : [];
+            // Payment gateway credentials never reach the row (issue #550):
+            // it sits in wp_options, where query can read it through any
+            // SQL expression. Scrubbed before truncation, so a cut cannot
+            // leave half a credential behind.
+            if (class_exists(\WPMCP\Tools\Database\Database_Guard::class)) {
+                $args = \WPMCP\Tools\Database\Database_Guard::scrub_gateway_secrets_in($args);
+            }
             foreach ((array) ($entry['secret_args'] ?? []) as $secret) {
                 if (array_key_exists((string) $secret, $args)) {
                     $args[ (string) $secret ] = self::REDACTED;
@@ -142,6 +157,31 @@ class Request_Log
         }
 
         update_option(self::OPTION, $rows, false);
+    }
+
+    /**
+     * Drop the captured arguments and error messages of every row recorded
+     * before captured arguments were scrubbed of gateway credentials (issue
+     * #550). Those rows can hold a credential that has since been rotated,
+     * which no scrub of the values stored now recognizes. Runs once.
+     */
+    public static function drop_legacy_arguments(): void
+    {
+        if ('1' === (string) get_option(self::ARGS_SCRUBBED_OPTION, '')) {
+            return;
+        }
+        $rows    = self::load();
+        $changed = false;
+        foreach ($rows as $index => $row) {
+            if (is_array($row) && (array_key_exists('args', $row) || array_key_exists('error_message', $row))) {
+                unset($rows[ $index ]['args'], $rows[ $index ]['error_message']);
+                $changed = true;
+            }
+        }
+        if ($changed) {
+            update_option(self::OPTION, array_values($rows), false);
+        }
+        update_option(self::ARGS_SCRUBBED_OPTION, '1', false);
     }
 
     /**

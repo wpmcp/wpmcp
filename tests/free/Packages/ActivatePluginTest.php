@@ -55,4 +55,21 @@ class ActivatePluginTest extends \WP_UnitTestCase
 
         $this->assertSame($before, (array) get_option('active_plugins', []));
     }
+
+    public function test_network_wide_is_refused_on_a_single_site(): void
+    {
+        if (is_multisite()) {
+            $this->markTestSkipped('Single-site rule; the network rules are in SubSitePluginNetworkScopeTest.');
+        }
+        $rows = Snapshot_Store::row_count();
+        try {
+            (new Activate_Plugin())->handle(['plugin' => 'akismet/akismet.php', 'network_wide' => true]);
+            $this->fail('network_wide: true must be refused outside a multisite network.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('multisite', $e->getMessage());
+        }
+        $this->assertNotContains('akismet/akismet.php', (array) get_option('active_plugins', []));
+        $this->assertFalse(get_option('active_sitewide_plugins', false), 'A single site must never gain an active_sitewide_plugins option.');
+        $this->assertSame($rows, Snapshot_Store::row_count());
+    }
 }

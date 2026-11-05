@@ -715,24 +715,30 @@ final class FunnelKit_Writes
     /**
      * Run a snapshotted write. When FunnelKit refuses it and the funnel is
      * exactly as it was, the undo point the dispatcher took is voided; a
-     * refusal after part of the change landed keeps it.
+     * refusal after part of the change landed keeps it. A write that lands
+     * has what it did noted in its undo point (record_effects()).
      *
      * @param array<string,mixed> $context
      * @return array<string,mixed>
      */
     private static function voiding(array $context, callable $write): array
     {
-        $funnel_id = (int) ($context['target']['object_id'] ?? 0);
-        $before    = $funnel_id > 0 ? FunnelKit_Funnel_Snapshot::capture($funnel_id) : null;
+        $funnel_id    = (int) ($context['target']['object_id'] ?? 0);
+        $before       = $funnel_id > 0 ? FunnelKit_Funnel_Snapshot::capture($funnel_id) : null;
+        $operation_id = (string) ($context['operation_id'] ?? '');
         try {
-            return $write();
+            $result = $write();
         } catch (Operation_Error $e) {
-            $operation_id = (string) ($context['operation_id'] ?? '');
             if ('' !== $operation_id && null !== $before && FunnelKit_Funnel_Snapshot::capture($funnel_id) === $before) {
                 Snapshot_Store::delete_operation($operation_id);
+            } else {
+                FunnelKit_Funnel_Snapshot::record_effects($operation_id);
             }
             throw $e;
         }
+        // What the write did, so its undo takes back only that (issue #554).
+        FunnelKit_Funnel_Snapshot::record_effects($operation_id);
+        return $result;
     }
 
     /** Refuse on the dispatcher's top-level error channel. */

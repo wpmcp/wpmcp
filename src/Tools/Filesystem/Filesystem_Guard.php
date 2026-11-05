@@ -96,10 +96,17 @@ class Filesystem_Guard
      * wp-config.php~ ...) hold the same password and salts. Only core's
      * wp-config-sample.php is left open. The wp-config rule is not
      * filterable; wpmcp_fs_protected_paths can only add exact names.
-     * A copy under any other name is caught by holds_wp_secrets().
+     * A copy under any other name is caught by holds_wp_secrets(). Every
+     * site backup folder is protected too (in_site_backup_dir()).
      */
     public static function is_protected(string $abs): bool
     {
+        // Every site backup folder (issue #550).
+        if (self::in_site_backup_dir($abs)) {
+            return true;
+        }
+
+        // Every wp-config copy except core's sample (issue #606).
         $base = strtolower(basename($abs));
         if (0 === strpos($base, 'wp-config') && 'wp-config-sample.php' !== $base) {
             return true;
@@ -108,6 +115,41 @@ class Filesystem_Guard
         /** Filter the write/delete-protected basenames. */
         $protected = (array) apply_filters('wpmcp_fs_protected_paths', $protected, $abs);
         return in_array($base, array_map('strtolower', $protected), true);
+    }
+
+    /** The site backup directory under uploads (Site_Backup_Dir::DIR_NAME). */
+    private const SITE_BACKUP_DIR = 'wpmcp-site-backups';
+
+    /**
+     * Whether $abs is a site backup directory or inside one (issue #550).
+     * It holds full database dumps (the archives, and while a backup or
+     * restore runs, or after one dies, the plaintext .sql they are built
+     * from or extracted to): every option and row, payment gateway
+     * credentials and password hashes included. The generic file tools
+     * never read, list, search, write or delete it, whatever the
+     * wpmcp_fs_protected_paths filter says; the backup tools are the way in.
+     *
+     * Any path with a segment named wpmcp-site-backups (case-insensitive)
+     * counts, not only the current site's folder (PR #584 review): on a
+     * network the file tools are gated at site-level manage_options and
+     * confined to ABSPATH, so a sub-site admin could otherwise reach the
+     * main site's folder, which holds the whole network's dump, or another
+     * site's. Over-matching a look-alike folder only refuses more.
+     */
+    public static function in_site_backup_dir(string $abs): bool
+    {
+        $segments = explode('/', strtolower(str_replace('\\', '/', $abs)));
+        if (in_array(self::SITE_BACKUP_DIR, $segments, true)) {
+            return true;
+        }
+
+        // The canonical form too, in case a symlinked parent hides the name.
+        $real = realpath($abs);
+        if (false !== $real && $real !== $abs) {
+            $segments = explode('/', strtolower(str_replace('\\', '/', $real)));
+            return in_array(self::SITE_BACKUP_DIR, $segments, true);
+        }
+        return false;
     }
 
     /**
@@ -215,6 +257,38 @@ class Filesystem_Guard
             return false;
         }
         return (bool) preg_match('//u', $content);
+    }
+
+    /**
+     * The capability the read tools (read-file, list-directory,
+     * search-files) are registered with (issue #559). On multisite ABSPATH
+     * holds every site's files (other sites' uploads, private exports,
+     * backups, debug.log) and core gives a sub-site administrator no file
+     * access, so reads take manage_network_options there, like the write
+     * tools whose edit_files is super-admin only on multisite.
+     * manage_network_options rather than edit_files so DISALLOW_FILE_EDIT
+     * keeps blocking writes without also blocking a super admin's reads.
+     */
+    public static function read_capability(): string
+    {
+        return is_multisite() ? 'manage_network_options' : 'manage_options';
+    }
+
+    /**
+     * Repeat the read gate inside the handlers, so a path that reaches them
+     * without the ability permission check is refused too. Single site is
+     * unchanged, and a request with no signed-in user is let through as in
+     * Network_Scope: no ability can reach a handler without the gate.
+     *
+     * @throws \RuntimeException When a signed-in user on multisite lacks the network capability.
+     */
+    public static function assert_reads_allowed(): void
+    {
+        if (! is_multisite() || 0 === get_current_user_id() || current_user_can('manage_network_options')) {
+            return;
+        }
+
+        throw new \RuntimeException('On a multisite network the files belong to every site, so reading them needs a network administrator (manage_network_options).');
     }
 
     /**
