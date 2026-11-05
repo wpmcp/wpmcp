@@ -5,6 +5,9 @@
 
 namespace WPMCP\Safety;
 
+use WPMCP\Privacy\Amelia_Customers;
+use WPMCP\Privacy\Snapshot_Redactor;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -57,6 +60,12 @@ if (! defined('ABSPATH')) {
  *    (an undone cancel or reschedule would double-book the slot);
  *  - a deleted customer or employee whose email another Amelia user has
  *    taken since.
+ *
+ * A personal data erasure of an Amelia customer (Amelia_Customers, issue
+ * #552) rewrites their profile and booking rows in these snapshots to what
+ * it wrote live (erase_customers()), and the restore keeps the fields of
+ * any customer erased live erased, even from a snapshot the erasure did not
+ * reach, so an undo never writes an erased field back.
  *
  * Restoring takes Amelia's own write capability for what the kind covers
  * (amelia_write_services, amelia_write_customers, amelia_write_employees,
@@ -400,6 +409,7 @@ final class Amelia_Rows_Snapshot
         }
 
         $kept    = [];
+        $erased  = self::erased_customer_ids();
         $created = (array) ($data['created_rows'] ?? []);
         foreach ($created as $name => $ids) {
             $name = (string) $name;
@@ -417,6 +427,7 @@ final class Amelia_Rows_Snapshot
             $saved   = array_values(array_filter(array_map(static fn ($row): array => (array) $row, (array) ($set['rows'] ?? [])), static fn (array $row): bool => (int) ($row['id'] ?? 0) > 0));
             $current = array_column(self::rows_by_id($name, array_map(static fn (array $row): int => (int) $row['id'], $saved)), null, 'id');
             foreach ($saved as $row) {
+                $row    = self::erased_row($name, $row, $erased);
                 $row_id = (int) $row['id'];
                 if (isset($current[ $row_id ]) || isset($current[ (string) $row_id ])) {
                     self::update_row($name, $row_id, $row);
@@ -431,9 +442,69 @@ final class Amelia_Rows_Snapshot
         return [] === $kept ? null : sprintf('Amelia rows that could not be put back: %s.', implode(', ', $kept));
     }
 
+    /**
+     * $snapshot with the profile and booking rows of the given Amelia
+     * customers rewritten to what the erasure writes live, or null when it
+     * holds none of theirs (or holds them already erased).
+     *
+     * @param int[] $customer_ids
+     */
+    public static function erase_customers(array $snapshot, array $customer_ids): ?array
+    {
+        if (self::TYPE !== ($snapshot['object_type'] ?? null) || [] === $customer_ids || ! is_array($snapshot['data']['sets'] ?? null)) {
+            return null;
+        }
+        $changed = false;
+        foreach ($snapshot['data']['sets'] as $i => $set) {
+            $set  = (array) $set;
+            $name = (string) ($set['table'] ?? '');
+            foreach ((array) ($set['rows'] ?? []) as $j => $row) {
+                $row    = (array) $row;
+                $erased = self::erased_row($name, $row, $customer_ids);
+                if ($erased !== $row) {
+                    $set['rows'][ $j ] = $erased;
+                    $changed           = true;
+                }
+            }
+            $snapshot['data']['sets'][ $i ] = $set;
+        }
+        return $changed ? $snapshot : null;
+    }
+
     // -----------------------------------------------------------------
     // Internals
     // -----------------------------------------------------------------
+
+    /**
+     * $row with an erased customer's fields as the erasure left them: their
+     * amelia_users profile row, or one of their amelia_customer_bookings.
+     *
+     * @param int[] $customer_ids
+     */
+    private static function erased_row(string $table, array $row, array $customer_ids): array
+    {
+        if ('users' === $table && 'customer' === (string) ($row['type'] ?? '') && in_array((int) ($row['id'] ?? 0), $customer_ids, true)) {
+            return array_merge($row, array_intersect_key(Amelia_Customers::ERASED_PROFILE, $row));
+        }
+        if ('customer_bookings' === $table && in_array((int) ($row['customerId'] ?? 0), $customer_ids, true)) {
+            return array_merge($row, array_intersect_key(Amelia_Customers::ERASED_BOOKING, $row));
+        }
+        return $row;
+    }
+
+    /**
+     * The Amelia customers a personal data erasure has erased, read live:
+     * their profile carries the erasure's placeholder name and no email.
+     *
+     * @return int[]
+     */
+    private static function erased_customer_ids(): array
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Amelia's own table, read live before an undo.
+        return array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT id FROM %i WHERE type = 'customer' AND firstName = %s AND email IS NULL", self::table('users'), Snapshot_Redactor::REDACTED)));
+    }
 
     /** @return array<int, array<int|string, mixed>> every set and dependent spec of every kind. */
     private static function specs(): array
