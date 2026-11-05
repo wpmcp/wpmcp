@@ -51,6 +51,14 @@ class Reindex_Search
         if ($full && 0 === $offset) {
             Search_Index_Store::truncate();
         }
+        // Coverage (issue #592): only a pass over every indexable post type,
+        // from the first page to the last, makes the index complete. A pass
+        // limited by post_types never does, and after a truncate it leaves
+        // the index partial.
+        $whole_site = [] === $requested;
+        if ($whole_site && 0 === $offset) {
+            Search_Index_Store::mark_build_started();
+        }
 
         $query = new \WP_Query([
             'post_type'              => [] === $post_types ? ['post'] : $post_types,
@@ -77,6 +85,9 @@ class Reindex_Search
 
         $total_posts = (int) $query->found_posts;
         $next_offset = ($offset + $batch_size) < $total_posts ? $offset + $batch_size : null;
+        if ($whole_site && null === $next_offset) {
+            Search_Index_Store::mark_build_finished();
+        }
 
         // Menus are a small, fixed-size set, so they ride along with the first
         // page rather than getting their own cursor.
