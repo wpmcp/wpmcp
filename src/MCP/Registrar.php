@@ -379,8 +379,8 @@ class Registrar
                     Confirmation_Required::observe($e);
                 }
                 // A failed write still leaves a snapshot behind, so the row
-                // keeps its undo point; the exception itself is re-thrown
-                // untouched.
+                // keeps its undo point, and the row keeps the real exception
+                // class, which the WP_Error below no longer carries.
                 $this->record_outcome(
                     $a,
                     $client,
@@ -389,7 +389,14 @@ class Registrar
                     $args,
                     Operation_Context::since($mark)
                 );
-                throw $e;
+                // Returned, not re-thrown (issue #612). WordPress 7.1 turns
+                // anything a callback throws into this same WP_Error inside
+                // WP_Ability, but 6.9 has no such catch: there the exception
+                // left execute(), the MCP Adapter answered with an opaque
+                // JSON-RPC "Failed to execute tool" and the client never saw
+                // the reason. Building core 7.1's error here gives every
+                // supported WordPress the same outcome.
+                return self::exception_error($a, $e);
             } finally {
                 --self::$depth;
             }
@@ -404,6 +411,24 @@ class Registrar
             );
             return $result;
         };
+    }
+
+    /**
+     * The WP_Error a thrown exception becomes: code and message exactly as
+     * WordPress 7.1's WP_Ability::invoke_callback() builds them, so a caller
+     * cannot tell which WordPress it ran on (issue #612).
+     */
+    private static function exception_error(Ability $a, \Throwable $e): \WP_Error
+    {
+        return new \WP_Error(
+            'ability_callback_exception',
+            sprintf(
+                /* translators: 1: Ability name, 2: Exception message. */
+                __('Ability "%1$s" callback threw an exception: %2$s', 'wpmcp'),
+                $a->name,
+                esc_html($e->getMessage())
+            )
+        );
     }
 
     private static function elapsed_ms(float $started): int
