@@ -4,6 +4,7 @@ namespace WPMCP\Tests\Free\Content;
 
 use WPMCP\Tools\Content\Delete_Post;
 use WPMCP\Safety\{Snapshot_Store, Rollback_Service};
+use WPMCP\Tools\List_Operations;
 
 class DeletePostTest extends \WP_UnitTestCase
 {
@@ -171,5 +172,93 @@ class DeletePostTest extends \WP_UnitTestCase
         $this->assertSame('jane@example.com', $restored_comment->comment_author_email);
         $this->assertSame('Great read!', $restored_comment->comment_content);
         $this->assertSame('3', get_comment_meta((int) $restored_comment->comment_ID, 'helpful_votes', true));
+    }
+
+    /**
+     * Issue #589: trashing is undoable. The trash call records an operation
+     * under the caller's session, it is listed by list-operations, and
+     * rollback-operation brings the post back out of the trash the way
+     * wp_untrash_post() does: its previous status, its slug without the
+     * __trashed suffix, no _wp_trash_meta_* or _wp_desired_post_slug left
+     * behind, and its comments back from post-trashed.
+     */
+    public function test_trash_records_an_operation_that_rollback_untrashes(): void
+    {
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        $id = self::factory()->post->create(['post_type' => 'page', 'post_title' => 'Pricing', 'post_name' => 'pricing', 'post_status' => 'publish']);
+        add_post_meta($id, 'kept', 'yes');
+        $comment_id = self::factory()->comment->create(['comment_post_ID' => $id, 'comment_approved' => '1']);
+
+        $out = (new Delete_Post())->handle(['post_id' => $id, 'session_id' => 'trash-589']);
+
+        $this->assertSame('trashed', $out['deleted']);
+        $this->assertArrayHasKey('operation_id', $out);
+        $this->assertSame('trash', get_post($id)->post_status);
+        $this->assertSame('post-trashed', get_comment($comment_id)->comment_approved);
+
+        $listed = (new List_Operations())->handle(['session_id' => 'trash-589']);
+        $this->assertCount(1, $listed['operations']);
+        $this->assertSame($out['operation_id'], $listed['operations'][0]['operation_id']);
+        $this->assertSame('delete-post', $listed['operations'][0]['tool_name']);
+        $this->assertTrue($listed['operations'][0]['rollback_available']);
+
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+
+        clean_post_cache($id);
+        $post = get_post($id);
+        $this->assertSame('publish', $post->post_status);
+        $this->assertSame('pricing', $post->post_name);
+        $this->assertSame('', get_post_meta($id, '_wp_trash_meta_status', true));
+        $this->assertSame('', get_post_meta($id, '_wp_trash_meta_time', true));
+        $this->assertSame('', get_post_meta($id, '_wp_desired_post_slug', true));
+        $this->assertSame('', get_post_meta($id, '_wp_trash_meta_comments_status', true));
+        $this->assertSame('yes', get_post_meta($id, 'kept', true));
+        $this->assertSame('1', get_comment($comment_id)->comment_approved);
+
+        // Marked undone (issue #593): listed as such, never applied twice.
+        $listed = (new List_Operations())->handle(['session_id' => 'trash-589']);
+        $this->assertNotNull($listed['operations'][0]['rolled_back_at']);
+        $this->assertFalse($listed['operations'][0]['rollback_available']);
+        $this->assertFalse(Rollback_Service::restore_operation($out['operation_id']));
+    }
+
+    /** A draft comes back as a draft, not as core's default untrash status. */
+    public function test_trash_rollback_restores_a_draft_to_draft(): void
+    {
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        $id = self::factory()->post->create(['post_status' => 'draft']);
+
+        $out = (new Delete_Post())->handle(['post_id' => $id]);
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+
+        $this->assertSame('draft', get_post($id)->post_status);
+    }
+
+    /** rollback-session undoes a trash call made in that session. */
+    public function test_rollback_session_untrashes_what_the_session_trashed(): void
+    {
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        $id = self::factory()->post->create(['post_status' => 'publish', 'post_name' => 'about']);
+
+        (new Delete_Post())->handle(['post_id' => $id, 'session_id' => 'trash-589-session']);
+        $this->assertSame('trash', get_post($id)->post_status);
+
+        $this->assertSame(1, Rollback_Service::restore_session('trash-589-session'));
+
+        $this->assertSame('publish', get_post($id)->post_status);
+        $this->assertSame('about', get_post($id)->post_name);
+    }
+
+    /** A post already in the trash is not trashed again, so no undo point is recorded. */
+    public function test_trashing_a_post_already_in_the_trash_records_nothing(): void
+    {
+        $id = self::factory()->post->create(['post_status' => 'publish']);
+        wp_trash_post($id);
+
+        $out = (new Delete_Post())->handle(['post_id' => $id, 'session_id' => 'trash-589-again']);
+
+        $this->assertSame('trashed', $out['deleted']);
+        $this->assertArrayNotHasKey('operation_id', $out);
+        $this->assertSame([], Snapshot_Store::list_by_session('trash-589-again'));
     }
 }

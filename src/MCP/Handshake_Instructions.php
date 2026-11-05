@@ -151,8 +151,12 @@ class Handshake_Instructions
      */
     public function safety_line(): string
     {
-        return 'wpmcp safety model: every write is snapshotted before it runs and can be rolled back'
-            . ' (list-operations, rollback-operation, rollback-session).';
+        // Worded to claim no more than is true (issue #598): a few writes
+        // record no undo point (the README lists them), so the promise is
+        // tied to the operation_id a write returns, not to every write.
+        return 'wpmcp safety model: a write that returns an operation_id was snapshotted before it ran and can be'
+            . ' rolled back (list-operations, rollback-operation, rollback-session). A write that returns no'
+            . ' operation_id has no undo point.';
     }
 
     /**
