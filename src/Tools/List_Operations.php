@@ -135,11 +135,21 @@ class List_Operations
         return [$where, $params];
     }
 
-    /** @return array<string, string> tool name (without wpmcp/ prefix) => domain */
+    /**
+     * Tool name => domain, from the declared ability surface, not the
+     * exposed one (issue #590). In a wp-admin request no registration hook
+     * has fired, so registrar()->all() is empty there and every row of the
+     * Mutations tab had a blank Domain; declared_abilities() replays the
+     * registration when it has not run. It also keeps the domain of a tool
+     * governance or the licence tier has since switched off: its rows are
+     * still in the log.
+     *
+     * @return array<string, string> tool name (without wpmcp/ prefix) => domain
+     */
     private function abilities_by_tool_name(): array
     {
         $map = [];
-        foreach (Plugin::instance()->registrar()->all() as $ability) {
+        foreach (Plugin::instance()->declared_abilities() as $ability) {
             $short_name        = preg_replace('#^wpmcp/#', '', $ability->name);
             $map[$short_name]   = $ability->domain;
         }
