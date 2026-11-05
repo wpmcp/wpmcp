@@ -766,7 +766,8 @@ class Rollback_Service
         foreach ($legacy as $entry) {
             $key   = self::object_identity($entry['snapshot']);
             $group = $owner[ $key ] ?? $key;
-            if (! isset($groups[ $group ])) {
+            $known = isset($groups[ $group ]);
+            if (! $known) {
                 $groups[ $group ] = [ 'snapshot' => $entry['snapshot'], 'rep_live' => $entry['live'], 'live' => [] ];
                 $owner[ $key ]    = $group;
                 // A creation row that covers several posts (duplicate-post
@@ -777,6 +778,13 @@ class Rollback_Service
                         $owner[ 'post:' . $created_id ] = $owner[ 'post:' . $created_id ] ?? $group;
                     }
                 }
+            }
+            // A FunnelKit funnel's oldest snapshot is restored for the whole
+            // session, so it takes on what every later write of the session
+            // did to the funnel: the steps they added are removed too, and
+            // the steps they removed come back (issue #554).
+            if ($known && FunnelKit_Funnel_Snapshot::TYPE === $entry['snapshot']['object_type']) {
+                $groups[ $group ]['snapshot'] = FunnelKit_Funnel_Snapshot::merge_effects($groups[ $group ]['snapshot'], $entry['snapshot']);
             }
             if ($entry['live']) {
                 $groups[ $group ]['live'][] = $entry['id'];
