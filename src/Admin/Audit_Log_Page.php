@@ -44,6 +44,21 @@ class Audit_Log_Page
     private const REQUEST_FILTERS = [ 'date_from', 'date_to', 'user_id', 'tool', 'outcome' ];
 
     /**
+     * Test seam: receives the CSV the export would stream, so a test can run
+     * the export through its real admin-post hook (issue #587) without the
+     * exit. Guarded by WPMCP_TESTING.
+     *
+     * @var callable|null
+     */
+    private static $sender_for_tests = null;
+
+    /** Set or clear the export's test sender. Ignored outside WPMCP_TESTING. */
+    public static function send_for_tests(?callable $sender): void
+    {
+        self::$sender_for_tests = defined('WPMCP_TESTING') && WPMCP_TESTING ? $sender : null;
+    }
+
+    /**
      * @param array<string, mixed> $filters Same shape as wpmcp/list-operations'
      *                                       input_schema (user_id, tool_name,
      *                                       domain, object_type, object_id,
@@ -90,6 +105,11 @@ class Audit_Log_Page
         $csv      = Request_Log::to_csv(Request_Log::query($this->request_filters(), Request_Log::cap()));
         $filename = 'wpmcp-request-log-' . gmdate('Ymd-His') . '.csv';
 
+        // Only the download is diverted for a hook-level test; a refusal
+        // above still dies with the 403 the real request gets.
+        if (null === $sender && defined('WPMCP_TESTING') && WPMCP_TESTING) {
+            $sender = self::$sender_for_tests;
+        }
         if (null !== $sender) {
             $sender($csv, $filename);
             return null;

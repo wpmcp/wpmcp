@@ -18,7 +18,7 @@ class Delete_Post
      * sites must opt in with add_filter('wpmcp_enable_delete_post',
      * '__return_true') before a force-delete will run at all, in addition to
      * the caller passing confirm:true. The default trash path is left ungated:
-     * WordPress's own trash already makes it reversible.
+     * it is recorded as an undoable operation (issue #589).
      */
     public static function is_force_enabled(): bool
     {
@@ -26,10 +26,12 @@ class Delete_Post
     }
 
     /**
-     * Trash-delete (the default) is NOT routed through Safe_Mutation: WordPress's
-     * own trash already makes it reversible, so a redundant snapshot buys us
-     * nothing. Force-delete permanently destroys the post, so that branch IS
-     * safe-wrapped for a rollback-able snapshot.
+     * Both paths go through Safe_Mutation. Trash (the default) is snapshotted
+     * like any other write (issue #589), so it returns an operation_id and
+     * rollback-operation / rollback-session take the post back out of the
+     * trash the way wp_untrash_post() does: its earlier status, its slug,
+     * its comments, and no _wp_trash_meta_* rows left behind. Force-delete
+     * permanently destroys the post; its snapshot resurrects it.
      */
     /**
      * The URL this post lives at right now, but only when losing it would
@@ -80,8 +82,26 @@ class Delete_Post
         $lost_url = $this->public_url($post);
 
         if (! $force) {
-            Save_Filters::trash_post($post_id);
-            $result = ['post_id' => $post_id, 'deleted' => 'trashed'];
+            // Already in the trash: nothing changes, so no undo point.
+            if ('trash' === $post->post_status) {
+                return ['post_id' => $post_id, 'deleted' => 'trashed'];
+            }
+            $out = Safe_Mutation::run(
+                [
+                    'object_type' => 'post',
+                    'object_id'   => $post_id,
+                    'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                    'tool_name'   => 'delete-post',
+                    'args'        => $args,
+                ],
+                static function () use ($post_id) {
+                    if (! Save_Filters::trash_post($post_id)) {
+                        throw new \RuntimeException('The post could not be moved to the trash.');
+                    }
+                    return true;
+                }
+            );
+            $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'deleted' => 'trashed'];
             $suggestion = $this->suggest_redirect($lost_url, $post);
             if (null !== $suggestion) {
                 $result['suggested_redirect'] = $suggestion;

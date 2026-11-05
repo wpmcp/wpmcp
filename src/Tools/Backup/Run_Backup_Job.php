@@ -110,10 +110,53 @@ class Run_Backup_Job
         return in_array($scope, ['database', 'files', 'uploads'], true) ? $scope : 'all';
     }
 
+    /**
+     * Why a job's recorded owner may no longer run it, or null when it may
+     * or the job records no owner (a schedule's job is vetted against its
+     * creator by Backup_Schedule::job_refusal() instead).
+     */
+    private static function owner_refusal(array $job): ?string
+    {
+        if (! array_key_exists('user_id', $job)) {
+            return null;
+        }
+
+        $capability = Network_Scope::capability();
+        $owner      = (int) $job['user_id'];
+        if ($owner > 0 && user_can($owner, $capability)) {
+            return null;
+        }
+
+        return sprintf('Canceled because the user who queued this backup no longer has %s.', $capability);
+    }
+
     public function handle(int $job_id): void
     {
         $job = Backup_Job_Store::get($job_id);
         if (null === $job) {
+            return;
+        }
+
+        // Only a queued job runs (issue #563). A completed, failed or
+        // canceled one would be produced again (on multisite, one more
+        // network-wide archive), and a running one means this is a
+        // duplicate delivery. The job keeps its outcome; the refused run is
+        // recorded on it so it is visible in get-backup-status.
+        $status = (string) ($job['status'] ?? '');
+        if ('queued' !== $status) {
+            Backup_Job_Store::update($job_id, [
+                'last_refusal' => sprintf('A run was refused because the job is %s, not queued.', $status),
+            ]);
+            return;
+        }
+
+        // The user who queued a one-off backup must still be allowed to
+        // run one (manage_options, manage_network_options on multisite).
+        // Cron has nobody signed in, so Network_Scope's own check cannot
+        // tell; this is the check it relies on.
+        $refusal = self::owner_refusal($job);
+        if (null !== $refusal) {
+            Backup_Job_Store::update($job_id, [ 'status' => 'canceled', 'error' => $refusal ]);
             return;
         }
 
@@ -127,10 +170,16 @@ class Run_Backup_Job
             return;
         }
 
-        // The producer receives the post-update record, not the record as it
-        // was read a line earlier: handing it a job that still claims to be
-        // queued would make any status the producer reads or logs a lie.
-        $job = Backup_Job_Store::update($job_id, ['status' => 'running']) ?? $job;
+        // Claim the job: queued to running in one locked step (issue #607),
+        // so a second delivery of the same event that read "queued" a moment
+        // ago cannot run it as well. The producer receives the post-update
+        // record: handing it a job that still claims to be queued would make
+        // any status the producer reads or logs a lie.
+        $claimed = Backup_Job_Store::transition($job_id, 'queued', ['status' => 'running']);
+        if (null === $claimed) {
+            return;
+        }
+        $job = $claimed;
 
         try {
             $artifact = ($this->producer)($job);

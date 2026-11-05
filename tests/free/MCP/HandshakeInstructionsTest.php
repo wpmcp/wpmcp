@@ -148,4 +148,21 @@ class HandshakeInstructionsTest extends \WP_UnitTestCase
             mb_strlen($summary)
         );
     }
+
+    /**
+     * Issue #598: the connection message must not claim more than is true.
+     * Not every write records an undo point (install-plugin, insert-row and
+     * the others the README lists), so it says what an operation_id means
+     * instead of promising one for every write.
+     */
+    public function test_safety_line_does_not_claim_every_write_is_undoable(): void
+    {
+        $line = (new Handshake_Instructions())->safety_line();
+
+        $this->assertStringNotContainsString('every write', $line);
+        $this->assertStringContainsString('operation_id', $line);
+        $this->assertStringContainsString('rollback-operation', $line);
+        $this->assertStringContainsString('rollback-session', $line);
+        $this->assertStringContainsString('list-operations', $line);
+    }
 }
