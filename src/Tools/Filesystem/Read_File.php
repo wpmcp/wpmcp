@@ -33,6 +33,11 @@ class Read_File
         $content = (string) file_get_contents($abs);
         $rel     = Filesystem_Guard::to_relative($abs);
 
+        // A copy of wp-config.php under any name (issue #606).
+        if (Filesystem_Guard::holds_wp_secrets($content)) {
+            throw new \RuntimeException('This file is protected from reads.');
+        }
+
         if (! Filesystem_Guard::is_utf8($content)) {
             return [
                 'path'   => $rel,

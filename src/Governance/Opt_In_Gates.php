@@ -70,6 +70,11 @@ class Opt_In_Gates
             // sanitized reject-not-clean and has no opt-in filter to open,
             // and marking it dangerous would blunt the warning.
             'wpmcp/add-custom-js'   => ['filter' => 'wpmcp_allow_js_injection', 'is_open' => [Custom_Js_Guard::class, 'is_enabled']],
+            // An Elementor Custom Code snippet (issue #558) is raw markup
+            // printed in wp_head, wp_body_open or wp_footer on every page:
+            // the same surface, so the same gate. Its list and delete
+            // siblings only read or reduce and are deliberately NOT listed.
+            'wpmcp/create-code-snippet' => ['filter' => 'wpmcp_allow_js_injection', 'is_open' => [Custom_Js_Guard::class, 'is_enabled']],
             'wpmcp/write-file'      => ['filter' => 'wpmcp_enable_fs_writes', 'is_open' => [Write_File::class, 'is_enabled']],
             'wpmcp/edit-file'       => ['filter' => 'wpmcp_enable_fs_writes', 'is_open' => [Edit_File::class, 'is_enabled']],
             'wpmcp/delete-file'     => ['filter' => 'wpmcp_enable_fs_writes', 'is_open' => [Delete_File::class, 'is_enabled']],

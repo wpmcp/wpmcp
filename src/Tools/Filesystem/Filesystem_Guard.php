@@ -75,17 +75,42 @@ class Filesystem_Guard
     }
 
     /**
-     * Whether a path is write/delete-protected (wp-config.php / .htaccess),
-     * matched case-insensitively on the basename. Filterable so a site can
-     * extend the protected list.
+     * Constants whose literal value in a PHP file is a site secret: the
+     * database password and the eight authentication keys and salts.
+     */
+    public const SECRET_CONSTANTS = [
+        'DB_PASSWORD', 'AUTH_KEY', 'SECURE_AUTH_KEY', 'LOGGED_IN_KEY', 'NONCE_KEY',
+        'AUTH_SALT', 'SECURE_AUTH_SALT', 'LOGGED_IN_SALT', 'NONCE_SALT',
+    ];
+
+    /** The values wp-config-sample.php ships with, which are not secrets. */
+    private const SECRET_PLACEHOLDERS = ['password_here', 'put your unique phrase here'];
+
+    /**
+     * Whether a path is protected from every file tool (read, search, list,
+     * write, edit, delete), matched case-insensitively on the basename.
+     *
+     * wp-config.php and .htaccess, plus (issue #606) every other name that
+     * starts with wp-config: the copies people, editors and migration tools
+     * leave behind (wp-config.php.bak, wp-config.old, wp-config-backup.php,
+     * wp-config.php~ ...) hold the same password and salts. Only core's
+     * wp-config-sample.php is left open. The wp-config rule is not
+     * filterable; wpmcp_fs_protected_paths can only add exact names.
+     * A copy under any other name is caught by holds_wp_secrets(). Every
+     * site backup folder is protected too (in_site_backup_dir()).
      */
     public static function is_protected(string $abs): bool
     {
+        // Every site backup folder (issue #550).
         if (self::in_site_backup_dir($abs)) {
             return true;
         }
 
-        $base      = strtolower(basename($abs));
+        // Every wp-config copy except core's sample (issue #606).
+        $base = strtolower(basename($abs));
+        if (0 === strpos($base, 'wp-config') && 'wp-config-sample.php' !== $base) {
+            return true;
+        }
         $protected = ['wp-config.php', '.htaccess'];
         /** Filter the write/delete-protected basenames. */
         $protected = (array) apply_filters('wpmcp_fs_protected_paths', $protected, $abs);
@@ -124,6 +149,89 @@ class Filesystem_Guard
             $segments = explode('/', strtolower(str_replace('\\', '/', $real)));
             return in_array(self::SITE_BACKUP_DIR, $segments, true);
         }
+        return false;
+    }
+
+    /**
+     * Pure (issue #606): does this file content define DB_PASSWORD or one of
+     * the keys and salts as a real literal, the way wp-config.php does?
+     *
+     * Read on PHP tokens, so a constant named only in a comment or a string
+     * (pluggable.php's docblock example salts) does not count, nor does a
+     * value read from the environment or a variable (setup-config.php), nor
+     * wp-config-sample.php's placeholders or an empty value. Text without an
+     * open tag is read as PHP too, so a wp-config.txt copy is caught.
+     * Cheap for ordinary files: nothing is tokenized unless one of the
+     * constant names appears in the text.
+     */
+    public static function holds_wp_secrets(string $content): bool
+    {
+        $named = false;
+        foreach (self::SECRET_CONSTANTS as $constant) {
+            if (false !== stripos($content, $constant)) {
+                $named = true;
+                break;
+            }
+        }
+        if (! $named) {
+            return false;
+        }
+
+        if (false === stripos($content, '<?php') && false === strpos($content, '<?=')) {
+            $content = '<?php ' . $content;
+        }
+
+        $tokens = [];
+        foreach (token_get_all($content) as $token) {
+            if (is_array($token) && in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+            $tokens[] = $token;
+        }
+
+        $secret_names = array_map('strtolower', self::SECRET_CONSTANTS);
+        $is_name      = static function ($token, string $text): bool {
+            return is_array($token) && in_array($token[0], [T_STRING, T_NAME_FULLY_QUALIFIED], true)
+                && strtolower(ltrim($token[1], '\\')) === $text;
+        };
+        $literal      = static function ($token): ?string {
+            if (is_array($token) && T_CONSTANT_ENCAPSED_STRING === $token[0]) {
+                return substr($token[1], 1, -1);
+            }
+            return null;
+        };
+        $is_secret_value = static function ($token): bool {
+            if (is_array($token) && T_START_HEREDOC === $token[0]) {
+                return true;
+            }
+            $value = null;
+            if (is_array($token) && T_CONSTANT_ENCAPSED_STRING === $token[0]) {
+                $value = substr($token[1], 1, -1);
+            }
+            return null !== $value && '' !== trim($value)
+                && ! in_array(strtolower(trim($value)), self::SECRET_PLACEHOLDERS, true);
+        };
+
+        $count = count($tokens);
+        for ($i = 0; $i < $count; $i++) {
+            // define( 'NAME', 'value' ... )
+            if ($is_name($tokens[$i], 'define') && '(' === ($tokens[$i + 1] ?? null)) {
+                $name      = $literal($tokens[$i + 2] ?? null);
+                $is_secret = null !== $name && in_array(strtolower($name), $secret_names, true);
+                if ($is_secret && ',' === ($tokens[$i + 3] ?? null) && $is_secret_value($tokens[$i + 4] ?? null)) {
+                    return true;
+                }
+            }
+            // const NAME = 'value';
+            if (is_array($tokens[$i]) && T_CONST === $tokens[$i][0]) {
+                $name_token = $tokens[$i + 1] ?? null;
+                $is_secret  = is_array($name_token) && in_array(strtolower($name_token[1]), $secret_names, true);
+                if ($is_secret && '=' === ($tokens[$i + 2] ?? null) && $is_secret_value($tokens[$i + 3] ?? null)) {
+                    return true;
+                }
+            }
+        }
+
         return false;
     }
 

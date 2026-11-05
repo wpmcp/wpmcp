@@ -176,9 +176,9 @@ class SlashRoundTripTest extends \WP_UnitTestCase
 </channel>
 </rss>
 XML;
-        $path = wp_tempnam('wpmcp-slash-import');
-        rename($path, $path . '.xml');
-        $this->wxr = $path . '.xml';
+        // import-content reads only from the exports directory (issue #603).
+        \WPMCP\Tools\Export\Export_Dir::protect(\WPMCP\Tools\Export\Export_Dir::path());
+        $this->wxr = trailingslashit(\WPMCP\Tools\Export\Export_Dir::path()) . 'wpmcp-slash-import-' . wp_generate_password(8, false) . '.xml';
         file_put_contents($this->wxr, $xml);
 
         $out = (new Import_Content())->handle(['file' => $this->wxr, 'confirm' => true]);
