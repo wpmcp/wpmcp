@@ -94,6 +94,10 @@ class Search_Files
             if (! Filesystem_Guard::is_utf8($content)) {
                 continue;
             }
+            // A copy of wp-config.php under any name (issue #606).
+            if (Filesystem_Guard::holds_wp_secrets($content)) {
+                continue;
+            }
 
             $rel  = Filesystem_Guard::to_relative($f->getPathname());
             $line = 0;
