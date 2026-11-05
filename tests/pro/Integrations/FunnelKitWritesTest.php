@@ -211,6 +211,43 @@ class FunnelKitWritesTest extends \WP_UnitTestCase
         $this->assertSame('wfacp_checkout', get_post_type($checkout));
     }
 
+    /**
+     * Issue #554: an undo takes back only what its own write changed. A step
+     * added by a later call stays, with its place in the funnel; a step or a
+     * funnel removed by a later call is not brought back; undoing the
+     * removal itself still brings it back. The warning names what was kept.
+     */
+    public function test_undoing_an_earlier_write_keeps_later_steps_and_never_resurrects_later_removals(): void
+    {
+        $id      = $this->funnel();
+        $landing = $this->step($id, 'landing', 'Welcome');
+        $added   = $this->ok('add-funnelkit-step', [ 'funnel_id' => $id, 'type' => 'wc_checkout', 'title' => 'Checkout' ]);
+        $own     = (int) $added['result']['step_id'];
+        $this->ok('delete-funnelkit-step', [ 'funnel_id' => $id, 'step_id' => $landing ], [ 'confirm' => true ]);
+        $later = $this->step($id, 'wc_thankyou', 'Thanks');
+        Rollback_Service::take_warnings();
+
+        Rollback_Service::restore_operation((string) $added['operation_id']);
+        $warnings = implode(' ', Rollback_Service::take_warnings());
+
+        $this->assertNull(get_post($own), 'The undone add still removes its own step.');
+        $this->assertNull(get_post($landing), 'A step deleted by a later call came back.');
+        $this->assertSame('wffn_ty', get_post_type($later), 'A step added by a later call was deleted.');
+        $this->assertSame([ $later ], FunnelKit_Funnel_Snapshot::step_ids((array) FunnelKit_Funnel_Snapshot::row($id)), 'The later step is no longer part of the funnel.');
+        $this->assertStringContainsString((string) $later, $warnings);
+        $this->assertStringContainsString((string) $landing, $warnings);
+
+        $renamed = $this->ok('update-funnelkit-funnel', [ 'id' => $id, 'title' => 'Summer' ]);
+        $deleted = $this->ok('delete-funnelkit-funnel', [ 'id' => $id ], [ 'confirm' => true ]);
+        Rollback_Service::restore_operation((string) $renamed['operation_id']);
+        $this->assertNull(FunnelKit_Funnel_Snapshot::row($id), 'Undoing a rename brought back a funnel deleted since.');
+        $this->assertStringContainsString('deleted since', implode(' ', Rollback_Service::take_warnings()));
+
+        Rollback_Service::restore_operation((string) $deleted['operation_id']);
+        $this->assertNotNull(FunnelKit_Funnel_Snapshot::row($id), 'Undoing the delete itself still brings the funnel back.');
+        $this->assertSame('wffn_ty', get_post_type($later));
+    }
+
     public function test_deleting_a_funnel_needs_confirm_and_rollback_brings_back_the_funnel_its_meta_and_its_steps(): void
     {
         $id       = $this->funnel();

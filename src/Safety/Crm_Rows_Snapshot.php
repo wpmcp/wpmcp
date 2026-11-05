@@ -43,13 +43,17 @@ if (! defined('ABSPATH')) {
  * highest id of every table its kind covers is noted, and the rows that match
  * the kind's sets afterwards and lie above it are recorded as created
  * ('created_rows'), with the status every status-bearing row was left in
- * ('after'). The tables are always built from the site prefix and a fixed
+ * ('after') and the saved rows the write itself removed ('deleted_rows',
+ * issue #553). The tables are always built from the site prefix and a fixed
  * allowlist of names, so a key can never reach any other table.
  *
  * The restore removes the created rows and puts every saved row back by id:
- * one that still exists is set back to its saved values, one that is gone is
- * re-inserted at its id. Rows the write neither saved nor created are left
- * alone. Consent is never restored over the person's own choice:
+ * one that still exists is set back to its saved values, and one that is gone
+ * is re-inserted at its id only when this write removed it. A saved row
+ * removed since the write (a list the person left, a contact deleted) stays
+ * removed and is named in the warning, so an undo never resubscribes anyone
+ * or brings back erased personal data. Rows the write neither saved nor
+ * created are left alone. Consent is never restored over the person's own choice:
  *  - a row whose status changed since the write (a confirmed opt-in, an
  *    unsubscribe) keeps its current status, and a created row whose status
  *    changed since stays;
@@ -371,6 +375,9 @@ final class Crm_Rows_Snapshot
 
         $after   = (array) ($data['after'] ?? []);
         $created = (array) ($data['created_rows'] ?? []);
+        // A snapshot recorded before 'deleted_rows' existed cannot tell a
+        // row its write removed from one removed since: none is re-added.
+        $removed = array_key_exists('deleted_rows', $data) ? array_map(static fn ($ids): array => array_map('intval', (array) $ids), (array) $data['deleted_rows']) : null;
         $kept    = [];
 
         // A created list or tag that has gained members since stays, and so
@@ -419,6 +426,14 @@ final class Crm_Rows_Snapshot
                 $row_id = (int) $row['id'];
                 $now    = $current[ $row_id ] ?? $current[ (string) $row_id ] ?? null;
                 if (null === $now) {
+                    if (null === $removed) {
+                        $kept[] = sprintf('%s #%d (missing, and this operation predates the record of what it removed, so not re-added)', $name, $row_id);
+                        continue;
+                    }
+                    if (! in_array($row_id, (array) ($removed[ $name ] ?? []), true)) {
+                        $kept[] = sprintf('%s #%d (removed since the write, not re-added)', $name, $row_id);
+                        continue;
+                    }
                     if (! self::insert_row($name, $row)) {
                         $kept[] = sprintf('%s #%d (could not be re-inserted: another row now holds its key)', $name, $row_id);
                     }
@@ -439,7 +454,7 @@ final class Crm_Rows_Snapshot
         self::flush(self::plugin($kind), $kind);
 
         return [] === $kept ? null : sprintf(
-            'CRM rows left as they are, because restoring them would override a subscription choice: %s.',
+            'CRM rows left as they are, because restoring them would override a subscription choice or a removal made since the write: %s.',
             implode(', ', array_values(array_unique($kept)))
         );
     }
@@ -659,7 +674,8 @@ final class Crm_Rows_Snapshot
 
     /**
      * Record into the snapshot the rows a write created, the status it left
-     * every status-bearing row in, and for a create the id it was given.
+     * every status-bearing row in, the saved rows it removed, and for a
+     * create the id it was given.
      *
      * @param array<string, int> $marks
      */
@@ -684,9 +700,16 @@ final class Crm_Rows_Snapshot
 
         $created = [];
         $after   = [];
+        $removed = [];
         foreach ((array) $data['sets'] as $set) {
             $set  = (array) $set;
             $name = (string) $set['table'];
+            // A saved row gone right after the write was removed by it.
+            $saved = array_values(array_filter(array_map(static fn ($row): int => (int) (((array) $row)['id'] ?? 0), (array) ($set['rows'] ?? [])), static fn (int $id): bool => $id > 0));
+            $gone  = array_diff($saved, array_map('intval', array_column(self::rows_by_id($name, $saved), 'id')));
+            if ([] !== $gone) {
+                $removed[ $name ] = array_values(array_unique(array_merge($removed[ $name ] ?? [], $gone)));
+            }
             $mark = $marks[ $name ] ?? PHP_INT_MAX;
             foreach (self::rows($set) as $current) {
                 $row_id = (int) $current['id'];
@@ -704,6 +727,7 @@ final class Crm_Rows_Snapshot
 
         $data['created_rows'] = $created;
         $data['after']        = $after;
+        $data['deleted_rows'] = $removed;
         $snapshot['data']     = $data;
         Snapshot_Store::update_snapshot($operation_id, $snapshot);
     }

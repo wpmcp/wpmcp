@@ -263,6 +263,82 @@ class CrmLiveTest extends \WP_UnitTestCase
         $this->assertStringContainsString('left in place', implode(' ', Rollback_Service::take_warnings()));
         $this->assertSame('unsubscribed', $mp->getSubscriber($id)['status']);
     }
+    /**
+     * Issue #553: a rollback puts back only what its own operation removed.
+     * A list the person left, or a contact deleted, after the write stays
+     * that way, through FluentCRM's own detach and delete.
+     */
+    public function test_fluentcrm_rollback_never_re_adds_what_was_removed_after_the_write(): void
+    {
+        $this->block_http();
+        $news  = $this->call('write', 'fluentcrm-create-list', [ 'title' => 'Live left since' ])['result']['list']['id'];
+        $other = $this->call('write', 'fluentcrm-create-list', [ 'title' => 'Live renamed' ])['result']['list']['id'];
+        $id    = (int) FluentCrmApi('contacts')->createOrUpdate([ 'email' => 'live-left@example.com', 'first_name' => 'Ada', 'status' => 'subscribed', 'lists' => [ $news, $other ] ])->id;
+        $this->assertSame([ $news, $other ], array_map('intval', $this->fluentcrm($id)->lists->pluck('id')->sort()->values()->toArray()));
+
+        // A name edit, then the person leaves a list: the undo keeps them off it.
+        $edit = $this->call('write', 'fluentcrm-update-contact', [ 'id' => $id, 'first_name' => 'Augusta' ]);
+        $this->fluentcrm($id)->detachLists([ $news ]);
+        Rollback_Service::take_warnings();
+        $this->assertTrue(Rollback_Service::restore_operation((string) $edit['operation_id']));
+        $this->assertSame('Ada', $this->fluentcrm($id)->first_name, 'the name edit is undone');
+        $this->assertSame([ $other ], array_map('intval', $this->fluentcrm($id)->lists->pluck('id')->toArray()), 'the list left since is not re-joined');
+        $this->assertStringContainsString('removed since the write', self::warnings());
+
+        // A list rename, then its member leaves: the rename is undone, the member stays out.
+        $rename = $this->call('write', 'fluentcrm-update-list', [ 'id' => $other, 'title' => 'Live renamed twice' ]);
+        $this->fluentcrm($id)->detachLists([ $other ]);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $rename['operation_id']));
+        $this->assertSame('Live renamed', \FluentCrm\App\Models\Lists::find($other)->title);
+        $this->assertSame([], $this->fluentcrm($id)->lists->pluck('id')->toArray());
+
+        // An edit, then the contact is deleted through FluentCRM: the undo does not recreate it.
+        $again = $this->call('write', 'fluentcrm-update-contact', [ 'id' => $id, 'last_name' => 'Lovelace' ]);
+        \FluentCrm\App\Services\Helper::deleteContacts([ $id ]);
+        Rollback_Service::take_warnings();
+        $this->assertTrue(Rollback_Service::restore_operation((string) $again['operation_id']));
+        $this->assertNull($this->fluentcrm($id));
+        $this->assertFalse((bool) FluentCrmApi('contacts')->getContact('live-left@example.com'), 'a deleted contact is not brought back subscribed');
+        $this->assertStringContainsString('removed since the write', self::warnings());
+    }
+
+    /**
+     * Issue #553 on MailPoet: a membership removed from a list, or a
+     * subscriber deleted permanently, after the write is not put back.
+     */
+    public function test_mailpoet_rollback_never_re_adds_what_was_removed_after_the_write(): void
+    {
+        $this->block_http();
+        $mp          = \MailPoet\API\API::MP('v1');
+        $container   = \MailPoet\DI\ContainerWrapper::getInstance();
+        $subscribers = $container->get(\MailPoet\Subscribers\SubscribersRepository::class);
+        $list        = $this->call('write', 'mailpoet-create-list', [ 'title' => 'Live removed since' ])['result']['list']['id'];
+        $id          = (int) $mp->addSubscriber([ 'email' => 'live-mp-removed@example.com', 'first_name' => 'Ada' ], [ $list ], [ 'send_confirmation_email' => false, 'schedule_welcome_email' => false, 'skip_subscriber_notification' => true ])['id'];
+        $this->assertSame([ (string) $list ], array_map('strval', array_column($mp->getSubscriber($id)['subscriptions'], 'segment_id')));
+
+        // A list rename, then MailPoet removes the member from the list.
+        $rename  = $this->call('write', 'mailpoet-update-list', [ 'id' => $list, 'title' => 'Live renamed list' ]);
+        $segment = $container->get(\MailPoet\Segments\SegmentsRepository::class)->findOneById($list);
+        $this->assertSame(1, $subscribers->bulkRemoveFromSegment($segment, [ $id ]));
+        Rollback_Service::take_warnings();
+        $this->assertTrue(Rollback_Service::restore_operation((string) $rename['operation_id']));
+        $this->assertContains('Live removed since', array_column($mp->getLists(), 'name'), 'the rename is undone');
+        $this->assertSame([], $mp->getSubscriber($id)['subscriptions'], 'the removed membership is not put back');
+        $this->assertStringContainsString('removed since the write', self::warnings());
+
+        // An edit, then the subscriber is deleted permanently: the undo does not recreate it.
+        $edit = $this->call('write', 'mailpoet-update-contact', [ 'id' => $id, 'first_name' => 'Augusta' ]);
+        $this->assertSame(1, $subscribers->bulkDelete([ $id ]));
+        \WPMCP\Safety\Crm_Rows_Snapshot::flush('mailpoet');
+        $this->assertTrue(Rollback_Service::restore_operation((string) $edit['operation_id']));
+        try {
+            $mp->getSubscriber('live-mp-removed@example.com');
+            $this->fail('a permanently deleted subscriber is not recreated');
+        } catch (\MailPoet\API\MP\v1\APIException $e) {
+            $this->assertSame(\MailPoet\API\MP\v1\APIException::SUBSCRIBER_NOT_EXISTS, $e->getCode());
+        }
+    }
+
     public function test_fluentcrm_campaigns_imports_and_automations_run_through_fluentcrm(): void
     {
         $mail = $this->capture_wp_mail();
