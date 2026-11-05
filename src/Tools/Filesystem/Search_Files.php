@@ -19,6 +19,8 @@ class Search_Files
 
     public function handle(array $args): array
     {
+        Filesystem_Guard::assert_reads_allowed();
+
         $query = (string) ($args['query'] ?? '');
         if ('' === $query) {
             throw new \InvalidArgumentException('A search query is required.');

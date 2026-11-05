@@ -229,6 +229,7 @@ use WPMCP\Tools\Filesystem\Search_Files;
 use WPMCP\Tools\Filesystem\Write_File;
 use WPMCP\Tools\Filesystem\Edit_File;
 use WPMCP\Tools\Filesystem\Delete_File;
+use WPMCP\Tools\Filesystem\Filesystem_Guard;
 use WPMCP\Tools\Performance\Analyze_Performance;
 use WPMCP\Tools\Security\Scan_Security;
 use WPMCP\Tools\Security\Incident_Response;
@@ -2573,7 +2574,7 @@ final class Plugin
                 'required'   => [ 'path' ],
             ],
             [$read_file, 'handle'],
-            'manage_options',
+            Filesystem_Guard::read_capability(),
             'filesystem',
             'read'
         ));
@@ -2589,7 +2590,7 @@ final class Plugin
                 ],
             ],
             [$list_directory, 'handle'],
-            'manage_options',
+            Filesystem_Guard::read_capability(),
             'filesystem',
             'read'
         ));
@@ -2608,7 +2609,7 @@ final class Plugin
                 'required'   => [ 'query' ],
             ],
             [$search_files, 'handle'],
-            'manage_options',
+            Filesystem_Guard::read_capability(),
             'filesystem',
             'read'
         ));
@@ -6058,7 +6059,8 @@ final class Plugin
                 ],
             ],
             [$get_debug_log, 'handle'],
-            'manage_options',
+            // One debug.log for the whole network (issue #559).
+            Filesystem_Guard::read_capability(),
             'diagnostics',
             'read'
         ));
