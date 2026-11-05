@@ -279,29 +279,23 @@ class InternalStoreGatewaySecretReadTest extends \WP_UnitTestCase
         ]);
         $this->assertSame(1, $out['affected']);
 
-        $sql  = $wpdb->prepare("SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name = %s", Database_Guard::AUDIT_OPTION);
-        $read = (new Query())->handle([ 'sql' => $sql ]);
-        $this->assertSame(1, $read['row_count']);
-        $this->assertNoCredential($read, 'query on the audit log row');
+        // query does not read the audit log's value at all since #621 (it is
+        // a locked option); none of these spellings returns a credential.
+        foreach ([
+            $wpdb->prepare("SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name = %s", Database_Guard::AUDIT_OPTION),
+            $wpdb->prepare("SELECT option_value AS v FROM {$wpdb->options} WHERE option_name = %s", Database_Guard::AUDIT_OPTION),
+            "SELECT * FROM {$wpdb->options} WHERE option_name LIKE 'wpmcp\\_db\\_write\\_audit%'",
+        ] as $sql) {
+            $this->refused(static fn () => (new Query())->handle([ 'sql' => $sql ]), "query {$sql}");
+        }
 
-        // The masked copy is still a readable audit log: the entry is there
-        // with every non-secret field intact.
-        $log  = unserialize($read['rows'][0]['option_value'], [ 'allowed_classes' => false ]);
-        $this->assertIsArray($log);
+        // The audit trail itself is still useful: the entry is there with
+        // every non-secret field intact.
+        $log  = (array) get_option(Database_Guard::AUDIT_OPTION, []);
         $last = end($log);
         $this->assertSame('update', $last['op']);
         $this->assertSame($wpdb->options, $last['table']);
-        $this->assertMaskedSettings($last['before'][0]['option_value'], 'query on the audit log row');
-
-        // Without the option_name column the row is still recognized.
-        $bare = (new Query())->handle([ 'sql' => $wpdb->prepare("SELECT option_value AS v FROM {$wpdb->options} WHERE option_name = %s", Database_Guard::AUDIT_OPTION) ]);
-        $this->assertSame(1, $bare['row_count']);
-        $this->assertNoCredential($bare, 'query on the audit log value without its option_name');
-
-        // SELECT * reaches the same row.
-        $all = (new Query())->handle([ 'sql' => "SELECT * FROM {$wpdb->options} WHERE option_name LIKE 'wpmcp\\_db\\_write\\_audit%'" ]);
-        $this->assertGreaterThan(0, $all['row_count']);
-        $this->assertNoCredential($all, 'SELECT * on the audit log row');
+        $this->assertMaskedSettings($last['before'][0]['option_value'], 'the stored audit log');
 
         // The stored audit log itself holds no credential (PR #584 review):
         // it is masked when written, so no SQL transform can unwrap it.
@@ -383,7 +377,13 @@ class InternalStoreGatewaySecretReadTest extends \WP_UnitTestCase
                 // limit of #528's read-time mask, not an internal store.
                 $wpdb->prepare("SELECT {$expr} AS v FROM {$wpdb->options} WHERE option_name <> %s", self::OPTION),
             ] as $sql) {
-                $read = (new Query())->handle([ 'sql' => $sql ]);
+                try {
+                    $read = (new Query())->handle([ 'sql' => $sql ]);
+                } catch (\RuntimeException $e) {
+                    // Refused (issue #621): nothing came back.
+                    $this->assertNoCredential($e->getMessage(), "query refusal for {$sql}");
+                    continue;
+                }
                 $text = implode("\n", array_map(static fn ($row) => self::decode((string) ($row['v'] ?? ''), $how), (array) $read['rows']));
                 foreach (self::SECRETS as $key => $value) {
                     $this->assertStringNotContainsString(strtolower($value), strtolower($text), "{$key} leaked from {$where} through {$label}: {$sql}");

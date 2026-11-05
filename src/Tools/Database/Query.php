@@ -59,6 +59,14 @@ class Query
             throw new \RuntimeException(esc_html($scope->get_error_message()));
         }
 
+        // Option values only through a plain lookup of named, readable
+        // options: the live gateway settings row cannot be masked at rest,
+        // and a SQL transform defeats the result mask (issue #621).
+        $option_read = Database_Guard::guard_option_value_read($sql);
+        if (is_wp_error($option_read)) {
+            throw new \RuntimeException(esc_html($option_read->get_error_message()));
+        }
+
         global $wpdb;
 
         $limit = isset($args['limit']) ? (int) $args['limit'] : Database_Guard::MAX_ROWS;
