@@ -181,47 +181,88 @@ class Registrar
         return Client_Access::denial($a) ?? self::plugin_missing($a) ?? Content_Guard::input_refusal($a, $input) ?? false;
     }
 
-    /** Test seam: a non-null value stands in for whether WooCommerce is loaded. */
-    private static ?bool $woocommerce_loaded_for_tests = null;
+    /**
+     * Governance domains whose every tool needs one plugin loaded, keyed by
+     * domain: the plugin's name for the refusal, its slug for the error
+     * data, and the class or function that is present only while the plugin
+     * is active (issue #631). Named as strings: the directory build strips
+     * some of these integrations, and this core class must not name a class
+     * a build lacks.
+     *
+     * Integration dispatcher pairs are not listed: they answer
+     * integration_unavailable themselves, and their list-operations op works
+     * without the plugin. Neither is Elementor: its tools read stored
+     * Elementor data and detect the version without Elementor loaded, and
+     * each one that needs the runtime refuses with elementor_not_active.
+     *
+     * @var array<string, array{name: string, slug: string, class?: string, function?: string}>
+     */
+    private const PLUGIN_DOMAINS = [
+        'woocommerce' => [ 'name' => 'WooCommerce', 'slug' => 'woocommerce', 'class' => 'WooCommerce' ],
+        'acf'         => [ 'name' => 'Advanced Custom Fields', 'slug' => 'advanced-custom-fields', 'function' => 'acf_get_field_groups' ],
+    ];
 
-    public static function set_woocommerce_loaded_for_tests(?bool $loaded): void
+    /** @var array<string, bool> Test seam: per domain, stands in for whether its plugin is loaded. */
+    private static array $plugin_loaded_for_tests = [];
+
+    public static function set_plugin_loaded_for_tests(string $domain, ?bool $loaded): void
     {
         if (! defined('WPMCP_TESTING') || ! WPMCP_TESTING) {
             return;
         }
-        self::$woocommerce_loaded_for_tests = $loaded;
+        if (null === $loaded) {
+            unset(self::$plugin_loaded_for_tests[ $domain ]);
+            return;
+        }
+        self::$plugin_loaded_for_tests[ $domain ] = $loaded;
     }
 
-    /**
-     * Whether WooCommerce is loaded. Written here rather than borrowed from
-     * the store catalog's own guard: the directory build does not ship the
-     * catalog, and this core class must not name a class that build lacks.
-     */
-    private static function woocommerce_loaded(): bool
+    public static function set_woocommerce_loaded_for_tests(?bool $loaded): void
     {
-        return self::$woocommerce_loaded_for_tests ?? class_exists('WooCommerce');
+        self::set_plugin_loaded_for_tests('woocommerce', $loaded);
+    }
+
+    /** Whether the plugin a domain depends on is loaded; true for a domain with none. */
+    private static function plugin_loaded(string $domain): bool
+    {
+        $dependency = self::PLUGIN_DOMAINS[ $domain ] ?? null;
+        if (null === $dependency) {
+            return true;
+        }
+        if (isset(self::$plugin_loaded_for_tests[ $domain ])) {
+            return self::$plugin_loaded_for_tests[ $domain ];
+        }
+        if (isset($dependency['class'])) {
+            return class_exists($dependency['class']);
+        }
+        return function_exists($dependency['function'] ?? '');
     }
 
     /**
-     * The refusal for a WooCommerce tool on a site without WooCommerce
-     * (issue #631). Its manage_woocommerce (or shop order) capability does
-     * not exist there, so the capability check fails first and the client
-     * was told "Permission denied", which points at the wrong fix. Only
-     * explains a denial already made; it never allows anything.
+     * The refusal for a tool whose plugin is not active (issue #631), or
+     * null when the plugin is loaded or the tool needs none. Asked twice:
+     * after a permission denial, because a plugin never installed leaves no
+     * capability and "Permission denied" points at the wrong fix; and before
+     * every callback, because a deactivated plugin (WooCommerce) leaves its
+     * capabilities on the administrator role, so the permission check passes
+     * and the callback would call functions that are not there. It never
+     * allows anything.
      */
     private static function plugin_missing(Ability $a): ?\WP_Error
     {
-        if ('woocommerce' !== $a->domain || self::woocommerce_loaded()) {
+        if (self::plugin_loaded($a->domain)) {
             return null;
         }
+        $dependency = self::PLUGIN_DOMAINS[ $a->domain ];
 
         return new \WP_Error(
             'plugin_missing',
             sprintf(
-                'WooCommerce is not active on this site, so %s cannot run. Install and activate WooCommerce, then try again.',
+                '%1$s is not active on this site, so %2$s cannot run. Install and activate %1$s, then try again.',
+                $dependency['name'],
                 $a->name
             ),
-            [ 'status' => 403, 'plugin' => 'woocommerce' ]
+            [ 'status' => 403, 'plugin' => $dependency['slug'] ]
         );
     }
 
@@ -446,6 +487,14 @@ class Registrar
                 );
                 $this->record_outcome($a, $client, $error, 0, $args, null);
                 return $error;
+            }
+
+            // A tool whose plugin is not active never reaches its callback
+            // (issue #631), whatever the permission check decided.
+            $missing = self::plugin_missing($a);
+            if (null !== $missing) {
+                $this->record_outcome($a, $client, $missing, 0, $args, null);
+                return $missing;
             }
 
             // Bracket the call rather than resetting the context, so a tool

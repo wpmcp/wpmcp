@@ -19,6 +19,12 @@ if (! defined('ABSPATH')) {
  * (MySQL commits DDL implicitly, so no transaction can span it), which is
  * why the caller takes a safety archive first.
  *
+ * Other requests keep running during a restore and may recreate a table or
+ * write a row the dump is about to write (issue #745). A CREATE TABLE that
+ * finds its table recreated drops it and runs again, and an INSERT that
+ * finds a row with its key runs again as REPLACE, so the dump's schema and
+ * rows end up in place either way (see run()).
+ *
  * Also repairs one historical defect: dumps written before this change
  * escaped values through $wpdb->prepare() without removing its per-request
  * placeholder, so every "%" in the data was written as a random
@@ -29,6 +35,15 @@ if (! defined('ABSPATH')) {
 class Sql_Importer
 {
     private const PLACEHOLDER_PATTERN = '/\{[0-9a-f]{64}\}/';
+
+    /** MySQL ER_TABLE_EXISTS_ERROR: CREATE TABLE on a name that exists. */
+    private const ER_TABLE_EXISTS = 1050;
+
+    /** MySQL ER_DUP_ENTRY: a row with the same primary or unique key exists. */
+    private const ER_DUP_ENTRY = 1062;
+
+    /** Times one statement is retried after colliding with another request. */
+    private const RETRIES = 3;
 
     private string $path;
     private Sql_Import_Policy $policy;
@@ -146,12 +161,7 @@ class Sql_Importer
                 // holding bytes that are invalid in its table's charset is
                 // therefore rejected here rather than silently mangled; the
                 // import stops, reports it, and the caller rolls back.
-                // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Replaying a WP MCP dump: every value in it was escaped by $wpdb->prepare() when it was written, and Sql_Import_Policy (src/Tools/Backup/Sql_Import_Policy.php) has admitted this statement as a SET, DROP/CREATE TABLE or literal-only INSERT on this site's own prefix.
-                $result = $wpdb->query($sql);
-
-                self::forget_saved_query();
-
-                if (false === $result || '' !== (string) $wpdb->last_error) {
+                if (! self::run($sql, $class)) {
                     $error = '' !== (string) $wpdb->last_error ? (string) $wpdb->last_error : 'The database rejected the statement.';
                     return [
                         'executed' => $executed,
@@ -183,6 +193,93 @@ class Sql_Importer
         }
 
         return ['executed' => $executed, 'failure' => null];
+    }
+
+    /**
+     * Run one admitted statement, tolerating what another request can do
+     * to the tables in the middle of a restore (issue #745).
+     *
+     * A restore does not stop other requests: the get-backup-status poll
+     * the tool asks clients to make, REST calls and WP-Cron all load every
+     * plugin, and a plugin that finds its table or option missing creates
+     * it. Two statements can then collide with that write:
+     *
+     *  - CREATE TABLE, when the table was recreated between the dump's
+     *    DROP and this CREATE. The table is dropped again and the CREATE
+     *    retried, so the dump's own definition is the one that ends up in
+     *    place.
+     *  - INSERT, when a row with the same primary or unique key was written
+     *    into the freshly created table. The statement is retried as
+     *    REPLACE with the same VALUES, so the dump's row replaces the
+     *    other request's one. A multi-row INSERT that failed part-way left
+     *    either nothing (InnoDB rolls the statement back) or a prefix of
+     *    the dump's own rows (MyISAM), and REPLACE writes those again with
+     *    the same values.
+     *
+     * Only those two database errors are retried, and only as the same
+     * statement: the policy has already admitted it, and the rewrite
+     * changes the keyword and nothing else. Every other error is reported
+     * as before, and the caller rolls back.
+     */
+    private static function run(string $sql, array $class): bool
+    {
+        global $wpdb;
+
+        for ($attempt = 0; $attempt <= self::RETRIES; $attempt++) {
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Replaying a WP MCP dump: every value in it was escaped by $wpdb->prepare() when it was written, and Sql_Import_Policy (src/Tools/Backup/Sql_Import_Policy.php) has admitted this statement as a SET, DROP/CREATE TABLE or literal-only INSERT on this site's own prefix. The only rewrite is INSERT INTO to REPLACE INTO in self::retry().
+            $result = $wpdb->query($sql);
+
+            self::forget_saved_query();
+
+            if (false !== $result && '' === (string) $wpdb->last_error) {
+                return true;
+            }
+
+            $retry = $attempt < self::RETRIES ? self::retry($sql, $class) : null;
+            if (null === $retry) {
+                return false;
+            }
+            $sql = $retry;
+        }
+
+        return false;
+    }
+
+    /**
+     * The statement to run again after a collision with another request,
+     * or null when the error is not one.
+     */
+    private static function retry(string $sql, array $class): ?string
+    {
+        global $wpdb;
+
+        $errno   = self::last_errno();
+        $message = (string) $wpdb->last_error;
+        $exists  = self::ER_TABLE_EXISTS === $errno || (0 === $errno && str_contains($message, 'already exists'));
+        $dup     = self::ER_DUP_ENTRY === $errno || (0 === $errno && str_contains($message, 'Duplicate entry'));
+
+        if (Sql_Import_Policy::KIND_CREATE === $class['kind'] && null !== $class['table'] && $exists) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- The same DROP TABLE IF EXISTS the dump ran one statement earlier, on the table its admitted CREATE names; %i quotes it.
+            $dropped = $wpdb->query($wpdb->prepare('DROP TABLE IF EXISTS %i', $class['table']));
+            self::forget_saved_query();
+            return false === $dropped ? null : $sql;
+        }
+
+        if (Sql_Import_Policy::KIND_INSERT === $class['kind'] && $dup) {
+            $replace = preg_replace('/^\s*INSERT\s+INTO\b/i', 'REPLACE INTO', $sql, 1, $count);
+            return 1 === $count && is_string($replace) ? $replace : null;
+        }
+
+        return null;
+    }
+
+    /** The MySQL error number of the last query, or 0 when it cannot be read. */
+    private static function last_errno(): int
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.RestrictedFunctions.mysql_mysqli_errno -- wpdb keeps only the message; the number is what tells a collision from any other error regardless of the server's language.
+        return $wpdb->dbh instanceof \mysqli ? (int) mysqli_errno($wpdb->dbh) : 0;
     }
 
     private function reader(): Sql_Statement_Reader
