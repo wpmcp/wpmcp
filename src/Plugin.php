@@ -6211,13 +6211,21 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-option',
             'free',
-            'Update one wp_options value by name. Refuses get-option\'s denylist; off until the wpmcp_enable_option_write filter opts in. Snapshotted; rollback-operation restores the prior value or removes a new option',
+            'Update one wp_options value by name. Refuses get-option\'s denylist; off until the wpmcp_enable_option_write filter opts in. An option holding an array or object keeps that type: a scalar value for it is refused unless allow_type_change is true. Snapshotted; rollback-operation restores the prior value or removes a new option',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'name'       => [ 'type' => 'string' ],
-                    'value'      => [ 'type' => 'string' ],
-                    'session_id' => [ 'type' => 'string' ],
+                    'name'              => [ 'type' => 'string' ],
+                    'value'             => [
+                        'type'        => [ 'string', 'number', 'integer', 'boolean', 'array', 'object' ],
+                        'description' => 'The new value. Send an object or array for an option that holds structured data.',
+                    ],
+                    'allow_type_change' => [
+                        'type'        => 'boolean',
+                        'default'     => false,
+                        'description' => 'Set true to replace an option that holds an array or object with a scalar value. Without it such a write is refused.',
+                    ],
+                    'session_id'        => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'name', 'value' ],
             ],
