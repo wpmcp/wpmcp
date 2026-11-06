@@ -653,7 +653,7 @@ class Connection_Page
      */
     private function render_custom_connector(): void
     {
-        $connector = Client_Config_Generator::custom_connector();
+        $connector = Client_Config_Generator::custom_connector(true);
         ?>
         <h2><?php echo esc_html__('Custom connector (Claude Desktop and claude.ai)', 'wpmcp'); ?></h2>
         <p>

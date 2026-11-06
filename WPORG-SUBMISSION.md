@@ -176,8 +176,9 @@ tree it scans, so `composer compliance` never sees a flavor readme.
 **Version headers:** `Stable tag: 0.8.1`, `Requires at least: 6.9`,
 `Tested up to: 7.1`, `Requires PHP: 8.1`, `License: GPLv2 or later`. The stable
 tag is substituted from `WPMCP_VERSION` at build time, so it cannot drift from
-the main file. `Tested up to` is not substituted: it is written out in all four
-shipped headers, so `tests/free/Release/ReleaseHeadersTest.php` asserts they
+the main file. `Tested up to` is not substituted: it is written out in the three
+shipped readmes (never in a loader, which Plugin Check reports as
+`plugin_header_tested_up_to_not_allowed`), so `tests/free/Release/ReleaseHeadersTest.php` asserts they
 agree and gate 4b in `scripts/build-wporg-release.sh` re-derives the same check
 from the staged zip. The values above are the ones to re-read (and re-pin)
 before every release, per `docs/release-checklist.md`.
