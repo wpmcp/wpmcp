@@ -36,24 +36,9 @@ final class Op_Guard
 {
     public const DOMAIN = 'woocommerce';
 
-    /** Test seam: a non-null value stands in for whether WooCommerce is loaded. */
-    private static ?bool $test_available = null;
-
-    public static function set_available_for_tests(?bool $available): void
-    {
-        if (! defined('WPMCP_TESTING') || ! WPMCP_TESTING) {
-            return;
-        }
-        self::$test_available = $available;
-    }
-
     /** Whether the host plugin is loaded, mirroring Integration_Dispatcher. */
     public static function is_available(): bool
     {
-        if (null !== self::$test_available) {
-            return self::$test_available;
-        }
-
         return class_exists('WooCommerce');
     }
 

@@ -11,7 +11,6 @@ use WPMCP\Pro\Gate;
 use WPMCP\RateLimit\Rate_Limiter;
 use WPMCP\Safety\Operation_Context;
 use WPMCP\Tools\Content\Content_Guard;
-use WPMCP\Tools\WooCommerce\Catalog\Op_Guard as Woo_Op_Guard;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -173,6 +172,27 @@ class Registrar
         return Client_Access::denial($a) ?? self::plugin_missing($a) ?? Content_Guard::input_refusal($a, $input) ?? false;
     }
 
+    /** Test seam: a non-null value stands in for whether WooCommerce is loaded. */
+    private static ?bool $woocommerce_loaded_for_tests = null;
+
+    public static function set_woocommerce_loaded_for_tests(?bool $loaded): void
+    {
+        if (! defined('WPMCP_TESTING') || ! WPMCP_TESTING) {
+            return;
+        }
+        self::$woocommerce_loaded_for_tests = $loaded;
+    }
+
+    /**
+     * Whether WooCommerce is loaded. Written here rather than borrowed from
+     * the store catalog's own guard: the directory build does not ship the
+     * catalog, and this core class must not name a class that build lacks.
+     */
+    private static function woocommerce_loaded(): bool
+    {
+        return self::$woocommerce_loaded_for_tests ?? class_exists('WooCommerce');
+    }
+
     /**
      * The refusal for a WooCommerce tool on a site without WooCommerce
      * (issue #631). Its manage_woocommerce (or shop order) capability does
@@ -182,7 +202,7 @@ class Registrar
      */
     private static function plugin_missing(Ability $a): ?\WP_Error
     {
-        if (Woo_Op_Guard::DOMAIN !== $a->domain || Woo_Op_Guard::is_available()) {
+        if ('woocommerce' !== $a->domain || self::woocommerce_loaded()) {
             return null;
         }
 

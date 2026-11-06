@@ -16,7 +16,6 @@ use WPMCP\Tools\Dispatch\Call_Tool;
 use WPMCP\Tools\Dispatch\Get_Tool_Schema;
 use WPMCP\Tools\Linking\Suggest_Internal_Links;
 use WPMCP\Tools\Packages\Deactivate_Plugin;
-use WPMCP\Tools\WooCommerce\Catalog\Op_Guard;
 
 /**
  * Refusals that pointed the caller at the wrong fix (issue #631): each one
@@ -44,7 +43,7 @@ class RefusalMessagesTest extends \WP_UnitTestCase
 
     protected function tearDown(): void
     {
-        Op_Guard::set_available_for_tests(null);
+        Registrar::set_woocommerce_loaded_for_tests(null);
         Gate::set_pro_for_tests(null);
         remove_all_filters('wpmcp_rate_limit');
         Rate_Limiter::set_clock_override(null);
@@ -82,7 +81,7 @@ class RefusalMessagesTest extends \WP_UnitTestCase
         // A role with no WooCommerce capability, as an administrator has on
         // a site where WooCommerce never added them.
         wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
-        Op_Guard::set_available_for_tests(false);
+        Registrar::set_woocommerce_loaded_for_tests(false);
 
         $denial = (new Registrar())->permission(self::woo_ability());
 
@@ -94,7 +93,7 @@ class RefusalMessagesTest extends \WP_UnitTestCase
     public function test_a_woocommerce_tool_with_woocommerce_keeps_the_plain_denial(): void
     {
         wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
-        Op_Guard::set_available_for_tests(true);
+        Registrar::set_woocommerce_loaded_for_tests(true);
 
         $this->assertFalse((new Registrar())->permission(self::woo_ability()));
     }
