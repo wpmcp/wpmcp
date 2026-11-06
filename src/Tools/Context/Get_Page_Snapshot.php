@@ -533,8 +533,8 @@ class Get_Page_Snapshot
     {
         if ($locked) {
             return [
-                'theme_presets'   => [],
-                'builder_globals' => [],
+                'theme_presets'   => new \stdClass(),
+                'builder_globals' => new \stdClass(),
                 'has_theme_json'  => function_exists('wp_theme_has_theme_json') ? (bool) wp_theme_has_theme_json() : null,
                 'note'            => 'The post is password protected, so its stored content was not read.',
             ];
@@ -587,9 +587,11 @@ class Get_Page_Snapshot
             }
         }
 
+        // Both are maps of group => slugs; an empty PHP array would encode
+        // as a JSON list, so send an empty object instead (issue #735).
         return [
-            'theme_presets'    => $presets,
-            'builder_globals'  => $globals,
+            'theme_presets'    => [] === $presets ? new \stdClass() : $presets,
+            'builder_globals'  => [] === $globals ? new \stdClass() : $globals,
             'has_theme_json'   => function_exists('wp_theme_has_theme_json') ? (bool) wp_theme_has_theme_json() : null,
             'note'             => '',
         ];
