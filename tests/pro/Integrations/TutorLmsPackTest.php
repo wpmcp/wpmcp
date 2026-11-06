@@ -323,6 +323,21 @@ class TutorLmsPackTest extends \WP_UnitTestCase
         }
     }
 
+    /** Issue #756: a course created and then published in one session goes to the trash on rollback-session. */
+    public function test_a_course_created_then_published_in_one_session_is_trashed_by_rollback_session(): void
+    {
+        $session   = wp_generate_uuid4();
+        $course_id = $this->ok($this->write('tutor-create-course', [ 'title' => 'Glaze' ], $session))['result']['item']['id'];
+        $this->assertSame('draft', get_post_status($course_id));
+        $this->ok($this->write('tutor-update-item', [ 'id' => $course_id, 'status' => 'publish' ], $session));
+        $this->assertSame('publish', get_post_status($course_id));
+
+        Rollback_Service::restore_session($session);
+
+        $this->assertSame([], Rollback_Service::take_warnings());
+        $this->assertSame('trash', get_post_status($course_id));
+    }
+
     public function test_adding_a_lesson_at_a_position_renumbers_its_siblings_and_rollback_puts_them_back(): void
     {
         [, $t1, , $l1, $quiz, $asg] = $this->seed_course();

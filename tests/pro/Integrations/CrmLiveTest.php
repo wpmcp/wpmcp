@@ -339,6 +339,79 @@ class CrmLiveTest extends \WP_UnitTestCase
         }
     }
 
+    /**
+     * Issue #553 on MailPoet: its delete moves the subscriber to the trash,
+     * so the row stays; undoing an edit made before the delete leaves it
+     * there, unchanged, and names it in the warning.
+     */
+    public function test_mailpoet_rollback_of_an_edit_leaves_a_subscriber_trashed_since_in_the_trash(): void
+    {
+        $this->block_http();
+        $mp   = \MailPoet\API\API::MP('v1');
+        $a    = $this->call('write', 'mailpoet-create-list', [ 'title' => 'Live trash A' ])['result']['list']['id'];
+        $b    = $this->call('write', 'mailpoet-create-list', [ 'title' => 'Live trash B' ])['result']['list']['id'];
+        $id   = (int) $mp->addSubscriber([ 'email' => 'live-mp-trash@example.com', 'first_name' => 'R' ], [ $a, $b ], [ 'send_confirmation_email' => false, 'schedule_welcome_email' => false, 'skip_subscriber_notification' => true ])['id'];
+        $edit = $this->call('write', 'mailpoet-update-contact', [ 'id' => $id, 'first_name' => 'Edited2' ]);
+        $this->call('write', 'mailpoet-delete-contact', [ 'id' => $id ], true);
+        $this->assertNotNull($mp->getSubscriber($id)['deleted_at']);
+
+        Rollback_Service::take_warnings();
+        Rollback_Service::restore_operation((string) $edit['operation_id']);
+        $after = $mp->getSubscriber($id);
+        $this->assertNotNull($after['deleted_at'], 'the subscriber stays in MailPoet\'s trash');
+        $this->assertSame('Edited2', $after['first_name'], 'and is left as it is');
+        $this->assertSame('contact_not_found', (string) ((new Plugin_Data_Integration())->handle_read([ 'operation' => 'mailpoet-get-contact', 'args' => [ 'id' => $id ] ])['error']['code'] ?? ''));
+        $this->assertStringContainsString(sprintf('mailpoet_subscribers #%d (trashed since the write', $id), self::warnings());
+    }
+
+    /**
+     * Issue #760: with no working mailer, MailPoet saves the subscriber and
+     * its list memberships, then fails to send the confirmation email. The
+     * op returns the contact with a warning, and its undo removes it.
+     */
+    public function test_mailpoet_create_whose_confirmation_email_failed_returns_the_contact_and_undoes(): void
+    {
+        $this->block_http();
+        $mp   = \MailPoet\API\API::MP('v1');
+        $list = $this->call('write', 'mailpoet-create-list', [ 'title' => 'Live no mailer' ])['result']['list']['id'];
+        remove_all_filters('mailpoet_mailer_smtp_instance');
+        add_filter('mailpoet_mailer_smtp_instance', static fn () => new Failing_PHPMailer(true));
+        $factory = \MailPoet\DI\ContainerWrapper::getInstance()->get(\MailPoet\Mailer\MailerFactory::class);
+        (function (): void {
+            $this->defaultMailer = null;
+        })->call($factory);
+
+        try {
+            $out = $this->call('write', 'mailpoet-create-contact', [ 'email' => 'live-mp-nomail@example.com', 'first_name' => 'One', 'lists' => [ $list ] ]);
+            $id  = (int) $out['result']['contact']['id'];
+            $this->assertSame((string) $id, (string) $mp->getSubscriber('live-mp-nomail@example.com')['id']);
+            $this->assertSame('unconfirmed', $out['result']['contact']['status']);
+            $this->assertStringContainsString('confirmation email was not sent', implode(' ', $out['result']['warnings']));
+            $this->assertNotEmpty($out['operation_id']);
+
+            $import = $this->call('write', 'mailpoet-import-contacts', [ 'contacts' => [ [ 'email' => 'live-mp-nomail-2@example.com' ] ], 'lists' => [ $list ] ]);
+            $this->assertSame([], $import['result']['failed']);
+            $this->assertStringContainsString('confirmation email was not sent', implode(' ', $import['result']['created'][0]['warnings']));
+        } finally {
+            \MailPoet\Mailer\MailerLog::resetMailerLog();
+        }
+
+        Rollback_Service::take_warnings();
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        Rollback_Service::restore_session((string) $import['session_id']);
+        $this->assertSame('', self::warnings());
+        foreach ([ 'live-mp-nomail@example.com', 'live-mp-nomail-2@example.com' ] as $email) {
+            try {
+                $mp->getSubscriber($email);
+                $this->fail('the created subscriber is gone: ' . $email);
+            } catch (\MailPoet\API\MP\v1\APIException $e) {
+                $this->assertSame(\MailPoet\API\MP\v1\APIException::SUBSCRIBER_NOT_EXISTS, $e->getCode());
+            }
+        }
+        global $wpdb;
+        $this->assertSame('0', (string) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE segment_id = %d', $wpdb->prefix . 'mailpoet_subscriber_segment', $list)), 'and so are their list memberships');
+    }
+
     public function test_fluentcrm_campaigns_imports_and_automations_run_through_fluentcrm(): void
     {
         $mail = $this->capture_wp_mail();
@@ -505,6 +578,18 @@ if (! class_exists(Capturing_PHPMailer::class) && class_exists('\\PHPMailer\\PHP
                 self::$sent[] = [ 'to' => (string) $to[0], 'subject' => (string) $this->Subject ];
             }
             return true;
+        }
+    }
+}
+
+if (! class_exists(Failing_PHPMailer::class) && class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
+    /** A PHPMailer that cannot reach any mail server: every send fails. */
+    class Failing_PHPMailer extends \PHPMailer\PHPMailer\PHPMailer
+    {
+        public function send()
+        {
+            $this->ErrorInfo = 'SMTP connect() failed.';
+            return false;
         }
     }
 }
