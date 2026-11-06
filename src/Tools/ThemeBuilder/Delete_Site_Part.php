@@ -29,7 +29,7 @@ class Delete_Site_Part
                 'object_type' => 'post',
                 'object_id'   => $id,
                 'session_id'  => (string) ($args['session_id'] ?? 'default'),
-                'tool_name'   => 'wpmcp/delete-site-part',
+                'tool_name'   => 'delete-site-part',
                 'args'        => $args,
             ],
             static function () use ($id) {
