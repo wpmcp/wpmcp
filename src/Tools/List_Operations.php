@@ -30,15 +30,17 @@ class List_Operations
         global $wpdb;
 
         $limit = (int) ($args['limit'] ?? 20);
+        // Rows to skip, newest first, so the Mutations tab can page (#759).
+        $offset = max(0, (int) ($args['offset'] ?? 0));
         $table = Snapshot_Store::table_name();
 
         [$where, $params] = $this->build_where($args);
         $where_sql         = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
 
         $sql = "SELECT operation_id, session_id, tool_name, object_type, object_id, object_ref, user_id, created_at, rolled_back_at "
-            . "FROM %i {$where_sql} ORDER BY id DESC LIMIT %d";
+            . "FROM %i {$where_sql} ORDER BY id DESC LIMIT %d OFFSET %d";
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- wpmcp_snapshots is this plugin's own audit table; $sql is literal fragments from build_where() (this file) with %i/%s/%d placeholders, all bound on this line, which the sniffs cannot follow through the variable. The log must never be stale.
-        $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge([$table], $params, [$limit])), ARRAY_A);
+        $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge([$table], $params, [$limit, $offset])), ARRAY_A);
 
         $count_sql = "SELECT COUNT(*) FROM %i {$where_sql}";
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- same shape as $sql above: literal fragments from build_where() (this file) with %i/%s/%d placeholders, all bound on this line; the count must match the live log.
