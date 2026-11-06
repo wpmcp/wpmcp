@@ -54,6 +54,26 @@ class Update_Option
         // (issue #507) instead of saving the mask over it.
         $value = Gateway_Secrets::unmask_option($name, $args['value'] ?? '');
 
+        // An option that holds structured data (an array or object) keeps
+        // that type unless the caller asks to change it (issue #729): a
+        // settings array silently replaced by text breaks the plugin that
+        // reads it.
+        $missing = new \stdClass();
+        $current = get_option($name, $missing);
+        if (
+            $missing !== $current
+            && (is_array($current) || is_object($current))
+            && ! (is_array($value) || is_object($value))
+            && true !== filter_var($args['allow_type_change'] ?? false, FILTER_VALIDATE_BOOLEAN)
+        ) {
+            throw new \RuntimeException(sprintf(
+                'Refusing to replace option "%1$s": it holds structured data (%2$s), and the new value (type %3$s) would change its type. Send the value as an object or array, or pass allow_type_change: true to replace it on purpose.',
+                esc_html($name),
+                is_array($current) ? 'an array' : 'an object',
+                esc_html(gettype($value))
+            ));
+        }
+
         $out = Safe_Mutation::run(
             [
                 'object_type' => 'option',

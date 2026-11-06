@@ -482,10 +482,7 @@ class Database_Guard
         $values = [];
         foreach ($gateways as $gateway) {
             if ($gateway instanceof \WC_Payment_Gateway) {
-                $stored = get_option($gateway->get_option_key());
-                if (is_array($stored)) {
-                    self::collect_gateway_secrets($gateway, $stored, $values);
-                }
+                self::collect_stored_gateway_secrets($gateway, get_option($gateway->get_option_key()), $values);
             }
         }
 
@@ -493,16 +490,34 @@ class Database_Guard
             if (! is_array($row) || ! is_string($row['option_name'] ?? null) || ! is_string($row['option_value'] ?? null)) {
                 continue;
             }
-            $gateway  = Gateway_Secrets::gateway_for_option($row['option_name']);
-            $settings = null === $gateway ? null : self::unserialize_array($row['option_value']);
-            if (null !== $settings) {
-                self::collect_gateway_secrets($gateway, $settings, $values);
+            $gateway = Gateway_Secrets::gateway_for_option($row['option_name']);
+            if (null !== $gateway) {
+                self::collect_stored_gateway_secrets($gateway, $row['option_value'], $values);
             }
         }
 
         $values = array_values(array_unique($values));
         usort($values, static fn (string $a, string $b): int => strlen($b) - strlen($a));
         return $values;
+    }
+
+    /**
+     * Add the credential values of a gateway settings value, in whatever
+     * form it is stored (issue #729), to $values: by key when it decodes to
+     * settings, the whole value when it does not (mask_option() masks such
+     * a value whole, so it is the credential as far as the scrub knows).
+     *
+     * @param mixed              $stored
+     * @param array<int, string> $values
+     */
+    private static function collect_stored_gateway_secrets(\WC_Payment_Gateway $gateway, $stored, array &$values): void
+    {
+        $settings = Gateway_Secrets::decode_settings($stored);
+        if (null !== $settings) {
+            self::collect_gateway_secrets($gateway, $settings, $values);
+        } elseif (is_scalar($stored) && ! is_bool($stored) && strlen((string) $stored) >= self::GATEWAY_SECRET_SCRUB_MIN) {
+            $values[] = (string) $stored;
+        }
     }
 
     /**
@@ -556,16 +571,15 @@ class Database_Guard
         return $changed ? serialize($log) : $value; // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- re-encodes the audit log in the same serialized form the options table stores.
     }
 
-    /** A serialized gateway settings option_value with its secrets masked by key. */
+    /**
+     * A gateway settings option_value with its secrets masked by key, in the
+     * form it is stored in: a serialized array, JSON text or a serialized
+     * string, or masked whole when it holds no settings (issue #729).
+     */
     private static function mask_gateway_option_value(string $option, string $value): string
     {
-        $settings = self::unserialize_array($value);
-        if (null === $settings) {
-            return $value;
-        }
-
-        $masked = Gateway_Secrets::mask_option($option, $settings);
-        return $masked === $settings ? $value : serialize($masked); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- re-encodes an option_value in the same serialized form the options table stores.
+        $masked = Gateway_Secrets::mask_option($option, $value);
+        return is_string($masked) ? $masked : Gateway_Secrets::MASK;
     }
 
     /**
