@@ -8673,11 +8673,12 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-crawler-files',
             'free',
-            'Add robots.txt rules (filter, never the file), build llms.txt from pages, or exclude post types, taxonomies or posts from the core sitemap (lists replace). Refused if a physical file or the SEO plugin owns it. Snapshotted',
+            'Add robots.txt rules (filter, never the file), merged into the matching User-agent group (user_agent, default *) with Sitemap lines kept last; build llms.txt from pages, or exclude post types, taxonomies or posts from the core sitemap (lists replace). Refused if a physical file or the SEO plugin owns it. Snapshotted',
             [
                 'type'       => 'object',
                 'properties' => [
                     'robots_rules' => [ 'type' => 'string' ],
+                    'user_agent'   => [ 'type' => 'string' ],
                     'llms'         => [
                         'type'       => 'object',
                         'properties' => [
