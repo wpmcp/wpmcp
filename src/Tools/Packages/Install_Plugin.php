@@ -87,11 +87,23 @@ class Install_Plugin
             throw new \RuntimeException('Could not find plugin "' . esc_html($slug) . '" on wordpress.org: ' . esc_html($info->get_error_message()));
         }
 
-        $upgrader = new \Plugin_Upgrader(new \Automatic_Upgrader_Skin());
+        // The Ajax skin is core's quiet skin that also keeps the errors: a
+        // failed download leaves install() returning null, with the reason
+        // only on the skin. Messages are HTML; the client gets plain text
+        // (issue #746).
+        $skin     = new \WP_Ajax_Upgrader_Skin();
+        $upgrader = new \Plugin_Upgrader($skin);
+        $level    = ob_get_level();
         $result   = $upgrader->install($info->download_link);
+        // On an error the quiet skins open their header buffer a second
+        // time and close it once; drop what is left so the reply is clean.
+        while (ob_get_level() > $level) {
+            ob_end_clean();
+        }
         if (is_wp_error($result) || ! $result) {
-            $message = is_wp_error($result) ? $result->get_error_message() : 'unknown error';
-            throw new \RuntimeException('Plugin install failed: ' . esc_html($message));
+            $message = is_wp_error($result) ? $result->get_error_message() : (string) $skin->get_error_messages();
+            $message = Activation_Guard::plain_message($message);
+            throw new \RuntimeException('Plugin install failed: ' . esc_html('' !== $message ? $message : 'unknown error'));
         }
 
         $plugin_file = $upgrader->plugin_info();
@@ -107,7 +119,7 @@ class Install_Plugin
                     'activation_skipped' => true,
                     'error'              => 'The install used most of the PHP time limit, so the activation did not run.',
                 ]);
-            if (empty($out['activated'])) {
+            if (empty($out['activated']) && empty($out['already_active'])) {
                 $out['next_step'] = sprintf('Installed, not activated: call activate-plugin with plugin "%s".', $plugin_file);
             }
         }
@@ -134,7 +146,7 @@ class Install_Plugin
      * place and there is nothing left for rollback-operation to undo, and
      * the voided undo point leaves no ledger row either (issue #728).
      *
-     * @return array{activated: bool, operation_id?: string, rolled_back?: bool, error?: string}
+     * @return array{activated: bool, already_active?: bool, operation_id?: string, rolled_back?: bool, error?: string}
      */
     public function activate_installed(string $plugin_file, array $args): array
     {
@@ -148,9 +160,13 @@ class Install_Plugin
             throw new \RuntimeException(sprintf('Plugin "%s" was installed but not activated: %s', esc_html($plugin_file), esc_html($e->getMessage())));
         }
 
-        $error = '';
+        $error      = '';
+        $redirected = false;
         try {
-            $out = Plugin_State::locked(static function () use ($plugin_file, $network_wide, $args, &$error) {
+            $out = Plugin_State::locked(static function () use ($plugin_file, $network_wide, $args, &$error, &$redirected) {
+                if (Plugin_State::already_active($plugin_file, $network_wide)) {
+                    return null;
+                }
                 return Safe_Mutation::run(
                     [
                         'object_type'         => 'option',
@@ -162,10 +178,12 @@ class Install_Plugin
                         'args'                => $args,
                         'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ] + Plugin_Network_Scope::snapshot_data($network_wide),
                     ],
-                    function () use ($plugin_file, $network_wide, &$error) {
-                        $result = activate_plugin($plugin_file, '', $network_wide);
+                    function () use ($plugin_file, $network_wide, &$error, &$redirected) {
+                        $result = Activation_Guard::activate($plugin_file, $network_wide, $redirected);
                         if (is_wp_error($result)) {
-                            $error = $result->get_error_message();
+                            $error = Activation_Guard::plain_message($result->get_error_message());
+                        } elseif ($redirected) {
+                            $error = Activation_Guard::redirect_message();
                         }
                         return $result;
                     },
@@ -187,6 +205,11 @@ class Install_Plugin
                 'activated' => Plugin_State::is_active($plugin_file, $network_wide),
                 'error'     => $e->getMessage(),
             ];
+        }
+
+        if (null === $out) {
+            // Already active (issue #747): nothing changed, nothing recorded.
+            return [ 'activated' => false, 'already_active' => true ];
         }
 
         return [

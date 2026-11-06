@@ -6935,7 +6935,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/add-custom-css',
             'pro',
-            'Add site-wide custom CSS via core Additional CSS, so it works on any site (Elementor Pro not required). Appends, or replaces with replace=true. Needs edit_css. Snapshot-first when the Additional-CSS post exists (undo: rollback-operation)',
+            'Add site-wide custom CSS via core Additional CSS (no Elementor Pro needed). Appends; replace=true overwrites, css="" + replace=true clears. Needs edit_css. Snapshot-first when the Additional-CSS post exists (undo: rollback-operation)',
             [
                 'type'       => 'object',
                 'properties' => [

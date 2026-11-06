@@ -13,7 +13,10 @@ if (! defined('ABSPATH')) {
 /**
  * Add site-wide custom CSS through WordPress core Additional CSS
  * (wp_update_custom_css_post), so it works on ANY site, Elementor Pro or not.
- * Appends to the existing CSS by default, or replaces it with replace=true.
+ * Appends to the existing CSS by default, or replaces it with replace=true;
+ * css "" with replace=true clears it (discussion #749), keeping the
+ * Additional-CSS post, emptied, so the clear is snapshotted and undoable
+ * like any other write.
  * When the Additional-CSS post already exists the write is snapshot-first, so
  * the change is undoable via rollback-operation.
  *
@@ -33,16 +36,25 @@ class Add_Custom_Css
             );
         }
 
-        $css = (string) ($args['css'] ?? '');
-        if ('' === trim($css)) {
-            return new \WP_Error('missing_css', 'A non-empty css string is required.');
+        $css     = (string) ($args['css'] ?? '');
+        $replace = ! empty($args['replace']);
+        // An empty css clears the Additional CSS, but only together with
+        // replace=true, so a call that lost its css never wipes the site's
+        // styles (discussion #749).
+        $clear = $replace && array_key_exists('css', $args) && '' === trim($css);
+        if ('' === trim($css) && ! $clear) {
+            return new \WP_Error('missing_css', 'A non-empty css string is required. To clear the Additional CSS, pass css "" with replace=true.');
         }
 
-        $replace = ! empty($args['replace']);
         $current = (string) wp_get_custom_css();
-        $next    = $replace ? $css : trim($current . "\n" . $css);
+        $next    = $replace ? ($clear ? '' : $css) : trim($current . "\n" . $css);
 
         $existing = wp_get_custom_css_post();
+
+        // Nothing stored yet: there is nothing to clear and nothing to undo.
+        if ($clear && ! $existing) {
+            return ['css' => '', 'cleared' => true];
+        }
 
         // No existing Additional-CSS post: creating one destroys nothing, so
         // write directly (mirrors create-post not being snapshot-wrapped).
@@ -82,9 +94,13 @@ class Add_Custom_Css
             return new \WP_Error('mutation_failed', 'The write failed mid-save and was rolled back: ' . $e->getMessage());
         }
 
-        return [
+        $out = [
             'operation_id' => $operation_id,
             'css'          => wp_get_custom_css(),
         ];
+        if ($clear) {
+            $out['cleared'] = true;
+        }
+        return $out;
     }
 }

@@ -80,6 +80,37 @@ class CustomCodeTest extends \WP_UnitTestCase
         $this->assertSame('missing_css', $out->get_error_code());
     }
 
+    /** Discussion #749: css "" with replace=true clears the Additional CSS, undoably. */
+    public function test_empty_css_with_replace_clears_and_is_undoable(): void
+    {
+        (new Add_Custom_Css())->handle(['css' => '.keep{color:red}']);
+        $rows = Snapshot_Store::row_count();
+
+        $out = (new Add_Custom_Css())->handle(['css' => '', 'replace' => true]);
+
+        $this->assertIsArray($out);
+        $this->assertTrue($out['cleared']);
+        $this->assertSame('', $out['css']);
+        $this->assertSame('', trim((string) wp_get_custom_css()));
+        $this->assertSame($rows + 1, Snapshot_Store::row_count(), 'Clearing is a snapshotted write.');
+
+        $restored = (new \WPMCP\Tools\Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        $this->assertTrue($restored['restored']);
+        $this->assertStringContainsString('.keep{color:red}', wp_get_custom_css());
+    }
+
+    /** Discussion #749: without replace, empty css keeps the refusal. */
+    public function test_empty_css_without_replace_is_still_refused(): void
+    {
+        (new Add_Custom_Css())->handle(['css' => '.keep{}']);
+
+        $out = (new Add_Custom_Css())->handle(['css' => '', 'replace' => false]);
+
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('missing_css', $out->get_error_code());
+        $this->assertStringContainsString('.keep{}', wp_get_custom_css());
+    }
+
     public function test_add_custom_css_returns_operation_id(): void
     {
         // Seed once so the custom_css post exists, then a second write snapshots it.
