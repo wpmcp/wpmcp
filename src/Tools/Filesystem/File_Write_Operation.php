@@ -53,6 +53,9 @@ class File_Write_Operation
                 [
                     'object_type'         => File_Write_Snapshot::TYPE,
                     'object_id'           => $operation_id,
+                    // The ledger names the file, not the operation id the
+                    // backup is keyed by (issue #723).
+                    'object_ref'          => Filesystem_Guard::to_relative($abs),
                     'session_id'          => (string) ($args['session_id'] ?? 'default'),
                     'tool_name'           => $tool_name,
                     'args'                => $args,

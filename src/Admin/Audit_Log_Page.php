@@ -187,7 +187,8 @@ class Audit_Log_Page
             /* translators: %d: numeric user ID. */
             $user_label = __('User #%d', 'wpmcp');
             $who   = $user ? $user->display_name : sprintf($user_label, (int) $op['user_id']);
-            $what  = sprintf('%s (#%d)', $op['tool_name'], (int) $op['object_id']);
+            $object = List_Operations::object_label($op);
+            $what   = '' !== $object ? sprintf('%s (%s)', $op['tool_name'], $object) : (string) $op['tool_name'];
 
             echo '<tr>';
             printf('<td>%s</td>', esc_html($who));

@@ -49,7 +49,7 @@ class AuditLogDomainColumnTest extends \WP_UnitTestCase
         $html = (string) ob_get_clean();
 
         $this->assertMatchesRegularExpression('#set-post-terms \(\#16\)</td>\s*<td>content</td>#', $html);
-        $this->assertMatchesRegularExpression('#update-settings \(\#0\)</td>\s*<td>settings</td>#', $html);
+        $this->assertMatchesRegularExpression('#update-settings \(blogname\)</td>\s*<td>settings</td>#', $html);
     }
 
     public function test_get_operations_reports_the_domain_and_filters_by_it(): void

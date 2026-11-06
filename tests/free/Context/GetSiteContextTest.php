@@ -36,7 +36,32 @@ class GetSiteContextTest extends \WP_UnitTestCase
 
         $active_plugins = (array) get_option('active_plugins', []);
         $this->assertSame(count($active_plugins), $out['plugins']['active_count']);
-        $this->assertSame($active_plugins, $out['plugins']['active_slugs']);
+        $this->assertSame(array_values($active_plugins), $out['plugins']['active_slugs']);
+    }
+
+    /**
+     * Issue #722: deactivate_plugins() unsets an entry without renumbering,
+     * so the option can start at key 1. active_slugs must still reach the
+     * wire as a JSON list, and so must the other list fields.
+     */
+    public function test_active_slugs_is_a_json_list_when_the_option_has_a_key_gap(): void
+    {
+        $filter = static fn (): array => [ 1 => 'wpmcp/wpmcp.php', 3 => 'hello.php' ];
+        add_filter('pre_option_active_plugins', $filter);
+        try {
+            $out = (new Get_Site_Context())->handle([]);
+        } finally {
+            remove_filter('pre_option_active_plugins', $filter);
+        }
+
+        $this->assertSame(2, $out['plugins']['active_count']);
+        $this->assertSame([ 'wpmcp/wpmcp.php', 'hello.php' ], $out['plugins']['active_slugs']);
+
+        $wire = json_decode((string) wp_json_encode($out));
+        $this->assertIsArray($wire->plugins->active_slugs, 'active_slugs must encode as a JSON list, not an object');
+        $this->assertSame([ 'wpmcp/wpmcp.php', 'hello.php' ], $wire->plugins->active_slugs);
+        $this->assertIsArray($wire->post_types, 'post_types must encode as a JSON list');
+        $this->assertIsArray($wire->taxonomies, 'taxonomies must encode as a JSON list');
     }
 
     public function test_reports_public_post_type_counts_including_a_freshly_created_post(): void
