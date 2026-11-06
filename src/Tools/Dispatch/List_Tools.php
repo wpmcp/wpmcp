@@ -3,6 +3,8 @@
 namespace WPMCP\Tools\Dispatch;
 
 use WPMCP\MCP\Ability;
+use WPMCP\MCP\Registrar;
+use WPMCP\MCP\Tool_Search;
 use WPMCP\Plugin;
 
 if (! defined('ABSPATH')) {
@@ -28,23 +30,36 @@ if (! defined('ABSPATH')) {
  * tool names and descriptions are static product surface, not site data,
  * and the real permission decision is made (and audited) when a tool is
  * actually invoked.
+ *
+ * search (issue #732) keeps only the tools whose name, description or
+ * operation names contain the term (Tool_Search); a dispatcher pair matched
+ * through its ops lists them as matched_operations.
  */
 class List_Tools
 {
     /** Character clamp for the curated per-tool summary. */
     public const SUMMARY_LENGTH = 160;
 
-    public function handle(array $args): array
+    /**
+     * $registrar defaults to the shared one; a test may inject its own, as
+     * List_Tool_Catalog allows.
+     */
+    public function handle(array $args, ?Registrar $registrar = null): array
     {
         $domain = isset($args['domain']) ? (string) $args['domain'] : '';
         $full   = ! empty($args['full']);
+        $search = isset($args['search']) ? trim((string) $args['search']) : '';
 
-        $abilities = Plugin::instance()->registrar()->all();
+        $abilities = ($registrar ?? Plugin::instance()->registrar())->all();
         usort($abilities, static fn(Ability $a, Ability $b) => strcmp($a->name, $b->name));
 
         $tools = [];
         foreach ($abilities as $ability) {
             if ('' !== $domain && $ability->domain !== $domain) {
+                continue;
+            }
+            $matched_ops = '' === $search ? [] : Tool_Search::match($ability, $search);
+            if (null === $matched_ops) {
                 continue;
             }
 
@@ -55,6 +70,10 @@ class List_Tools
                 'operation' => $ability->operation,
                 'tier'      => $ability->tier,
             ];
+
+            if ([] !== $matched_ops) {
+                $entry['matched_operations'] = $matched_ops;
+            }
 
             if ($full) {
                 $entry['description'] = $ability->description;

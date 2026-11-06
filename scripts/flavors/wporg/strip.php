@@ -1016,14 +1016,6 @@ $plugin_edits[] = ["        \$insert_stock_image  = new Insert_Stock_Image();\n"
 // takes the registration; this is the local its handler was assigned to.
 $plugin_edits[] = ["\n        \$install_package_from_zip = new Install_Package_From_Zip();\n", '', 1];
 
-// Every ability in this build is free and Registrar refuses a pro-tier one
-// outright, so offering the agent a free/pro split to filter on describes a
-// product that is not in the zip.
-$plugin_edits[] = [
-    "with tier (free/pro), operation",
-    "with tier, operation",
-    1,
-];
 // The self-hosted translation loader goes with its method (REMOVED_METHODS):
 // the directory serves language packs, so the languages/ directory the header
 // points at is only ever read by the off-directory builds.

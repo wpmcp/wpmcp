@@ -297,6 +297,19 @@ abstract class Integration_Dispatcher
     }
 
     /**
+     * Names of the ops one dispatcher half answers ('read' or 'write'; write
+     * covers write and destructive ops), in catalog order. Tool search
+     * (issue #732) matches against these so an integration that lives as
+     * ops inside a pair, rather than as tools of its own, is findable.
+     *
+     * @return string[]
+     */
+    public function operation_names(string $channel): array
+    {
+        return array_map('strval', array_keys($this->channel_operations('read' === $channel ? 'read' : 'write')));
+    }
+
+    /**
      * Every op's declared objects (the 'objects' key, issue #450),
      * normalized: op name => ['mode' => ..., 'objects' => [args key path =>
      * ['type', 'access', 'own_type', 'capability']]]. Ops that name no

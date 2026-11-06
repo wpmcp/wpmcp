@@ -9433,12 +9433,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-tool-catalog',
             'free',
-            'List every wpmcp ability here grouped by domain, with tier (free/pro), operation, required capability and read-only/destructive hints, plus per-domain counts. Optional domain and tier filters. Read-only',
+            'List wpmcp abilities by domain: tier, operation, capability, read-only/destructive hints, counts. Filters: domain, tier, search (name, description or op name; op hits in matched_operations). Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
                     'domain' => [ 'type' => 'string' ],
                     'tier'   => [ 'type' => 'string' ],
+                    'search' => [ 'type' => 'string' ],
                 ],
             ],
             [$list_tool_catalog, 'handle'],
@@ -9565,12 +9566,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-tools',
             'free',
-            'List every tool this install registers: name, summary, domain, operation and tier, by name. Optional domain filter; full:true adds full descriptions and MCP annotations; schemas are behind get-tool-schema. Read-only. In compact mode, the discovery entry point for unlisted tools',
+            'List every registered tool: name, summary, domain, operation, tier. Filters: domain, search (as list-tool-catalog). full:true adds descriptions and MCP annotations; schemas: get-tool-schema. Read-only. Compact mode: finds unlisted tools',
             [
                 'type'       => 'object',
                 'properties' => [
                     'domain' => [ 'type' => 'string' ],
                     'full'   => [ 'type' => 'boolean' ],
+                    'search' => [ 'type' => 'string' ],
                 ],
             ],
             [$list_tools, 'handle'],
