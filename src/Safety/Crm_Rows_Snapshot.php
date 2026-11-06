@@ -43,8 +43,9 @@ if (! defined('ABSPATH')) {
  * highest id of every table its kind covers is noted, and the rows that match
  * the kind's sets afterwards and lie above it are recorded as created
  * ('created_rows'), with the status every status-bearing row was left in
- * ('after') and the saved rows the write itself removed ('deleted_rows',
- * issue #553). The tables are always built from the site prefix and a fixed
+ * ('after'), the saved rows the write itself removed ('deleted_rows',
+ * issue #553) and the trash time of every MailPoet row the write left in
+ * its trash ('trashed'). The tables are always built from the site prefix and a fixed
  * allowlist of names, so a key can never reach any other table.
  *
  * The restore removes the created rows and puts every saved row back by id:
@@ -52,7 +53,11 @@ if (! defined('ABSPATH')) {
  * is re-inserted at its id only when this write removed it. A saved row
  * removed since the write (a list the person left, a contact deleted) stays
  * removed and is named in the warning, so an undo never resubscribes anyone
- * or brings back erased personal data. Rows the write neither saved nor
+ * or brings back erased personal data. MailPoet deletes into its trash by
+ * setting deleted_at, so a saved row trashed since the write is removed
+ * the same way: it is left as it is, in the trash, and named in the
+ * warning; for the snapshot's own object (the contact, list or campaign)
+ * nothing else of it is put back either. Rows the write neither saved nor
  * created are left alone. Consent is never restored over the person's own choice:
  *  - a row whose status changed since the write (a confirmed opt-in, an
  *    unsubscribe) keeps its current status, and a created row whose status
@@ -231,6 +236,12 @@ final class Crm_Rows_Snapshot
         'mailpoet_newsletters'        => [ 'status', [], false ],
     ];
 
+    /**
+     * MailPoet tables whose rows its delete moves to the trash (deleted_at
+     * set) instead of removing.
+     */
+    private const SOFT_DELETE = [ 'mailpoet_subscribers', 'mailpoet_segments', 'mailpoet_newsletters', 'mailpoet_automations' ];
+
     /** The snapshot key for one object; 0 for a create whose id is not known yet. */
     public static function key(string $kind, int $id): string
     {
@@ -378,6 +389,9 @@ final class Crm_Rows_Snapshot
         // A snapshot recorded before 'deleted_rows' existed cannot tell a
         // row its write removed from one removed since: none is re-added.
         $removed = array_key_exists('deleted_rows', $data) ? array_map(static fn ($ids): array => array_map('intval', (array) $ids), (array) $data['deleted_rows']) : null;
+        // Likewise for a row in MailPoet's trash: without the record of what
+        // the write trashed, a trashed row is never taken out of the trash.
+        $trashed = array_key_exists('trashed', $data) ? (array) $data['trashed'] : null;
         $kept    = [];
 
         // A created list or tag that has gained members since stays, and so
@@ -385,6 +399,15 @@ final class Crm_Rows_Snapshot
         $primary = (string) $sets[0]['table'];
         // A created contact whose status changed since (a confirmed opt-in,
         // an unsubscribe) stays whole.
+        // The object itself trashed since the write (issue #553): nothing of
+        // it is put back, the way a deleted one is not.
+        $saved_ids = array_map(static fn ($row): int => (int) (((array) $row)['id'] ?? 0), (array) ($sets[0]['rows'] ?? []));
+        if (in_array($id, $saved_ids, true)) {
+            $trash = self::trashed_since($primary, (array) (self::rows_by_id($primary, [ $id ])[0] ?? []), $trashed);
+            if (null !== $trash) {
+                return self::kept_warning([ $trash ]);
+            }
+        }
         if (in_array($id, array_map('intval', (array) ($created[ $primary ] ?? [])), true)) {
             if ('group' === self::family($kind)) {
                 $foreign = self::foreign_rows($sets, $created);
@@ -439,6 +462,11 @@ final class Crm_Rows_Snapshot
                     }
                     continue;
                 }
+                $trash = self::trashed_since($name, (array) $now, $trashed);
+                if (null !== $trash) {
+                    $kept[] = $trash;
+                    continue;
+                }
                 $keep = self::kept_status($name, (array) $now, $row, $after);
                 if (null !== $keep) {
                     $column = self::STATUS[ $name ][0];
@@ -453,10 +481,42 @@ final class Crm_Rows_Snapshot
 
         self::flush(self::plugin($kind), $kind);
 
-        return [] === $kept ? null : sprintf(
+        return [] === $kept ? null : self::kept_warning($kept);
+    }
+
+    /** The restore's warning naming every row left as it is. @param string[] $kept */
+    private static function kept_warning(array $kept): string
+    {
+        return sprintf(
             'CRM rows left as they are, because restoring them would override a subscription choice or a removal made since the write: %s.',
             implode(', ', array_values(array_unique($kept)))
         );
+    }
+
+    /**
+     * The warning entry for a saved MailPoet row that sits in the trash now
+     * but was not left there by the write (trashed since, or trashed again
+     * at another time), or null when the restore may set it back. $trashed
+     * is null for a snapshot recorded before the trash was tracked.
+     *
+     * @param array<string, mixed>      $current
+     * @param array<string, mixed>|null $trashed table => [row id => deleted_at the write left]
+     */
+    private static function trashed_since(string $name, array $current, ?array $trashed): ?string
+    {
+        $at = (string) ($current['deleted_at'] ?? '');
+        if (! in_array($name, self::SOFT_DELETE, true) || '' === $at) {
+            return null;
+        }
+        $row_id = (int) ($current['id'] ?? 0);
+        if (null === $trashed) {
+            return sprintf('%s #%d (in the trash, and this operation predates the record of what it trashed, so left there)', $name, $row_id);
+        }
+        $left = ((array) ($trashed[ $name ] ?? []))[ $row_id ] ?? null;
+        if (null !== $left && (string) $left === $at) {
+            return null;
+        }
+        return sprintf('%s #%d (trashed since the write, left in the trash)', $name, $row_id);
     }
 
     /**
@@ -701,6 +761,7 @@ final class Crm_Rows_Snapshot
         $created = [];
         $after   = [];
         $removed = [];
+        $trashed = [];
         foreach ((array) $data['sets'] as $set) {
             $set  = (array) $set;
             $name = (string) $set['table'];
@@ -719,6 +780,9 @@ final class Crm_Rows_Snapshot
                 if (isset(self::STATUS[ $name ])) {
                     $after[ $name ][ $row_id ] = (string) ($current[ self::STATUS[ $name ][0] ] ?? '');
                 }
+                if (in_array($name, self::SOFT_DELETE, true) && '' !== (string) ($current['deleted_at'] ?? '')) {
+                    $trashed[ $name ][ $row_id ] = (string) $current['deleted_at'];
+                }
             }
         }
         foreach ($created as $name => $ids) {
@@ -728,6 +792,7 @@ final class Crm_Rows_Snapshot
         $data['created_rows'] = $created;
         $data['after']        = $after;
         $data['deleted_rows'] = $removed;
+        $data['trashed']      = $trashed;
         $snapshot['data']     = $data;
         Snapshot_Store::update_snapshot($operation_id, $snapshot);
     }

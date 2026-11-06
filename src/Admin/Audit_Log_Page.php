@@ -34,6 +34,9 @@ class Audit_Log_Page
     public const TAB_MUTATIONS = 'mutations';
     public const TAB_REQUESTS  = 'requests';
 
+    /** Undo points per page on the Mutations tab (issue #759). */
+    public const MUTATIONS_PER_PAGE = 20;
+
     /** Rows shown on the Requests tab. */
     private const REQUEST_ROWS = 100;
 
@@ -62,7 +65,8 @@ class Audit_Log_Page
      * @param array<string, mixed> $filters Same shape as wpmcp/list-operations'
      *                                       input_schema (user_id, tool_name,
      *                                       domain, object_type, object_id,
-     *                                       date_from, date_to, limit).
+     *                                       date_from, date_to, limit,
+     *                                       offset).
      */
     public function get_operations(array $filters): array
     {
@@ -169,11 +173,27 @@ class Audit_Log_Page
 
     private function render_mutations(): void
     {
-        $filters = $this->filters_from_request();
-        $ops     = $this->get_operations($filters)['operations'];
-        $nonce   = wp_create_nonce('wpmcp_restore');
+        $filters  = $this->filters_from_request();
+        $per_page = self::MUTATIONS_PER_PAGE;
+        $paged    = $this->current_page();
+
+        // The rows and the total come from List_Operations, which scopes
+        // both to the caller's own undo points below manage_options (#461);
+        // the screen itself is gated at the management capability.
+        $result = $this->get_operations($filters + ['limit' => $per_page, 'offset' => ($paged - 1) * $per_page]);
+        $total  = (int) $result['total_count'];
+        $pages  = max(1, (int) ceil($total / $per_page));
+        if ($paged > $pages) {
+            // A page past the end (rows undone or filtered away since the
+            // link was made) shows the last page instead of an empty table.
+            $paged  = $pages;
+            $result = $this->get_operations($filters + ['limit' => $per_page, 'offset' => ($paged - 1) * $per_page]);
+        }
+        $ops   = $result['operations'];
+        $nonce = wp_create_nonce('wpmcp_restore');
 
         $this->render_filter_form($filters);
+        $this->render_mutations_pagination($filters, $total, $paged, $pages, 'top');
         echo '<table class="widefat"><thead><tr>'
             . '<th>' . esc_html__('Who', 'wpmcp') . '</th>'
             . '<th>' . esc_html__('When', 'wpmcp') . '</th>'
@@ -211,6 +231,50 @@ class Audit_Log_Page
         }
 
         echo '</tbody></table>';
+        $this->render_mutations_pagination($filters, $total, $paged, $pages, 'bottom');
+    }
+
+    /** The requested Mutations page, 1 or more. */
+    private function current_page(): int
+    {
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page number on an admin list screen; it only picks which rows render.
+        $paged = isset($_GET['paged']) && is_scalar($_GET['paged']) ? absint(wp_unslash($_GET['paged'])) : 1;
+        return max(1, $paged);
+    }
+
+    /**
+     * The list-table style "N items" count and page links (issue #759).
+     * Each link keeps the tab and the filters, so paging never drops them.
+     *
+     * @param array<string, mixed> $filters
+     */
+    private function render_mutations_pagination(array $filters, int $total, int $paged, int $pages, string $which): void
+    {
+        printf('<div class="tablenav %s"><div class="tablenav-pages%s">', esc_attr($which), $pages > 1 ? '' : ' one-page');
+        printf(
+            '<span class="displaying-num">%s</span>',
+            /* translators: %s: number of undo points. */
+            esc_html(sprintf(_n('%s item', '%s items', $total, 'wpmcp'), number_format_i18n($total)))
+        );
+
+        if ($pages > 1) {
+            $base = add_query_arg(
+                array_map('rawurlencode', array_merge(['page' => self::SLUG, 'tab' => self::TAB_MUTATIONS], array_map('strval', $filters))),
+                admin_url('admin.php')
+            );
+            $links = paginate_links([
+                'base'      => add_query_arg('paged', '%#%', $base),
+                'format'    => '',
+                'current'   => $paged,
+                'total'     => $pages,
+                'prev_text' => __('&lsaquo; Previous', 'wpmcp'),
+                'next_text' => __('Next &rsaquo;', 'wpmcp'),
+            ]);
+            // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- paginate_links() escapes its own URLs and the link text above is translator-provided entities.
+            echo ' <span class="pagination-links">' . $links . '</span>';
+        }
+
+        echo '</div><br class="clear" /></div>';
     }
 
     private function render_requests(): void

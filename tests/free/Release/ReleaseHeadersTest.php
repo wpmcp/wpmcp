@@ -8,8 +8,8 @@ use WPMCP\Compliance\Rules\Trademark_Rule;
 use WPMCP\Compliance\Severity;
 
 /**
- * The compatibility headers that ship are spread over four files: the root
- * readme, the two flavor readmes, and the wp.org loader. Nothing in the build
+ * The compatibility headers that ship are spread over the root readme, the
+ * two flavor readmes and the three loaders. Nothing in the build
  * derives one from another, so they drift independently and Plugin Check only
  * complains about the one file that happens to be in the zip it is given.
  *
@@ -25,6 +25,10 @@ use WPMCP\Compliance\Severity;
  * gate must install both the pin and the release the headers declare, so a
  * header bump without a matching gate change goes red rather than shipping an untested
  * claim.
+ *
+ * `Tested up to` lives in readme.txt only (issue #754): Plugin Check reports
+ * plugin_header_tested_up_to_not_allowed when a loader declares it, so every
+ * loader is checked to carry none.
  *
  * The display name is gated here too (issue #168, findings B-19 and L-04).
  * Each shipped readme has a loader beside it whose Plugin Name header must be
@@ -58,11 +62,6 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         'readme.txt',
         'scripts/flavors/wporg/readme.txt',
         'scripts/flavors/woocommerce/readme.txt',
-    ];
-
-    /** Loader headers that carry their own Tested up to line. */
-    private const SHIPPED_LOADERS = [
-        'scripts/flavors/wporg/wpmcp.php',
     ];
 
     /**
@@ -225,15 +224,27 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         foreach (self::SHIPPED_READMES as $readme) {
             $declared[$readme] = $this->readme_header($readme, 'Tested up to');
         }
-        foreach (self::SHIPPED_LOADERS as $loader) {
-            $declared[$loader] = $this->loader_header($loader, 'Tested up to');
-        }
 
         $this->assertCount(
             1,
             array_unique($declared),
             'Tested up to disagrees across shipped files: ' . wp_json_encode($declared)
         );
+    }
+
+    /**
+     * Issue #754: Plugin Check reports plugin_header_tested_up_to_not_allowed
+     * when a loader declares Tested up to; it belongs in readme.txt only.
+     */
+    public function test_no_loader_declares_tested_up_to(): void
+    {
+        foreach (self::REQUIRES_LOADERS as $loader) {
+            $this->assertDoesNotMatchRegularExpression(
+                '/^[ \t]*\*[ \t]*Tested up to:/mi',
+                $this->contents($loader),
+                $loader . ' declares Tested up to; Plugin Check allows it in readme.txt only (issue #754)'
+            );
+        }
     }
 
     /**
@@ -245,10 +256,8 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
      */
     public function test_tested_up_to_equals_the_pinned_release(): void
     {
-        foreach (array_merge(self::SHIPPED_READMES, self::SHIPPED_LOADERS) as $file) {
-            $declared = str_ends_with($file, '.php')
-                ? $this->loader_header($file, 'Tested up to')
-                : $this->readme_header($file, 'Tested up to');
+        foreach (self::SHIPPED_READMES as $file) {
+            $declared = $this->readme_header($file, 'Tested up to');
 
             $this->assertSame(
                 self::TESTED_UP_TO_FLOOR,
@@ -268,10 +277,8 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
     /** Plugin Check rejects anything but a bare numeric version. */
     public function test_tested_up_to_is_numeric_only(): void
     {
-        foreach (array_merge(self::SHIPPED_READMES, self::SHIPPED_LOADERS) as $file) {
-            $declared = str_ends_with($file, '.php')
-                ? $this->loader_header($file, 'Tested up to')
-                : $this->readme_header($file, 'Tested up to');
+        foreach (self::SHIPPED_READMES as $file) {
+            $declared = $this->readme_header($file, 'Tested up to');
 
             $this->assertMatchesRegularExpression('/^\d+(\.\d+)*$/', $declared, $file . ' must carry numbers only');
         }
@@ -492,7 +499,7 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
     {
         $checklist = $this->contents('docs/release-checklist.md');
 
-        foreach (array_merge(self::SHIPPED_READMES, self::SHIPPED_LOADERS, ['wpmcp.php']) as $file) {
+        foreach (array_merge(self::SHIPPED_READMES, self::REQUIRES_LOADERS) as $file) {
             // Backtick-delimited, as the checklist writes paths: a bare
             // "readme.txt" would also match inside "scripts/flavors/wporg/readme.txt".
             $this->assertStringContainsString(
@@ -530,10 +537,8 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         // The pin is what the suite has run on; the headers are what ships.
         // Each is checked against the gate on its own so that a header
         // bumped past the pin, or a pin bumped past the gate, both go red.
-        foreach (array_merge(self::SHIPPED_READMES, self::SHIPPED_LOADERS) as $file) {
-            $declared = str_ends_with($file, '.php')
-                ? $this->loader_header($file, 'Tested up to')
-                : $this->readme_header($file, 'Tested up to');
+        foreach (self::SHIPPED_READMES as $file) {
+            $declared = $this->readme_header($file, 'Tested up to');
 
             $this->assertContains(
                 $declared,

@@ -105,6 +105,26 @@ class GetConnectionInfoTest extends \WP_UnitTestCase
         $this->assertStringContainsString('To switch OAuth on', $connector['note']);
     }
 
+    /**
+     * Issue #751: away from the Connection screen (the tool and the
+     * authorization address), the OAuth-off text still names WP MCP,
+     * Connection as the place with the steps, with the wp-config.php line.
+     */
+    public function test_oauth_off_text_off_screen_still_names_the_connection_screen(): void
+    {
+        remove_all_filters('wpmcp_oauth_enabled');
+
+        $note = (new Get_Connection_Info())->handle([])['clients']['custom-connector']['note'];
+        $auth = \WPMCP\Auth\Endpoints::oauth_off_message();
+
+        foreach ([$note, $auth] as $text) {
+            $this->assertStringContainsString('WP MCP, Connection', $text);
+            $this->assertStringContainsString("define('WPMCP_OAUTH_ENABLED', true);", $text);
+            $this->assertStringContainsString('wp-config.php', $text);
+            $this->assertStringContainsString("That's all, stop editing!", $text);
+        }
+    }
+
     public function test_custom_connector_entry_reports_oauth_on_when_it_is(): void
     {
         add_filter('wpmcp_oauth_enabled', '__return_true');
