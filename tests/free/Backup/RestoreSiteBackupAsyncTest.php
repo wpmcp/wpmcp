@@ -164,7 +164,8 @@ class RestoreSiteBackupAsyncTest extends \WP_UnitTestCase
         global $wpdb;
         $post = self::factory()->post->create(['post_title' => 'As backed up']);
         [$sql, $result] = $this->dump_tables($this->posts_tables());
-        $dup  = "INSERT INTO `{$wpdb->posts}` (`ID`, `post_title`) VALUES\n('{$post}', 'duplicate');\n";
+        // An unknown column: the policy admits it, the database rejects it.
+        $dup  = "INSERT INTO `{$wpdb->posts}` (`ID`, `no_such_column`) VALUES\n('{$post}', 'x');\n";
         $at   = strrpos($sql, "\nSET FOREIGN_KEY_CHECKS = 1;");
         $sql  = substr($sql, 0, $at) . "\n" . $dup . substr($sql, $at);
         $path = $this->archive_from_sql($sql, $result['tables']);
