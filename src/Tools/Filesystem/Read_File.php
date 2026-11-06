@@ -26,8 +26,17 @@ class Read_File
             throw new \RuntimeException('This file is protected from reads.');
         }
 
+        // A file backup asked for by the name it had before the upgrade
+        // renamed it to .bak (issues #622, #730): follow the same recorded
+        // mapping restore() follows, and name the new path in the response.
+        $renamed_from = null;
         if (! is_file($abs)) {
-            throw new \RuntimeException('File not found.');
+            $renamed = Legacy_Backup_Migration::renamed_path($abs);
+            if (null === $renamed || Filesystem_Guard::is_protected($renamed)) {
+                throw new \RuntimeException('File not found.');
+            }
+            $renamed_from = Filesystem_Guard::to_relative($abs);
+            $abs          = $renamed;
         }
 
         $content = (string) file_get_contents($abs);
@@ -38,18 +47,17 @@ class Read_File
             throw new \RuntimeException('This file is protected from reads.');
         }
 
-        if (! Filesystem_Guard::is_utf8($content)) {
-            return [
-                'path'   => $rel,
-                'size'   => strlen($content),
-                'binary' => true,
-            ];
+        $result = ['path' => $rel, 'size' => strlen($content)];
+        if (null !== $renamed_from) {
+            $result['renamed_from'] = $renamed_from;
         }
 
-        return [
-            'path'    => $rel,
-            'size'    => strlen($content),
-            'content' => $content,
-        ];
+        if (! Filesystem_Guard::is_utf8($content)) {
+            $result['binary'] = true;
+            return $result;
+        }
+
+        $result['content'] = $content;
+        return $result;
     }
 }

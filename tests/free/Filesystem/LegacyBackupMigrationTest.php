@@ -118,6 +118,41 @@ class LegacyBackupMigrationTest extends \WP_UnitTestCase
         $this->assertSame(self::PHP, file_get_contents($target));
     }
 
+    /** Issue #730: read-file by the pre-upgrade name follows the rename, as restore does. */
+    public function test_read_file_by_the_old_name_returns_the_content_and_the_new_path(): void
+    {
+        $text = "<?php\n// backed-up theme code\necho 'x';\n";
+        $old  = $this->legacy_backup('20261104-211016-wp-content-themes-t-functions.php', $text);
+
+        Legacy_Backup_Migration::run();
+        $this->track_renamed();
+
+        $old_rel = Filesystem_Guard::to_relative($old);
+        $new_rel = (string) ((array) get_option(Legacy_Backup_Migration::RENAMES_OPTION, []))[ $old_rel ];
+        $this->assertNotSame('', $new_rel);
+
+        $result = (new \WPMCP\Tools\Filesystem\Read_File())->handle(['path' => $old_rel]);
+
+        $this->assertSame($text, $result['content']);
+        $this->assertSame($new_rel, $result['path'], 'The response names the new path.');
+        $this->assertSame($old_rel, $result['renamed_from']);
+    }
+
+    /** Issue #730: a mapping that leaves the backup folder is not followed by read-file either. */
+    public function test_read_file_ignores_a_mapping_outside_the_backup_folder(): void
+    {
+        $outside = WP_CONTENT_DIR . '/wpmcp-730-outside.txt';
+        file_put_contents($outside, 'not a backup');
+        $this->cleanup[] = $outside;
+        wp_mkdir_p(self::backup_dir());
+        $missing = self::backup_dir() . '/20261104-000000-gone.php';
+        update_option(Legacy_Backup_Migration::RENAMES_OPTION, [Filesystem_Guard::to_relative($missing) => Filesystem_Guard::to_relative($outside)], false);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('File not found.');
+        (new \WPMCP\Tools\Filesystem\Read_File())->handle(['path' => Filesystem_Guard::to_relative($missing)]);
+    }
+
     public function test_a_mapping_that_points_outside_the_backup_folder_is_ignored(): void
     {
         $outside = WP_CONTENT_DIR . '/wpmcp-622-outside.txt';
