@@ -27,7 +27,7 @@ class Insert_Row
     public function handle(array $args): array
     {
         if (! self::is_enabled()) {
-            throw new \RuntimeException('Database write tools are disabled. Enable them with the wpmcp_enable_db_writes filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('Database write tools are disabled.', 'wpmcp_enable_db_writes');
         }
 
         $data = (array) ($args['data'] ?? []);
