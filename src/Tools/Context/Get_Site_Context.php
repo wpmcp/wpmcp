@@ -24,7 +24,10 @@ class Get_Site_Context
     public function handle(array $args): array
     {
         $theme          = wp_get_theme();
-        $active_plugins = (array) get_option('active_plugins', []);
+        // deactivate_plugins() unsets entries without renumbering, so the
+        // option can hold keys like {"1": ...}; reindexed so active_slugs is
+        // always a JSON list (issue #722).
+        $active_plugins = array_values((array) get_option('active_plugins', []));
 
         $post_types = [];
         foreach (get_post_types(['public' => true], 'objects') as $name => $object) {

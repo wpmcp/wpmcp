@@ -79,6 +79,7 @@ class Snapshot_Store
             session_id CHAR(36) NOT NULL,
             object_type VARCHAR(32) NOT NULL,
             object_id BIGINT(20) UNSIGNED NOT NULL,
+            object_ref VARCHAR(191) NOT NULL DEFAULT '',
             tool_name VARCHAR(64) NOT NULL,
             args_hash CHAR(64) NOT NULL,
             before_blob LONGBLOB NOT NULL,
@@ -99,15 +100,48 @@ class Snapshot_Store
     /**
      * The object_id column is a BIGINT UNSIGNED, so it can only ever store a
      * numeric post/user/etc ID. Object types identified by a string (e.g.
-     * 'option', keyed by option name) have no numeric ID to put there; the
-     * real identifier already lives inside the serialized snapshot blob
-     * (data.name), so the column is simply 0 for those rows. Existing
-     * consumers (List_Operations, History_Page) already (int)-cast this
-     * column for display, so this is backward compatible.
+     * 'option', keyed by option name) have no numeric ID to put there, so the
+     * column is 0 for those rows and the identity goes in object_ref instead
+     * (see object_ref()). Existing consumers (List_Operations, History_Page)
+     * already (int)-cast this column, so this is backward compatible.
      */
     private static function db_object_id(array $snapshot): int
     {
         return is_int($snapshot['object_id']) ? $snapshot['object_id'] : 0;
+    }
+
+    /** Longest object_ref the column holds (VARCHAR(191), utf8mb4 index safe). */
+    public const OBJECT_REF_MAX = 191;
+
+    /**
+     * What the ledger row names as its object when it has no numeric id
+     * (issue #723): the caller's own label when it gave one (a plugin file,
+     * a file path, a cron hook), else the string object_id the snapshot is
+     * keyed by (a term key, an option or table name). Empty for a row with a
+     * numeric id and no label, which already says what it changed.
+     */
+    public static function object_ref(array $snapshot, string $explicit = ''): string
+    {
+        $ref = $explicit;
+        $id  = $snapshot['object_id'] ?? null;
+        if ('' === $ref && is_string($id)) {
+            $ref = $id;
+        }
+        if ('0' === $ref) {
+            $ref = '';
+        }
+        return function_exists('mb_substr') ? mb_substr($ref, 0, self::OBJECT_REF_MAX) : substr($ref, 0, self::OBJECT_REF_MAX);
+    }
+
+    /**
+     * The tool name a ledger row is filed under: the short name, without the
+     * ability namespace (issue #723). A few tools passed "wpmcp/<name>", so
+     * their rows read differently from every other row and a tool_name
+     * filter on the short name missed them.
+     */
+    public static function short_tool_name(string $tool_name): string
+    {
+        return (string) preg_replace('#^wpmcp/#', '', $tool_name);
     }
 
     /**
@@ -125,7 +159,7 @@ class Snapshot_Store
      * @throws Mutation_Failed When the snapshot row could not be written, or
      *                         the session belongs to another user.
      */
-    public static function save(string $operation_id, string $session_id, array $snapshot, string $tool_name, string $args_hash): int
+    public static function save(string $operation_id, string $session_id, array $snapshot, string $tool_name, string $args_hash, string $object_ref = ''): int
     {
         global $wpdb;
 
@@ -138,18 +172,28 @@ class Snapshot_Store
             throw new Mutation_Failed($denial); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- session_write_denial() escapes the only variable part.
         }
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
-        $written = $wpdb->insert(self::table_name(), [
+        $row = [
             'operation_id' => $operation_id,
             'session_id'   => $session_id,
             'object_type'  => $snapshot['object_type'],
             'object_id'    => self::db_object_id($snapshot),
-            'tool_name'    => $tool_name,
+            'object_ref'   => self::object_ref($snapshot, $object_ref),
+            'tool_name'    => self::short_tool_name($tool_name),
             'args_hash'    => $args_hash,
             'before_blob'  => Snapshot::serialize($snapshot),
             'user_id'      => get_current_user_id(),
             'created_at'   => current_time('mysql', true),
-        ]);
+        ];
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
+        $written = $wpdb->insert(self::table_name(), $row);
+        if (false === $written && false !== stripos((string) $wpdb->last_error, 'object_ref')) {
+            // A table that predates the object_ref column (Site_Tables has
+            // not upgraded this site yet): the undo point matters more than
+            // its label, so it is written without one.
+            unset($row['object_ref']);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
+            $written = $wpdb->insert(self::table_name(), $row);
+        }
 
         if (false === $written) {
             throw new Mutation_Failed(

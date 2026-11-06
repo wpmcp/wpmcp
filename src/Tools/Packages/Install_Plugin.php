@@ -28,6 +28,12 @@ if (! defined('ABSPATH')) {
  * are both enforced and a partial request never leaves a plugin on disk it
  * was not allowed to activate.
  *
+ * The reply always says what state the site is in (issue #728): an install
+ * whose activation failed, or was skipped because too little of the PHP time
+ * limit was left after the download, reports installed: true,
+ * activated: false and the activate-plugin call that finishes the job, and
+ * leaves no activation row in the ledger.
+ *
  * On a multisite network the activation follows activate-plugin's rules
  * (Plugin_Network_Scope): it stays on the site unless a network admin passes
  * network_wide: true, and a network write snapshots active_sitewide_plugins.
@@ -41,6 +47,13 @@ if (! defined('ABSPATH')) {
 class Install_Plugin
 {
     private const SLUG_PATTERN = '/^[a-z0-9]+(-[a-z0-9]+)*$/';
+
+    /**
+     * Seconds of the PHP time limit the activate step needs left after the
+     * install. With less, the request could die inside the activation, so
+     * the step is skipped and the reply says how to finish it.
+     */
+    public const ACTIVATION_TIME_NEEDED = 20;
 
     public function handle(array $args): array
     {
@@ -88,7 +101,15 @@ class Install_Plugin
 
         $out = ['installed' => true, 'file' => $plugin_file, 'slug' => $slug, 'activated' => false];
         if ($activate) {
-            $out = array_merge($out, $this->activate_installed($plugin_file, $args));
+            $out = array_merge($out, self::time_left_for_activation()
+                ? $this->activate_installed($plugin_file, $args)
+                : [
+                    'activation_skipped' => true,
+                    'error'              => 'The install used most of the PHP time limit, so the activation did not run.',
+                ]);
+            if (empty($out['activated'])) {
+                $out['next_step'] = sprintf('Installed, not activated: call activate-plugin with plugin "%s".', $plugin_file);
+            }
         }
 
         return $out;
@@ -110,7 +131,8 @@ class Install_Plugin
      * A failed activation is reported rather than thrown: the install itself
      * did succeed and the caller needs to hear that. No operation_id is
      * returned on that branch, since the prior state is already back in
-     * place and there is nothing left for rollback-operation to undo.
+     * place and there is nothing left for rollback-operation to undo, and
+     * the voided undo point leaves no ledger row either (issue #728).
      *
      * @return array{activated: bool, operation_id?: string, rolled_back?: bool, error?: string}
      */
@@ -128,31 +150,42 @@ class Install_Plugin
 
         $error = '';
         try {
-            $out = Safe_Mutation::run(
-                [
-                    'object_type'         => 'option',
-                    'object_id'           => 'active_plugins',
-                    'session_id'          => (string) ($args['session_id'] ?? 'default'),
-                    'tool_name'           => 'install-plugin',
-                    'args'                => $args,
-                    'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ] + Plugin_Network_Scope::snapshot_data($network_wide),
-                ],
-                function () use ($plugin_file, $network_wide, &$error) {
-                    $result = activate_plugin($plugin_file, '', $network_wide);
-                    if (is_wp_error($result)) {
-                        $error = $result->get_error_message();
+            $out = Plugin_State::locked(static function () use ($plugin_file, $network_wide, $args, &$error) {
+                return Safe_Mutation::run(
+                    [
+                        'object_type'         => 'option',
+                        'object_id'           => 'active_plugins',
+                        'object_ref'          => $plugin_file,
+                        'state_probe'         => [ Plugin_State::class, 'probe' ],
+                        'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                        'tool_name'           => 'install-plugin',
+                        'args'                => $args,
+                        'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ] + Plugin_Network_Scope::snapshot_data($network_wide),
+                    ],
+                    function () use ($plugin_file, $network_wide, &$error) {
+                        $result = activate_plugin($plugin_file, '', $network_wide);
+                        if (is_wp_error($result)) {
+                            $error = $result->get_error_message();
+                        }
+                        return $result;
+                    },
+                    function ($result) use ($plugin_file, $network_wide) {
+                        return ! is_wp_error($result) && Plugin_State::is_active($plugin_file, $network_wide);
                     }
-                    return $result;
-                },
-                function ($result) {
-                    return ! is_wp_error($result);
-                }
-            );
+                );
+            });
         } catch (Mutation_Failed $e) {
             return [
                 'activated'   => false,
                 'rolled_back' => true,
                 'error'       => '' !== $error ? $error : $e->getMessage(),
+            ];
+        } catch (\RuntimeException $e) {
+            // The lock was busy, or the activation threw: the install stands
+            // and the reply says whether the plugin ended up active.
+            return [
+                'activated' => Plugin_State::is_active($plugin_file, $network_wide),
+                'error'     => $e->getMessage(),
             ];
         }
 
@@ -160,6 +193,25 @@ class Install_Plugin
             'activated'    => true,
             'operation_id' => $out['operation_id'],
         ];
+    }
+
+    /**
+     * True unless a PHP time limit is set and less than
+     * ACTIVATION_TIME_NEEDED seconds of it remain. Filterable through
+     * wpmcp_install_plugin_time_left (seconds left, or null for no limit),
+     * which is also the test seam.
+     */
+    public static function time_left_for_activation(): bool
+    {
+        $limit = (int) ini_get('max_execution_time');
+        $left  = null;
+        if ($limit > 0) {
+            $started = isset($_SERVER['REQUEST_TIME_FLOAT']) ? (float) $_SERVER['REQUEST_TIME_FLOAT'] : microtime(true);
+            $left    = $limit - (microtime(true) - $started);
+        }
+        $left = apply_filters('wpmcp_install_plugin_time_left', $left);
+
+        return null === $left || (float) $left >= self::ACTIVATION_TIME_NEEDED;
     }
 
     private static function require_activate_capability(): void
