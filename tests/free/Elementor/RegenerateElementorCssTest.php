@@ -193,7 +193,7 @@ class RegenerateElementorCssTest extends \WP_UnitTestCase
 
     // ---- without Elementor --------------------------------------------------
 
-    public function test_reports_elementor_inactive_and_touches_nothing(): void
+    public function test_reports_elementor_not_active_and_touches_nothing(): void
     {
         $post_id = $this->page();
         $this->seed_probes($post_id);
@@ -202,8 +202,8 @@ class RegenerateElementorCssTest extends \WP_UnitTestCase
         $single = (new Regenerate_Elementor_Css())->handle(['post_id' => $post_id]);
         $site   = (new Regenerate_Elementor_Css())->handle(['confirm' => true]);
 
-        $this->assertSame('elementor_inactive', $single->get_error_code());
-        $this->assertSame('elementor_inactive', $site->get_error_code());
+        $this->assertSame('elementor_not_active', $single->get_error_code());
+        $this->assertSame('elementor_not_active', $site->get_error_code());
         $this->assertSame(['status' => 'stale-probe'], get_post_meta($post_id, '_elementor_css', true));
     }
 }

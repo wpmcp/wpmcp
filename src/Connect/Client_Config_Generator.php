@@ -107,6 +107,21 @@ class Client_Config_Generator
     public const OAUTH_CONSTANT_LINE = "define('WPMCP_OAUTH_ENABLED', true);";
 
     /**
+     * How to switch OAuth on, in words that read the same on the Connection
+     * screen, in get-connection-info and on the authorization address while
+     * OAuth is off (issues #720 and #581). It names the real switch and
+     * where it lives, never a key of the tool's result.
+     */
+    public static function oauth_switch_on(): string
+    {
+        return sprintf(
+            /* translators: %s: the PHP line to add, define('WPMCP_OAUTH_ENABLED', true); */
+            __('There is no OAuth switch in wp-admin: a site administrator switches it on by adding %s to wp-config.php, above the line "That\'s all, stop editing!" (the steps to switch OAuth on are listed under "To switch OAuth on" in WP MCP, Connection, in wp-admin). Or use the desktop bundle or config file from that screen instead, which use an application password.', 'wpmcp'),
+            self::OAUTH_CONSTANT_LINE
+        );
+    }
+
+    /**
      * The Claude Desktop / claude.ai custom connector (issue #581).
      *
      * The connector signs in with OAuth and cannot send an Authorization
@@ -128,7 +143,7 @@ class Client_Config_Generator
             'oauth_enabled' => $enabled,
             'note'          => $enabled
                 ? __('OAuth is on for this site, so the custom connector can sign in: add it with the steps below and approve the sign-in when your browser opens.', 'wpmcp')
-                : __('OAuth is off for this site (the default). The custom connector requires OAuth: it cannot send an application password, so on this site it fails with "Couldn\'t register with WP MCP\'s sign-in service". Switch OAuth on first (see enable_oauth), or use the desktop bundle or config file instead, which use an application password.', 'wpmcp'),
+                : __('OAuth is off for this site (the default). The custom connector requires OAuth: it cannot send an application password, so on this site it fails with "Couldn\'t register with WP MCP\'s sign-in service".', 'wpmcp') . ' ' . self::oauth_switch_on(),
             'enable_oauth'  => [
                 /* translators: %s: the PHP line to add, define('WPMCP_OAUTH_ENABLED', true); */
                 sprintf(__('Add %s to wp-config.php, above the line "That\'s all, stop editing!".', 'wpmcp'), self::OAUTH_CONSTANT_LINE),

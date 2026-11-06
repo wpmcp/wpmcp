@@ -61,8 +61,11 @@ class Call_Tool
             );
         }
 
-        if (null === Plugin::instance()->registrar()->get($name)) {
-            return new \WP_Error(
+        $registrar = Plugin::instance()->registrar();
+        if (null === $registrar->get($name)) {
+            // A Pro tool on an unlicensed install says so (issue #631)
+            // rather than claiming no such tool exists.
+            return $registrar->pro_required($name) ?? new \WP_Error(
                 'wpmcp_call_tool_unknown',
                 sprintf('No wpmcp tool named "%s" is registered on this site. Use wpmcp/list-tools to discover names.', $name)
             );

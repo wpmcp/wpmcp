@@ -23,7 +23,7 @@ class Delete_Media
     public function handle(array $args): array
     {
         if (! self::is_enabled()) {
-            throw new \RuntimeException('The delete-media tool is disabled. Enable it with the wpmcp_enable_delete_media filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('The delete-media tool is disabled.', 'wpmcp_enable_delete_media');
         }
 
         $media_id = (int) ($args['media_id'] ?? 0);

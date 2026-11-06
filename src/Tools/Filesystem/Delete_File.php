@@ -25,7 +25,7 @@ class Delete_File
     public function handle(array $args): array
     {
         if (! self::is_enabled()) {
-            throw new \RuntimeException('The delete-file tool is disabled. Enable it with the wpmcp_enable_fs_writes filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('The delete-file tool is disabled.', 'wpmcp_enable_fs_writes');
         }
 
         if (true !== ($args['confirm'] ?? null)) {

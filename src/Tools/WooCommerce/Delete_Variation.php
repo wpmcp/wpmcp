@@ -34,7 +34,7 @@ class Delete_Variation
     public function handle(array $args): array
     {
         if (! self::is_enabled()) {
-            throw new \RuntimeException('The delete-variation tool is disabled. Enable it with the wpmcp_enable_delete_variation filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('The delete-variation tool is disabled.', 'wpmcp_enable_delete_variation');
         }
 
         $id        = (int) ($args['id'] ?? 0);

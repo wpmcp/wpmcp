@@ -46,7 +46,7 @@ class Update_Option
         }
 
         if (! self::is_enabled()) {
-            throw new \RuntimeException('Option writes are disabled. Enable them with the wpmcp_enable_option_write filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('Option writes are disabled.', 'wpmcp_enable_option_write');
         }
 
         // get-option masks a payment gateway's credentials, so a value

@@ -226,6 +226,37 @@ $edits['src/MCP/Registrar.php'] = [
         "     * including ones governance then dropped. Display-only\n",
         1,
     ],
+    // The meta-tools' "needs the paid tier" refusal (issue #631) has no
+    // tier to name in this build, so it goes, and its two callers below
+    // answer "no such tool" as before.
+    [
+        <<<'SRC'
+    /**
+     * The refusal for a name that is not registered because it is a Pro
+     * tool and this install has no active license (issue #631), or null
+     * when that is not the reason. Lets the meta-tools say "needs WP MCP
+     * Pro" instead of "no tool by that name". Grants nothing: the tool is
+     * still unregistered and unreachable.
+     */
+    public function pro_required(string $name): ?\WP_Error
+    {
+        $declared = $this->declared[ $name ] ?? null;
+        if (null === $declared || isset($this->abilities[ $name ]) || self::tier_permitted($declared->tier)) {
+            return null;
+        }
+
+        return new \WP_Error(
+            'pro_required',
+            sprintf(
+                '"%s" is a WP MCP Pro tool, and this site has no active WP MCP Pro license, so the tool is not available here. Activate a WP MCP Pro license on this site to use it.',
+                $name
+            )
+        );
+    }
+SRC . "\n\n",
+        '',
+        1,
+    ],
 ];
 
 // ------------------------------------------------------- snapshot retention
@@ -252,7 +283,7 @@ $edits['src/Tools/Compose/Build_Page.php'][] = [
     <<<'SRC'
         if ('elementor' === $spec['dialect']) {
             if (! Gate::can_use('build-page-builder')) {
-                throw new \RuntimeException('The builder (Elementor) dialect is not enabled for this install; the Gutenberg dialect is always available.');
+                throw new \RuntimeException('The builder (Elementor) dialect of build-page needs an active WP MCP Pro license on this site. The Gutenberg dialect is free and always available: pass dialect "gutenberg" to build the page with blocks instead.');
             }
             if (! class_exists('\\Elementor\\Plugin')) {
                 throw new \RuntimeException('The builder dialect requires Elementor to be active on this site.');
@@ -1540,8 +1571,24 @@ $edits['src/MCP/Tool_Exposure.php'] = [
 
 $edits['src/Tools/Dispatch/Call_Tool.php'] = [
     [
+        "            // A Pro tool on an unlicensed install says so (issue #631)\n"
+            . "            // rather than claiming no such tool exists.\n"
+            . "            return \$registrar->pro_required(\$name) ?? new \\WP_Error(\n",
+        "            return new \\WP_Error(\n",
+        1,
+    ],
+    [
         " *    scope + the live pro-license re-check, with the decision audited under\n",
         " *    scope, with the decision audited under\n",
+        1,
+    ],
+];
+
+$edits['src/Tools/Dispatch/Get_Tool_Schema.php'] = [
+    [
+        "            // A Pro tool on an unlicensed install says so (issue #631).\n"
+            . "            return \$registrar->pro_required(\$name) ?? new \\WP_Error(\n",
+        "            return new \\WP_Error(\n",
         1,
     ],
 ];
