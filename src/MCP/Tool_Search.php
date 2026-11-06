@@ -2,8 +2,6 @@
 
 namespace WPMCP\MCP;
 
-use WPMCP\Integrations\Integration_Dispatcher;
-
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -56,7 +54,10 @@ final class Tool_Search
     public static function operation_names(Ability $ability): array
     {
         $handler = $ability->handler;
-        if (! is_array($handler) || ! isset($handler[0], $handler[1]) || ! $handler[0] instanceof Integration_Dispatcher) {
+        // Duck-typed on Integration_Dispatcher::operation_names() rather than
+        // an instanceof, because the WooCommerce build prunes the
+        // Integrations directory while shipping this class.
+        if (! is_array($handler) || ! isset($handler[0], $handler[1]) || ! is_object($handler[0]) || ! method_exists($handler[0], 'operation_names')) {
             return [];
         }
 
