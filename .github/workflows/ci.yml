@@ -127,7 +127,13 @@ jobs:
         uses: wordpress/plugin-check-action@v1
         with:
           build-dir: ./build/wporg/wpmcp
-          # No ignore-codes. Both WordPressCS codes this job used to ignore
+          # plugin_header_tested_up_to_not_allowed: a Plugin Check rule added
+          # upstream on 2026-11-06 wants `Tested up to` only in readme.txt. Our
+          # loaders carry it on purpose (ReleaseHeadersTest and
+          # build-wporg-release.sh keep both in sync), so it is ignored until the
+          # loader header is dropped in its own change.
+          ignore-codes: plugin_header_tested_up_to_not_allowed
+          # Before 2026-11-06 there were no ignore-codes. Both WordPressCS codes this job used to ignore
           # have been driven to zero, so none are ignored any more and an
           # error-level finding under either one fails this job:
           #   PreparedSQL.NotPrepared           left with #174 (identifiers bound with %i)
