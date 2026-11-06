@@ -252,6 +252,7 @@ use WPMCP\Tools\Backup\Get_Backup_Status;
 use WPMCP\Tools\Backup\List_Backup_Jobs;
 use WPMCP\Tools\Backup\Cancel_Backup_Job;
 use WPMCP\Tools\Backup\Run_Backup_Job;
+use WPMCP\Tools\Backup\Run_Restore_Job;
 use WPMCP\Tools\Backup\Backup_Schedule;
 use WPMCP\Tools\Backup\Get_Backup_Manifest;
 use WPMCP\Tools\Backup\Delete_Backup_Archive;
@@ -788,6 +789,9 @@ final class Plugin
             // the queued job (producing a backup artifact) and flips its
             // status to completed/failed. See Run_Backup_Job's docblock.
             add_action(Run_Backup_Job::HOOK, [new Run_Backup_Job(), 'handle']);
+            // The executor for a restore queued by restore-site-backup
+            // (issue #727). See Run_Restore_Job's docblock.
+            add_action(Run_Restore_Job::HOOK, [new Run_Restore_Job(), 'handle']);
             // Recurring backups (issue #455): each run queues the job above.
             add_action(Backup_Schedule::HOOK, [Backup_Schedule::class, 'run']);
             // The WP-Cron executor for dispatch-cli-job's scheduled events
@@ -5372,7 +5376,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/restore-site-backup',
             'free',
-            'Restore this site in place from a site-backup archive (job_id, or a path in the site-backup dir). dry_run (default true) reports format_version, scope (all/database), prefix, multisite, WP downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false takes a database safety archive first (job id returned; no restore if it fails), holds maintenance mode, imports each statement and rolls back on failure. preserve_session (default true) keeps the caller signed in; include_files (default false, scope all) swaps in staged wp-content',
+            'Restore this site from a site-backup archive (job_id or site-backup path). dry_run (default true) reports format, scope, prefix, multisite, WP downgrade, BLOB tables and a full db.sql parse (truncated dumps refused). dry_run=false queues a restore job and returns its job_id at once (wait=true runs inline); poll get-backup-status. The job takes a database safety archive (none: no restore), holds maintenance, rolls back on failure. preserve_session (default true) keeps you signed in; include_files (default false, scope all) swaps in staged wp-content',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5381,9 +5385,10 @@ final class Plugin
                     'include_files'    => [ 'type' => 'boolean' ],
                     'dry_run'          => [ 'type' => 'boolean' ],
                     'preserve_session' => [ 'type' => 'boolean' ],
+                    'wait'             => [ 'type' => 'boolean' ],
                 ],
             ],
-            [$restore_site_backup, 'handle'],
+            [$restore_site_backup, 'handle_request'],
             $network_cap,
             'backup',
             'update',
@@ -6195,7 +6200,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-option',
             'free',
-            'Read a single wp_options value by name. Refuses a conservative denylist of sensitive/core option names (auth keys and salts, siteurl, home, active_plugins and secret/password/token-shaped names)',
+            'Read one wp_options value by name. Refuses a denylist of sensitive/core option names (auth keys, salts, siteurl, home, active_plugins and secret/password/token-shaped names)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6211,13 +6216,14 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-option',
             'free',
-            'Update one wp_options value by name. Refuses get-option\'s denylist; off until the wpmcp_enable_option_write filter opts in. Snapshotted; rollback-operation restores the prior value or removes a new option',
+            'Update one wp_options value. Refuses get-option\'s denylist; off unless filter wpmcp_enable_option_write is on. Keeps an array/object option\'s type unless allow_type_change. Undoable',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'name'       => [ 'type' => 'string' ],
-                    'value'      => [ 'type' => 'string' ],
-                    'session_id' => [ 'type' => 'string' ],
+                    'name'              => [ 'type' => 'string' ],
+                    'value'             => [ 'type' => [ 'string', 'array', 'object' ] ],
+                    'allow_type_change' => [ 'type' => 'boolean' ],
+                    'session_id'        => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'name', 'value' ],
             ],

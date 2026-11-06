@@ -42,19 +42,25 @@ class Deactivate_Plugin
 
         $network_wide = Plugin_Network_Scope::for_deactivation($plugin, $args);
 
-        $out = Safe_Mutation::run(
-            [
-                'object_type'         => 'option',
-                'object_id'           => 'active_plugins',
-                'session_id'          => (string) ($args['session_id'] ?? 'default'),
-                'tool_name'           => 'deactivate-plugin',
-                'args'                => $args,
-                'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ] + Plugin_Network_Scope::snapshot_data($network_wide),
-            ],
-            function () use ($plugin, $network_wide): void {
-                deactivate_plugins([$plugin], false, $network_wide);
-            }
-        );
+        // Serialised with activations and given a state probe for the same
+        // reason as activate-plugin (issue #728).
+        $out = Plugin_State::locked(static function () use ($plugin, $network_wide, $args) {
+            return Safe_Mutation::run(
+                [
+                    'object_type'         => 'option',
+                    'object_id'           => 'active_plugins',
+                    'object_ref'          => $plugin,
+                    'state_probe'         => [ Plugin_State::class, 'probe' ],
+                    'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                    'tool_name'           => 'deactivate-plugin',
+                    'args'                => $args,
+                    'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ] + Plugin_Network_Scope::snapshot_data($network_wide),
+                ],
+                function () use ($plugin, $network_wide): void {
+                    deactivate_plugins([$plugin], false, $network_wide);
+                }
+            );
+        });
 
         return ['operation_id' => $out['operation_id'], 'plugin' => $plugin, 'deactivated' => true, 'network_wide' => $network_wide];
     }
