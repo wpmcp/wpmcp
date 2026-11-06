@@ -43,6 +43,15 @@ if (! defined('ABSPATH')) {
  * Steps 1 to 3 are also what a dry run performs, so the report a user sees
  * first is the same verdict the real restore acts on.
  *
+ * Through the ability, a real restore is a background job (issue #727):
+ * handle_request() runs the cheap gates, queues a 'restore' backup job and
+ * returns its id at once; Run_Restore_Job runs handle() under WP-Cron as
+ * the user who queued it, and get-backup-status reports queued, running,
+ * completed or failed, with the safety archive and the maintenance window.
+ * wait:true keeps the old synchronous behaviour for callers that need it.
+ * handle() itself is unchanged and stays synchronous (receive-site-archive
+ * and the job runner call it directly).
+ *
  * Not routed through Safe_Mutation: a whole-database replace is outside
  * the per-object model Snapshot_Store captures, so a snapshot could not
  * undo it. The safety archive (step 4) is this tool's undo, and it is
@@ -86,6 +95,150 @@ class Restore_Site_Backup
     {
         $this->safety_producer = $safety_producer;
         $this->files           = $files;
+    }
+
+    /** Backup job type of a queued restore (issue #727). */
+    public const JOB_TYPE = 'restore';
+
+    /** The restore job this run belongs to, written to the progress file. */
+    private ?int $job_id = null;
+
+    /** The maintenance window of the last execute(), even one that threw. */
+    private ?array $last_maintenance = null;
+
+    /** Tie this run to a queued restore job (Run_Restore_Job). */
+    public function for_job(int $job_id): self
+    {
+        $this->job_id = $job_id;
+        return $this;
+    }
+
+    /**
+     * The maintenance window the last real restore opened, or null when
+     * none got that far.
+     *
+     * @return array{started_at: ?string, ended_at: ?string, seconds: ?int}|null
+     */
+    public function last_maintenance_window(): ?array
+    {
+        return $this->last_maintenance;
+    }
+
+    /**
+     * The ability entry point (issue #727). A dry run, or wait:true, runs
+     * handle() inside this request as before. Otherwise the restore is
+     * queued as a background job and its id comes back at once: a restore
+     * of a real site takes longer than an MCP client waits, and a client
+     * that gives up mid-import saw only "The operation timed out" while the
+     * site sat in maintenance mode.
+     *
+     * @return array<string, mixed>
+     */
+    public function handle_request(array $args): array
+    {
+        $dry_run = ! isset($args['dry_run']) || (bool) $args['dry_run'];
+
+        if ($dry_run || ! empty($args['wait'])) {
+            return $this->handle($args);
+        }
+
+        return $this->queue($args);
+    }
+
+    /**
+     * Queue a real restore. Everything that can refuse cheaply refuses
+     * here, before a job exists: the caller scope, the archive reference,
+     * the manifest gate, and a restore already queued or running. The full
+     * dump scan, the safety archive and the import run in the job
+     * (Run_Restore_Job), through handle(), which repeats every gate.
+     *
+     * @return array<string, mixed>
+     * @throws \RuntimeException On a refusal.
+     */
+    public function queue(array $args): array
+    {
+        Network_Scope::assert_caller('Restore');
+
+        $include_files    = ! empty($args['include_files']);
+        $preserve_session = ! isset($args['preserve_session']) || (bool) $args['preserve_session'];
+
+        $archive  = Archive_Locator::resolve($args);
+        $manifest = Archive_Locator::read_manifest($archive);
+        $report   = $this->compatibility_report($archive, $manifest, $include_files);
+
+        if ($include_files && empty($report['refusals'])) {
+            try {
+                self::check_file_entries($archive);
+            } catch (\RuntimeException $e) {
+                $report['refusals'][] = $e->getMessage();
+            }
+        }
+
+        if (! empty($report['refusals'])) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- compatibility_report() escapes every operand it interpolates into a refusal.
+            throw new \RuntimeException('Restore refused: ' . implode(' ', $report['refusals']));
+        }
+
+        if (! self::lock_is_free()) {
+            throw new \RuntimeException('Restore refused: another restore is already running on this site.');
+        }
+
+        $queued = Backup_Job_Store::create_exclusive(self::JOB_TYPE, (string) ($manifest['scope'] ?? ''), [
+            'user_id'          => get_current_user_id(),
+            'purpose'          => 'restore',
+            'archive'          => $archive,
+            'include_files'    => $include_files,
+            'preserve_session' => $preserve_session,
+        ]);
+
+        if (null === $queued['created']) {
+            throw new \RuntimeException(sprintf(
+                'Restore refused: restore job %d is already %s on this site; wait for it to finish (get-backup-status) or cancel it while it is queued.',
+                (int) $queued['blocking']['id'],
+                esc_html((string) $queued['blocking']['status'])
+            ));
+        }
+
+        $job = $queued['created'];
+        wp_schedule_single_event(time(), Run_Restore_Job::HOOK, [(int) $job['id']]);
+
+        return [
+            'dry_run'  => false,
+            'mode'     => 'async',
+            'job_id'   => (int) $job['id'],
+            'status'   => (string) $job['status'],
+            'file'     => $archive,
+            'warnings' => $report['warnings'],
+            'message'  => sprintf(
+                'Restore queued as backup job %d. Poll get-backup-status with job_id %d: it moves from queued to running to completed or failed, and reports the pre-restore safety archive and the maintenance window. The site serves a maintenance page while the database is imported.',
+                (int) $job['id'],
+                (int) $job['id']
+            ),
+        ];
+    }
+
+    /**
+     * The progress file of a restore, read for a status call (issue #727).
+     * While the import runs, the options table that holds the job record is
+     * being replaced, so the record cannot be trusted; this file can.
+     * 'running' is true while the restore lock is held, false when the file
+     * was left by a restore that died.
+     *
+     * @return array{state: array, running: bool}|null
+     */
+    public static function progress(): ?array
+    {
+        $path = self::state_path();
+        if (! is_file($path)) {
+            return null;
+        }
+
+        $state = json_decode((string) file_get_contents($path), true);
+
+        return [
+            'state'   => is_array($state) ? $state : [],
+            'running' => ! self::lock_is_free(),
+        ];
     }
 
     public function handle(array $args): array
@@ -205,9 +358,14 @@ class Restore_Site_Backup
                     'archive'       => basename($archive),
                     'safety_job_id' => $safety['job_id'],
                 ];
+                if (null !== $this->job_id) {
+                    $state['restore_job_id'] = $this->job_id;
+                }
                 self::write_state($state + ['statement' => 0, 'table' => '']);
 
                 $maintenance->enter();
+                $state['maintenance_started_at'] = $maintenance->window()['started_at'];
+                self::write_state($state + ['statement' => 0, 'table' => '']);
 
                 try {
                     $import = $this->import_dump($sql_path, $scan, $maintenance, $state);
@@ -274,6 +432,7 @@ class Restore_Site_Backup
                 self::restore_session_variables($session_sql);
             }
             $maintenance->leave();
+            $this->last_maintenance = $maintenance->window();
             if (null !== $files && null !== $staged) {
                 $files->discard($staged);
             }
@@ -314,7 +473,7 @@ class Restore_Site_Backup
             'rollback'       => $rollback,
             'session'        => $session,
             'files'          => $files_result,
-            'maintenance'    => ['enabled_during_restore' => true, 'released' => ! $maintenance->is_active()],
+            'maintenance'    => ['enabled_during_restore' => true, 'released' => ! $maintenance->is_active()] + $maintenance->window(),
         ];
     }
 

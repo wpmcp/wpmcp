@@ -28,9 +28,11 @@ class Get_Tool_Schema
             );
         }
 
-        $ability = Plugin::instance()->registrar()->get($name);
+        $registrar = Plugin::instance()->registrar();
+        $ability   = $registrar->get($name);
         if (null === $ability) {
-            return new \WP_Error(
+            // A Pro tool on an unlicensed install says so (issue #631).
+            return $registrar->pro_required($name) ?? new \WP_Error(
                 'wpmcp_get_tool_schema_unknown',
                 sprintf('No wpmcp tool named "%s" is registered on this site. Use wpmcp/list-tools to discover names.', $name)
             );

@@ -110,7 +110,7 @@ class Delete_Post
         }
 
         if (! self::is_force_enabled()) {
-            throw new \RuntimeException('Permanent (force) delete-post is disabled. Enable it with the wpmcp_enable_delete_post filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('Permanent (force) delete-post is disabled.', 'wpmcp_enable_delete_post');
         }
         if (true !== ($args['confirm'] ?? null)) {
             throw new \WPMCP\MCP\Confirmation_Required('Permanently deleting a post is not reversible for the physical record. Pass confirm:true to proceed.');

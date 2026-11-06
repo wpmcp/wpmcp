@@ -228,6 +228,7 @@ class Manage_Updates
             [
                 'object_type'         => 'option',
                 'object_id'           => $option,
+                'object_ref'          => $item,
                 'session_id'          => (string) ($args['session_id'] ?? 'default'),
                 'tool_name'           => 'manage-updates',
                 'args'                => $args,

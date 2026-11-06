@@ -30,8 +30,19 @@ class Suggest_Internal_Links
     {
         $post_id = isset($args['post_id']) ? (int) $args['post_id'] : 0;
         $post    = $post_id > 0 ? get_post($post_id) : null;
-        if (null === $post || 'publish' !== $post->post_status) {
-            return ['error' => 'Post not found or not published.'];
+        if (null === $post) {
+            return ['error' => 'Post not found.'];
+        }
+        // The post exists but is not live (issue #631): say so, rather than
+        // "not found", so the caller knows to publish it first.
+        if ('publish' !== $post->post_status) {
+            return [
+                'error' => sprintf(
+                    'Post %d is %s, not published. suggest-internal-links works on published posts only: publish it first, then ask again.',
+                    (int) $post->ID,
+                    (string) $post->post_status
+                ),
+            ];
         }
 
         $cap        = Args::cap($args['cap'] ?? self::DEFAULT_CAP, self::DEFAULT_CAP);

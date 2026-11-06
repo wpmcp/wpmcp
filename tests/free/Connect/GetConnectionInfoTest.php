@@ -97,6 +97,12 @@ class GetConnectionInfoTest extends \WP_UnitTestCase
         $this->assertStringContainsString('wpmcp_oauth_enabled', $text);
         $this->assertStringContainsString('Add custom connector', $text);
         $this->assertStringContainsString('requires OAuth', $connector['note']);
+
+        // Issue #720: the note names the real switch and where the steps
+        // are, never the result key enable_oauth.
+        $this->assertStringNotContainsString('enable_oauth', $connector['note']);
+        $this->assertStringContainsString("define('WPMCP_OAUTH_ENABLED', true);", $connector['note']);
+        $this->assertStringContainsString('To switch OAuth on', $connector['note']);
     }
 
     public function test_custom_connector_entry_reports_oauth_on_when_it_is(): void

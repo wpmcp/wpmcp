@@ -37,6 +37,86 @@ class UpdateOptionTest extends \WP_UnitTestCase
         $this->assertSame('x', get_option('wpmcp_test_option'));
     }
 
+    /**
+     * Issue #729: an option holding structured data keeps its type unless
+     * the caller asks for the change.
+     *
+     * @dataProvider scalar_values
+     */
+    public function test_refuses_to_replace_an_array_option_with_a_scalar($value): void
+    {
+        add_filter('wpmcp_enable_option_write', '__return_true');
+        update_option('wpmcp_test_option', ['a' => 1, 'b' => ['c' => 2]]);
+
+        try {
+            (new Update_Option())->handle(['name' => 'wpmcp_test_option', 'value' => $value]);
+            $this->fail('update-option changed an array option into a scalar.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('holds structured data (an array)', $e->getMessage());
+            $this->assertStringContainsString('allow_type_change', $e->getMessage());
+        }
+        $this->assertSame(['a' => 1, 'b' => ['c' => 2]], get_option('wpmcp_test_option'));
+    }
+
+    /** @return array<string, array{0: mixed}> */
+    public static function scalar_values(): array
+    {
+        return [
+            'json text'  => ['{"a":1,"b":{"c":2}}'],
+            'serialized' => [serialize(['a' => 1])],
+            'plain text' => ['x'],
+            'integer'    => [5],
+            'boolean'    => [false],
+        ];
+    }
+
+    public function test_refuses_to_replace_an_object_option_with_text(): void
+    {
+        add_filter('wpmcp_enable_option_write', '__return_true');
+        update_option('wpmcp_test_option', (object) ['a' => 1]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('holds structured data (an object)');
+        (new Update_Option())->handle(['name' => 'wpmcp_test_option', 'value' => '{"a":1}']);
+    }
+
+    public function test_an_array_option_still_takes_an_array(): void
+    {
+        add_filter('wpmcp_enable_option_write', '__return_true');
+        update_option('wpmcp_test_option', ['a' => 1]);
+
+        (new Update_Option())->handle(['name' => 'wpmcp_test_option', 'value' => ['a' => 2]]);
+
+        $this->assertSame(['a' => 2], get_option('wpmcp_test_option'));
+    }
+
+    public function test_allow_type_change_replaces_an_array_option_and_undo_restores_it(): void
+    {
+        add_filter('wpmcp_enable_option_write', '__return_true');
+        update_option('wpmcp_test_option', ['a' => 1]);
+
+        $out = (new Update_Option())->handle([
+            'name'              => 'wpmcp_test_option',
+            'value'             => 'flat',
+            'allow_type_change' => true,
+        ]);
+        $this->assertSame('flat', get_option('wpmcp_test_option'));
+
+        (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        wp_cache_delete('wpmcp_test_option', 'options');
+        $this->assertSame(['a' => 1], get_option('wpmcp_test_option'));
+    }
+
+    public function test_a_new_option_or_a_scalar_option_takes_any_value(): void
+    {
+        add_filter('wpmcp_enable_option_write', '__return_true');
+
+        (new Update_Option())->handle(['name' => 'wpmcp_test_option', 'value' => 'text']);
+        (new Update_Option())->handle(['name' => 'wpmcp_test_option', 'value' => ['now' => 'an array']]);
+
+        $this->assertSame(['now' => 'an array'], get_option('wpmcp_test_option'));
+    }
+
     public function test_refuses_a_denylisted_option_even_when_enabled(): void
     {
         add_filter('wpmcp_enable_option_write', '__return_true');

@@ -107,7 +107,7 @@ final class Elicitation
     public static function refusal_message($outcome): string
     {
         if ($outcome instanceof \Throwable) {
-            return $outcome->getMessage();
+            return Registrar::plain_text($outcome->getMessage());
         }
         if (is_wp_error($outcome)) {
             return $outcome->get_error_message();

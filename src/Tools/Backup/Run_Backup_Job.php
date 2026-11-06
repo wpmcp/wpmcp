@@ -142,6 +142,13 @@ class Run_Backup_Job
         // network-wide archive), and a running one means this is a
         // duplicate delivery. The job keeps its outcome; the refused run is
         // recorded on it so it is visible in get-backup-status.
+        // A queued restore (issue #727) is a job in this store too, but it
+        // is Run_Restore_Job's to run; producing a backup for it here would
+        // also flip it to completed without restoring anything.
+        if (Restore_Site_Backup::JOB_TYPE === ($job['type'] ?? null)) {
+            return;
+        }
+
         $status = (string) ($job['status'] ?? '');
         if ('queued' !== $status) {
             Backup_Job_Store::update($job_id, [
