@@ -6195,7 +6195,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-option',
             'free',
-            'Read a single wp_options value by name. Refuses a conservative denylist of sensitive/core option names (auth keys and salts, siteurl, home, active_plugins and secret/password/token-shaped names)',
+            'Read one wp_options value by name. Refuses a denylist of sensitive/core option names (auth keys, salts, siteurl, home, active_plugins and secret/password/token-shaped names)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -6211,20 +6211,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-option',
             'free',
-            'Update one wp_options value by name. Refuses get-option\'s denylist; off until the wpmcp_enable_option_write filter opts in. An option holding an array or object keeps that type: a scalar value for it is refused unless allow_type_change is true. Snapshotted; rollback-operation restores the prior value or removes a new option',
+            'Update one wp_options value. Refuses get-option\'s denylist; off unless filter wpmcp_enable_option_write is on. Keeps an array/object option\'s type unless allow_type_change. Undoable',
             [
                 'type'       => 'object',
                 'properties' => [
                     'name'              => [ 'type' => 'string' ],
-                    'value'             => [
-                        'type'        => [ 'string', 'number', 'integer', 'boolean', 'array', 'object' ],
-                        'description' => 'The new value. Send an object or array for an option that holds structured data.',
-                    ],
-                    'allow_type_change' => [
-                        'type'        => 'boolean',
-                        'default'     => false,
-                        'description' => 'Set true to replace an option that holds an array or object with a scalar value. Without it such a write is refused.',
-                    ],
+                    'value'             => [ 'type' => [ 'string', 'array', 'object' ] ],
+                    'allow_type_change' => [ 'type' => 'boolean' ],
                     'session_id'        => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'name', 'value' ],
