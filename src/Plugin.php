@@ -6200,7 +6200,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-option',
             'free',
-            'Read one wp_options value by name. Refuses a denylist of sensitive/core option names (auth keys, salts, siteurl, home, active_plugins and secret/password/token-shaped names)',
+            'Read one wp_options value by name. Refuses sensitive/core option names (auth keys, salts, siteurl, home, active_plugins and secret/password/token-shaped names)',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8679,7 +8679,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-crawler-files',
             'free',
-            'Add robots.txt rules per User-agent (filter), build llms.txt from pages, or exclude post types, taxonomies or posts from the core sitemap (lists replace). Refused if a real file or SEO plugin owns it. Snapshotted',
+            'Add robots.txt rules per User-agent, build llms.txt, or exclude post types, taxonomies or posts from the core sitemap (lists replace). Refused if a file or SEO plugin owns it. Snapshotted',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9434,7 +9434,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-tool-catalog',
             'free',
-            'List wpmcp abilities by domain: tier, operation, capability, read-only/destructive hints, counts. Filters: domain, tier, search (name, description or op name; op hits in matched_operations). Read-only',
+            'List abilities by domain: tier, operation, capability, read-only/destructive hints, counts. Filters: domain, tier, search (name, description or op name; op hits in matched_operations). Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9567,7 +9567,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-tools',
             'free',
-            'List every registered tool: name, summary, domain, operation, tier. Filters: domain, search (as list-tool-catalog). full:true adds descriptions and MCP annotations; schemas: get-tool-schema. Read-only. Compact mode: finds unlisted tools',
+            'List every tool: name, summary, domain, operation, tier. Filters: domain, search (as list-tool-catalog). full:true adds descriptions and MCP annotations; schemas: get-tool-schema. Read-only. Compact mode: finds unlisted tools',
             [
                 'type'       => 'object',
                 'properties' => [
