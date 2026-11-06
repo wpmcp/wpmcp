@@ -207,6 +207,49 @@ class Backup_Job_Store
         });
     }
 
+    /**
+     * create(), unless a job of the same type is already queued or running:
+     * then nothing is written and that job is returned as 'blocking'. The
+     * check and the write happen under the same lock, so two callers cannot
+     * both see "none" and both create one. A queued restore (issue #727)
+     * uses it so two restores can never be queued side by side.
+     *
+     * @return array{created: ?array, blocking: ?array}
+     */
+    public static function create_exclusive(string $type, string $scope, array $extra = []): array
+    {
+        self::fail_stale_jobs();
+
+        return self::locked(static function (array $stored) use ($type, $scope, $extra): array {
+            foreach ($stored['jobs'] as $job) {
+                if (is_array($job) && $type === ($job['type'] ?? null) && in_array($job['status'] ?? null, ['queued', 'running'], true)) {
+                    return ['created' => null, 'blocking' => $job];
+                }
+            }
+
+            return ['created' => self::create_in($stored, $type, $scope, $extra), 'blocking' => null];
+        });
+    }
+
+    /**
+     * Write a whole job record back under its own id, keeping next_id past
+     * it. A restore replaces the options table this store lives in; when it
+     * stops before putting the job history back, the restore job's own
+     * record is written back with this so its outcome is not lost.
+     */
+    public static function put(array $job): array
+    {
+        return self::locked(static function (array $stored) use ($job): array {
+            $id                    = (int) $job['id'];
+            $job['updated_at']     = self::now();
+            $stored['jobs'][ $id ] = $job;
+            $stored['next_id']     = max((int) $stored['next_id'], $id + 1);
+            self::save($stored);
+
+            return $job;
+        });
+    }
+
     private static function create_in(array $stored, string $type, string $scope, array $extra): array
     {
         $id  = $stored['next_id'];

@@ -58,7 +58,7 @@ class Import_Content
         }
 
         if (! self::is_enabled()) {
-            throw new \RuntimeException('The import-content tool is disabled. Enable it with the wpmcp_enable_import filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('The import-content tool is disabled.', 'wpmcp_enable_import');
         }
         if (true !== ($args['confirm'] ?? null)) {
             throw new \WPMCP\MCP\Confirmation_Required('Importing content creates posts that are not automatically reversible. Pass confirm:true to proceed.');

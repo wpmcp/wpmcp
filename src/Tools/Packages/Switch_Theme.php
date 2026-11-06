@@ -99,7 +99,8 @@ class Switch_Theme
                 $session_id,
                 $snapshot,
                 $tool_name,
-                $args_hash
+                $args_hash,
+                $stylesheet
             );
             Operation_Context::note($operation_id);
             $operation_ids[] = $operation_id;

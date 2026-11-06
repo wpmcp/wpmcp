@@ -31,7 +31,7 @@ class Set_Site_Part_Status
                 'object_type' => 'post',
                 'object_id'   => $id,
                 'session_id'  => (string) ($args['session_id'] ?? 'default'),
-                'tool_name'   => 'wpmcp/set-site-part-status',
+                'tool_name'   => 'set-site-part-status',
                 'args'        => $args,
             ],
             static function () use ($id, $status) {

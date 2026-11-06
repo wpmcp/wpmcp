@@ -55,7 +55,7 @@ class Compile_Custom_Widget
             throw new \RuntimeException('Spec-compiled widgets are a PRO feature.');
         }
         if (! self::is_enabled()) {
-            throw new \RuntimeException('The widget compiler is disabled. Enable it with the wpmcp_enable_widget_compiler filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('The widget compiler is disabled.', 'wpmcp_enable_widget_compiler');
         }
 
         $gate = Filesystem_Guard::writes_allowed();

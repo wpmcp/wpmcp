@@ -274,12 +274,58 @@ class Rollback_Service
         return sprintf('post %d belongs to a WP MCP internal store.', $post_id) . (null === $why ? '' : ' ' . $why);
     }
 
+    /** Core meta capabilities that need an object ID, so are not re-mapped without one. */
+    private const OBJECT_META_CAPS = [
+        'edit_post', 'delete_post', 'read_post', 'publish_post', 'edit_page', 'delete_page', 'read_page',
+        'edit_user', 'delete_user', 'remove_user', 'promote_user', 'edit_comment', 'edit_term', 'delete_term',
+        'assign_term', 'add_post_meta', 'edit_post_meta', 'delete_post_meta', 'edit_block_binding',
+    ];
+
+    /**
+     * Whether the current user holds $capability (edit_post or delete_post)
+     * for a post. A post type registered without map_meta_cap can name a
+     * meta capability as its edit_post: core's custom_css type maps
+     * edit_post to edit_css, which map_meta_cap() returns as is and
+     * current_user_can() then checks as a primitive no role holds, so
+     * nobody could undo an add-custom-css write (issue #726). Only when the
+     * mapping lands on such a meta capability is each mapped capability
+     * asked again, through current_user_can(), so it resolves the way the
+     * write itself was checked (edit_css onto unfiltered_html, or
+     * do_not_allow). A mapping onto primitives was already answered by the
+     * first check and is never asked twice. A meta capability that needs an
+     * object ID is never asked again without one.
+     */
+    private static function user_can_post(string $capability, int $post_id): bool
+    {
+        if (current_user_can($capability, $post_id)) {
+            return true;
+        }
+        $user_id = get_current_user_id();
+        $caps    = map_meta_cap($capability, $user_id, $post_id);
+        $nested  = false;
+        foreach ($caps as $cap) {
+            if (! in_array($cap, self::OBJECT_META_CAPS, true) && [ $cap ] !== map_meta_cap($cap, $user_id)) {
+                $nested = true;
+                break;
+            }
+        }
+        if (! $nested) {
+            return false;
+        }
+        foreach ($caps as $cap) {
+            if (! current_user_can($cap)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static function refused_post_capability(string $capability, \WP_Post $post): ?string
     {
         if (! post_type_exists((string) $post->post_type)) {
             return current_user_can('manage_options') ? null : sprintf('post %d is of a type that is no longer registered.', (int) $post->ID);
         }
-        if (current_user_can($capability, (int) $post->ID)) {
+        if (self::user_can_post($capability, (int) $post->ID)) {
             return null;
         }
         return sprintf('you cannot %s post %d.', 'delete_post' === $capability ? 'delete' : 'edit', (int) $post->ID);

@@ -220,6 +220,8 @@ class ConnectionPageTest extends \WP_UnitTestCase
         $this->assertStringContainsString(esc_html("define('WPMCP_OAUTH_ENABLED', true);"), $html);
         $this->assertStringContainsString('wp-config.php', $html);
         $this->assertStringContainsString('wpmcp_oauth_enabled', $html);
+        // Issue #720: no internal key name on the screen.
+        $this->assertStringNotContainsString('enable_oauth', $html);
 
         add_filter('wpmcp_oauth_enabled', '__return_true');
         ob_start();
