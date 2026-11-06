@@ -64,6 +64,7 @@ class CrmPackTest extends \WP_UnitTestCase
         Fake_FluentCRM::$calls        = [];
         Fake_MailPoet::$calls         = [];
         Fake_MailPoet::$confirmation  = true;
+        Fake_MailPoet::$mail_fails    = 0;
         $this->admin                  = self::factory()->user->create([ 'role' => 'administrator' ]);
         $user                         = get_userdata($this->admin);
         foreach (self::MAILPOET_CAPS as $cap) {
@@ -1073,6 +1074,91 @@ class CrmPackTest extends \WP_UnitTestCase
         $this->assertTrue(Rollback_Service::restore_operation((string) $rename['operation_id']));
         $this->assertSame('Newsletter', $this->rows('mailpoet_segments')[0]['name']);
         $this->assertSame([], $this->rows('mailpoet_subscriber_segment'));
+    }
+
+    /**
+     * Issue #553 on MailPoet: its delete moves a subscriber to the trash
+     * (deleted_at), so the row is still there; undoing an edit made before
+     * the delete leaves it in the trash, unchanged, and says so.
+     */
+    public function test_mailpoet_rollback_of_an_edit_leaves_a_subscriber_trashed_since_in_the_trash(): void
+    {
+        $a  = $this->mp_list('A');
+        $b  = $this->mp_list('B');
+        $id = (int) $this->ok($this->write('mailpoet-create-contact', [ 'email' => 'h4mrepro@example.com', 'first_name' => 'R', 'lists' => [ $a, $b ] ]))['contact']['id'];
+        $edit = $this->write('mailpoet-update-contact', [ 'id' => $id, 'first_name' => 'Edited2' ]);
+        $this->ok($edit);
+        $this->ok($this->write('mailpoet-delete-contact', [ 'id' => $id ], true));
+        $trashed = $this->rows('mailpoet_subscribers')[0];
+        $members = $this->rows('mailpoet_subscriber_segment');
+        $this->assertNotNull($trashed['deleted_at']);
+
+        Rollback_Service::take_warnings();
+        Rollback_Service::restore_operation((string) $edit['operation_id']);
+        $this->assertSame([ $trashed ], $this->rows('mailpoet_subscribers'), 'the subscriber stays in the trash, as it is');
+        $this->assertSame($members, $this->rows('mailpoet_subscriber_segment'));
+        $this->assertSame('contact_not_found', $this->code($this->read('mailpoet-get-contact', [ 'id' => $id ])));
+        $this->assertStringContainsString(sprintf('mailpoet_subscribers #%d (trashed since the write', $id), implode(' ', Rollback_Service::take_warnings()));
+    }
+
+    public function test_mailpoet_undo_of_its_own_trash_still_restores_and_an_old_snapshot_leaves_the_trash_alone(): void
+    {
+        $id    = $this->mp_contact('ada@example.com', 'subscribed');
+        $trash = $this->write('mailpoet-delete-contact', [ 'id' => $id ], true);
+        $this->ok($trash);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $trash['operation_id']));
+        $this->assertNull($this->rows('mailpoet_subscribers')[0]['deleted_at'], 'the operation\'s own trash is undone');
+
+        // A delete recorded before the trash was tracked: its undo leaves the trash alone.
+        $again = $this->write('mailpoet-delete-contact', [ 'id' => $id ], true);
+        $this->ok($again);
+        $row = Snapshot_Store::get_by_operation((string) $again['operation_id']);
+        unset($row['snapshot']['data']['trashed']);
+        Snapshot_Store::update_snapshot((string) $again['operation_id'], $row['snapshot']);
+        Rollback_Service::take_warnings();
+        Rollback_Service::restore_operation((string) $again['operation_id']);
+        $this->assertNotNull($this->rows('mailpoet_subscribers')[0]['deleted_at'], 'without the record, a trashed row is never assumed to be the write\'s own');
+        $this->assertStringContainsString(sprintf('mailpoet_subscribers #%d (in the trash, and this operation predates', $id), implode(' ', Rollback_Service::take_warnings()));
+    }
+
+    /**
+     * Issue #760: MailPoet saves the subscriber, then fails to send its
+     * confirmation email. The op returns the contact with a warning and its
+     * undo point, and the undo removes what it created.
+     */
+    public function test_mailpoet_create_whose_confirmation_email_failed_returns_the_contact_and_undoes(): void
+    {
+        $list                      = $this->mp_list('Newsletter');
+        $tag                       = $this->mp_tag('VIP');
+        Fake_MailPoet::$mail_fails = 10;
+        $out                       = $this->write('mailpoet-create-contact', [ 'email' => 'h4one@example.com', 'first_name' => 'One', 'lists' => [ $list ], 'tags' => [ $tag ] ]);
+        $result                    = $this->ok($out);
+        $id                        = (int) $this->rows('mailpoet_subscribers')[0]['id'];
+        $this->assertSame($id, (int) $result['contact']['id']);
+        $this->assertSame('unconfirmed', $result['contact']['status']);
+        $this->assertStringContainsString('confirmation email was not sent', implode(' ', $result['warnings']));
+        $this->assertNotEmpty($out['operation_id']);
+        $this->assertCount(1, $this->rows('mailpoet_subscriber_tag'), 'the tags still go on');
+
+        Rollback_Service::take_warnings();
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame([], Rollback_Service::take_warnings());
+        $this->assertSame([ [], [], [] ], [ $this->rows('mailpoet_subscribers'), $this->rows('mailpoet_subscriber_segment'), $this->rows('mailpoet_subscriber_tag') ], 'the undo removes the contact and its memberships');
+
+        // The same per contact in an import.
+        $import = $this->write('mailpoet-import-contacts', [ 'contacts' => [ [ 'email' => 'i1@example.com' ], [ 'email' => 'i2@example.com' ] ], 'lists' => [ $list ] ]);
+        $done   = $this->ok($import);
+        $this->assertSame([], $done['failed']);
+        $this->assertCount(2, $done['created']);
+        $this->assertStringContainsString('confirmation email was not sent', implode(' ', $done['created'][0]['warnings']));
+        Rollback_Service::restore_session((string) $import['session_id']);
+        $this->assertSame([ [], [] ], [ $this->rows('mailpoet_subscribers'), $this->rows('mailpoet_subscriber_segment') ]);
+
+        // Any other refusal is still the op's error, and a successful create carries no warning.
+        Fake_MailPoet::$mail_fails = 13;
+        $this->assertSame('mailpoet_refused', $this->code($this->write('mailpoet-create-contact', [ 'email' => 'h4two@example.com' ])));
+        Fake_MailPoet::$mail_fails = 0;
+        $this->assertArrayNotHasKey('warnings', $this->ok($this->write('mailpoet-create-contact', [ 'email' => 'h4three@example.com' ])));
     }
 
     public function test_undoing_the_operations_own_removal_still_restores_it_but_not_one_made_since(): void

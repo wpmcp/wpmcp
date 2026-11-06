@@ -78,6 +78,14 @@ abstract class CRM_Adapter
     /** Campaign fields a write may set (title is FluentCRM's alone). */
     protected const CAMPAIGN_FIELDS = [ 'title', 'subject', 'preheader', 'body', 'lists' ];
 
+    /**
+     * What the plugin did not do around a write that otherwise went
+     * through (a confirmation email it could not send), for the op's result.
+     *
+     * @var string[]
+     */
+    private array $write_warnings = [];
+
     /** Op name prefix and presence-filter slug, e.g. 'fluentcrm'. */
     abstract public function slug(): string;
 
@@ -1052,6 +1060,20 @@ abstract class CRM_Adapter
         }
     }
 
+    /** Note something the plugin did not do around a write that went through. */
+    protected function warn(string $message): void
+    {
+        $this->write_warnings[] = $message;
+    }
+
+    /** Return and clear the warnings noted since the last call. @return string[] */
+    private function take_warnings(): array
+    {
+        $warnings             = $this->write_warnings;
+        $this->write_warnings = [];
+        return $warnings;
+    }
+
     /** The 'crm_rows' snapshot target for one object (0: a create). */
     private function target(string $kind, int $id): array
     {
@@ -1074,6 +1096,7 @@ abstract class CRM_Adapter
     {
         $email  = sanitize_email((string) $args['email']);
         $status = (string) ($args['status'] ?? 'pending');
+        $this->take_warnings();
         $id     = (int) $this->tracked(
             $context,
             fn (): int => $this->api_create_contact(
@@ -1086,7 +1109,8 @@ abstract class CRM_Adapter
             ),
             static fn ($id): int => (int) $id
         );
-        return [ 'contact' => $this->require_contact($id) ];
+        $warnings = $this->take_warnings();
+        return [ 'contact' => $this->require_contact($id) ] + ([] === $warnings ? [] : [ 'warnings' => $warnings ]);
     }
 
     private function update_contact(array $args, array $context): array
@@ -1331,6 +1355,7 @@ abstract class CRM_Adapter
     private function import_one(array $context, array $args, int $id, callable $write, string $email, string $bucket, array &$out, array &$ops): void
     {
         $operation_id = wp_generate_uuid4();
+        $this->take_warnings();
         try {
             $done  = Safe_Mutation::run(
                 [
@@ -1344,7 +1369,8 @@ abstract class CRM_Adapter
                 fn () => $this->tracked([ 'operation_id' => $operation_id ], $write, static fn ($id): int => (int) $id)
             );
             $ops[]            = $operation_id;
-            $out[ $bucket ][] = [ 'id' => (int) $done['result'], 'email' => $email ];
+            $warnings         = $this->take_warnings();
+            $out[ $bucket ][] = [ 'id' => (int) $done['result'], 'email' => $email ] + ([] === $warnings ? [] : [ 'warnings' => $warnings ]);
         } catch (Operation_Error $e) {
             $ops[]           = $operation_id;
             $out['failed'][] = [ 'email' => $email, 'code' => $e->error_code(), 'message' => $e->getMessage() ];
