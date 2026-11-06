@@ -36,6 +36,9 @@ class Registrar
     /** The last decision recorded by a check made outside execute(). */
     private static ?string $standalone = null;
 
+    /** Depth of quietly() probes running: above 0, decisions are not audited. */
+    private static int $quiet = 0;
+
     /** How many tool calls are running, counting a tool one dispatches. */
     private static int $depth = 0;
 
@@ -133,6 +136,12 @@ class Registrar
         $reason  = $this->denial_reason($a, $input);
         $allowed = null === $reason;
 
+        if (self::$quiet > 0) {
+            // A probe inside quietly(): the decision is the same one, but no
+            // call is being made, so there is nothing to audit (issue #733).
+            return $allowed;
+        }
+
         // One call, one row (issue #412). The adapter's tools/call and
         // core's REST run route both check permission and then call
         // execute(), which checks again. The check inside execute() (marked
@@ -181,6 +190,30 @@ class Registrar
     public static function note_invoked($name): void
     {
         self::$invoked[ (string) $name ] = true;
+    }
+
+    /**
+     * Runs $probe with audit rows suppressed, for a caller that must ask the
+     * full permission path (the registered permission_callback and core's
+     * wp_ability_permission_result filter, which would_permit() does not
+     * reach) about a call nobody is making. The handshake summary (issue
+     * #733) is one: it asks whether the connecting client could call
+     * get-site-context, and recording that as a call wrote a row, and so
+     * rewrote the whole audit option, on every initialize and
+     * server/discover.
+     *
+     * @template T
+     * @param callable(): T $probe
+     * @return T
+     */
+    public static function quietly(callable $probe)
+    {
+        self::$quiet++;
+        try {
+            return $probe();
+        } finally {
+            self::$quiet--;
+        }
     }
 
     /**
