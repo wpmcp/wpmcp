@@ -44,6 +44,7 @@ class RefusalMessagesTest extends \WP_UnitTestCase
     protected function tearDown(): void
     {
         Registrar::set_woocommerce_loaded_for_tests(null);
+        Registrar::set_plugin_loaded_for_tests('acf', null);
         Gate::set_pro_for_tests(null);
         remove_all_filters('wpmcp_rate_limit');
         Rate_Limiter::set_clock_override(null);
@@ -96,6 +97,65 @@ class RefusalMessagesTest extends \WP_UnitTestCase
         Registrar::set_woocommerce_loaded_for_tests(true);
 
         $this->assertFalse((new Registrar())->permission(self::woo_ability()));
+    }
+
+    /**
+     * WooCommerce deactivated, not removed: its capabilities stay on the
+     * administrator role, so the permission check passes and the callback
+     * used to run and fatal on wc_get_products() and friends (issue #631
+     * retest). The plugin check runs before the callback whatever the
+     * permission result.
+     */
+    public function test_a_woocommerce_tool_after_deactivation_says_woocommerce_is_missing_while_the_capability_remains(): void
+    {
+        $this->as_administrator();
+        // What WooCommerce leaves on the administrator role when deactivated.
+        wp_get_current_user()->add_cap('manage_woocommerce');
+        wp_get_current_user()->add_cap('edit_shop_orders');
+        $this->assertTrue(current_user_can('manage_woocommerce'), 'the capability outlives the plugin');
+        Registrar::set_woocommerce_loaded_for_tests(false);
+
+        foreach (['wpmcp/list-products', 'wpmcp/list-orders', 'wpmcp/list-coupons', 'wpmcp/list-tax-rates', 'wpmcp/get-sales-report'] as $name) {
+            $ability = wp_get_ability($name);
+            $this->assertNotNull($ability, $name);
+            $result = $ability->execute([]);
+
+            $this->assertInstanceOf(\WP_Error::class, $result, $name);
+            $this->assertSame('plugin_missing', $result->get_error_code(), $name);
+            $this->assertSame(
+                sprintf('WooCommerce is not active on this site, so %s cannot run. Install and activate WooCommerce, then try again.', $name),
+                $result->get_error_message(),
+                $name
+            );
+        }
+    }
+
+    public function test_an_acf_tool_after_deactivation_says_acf_is_missing_while_the_capability_remains(): void
+    {
+        $ability = wp_get_ability('wpmcp/list-field-groups');
+        if (null === $ability) {
+            $this->markTestSkipped('ACF is not loaded in this install, so its tools are not registered.');
+        }
+        $this->as_administrator();
+        Registrar::set_plugin_loaded_for_tests('acf', false);
+
+        $result = $ability->execute([]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('plugin_missing', $result->get_error_code());
+        $this->assertStringStartsWith('Advanced Custom Fields is not active on this site, so wpmcp/list-field-groups cannot run.', $result->get_error_message());
+    }
+
+    public function test_a_plugin_tool_with_its_plugin_active_runs(): void
+    {
+        $this->as_administrator();
+        wp_get_current_user()->add_cap('manage_woocommerce');
+        Registrar::set_woocommerce_loaded_for_tests(true);
+
+        $result = wp_get_ability('wpmcp/list-products')->execute([]);
+
+        $this->assertIsArray($result);
+        $this->assertArrayHasKey('products', $result);
     }
 
     public function test_the_package_delete_and_update_tools_are_opt_in_gates(): void
