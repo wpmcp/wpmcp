@@ -7666,7 +7666,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-product',
             'free',
-            'Create a simple WooCommerce product via the CRUD layer. Creation has no prior state to snapshot; a mistaken product can be removed with delete-product',
+            'Create a simple WooCommerce product via the CRUD layer. rollback-operation on the returned operation_id trashes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7896,7 +7896,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-variation',
             'free',
-            'Add a variation to a variable product. attributes maps each variation attribute to one of its options ("" or omitted = any); unknown attributes or options are refused. Prices, sku, status and stock follow update-variation\'s rules. Undo with delete-variation',
+            'Add a variation to a variable product. attributes maps each variation attribute to one of its options ("" or omitted = any); unknown attributes or options are refused. Prices, sku, status and stock follow update-variation\'s rules. rollback-operation trashes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -7998,7 +7998,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-coupon',
             'free',
-            'Create a coupon. Refuses a code already in use, an unknown discount_type, a percent over 100 or an invalid email restriction. Status defaults to draft. Undo with delete-coupon',
+            'Create a coupon. Refuses a code already in use, an unknown discount_type, a percent over 100 or an invalid email restriction. Status defaults to draft. rollback-operation trashes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -8123,7 +8123,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-tax-rate',
             'free',
-            'Create a tax rate. rate is a percentage from 0 to 100; country must be a known ISO code or "" for all; class must be standard or an existing class. Undo with delete-tax-rate',
+            'Create a tax rate. rate is a percentage from 0 to 100; country must be a known ISO code or "" for all; class must be standard or an existing class. rollback-operation deletes it while unchanged',
             [
                 'type'       => 'object',
                 'properties' => [

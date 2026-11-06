@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\WooCommerce;
 
+use WPMCP\Safety\Wc_Tax_Rate_Creation_Snapshot;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -9,11 +11,12 @@ if (! defined('ABSPATH')) {
 /**
  * Create a WooCommerce tax rate through WC_Tax's own insert helpers.
  *
- * Creation is exempt from Safe_Mutation for the same reason create-product
- * is: there is no prior state to capture, and the auto-increment id is not
- * known before the insert. The reply names delete-tax-rate as the undo. The
- * rate is validated first (Tax_Rate_Input), so nothing is written for a call
- * that would be refused.
+ * Creation has no prior state to capture, and the auto-increment id is not
+ * known before the insert, so the call records a creation row once the rate
+ * exists (issue #761, Wc_Tax_Rate_Creation_Snapshot) and returns its
+ * operation_id: rollback-operation and rollback-session delete the rate
+ * again, but only while it is unchanged since. The rate is validated first
+ * (Tax_Rate_Input), so nothing is written for a call that would be refused.
  */
 class Create_Tax_Rate
 {
@@ -45,9 +48,8 @@ class Create_Tax_Rate
             \WC_Tax::_update_tax_rate_cities($id, $input['cities']);
         }
 
-        return array_merge(
-            (array) Tax_Rate_View::find($id),
-            ['recoverable' => false, 'undo' => 'delete-tax-rate']
-        );
+        $operation_id = Wc_Tax_Rate_Creation_Snapshot::record('create-tax-rate', $id, $args, (string) ($args['session_id'] ?? 'default'));
+
+        return ['operation_id' => $operation_id] + (array) Tax_Rate_View::find($id);
     }
 }
