@@ -25,7 +25,7 @@ class Regenerate_Elementor_Css
     public function handle(array $args)
     {
         if (! Elementor_Cache::available()) {
-            return new \WP_Error('elementor_inactive', 'Elementor is not active on this site.');
+            return new \WP_Error('elementor_not_active', 'Elementor is not active on this site.');
         }
 
         $post_id = (int) ($args['post_id'] ?? 0);

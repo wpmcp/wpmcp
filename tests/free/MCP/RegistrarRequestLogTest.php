@@ -121,10 +121,8 @@ class RegistrarRequestLogTest extends \WP_UnitTestCase
 
         $this->assertInstanceOf(\WP_Error::class, $result);
         $this->assertSame('ability_callback_exception', $result->get_error_code());
-        $this->assertSame(
-            'Ability "wpmcp/get-post" callback threw an exception: Post not found',
-            $result->get_error_message()
-        );
+        // An expected refusal carries only its own message (issue #631).
+        $this->assertSame('Post not found', $result->get_error_message());
 
         $row = $this->row_for('wpmcp/get-post');
 

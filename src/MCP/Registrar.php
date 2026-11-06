@@ -178,7 +178,51 @@ class Registrar
 
         // An input naming an agent memory entry is told to use the memory
         // tools (issue #517) rather than handed a bare permission denial.
-        return Client_Access::denial($a) ?? Content_Guard::input_refusal($a, $input) ?? false;
+        return Client_Access::denial($a) ?? self::plugin_missing($a) ?? Content_Guard::input_refusal($a, $input) ?? false;
+    }
+
+    /** Test seam: a non-null value stands in for whether WooCommerce is loaded. */
+    private static ?bool $woocommerce_loaded_for_tests = null;
+
+    public static function set_woocommerce_loaded_for_tests(?bool $loaded): void
+    {
+        if (! defined('WPMCP_TESTING') || ! WPMCP_TESTING) {
+            return;
+        }
+        self::$woocommerce_loaded_for_tests = $loaded;
+    }
+
+    /**
+     * Whether WooCommerce is loaded. Written here rather than borrowed from
+     * the store catalog's own guard: the directory build does not ship the
+     * catalog, and this core class must not name a class that build lacks.
+     */
+    private static function woocommerce_loaded(): bool
+    {
+        return self::$woocommerce_loaded_for_tests ?? class_exists('WooCommerce');
+    }
+
+    /**
+     * The refusal for a WooCommerce tool on a site without WooCommerce
+     * (issue #631). Its manage_woocommerce (or shop order) capability does
+     * not exist there, so the capability check fails first and the client
+     * was told "Permission denied", which points at the wrong fix. Only
+     * explains a denial already made; it never allows anything.
+     */
+    private static function plugin_missing(Ability $a): ?\WP_Error
+    {
+        if ('woocommerce' !== $a->domain || self::woocommerce_loaded()) {
+            return null;
+        }
+
+        return new \WP_Error(
+            'plugin_missing',
+            sprintf(
+                'WooCommerce is not active on this site, so %s cannot run. Install and activate WooCommerce, then try again.',
+                $a->name
+            ),
+            [ 'status' => 403, 'plugin' => 'woocommerce' ]
+        );
     }
 
     /**
@@ -328,6 +372,29 @@ class Registrar
     }
 
     /**
+     * The refusal for a name that is not registered because it is a Pro
+     * tool and this install has no active license (issue #631), or null
+     * when that is not the reason. Lets the meta-tools say "needs WP MCP
+     * Pro" instead of "no tool by that name". Grants nothing: the tool is
+     * still unregistered and unreachable.
+     */
+    public function pro_required(string $name): ?\WP_Error
+    {
+        $declared = $this->declared[ $name ] ?? null;
+        if (null === $declared || isset($this->abilities[ $name ]) || self::tier_permitted($declared->tier)) {
+            return null;
+        }
+
+        return new \WP_Error(
+            'pro_required',
+            sprintf(
+                '"%s" is a WP MCP Pro tool, and this site has no active WP MCP Pro license, so the tool is not available here. Activate a WP MCP Pro license on this site to use it.',
+                $name
+            )
+        );
+    }
+
+    /**
      * Record a governance-decision outcome to Governance_Audit_Log. Wrapped
      * in a try/catch so a logging failure (e.g. an option-write error) can
      * never turn an otherwise-successful permission check into a fatal
@@ -447,21 +514,55 @@ class Registrar
     }
 
     /**
-     * The WP_Error a thrown exception becomes: code and message exactly as
-     * WordPress 7.1's WP_Ability::invoke_callback() builds them, so a caller
-     * cannot tell which WordPress it ran on (issue #612).
+     * The WP_Error a thrown exception becomes. This wrapper catches what a
+     * callback throws before core 7.1's own catch in WP_Ability can, so the
+     * outcome is the same on every supported WordPress (issue #612).
+     *
+     * The message is plain text (issue #724). An MCP tool error is not
+     * HTML, and tools escape the names they put into exception messages
+     * (the WordPress coding standards ask for it), so this decodes those
+     * entities rather than adding more: a refusal reaches the client as
+     * "wpmcp_db_write_audit_log", not &quot;wpmcp_db_write_audit_log&quot;.
+     * Whatever prints a message into wp-admin escapes it there.
+     *
+     * An expected refusal (any \Exception: the tools throw
+     * InvalidArgumentException, RuntimeException and their subclasses on
+     * purpose) carries only its own message (issue #631). The core-style
+     * "callback threw an exception" prefix made a clear refusal read like a
+     * crash. A PHP engine error (\Error, such as a TypeError) is a real
+     * crash, so it keeps the prefix. An Opt_In_Required refusal gets the
+     * opt_in_required code; everything else keeps ability_callback_exception.
      */
     private static function exception_error(Ability $a, \Throwable $e): \WP_Error
     {
+        $message = self::plain_text($e->getMessage());
+
+        if (! $e instanceof \Exception) {
+            return new \WP_Error(
+                'ability_callback_exception',
+                sprintf(
+                    /* translators: 1: Ability name, 2: Exception message. */
+                    __('Ability "%1$s" callback threw an exception: %2$s', 'wpmcp'),
+                    $a->name,
+                    $message
+                )
+            );
+        }
+
         return new \WP_Error(
-            'ability_callback_exception',
-            sprintf(
-                /* translators: 1: Ability name, 2: Exception message. */
-                __('Ability "%1$s" callback threw an exception: %2$s', 'wpmcp'),
-                $a->name,
-                esc_html($e->getMessage())
-            )
+            $e instanceof Opt_In_Required ? 'opt_in_required' : 'ability_callback_exception',
+            $message
         );
+    }
+
+    /**
+     * A message as plain text for the MCP wire (issue #724): the HTML
+     * special characters esc_html() encodes, decoded once, so a message a
+     * tool escaped reads as it was written.
+     */
+    public static function plain_text(string $message): string
+    {
+        return wp_specialchars_decode($message, ENT_QUOTES);
     }
 
     private static function elapsed_ms(float $started): int

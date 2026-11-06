@@ -117,52 +117,196 @@ final class Gateway_Secrets
 
     /**
      * An option's value with gateway secrets masked. Anything that is not a
-     * registered gateway's settings array comes back untouched.
+     * registered gateway's settings option comes back untouched.
+     *
+     * The rule follows the option name, not the stored shape (issue #729):
+     * a gateway's settings can end up stored as JSON text, a serialized
+     * string or an object instead of the usual array, so each of those is
+     * decoded, masked by key and encoded back in the same form. A non-empty
+     * value that decodes to no settings array at all is masked whole, since
+     * nothing tells which part of it is a credential.
      *
      * @param mixed $value
      * @return mixed
      */
     public static function mask_option(string $option, $value)
     {
-        $gateway = is_array($value) ? self::gateway_for_option($option) : null;
+        if (self::is_unset($value)) {
+            return $value;
+        }
+        $gateway = self::gateway_for_option($option);
         if (null === $gateway) {
             return $value;
         }
-        foreach (self::secret_keys($gateway, $value) as $key) {
-            if (array_key_exists($key, $value)) {
-                $value[ $key ] = self::mask($value[ $key ]);
-            }
+        $decoded = self::decode($value);
+        if (null === $decoded) {
+            return self::MASK;
         }
-        return $value;
+        [ $settings, $layers ] = $decoded;
+        $masked = self::mask_settings($gateway, $settings);
+        return $masked === $settings ? $value : self::encode($masked, $layers);
     }
 
     /**
      * A new value for a gateway settings option with every secret that still
      * reads as the mask put back to what is stored, so writing back a masked
-     * read keeps the live credential.
+     * read keeps the live credential. Covers every shape mask_option() reads
+     * (issue #729): a whole value that is exactly the mask keeps the stored
+     * value, and JSON text or a serialized string is decoded, its masked
+     * keys restored and encoded back in the same form.
      *
      * @param mixed $value
      * @return mixed
      */
     public static function unmask_option(string $option, $value)
     {
-        $gateway = is_array($value) ? self::gateway_for_option($option) : null;
+        $gateway = self::gateway_for_option($option);
         if (null === $gateway) {
             return $value;
         }
-        $stored = get_option($option);
-        $stored = is_array($stored) ? $stored : [];
-        foreach (self::secret_keys($gateway, $value) as $key) {
-            if (! array_key_exists($key, $value) || ! self::is_masked($value[ $key ])) {
+        $missing = new \stdClass();
+        $stored  = get_option($option, $missing);
+        if (self::is_masked($value)) {
+            return $missing === $stored ? $value : $stored;
+        }
+        $decoded = self::decode($value);
+        if (null === $decoded) {
+            return $value;
+        }
+        [ $settings, $layers ] = $decoded;
+        $current  = ($missing === $stored ? null : self::decode_settings($stored)) ?? [];
+        $restored = $settings;
+        foreach (self::secret_keys($gateway, $settings) as $key) {
+            if (! array_key_exists($key, $restored) || ! self::is_masked($restored[ $key ])) {
                 continue;
             }
-            if (array_key_exists($key, $stored)) {
-                $value[ $key ] = $stored[ $key ];
+            if (array_key_exists($key, $current)) {
+                $restored[ $key ] = $current[ $key ];
             } else {
-                unset($value[ $key ]);
+                unset($restored[ $key ]);
+            }
+        }
+        return $restored === $settings ? $value : self::encode($restored, $layers);
+    }
+
+    /**
+     * A gateway settings value decoded to its settings array, whatever form
+     * it is stored in (array, object, serialized string, JSON text), or null
+     * when it holds no settings array.
+     *
+     * @param mixed $value
+     * @return array<mixed>|null
+     */
+    public static function decode_settings($value): ?array
+    {
+        $decoded = self::decode($value);
+        return null === $decoded ? null : $decoded[0];
+    }
+
+    /** @param mixed $value */
+    private static function is_unset($value): bool
+    {
+        return false === $value || null === $value || '' === $value || [] === $value;
+    }
+
+    /**
+     * $value peeled down to an array: the array plus the layers taken off it
+     * (outermost first), or null when no array is inside. Serialized data is
+     * decoded without instantiating any class.
+     *
+     * @param mixed $value
+     * @return array{0: array<mixed>, 1: array<int, string>}|null
+     */
+    private static function decode($value): ?array
+    {
+        $layers = [];
+        for ($depth = 0; $depth < 4; $depth++) {
+            if (is_array($value)) {
+                return [ $value, $layers ];
+            }
+            if (is_object($value)) {
+                $layers[] = 'object';
+                $value    = get_object_vars($value);
+                continue;
+            }
+            if (! is_string($value)) {
+                return null;
+            }
+            if (is_serialized($value)) {
+                // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize -- allowed_classes:false never instantiates an object; the value is only masked and re-encoded.
+                $inner = @unserialize($value, [ 'allowed_classes' => false ]);
+                if (false === $inner && 'b:0;' !== $value) {
+                    return null;
+                }
+                $layers[] = 'serialized';
+                $value    = $inner;
+                continue;
+            }
+            $trimmed = ltrim($value);
+            if ('' !== $trimmed && in_array($trimmed[0], [ '{', '[', '"' ], true)) {
+                $inner = json_decode($value, true);
+                if (JSON_ERROR_NONE === json_last_error() && (is_array($inner) || is_string($inner))) {
+                    $layers[] = 'json';
+                    $value    = $inner;
+                    continue;
+                }
+            }
+            return null;
+        }
+        return null;
+    }
+
+    /**
+     * $settings wrapped back in the layers decode() took off.
+     *
+     * @param array<mixed>       $settings
+     * @param array<int, string> $layers
+     * @return mixed
+     */
+    private static function encode(array $settings, array $layers)
+    {
+        $value = $settings;
+        foreach (array_reverse($layers) as $layer) {
+            if ('object' === $layer) {
+                $value = (object) $value;
+            } elseif ('serialized' === $layer) {
+                $value = serialize($value); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- re-encodes the value in the serialized form it was read in.
+            } else {
+                $value = (string) wp_json_encode($value);
             }
         }
         return $value;
+    }
+
+    /**
+     * Settings with every secret masked, at any depth: a key is secret when
+     * it is one of the gateway's secret fields or the rule calls it secret,
+     * so a value stored in an unusual shape cannot keep a credential one
+     * level down.
+     *
+     * @param array<mixed> $settings
+     * @return array<mixed>
+     */
+    private static function mask_settings(\WC_Payment_Gateway $gateway, array $settings): array
+    {
+        return self::mask_keys($settings, self::secret_keys($gateway, $settings));
+    }
+
+    /**
+     * @param array<mixed>       $data
+     * @param array<int, string> $secret
+     * @return array<mixed>
+     */
+    private static function mask_keys(array $data, array $secret): array
+    {
+        foreach ($data as $key => $item) {
+            if (in_array((string) $key, $secret, true) || self::is_secret((string) $key)) {
+                $data[ $key ] = self::mask($item);
+            } elseif (is_array($item)) {
+                $data[ $key ] = self::mask_keys($item, $secret);
+            }
+        }
+        return $data;
     }
 
     /** True when a REST route is one of WooCommerce's payment gateway routes. */

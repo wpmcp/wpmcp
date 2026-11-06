@@ -44,7 +44,7 @@ class Run_Event
         }
 
         if (! self::is_enabled()) {
-            throw new \RuntimeException('Running cron events is disabled. Enable it with the wpmcp_enable_run_cron_event filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('Running cron events is disabled.', 'wpmcp_enable_run_cron_event');
         }
 
         // WP MCP's own job hooks run when their job is due (issue #563);

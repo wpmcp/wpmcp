@@ -662,7 +662,7 @@ class Stdio_Transport
         if ($outcome instanceof \Throwable) {
             return [
                 'isError' => true,
-                'content' => [ [ 'type' => 'text', 'text' => $outcome->getMessage() ] ],
+                'content' => [ [ 'type' => 'text', 'text' => Registrar::plain_text($outcome->getMessage()) ] ],
             ];
         }
 

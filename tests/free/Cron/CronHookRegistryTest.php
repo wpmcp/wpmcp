@@ -7,6 +7,7 @@ use WPMCP\Cron_Registry;
 use WPMCP\Tools\Backup\Backup_Job_Store;
 use WPMCP\Tools\Backup\Backup_Schedule;
 use WPMCP\Tools\Backup\Run_Backup_Job;
+use WPMCP\Tools\Backup\Run_Restore_Job;
 use WPMCP\Tools\Cli\Cli_Job_Store;
 use WPMCP\Tools\Cli\Run_Cli_Job;
 use WPMCP\Tools\Media\Optimize_Media_Job;
@@ -86,6 +87,7 @@ class CronHookRegistryTest extends \WP_UnitTestCase
             Oauth_Gc::HOOK,
             Backup_Schedule::HOOK,
             Run_Backup_Job::HOOK,
+            Run_Restore_Job::HOOK,
             Run_Cli_Job::HOOK,
             Run_Broken_Link_Scan::HOOK,
             Optimize_Media_Job::HOOK,
@@ -105,7 +107,8 @@ class CronHookRegistryTest extends \WP_UnitTestCase
         $this->assertSame(
             [
                 Run_Backup_Job::HOOK       => [ Backup_Job_Store::OPTION, 'jobs' ],
-                Run_Cli_Job::HOOK          => [ Cli_Job_Store::OPTION, 'jobs' ],
+                Run_Restore_Job::HOOK      => [ Backup_Job_Store::OPTION, 'jobs' ],
+                Run_Cli_Job::HOOK         => [ Cli_Job_Store::OPTION, 'jobs' ],
                 Run_Broken_Link_Scan::HOOK => [ Broken_Link_Scan_Store::OPTION, 'scans' ],
                 Optimize_Media_Job::HOOK   => [ Optimize_Media_Job::OPTION, 'jobs' ],
             ],

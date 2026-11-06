@@ -33,6 +33,8 @@ class Cancel_Backup_Job
         }
 
         wp_clear_scheduled_hook(Run_Backup_Job::HOOK, [$job_id]);
+        // A queued restore (issue #727) waits on its own hook.
+        wp_clear_scheduled_hook(Run_Restore_Job::HOOK, [$job_id]);
 
         $updated = Backup_Job_Store::update($job_id, ['status' => 'canceled']);
 
