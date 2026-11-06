@@ -25,6 +25,10 @@ if (! defined('ABSPATH')) {
  * serialised, and it is verified against the stored list: an activation that
  * did not land is rolled back and reported, and its undo point is voided, so
  * the ledger never lists an activation that did not happen (issue #728).
+ * Activation_Guard keeps a plugin that redirects while it activates from
+ * ending the request, and its errors reach the client as plain text (issue
+ * #746). A plugin that is already active is reported as such, with no
+ * operation and no ledger row (issue #747).
  */
 class Activate_Plugin
 {
@@ -46,9 +50,15 @@ class Activate_Plugin
 
         $network_wide = Plugin_Network_Scope::for_activation($plugin, $args);
 
-        $error = '';
+        $error      = '';
+        $redirected = false;
         try {
-            $out = Plugin_State::locked(static function () use ($plugin, $network_wide, $args, &$error) {
+            $out = Plugin_State::locked(static function () use ($plugin, $network_wide, $args, &$error, &$redirected) {
+                // Read under the lock: an active plugin changes nothing, so
+                // it gets no undo point (issue #747).
+                if (Plugin_State::already_active($plugin, $network_wide)) {
+                    return null;
+                }
                 return Safe_Mutation::run(
                     [
                         'object_type'         => 'option',
@@ -60,10 +70,12 @@ class Activate_Plugin
                         'args'                => $args,
                         'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ] + Plugin_Network_Scope::snapshot_data($network_wide),
                     ],
-                    function () use ($plugin, $network_wide, &$error) {
-                        $result = activate_plugin($plugin, '', $network_wide);
+                    function () use ($plugin, $network_wide, &$error, &$redirected) {
+                        $result = Activation_Guard::activate($plugin, $network_wide, $redirected);
                         if (is_wp_error($result)) {
-                            $error = $result->get_error_message();
+                            $error = Activation_Guard::plain_message($result->get_error_message());
+                        } elseif ($redirected) {
+                            $error = Activation_Guard::redirect_message();
                         }
                         return $result;
                     },
@@ -78,6 +90,10 @@ class Activate_Plugin
                 esc_html($plugin),
                 esc_html('' !== $error ? $error : 'the plugin is not in the active list after activation.')
             ));
+        }
+
+        if (null === $out) {
+            return ['plugin' => $plugin, 'activated' => false, 'already_active' => true, 'network_wide' => $network_wide];
         }
 
         return ['operation_id' => $out['operation_id'], 'plugin' => $plugin, 'activated' => true, 'network_wide' => $network_wide];

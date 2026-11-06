@@ -88,6 +88,20 @@ final class Plugin_State
         return in_array($plugin, (array) get_option('active_plugins', []), true);
     }
 
+    /**
+     * True when activating $plugin would change nothing (issue #747): it is
+     * active on the site (network active counts, as in wp-admin), or, for a
+     * network-wide activation, already network active. Asked under the lock.
+     */
+    public static function already_active(string $plugin, bool $network_wide): bool
+    {
+        if (! function_exists('is_plugin_active')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+
+        return $network_wide ? is_plugin_active_for_network($plugin) : is_plugin_active($plugin);
+    }
+
     /** Drop this request's cached copies, so the lists are read from the database. */
     private static function refresh(): void
     {
