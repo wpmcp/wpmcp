@@ -249,7 +249,11 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  activate-plugin, deactivate-plugin and install-plugin, paid for by
      *  "Undoable" in place of the active_plugins snapshot wording and the
      *  rollbackable operation_id phrase on those three descriptions
-     *  without dropping a rule: 208972 -> 208956 bytes over 407 tools. */
+     *  without dropping a rule: 208972 -> 208956 bytes over 407 tools.
+     *  Tool search (#732) added no tool: a search property on
+     *  list-tool-catalog and list-tools, paid for by tighter wording of
+     *  those two descriptions without dropping a rule: 208956 -> 208987
+     *  bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
