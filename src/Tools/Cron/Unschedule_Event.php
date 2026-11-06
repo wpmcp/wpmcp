@@ -38,6 +38,7 @@ class Unschedule_Event
             [
                 'object_type' => 'option',
                 'object_id'   => 'cron',
+                'object_ref'  => $hook,
                 'session_id'  => (string) ($args['session_id'] ?? 'default'),
                 'tool_name'   => 'unschedule-event',
                 'args'        => $args,

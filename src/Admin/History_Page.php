@@ -36,10 +36,10 @@ class History_Page
         $nonce = wp_create_nonce('wpmcp_restore');
         foreach ($ops as $op) {
             printf(
-                '<tr id="%s"><td>%s</td><td>#%d</td><td>%s</td><td>',
+                '<tr id="%s"><td>%s</td><td>%s</td><td>%s</td><td>',
                 esc_attr(self::row_anchor((string) $op['operation_id'])),
                 esc_html($op['tool_name']),
-                (int) $op['object_id'],
+                esc_html(List_Operations::object_label($op)),
                 esc_html($op['created_at'])
             );
             if (! empty($op['rollback_available'])) {

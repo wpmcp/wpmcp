@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Packages;
 
+use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Safe_Mutation;
 
 if (! defined('ABSPATH')) {
@@ -19,6 +20,11 @@ if (! defined('ABSPATH')) {
  * On a multisite network the activation stays on the current site unless a
  * network admin passes network_wide: true; see Plugin_Network_Scope, which
  * also adds active_sitewide_plugins to the snapshot of a network write.
+ *
+ * The write runs under Plugin_State's lock, so parallel activations are
+ * serialised, and it is verified against the stored list: an activation that
+ * did not land is rolled back and reported, and its undo point is voided, so
+ * the ledger never lists an activation that did not happen (issue #728).
  */
 class Activate_Plugin
 {
@@ -40,22 +46,39 @@ class Activate_Plugin
 
         $network_wide = Plugin_Network_Scope::for_activation($plugin, $args);
 
-        $out = Safe_Mutation::run(
-            [
-                'object_type'         => 'option',
-                'object_id'           => 'active_plugins',
-                'session_id'          => (string) ($args['session_id'] ?? 'default'),
-                'tool_name'           => 'activate-plugin',
-                'args'                => $args,
-                'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ] + Plugin_Network_Scope::snapshot_data($network_wide),
-            ],
-            function () use ($plugin, $network_wide) {
-                return activate_plugin($plugin, '', $network_wide);
-            },
-            function ($result) {
-                return ! is_wp_error($result);
-            }
-        );
+        $error = '';
+        try {
+            $out = Plugin_State::locked(static function () use ($plugin, $network_wide, $args, &$error) {
+                return Safe_Mutation::run(
+                    [
+                        'object_type'         => 'option',
+                        'object_id'           => 'active_plugins',
+                        'object_ref'          => $plugin,
+                        'state_probe'         => [ Plugin_State::class, 'probe' ],
+                        'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                        'tool_name'           => 'activate-plugin',
+                        'args'                => $args,
+                        'extra_snapshot_data' => [ 'restore_capability' => 'activate_plugins' ] + Plugin_Network_Scope::snapshot_data($network_wide),
+                    ],
+                    function () use ($plugin, $network_wide, &$error) {
+                        $result = activate_plugin($plugin, '', $network_wide);
+                        if (is_wp_error($result)) {
+                            $error = $result->get_error_message();
+                        }
+                        return $result;
+                    },
+                    function ($result) use ($plugin, $network_wide) {
+                        return ! is_wp_error($result) && Plugin_State::is_active($plugin, $network_wide);
+                    }
+                );
+            });
+        } catch (Mutation_Failed $e) {
+            throw new \RuntimeException(sprintf(
+                'Plugin "%s" was not activated, and nothing was recorded: %s',
+                esc_html($plugin),
+                esc_html('' !== $error ? $error : 'the plugin is not in the active list after activation.')
+            ));
+        }
 
         return ['operation_id' => $out['operation_id'], 'plugin' => $plugin, 'activated' => true, 'network_wide' => $network_wide];
     }
