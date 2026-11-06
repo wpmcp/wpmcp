@@ -188,12 +188,15 @@ class Rollback_Service
 
     /**
      * Why undoing this creation row would delete more than the operation
-     * made (issue #598), or null. Only create-menu and create-user rows can
-     * be refused this way; every other type returns null.
+     * made (issue #598), or null. Only create-menu, create-user and
+     * create-tax-rate (issue #761) rows can be refused this way; every other
+     * type returns null.
      */
     private static function creation_refusal(array $snapshot): ?string
     {
-        return Menu_Creation_Snapshot::refusal($snapshot) ?? User_Creation_Snapshot::refusal($snapshot);
+        return Menu_Creation_Snapshot::refusal($snapshot)
+            ?? User_Creation_Snapshot::refusal($snapshot)
+            ?? Wc_Tax_Rate_Creation_Snapshot::refusal($snapshot);
     }
 
     /**
@@ -913,8 +916,10 @@ class Rollback_Service
             }
             // A created menu is undone after everything else, so the items
             // the session added to it are removed first (issue #598); its
-            // refusal is asked then, once they are gone.
-            if (Menu_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
+            // refusal is asked then, once they are gone. A created tax rate
+            // likewise, so the session's own edits of it are put back first
+            // (issue #761).
+            if (in_array($snapshot['object_type'], [ Menu_Creation_Snapshot::OBJECT_TYPE, Wc_Tax_Rate_Creation_Snapshot::OBJECT_TYPE ], true)) {
                 $deferred[ $key ] = $group;
                 continue;
             }
@@ -1754,6 +1759,7 @@ class Rollback_Service
             'amelia_rows',
             'db_cleanup',
             'wc_tax_rate',
+            'wc_tax_rate_create',
             'php_snippet',
             'page_build',
             'media_import',
@@ -1956,6 +1962,13 @@ class Rollback_Service
 
         if ('wc_tax_rate' === $snapshot['object_type']) {
             self::apply_wc_tax_rate_snapshot($snapshot);
+            return;
+        }
+
+        // Wc_Tax_Rate_Creation_Snapshot::OBJECT_TYPE, spelled as a literal
+        // for the restorable-types parity test (issue #761).
+        if ('wc_tax_rate_create' === $snapshot['object_type']) {
+            self::warn_if(Wc_Tax_Rate_Creation_Snapshot::undo_creation($snapshot));
             return;
         }
 
