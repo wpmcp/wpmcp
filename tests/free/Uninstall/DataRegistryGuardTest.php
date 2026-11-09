@@ -67,6 +67,13 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             'wpseo_taxonomy_meta',
             'oxygen_vsb_css_files_state',
             'generateblocks_dynamic_css_posts',
+            // Core's site identity and homepage settings, written by the
+            // Core_Site_Pack ops on the theme pair (issue #713).
+            'site_logo',
+            'site_icon',
+            'show_on_front',
+            'page_on_front',
+            'page_for_posts',
         ],
         'transient'      => [
             'scrape_key_*',
