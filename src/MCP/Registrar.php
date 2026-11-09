@@ -30,6 +30,15 @@ class Registrar
     /** @var Ability[] every ability handed to register(), before any gating. */
     private array $declared = [];
 
+    /**
+     * Abilities left unregistered because their host plugin is not active
+     * (issue #790), with the plugin to name in the refusal. Kept apart from
+     * $declared: they are not part of the surface the ability grid shows.
+     *
+     * @var array<string, array{ability: Ability, plugin: string, several: bool}>
+     */
+    private array $held_for_plugin = [];
+
     /** @var array<string, true> abilities whose execute() has begun but not yet checked permission. */
     private static array $invoked = [];
 
@@ -426,6 +435,55 @@ class Registrar
             return null;
         }
 
+        return self::pro_error($name);
+    }
+
+    /**
+     * Note an ability that is not registered because the plugin it works
+     * with is not active (issue #790): a pair whose integration registers
+     * only while its host plugin is loaded. $plugin names that plugin, or,
+     * with $several, the plugins any one of which would do. Grants nothing.
+     */
+    public function hold_for_plugin(Ability $a, string $plugin, bool $several = false): void
+    {
+        $this->held_for_plugin[ $a->name ] = [ 'ability' => $a, 'plugin' => $plugin, 'several' => $several ];
+    }
+
+    /**
+     * The refusal for a name that is not registered because its plugin is
+     * not active (issue #790), or null when that is not the reason. Names
+     * the plugin to activate instead of claiming no such tool exists. A Pro
+     * tool on an unlicensed install still says it needs Pro, since
+     * activating the plugin alone would not bring it back. Grants nothing:
+     * the tool stays unregistered and unreachable.
+     */
+    public function plugin_inactive(string $name): ?\WP_Error
+    {
+        $held = $this->held_for_plugin[ $name ] ?? null;
+        if (null === $held || isset($this->abilities[ $name ])) {
+            return null;
+        }
+        if (! self::tier_permitted($held['ability']->tier)) {
+            return self::pro_error($name);
+        }
+
+        $message = $held['several']
+            ? sprintf(
+                'None of the plugins %1$s works with is active on this site (%2$s), so %1$s cannot run. Install and activate one of them, then try again.',
+                $name,
+                $held['plugin']
+            )
+            : sprintf(
+                '%1$s is not active on this site, so %2$s cannot run. Install and activate %1$s, then try again.',
+                $held['plugin'],
+                $name
+            );
+
+        return new \WP_Error('plugin_missing', $message, [ 'plugin' => $held['plugin'] ]);
+    }
+
+    private static function pro_error(string $name): \WP_Error
+    {
         return new \WP_Error(
             'pro_required',
             sprintf(
