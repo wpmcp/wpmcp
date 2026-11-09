@@ -119,6 +119,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'breakdance/plugin.php' );
     }
 
+    // The live MemberPress job (issue #668, WPMCP_LIVE_MEMBERPRESS=1) runs
+    // the MemberPress ops against a real MemberPress, copied in from
+    // WPMCP_MEMBERPRESS_SRC. Loaded only on request: the stub-backed
+    // MemberPress tests build its tables and post types from a fixture.
+    if ( getenv( 'WPMCP_LIVE_MEMBERPRESS' ) ) {
+        wpmcp_maybe_require_plugin( 'memberpress/memberpress.php' );
+    }
+
     // The live WooCommerce Subscriptions job (issue #658,
     // WPMCP_LIVE_WC_SUBSCRIPTIONS=1) runs the subscriptions ops through the
     // real plugin, copied in from WPMCP_WC_SUBSCRIPTIONS_SRC, beside the
@@ -300,6 +308,16 @@ tests_add_filter( 'init', function () {
         \AmeliaBooking\Plugin::activation( false );
         \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationRolesHook::init();
         \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationSettingsHook::init();
+    }
+}, 1 );
+
+// The live MemberPress job's tables, built by MemberPress's own MeprDb
+// upgrade once per run, before any test transaction starts. A no-op
+// everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_MEMBERPRESS' ) && class_exists( 'MeprDb' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        \MeprDb::fetch()->upgrade();
     }
 }, 1 );
 

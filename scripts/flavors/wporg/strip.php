@@ -1415,6 +1415,28 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The MemberPress ops (issue #668) are the paid add-on's too, removed by
+    // policy.php; their lines go first, so the page translation edits below
+    // still match.
+    [
+        " *  - Issue #668 adds the paid-tier MemberPress ops (MemberPress_Pack):\n"
+            . " *    memberships, rules and their access conditions, read and written as\n"
+            . " *    MemberPress stores them, plus read-only members and transactions.\n",
+        '',
+        1,
+    ],
+    [
+        "            || I18n_Pack::active()\n"
+            . "            || MemberPress_Pack::active();\n",
+        "            || I18n_Pack::active();\n",
+        1,
+    ],
+    [
+        "            I18n_Pack::operations(),\n"
+            . "            MemberPress_Pack::operations()\n",
+        "            I18n_Pack::operations()\n",
+        1,
+    ],
     // The page translation ops (issue #498) are the paid add-on's too,
     // removed by policy.php; their lines go first, so the Amelia edits below
     // still match.

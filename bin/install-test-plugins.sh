@@ -182,6 +182,26 @@ elif [ "${WPMCP_LIVE_BREAKDANCE:-}" = "1" ]; then
 	echo "Copied Breakdance $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/plugin.php" | head -n 1) from $src."
 fi
 
+# The live MemberPress job (issue #668) runs the MemberPress ops against a real
+# MemberPress. MemberPress is a commercial plugin and not on wordpress.org, so
+# it is copied from a local directory holding it (WPMCP_MEMBERPRESS_SRC)
+# instead of downloaded. Exclusive too: the stub-backed MemberPress tests build
+# its tables and post types from a fixture and fake its presence.
+if [ "${WPMCP_LIVE_MEMBERPRESS:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_MEMBERPRESS:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_MEMBERPRESS_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/memberpress.php" ]; then
+		echo "WPMCP_LIVE_MEMBERPRESS=1 needs WPMCP_MEMBERPRESS_SRC, a directory holding the MemberPress plugin (memberpress.php)." >&2
+		exit 1
+	fi
+	mkdir -p "$PLUGINS_DIR"
+	rm -rf "$PLUGINS_DIR/memberpress"
+	cp -R "$src" "$PLUGINS_DIR/memberpress"
+	echo "Copied MemberPress $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/memberpress.php" | head -n 1) from $src."
+fi
+
 # The live WooCommerce Subscriptions job (issue #658) runs the subscriptions
 # ops through the real plugin beside WooCommerce. Subscriptions is a
 # commercial plugin and not on wordpress.org, so it is copied from a local
