@@ -1415,6 +1415,29 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The Elementor Pro submissions ops (issue #654) are the paid add-on's
+    // too, removed by policy.php; their lines go first, so the MemberPress
+    // edits below still match.
+    [
+        " *  - Issue #654 adds the paid-tier Elementor Pro ops\n"
+            . " *    (Elementor_Pro_Forms_Pack): forms found in pages, and form submissions\n"
+            . " *    read, exported, marked read or trashed, and deleted, each write under\n"
+            . " *    a db_rows before-image.\n",
+        '',
+        1,
+    ],
+    [
+        "            || MemberPress_Pack::active()\n"
+            . "            || Elementor_Pro_Forms_Pack::active();\n",
+        "            || MemberPress_Pack::active();\n",
+        1,
+    ],
+    [
+        "            MemberPress_Pack::operations(),\n"
+            . "            Elementor_Pro_Forms_Pack::operations()\n",
+        "            MemberPress_Pack::operations()\n",
+        1,
+    ],
     // The MemberPress ops (issue #668) are the paid add-on's too, removed by
     // policy.php; their lines go first, so the page translation edits below
     // still match.

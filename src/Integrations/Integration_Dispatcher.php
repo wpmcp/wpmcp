@@ -56,8 +56,9 @@ if (! defined('ABSPATH')) {
  *                           integration as a whole does not (CF7 entries need
  *                           Flamingo). Returns true when satisfied, or
  *                           ['code' => ..., 'message' => ...] naming what is
- *                           missing, which the dispatcher emits as its own
- *                           top-level error. The op stays in the catalog
+ *                           missing (plus optional 'data', such as the
+ *                           plugins screen to fix it from), which the
+ *                           dispatcher emits as its own top-level error. The op stays in the catalog
  *                           (flagged dependency_met:false) so list-operations still
  *                           documents it, but the handler is never reached and
  *                           no snapshot is written
@@ -458,7 +459,7 @@ abstract class Integration_Dispatcher
             return $this->error(
                 (string) ($requirement['code'] ?? 'dependency_unavailable'),
                 (string) ($requirement['message'] ?? sprintf('Operation "%s" is missing a dependency.', $op)),
-                [ 'operation' => $op ]
+                (array) ($requirement['data'] ?? []) + [ 'operation' => $op ]
             );
         }
 

@@ -18,7 +18,9 @@
 # a local copy of WooCommerce Subscriptions (WPMCP_WC_SUBSCRIPTIONS_SRC) only
 # (bin/test-local.sh --live-wc-subscriptions), or, with WPMCP_LIVE_DIVI=1, no
 # plugin and the Divi 5 theme copied from WPMCP_DIVI_SRC (bin/test-local.sh
-# --live-divi). The script
+# --live-divi), or, with WPMCP_LIVE_ELEMENTOR_PRO=1, Elementor plus a local
+# copy of Elementor Pro (WPMCP_ELEMENTOR_PRO_SRC) only (bin/test-local.sh
+# --live-elementor-pro). The script
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
 #
@@ -290,6 +292,29 @@ if [ "${WPMCP_LIVE_WC_SUBSCRIPTIONS:-}" = "1" ]; then
 		rm -rf "$PLUGINS_DIR/woocommerce-subscriptions"
 		cp -R "$src" "$PLUGINS_DIR/woocommerce-subscriptions"
 		echo "Copied WooCommerce Subscriptions $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/woocommerce-subscriptions.php" | head -n 1) from $src."
+	fi
+fi
+
+# The live Elementor Pro job (issue #654) runs the Elementor Pro submissions
+# ops against a real Elementor Pro beside the pinned free Elementor it needs.
+# Elementor Pro is a commercial plugin and not on wordpress.org, so it is
+# copied from a local directory holding it (WPMCP_ELEMENTOR_PRO_SRC) instead
+# of downloaded. Exclusive too: the stub-backed tests build its tables from a
+# fixture and fake its presence.
+if [ "${WPMCP_LIVE_ELEMENTOR_PRO:-}" = "1" ]; then
+	PLUGINS=(
+		"elementor:elementor.php"
+	)
+	if [ "$list_only" = false ]; then
+		src=${WPMCP_ELEMENTOR_PRO_SRC:-}
+		if [ -z "$src" ] || [ ! -f "$src/elementor-pro.php" ]; then
+			echo "WPMCP_LIVE_ELEMENTOR_PRO=1 needs WPMCP_ELEMENTOR_PRO_SRC, a directory holding the Elementor Pro plugin (elementor-pro.php)." >&2
+			exit 1
+		fi
+		mkdir -p "$PLUGINS_DIR"
+		rm -rf "$PLUGINS_DIR/elementor-pro"
+		cp -R "$src" "$PLUGINS_DIR/elementor-pro"
+		echo "Copied Elementor Pro $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/elementor-pro.php" | head -n 1) from $src."
 	fi
 fi
 
