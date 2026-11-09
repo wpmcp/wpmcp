@@ -49,6 +49,19 @@ abstract class Forms_Integration extends Integration_Dispatcher
         return true;
     }
 
+    /**
+     * One plugin per forms adapter. Every adapter's summary opens with its
+     * plugin's name followed by what it covers in parentheses ("Ninja Forms
+     * (forms, fields, ...)"), and the conformance suite holds each one to it.
+     */
+    public function host_plugin(): array
+    {
+        $summary = $this->summary();
+        $cut     = strpos($summary, ' (');
+
+        return [ 'name' => false === $cut ? $summary : substr($summary, 0, $cut), 'several' => false ];
+    }
+
     /** The page_size + offset schema properties every entry listing shares. */
     protected static function paging_properties(): array
     {
