@@ -102,7 +102,7 @@ class Safe_Mutation
             remove_action('created_term', $note_term, 10);
             if ([] !== $created_terms && null !== Snapshot_Store::id_for_operation($operation_id)) {
                 $snapshot['data'][ Term_Restore::CREATED_KEY ] = $created_terms;
-                Snapshot_Store::update_snapshot($operation_id, $snapshot);
+                Snapshot_Store::update_snapshot($operation_id, $snapshot, (string) ($context['object_ref'] ?? ''));
             }
         }
         if ($verify && ! $verify($result)) {
