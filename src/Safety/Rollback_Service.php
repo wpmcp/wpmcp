@@ -438,8 +438,9 @@ class Rollback_Service
         $type = $snapshot['object_type'] ?? '';
         // Order snapshots hold the customer's addresses and put a whole
         // order back (or trash one), so restoring one takes the capability
-        // the order writes themselves require (issue #292).
-        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE ], true)) {
+        // the order writes themselves require (issue #292). A subscription
+        // snapshot is a whole order too (issue #658).
+        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE, Wc_Subscription_Snapshot::TYPE ], true)) {
             return [ [ 'manage_woocommerce' ] ];
         }
         // Shipping zone and webhook snapshots are store configuration, and a
@@ -1741,6 +1742,7 @@ class Rollback_Service
             'wc_order',
             'wc_order_full',
             'wc_order_create',
+            'wc_subscription',
             'wc_shipping_zone',
             'wc_shipping_zone_create',
             'wc_webhook',
@@ -1907,6 +1909,13 @@ class Rollback_Service
             if (null !== $warning) {
                 self::warn($warning);
             }
+            return;
+        }
+
+        // Wc_Subscription_Snapshot::TYPE (issue #658), a literal for the
+        // restorable-types parity test.
+        if ('wc_subscription' === $snapshot['object_type']) {
+            self::warn_if(Wc_Subscription_Snapshot::restore($snapshot));
             return;
         }
 
