@@ -203,7 +203,7 @@ class ThemeLayoutsPackTest extends \WP_UnitTestCase
             'hook_required'         => [ 'title' => 'A', 'type' => 'hooks' ],
             'hook_not_allowed'      => [ 'title' => 'A', 'type' => 'header', 'hook' => 'astra_body_top' ],
             'layout_type_read_only' => [ 'title' => 'A', 'type' => 'template' ],
-            'invalid_layout_type'   => [ 'title' => 'A', 'type' => 'nope' ],
+            'invalid_args'          => [ 'title' => 'A', 'type' => 'nope' ],
             'invalid_display_rules' => [ 'title' => 'A', 'type' => 'header', 'rules' => [ 'location' => [ 'rule' => [ 'nowhere|all' ] ] ] ],
             'blocked_hook'          => [ 'title' => 'A', 'type' => 'hooks', 'hook' => 'init', 'custom_hook' => true ],
         ];
