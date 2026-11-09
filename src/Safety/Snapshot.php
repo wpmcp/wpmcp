@@ -34,6 +34,9 @@ class Snapshot
         if ('wc_order_full' === $object_type) {
             return Wc_Order_Snapshot::capture((int) $object_id);
         }
+        if ('wc_subscription' === $object_type) {
+            return Wc_Subscription_Snapshot::capture((int) $object_id);
+        }
         if ('wc_shipping_zone' === $object_type) {
             return Wc_Shipping_Zone_Snapshot::capture((int) $object_id);
         }

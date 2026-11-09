@@ -6,6 +6,7 @@ use WPMCP\Governance\Governance;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
 use WPMCP\MCP\Ability;
+use WPMCP\Safety\Wc_Subscription_Snapshot;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -36,6 +37,15 @@ final class Op_Guard
 {
     public const DOMAIN = 'woocommerce';
 
+    /**
+     * Plugins a catalog row may need beside WooCommerce (its 'plugin'
+     * key), by slug: the name a refusal gives and the plugin's main file,
+     * which tells an installed but inactive plugin from a missing one.
+     */
+    public const PLUGINS = [
+        'woocommerce-subscriptions' => [ 'name' => 'WooCommerce Subscriptions', 'file' => 'woocommerce-subscriptions/woocommerce-subscriptions.php' ],
+    ];
+
     /** Whether the host plugin is loaded, mirroring Integration_Dispatcher. */
     public static function is_available(): bool
     {
@@ -51,6 +61,49 @@ final class Op_Guard
     {
         $taxonomy = $def['taxonomy'] ?? null;
         return null === $taxonomy || taxonomy_exists($taxonomy);
+    }
+
+    /**
+     * Whether the plugin a row depends on (if any) is active.
+     *
+     * @param array{plugin?: ?string} $def
+     */
+    public static function plugin_available(array $def): bool
+    {
+        $plugin = $def['plugin'] ?? null;
+        if (null === $plugin) {
+            return true;
+        }
+        if ('woocommerce-subscriptions' === $plugin) {
+            return Wc_Subscription_Snapshot::is_active();
+        }
+        return false;
+    }
+
+    /**
+     * The refusal for a row whose plugin is not active: plugin_inactive
+     * when its files are installed, plugin_missing when they are not, with
+     * the wp-admin plugins screen to fix it from.
+     *
+     * @param array{plugin?: ?string} $def
+     * @return array<string, mixed>
+     */
+    public static function plugin_refusal(string $op, array $def): array
+    {
+        $slug      = (string) ($def['plugin'] ?? '');
+        $plugin    = self::PLUGINS[ $slug ] ?? [ 'name' => $slug, 'file' => '' ];
+        $installed = '' !== $plugin['file'] && file_exists(WP_PLUGIN_DIR . '/' . $plugin['file']);
+
+        return self::error(
+            $installed ? 'plugin_inactive' : 'plugin_missing',
+            sprintf(
+                '%1$s is %2$s on this site, so op "%3$s" cannot run. Install and activate %1$s, then try again.',
+                $plugin['name'],
+                $installed ? 'installed but not active' : 'not installed',
+                $op
+            ),
+            [ 'plugin' => $slug, 'plugins_url' => admin_url('plugins.php') ]
+        );
     }
 
     /** The synthetic per-op ability name governance evaluates. */
@@ -91,7 +144,7 @@ final class Op_Guard
 
     /**
      * Run the gates every op shares, in order: availability (WooCommerce, then
-     * the row's taxonomy), governance, capability. Returns null when all pass, else a structured error.
+     * the row's taxonomy, then the plugin it needs), governance, capability. Returns null when all pass, else a structured error.
      *
      * @param array{method: string, mode: string, capability: string, summary: string} $def
      * @return array<string, mixed>|null
@@ -111,6 +164,10 @@ final class Op_Guard
                 "Op \"{$op}\" needs the \"{$def['taxonomy']}\" taxonomy, which this WooCommerce does not register.",
                 [ 'reason' => 'taxonomy' ]
             );
+        }
+
+        if (! self::plugin_available($def)) {
+            return self::plugin_refusal($op, $def);
         }
 
         if (! self::governance_allows($op, $def)) {
