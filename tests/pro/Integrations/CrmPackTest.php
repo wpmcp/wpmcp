@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tests\Pro\Integrations;
 
+use WPMCP\Admin\Audit_Log_Page;
 use WPMCP\Integrations\CRM_Pack;
 use WPMCP\Integrations\Plugin_Data_Integration;
 use WPMCP\MCP\Elicitation;
@@ -12,6 +13,7 @@ use WPMCP\Safety\Snapshot;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tests\Support\Fake_FluentCRM;
 use WPMCP\Tests\Support\Fake_MailPoet;
+use WPMCP\Tools\List_Operations;
 
 require_once __DIR__ . '/../../support/crm-tables.php';
 require_once __DIR__ . '/../../support/crm-doubles.php';
@@ -1260,5 +1262,34 @@ class CrmPackTest extends \WP_UnitTestCase
         $this->editor();
         $this->expectException(\WPMCP\Safety\Mutation_Failed::class);
         Rollback_Service::restore_operation((string) $out['operation_id']);
+    }
+
+    /**
+     * Issue #777: a create's ledger row is keyed on the id the plugin
+     * assigned, so the Mutations tab and list-operations name the new object
+     * instead of ":0". Edits of the same objects already did.
+     */
+    public function test_mailpoet_creates_are_listed_with_the_new_objects_id(): void
+    {
+        $session = 'sess-777-mp';
+        $list    = (int) $this->ok($this->write('mailpoet-create-list', [ 'title' => 'R' ], false, $session))['list']['id'];
+        $contact = (int) $this->ok($this->write('mailpoet-create-contact', [ 'email' => 'rt553@example.com', 'lists' => [ $list ] ], false, $session))['contact']['id'];
+        $this->ok($this->write('mailpoet-update-contact', [ 'id' => $contact, 'first_name' => 'Edited' ], false, $session));
+        $this->assertGreaterThan(0, $list);
+        $this->assertGreaterThan(0, $contact);
+
+        $refs = array_column((new List_Operations())->handle([ 'session_id' => $session, 'limit' => 10 ])['operations'], 'object_ref');
+        sort($refs);
+        $this->assertSame(
+            [ Crm_Rows_Snapshot::key('mailpoet_list', $list), Crm_Rows_Snapshot::key('mailpoet_subscriber', $contact), Crm_Rows_Snapshot::key('mailpoet_subscriber', $contact) ],
+            $refs
+        );
+
+        ob_start();
+        (new Audit_Log_Page())->render();
+        $html = (string) ob_get_clean();
+        $this->assertStringContainsString('plugin-data-write (' . Crm_Rows_Snapshot::key('mailpoet_list', $list) . ')', $html);
+        $this->assertStringContainsString('plugin-data-write (' . Crm_Rows_Snapshot::key('mailpoet_subscriber', $contact) . ')', $html);
+        $this->assertStringNotContainsString(':0)', $html);
     }
 }

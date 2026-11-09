@@ -31,7 +31,11 @@ class PushSiteArchiveTest extends \WP_UnitTestCase
     /** @var array<int, array{route: string, input: array, authorization: string}> */
     private array $requests = [];
 
-    /** @var callable|null Returns a WP_Error to fail a request, or null. */
+    /**
+     * @var callable|null Returns a WP_Error (a transport failure) or a full
+     *      wp_remote_post response array (a proxy's answer) to fake one
+     *      request, or null to let it through to the target.
+     */
     private $fault = null;
 
     protected function setUp(): void
@@ -97,9 +101,9 @@ class PushSiteArchiveTest extends \WP_UnitTestCase
         ];
 
         if (null !== $this->fault) {
-            $error = ($this->fault)($input, count($this->requests));
-            if (null !== $error) {
-                return $error;
+            $faked = ($this->fault)($input, count($this->requests));
+            if (null !== $faked) {
+                return $faked;
             }
         }
 
@@ -334,5 +338,145 @@ class PushSiteArchiveTest extends \WP_UnitTestCase
         $resumed = $this->push($this->args($archive, ['dry_run' => false, 'confirm' => true, 'chunk_bytes' => 65536]));
         $this->assertSame('uploaded', $resumed['status']);
         $this->assertSame($out['upload_id'], $resumed['upload_id']);
+    }
+
+    /** A response the way a proxy or web server in front of the target sends it: a status and an HTML page, no JSON. */
+    private static function proxy_response(int $code, string $body): array
+    {
+        return [
+            'headers'  => ['content-type' => 'text/html'],
+            'body'     => $body,
+            'response' => ['code' => $code, 'message' => ''],
+            'cookies'  => [],
+            'filename' => null,
+        ];
+    }
+
+    /** The push's actions, in order. @return array<int, string> */
+    private function actions(): array
+    {
+        return array_values(array_map(static fn (array $r): string => (string) ($r['input']['action'] ?? ''), $this->requests));
+    }
+
+    /**
+     * Issue #776: a proxy with a response timeout answers the apply call
+     * with 524 (or 502, 504) and an HTML page while the target is still
+     * restoring. That is not a refusal: the push reports apply_sent, says
+     * what the proxy said, confirms from the target's status that the apply
+     * is running, and the next call with the same arguments reads the real
+     * outcome without applying twice.
+     */
+    public function test_a_gateway_timeout_on_apply_is_reported_as_apply_sent_not_refused(): void
+    {
+        $archive     = $this->source_archive();
+        $this->fault = static function (array $input) {
+            if ('apply' === ($input['action'] ?? '') && false === ($input['dry_run'] ?? true)) {
+                // The target got the request and is applying when the proxy gives up.
+                Incoming_Archive_Store::finalize((string) $input['upload_id']);
+                Incoming_Archive_Store::begin_apply((string) $input['upload_id']);
+
+                return self::proxy_response(524, '<html><head><title>524: A timeout occurred</title></head><body>A timeout occurred</body></html>');
+            }
+            return null;
+        };
+
+        $out = $this->push($this->args($archive, ['dry_run' => false, 'confirm' => true, 'apply' => true, 'chunk_bytes' => 65536]));
+
+        $this->assertSame('apply_sent', $out['status'], (string) wp_json_encode($out));
+        $this->assertSame('gateway_error', $out['reason']);
+        $this->assertSame('applying', $out['target_state']);
+        $this->assertStringContainsString('HTTP 524', $out['error']);
+        $this->assertStringNotContainsString('refused', $out['error']);
+        $this->assertStringNotContainsString('refused', $out['next']);
+        $this->assertStringContainsString('same arguments', $out['next']);
+        $this->assertSame('status', end($this->requests)['input']['action'], 'After an unanswered apply the push asks the target where it stands.');
+
+        // The same call again reads the target's state instead of sending a
+        // second apply, and once the target finishes it reports that result.
+        $this->fault = null;
+        $again       = $this->push($this->args($archive, ['dry_run' => false, 'confirm' => true, 'apply' => true, 'chunk_bytes' => 65536]));
+        $this->assertSame('applying', $again['status']);
+        $this->assertSame($out['upload_id'], $again['upload_id']);
+        $this->assertNotContains('apply', array_slice($this->actions(), -1), 'No second apply while the target is applying.');
+
+        Incoming_Archive_Store::update($out['upload_id'], ['status' => 'applied', 'result' => ['status' => 'migrated', 'upload_id' => $out['upload_id']]]);
+        $done = $this->push($this->args($archive, ['dry_run' => false, 'confirm' => true, 'apply' => true, 'chunk_bytes' => 65536]));
+        $this->assertSame('already_applied', $done['status']);
+        $this->assertSame('migrated', $done['target_result']['status']);
+        $this->assertSame([], Backup_Job_Store::list(), 'The archive was never applied a second time.');
+    }
+
+    public function test_a_timed_out_apply_is_reported_as_apply_sent_with_the_transport_message(): void
+    {
+        $archive     = $this->source_archive();
+        $this->fault = static function (array $input) {
+            if ('apply' === ($input['action'] ?? '') && false === ($input['dry_run'] ?? true)) {
+                Incoming_Archive_Store::finalize((string) $input['upload_id']);
+                Incoming_Archive_Store::begin_apply((string) $input['upload_id']);
+
+                return new \WP_Error('http_request_failed', 'cURL error 28: Operation timed out after 100001 milliseconds with 0 bytes received');
+            }
+            return null;
+        };
+
+        $out = $this->push($this->args($archive, ['dry_run' => false, 'confirm' => true, 'apply' => true, 'chunk_bytes' => 65536]));
+
+        $this->assertSame('apply_sent', $out['status'], (string) wp_json_encode($out));
+        $this->assertSame('connection_lost', $out['reason']);
+        $this->assertSame('applying', $out['target_state']);
+        $this->assertStringContainsString('cURL error 28', $out['error']);
+        $this->assertStringNotContainsString('refused', $out['error']);
+    }
+
+    /**
+     * When the proxy gives up but the target has in fact finished by the
+     * time the push asks, the push reports the real outcome, not apply_sent.
+     */
+    public function test_an_apply_the_proxy_dropped_but_the_target_finished_reports_the_real_result(): void
+    {
+        $archive     = $this->source_archive();
+        $this->fault = static function (array $input) {
+            if ('apply' === ($input['action'] ?? '') && false === ($input['dry_run'] ?? true)) {
+                $request = new \WP_REST_Request('POST', Migration_Target_Client::ROUTE);
+                $request->set_header('Content-Type', 'application/json');
+                $request->set_body((string) wp_json_encode(['input' => $input]));
+                rest_do_request($request);
+
+                return self::proxy_response(504, '<html><body><h1>504 Gateway Time-out</h1></body></html>');
+            }
+            return null;
+        };
+
+        $out = $this->push($this->args($archive, ['dry_run' => false, 'confirm' => true, 'apply' => true, 'chunk_bytes' => 65536]));
+
+        $this->assertSame('migrated', $out['status'], (string) wp_json_encode($out));
+        $this->assertSame('status', $out['confirmed_by']);
+        $this->assertSame('restored', $out['target_result']['steps']['restore']['status']);
+        $this->assertIsInt($out['safety_archive']['job_id']);
+        $this->assertStringStartsWith('On the target: ', $out['undo']);
+    }
+
+    public function test_a_json_error_from_the_target_on_apply_is_still_a_refusal(): void
+    {
+        $archive     = $this->source_archive();
+        $this->fault = static function (array $input) {
+            if ('apply' === ($input['action'] ?? '') && false === ($input['dry_run'] ?? true)) {
+                return [
+                    'headers'  => ['content-type' => 'application/json'],
+                    'body'     => (string) wp_json_encode(['code' => 'wpmcp_migration_failed', 'message' => 'No pre-restore safety archive could be taken.', 'data' => ['status' => 400]]),
+                    'response' => ['code' => 400, 'message' => ''],
+                    'cookies'  => [],
+                    'filename' => null,
+                ];
+            }
+            return null;
+        };
+
+        $out = $this->push($this->args($archive, ['dry_run' => false, 'confirm' => true, 'apply' => true, 'chunk_bytes' => 65536]));
+
+        $this->assertSame('apply_failed', $out['status'], (string) wp_json_encode($out));
+        $this->assertStringContainsString('refused', $out['error']);
+        $this->assertStringContainsString('No pre-restore safety archive', $out['error']);
+        $this->assertSame('apply', end($this->requests)['input']['action'], 'A real refusal needs no status check.');
     }
 }
