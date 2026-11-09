@@ -23,7 +23,13 @@ class Divi5AdapterTest extends \WP_UnitTestCase
         parent::setUp();
         Gate::set_pro_for_tests(true);
         Snapshot_Store::install();
-        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        $admin = self::factory()->user->create(['role' => 'administrator']);
+        // On a network only a super admin has unfiltered_html; without it
+        // core's kses re-serializes block markup on save (see the author test).
+        if (is_multisite()) {
+            grant_super_admin($admin);
+        }
+        wp_set_current_user($admin);
         add_filter('wpmcp_divi_version', static fn () => '5.18.0');
     }
 
