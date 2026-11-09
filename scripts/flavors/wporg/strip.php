@@ -241,7 +241,7 @@ $edits['src/MCP/Registrar.php'] = [
      */
     public function pro_required(string $name): ?\WP_Error
     {
-        $declared = $this->declared[ $name ] ?? null;
+        $declared = $this->declared[ $name ] ?? $this->held_for_plugin[ $name ]['ability'] ?? null;
         if (null === $declared || isset($this->abilities[ $name ]) || self::tier_permitted($declared->tier)) {
             return null;
         }
@@ -1587,9 +1587,11 @@ $edits['src/MCP/Tool_Exposure.php'] = [
 $edits['src/Tools/Dispatch/Call_Tool.php'] = [
     [
         "            // A Pro tool on an unlicensed install says so (issue #631)\n"
-            . "            // rather than claiming no such tool exists.\n"
-            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? new \\WP_Error(\n",
-        "            return \$registrar->governance_disabled(\$name) ?? new \\WP_Error(\n",
+            . "            // rather than claiming no such tool exists, and so does a tool\n"
+            . "            // whose plugin is not active (issue #790).\n"
+            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
+        "            // A tool whose plugin is not active says so (issue #790).\n"
+            . "            return \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
         1,
     ],
     [
@@ -1601,9 +1603,11 @@ $edits['src/Tools/Dispatch/Call_Tool.php'] = [
 
 $edits['src/Tools/Dispatch/Get_Tool_Schema.php'] = [
     [
-        "            // A Pro tool on an unlicensed install says so (issue #631).\n"
-            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? new \\WP_Error(\n",
-        "            return \$registrar->governance_disabled(\$name) ?? new \\WP_Error(\n",
+        "            // A Pro tool on an unlicensed install says so (issue #631),\n"
+            . "            // and a tool whose plugin is not active names it (issue #790).\n"
+            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
+        "            // A tool whose plugin is not active names it (issue #790).\n"
+            . "            return \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
         1,
     ],
 ];

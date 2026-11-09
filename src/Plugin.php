@@ -3666,6 +3666,16 @@ final class Plugin
     {
         foreach ($integrations as $integration) {
             if (! $integration->should_register()) {
+                // Off because its plugin is not active (issue #790): the
+                // meta-tools name that plugin instead of "not registered".
+                // A pair a site filtered off while its plugin is loaded is
+                // not held, so it stays an unknown name.
+                if (! $integration->is_available()) {
+                    $host = $integration->host_plugin();
+                    foreach ($integration->abilities() as $ability) {
+                        $registrar->hold_for_plugin($ability, $host['name'], $host['several']);
+                    }
+                }
                 continue;
             }
             foreach ($integration->abilities() as $ability) {
