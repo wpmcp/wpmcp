@@ -267,7 +267,7 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  wpbakery in get-builder-content's scope reads, paid for by tightening
      *  the build-page description and dropping
      *  "Read-only" from detect-builder and get-builder-content, whose
-     *  readOnlyHint says it, without dropping a rule: 208995 -> 208946
+     *  readOnlyHint says it, without dropping a rule: 208995 -> 208967
      *  bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 

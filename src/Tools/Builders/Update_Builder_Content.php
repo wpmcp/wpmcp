@@ -38,9 +38,9 @@ if (! defined('ABSPATH')) {
  * Elementor/gutenberg/classic posts are out of scope for this tool (use
  * update-element for Elementor) and return a WP_Error.
  *
- * WPBakery pages also take (issue #639) expected_hash (the read's hash; a
- * page changed since is refused), publish, restore (path: a revision id from
- * the read) and add with element {template: id} (a saved template, or
+ * WPBakery pages need (issue #639) expected_hash, the read's hash, on any
+ * write to a page that has a layout (missing or stale is refused), and take
+ * publish, restore (path: a revision id from the read) and add with element {template: id} (a saved template, or
  * default:<n> while the plugin is loaded), and scope 'templates' writes its
  * saved templates (see WPBakery_Templates).
  *
@@ -321,14 +321,6 @@ class Update_Builder_Content
         $status    = null;
         $current   = WPBakery_Content::get_content($post_id);
 
-        $expected = (string) ($args['expected_hash'] ?? '');
-        if ('' !== $expected && ! hash_equals(WPBakery_Page::hash($current), $expected)) {
-            return new \WP_Error(
-                'stale_expected_hash',
-                'Stale expected_hash: this page changed since it was read, or the hash is not the read\'s hash. Nothing was written; re-read and retry.'
-            );
-        }
-
         if ('' === $operation) {
             $content = $args['content'] ?? null;
             if (! is_string($content)) {
@@ -356,6 +348,19 @@ class Update_Builder_Content
                 } catch (\InvalidArgumentException $e) {
                     return new \WP_Error('invalid_wpbakery_operation', $e->getMessage());
                 }
+            }
+        }
+
+        // A page with a layout is changed only against the hash it was read
+        // with (issue #639), the refusal Divi 5 pages use; a blank page has
+        // nothing to lose.
+        if ('' !== trim($current)) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a WPBakery page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(WPBakery_Page::hash($current), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
             }
         }
 

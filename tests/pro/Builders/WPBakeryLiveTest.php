@@ -57,6 +57,11 @@ class WPBakeryLiveTest extends \WP_UnitTestCase
 
     private function update(array $args)
     {
+        // Page writes need the page's current hash (issue #639).
+        if (isset($args['post_id']) && ! isset($args['expected_hash'])) {
+            $args['expected_hash'] = hash('sha256', (string) get_post($args['post_id'])->post_content);
+        }
+
         return (new Update_Builder_Content())->handle(['builder' => 'wpbakery'] + $args);
     }
 

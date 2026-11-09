@@ -9514,7 +9514,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-builder-content',
             'pro',
-            'Bricks JSON; Divi|WPBakery|Avada shortcodes, Thrive HTML; oxygen-classic|Beaver Builder|Breakdance|Oxygen JSON tree. All but Bricks|Divi 4: operation update(path,attrs,text), add(to,index,element), remove(path), move(path,to,index); to \'\'=top. WPBakery: also publish, restore(path: revision id), element {template}. scope design_system (bricks|breakdance): add/update/remove at classes|variables|palettes/<id>[/<color id>]; scope templates (wpbakery): at <id>. expected_hash: read\'s hash (Divi 5, WPBakery), hashes.<list>. Undo: rollback-operation',
+            'Bricks JSON; Divi|WPBakery|Avada shortcodes, Thrive HTML; oxygen-classic|Beaver Builder|Breakdance|Oxygen JSON tree. All but Bricks|Divi 4: operation update(path,attrs,text), add(to,index,element), remove(path), move(path,to,index); to \'\'=top. WPBakery: also publish, restore(path: revision id), element {template}; needs expected_hash. scope design_system (bricks|breakdance): add/update/remove at classes|variables|palettes/<id>[/<color id>]; scope templates (wpbakery): at <id>. expected_hash: read\'s hash (Divi 5, WPBakery), hashes.<list>. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [
