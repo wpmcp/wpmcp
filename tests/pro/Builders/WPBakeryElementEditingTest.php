@@ -68,7 +68,11 @@ class WPBakeryElementEditingTest extends \WP_UnitTestCase
 
     private function update(int $post_id, array $args)
     {
-        return (new Update_Builder_Content())->handle(['post_id' => $post_id, 'builder' => 'wpbakery'] + $args);
+        // Writes to a page with a layout need its current hash (issue #639);
+        // pass expected_hash => null to send none.
+        $args += ['expected_hash' => hash('sha256', (string) get_post($post_id)->post_content)];
+
+        return (new Update_Builder_Content())->handle(array_filter(['post_id' => $post_id, 'builder' => 'wpbakery'] + $args, static fn ($value) => null !== $value));
     }
 
     private function scope(string $scope, array $args = [])
@@ -123,6 +127,11 @@ class WPBakeryElementEditingTest extends \WP_UnitTestCase
         $before  = $this->state($post_id);
         $hash    = $this->read($post_id)['hash'];
 
+        $missing = $this->update($post_id, ['operation' => 'update', 'path' => '0.0.0', 'text' => 'x', 'expected_hash' => null]);
+        $this->assertWPError($missing);
+        $this->assertSame('missing_expected_hash', $missing->get_error_code());
+        $this->assertSame($before, $this->state($post_id));
+
         $stale = $this->update($post_id, ['operation' => 'update', 'path' => '0.0.0', 'text' => 'x', 'expected_hash' => str_repeat('0', 64)]);
         $this->assertWPError($stale);
         $this->assertSame('stale_expected_hash', $stale->get_error_code());
@@ -132,6 +141,10 @@ class WPBakeryElementEditingTest extends \WP_UnitTestCase
         $this->assertIsArray($out);
         $this->assertSame($this->read($post_id)['hash'], $out['hash']);
         $this->assertNotSame($hash, $out['hash']);
+
+        $blank = $this->page('');
+        $first = $this->update($blank, ['content' => '[vc_row][/vc_row]', 'expected_hash' => null]);
+        $this->assertIsArray($first, 'a blank page has no layout to protect, so it needs no hash');
     }
 
     // ------------------------------------------------------- publish
