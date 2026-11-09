@@ -86,6 +86,21 @@ class Migration_Target_Client
     }
 
     /**
+     * True when a decoded body is an error envelope the target's wpmcp
+     * wrote: a string code and message. WordPress's own critical-error
+     * reply after a PHP fatal has the same shape but says nothing about
+     * whether the request was carried out, so it does not count.
+     */
+    private static function is_wpmcp_error($data): bool
+    {
+        return is_array($data)
+            && isset($data['code'], $data['message'])
+            && is_string($data['code'])
+            && is_string($data['message'])
+            && 'internal_server_error' !== $data['code'];
+    }
+
+    /**
      * Run one action on the target.
      *
      * @return array<string, mixed>|\WP_Error Decoded result, or an error
@@ -118,22 +133,30 @@ class Migration_Target_Client
             return $data;
         }
 
-        if (! is_array($data) && ($code < 400 || $code >= 500)) {
-            // No JSON means wpmcp on the target did not write this answer:
-            // a proxy or CDN timed out waiting (502, 504, 524), the web
-            // server returned its own error page, or the reply was empty.
+        $from_wpmcp = self::is_wpmcp_error($data);
+
+        if (! $from_wpmcp && ($code >= 500 || in_array($code, [408, 429], true) || (! is_array($data) && $code < 400))) {
+            // wpmcp on the target did not write this answer: a proxy or CDN
+            // timed out waiting (502, 504, 524), the web server returned its
+            // own error page, the reply was empty, or WordPress itself sent
+            // its critical-error JSON after a fatal. A CDN may send its own
+            // JSON body here too (Cloudflare does for Accept:
+            // application/json), so JSON alone does not mean wpmcp answered.
             // The target may have the request and may still be working on
-            // it, so this is not a refusal (issue #776). A 4xx without JSON
-            // is different: the request was rejected before wpmcp saw it.
+            // it, so this is not a refusal (issue #776). A 4xx other than a
+            // timeout or rate limit is different: the request was rejected
+            // before wpmcp saw it.
             return new \WP_Error(self::NO_ANSWER, sprintf(
-                'No answer from wpmcp on the target: HTTP %d with no JSON body (a proxy or the web server in front of the target replied, usually after a timeout). The target may still be working on the request.',
-                $code
+                'No answer from wpmcp on the target: HTTP %d %s (a proxy or the web server in front of the target replied, usually after a timeout). The target may still be working on the request.',
+                $code,
+                is_array($data) ? 'with a body that wpmcp did not write' : 'with no JSON body'
             ), ['status' => $code]);
         }
 
-        $from_wpmcp = is_array($data) && isset($data['code'], $data['message']);
-        $message    = is_array($data) && isset($data['message']) ? (string) $data['message'] : sprintf('HTTP %d with no JSON body', $code);
-        $reason     = is_array($data) && isset($data['code']) ? (string) $data['code'] : 'http_' . $code;
+        $message    = is_array($data) && isset($data['message']) && is_scalar($data['message'])
+            ? (string) $data['message']
+            : sprintf(is_array($data) ? 'HTTP %d with a body that wpmcp did not write' : 'HTTP %d with no JSON body', $code);
+        $reason     = is_array($data) && isset($data['code']) && is_scalar($data['code']) ? (string) $data['code'] : 'http_' . $code;
 
         if (in_array($code, [401, 403], true) && 'wpmcp_migration_receive_disabled' !== $reason) {
             $message .= ' (check that the credentials belong to an administrator on the target, that application passwords are available there, and that wpmcp is active on the target)';
