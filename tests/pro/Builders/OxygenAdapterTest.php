@@ -23,7 +23,7 @@ namespace WPMCP\Tests\Pro\Builders {
 
     use WPMCP\Pro\Gate;
     use WPMCP\Safety\{Rollback_Service, Snapshot_Store};
-    use WPMCP\Tools\Builders\{Breakdance_Cache, Breakdance_Content, Breakdance_Tree, Detect_Builder, Get_Builder_Content, Update_Builder_Content};
+    use WPMCP\Tools\Builders\{Breakdance_Cache, Breakdance_Content, Breakdance_Tree, Detect_Builder, Get_Builder_Content, Oxygen_Page, Update_Builder_Content};
 
     /**
      * Oxygen 6 through the builder dispatcher pair. Oxygen 6 runs on the
@@ -82,6 +82,9 @@ JSON;
             Gate::set_pro_for_tests(true);
             Snapshot_Store::install();
             $GLOBALS['wpmcp_breakdance_cache_calls'] = [];
+            // Oxygen writes need Oxygen loaded (issue #635, see
+            // OxygenElementEditingTest for the refusal).
+            add_filter('wpmcp_oxygen_active', '__return_true');
         }
 
         protected function tearDown(): void
@@ -115,8 +118,17 @@ JSON;
             return $post_id;
         }
 
+        /**
+         * A write pinned to the page's current hash, as an agent sends it
+         * after a read (issue #635); OxygenElementEditingTest covers the
+         * missing and stale hash refusals.
+         */
         private function update(int $post_id, array $args, string $builder = 'oxygen')
         {
+            if (! isset($args['expected_hash']) && metadata_exists('post', $post_id, '_oxygen_data')) {
+                $args['expected_hash'] = Oxygen_Page::hash($post_id);
+            }
+
             return (new Update_Builder_Content())->handle(['post_id' => $post_id, 'builder' => $builder] + $args);
         }
 
@@ -169,6 +181,7 @@ JSON;
         public function test_detection_is_the_same_whether_or_not_the_plugin_is_active(): void
         {
             $post_id = $this->oxygen_page();
+            remove_all_filters('wpmcp_oxygen_active');
 
             foreach ([false, true] as $active) {
                 add_filter('wpmcp_oxygen_active', $active ? '__return_true' : '__return_false');
@@ -180,6 +193,7 @@ JSON;
 
         public function test_neither_engine_is_reported_active_in_this_environment(): void
         {
+            remove_all_filters('wpmcp_oxygen_active');
             $this->assertFalse(Breakdance_Cache::plugin_active('oxygen'));
             $this->assertFalse(Breakdance_Cache::plugin_active('breakdance'));
         }
@@ -351,16 +365,19 @@ JSON;
         public function test_cache_is_regenerated_only_when_oxygen_is_active(): void
         {
             $post_id = $this->oxygen_page();
+            $before  = $this->state($post_id);
 
-            // Breakdance being active says nothing about an Oxygen page.
+            // Breakdance being active says nothing about an Oxygen page:
+            // without Oxygen the write is refused and nothing is rebuilt.
+            remove_all_filters('wpmcp_oxygen_active');
             add_filter('wpmcp_breakdance_active', '__return_true');
             $out = $this->update($post_id, ['operation' => 'update', 'path' => '2', 'attrs' => ['content' => ['content' => ['text' => 'A']]]]);
-            Rollback_Service::restore_operation($out['operation_id']);
+            $this->assertSame('plugin_missing', $out->get_error_code());
             $this->assertSame([], $GLOBALS['wpmcp_breakdance_cache_calls']);
+            $this->assertSame($before, $this->state($post_id));
             remove_all_filters('wpmcp_breakdance_active');
 
             add_filter('wpmcp_oxygen_active', '__return_true');
-            $before = $this->state($post_id);
             $out    = $this->update($post_id, ['operation' => 'update', 'path' => '2', 'attrs' => ['content' => ['content' => ['text' => 'B']]]]);
             $this->assertSame([$post_id], $GLOBALS['wpmcp_breakdance_cache_calls']);
 

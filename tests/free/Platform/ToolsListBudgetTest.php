@@ -271,7 +271,11 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  bytes over 407 tools. Avada element-level editing
      *  (#637) added no tool: library inserts, save_template and the Avada
      *  design_system and catalog scopes on the builder pair, without
-     *  dropping a rule: 208967 -> 209095 bytes over 407 tools. */
+     *  dropping a rule: 208967 -> 209095 bytes over 407 tools. Oxygen 6
+     *  element-level editing (#635) added no tool: publish, restore,
+     *  templates, Components and save_template on the builder pair, the
+     *  WPBakery and Avada notes merged with Oxygen's: 209095 -> 209122
+     *  bytes over 407 tools. */
     // Raised 209000 -> 215000 on 2026-11-09 for five integration PRs (#784, #786, #787, #788, WPBakery) that together exceed 209000; owner approved.
     private const TOOLS_LIST_BYTE_BUDGET = 215000;
 
