@@ -31,8 +31,9 @@ class Get_Tool_Schema
         $registrar = Plugin::instance()->registrar();
         $ability   = $registrar->get($name);
         if (null === $ability) {
+            // A tool governance switched off says so (issue #772).
             // A Pro tool on an unlicensed install says so (issue #631).
-            return $registrar->pro_required($name) ?? new \WP_Error(
+            return $registrar->pro_required($name) ?? $registrar->governance_disabled($name) ?? new \WP_Error(
                 'wpmcp_get_tool_schema_unknown',
                 sprintf('No wpmcp tool named "%s" is registered on this site. Use wpmcp/list-tools to discover names.', $name)
             );
