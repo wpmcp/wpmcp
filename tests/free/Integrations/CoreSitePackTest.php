@@ -50,6 +50,9 @@ class CoreSitePackTest extends \WP_UnitTestCase
         $this->set_permalink_structure('');
         delete_option('category_base');
         delete_option('tag_base');
+        // The permalink writes re-point the global category and post_tag
+        // permastructs, which plugin test runs do not reset between tests.
+        Core_Site_Pack::after_options_restored([ 'category_base' ]);
         update_option('show_on_front', 'posts');
         update_option('page_on_front', 0);
         update_option('page_for_posts', 0);
@@ -478,6 +481,73 @@ class CoreSitePackTest extends \WP_UnitTestCase
         $this->assertSame('', (string) get_option('permalink_structure'));
         $this->assertSame('old-topics', get_option('category_base'));
         $this->assertSame('', get_option('tag_base'), 'back to the empty base every install starts with');
+    }
+
+    /** The stored rewrite rules whose pattern starts with $prefix. @return string[] */
+    private static function rules_starting_with(string $prefix): array
+    {
+        return array_values(array_filter(array_map('strval', array_keys((array) get_option('rewrite_rules', []))), static fn (string $rule): bool => str_starts_with($rule, $prefix)));
+    }
+
+    /**
+     * Issue #785: the category and post_tag permastructs were registered at
+     * init with the bases stored then, so a flush in the same request wrote
+     * rules for the old bases. The new bases must route at once, the old
+     * ones must stop, and test-url must resolve a term on the new base.
+     */
+    public function test_new_category_and_tag_bases_are_in_the_rules_without_a_second_flush(): void
+    {
+        $this->enable_writes();
+        $this->set_permalink_structure('/%postname%/');
+        // A site with pretty permalinks registered the default bases at init.
+        Core_Site_Pack::after_options_restored([ 'permalink_structure' ]);
+        $this->assertNotEmpty(self::rules_starting_with('category/'), 'precondition: the default base routes');
+
+        $out = $this->write('set-permalink-structure', [ 'structure' => '/%postname%/', 'category_base' => 'topics', 'tag_base' => 'labels' ], true);
+
+        $this->assertArrayNotHasKey('error', $out);
+        $this->assertNotEmpty(self::rules_starting_with('topics/'), 'the new category base routes right away');
+        $this->assertNotEmpty(self::rules_starting_with('labels/'), 'the new tag base routes right away');
+        $this->assertSame([], self::rules_starting_with('category/'), 'the old category base stops matching');
+        $this->assertSame([], self::rules_starting_with('tag/'), 'the old tag base stops matching');
+
+        $test = $this->read('test-url', [ 'url' => '/topics/uncategorized/' ])['result'];
+        $this->assertSame('uncategorized', $test['query_vars']['category_name'] ?? null, (string) wp_json_encode($test));
+        $this->assertArrayNotHasKey('attachment', $test['query_vars']);
+    }
+
+    /** A structure with a front (/blog/) moves the default bases under it at once too. */
+    public function test_a_structure_with_a_front_moves_the_default_bases_under_it(): void
+    {
+        $this->enable_writes();
+        $this->set_permalink_structure('/%postname%/');
+
+        $out = $this->write('set-permalink-structure', [ 'structure' => '/blog/%postname%/' ], true);
+
+        $this->assertArrayNotHasKey('error', $out);
+        $this->assertNotEmpty(self::rules_starting_with('blog/category/'));
+        $this->assertSame([], self::rules_starting_with('category/'));
+    }
+
+    /**
+     * The undo of a permalink change rebuilds the rules for the bases it
+     * put back, with no separate flush-rewrite-rules.
+     */
+    public function test_a_rollback_rebuilds_the_rules_for_the_restored_bases(): void
+    {
+        $this->enable_writes();
+        $this->set_permalink_structure('/%postname%/');
+
+        $out = $this->write('set-permalink-structure', [ 'structure' => '/%postname%/', 'category_base' => 'topics', 'tag_base' => 'labels' ], true);
+        $this->assertArrayNotHasKey('error', $out);
+
+        $this->rollback($out);
+
+        $this->assertSame('', (string) get_option('category_base'));
+        $this->assertNotEmpty(self::rules_starting_with('category/'), 'the restored default category base routes again');
+        $this->assertNotEmpty(self::rules_starting_with('tag/'), 'the restored default tag base routes again');
+        $this->assertSame([], self::rules_starting_with('topics/'));
+        $this->assertSame([], self::rules_starting_with('labels/'));
     }
 
     public function test_flush_rewrite_rules_rebuilds_the_rules_and_is_honestly_not_recoverable(): void
