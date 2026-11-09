@@ -1370,6 +1370,25 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
         '',
         1,
     ],
+    // The theme add-on layout ops (issue #656): their files are removed by
+    // policy.php, so the merge and the docblock lines naming them leave too.
+    [
+        "        return array_merge(self::settings_operations(\$framework), Theme_Layouts_Pack::operations(\$framework));\n",
+        "        return self::settings_operations(\$framework);\n",
+        1,
+    ],
+    [
+        " * spec(). Astra Pro, Kadence Pro and GP Premium custom layouts (issue\n"
+            . " * #656) are Theme_Layouts_Pack ops for the same active family.\n",
+        " * spec().\n",
+        1,
+    ],
+    [
+        "     * The settings pack of the active framework family, or none. The\n"
+            . "     * premium add-on layout ops (issue #656) join it in operations().\n",
+        "     * The settings pack of the active framework family, or none.\n",
+        1,
+    ],
 ];
 
 // The Elementor addon suite packs (issue #286) are the paid add-on's. Their
