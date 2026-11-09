@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Builders;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -37,6 +38,12 @@ if (! defined('ABSPATH')) {
  * Elementor/gutenberg/classic posts are out of scope for this tool (use
  * update-element for Elementor) and return a WP_Error.
  *
+ * WPBakery pages need (issue #639) expected_hash, the read's hash, on any
+ * write to a page that has a layout (missing or stale is refused), and take
+ * publish, restore (path: a revision id from the read) and add with element {template: id} (a saved template, or
+ * default:<n> while the plugin is loaded), and scope 'templates' writes its
+ * saved templates (see WPBakery_Templates).
+ *
  * With `scope` 'design_system' the call edits one entry of the builder's
  * global design data instead of a post (issue #391): Bricks classes,
  * variables and palettes, Breakdance classes and palette colors. See
@@ -57,8 +64,11 @@ class Update_Builder_Content
     {
         $scope = (string) ($args['scope'] ?? '');
         if ('' !== $scope) {
+            if ('templates' === $scope && 'wpbakery' === ($args['builder'] ?? '')) {
+                return WPBakery_Templates::write($args);
+            }
             if ('design_system' !== $scope) {
-                return new \WP_Error('invalid_scope', "update-builder-content's only scope is 'design_system'; got '{$scope}'.");
+                return new \WP_Error('invalid_scope', "update-builder-content's scopes are 'design_system' and, for wpbakery, 'templates'; got '{$scope}'.");
             }
 
             return Builder_Design_Write::write($args);
@@ -308,6 +318,8 @@ class Update_Builder_Content
     {
         $operation = (string) ($args['operation'] ?? '');
         $path      = null;
+        $status    = null;
+        $current   = WPBakery_Content::get_content($post_id);
 
         if ('' === $operation) {
             $content = $args['content'] ?? null;
@@ -323,10 +335,32 @@ class Update_Builder_Content
                 );
             }
 
-            try {
-                [$content, $path] = $this->apply_operation(WPBakery_Shortcodes::class, WPBakery_Content::get_content($post_id), $operation, $args);
-            } catch (\InvalidArgumentException $e) {
-                return new \WP_Error('invalid_wpbakery_operation', $e->getMessage());
+            if ('publish' === $operation) {
+                $refusal = $this->publish_refusal($post_id);
+                if (null !== $refusal) {
+                    return $refusal;
+                }
+                $content = null;
+                $status  = 'publish';
+            } else {
+                try {
+                    [$content, $path] = $this->apply_wpbakery_operation($post_id, $current, $operation, $args);
+                } catch (\InvalidArgumentException $e) {
+                    return new \WP_Error('invalid_wpbakery_operation', $e->getMessage());
+                }
+            }
+        }
+
+        // A page with a layout is changed only against the hash it was read
+        // with (issue #639), the refusal Divi 5 pages use; a blank page has
+        // nothing to lose.
+        if ('' !== trim($current)) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a WPBakery page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(WPBakery_Page::hash($current), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
             }
         }
 
@@ -338,18 +372,73 @@ class Update_Builder_Content
                 'tool_name'   => 'update-builder-content',
                 'args'        => $args,
             ],
-            function () use ($post_id, $content) {
+            function () use ($post_id, $content, $status) {
+                if (null !== $status) {
+                    Save_Filters::set_post_status($post_id, $status);
+                    return true;
+                }
                 WPBakery_Content::save($post_id, $content);
                 return true;
             }
         );
 
-        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'wpbakery'];
+        $result = [
+            'operation_id' => $out['operation_id'],
+            'post_id'      => $post_id,
+            'builder'      => 'wpbakery',
+            'hash'         => WPBakery_Page::hash(WPBakery_Content::get_content($post_id)),
+        ];
         if (null !== $path) {
             $result['path'] = $path;
         }
 
         return $result;
+    }
+
+    /**
+     * WPBakery's operations: the four shared element operations, add from a
+     * template (element {template}), and restore of a revision's layout.
+     *
+     * @return array{0:string,1:?string}
+     */
+    private function apply_wpbakery_operation(int $post_id, string $content, string $operation, array $args): array
+    {
+        $element = $args['element'] ?? null;
+        if ('add' === $operation && is_array($element) && array_key_exists('template', $element)) {
+            if (! is_string($element['template']) || 1 !== count($element)) {
+                throw new \InvalidArgumentException(esc_html('element {template} takes only a template id (a string).'));
+            }
+            $index = isset($args['index']) ? (int) $args['index'] : null;
+
+            return WPBakery_Page::insert_template($content, (string) ($args['to'] ?? ''), $index, $element['template']);
+        }
+
+        if ('restore' === $operation) {
+            return [WPBakery_Page::revision_content($post_id, (string) ($args['path'] ?? '')), null];
+        }
+
+        if (! in_array($operation, ['update', 'add', 'remove', 'move'], true)) {
+            throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move, publish or restore."));
+        }
+
+        return $this->apply_operation(WPBakery_Shortcodes::class, $content, $operation, $args);
+    }
+
+    /** Why this page cannot be published by this user now, or null. */
+    private function publish_refusal(int $post_id): ?\WP_Error
+    {
+        $status = get_post_status($post_id);
+        if ('publish' === $status) {
+            return new \WP_Error('already_published', 'This page is already published.');
+        }
+        if (! in_array($status, ['draft', 'pending', 'private', 'future'], true)) {
+            return new \WP_Error('invalid_wpbakery_operation', "A page with status '{$status}' cannot be published here.");
+        }
+        if (! current_user_can('publish_post', $post_id)) {
+            return new \WP_Error('forbidden', 'You are not allowed to publish this page.');
+        }
+
+        return null;
     }
 
     /**

@@ -119,6 +119,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'breakdance/plugin.php' );
     }
 
+    // The live WPBakery job (issue #639, WPMCP_LIVE_WPBAKERY=1) runs the
+    // WPBakery adapter against a real WPBakery Page Builder, copied in from
+    // WPMCP_WPBAKERY_SRC. Loaded only on request: the stub-backed WPBakery
+    // tests stand in for its element map and toggle its presence.
+    if ( getenv( 'WPMCP_LIVE_WPBAKERY' ) ) {
+        wpmcp_maybe_require_plugin( 'js_composer/js_composer.php' );
+    }
+
     // The live Divi job (issue #636, WPMCP_LIVE_DIVI=1) runs the Divi 5
     // adapter against the real Divi 5 theme, copied into the themes
     // directory from WPMCP_DIVI_SRC. Divi is a theme, so it is made the

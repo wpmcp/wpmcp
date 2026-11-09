@@ -74,6 +74,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             'show_on_front',
             'page_on_front',
             'page_for_posts',
+            // WPBakery's saved templates, written by the builder pair's
+            // templates scope (issue #639).
+            'wpb_js_templates',
         ],
         'transient'      => [
             'scrape_key_*',

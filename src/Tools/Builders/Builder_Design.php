@@ -13,7 +13,8 @@ if (! defined('ABSPATH')) {
  * element catalog with control schemas, instead of one post's layout.
  *
  * Bricks, Breakdance and Oxygen 6 are supported, and Divi 5 for templates
- * and catalog (see Divi5_Design); the builder comes from the
+ * and catalog (see Divi5_Design) and WPBakery (issue #639, see
+ * WPBakery_Design); the builder comes from the
  * `builder` argument, or is detected from `post_id` when that is given
  * instead. Reads only: writes to global design data are a later phase.
  */
@@ -21,7 +22,7 @@ class Builder_Design
 {
     public const SCOPES = ['design_system', 'templates', 'catalog'];
 
-    public const BUILDERS = ['bricks', 'breakdance', 'oxygen', 'divi'];
+    public const BUILDERS = ['bricks', 'breakdance', 'oxygen', 'divi', 'wpbakery'];
 
     /**
      * @param array<string,mixed> $args
@@ -45,14 +46,18 @@ class Builder_Design
         }
 
         if ('' === $builder) {
-            return new \WP_Error('missing_builder', 'A scope read needs builder (bricks, breakdance, oxygen or divi) or a post_id to detect it from.');
+            return new \WP_Error('missing_builder', 'A scope read needs builder (bricks, breakdance, oxygen, divi or wpbakery) or a post_id to detect it from.');
         }
 
         if (! in_array($builder, self::BUILDERS, true)) {
-            return new \WP_Error('unsupported_builder', "scope reads support 'bricks', 'breakdance', 'oxygen' and 'divi'; got '{$builder}'.");
+            return new \WP_Error('unsupported_builder', "scope reads support 'bricks', 'breakdance', 'oxygen', 'divi' and 'wpbakery'; got '{$builder}'.");
         }
 
         $element = (string) ($args['element'] ?? '');
+
+        if ('wpbakery' === $builder) {
+            return WPBakery_Design::read($scope, $element);
+        }
 
         if ('divi' === $builder) {
             if ('design_system' === $scope) {

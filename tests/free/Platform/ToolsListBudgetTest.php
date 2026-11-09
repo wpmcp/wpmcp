@@ -261,7 +261,14 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  (#636) added no tool: operations, a Divi 5 read and Divi scope
      *  reads on the builder pair, paid for by writing the builder lists
      *  with "|" and the operation signatures without spaces, without
-     *  dropping a rule: 208996 -> 208995 bytes over 407 tools. */
+     *  dropping a rule: 208996 -> 208995 bytes over 407 tools. WPBakery element-level
+     *  editing (#639) added no tool: publish, restore, add from a template,
+     *  expected_hash and a templates scope on update-builder-content, and
+     *  wpbakery in get-builder-content's scope reads, paid for by tightening
+     *  the build-page description and dropping
+     *  "Read-only" from detect-builder and get-builder-content, whose
+     *  readOnlyHint says it, without dropping a rule: 208995 -> 208967
+     *  bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
