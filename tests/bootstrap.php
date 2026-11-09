@@ -119,6 +119,19 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'breakdance/plugin.php' );
     }
 
+    // The live Avada job (issue #637, WPMCP_LIVE_AVADA=1) runs the Avada
+    // adapter against the real Avada Core and Avada Builder plugins and the
+    // Avada theme, copied in from WPMCP_AVADA_SRC. Loaded only on request:
+    // the stub-backed Avada tests stand in for its element map and toggle
+    // its presence. The theme is made the active one the way a switched
+    // site has it, so WordPress loads its functions.php after the plugins.
+    if ( getenv( 'WPMCP_LIVE_AVADA' ) ) {
+        add_filter( 'pre_option_template', static fn () => 'Avada' );
+        add_filter( 'pre_option_stylesheet', static fn () => 'Avada' );
+        wpmcp_maybe_require_plugin( 'fusion-core/fusion-core.php' );
+        wpmcp_maybe_require_plugin( 'fusion-builder/fusion-builder.php' );
+    }
+
     // The live WPBakery job (issue #639, WPMCP_LIVE_WPBAKERY=1) runs the
     // WPBakery adapter against a real WPBakery Page Builder, copied in from
     // WPMCP_WPBAKERY_SRC. Loaded only on request: the stub-backed WPBakery

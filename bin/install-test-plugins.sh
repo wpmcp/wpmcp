@@ -184,6 +184,32 @@ elif [ "${WPMCP_LIVE_BREAKDANCE:-}" = "1" ]; then
 	echo "Copied Breakdance $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/plugin.php" | head -n 1) from $src."
 fi
 
+# The live Avada job (issue #637) runs the Avada adapter against the real
+# Avada Builder (fusion-builder) and Avada Core (fusion-core) plugins and the
+# Avada theme. All three are commercial and not on wordpress.org, so they are
+# copied from one local directory holding the three unpacked folders
+# (WPMCP_AVADA_SRC: Avada/, fusion-builder/, fusion-core/) instead of
+# downloaded. Exclusive too: the stub-backed Avada tests stand in for its
+# element map and toggle its presence.
+if [ "${WPMCP_LIVE_AVADA:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_AVADA:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_AVADA_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/fusion-builder/fusion-builder.php" ] || [ ! -f "$src/fusion-core/fusion-core.php" ] || [ ! -f "$src/Avada/style.css" ]; then
+		echo "WPMCP_LIVE_AVADA=1 needs WPMCP_AVADA_SRC, a directory holding the Avada/ theme and the fusion-builder/ and fusion-core/ plugins." >&2
+		exit 1
+	fi
+	mkdir -p "$PLUGINS_DIR" "$WP_CORE_DIR/wp-content/themes"
+	for slug in fusion-builder fusion-core; do
+		rm -rf "${PLUGINS_DIR:?}/$slug"
+		cp -R "$src/$slug" "$PLUGINS_DIR/$slug"
+	done
+	rm -rf "$WP_CORE_DIR/wp-content/themes/Avada"
+	cp -R "$src/Avada" "$WP_CORE_DIR/wp-content/themes/Avada"
+	echo "Copied Avada Builder $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/fusion-builder/fusion-builder.php" | head -n 1), Avada Core $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/fusion-core/fusion-core.php" | head -n 1) and the Avada theme $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/Avada/style.css" | head -n 1) from $src."
+fi
+
 # The live WPBakery job (issue #639) runs the WPBakery adapter against a real
 # WPBakery Page Builder. It is a commercial plugin and not on wordpress.org,
 # so it is copied from a local directory holding it (WPMCP_WPBAKERY_SRC)

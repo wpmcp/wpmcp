@@ -38,6 +38,12 @@ if (! defined('ABSPATH')) {
  * Elementor/gutenberg/classic posts are out of scope for this tool (use
  * update-element for Elementor) and return a WP_Error.
  *
+ * Avada pages also need (issue #637) an expected_hash on every write to a
+ * page that has a layout (the read's hash; a page changed since is refused), an add whose element is {template: <id>}
+ * (a library item spliced in, see Avada_Library::insert_template), and the
+ * save_template operation, which saves an element or the whole page to the
+ * Avada library as a new post recorded for undo.
+ *
  * WPBakery pages need (issue #639) expected_hash, the read's hash, on any
  * write to a page that has a layout (missing or stale is refused), and take
  * publish, restore (path: a revision id from the read) and add with element {template: id} (a saved template, or
@@ -46,8 +52,10 @@ if (! defined('ABSPATH')) {
  *
  * With `scope` 'design_system' the call edits one entry of the builder's
  * global design data instead of a post (issue #391): Bricks classes,
- * variables and palettes, Breakdance classes and palette colors. See
- * Builder_Design_Write, which snapshots the one option it changes.
+ * variables and palettes, Breakdance classes and palette colors, Avada
+ * palette colors, typography sets and global options. See
+ * Builder_Design_Write and Avada_Design, which snapshot the one option they
+ * change.
  *
  * All writes go through Safe_Mutation::run() with object_type='post':
  * Bricks' JSON lives in ordinary postmeta and Divi's shortcodes live in
@@ -69,6 +77,10 @@ class Update_Builder_Content
             }
             if ('design_system' !== $scope) {
                 return new \WP_Error('invalid_scope', "update-builder-content's scopes are 'design_system' and, for wpbakery, 'templates'; got '{$scope}'.");
+            }
+
+            if ('avada' === (string) ($args['builder'] ?? '')) {
+                return Avada_Design::write($args);
             }
 
             return Builder_Design_Write::write($args);
@@ -442,8 +454,11 @@ class Update_Builder_Content
     }
 
     /**
-     * Avada pages: whole shortcode content or one element operation, only on
-     * a page detected as Avada or as plain classic content.
+     * Avada pages: whole shortcode content or one element operation (add
+     * also takes a library item), only on a page detected as Avada or as
+     * plain classic content, and only while the page still has the hash the
+     * caller read (required unless the page is blank). save_template writes
+     * no page.
      */
     private function update_avada(int $post_id, array $args)
     {
@@ -460,9 +475,32 @@ class Update_Builder_Content
             return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not an Avada page.");
         }
 
+        if ('save_template' === $operation) {
+            return Avada_Library::save_template($post_id, $args);
+        }
+
+        // Paths are child indexes, so a write against a page that changed
+        // since the read could land on another element: every write to a
+        // page with a layout needs the hash that read returned (as Divi 5).
+        if ('' !== trim(Avada_Content::get_content($post_id))) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change an Avada page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(Avada_Content::hash($post_id), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+            }
+        }
+
         if ('' !== $operation) {
+            $old = Avada_Content::get_content($post_id);
             try {
-                [$content, $path] = $this->apply_operation(Avada_Shortcodes::class, Avada_Content::get_content($post_id), $operation, $args);
+                $template = 'add' === $operation && is_array($args['element'] ?? null) ? ($args['element']['template'] ?? null) : null;
+                if (null !== $template) {
+                    [$content, $path] = Avada_Library::insert_template($old, (string) ($args['to'] ?? ''), isset($args['index']) ? (int) $args['index'] : null, (int) $template);
+                } else {
+                    [$content, $path] = $this->apply_operation(Avada_Shortcodes::class, $old, $operation, $args);
+                }
             } catch (\InvalidArgumentException $e) {
                 return new \WP_Error('invalid_avada_operation', $e->getMessage());
             }
@@ -482,7 +520,7 @@ class Update_Builder_Content
             }
         );
 
-        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'avada'];
+        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'avada', 'hash' => Avada_Content::hash($post_id)];
         if (null !== $path) {
             $result['path'] = $path;
         }

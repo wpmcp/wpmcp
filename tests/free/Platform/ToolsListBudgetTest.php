@@ -268,8 +268,12 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  the build-page description and dropping
      *  "Read-only" from detect-builder and get-builder-content, whose
      *  readOnlyHint says it, without dropping a rule: 208995 -> 208967
-     *  bytes over 407 tools. */
-    private const TOOLS_LIST_BYTE_BUDGET = 209000;
+     *  bytes over 407 tools. Avada element-level editing
+     *  (#637) added no tool: library inserts, save_template and the Avada
+     *  design_system and catalog scopes on the builder pair, without
+     *  dropping a rule: 208967 -> 209095 bytes over 407 tools. */
+    // Raised 209000 -> 215000 on 2026-11-09 for five integration PRs (#784, #786, #787, #788, WPBakery) that together exceed 209000; owner approved.
+    private const TOOLS_LIST_BYTE_BUDGET = 215000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array
