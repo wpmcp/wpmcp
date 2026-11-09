@@ -192,7 +192,6 @@ class ThemeLayoutsLiveTest extends \WP_UnitTestCase
     private function reset_kadence_conditions(): void
     {
         $prop = new \ReflectionProperty(\Kadence_Pro\Elements_Controller::class, 'current_condition');
-        $prop->setAccessible(true);
         $prop->setValue(null, null);
     }
 }

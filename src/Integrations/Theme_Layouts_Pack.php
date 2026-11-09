@@ -4,6 +4,7 @@ namespace WPMCP\Integrations;
 
 use WPMCP\Safety\Post_Creation_Snapshot;
 use WPMCP\Safety\Save_Filters;
+use WPMCP\Tools\Content\Readable_Posts;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -198,14 +199,14 @@ final class Theme_Layouts_Pack
     private static function list(Theme_Layouts_Adapter $a, array $args): array
     {
         $status = (string) ($args['status'] ?? 'any');
-        $ids    = get_posts([
+        // Kept to the layouts the caller may read, like every other listing.
+        $ids    = Readable_Posts::get_posts([
             'post_type'        => $a->post_type(),
             'post_status'      => 'any' === $status ? self::STATUSES : $status,
             'numberposts'      => self::MAX_SCAN,
             'orderby'          => 'ID',
             'order'            => 'ASC',
             'fields'           => 'ids',
-            'suppress_filters' => true,
         ]);
         if (isset($args['type'])) {
             $ids = array_values(array_filter($ids, static fn ($id): bool => $a->type_of((int) $id) === (string) $args['type']));
