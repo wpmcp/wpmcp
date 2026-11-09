@@ -14,8 +14,11 @@
 # --live-crm), or, with WPMCP_LIVE_AMELIA=1, Amelia Lite only
 # (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
 # WooCommerce and FunnelKit Funnel Builder only (bin/test-local.sh
-# --live-funnelkit), or, with WPMCP_LIVE_DIVI=1, no plugin and the Divi 5
-# theme copied from WPMCP_DIVI_SRC (bin/test-local.sh --live-divi). The script
+# --live-funnelkit), or, with WPMCP_LIVE_WC_SUBSCRIPTIONS=1, WooCommerce plus
+# a local copy of WooCommerce Subscriptions (WPMCP_WC_SUBSCRIPTIONS_SRC) only
+# (bin/test-local.sh --live-wc-subscriptions), or, with WPMCP_LIVE_DIVI=1, no
+# plugin and the Divi 5 theme copied from WPMCP_DIVI_SRC (bin/test-local.sh
+# --live-divi). The script
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
 #
@@ -200,6 +203,48 @@ elif [ "${WPMCP_LIVE_DIVI:-}" = "1" ]; then
 	rm -rf "$WP_CORE_DIR/wp-content/themes/Divi"
 	cp -R "$src" "$WP_CORE_DIR/wp-content/themes/Divi"
 	echo "Copied Divi $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/style.css" | head -n 1) from $src."
+fi
+
+# The live MemberPress job (issue #668) runs the MemberPress ops against a real
+# MemberPress. MemberPress is a commercial plugin and not on wordpress.org, so
+# it is copied from a local directory holding it (WPMCP_MEMBERPRESS_SRC)
+# instead of downloaded. Exclusive too: the stub-backed MemberPress tests build
+# its tables and post types from a fixture and fake its presence.
+if [ "${WPMCP_LIVE_MEMBERPRESS:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_MEMBERPRESS:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_MEMBERPRESS_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/memberpress.php" ]; then
+		echo "WPMCP_LIVE_MEMBERPRESS=1 needs WPMCP_MEMBERPRESS_SRC, a directory holding the MemberPress plugin (memberpress.php)." >&2
+		exit 1
+	fi
+	mkdir -p "$PLUGINS_DIR"
+	rm -rf "$PLUGINS_DIR/memberpress"
+	cp -R "$src" "$PLUGINS_DIR/memberpress"
+	echo "Copied MemberPress $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/memberpress.php" | head -n 1) from $src."
+fi
+
+# The live WooCommerce Subscriptions job (issue #658) runs the subscriptions
+# ops through the real plugin beside WooCommerce. Subscriptions is a
+# commercial plugin and not on wordpress.org, so it is copied from a local
+# directory holding it (WPMCP_WC_SUBSCRIPTIONS_SRC) instead of downloaded.
+# Exclusive too: the stub-backed subscription tests stand in for its API.
+if [ "${WPMCP_LIVE_WC_SUBSCRIPTIONS:-}" = "1" ]; then
+	PLUGINS=(
+		"woocommerce:woocommerce.php"
+	)
+	if [ "$list_only" = false ]; then
+		src=${WPMCP_WC_SUBSCRIPTIONS_SRC:-}
+		if [ -z "$src" ] || [ ! -f "$src/woocommerce-subscriptions.php" ]; then
+			echo "WPMCP_LIVE_WC_SUBSCRIPTIONS=1 needs WPMCP_WC_SUBSCRIPTIONS_SRC, a directory holding the WooCommerce Subscriptions plugin (woocommerce-subscriptions.php)." >&2
+			exit 1
+		fi
+		mkdir -p "$PLUGINS_DIR"
+		rm -rf "$PLUGINS_DIR/woocommerce-subscriptions"
+		cp -R "$src" "$PLUGINS_DIR/woocommerce-subscriptions"
+		echo "Copied WooCommerce Subscriptions $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/woocommerce-subscriptions.php" | head -n 1) from $src."
+	fi
 fi
 
 download() {

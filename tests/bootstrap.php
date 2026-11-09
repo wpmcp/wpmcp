@@ -129,6 +129,28 @@ tests_add_filter( 'muplugins_loaded', function () {
         add_filter( 'pre_option_stylesheet', static fn () => 'Divi' );
     }
 
+    // The live MemberPress job (issue #668, WPMCP_LIVE_MEMBERPRESS=1) runs
+    // the MemberPress ops against a real MemberPress, copied in from
+    // WPMCP_MEMBERPRESS_SRC. Loaded only on request: the stub-backed
+    // MemberPress tests build its tables and post types from a fixture.
+    if ( getenv( 'WPMCP_LIVE_MEMBERPRESS' ) ) {
+        wpmcp_maybe_require_plugin( 'memberpress/memberpress.php' );
+    }
+
+    // The live WooCommerce Subscriptions job (issue #658,
+    // WPMCP_LIVE_WC_SUBSCRIPTIONS=1) runs the subscriptions ops through the
+    // real plugin, copied in from WPMCP_WC_SUBSCRIPTIONS_SRC, beside the
+    // WooCommerce loaded above. Loaded only on request: the stub-backed
+    // subscription tests stand in for its API.
+    if ( getenv( 'WPMCP_LIVE_WC_SUBSCRIPTIONS' ) ) {
+        // Subscriptions decides whether WooCommerce is there from the
+        // active_plugins option, as on a site, and does not load otherwise;
+        // the harness activates nothing.
+        add_filter( 'option_active_plugins', 'wpmcp_test_wc_subscriptions_active_plugins' );
+        add_filter( 'default_option_active_plugins', 'wpmcp_test_wc_subscriptions_active_plugins' );
+        wpmcp_maybe_require_plugin( 'woocommerce-subscriptions/woocommerce-subscriptions.php' );
+    }
+
     // The live CRM job (issue #477, WPMCP_LIVE_CRM=1) runs the FluentCRM
     // and MailPoet ops through the real plugins. Loaded only on request: the
     // stub-backed CRM tests build both plugins' tables from a fixture and
@@ -214,6 +236,13 @@ if ( ! function_exists( 'wpmcp_test_funnelkit_active_plugins' ) ) {
     }
 }
 
+if ( ! function_exists( 'wpmcp_test_wc_subscriptions_active_plugins' ) ) {
+    /** The active_plugins option as the live WooCommerce Subscriptions job's site has it. */
+    function wpmcp_test_wc_subscriptions_active_plugins( $plugins ): array {
+        return array_values( array_unique( array_merge( (array) $plugins, [ 'woocommerce/woocommerce.php', 'woocommerce-subscriptions/woocommerce-subscriptions.php' ] ) ) );
+    }
+}
+
 if ( ! function_exists( 'wpmcp_test_buddypress_components' ) ) {
     /** The BuddyPress components the live BuddyPress job runs with. */
     function wpmcp_test_buddypress_components(): array {
@@ -289,6 +318,16 @@ tests_add_filter( 'init', function () {
         \AmeliaBooking\Plugin::activation( false );
         \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationRolesHook::init();
         \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationSettingsHook::init();
+    }
+}, 1 );
+
+// The live MemberPress job's tables, built by MemberPress's own MeprDb
+// upgrade once per run, before any test transaction starts. A no-op
+// everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_MEMBERPRESS' ) && class_exists( 'MeprDb' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        \MeprDb::fetch()->upgrade();
     }
 }, 1 );
 

@@ -40,6 +40,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
 * With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
 * With Pro, Tutor LMS and LifterLMS: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read)
+* With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
 * Media library plus stock image imports
 * REST passthrough for anything else, still snapshotted
 
