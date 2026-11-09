@@ -7,6 +7,8 @@ use WPMCP\Pro\Gate;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
 
+require_once __DIR__ . '/../../support/blocksy-stubs.php';
+
 /**
  * Issue #316 for the paid packs: rolling back a GeneratePress or Blocksy
  * write refreshes that theme's generated CSS, and only while it is active.
@@ -114,6 +116,37 @@ class ThemeProPackRollbackRefreshTest extends \WP_UnitTestCase
         $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
 
         $this->assertSame(1, $this->blocksy);
+    }
+
+    /**
+     * Issue #797: Blocksy keeps the theme mods it read earlier in the
+     * request, so the CSS rebuilt right after a write (or its undo) has to
+     * be built from a fresh read, or the live site stays one change behind.
+     */
+    public function test_blocksy_rebuild_after_a_write_and_its_undo_reads_the_stored_values(): void
+    {
+        $this->activate('blocksy');
+        $seen    = [];
+        $rebuild = static function () use (&$seen): void {
+            // What Blocksy's own refresh handler reads to build the CSS.
+            $seen[] = blocksy_manager()->db->get_theme_mod('maxSiteWidth', 1290);
+        };
+        add_action('blocksy:dynamic-css:refresh-caches', $rebuild);
+
+        try {
+            // The page or REST request read a theme mod before the write.
+            $this->assertSame(1290, blocksy_manager()->db->get_theme_mod('maxSiteWidth', 1290));
+
+            $first  = $this->write('blocksy', [ 'maxSiteWidth' => 1000 ]);
+            $second = $this->write('blocksy', [ 'maxSiteWidth' => 1100 ]);
+            $this->assertTrue(Rollback_Service::restore_operation((string) $second['operation_id']));
+            $this->assertTrue(Rollback_Service::restore_operation((string) $first['operation_id']));
+        } finally {
+            remove_action('blocksy:dynamic-css:refresh-caches', $rebuild);
+            blocksy_manager()->db->wipe_cache();
+        }
+
+        $this->assertSame([ 1000, 1100, 1000, 1290 ], $seen);
     }
 
     public function test_blocksy_rollback_does_not_refresh_when_not_active(): void

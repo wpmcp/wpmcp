@@ -212,6 +212,26 @@ elif [ "${WPMCP_LIVE_AVADA:-}" = "1" ]; then
 	echo "Copied Avada Builder $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/fusion-builder/fusion-builder.php" | head -n 1), Avada Core $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/fusion-core/fusion-core.php" | head -n 1) and the Avada theme $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/Avada/style.css" | head -n 1) from $src."
 fi
 
+# The live Oxygen job (issue #635) runs the Oxygen 6 adapter against a real
+# Oxygen 6. Oxygen is a commercial plugin and not on wordpress.org, so it is
+# copied from a local directory holding it (WPMCP_OXYGEN_SRC) instead of
+# downloaded. Exclusive too: the stub-backed Oxygen tests stand in for its
+# cache generator and toggle its presence.
+if [ "${WPMCP_LIVE_OXYGEN:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_OXYGEN:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_OXYGEN_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/plugin.php" ]; then
+		echo "WPMCP_LIVE_OXYGEN=1 needs WPMCP_OXYGEN_SRC, a directory holding the Oxygen 6 plugin (plugin.php)." >&2
+		exit 1
+	fi
+	mkdir -p "$PLUGINS_DIR"
+	rm -rf "$PLUGINS_DIR/oxygen"
+	cp -R "$src" "$PLUGINS_DIR/oxygen"
+	echo "Copied Oxygen $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/plugin.php" | head -n 1) from $src."
+fi
+
 # The live WPBakery job (issue #639) runs the WPBakery adapter against a real
 # WPBakery Page Builder. It is a commercial plugin and not on wordpress.org,
 # so it is copied from a local directory holding it (WPMCP_WPBAKERY_SRC)

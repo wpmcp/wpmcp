@@ -81,6 +81,12 @@ class Breakdance_Tree
         return $doc->root->children;
     }
 
+    /** A detached copy of the node with this id, its subtree included. */
+    public static function node(object $doc, string $id): object
+    {
+        return self::copy(self::require_node($doc, $id));
+    }
+
     /**
      * Replace every top-level node. Each item is a stored node (as nodes()
      * returns it) or a spec {type, properties?, children?}; nodes that carry

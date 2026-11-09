@@ -78,13 +78,18 @@
 #      fusion-core plugins (commercial, so not downloadable here): pages
 #      edited through wpmcp still render through the real Avada Builder,
 #      its element map is read, and every write rolls back.
-#  20. Runs the live theme add-on group (issue #656) once for each of
+#  20. Runs the live Oxygen group (issue #635) when WPMCP_OXYGEN_SRC names a
+#      local copy of Oxygen 6 (commercial, so not downloadable here): pages
+#      saved by the real Oxygen are read and edited node by node, from
+#      templates and Components, restored from revisions, still load and
+#      render through Oxygen, and every write rolls back.
+#  21. Runs the live theme add-on group (issue #656) once for each of
 #      WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC and WPMCP_GP_PREMIUM_SRC
 #      that names a local copy of Astra Pro, Kadence Pro or GP Premium
 #      (commercial, so not downloadable here), beside its free theme from
 #      wordpress.org made the active one: layouts written through the theme
 #      ops are read back through the add-on's own code, and roll back.
-#  21. Under --all (or --live-adapter alone), runs the adapter leg (issue
+#  22. Under --all (or --live-adapter alone), runs the adapter leg (issue
 #      #501): the free and pro suites on the latest MCP Adapter plugin
 #      released on WordPress.org, loaded next to the bundled copy the way a
 #      site that installs the plugin runs us, with the version it tested in
@@ -121,6 +126,7 @@
 #   bin/test-local.sh --live-polylang only the live Polylang group (real Polylang and Elementor)
 #   bin/test-local.sh --live-breakdance only the live Breakdance group (needs WPMCP_BREAKDANCE_SRC)
 #   bin/test-local.sh --live-avada    only the live Avada group (needs WPMCP_AVADA_SRC)
+#   bin/test-local.sh --live-oxygen   only the live Oxygen group (needs WPMCP_OXYGEN_SRC)
 #   bin/test-local.sh --live-wpbakery only the live WPBakery group (needs WPMCP_WPBAKERY_SRC)
 #   bin/test-local.sh --live-divi     only the live Divi group (needs WPMCP_DIVI_SRC)
 #   bin/test-local.sh --live-memberpress only the live MemberPress group (needs WPMCP_MEMBERPRESS_SRC)
@@ -153,6 +159,9 @@
 #                        per variable set; with none set that group is not
 #                        run, except under --live-theme-pro, where it is an
 #                        error
+#   WPMCP_OXYGEN_SRC     a local Oxygen 6 plugin directory for the live
+#                        Oxygen group; without it that group is not run,
+#                        except under --live-oxygen, where it is an error
 #   WPMCP_WPBAKERY_SRC   a local WPBakery Page Builder directory (js_composer)
 #                        for the live WPBakery group; without it that group is
 #                        not run, except under --live-wpbakery, where it is an
@@ -213,6 +222,7 @@ only_live_polylang=false
 only_live_breakdance=false
 only_live_avada=false
 only_live_wpbakery=false
+only_live_oxygen=false
 only_live_divi=false
 only_live_memberpress=false
 only_live_amelia=false
@@ -240,6 +250,7 @@ while [ $# -gt 0 ]; do
 		--live-breakdance) only_live_breakdance=true ;;
 		--live-avada) only_live_avada=true ;;
 		--live-wpbakery) only_live_wpbakery=true ;;
+		--live-oxygen) only_live_oxygen=true ;;
 		--live-divi) only_live_divi=true ;;
 		--live-memberpress) only_live_memberpress=true ;;
 		--live-amelia) only_live_amelia=true ;;
@@ -293,7 +304,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -305,6 +316,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_breakdance" = false ] || LEGS+=("live-breakdance ${only_wp:-$default_wp}")
 	[ "$only_live_avada" = false ] || LEGS+=("live-avada ${only_wp:-$default_wp}")
 	[ "$only_live_wpbakery" = false ] || LEGS+=("live-wpbakery ${only_wp:-$default_wp}")
+	[ "$only_live_oxygen" = false ] || LEGS+=("live-oxygen ${only_wp:-$default_wp}")
 	[ "$only_live_divi" = false ] || LEGS+=("live-divi ${only_wp:-$default_wp}")
 	[ "$only_live_memberpress" = false ] || LEGS+=("live-memberpress ${only_wp:-$default_wp}")
 	[ "$only_live_amelia" = false ] || LEGS+=("live-amelia ${only_wp:-$default_wp}")
@@ -350,6 +362,9 @@ else
 		fi
 		if [ -n "${WPMCP_WPBAKERY_SRC:-}" ]; then
 			LEGS+=("live-wpbakery $default_wp")
+		fi
+		if [ -n "${WPMCP_OXYGEN_SRC:-}" ]; then
+			LEGS+=("live-oxygen $default_wp")
 		fi
 		if [ -n "${WPMCP_DIVI_SRC:-}" ]; then
 			LEGS+=("live-divi $default_wp")
@@ -495,6 +510,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_AVADA:-}" = 1 ] && flavor="-avada-live"
 	# And WPMCP_LIVE_WPBAKERY=1 and the local WPBakery copy.
 	[ "${WPMCP_LIVE_WPBAKERY:-}" = 1 ] && flavor="-wpbakery-live"
+	# And WPMCP_LIVE_OXYGEN=1 and the local Oxygen copy.
+	[ "${WPMCP_LIVE_OXYGEN:-}" = 1 ] && flavor="-oxygen-live"
 	# And WPMCP_LIVE_DIVI=1 and the local Divi theme copy.
 	[ "${WPMCP_LIVE_DIVI:-}" = 1 ] && flavor="-divi-live"
 	# And WPMCP_LIVE_MEMBERPRESS=1 and the local MemberPress copy.
@@ -975,6 +992,24 @@ run_live_wpbakery() {
 	unset WPMCP_LIVE_WPBAKERY
 }
 
+# The live Oxygen group (issue #635), the same way, with the Oxygen 6 copy
+# from WPMCP_OXYGEN_SRC: its own install, its own database and
+# --fail-on-skipped.
+run_live_oxygen() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_OXYGEN_SRC:-}/plugin.php" ] || die "the live Oxygen group needs WPMCP_OXYGEN_SRC, a directory holding the Oxygen 6 plugin (plugin.php)"
+	export WPMCP_LIVE_OXYGEN=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-oxygen-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Oxygen group on WordPress $version (real Oxygen from $WPMCP_OXYGEN_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group oxygen-live --fail-on-skipped
+	unset WPMCP_LIVE_OXYGEN
+}
+
 # The live Divi group (issue #636), the same way, with the Divi theme copy
 # from WPMCP_DIVI_SRC: its own install, its own database and
 # --fail-on-skipped. tests/bootstrap.php switches to the theme.
@@ -1173,6 +1208,7 @@ run_leg_body() {
 		live-breakdance) run_live_breakdance "$wp" ;;
 		live-avada) run_live_avada "$wp" ;;
 		live-wpbakery) run_live_wpbakery "$wp" ;;
+		live-oxygen) run_live_oxygen "$wp" ;;
 		live-divi) run_live_divi "$wp" ;;
 		live-memberpress) run_live_memberpress "$wp" ;;
 		live-amelia) run_live_amelia "$wp" ;;
