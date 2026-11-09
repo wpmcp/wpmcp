@@ -9517,7 +9517,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-builder-content',
             'pro',
-            'Bricks JSON; Divi|WPBakery|Avada shortcodes, Thrive HTML; oxygen-classic|Beaver Builder|Breakdance|Oxygen JSON tree. All but Bricks|Divi 4: operation update(path,attrs,text), add(to,index,element), remove(path), move(path,to,index); to \'\'=top. WPBakery: also publish, restore(path: revision id), element {template}; needs expected_hash. Avada: also element {template}, save_template(path,element {title}); needs expected_hash. scope design_system (bricks|breakdance|avada): add/update/remove at classes|variables|palettes|typography|options/<id>[/<color id>]; scope templates (wpbakery): at <id>. expected_hash: read\'s hash (Divi 5, WPBakery, Avada), hashes.<list>. Undo: rollback-operation',
+            'Bricks JSON; Divi|WPBakery|Avada shortcodes, Thrive HTML; oxygen-classic|Beaver Builder|Breakdance|Oxygen JSON tree. All but Bricks|Divi 4: operation update(path,attrs,text), add(to,index,element), remove(path), move(path,to,index); to \'\'=top. WPBakery|Oxygen: also publish, restore(path: revision id). WPBakery|Avada|Oxygen: element {template}; need expected_hash. Avada|Oxygen: save_template(path,element {title}). Oxygen: element {component}. scope design_system (bricks|breakdance|avada): add/update/remove at classes|variables|palettes|typography|options/<id>[/<color id>]; scope templates (wpbakery): at <id>. expected_hash: read\'s hash (Divi 5, WPBakery, Avada, Oxygen), hashes.<list>. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [

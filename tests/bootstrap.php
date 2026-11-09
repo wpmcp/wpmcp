@@ -119,6 +119,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'breakdance/plugin.php' );
     }
 
+    // The live Oxygen job (issue #635, WPMCP_LIVE_OXYGEN=1) runs the Oxygen 6
+    // adapter against a real Oxygen 6, copied in from WPMCP_OXYGEN_SRC.
+    // Loaded only on request: the stub-backed Oxygen tests stand in for its
+    // cache generator and toggle its presence.
+    if ( getenv( 'WPMCP_LIVE_OXYGEN' ) ) {
+        wpmcp_maybe_require_plugin( 'oxygen/plugin.php' );
+    }
+
     // The live Avada job (issue #637, WPMCP_LIVE_AVADA=1) runs the Avada
     // adapter against the real Avada Core and Avada Builder plugins and the
     // Avada theme, copied in from WPMCP_AVADA_SRC. Loaded only on request:
