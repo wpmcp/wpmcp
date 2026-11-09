@@ -119,6 +119,16 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'breakdance/plugin.php' );
     }
 
+    // The live Divi job (issue #636, WPMCP_LIVE_DIVI=1) runs the Divi 5
+    // adapter against the real Divi 5 theme, copied into the themes
+    // directory from WPMCP_DIVI_SRC. Divi is a theme, so it is made the
+    // active one here, before WordPress loads the theme. Only on request:
+    // the stub-backed Divi tests stand in for its version and metadata.
+    if ( getenv( 'WPMCP_LIVE_DIVI' ) && is_dir( WP_CONTENT_DIR . '/themes/Divi' ) ) {
+        add_filter( 'pre_option_template', static fn () => 'Divi' );
+        add_filter( 'pre_option_stylesheet', static fn () => 'Divi' );
+    }
+
     // The live MemberPress job (issue #668, WPMCP_LIVE_MEMBERPRESS=1) runs
     // the MemberPress ops against a real MemberPress, copied in from
     // WPMCP_MEMBERPRESS_SRC. Loaded only on request: the stub-backed
