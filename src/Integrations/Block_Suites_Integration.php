@@ -87,6 +87,14 @@ final class Block_Suites_Integration extends Integration_Dispatcher
         return 'block suite blocks and patterns';
     }
 
+    /** Any one supported suite brings the pair back (issue #790). */
+    public function host_plugin(): array
+    {
+        $labels = array_column(Block_Suite::specs(), 'label');
+
+        return [ 'name' => implode(', ', $labels), 'several' => true ];
+    }
+
     protected function operations(): array
     {
         $suite_prop = [ 'type' => 'string', 'enum' => array_keys(Block_Suite::specs()) ];
