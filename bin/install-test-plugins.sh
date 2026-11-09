@@ -14,7 +14,11 @@
 # --live-crm), or, with WPMCP_LIVE_AMELIA=1, Amelia Lite only
 # (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
 # WooCommerce and FunnelKit Funnel Builder only (bin/test-local.sh
-# --live-funnelkit). The script
+# --live-funnelkit), or, with WPMCP_LIVE_WC_SUBSCRIPTIONS=1, WooCommerce plus
+# a local copy of WooCommerce Subscriptions (WPMCP_WC_SUBSCRIPTIONS_SRC) only
+# (bin/test-local.sh --live-wc-subscriptions), or, with WPMCP_LIVE_DIVI=1, no
+# plugin and the Divi 5 theme copied from WPMCP_DIVI_SRC (bin/test-local.sh
+# --live-divi). The script
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
 #
@@ -178,6 +182,115 @@ elif [ "${WPMCP_LIVE_BREAKDANCE:-}" = "1" ]; then
 	rm -rf "$PLUGINS_DIR/breakdance"
 	cp -R "$src" "$PLUGINS_DIR/breakdance"
 	echo "Copied Breakdance $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/plugin.php" | head -n 1) from $src."
+fi
+
+# The live Avada job (issue #637) runs the Avada adapter against the real
+# Avada Builder (fusion-builder) and Avada Core (fusion-core) plugins and the
+# Avada theme. All three are commercial and not on wordpress.org, so they are
+# copied from one local directory holding the three unpacked folders
+# (WPMCP_AVADA_SRC: Avada/, fusion-builder/, fusion-core/) instead of
+# downloaded. Exclusive too: the stub-backed Avada tests stand in for its
+# element map and toggle its presence.
+if [ "${WPMCP_LIVE_AVADA:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_AVADA:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_AVADA_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/fusion-builder/fusion-builder.php" ] || [ ! -f "$src/fusion-core/fusion-core.php" ] || [ ! -f "$src/Avada/style.css" ]; then
+		echo "WPMCP_LIVE_AVADA=1 needs WPMCP_AVADA_SRC, a directory holding the Avada/ theme and the fusion-builder/ and fusion-core/ plugins." >&2
+		exit 1
+	fi
+	mkdir -p "$PLUGINS_DIR" "$WP_CORE_DIR/wp-content/themes"
+	for slug in fusion-builder fusion-core; do
+		rm -rf "${PLUGINS_DIR:?}/$slug"
+		cp -R "$src/$slug" "$PLUGINS_DIR/$slug"
+	done
+	rm -rf "$WP_CORE_DIR/wp-content/themes/Avada"
+	cp -R "$src/Avada" "$WP_CORE_DIR/wp-content/themes/Avada"
+	echo "Copied Avada Builder $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/fusion-builder/fusion-builder.php" | head -n 1), Avada Core $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/fusion-core/fusion-core.php" | head -n 1) and the Avada theme $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/Avada/style.css" | head -n 1) from $src."
+fi
+
+# The live WPBakery job (issue #639) runs the WPBakery adapter against a real
+# WPBakery Page Builder. It is a commercial plugin and not on wordpress.org,
+# so it is copied from a local directory holding it (WPMCP_WPBAKERY_SRC)
+# instead of downloaded. Exclusive too: the stub-backed WPBakery tests stand
+# in for its element map and toggle its presence.
+if [ "${WPMCP_LIVE_WPBAKERY:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_WPBAKERY:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_WPBAKERY_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/js_composer.php" ]; then
+		echo "WPMCP_LIVE_WPBAKERY=1 needs WPMCP_WPBAKERY_SRC, a directory holding the WPBakery plugin (js_composer.php)." >&2
+		exit 1
+	fi
+	mkdir -p "$PLUGINS_DIR"
+	rm -rf "$PLUGINS_DIR/js_composer"
+	cp -R "$src" "$PLUGINS_DIR/js_composer"
+	echo "Copied WPBakery $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/js_composer.php" | head -n 1) from $src."
+fi
+
+# The live Divi job (issue #636) runs the Divi 5 adapter against a real
+# Divi 5. Divi is a commercial theme, not a plugin, and not on
+# wordpress.org, so it is copied from a local directory holding it
+# (WPMCP_DIVI_SRC) into the themes directory, and tests/bootstrap.php makes
+# it the active theme. Exclusive too: the stub-backed Divi tests stand in for
+# its version and module metadata.
+if [ "${WPMCP_LIVE_DIVI:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_DIVI:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_DIVI_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/style.css" ] || [ ! -d "$src/includes/builder-5" ]; then
+		echo "WPMCP_LIVE_DIVI=1 needs WPMCP_DIVI_SRC, a directory holding the Divi 5 theme (style.css and includes/builder-5)." >&2
+		exit 1
+	fi
+	mkdir -p "$WP_CORE_DIR/wp-content/themes"
+	rm -rf "$WP_CORE_DIR/wp-content/themes/Divi"
+	cp -R "$src" "$WP_CORE_DIR/wp-content/themes/Divi"
+	echo "Copied Divi $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/style.css" | head -n 1) from $src."
+fi
+
+# The live MemberPress job (issue #668) runs the MemberPress ops against a real
+# MemberPress. MemberPress is a commercial plugin and not on wordpress.org, so
+# it is copied from a local directory holding it (WPMCP_MEMBERPRESS_SRC)
+# instead of downloaded. Exclusive too: the stub-backed MemberPress tests build
+# its tables and post types from a fixture and fake its presence.
+if [ "${WPMCP_LIVE_MEMBERPRESS:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_MEMBERPRESS:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_MEMBERPRESS_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/memberpress.php" ]; then
+		echo "WPMCP_LIVE_MEMBERPRESS=1 needs WPMCP_MEMBERPRESS_SRC, a directory holding the MemberPress plugin (memberpress.php)." >&2
+		exit 1
+	fi
+	mkdir -p "$PLUGINS_DIR"
+	rm -rf "$PLUGINS_DIR/memberpress"
+	cp -R "$src" "$PLUGINS_DIR/memberpress"
+	echo "Copied MemberPress $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/memberpress.php" | head -n 1) from $src."
+fi
+
+# The live WooCommerce Subscriptions job (issue #658) runs the subscriptions
+# ops through the real plugin beside WooCommerce. Subscriptions is a
+# commercial plugin and not on wordpress.org, so it is copied from a local
+# directory holding it (WPMCP_WC_SUBSCRIPTIONS_SRC) instead of downloaded.
+# Exclusive too: the stub-backed subscription tests stand in for its API.
+if [ "${WPMCP_LIVE_WC_SUBSCRIPTIONS:-}" = "1" ]; then
+	PLUGINS=(
+		"woocommerce:woocommerce.php"
+	)
+	if [ "$list_only" = false ]; then
+		src=${WPMCP_WC_SUBSCRIPTIONS_SRC:-}
+		if [ -z "$src" ] || [ ! -f "$src/woocommerce-subscriptions.php" ]; then
+			echo "WPMCP_LIVE_WC_SUBSCRIPTIONS=1 needs WPMCP_WC_SUBSCRIPTIONS_SRC, a directory holding the WooCommerce Subscriptions plugin (woocommerce-subscriptions.php)." >&2
+			exit 1
+		fi
+		mkdir -p "$PLUGINS_DIR"
+		rm -rf "$PLUGINS_DIR/woocommerce-subscriptions"
+		cp -R "$src" "$PLUGINS_DIR/woocommerce-subscriptions"
+		echo "Copied WooCommerce Subscriptions $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/woocommerce-subscriptions.php" | head -n 1) from $src."
+	fi
 fi
 
 download() {

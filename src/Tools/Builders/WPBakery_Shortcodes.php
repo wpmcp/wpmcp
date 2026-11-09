@@ -121,8 +121,23 @@ class WPBakery_Shortcodes
      */
     public static function add(string $content, string $parent_path, ?int $index, array $element): array
     {
+        return self::insert($content, $parent_path, $index, self::serialize($element));
+    }
+
+    /**
+     * Insert ready-made layout markup (one or more elements, such as a saved
+     * library item) under a container ('' is the top level) at a child
+     * index, as add() does with a spec. Returns the new content and the path
+     * of the first inserted element.
+     *
+     * @return array{0:string,1:string}
+     */
+    public static function insert(string $content, string $parent_path, ?int $index, string $markup): array
+    {
+        if ([] === self::parse($markup)) {
+            throw new \InvalidArgumentException(esc_html('There is no element to insert.'));
+        }
         $parent = self::resolve($content, $parent_path, true);
-        $markup = self::serialize($element);
 
         $children = $parent['children'];
         $position = self::position($index, count($children));
@@ -131,6 +146,14 @@ class WPBakery_Shortcodes
         $path = ('' === $parent_path ? '' : $parent_path . '.') . $position;
 
         return [substr($content, 0, $offset) . $markup . substr($content, $offset), $path];
+    }
+
+    /** The exact stored markup of one element, from its opening to its closing tag. */
+    public static function markup(string $content, string $path): string
+    {
+        $node = self::resolve($content, $path, false);
+
+        return substr($content, $node['start'], $node['end'] - $node['start']);
     }
 
     public static function remove(string $content, string $path): string

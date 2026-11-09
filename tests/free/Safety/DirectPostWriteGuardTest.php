@@ -33,6 +33,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_update_post' => 2, 'wp_trash_post' => 1, 'wp_insert_post' => 1],
             'reason' => 'Restores a snapshot row as stored; every call runs inside Save_Filters::without() with all post save filters lifted.',
         ],
+        'Tools/Builders/Avada_Library.php'            => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new Avada library post from a page element (issue #637); every field is new.',
+        ],
         'Tools/SiteEditor/Site_Templates_Write.php'   => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates the first customization of a template; every field is new.',
@@ -92,6 +96,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
         'Integrations/LMS_Adapter.php'                => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new course, section or lesson post.',
+        ],
+        'Integrations/MemberPress_Pack.php'           => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new MemberPress membership or rule post.',
         ],
     ];
 
