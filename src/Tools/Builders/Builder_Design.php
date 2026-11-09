@@ -12,7 +12,8 @@ if (! defined('ABSPATH')) {
  * palettes), its local templates (header and footer areas included) or its
  * element catalog with control schemas, instead of one post's layout.
  *
- * Bricks, Breakdance and Oxygen 6 are supported; the builder comes from the
+ * Bricks, Breakdance, Oxygen 6 and Avada (issue #637, see Avada_Design and
+ * Avada_Library) are supported; the builder comes from the
  * `builder` argument, or is detected from `post_id` when that is given
  * instead. Reads only: writes to global design data are a later phase.
  */
@@ -20,7 +21,7 @@ class Builder_Design
 {
     public const SCOPES = ['design_system', 'templates', 'catalog'];
 
-    public const BUILDERS = ['bricks', 'breakdance', 'oxygen'];
+    public const BUILDERS = ['bricks', 'breakdance', 'oxygen', 'avada'];
 
     /**
      * @param array<string,mixed> $args
@@ -44,14 +45,22 @@ class Builder_Design
         }
 
         if ('' === $builder) {
-            return new \WP_Error('missing_builder', 'A scope read needs builder (bricks, breakdance or oxygen) or a post_id to detect it from.');
+            return new \WP_Error('missing_builder', 'A scope read needs builder (bricks, breakdance, oxygen or avada) or a post_id to detect it from.');
         }
 
         if (! in_array($builder, self::BUILDERS, true)) {
-            return new \WP_Error('unsupported_builder', "scope reads support 'bricks', 'breakdance' and 'oxygen'; got '{$builder}'.");
+            return new \WP_Error('unsupported_builder', "scope reads support 'bricks', 'breakdance', 'oxygen' and 'avada'; got '{$builder}'.");
         }
 
         $element = (string) ($args['element'] ?? '');
+
+        if ('avada' === $builder) {
+            if ('design_system' === $scope) {
+                return Avada_Design::design_system();
+            }
+
+            return 'templates' === $scope ? Avada_Library::templates() : Avada_Design::catalog($element);
+        }
 
         if ('bricks' === $builder) {
             if ('design_system' === $scope) {

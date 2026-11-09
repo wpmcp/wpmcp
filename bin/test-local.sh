@@ -54,7 +54,12 @@
 #      names a local copy of Breakdance (a commercial plugin, so not
 #      downloadable here): pages saved by the real Breakdance are detected,
 #      read, edited and rolled back, and Breakdance still loads them.
-#  15. Under --all (or --live-adapter alone), runs the adapter leg (issue
+#  15. Runs the live Avada group (issue #637) when WPMCP_AVADA_SRC names a
+#      local directory holding the Avada theme and the fusion-builder and
+#      fusion-core plugins (commercial, so not downloadable here): pages
+#      edited through wpmcp still render through the real Avada Builder,
+#      its element map is read, and every write rolls back.
+#  16. Under --all (or --live-adapter alone), runs the adapter leg (issue
 #      #501): the free and pro suites on the latest MCP Adapter plugin
 #      released on WordPress.org, loaded next to the bundled copy the way a
 #      site that installs the plugin runs us, with the version it tested in
@@ -90,6 +95,7 @@
 #   bin/test-local.sh --live-amelia   only the live Amelia group (real Amelia Lite)
 #   bin/test-local.sh --live-polylang only the live Polylang group (real Polylang and Elementor)
 #   bin/test-local.sh --live-breakdance only the live Breakdance group (needs WPMCP_BREAKDANCE_SRC)
+#   bin/test-local.sh --live-avada    only the live Avada group (needs WPMCP_AVADA_SRC)
 #   bin/test-local.sh --live-adapter  only the adapter leg (both suites on the released MCP Adapter plugin)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments, default WordPress only; skips lint,
 #                                     drift, coverage, the floor leg and the live groups
@@ -106,6 +112,10 @@
 #   WPMCP_BREAKDANCE_SRC a local Breakdance plugin directory for the live
 #                        Breakdance group; without it that group is not run,
 #                        except under --live-breakdance, where it is an error
+#   WPMCP_AVADA_SRC      a local directory holding the unpacked Avada/ theme
+#                        and the fusion-builder/ and fusion-core/ plugins for
+#                        the live Avada group; without it that group is not
+#                        run, except under --live-avada, where it is an error
 #   WPMCP_ADAPTER_VERSION the MCP Adapter release the adapter leg tests (default:
 #                        the latest on WordPress.org, asked for on every run)
 #   ELEMENTOR_VERSION    passed to bin/install-test-plugins.sh ('latest' tests
@@ -150,6 +160,7 @@ only_live_crm=false
 only_live_funnelkit=false
 only_live_polylang=false
 only_live_breakdance=false
+only_live_avada=false
 only_live_amelia=false
 only_live_adapter=false
 only_multisite=false
@@ -171,6 +182,7 @@ while [ $# -gt 0 ]; do
 		--live-funnelkit) only_live_funnelkit=true ;;
 		--live-polylang) only_live_polylang=true ;;
 		--live-breakdance) only_live_breakdance=true ;;
+		--live-avada) only_live_avada=true ;;
 		--live-amelia) only_live_amelia=true ;;
 		--live-adapter) only_live_adapter=true ;;
 		--multisite) only_multisite=true ;;
@@ -220,7 +232,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_adapter" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_adapter" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -230,6 +242,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_funnelkit" = false ] || LEGS+=("live-funnelkit ${only_wp:-$default_wp}")
 	[ "$only_live_polylang" = false ] || LEGS+=("live-polylang ${only_wp:-$default_wp}")
 	[ "$only_live_breakdance" = false ] || LEGS+=("live-breakdance ${only_wp:-$default_wp}")
+	[ "$only_live_avada" = false ] || LEGS+=("live-avada ${only_wp:-$default_wp}")
 	[ "$only_live_amelia" = false ] || LEGS+=("live-amelia ${only_wp:-$default_wp}")
 	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
 elif [ "$only_multisite" = true ]; then
@@ -265,6 +278,9 @@ else
 		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp")
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			LEGS+=("live-breakdance $default_wp")
+		fi
+		if [ -n "${WPMCP_AVADA_SRC:-}" ]; then
+			LEGS+=("live-avada $default_wp")
 		fi
 		# The adapter leg (issue #501) under --all only; see the header.
 		if [ "$run_all" = true ]; then
@@ -394,6 +410,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_AMELIA:-}" = 1 ] && flavor="-amelia-live"
 	# And WPMCP_LIVE_BREAKDANCE=1 and the local Breakdance copy.
 	[ "${WPMCP_LIVE_BREAKDANCE:-}" = 1 ] && flavor="-breakdance-live"
+	# And WPMCP_LIVE_AVADA=1 and the local Avada copies.
+	[ "${WPMCP_LIVE_AVADA:-}" = 1 ] && flavor="-avada-live"
 	echo "$flavor"
 }
 
@@ -802,6 +820,24 @@ run_live_breakdance() {
 	unset WPMCP_LIVE_BREAKDANCE
 }
 
+# The live Avada group (issue #637), the same way, with the Avada theme and
+# the fusion-builder and fusion-core plugins from WPMCP_AVADA_SRC: its own
+# install, its own database and --fail-on-skipped.
+run_live_avada() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_AVADA_SRC:-}/fusion-builder/fusion-builder.php" ] || die "the live Avada group needs WPMCP_AVADA_SRC, a directory holding Avada/, fusion-builder/ and fusion-core/"
+	export WPMCP_LIVE_AVADA=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-avada-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Avada group on WordPress $version (real Avada from $WPMCP_AVADA_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group avada-live --fail-on-skipped
+	unset WPMCP_LIVE_AVADA
+}
+
 # ---------------------------------------------------------------- MCP Adapter
 
 # Prints the MCP Adapter release the adapter leg tests: WPMCP_ADAPTER_VERSION,
@@ -944,6 +980,7 @@ run_leg_body() {
 		live-funnelkit) run_live_funnelkit "$wp" ;;
 		live-polylang) run_live_polylang "$wp" ;;
 		live-breakdance) run_live_breakdance "$wp" ;;
+		live-avada) run_live_avada "$wp" ;;
 		live-amelia) run_live_amelia "$wp" ;;
 		live-adapter) run_live_adapter "$wp" ;;
 		*) die "unknown leg: $kind" ;;

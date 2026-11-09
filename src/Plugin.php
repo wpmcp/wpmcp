@@ -8348,7 +8348,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/build-page',
             'free',
-            'Compose a complete page from ONE declarative spec: title, a recursive sections/blocks tree, media references (existing attachment ids), and optional menu placement. The whole composition is a single atomic, recoverable operation: the spec is strictly validated (node-path-addressed errors, bounded size/nodes/depth) before any write, a mid-build failure automatically removes everything it created, and on success one operation_id is returned whose rollback-operation removes the page and its menu placement entirely. Markup is composed deterministically from the spec; nothing in the spec is evaluated or executed. dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree. Set dry_run=true to validate and compose WITHOUT writing: the reply reports element counts per node type, nesting depth, markup size, unknown widget types, atomic props that had to be coerced, and every referential problem at once',
+            'Build a page from ONE declarative spec: title, a recursive sections/blocks tree, media (existing attachment ids) and optional menu placement. One atomic, recoverable operation: the spec is validated (node-path-addressed errors, bounded size/nodes/depth) before any write, a mid-build failure removes everything it created, and success returns one operation_id whose rollback-operation removes the page and its menu placement. Markup is composed deterministically; nothing in the spec is evaluated or executed. dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree. Set dry_run=true to validate and compose WITHOUT writing: the reply reports element counts per node type, nesting depth, markup size, unknown widget types, atomic props that had to be coerced, and every referential problem at once',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9493,7 +9493,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-builder-content',
             'pro',
-            'Bricks elements; Divi/WPBakery/Avada shortcodes, Thrive HTML, oxygen-classic JSON (last four with paths); Beaver Builder/Breakdance/Oxygen nodes. Or scope design_system|templates|catalog (element: its controls) for builder bricks|breakdance|oxygen. Read-only',
+            'Bricks elements; Divi/WPBakery/Avada shortcodes, Thrive HTML, oxygen-classic JSON (last 4 with paths); Beaver Builder/Breakdance/Oxygen nodes. Or scope design_system|templates|catalog (element: controls) for builder bricks|breakdance|oxygen|avada. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9514,7 +9514,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-builder-content',
             'pro',
-            'Bricks JSON; Divi/WPBakery/Avada shortcodes, Thrive HTML; oxygen-classic/Beaver Builder/Breakdance/Oxygen JSON tree. All but Bricks/Divi: operation update (path, attrs, text), add (to, index, element), remove (path), move (path, to, index); to "" = top. scope design_system (bricks|breakdance): add/update/remove at classes|variables|palettes/<id>[/<color id>]; expected_hash: read\'s hashes.<list>. Undo: rollback-operation',
+            'Bricks JSON; Divi/WPBakery/Avada shortcodes, Thrive HTML; oxygen-classic/Beaver Builder/Breakdance/Oxygen JSON tree. All but Bricks/Divi: operation update (path, attrs, text), add (to, index, element), remove (path), move (path, to, index); to "" = top. Avada: add element {template}, save_template (path, element {title}). scope design_system (bricks|breakdance|avada): add/update/remove at classes|variables|palettes|typography|options/<id>[/<color id>]; expected_hash: read\'s hash(es.<list>). Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [

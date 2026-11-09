@@ -257,7 +257,12 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  #717) added no tool: nine ops on the theme pair, whose summary now
      *  names site identity and permalinks, paid for by dropping "supports"
      *  and the serial "and" from that summary without dropping a rule:
-     *  208979 -> 208987 bytes over 407 tools. */
+     *  208979 -> 208987 bytes over 407 tools. Avada element-level editing
+     *  (#637) added no tool: library inserts, save_template and the Avada
+     *  design_system and catalog scopes on the builder pair, paid for by
+     *  tightening build-page's opening sentences (its flavor-stripped dialect
+     *  and dry-run sentences untouched) without dropping a rule: 208996 ->
+     *  208986 bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
