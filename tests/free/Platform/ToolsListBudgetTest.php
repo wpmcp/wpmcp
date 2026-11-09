@@ -253,7 +253,11 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  Tool search (#732) added no tool: a search property on
      *  list-tool-catalog and list-tools, paid for by tighter wording of
      *  those two descriptions without dropping a rule: 208956 -> 208987
-     *  bytes over 407 tools. */
+     *  bytes over 407 tools. Core site identity and permalinks (#713,
+     *  #717) added no tool: nine ops on the theme pair, whose summary now
+     *  names site identity and permalinks, paid for by dropping "supports"
+     *  and the serial "and" from that summary without dropping a rule:
+     *  208979 -> 208987 bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
