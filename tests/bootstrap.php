@@ -172,6 +172,16 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'woocommerce-subscriptions/woocommerce-subscriptions.php' );
     }
 
+    // The live WooCommerce Bookings job (issue #659, WPMCP_LIVE_WC_BOOKINGS=1)
+    // runs the bookings ops through the real plugin, copied in from
+    // WPMCP_WC_BOOKINGS_SRC, beside the WooCommerce loaded above. Loaded
+    // only on request: the stub-backed booking tests stand in for its API.
+    if ( getenv( 'WPMCP_LIVE_WC_BOOKINGS' ) ) {
+        add_filter( 'option_active_plugins', 'wpmcp_test_wc_bookings_active_plugins' );
+        add_filter( 'default_option_active_plugins', 'wpmcp_test_wc_bookings_active_plugins' );
+        wpmcp_maybe_require_plugin( 'woocommerce-bookings/woocommerce-bookings.php' );
+    }
+
     // The live CRM job (issue #477, WPMCP_LIVE_CRM=1) runs the FluentCRM
     // and MailPoet ops through the real plugins. Loaded only on request: the
     // stub-backed CRM tests build both plugins' tables from a fixture and
@@ -261,6 +271,13 @@ if ( ! function_exists( 'wpmcp_test_wc_subscriptions_active_plugins' ) ) {
     /** The active_plugins option as the live WooCommerce Subscriptions job's site has it. */
     function wpmcp_test_wc_subscriptions_active_plugins( $plugins ): array {
         return array_values( array_unique( array_merge( (array) $plugins, [ 'woocommerce/woocommerce.php', 'woocommerce-subscriptions/woocommerce-subscriptions.php' ] ) ) );
+    }
+}
+
+if ( ! function_exists( 'wpmcp_test_wc_bookings_active_plugins' ) ) {
+    /** The active_plugins option as the live WooCommerce Bookings job's site has it. */
+    function wpmcp_test_wc_bookings_active_plugins( $plugins ): array {
+        return array_values( array_unique( array_merge( (array) $plugins, [ 'woocommerce/woocommerce.php', 'woocommerce-bookings/woocommerce-bookings.php' ] ) ) );
     }
 }
 
