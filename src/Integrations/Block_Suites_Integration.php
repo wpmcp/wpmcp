@@ -255,6 +255,12 @@ final class Block_Suites_Integration extends Integration_Dispatcher
                 'is_dynamic' => is_callable($type->render_callback ?? null),
             ];
             $entry['attributes'] = '' === $name ? array_keys($attributes) : $attributes;
+            if (Block_Suite::is_legacy_block($type)) {
+                // Issue #794: the rule differs from the suite's, so say so.
+                $entry['legacy']             = true;
+                $entry['unknown_attributes'] = 'allowed';
+                $entry['attributes_note']    = 'A GenerateBlocks 1.x block: its full schema lives in the GenerateBlocks editor script. The attributes listed are the PHP defaults GenerateBlocks renders with, type-checked when written; other attributes are allowed, and update-block checks only the attributes it changes.';
+            }
             if ('' !== $name) {
                 $entry['supports'] = is_array($type->supports ?? null) ? $type->supports : [];
             }
@@ -328,7 +334,12 @@ final class Block_Suites_Integration extends Integration_Dispatcher
                 $attrs[ (string) $key ] = $value;
             }
         }
-        $problem = self::attribute_problem($type, $attrs, Block_Suite::strict_attributes($suite));
+        // A GenerateBlocks 1.x block is checked on what the call changes
+        // (issue #794): its server-side schema is only GenerateBlocks' PHP
+        // defaults, so its saved attributes are not held to it.
+        $legacy  = Block_Suite::is_legacy_block($type);
+        $checked = $legacy ? array_intersect_key($attrs, $patch) : $attrs;
+        $problem = self::attribute_problem($type, $checked, Block_Suite::strict_attributes_for($suite, $type));
         if (null !== $problem) {
             throw new Operation_Error('invalid_block_attributes', $problem, [ 'block' => $name ]);
         }
@@ -513,7 +524,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
             if (! $import) {
                 $type    = self::suite_block_type($suite, $name);
                 $attrs   = is_array($node['attrs'] ?? null) ? $node['attrs'] : [];
-                $problem = self::attribute_problem($type, $attrs, Block_Suite::strict_attributes($suite));
+                $problem = self::attribute_problem($type, $attrs, Block_Suite::strict_attributes_for($suite, $type));
                 if (null !== $problem) {
                     throw new Operation_Error('invalid_block_attributes', $problem, [ 'block' => $name ]);
                 }
