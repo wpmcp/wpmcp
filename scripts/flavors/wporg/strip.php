@@ -1042,17 +1042,17 @@ $plugin_edits[] = [
 // The ability's agent-facing description and input schema (issue #162): no
 // dialect choice, no "(PRO)" copy, no elementor enum value in this build.
 $plugin_edits[] = [
-    'dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree. Set dry_run=true',
-    'The spec composes block editor (Gutenberg) markup. Set dry_run=true',
+    'dialect "gutenberg" (default, free) builds block markup; "elementor" (PRO, needs Elementor) an _elementor_data element tree. dry_run=true',
+    'The spec composes block editor (Gutenberg) markup. dry_run=true',
     1,
 ];
-// "unknown widget types" and "atomic props that had to be coerced" were both
+// "unknown widget types" and "coerced atomic props" were both
 // produced only by the builder composer, which is not in this build, so the
 // dry run can never report either. The description is what the calling model
 // reads, so it must not promise them.
 $plugin_edits[] = [
-    'nesting depth, markup size, unknown widget types, atomic props that had to be coerced, and every referential problem at once',
-    'nesting depth, markup size, and every referential problem at once',
+    'nesting depth, markup size, unknown widget types, coerced atomic props and every referential problem at once',
+    'nesting depth, markup size and every referential problem at once',
     1,
 ];
 $plugin_edits[] = [
