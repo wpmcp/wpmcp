@@ -5687,7 +5687,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-governance-settings',
             'free',
-            'Batch-update stored governance toggles by ability, domain and operation, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}}. Invalid entries are skipped and reported; only empty input throws. site_wide audits ability calls outside MCP; enforce also refuses abilities toggled off by name',
+            'Batch-update stored governance toggles by ability, domain and operation, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}}. Undoable; refuses unknown names and disabling the governance or undo tools. site_wide audits ability calls outside MCP; enforce also refuses abilities toggled off by name',
             [
                 'type'       => 'object',
                 'properties' => [
