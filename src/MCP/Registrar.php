@@ -430,12 +430,18 @@ class Registrar
      */
     public function pro_required(string $name): ?\WP_Error
     {
-        $declared = $this->declared[ $name ] ?? null;
+        $declared = $this->declared[ $name ] ?? $this->held_for_plugin[ $name ]['ability'] ?? null;
         if (null === $declared || isset($this->abilities[ $name ]) || self::tier_permitted($declared->tier)) {
             return null;
         }
 
-        return self::pro_error($name);
+        return new \WP_Error(
+            'pro_required',
+            sprintf(
+                '"%s" is a WP MCP Pro tool, and this site has no active WP MCP Pro license, so the tool is not available here. Activate a WP MCP Pro license on this site to use it.',
+                $name
+            )
+        );
     }
 
     /**
@@ -452,19 +458,16 @@ class Registrar
     /**
      * The refusal for a name that is not registered because its plugin is
      * not active (issue #790), or null when that is not the reason. Names
-     * the plugin to activate instead of claiming no such tool exists. A Pro
-     * tool on an unlicensed install still says it needs Pro, since
-     * activating the plugin alone would not bring it back. Grants nothing:
-     * the tool stays unregistered and unreachable.
+     * the plugin to activate instead of claiming no such tool exists. A
+     * tool this install's tier cannot run is left to the tier refusal,
+     * since activating the plugin alone would not bring it back. Grants
+     * nothing: the tool stays unregistered and unreachable.
      */
     public function plugin_inactive(string $name): ?\WP_Error
     {
         $held = $this->held_for_plugin[ $name ] ?? null;
-        if (null === $held || isset($this->abilities[ $name ])) {
+        if (null === $held || isset($this->abilities[ $name ]) || ! self::tier_permitted($held['ability']->tier)) {
             return null;
-        }
-        if (! self::tier_permitted($held['ability']->tier)) {
-            return self::pro_error($name);
         }
 
         $message = $held['several']
@@ -480,17 +483,6 @@ class Registrar
             );
 
         return new \WP_Error('plugin_missing', $message, [ 'plugin' => $held['plugin'] ]);
-    }
-
-    private static function pro_error(string $name): \WP_Error
-    {
-        return new \WP_Error(
-            'pro_required',
-            sprintf(
-                '"%s" is a WP MCP Pro tool, and this site has no active WP MCP Pro license, so the tool is not available here. Activate a WP MCP Pro license on this site to use it.',
-                $name
-            )
-        );
     }
 
     /**
