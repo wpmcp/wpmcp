@@ -36,8 +36,10 @@ if (! defined('ABSPATH')) {
  * The rewrite rules are a side effect, not a snapshot: set-permalink-structure
  * flushes them after the write (soft by default; hard:true also rewrites
  * .htaccess or web.config the way the Permalinks screen does, which no
- * snapshot covers), and a rollback restores the structure option only, so
- * the response says to run flush-rewrite-rules after undoing it.
+ * snapshot covers). Both write the rules for the bases just stored: the
+ * category and post_tag permastructs are re-pointed at them before the
+ * flush (issue #785). A rollback restores the options and rebuilds the
+ * rules for them the same way (soft) through after_options_restored().
  *
  * Writes are off until the site opts in through the
  * wpmcp_enable_core_site_write filter (or per op through
@@ -170,7 +172,7 @@ final class Core_Site_Pack
             'set-permalink-structure' => [
                 'mode'               => 'destructive',
                 'capability'         => 'manage_options',
-                'description'        => 'Change the permalink structure (empty for plain, otherwise a structure with at least one %tag%, e.g. /%postname%/) and optionally the category_base and tag_base, then flush the rewrite rules (soft; hard:true also rewrites .htaccess or web.config like the Permalinks screen). Existing inbound links break, so it needs confirm:true and the preview shows the before and after example URL. The structure and both bases are one undo point (rollback-operation), after which flush-rewrite-rules rebuilds the rules. Disabled by default (wpmcp_enable_core_site_write filter)',
+                'description'        => 'Change the permalink structure (empty for plain, otherwise a structure with at least one %tag%, e.g. /%postname%/) and optionally the category_base and tag_base, then flush the rewrite rules (soft; hard:true also rewrites .htaccess or web.config like the Permalinks screen). Existing inbound links break, so it needs confirm:true and the preview shows the before and after example URL. The structure and both bases are one undo point (rollback-operation), which also rebuilds the rules (soft). Disabled by default (wpmcp_enable_core_site_write filter)',
                 'enabled_by_default' => $enabled,
                 'enable_hint'        => self::ENABLE_HINT,
                 'input_schema'       => [
@@ -190,7 +192,7 @@ final class Core_Site_Pack
             'flush-rewrite-rules'     => [
                 'mode'               => 'write',
                 'capability'         => 'manage_options',
-                'description'        => 'Rebuild the rewrite rules from the current permalink structure and registered post types and taxonomies (soft; hard:true also rewrites .htaccess or web.config). Run it after a rollback of set-permalink-structure. Not snapshotted: rebuilding the rules destroys nothing. Disabled by default (wpmcp_enable_core_site_write filter)',
+                'description'        => 'Rebuild the rewrite rules from the current permalink structure and registered post types and taxonomies (soft; hard:true also rewrites .htaccess or web.config). Run it with hard:true after undoing a set-permalink-structure that used hard:true. Not snapshotted: rebuilding the rules destroys nothing. Disabled by default (wpmcp_enable_core_site_write filter)',
                 'enabled_by_default' => $enabled,
                 'enable_hint'        => self::ENABLE_HINT,
                 'input_schema'       => [ 'type' => 'object', 'properties' => $hard ],
@@ -748,6 +750,7 @@ final class Core_Site_Pack
         if (null !== $plan['tag_base']) {
             $wp_rewrite->set_tag_base($plan['tag_base']);
         }
+        self::sync_taxonomy_permastructs();
         $hard = ! empty($args['hard']);
         flush_rewrite_rules($hard);
 
@@ -758,8 +761,61 @@ final class Core_Site_Pack
             'example_after'   => self::example($plan['after']['permalink_structure'], $sample),
             'rewrite_flushed' => $hard ? 'hard' : 'soft',
             'redirects'       => 'Inbound links to the old URLs now answer 404 unless redirected: add redirects from the old paths to the new ones (the Redirection ops on this pair, or the redirects tools) before announcing the change.',
-            'after_rollback'  => 'rollback-operation restores the structure and both bases; run flush-rewrite-rules afterwards so the rewrite rules match them again.',
+            'after_rollback'  => 'rollback-operation restores the structure and both bases and rebuilds the rewrite rules for them (soft); run flush-rewrite-rules with hard:true afterwards only if this change was made with hard:true.',
         ];
+    }
+
+    /**
+     * Point the category and post_tag permastructs at the bases and front
+     * stored now. Both were registered at init from the options stored
+     * then, and WP_Rewrite::init() does not touch them, so a flush in the
+     * same request after a base or front change wrote rules for the old
+     * bases until a second flush (issue #785). The slug and with_front are
+     * the ones create_initial_taxonomies() derives from the options.
+     *
+     * WP_Rewrite also merges each permastruct's rules into extra_rules_top
+     * whenever it builds the rules and never clears them in that request,
+     * so the rules the old permastruct produced are dropped from there too;
+     * otherwise a build earlier in the request keeps the old base routing.
+     */
+    private static function sync_taxonomy_permastructs(): void
+    {
+        global $wp_rewrite;
+
+        $wp_rewrite->init();
+        foreach ([ 'category' => [ 'category_base', 'category' ], 'post_tag' => [ 'tag_base', 'tag' ] ] as $taxonomy => [ $option, $default ]) {
+            $object = get_taxonomy($taxonomy);
+            if (! $object instanceof \WP_Taxonomy || ! is_array($object->rewrite)) {
+                continue;
+            }
+            $old = $wp_rewrite->extra_permastructs[ $taxonomy ] ?? null;
+            if (is_array($old) && isset($old['struct'])) {
+                $stale                       = (array) $wp_rewrite->generate_rewrite_rules((string) $old['struct'], (int) ($old['ep_mask'] ?? EP_NONE), (bool) ($old['paged'] ?? true), (bool) ($old['feed'] ?? true), (bool) ($old['forcomments'] ?? false), (bool) ($old['walk_dirs'] ?? true), (bool) ($old['endpoints'] ?? true));
+                $wp_rewrite->extra_rules_top = array_diff_key((array) $wp_rewrite->extra_rules_top, $stale);
+            }
+            $base = (string) get_option($option);
+            $object->remove_rewrite_rules();
+            $object->rewrite['slug']       = '' !== $base ? $base : $default;
+            $object->rewrite['with_front'] = '' === $base || $wp_rewrite->using_index_permalinks();
+            $object->add_rewrite_rules();
+        }
+    }
+
+    /**
+     * After a rollback put options back (wpmcp_rollback_options_restored):
+     * when the undo touched the permalink structure or a base, rebuild the
+     * rewrite rules for the restored values the way the forward write did
+     * (soft), so the old URLs route again without a separate flush.
+     *
+     * @param string[] $names
+     */
+    public static function after_options_restored(array $names): void
+    {
+        if ([] === array_intersect(self::PERMALINK_OPTIONS, array_map('strval', $names))) {
+            return;
+        }
+        self::sync_taxonomy_permastructs();
+        flush_rewrite_rules(false);
     }
 
     private static function flush(bool $hard): array
