@@ -5328,7 +5328,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/cancel-backup-job',
             'free',
-            'Cancel a queued backup job: unschedule its WP-Cron event and mark it canceled. Errors if the job is unknown or no longer queued (running or terminal)',
+            'Cancel a queued or running backup job: unschedule its event, or stop the run at its next heartbeat. Errors if unknown, a running restore, or terminal',
             [
                 'type'       => 'object',
                 'properties' => [
