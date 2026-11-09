@@ -67,9 +67,16 @@ final class Avada_Cache
         }
 
         foreach (self::OPTIONS as $name) {
-            if (false !== get_option($name)) {
-                update_option($name, []);
+            $option = get_option($name);
+            if (false === $option) {
+                continue;
             }
+            // Under a persistent object cache the transients are not rows,
+            // so each page the options name as compiled is reset by id too.
+            foreach (is_array($option) ? array_keys($option) : [] as $id) {
+                delete_transient('fusion_dynamic_css_' . $id);
+            }
+            update_option($name, []);
         }
     }
 }

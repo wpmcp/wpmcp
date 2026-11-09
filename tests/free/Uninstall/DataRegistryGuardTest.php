@@ -74,6 +74,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             'show_on_front',
             'page_on_front',
             'page_for_posts',
+            // Avada's global options, written by the Avada design_system
+            // scope on the builder pair (issue #637).
+            'fusion_options',
         ],
         'transient'      => [
             'scrape_key_*',
