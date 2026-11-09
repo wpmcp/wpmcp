@@ -36,8 +36,10 @@ if (! defined('ABSPATH')) {
  *     archive is imported to put the site back as it was.
  *  7. The acting user's credentials are written back (Restore_Session), the
  *     backup job history is kept (it describes files on disk, which the
- *     database restore does not touch), and the staged wp-content is
- *     swapped in.
+ *     database restore does not touch), the audit and request logs are
+ *     kept (Restore_Logs, issue #796), and the staged wp-content is
+ *     swapped in. The audit log then gets an entry for the restore naming
+ *     the archive and the safety archive job that undoes it.
  *  8. Maintenance mode is released whatever happened.
  *
  * Steps 1 to 3 are also what a dry run performs, so the report a user sees
@@ -351,6 +353,7 @@ class Restore_Site_Backup
             try {
                 $captured    = $preserve_session ? Restore_Session::capture(get_current_user_id()) : null;
                 $jobs        = get_option(Backup_Job_Store::OPTION, null);
+                $logs        = Restore_Logs::capture();
                 $session_sql = self::session_variables();
 
                 $state = [
@@ -387,6 +390,7 @@ class Restore_Site_Backup
                 self::restore_session_variables($session_sql);
                 wp_cache_flush();
                 self::keep_job_history($jobs);
+                Restore_Logs::reapply($logs);
 
                 if (null === $import['failure']) {
                     $session = $preserve_session
@@ -456,6 +460,8 @@ class Restore_Site_Backup
         } else {
             $status = 'failed';
         }
+
+        Restore_Logs::record($archive, $status, isset($safety['job_id']) ? (int) $safety['job_id'] : null);
 
         return [
             'dry_run'        => false,
