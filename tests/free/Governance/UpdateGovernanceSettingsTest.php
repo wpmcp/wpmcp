@@ -5,6 +5,7 @@ namespace WPMCP\Tests\Free\Governance;
 use WPMCP\Governance\Governance;
 use WPMCP\Governance\Site_Wide_Governance;
 use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\Bridge\Bridge_Guard;
 use WPMCP\Tools\Governance\Update_Governance_Settings;
 use WPMCP\Tools\Rollback_Operation;
 
@@ -205,7 +206,7 @@ class UpdateGovernanceSettingsTest extends \WP_UnitTestCase
 
     public function test_the_bridge_domain_is_a_known_name(): void
     {
-        $out = (new Update_Governance_Settings())->handle(['domain' => ['bridge' => false]]);
+        $out = (new Update_Governance_Settings())->handle(['domain' => [Bridge_Guard::DOMAIN => false]]);
 
         $this->assertIsArray($out);
         $this->assertFalse(Governance::domain_toggles()['bridge']);

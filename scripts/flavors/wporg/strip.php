@@ -228,7 +228,8 @@ $edits['src/MCP/Registrar.php'] = [
     ],
     // The meta-tools' "needs the paid tier" refusal (issue #631) has no
     // tier to name in this build, so it goes, and its two callers below
-    // answer "no such tool" as before.
+    // fall through to the governance refusal (issue #772) and then to
+    // "no such tool" as before.
     [
         <<<'SRC'
     /**
@@ -1565,8 +1566,8 @@ $edits['src/Tools/Dispatch/Call_Tool.php'] = [
     [
         "            // A Pro tool on an unlicensed install says so (issue #631)\n"
             . "            // rather than claiming no such tool exists.\n"
-            . "            return \$registrar->pro_required(\$name) ?? new \\WP_Error(\n",
-        "            return new \\WP_Error(\n",
+            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? new \\WP_Error(\n",
+        "            return \$registrar->governance_disabled(\$name) ?? new \\WP_Error(\n",
         1,
     ],
     [
@@ -1579,8 +1580,8 @@ $edits['src/Tools/Dispatch/Call_Tool.php'] = [
 $edits['src/Tools/Dispatch/Get_Tool_Schema.php'] = [
     [
         "            // A Pro tool on an unlicensed install says so (issue #631).\n"
-            . "            return \$registrar->pro_required(\$name) ?? new \\WP_Error(\n",
-        "            return new \\WP_Error(\n",
+            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? new \\WP_Error(\n",
+        "            return \$registrar->governance_disabled(\$name) ?? new \\WP_Error(\n",
         1,
     ],
 ];

@@ -9,7 +9,6 @@ use WPMCP\MCP\Registrar;
 use WPMCP\Plugin;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Snapshot;
-use WPMCP\Tools\Bridge\Bridge_Guard;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -59,6 +58,13 @@ class Update_Governance_Settings
         'wpmcp/get-governance-settings',
         'wpmcp/rollback-operation',
     ];
+
+    /**
+     * The governance domain of a foreign ability reached through the bridge,
+     * the value of Bridge_Guard::DOMAIN. Spelled out here because a build
+     * without the bridge tools must not load that class.
+     */
+    private const BRIDGE_DOMAIN = 'bridge';
 
     /** @return array|\WP_Error */
     public function handle(array $args)
@@ -209,7 +215,7 @@ class Update_Governance_Settings
     /**
      * Whether some declared ability carries this name, domain or operation.
      * Declared, not registered: an ability governance already switched off
-     * (or a Pro tool on an unlicensed site) is still a real name, and the
+     * (or one whose tier this site cannot run) is still a real name, and the
      * one an admin most needs to be able to toggle back on. A foreign
      * ability in the live Abilities registry is governed through the bridge
      * by its own name and the bridge domain (see Bridge_Guard), so those
@@ -220,7 +226,7 @@ class Update_Governance_Settings
         if ('ability' === $dimension && function_exists('wp_has_ability') && wp_has_ability($name)) {
             return true;
         }
-        if ('domain' === $dimension && Bridge_Guard::DOMAIN === $name) {
+        if ('domain' === $dimension && self::BRIDGE_DOMAIN === $name) {
             return true;
         }
         foreach ($registrar->declared() as $ability) {
