@@ -76,6 +76,21 @@ final class Block_Suite
     ];
     private const SPECTRA_CHILD_MIGRATE = [ 'buttons', 'icon-list', 'restaurant-menu', 'social-share', 'content-timeline', 'instagram-feed' ];
 
+    /**
+     * GenerateBlocks 1.x block => its key in generateblocks_get_block_defaults().
+     * These legacy blocks are registered in PHP with no attributes; their
+     * schema lives in the editor script (issue #794).
+     */
+    private const GB_LEGACY_DEFAULTS = [
+        'generateblocks/container'        => 'container',
+        'generateblocks/button-container' => 'buttonContainer',
+        'generateblocks/button'           => 'button',
+        'generateblocks/grid'             => 'gridContainer',
+        'generateblocks/headline'         => 'headline',
+        'generateblocks/image'            => 'image',
+        'generateblocks/query-loop'       => '',
+    ];
+
     /** @var array<string,array<string,mixed>> Spectra attributes.php path => defaults, read once per request. */
     private static array $spectra_files = [];
 
@@ -364,6 +379,13 @@ final class Block_Suite
                 $types[ (string) $name ] = $type;
             }
         }
+        if (self::GENERATEBLOCKS === $suite) {
+            foreach ($types as $name => $type) {
+                if (self::is_legacy_block($type)) {
+                    $types[ $name ] = self::legacy_type($type, $spec['id_attr']);
+                }
+            }
+        }
         if ('defaults' === $spec['schema']) {
             foreach (self::default_attributes($suite) as $name => $data) {
                 $name = (string) $name;
@@ -400,6 +422,66 @@ final class Block_Suite
     public static function strict_attributes(string $suite): bool
     {
         return 'registry' === (self::spec($suite)['schema'] ?? 'registry');
+    }
+
+    /**
+     * Whether attributes a block's schema does not list are refused: the
+     * suite's rule, except for a GenerateBlocks 1.x block (issue #794),
+     * whose server-side schema is only the PHP defaults GenerateBlocks
+     * keeps, a subset of what its editor saves.
+     */
+    public static function strict_attributes_for(string $suite, \WP_Block_Type $type): bool
+    {
+        return self::strict_attributes($suite) && ! self::is_legacy_block($type);
+    }
+
+    /**
+     * A GenerateBlocks 1.x block (Container, Grid, Query loop, Buttons,
+     * Headline, Button, Image): one of those names whose registered type
+     * declares no uniqueId. GenerateBlocks registers these in PHP with no
+     * attributes; what the registered type lists is only what WordPress and
+     * other plugins add to every block (Otter adds its custom CSS and
+     * visibility attributes, for one). Asked of the registered type, so the
+     * typed copy block_types() hands out answers the same.
+     */
+    public static function is_legacy_block(\WP_Block_Type $type): bool
+    {
+        if (! array_key_exists((string) $type->name, self::GB_LEGACY_DEFAULTS)) {
+            return false;
+        }
+        $registered = \WP_Block_Type_Registry::get_instance()->get_registered((string) $type->name);
+        $source     = $registered instanceof \WP_Block_Type ? $registered : $type;
+        return ! isset($source->attributes[ (string) self::specs()[ self::GENERATEBLOCKS ]['id_attr'] ]);
+    }
+
+    /**
+     * A copy of a GenerateBlocks 1.x block type typed from the defaults
+     * GenerateBlocks itself renders with (generateblocks_get_block_defaults(),
+     * typed from the default values as for Spectra) plus its uniqueId. The
+     * registered type is never widened.
+     */
+    private static function legacy_type(\WP_Block_Type $type, string $id_attr): \WP_Block_Type
+    {
+        $key      = self::GB_LEGACY_DEFAULTS[ (string) $type->name ];
+        $defaults = [];
+        if ('' !== $key && function_exists('generateblocks_get_block_defaults')) {
+            try {
+                $all      = generateblocks_get_block_defaults();
+                $defaults = is_array($all[ $key ] ?? null) ? $all[ $key ] : [];
+            } catch (\Throwable $e) {
+                $defaults = [];
+            }
+        }
+        $attributes = [];
+        foreach ($defaults as $name => $default) {
+            $json                           = self::infer_type($default);
+            $attributes[ (string) $name ] = null === $json ? [ 'default' => $default ] : [ 'type' => $json, 'default' => $default ];
+        }
+        $attributes[ $id_attr ] = [ 'type' => 'string' ];
+
+        $copy             = clone $type;
+        $copy->attributes = array_merge($attributes, is_array($type->attributes) ? $type->attributes : []);
+        return $copy;
     }
 
     /**
