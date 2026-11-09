@@ -436,6 +436,42 @@ class Registrar
     }
 
     /**
+     * The refusal for a name that is declared but not registered because
+     * governance switched it off (issue #772), or null when that is not
+     * the reason. Names the layer that decided (an ability, domain or
+     * operation toggle, or one of the wpmcp_*_enabled filters) and where
+     * to switch it back on, instead of the "not registered" answer an
+     * unknown name gets. Grants nothing: the tool stays unregistered.
+     */
+    public function governance_disabled(string $name): ?\WP_Error
+    {
+        $declared = $this->declared[ $name ] ?? null;
+        if (null === $declared || isset($this->abilities[ $name ]) || ! self::tier_permitted($declared->tier)) {
+            return null;
+        }
+        $layer = Governance::explain($declared)['layer'];
+        if (null === $layer) {
+            return null;
+        }
+
+        [ $dimension, $kind ] = explode('_', $layer, 2);
+        $key                  = 'ability' === $dimension ? $name : $declared->{$dimension};
+        if ('toggle' === $kind) {
+            $cause = sprintf('the %s toggle for "%s" is off', $dimension, $key);
+            $fix   = 'An administrator can switch it back on under WP MCP > Abilities in wp-admin, or with wpmcp/update-governance-settings.';
+        } else {
+            $cause = sprintf('the wpmcp_%s_enabled filter on this site switches off "%s"', $dimension, $key);
+            $fix   = 'An administrator or developer has to change that filter in the site code before it can be used.';
+        }
+
+        return new \WP_Error(
+            'governance_disabled',
+            sprintf('"%s" is registered on this site but disabled by governance: %s. %s', $name, $cause, $fix),
+            [ 'layer' => $layer, 'dimension' => $dimension, 'key' => $key ]
+        );
+    }
+
+    /**
      * Record a governance-decision outcome to Governance_Audit_Log. Wrapped
      * in a try/catch so a logging failure (e.g. an option-write error) can
      * never turn an otherwise-successful permission check into a fatal

@@ -198,7 +198,8 @@ class Request_Log
     }
 
     /**
-     * Newest-first rows matching every given filter, limited to $limit.
+     * Newest-first rows matching every given filter, limited to $limit after
+     * skipping the newest $offset matches (a page, issue #770).
      * Filters: date_from and date_to (Y-m-d, UTC, both days inclusive),
      * user_id, tool (case-insensitive substring) and outcome ('ok' or
      * 'error'). A malformed filter value is ignored rather than matching
@@ -207,8 +208,13 @@ class Request_Log
      * @param array<string, mixed> $filters
      * @return array<int, array<string, mixed>>
      */
-    public static function query(array $filters, int $limit = self::CAP): array
+    public static function query(array $filters, int $limit = self::CAP, int $offset = 0): array
     {
+        if ($limit <= 0) {
+            return [];
+        }
+        $offset  = max(0, $offset);
+        $skipped = 0;
         $from    = self::day_start($filters['date_from'] ?? '');
         $to      = self::day_start($filters['date_to'] ?? '');
         $to      = null === $to ? null : $to + DAY_IN_SECONDS - 1;
@@ -231,12 +237,27 @@ class Request_Log
             if ('' !== $outcome && ('ok' === $outcome) !== ! empty($row['ok'])) {
                 continue;
             }
+            if ($skipped < $offset) {
+                $skipped++;
+                continue;
+            }
             $out[] = $row;
             if (count($out) >= $limit) {
                 break;
             }
         }
         return $out;
+    }
+
+    /**
+     * How many stored rows match $filters (see query()), for the Audit Log's
+     * "N items" count and its page links (issue #770).
+     *
+     * @param array<string, mixed> $filters
+     */
+    public static function count(array $filters): int
+    {
+        return count(self::query($filters, PHP_INT_MAX));
     }
 
     /**

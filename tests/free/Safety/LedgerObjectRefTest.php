@@ -127,4 +127,41 @@ class LedgerObjectRefTest extends \WP_UnitTestCase
         $this->assertStringContainsString('delete-site-part (#88)', $html);
         $this->assertStringNotContainsString('wpmcp/delete-site-part', $html);
     }
+
+    /**
+     * Issue #777: a create is re-keyed after the write on the id the host
+     * assigned (Crm_Rows_Snapshot and friends call update_snapshot()), and
+     * the ledger's label must follow, or the row keeps saying ":0".
+     */
+    public function test_update_snapshot_rewrites_the_ref_when_a_create_is_rekeyed(): void
+    {
+        $snapshot = [ 'object_type' => 'crm_rows', 'object_id' => 'mailpoet_subscriber:0', 'data' => [ 'id' => 0 ] ];
+        Snapshot_Store::save('op-777-c', 'sess-777-c', $snapshot, 'plugin-data-write', str_repeat('a', 64));
+        $this->assertSame('mailpoet_subscriber:0', $this->ops('sess-777-c')['op-777-c']['object_ref']);
+
+        $snapshot['object_id']  = 'mailpoet_subscriber:8';
+        $snapshot['data']['id'] = 8;
+        Snapshot_Store::update_snapshot('op-777-c', $snapshot);
+
+        $op = $this->ops('sess-777-c')['op-777-c'];
+        $this->assertSame('mailpoet_subscriber:8', $op['object_ref']);
+        $this->assertSame('mailpoet_subscriber:8', List_Operations::object_label($op));
+        $this->assertStringContainsString('plugin-data-write (mailpoet_subscriber:8)', $this->audit_html());
+    }
+
+    public function test_update_snapshot_keeps_an_explicit_ref_and_a_numeric_id(): void
+    {
+        $plugin = [ 'object_type' => 'option', 'object_id' => 'active_plugins', 'data' => [ 'name' => 'active_plugins', 'exists' => true, 'value' => [] ] ];
+        Snapshot_Store::save('op-777-p', 'sess-777-p', $plugin, 'activate-plugin', str_repeat('a', 64), 'akismet/akismet.php');
+        Snapshot_Store::update_snapshot('op-777-p', $plugin, 'akismet/akismet.php');
+
+        $post = [ 'object_type' => 'post', 'object_id' => 16, 'data' => [ 'post' => null, 'meta' => [] ] ];
+        Snapshot_Store::save('op-777-n', 'sess-777-p', $post, 'update-post', str_repeat('a', 64));
+        Snapshot_Store::update_snapshot('op-777-n', $post);
+
+        $ops = $this->ops('sess-777-p');
+        $this->assertSame('akismet/akismet.php', $ops['op-777-p']['object_ref']);
+        $this->assertSame(16, $ops['op-777-n']['object_id']);
+        $this->assertSame('', $ops['op-777-n']['object_ref']);
+    }
 }
