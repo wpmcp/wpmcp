@@ -71,13 +71,13 @@ final class WPBakery_Templates
                     'tool_name'   => 'update-builder-content',
                     'args'        => $args,
                 ],
-                static function () use ($option, $templates, $stored) {
+                static function () use ($templates, $stored) {
                     if (false === $stored) {
-                        add_option($option, $templates, '', false);
+                        add_option(WPBakery_Design::TEMPLATES_OPTION, $templates, '', false);
                     } else {
-                        update_option($option, $templates);
+                        update_option(WPBakery_Design::TEMPLATES_OPTION, $templates);
                     }
-                    return get_option($option);
+                    return get_option(WPBakery_Design::TEMPLATES_OPTION);
                 },
                 static fn ($saved) => $saved === $templates
             );
