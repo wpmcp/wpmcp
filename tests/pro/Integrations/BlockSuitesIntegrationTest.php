@@ -7,6 +7,8 @@ use WPMCP\Pro\Gate;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
 
+require_once __DIR__ . '/../../support/generateblocks-legacy-stubs.php';
+
 /**
  * Block suite packs (issue #287), first slice: Kadence Blocks and
  * GenerateBlocks through the block-suites dispatcher pair.
@@ -492,5 +494,105 @@ class BlockSuitesIntegrationTest extends \WP_UnitTestCase
         $node = $this->first_block($id);
         $this->assertSame(3, $node['attrs']['level']);
         $this->assertSame($unique, $node['attrs']['uniqueID']);
+    }
+
+    /** A GenerateBlocks 1.x block as GenerateBlocks 2.x registers it: no attributes of its own. */
+    private function register_legacy(string $name): void
+    {
+        register_block_type($name, [ 'title' => $name, 'render_callback' => static fn () => '' ]);
+        $this->registered[] = $name;
+    }
+
+    private const LEGACY_HEADLINE = '<!-- wp:generateblocks/headline {"uniqueId":"a1b2c3d4","element":"h3","textColor":"#c0392b"} -->'
+        . '<h3 class="gb-headline gb-headline-a1b2c3d4 gb-headline-text">GB legacy headline</h3>'
+        . '<!-- /wp:generateblocks/headline -->';
+
+    /** Issue #794: a saved 1.x Headline takes an attribute edit, and keeps its id. */
+    public function test_generateblocks_legacy_headline_takes_an_attribute_edit_and_keeps_its_id(): void
+    {
+        $this->register_legacy('generateblocks/headline');
+        [ $id, $hash ] = $this->post(self::LEGACY_HEADLINE);
+
+        $out = $this->write('update-block', [ 'suite' => 'generateblocks', 'id' => $id, 'expected_hash' => $hash, 'path' => [ 0 ], 'attrs' => [ 'textColor' => '#1e8449' ] ]);
+
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $attrs = parse_blocks($this->content($id))[0]['attrs'];
+        $this->assertSame([ 'uniqueId' => 'a1b2c3d4', 'element' => 'h3', 'textColor' => '#1e8449' ], $attrs);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_ids'][0]));
+        $this->assertSame(self::LEGACY_HEADLINE, $this->content($id), 'the rollback restores the exact bytes');
+    }
+
+    public function test_generateblocks_legacy_headline_takes_an_inner_html_edit(): void
+    {
+        $this->register_legacy('generateblocks/headline');
+        [ $id, $hash ] = $this->post(self::LEGACY_HEADLINE);
+
+        $out = $this->write('update-block', [
+            'suite'         => 'generateblocks',
+            'id'            => $id,
+            'expected_hash' => $hash,
+            'path'          => [ 0 ],
+            'inner_html'    => '<h3 class="gb-headline gb-headline-a1b2c3d4 gb-headline-text">New text</h3>',
+        ]);
+
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $this->assertStringContainsString('>New text</h3>', $this->content($id));
+        $this->assertStringContainsString('"uniqueId":"a1b2c3d4"', $this->content($id));
+    }
+
+    public function test_generateblocks_legacy_container_insert_gets_a_new_id_and_checks_known_types(): void
+    {
+        $this->register_legacy('generateblocks/container');
+        [ $id, $hash ] = $this->post('<!-- wp:paragraph --><p>Intro</p><!-- /wp:paragraph -->');
+
+        $out = $this->write('insert-block', [
+            'suite'         => 'generateblocks',
+            'id'            => $id,
+            'expected_hash' => $hash,
+            'path'          => [ 1 ],
+            'markup'        => '<!-- wp:generateblocks/container {"uniqueId":"__UNIQUE_ID__","backgroundColor":"#eeeeee","blockVersion":4} -->'
+                . '<div class="gb-container gb-container-__UNIQUE_ID__"></div><!-- /wp:generateblocks/container -->',
+        ]);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $unique = (string) $out['result']['unique_ids'][0]['unique_id'];
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{8}$/', $unique);
+        $this->assertStringContainsString('gb-container-' . $unique, $this->content($id));
+
+        // An attribute GenerateBlocks' defaults type is still checked.
+        [ $id2, $hash2 ] = $this->post('');
+        $bad = $this->write('insert-block', [
+            'suite'         => 'generateblocks',
+            'id'            => $id2,
+            'expected_hash' => $hash2,
+            'path'          => [ 0 ],
+            'markup'        => '<!-- wp:generateblocks/container {"isGrid":"yes"} --><div class="gb-container"></div><!-- /wp:generateblocks/container -->',
+        ]);
+        $this->assertSame('invalid_block_attributes', $bad['error']['code']);
+    }
+
+    public function test_generateblocks_legacy_schema_states_its_lenient_rule(): void
+    {
+        $this->register_legacy('generateblocks/headline');
+
+        $one = $this->read('get-block-schemas', [ 'suite' => 'generateblocks', 'name' => 'generateblocks/headline' ])['result']['blocks'][0];
+        $this->assertTrue($one['legacy']);
+        $this->assertSame('allowed', $one['unknown_attributes']);
+        $this->assertSame([ 'type' => 'string', 'default' => 'h2' ], $one['attributes']['element']);
+        $this->assertSame([ 'type' => 'string' ], $one['attributes']['uniqueId']);
+
+        $all = $this->read('get-block-schemas', [ 'suite' => 'generateblocks' ])['result'];
+        $this->assertSame('refused', $all['unknown_attributes'], 'the 2.x blocks stay strict');
+        $by_name = array_column($all['blocks'], null, 'name');
+        $this->assertArrayNotHasKey('legacy', $by_name['generateblocks/text']);
+        $this->assertContains('textColor', $by_name['generateblocks/headline']['attributes']);
+    }
+
+    public function test_a_2x_block_still_refuses_an_unknown_attribute(): void
+    {
+        [ $id, $hash ] = $this->post('<!-- wp:generateblocks/text {"uniqueId":"b1c2d3e4","tagName":"p"} --><p class="gb-text">x</p><!-- /wp:generateblocks/text -->');
+
+        $out = $this->write('update-block', [ 'suite' => 'generateblocks', 'id' => $id, 'expected_hash' => $hash, 'path' => [ 0 ], 'attrs' => [ 'textColor' => '#000000' ] ]);
+        $this->assertSame('invalid_block_attributes', $out['error']['code']);
     }
 }
