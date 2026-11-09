@@ -263,7 +263,8 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  tightening build-page's opening sentences (its flavor-stripped dialect
      *  and dry-run sentences untouched) without dropping a rule: 208996 ->
      *  208986 bytes over 407 tools. */
-    private const TOOLS_LIST_BYTE_BUDGET = 209000;
+    // Raised 209000 -> 215000 on 2026-11-09 for five integration PRs (#784, #786, #787, #788, WPBakery) that together exceed 209000; owner approved.
+    private const TOOLS_LIST_BYTE_BUDGET = 215000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

@@ -79,14 +79,14 @@ class AvadaLiveTest extends \WP_UnitTestCase
 
         $session = wp_generate_uuid4();
         $title   = $this->update(['post_id' => $id, 'operation' => 'update', 'path' => '0.0.0.0', 'text' => 'Edited through wpmcp', 'expected_hash' => $read['hash'], 'session_id' => $session]);
-        $this->update(['post_id' => $id, 'operation' => 'add', 'to' => '0.0.0', 'index' => 1, 'element' => ['tag' => 'fusion_text', 'text' => '<p>Added paragraph</p>'], 'expected_hash' => $title['hash'], 'session_id' => $session]);
+        $added   = $this->update(['post_id' => $id, 'operation' => 'add', 'to' => '0.0.0', 'index' => 1, 'element' => ['tag' => 'fusion_text', 'text' => '<p>Added paragraph</p>'], 'expected_hash' => $title['hash'], 'session_id' => $session]);
 
         // A column saved to the library through wpmcp, filed where Avada's own library lists columns.
         $saved = $this->update(['post_id' => $id, 'operation' => 'save_template', 'path' => '0.0.0', 'element' => ['title' => 'Saved column'], 'session_id' => $session]);
         $listed = get_posts(['post_type' => 'fusion_element', 'tax_query' => [['taxonomy' => 'element_category', 'field' => 'slug', 'terms' => 'columns']], 'fields' => 'ids']);
         $this->assertContains($saved['template_id'], $listed);
 
-        $this->update(['post_id' => $id, 'operation' => 'add', 'to' => '1.0', 'element' => ['template' => $saved['template_id']], 'session_id' => $session]);
+        $this->update(['post_id' => $id, 'operation' => 'add', 'to' => '1.0', 'element' => ['template' => $saved['template_id']], 'expected_hash' => $added['hash'], 'session_id' => $session]);
 
         $html = $this->render($id);
         $this->assertStringContainsString('Edited through wpmcp', $html);

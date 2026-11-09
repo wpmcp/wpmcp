@@ -37,8 +37,8 @@ if (! defined('ABSPATH')) {
  * Elementor/gutenberg/classic posts are out of scope for this tool (use
  * update-element for Elementor) and return a WP_Error.
  *
- * Avada pages also take (issue #637) an expected_hash (the read's hash; a
- * page changed since is refused), an add whose element is {template: <id>}
+ * Avada pages also need (issue #637) an expected_hash on every write to a
+ * page that has a layout (the read's hash; a page changed since is refused), an add whose element is {template: <id>}
  * (a library item spliced in, see Avada_Library::insert_template), and the
  * save_template operation, which saves an element or the whole page to the
  * Avada library as a new post recorded for undo.
@@ -368,7 +368,8 @@ class Update_Builder_Content
      * Avada pages: whole shortcode content or one element operation (add
      * also takes a library item), only on a page detected as Avada or as
      * plain classic content, and only while the page still has the hash the
-     * caller read when it passes one. save_template writes no page.
+     * caller read (required unless the page is blank). save_template writes
+     * no page.
      */
     private function update_avada(int $post_id, array $args)
     {
@@ -385,16 +386,21 @@ class Update_Builder_Content
             return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not an Avada page.");
         }
 
-        $expected = (string) ($args['expected_hash'] ?? '');
-        if ('' !== $expected && ! hash_equals(Avada_Content::hash($post_id), $expected)) {
-            return new \WP_Error(
-                'stale_expected_hash',
-                'Stale expected_hash: this page changed since it was read, so its paths may point elsewhere. Nothing was written; re-read get-builder-content and retry.'
-            );
-        }
-
         if ('save_template' === $operation) {
             return Avada_Library::save_template($post_id, $args);
+        }
+
+        // Paths are child indexes, so a write against a page that changed
+        // since the read could land on another element: every write to a
+        // page with a layout needs the hash that read returned (as Divi 5).
+        if ('' !== trim(Avada_Content::get_content($post_id))) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change an Avada page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(Avada_Content::hash($post_id), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+            }
         }
 
         if ('' !== $operation) {

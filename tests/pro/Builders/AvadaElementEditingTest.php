@@ -4,7 +4,7 @@ namespace WPMCP\Tests\Pro\Builders;
 
 use WPMCP\Pro\Gate;
 use WPMCP\Safety\{Rollback_Service, Snapshot_Store};
-use WPMCP\Tools\Builders\{Avada_Cache, Builder_Design_Data, Get_Builder_Content, Update_Builder_Content};
+use WPMCP\Tools\Builders\{Avada_Cache, Avada_Content, Builder_Design_Data, Get_Builder_Content, Update_Builder_Content};
 
 /**
  * Issue #637: element-level editing for Avada (Fusion Builder) on the builder
@@ -92,9 +92,14 @@ class AvadaElementEditingTest extends \WP_UnitTestCase
         return (new Get_Builder_Content())->handle($args);
     }
 
+    /** A write; a page write carries the page's current hash unless the case sets its own. */
     private function update(array $args)
     {
-        return (new Update_Builder_Content())->handle(['builder' => 'avada'] + $args);
+        if (isset($args['post_id']) && ! array_key_exists('expected_hash', $args)) {
+            $args['expected_hash'] = Avada_Content::hash((int) $args['post_id']);
+        }
+
+        return (new Update_Builder_Content())->handle(['builder' => 'avada'] + array_filter($args, static fn ($value) => null !== $value));
     }
 
     private function state(int $post_id): array
@@ -124,6 +129,20 @@ class AvadaElementEditingTest extends \WP_UnitTestCase
         $this->assertSame(hash('sha256', AvadaShortcodesTest::FIXTURE), $out['hash']);
         // Not loaded here, so there is no version to report.
         $this->assertNull($out['plugin_version']);
+    }
+
+    public function test_a_page_write_without_the_hash_is_refused_except_on_a_blank_page(): void
+    {
+        $post_id = $this->avada_page();
+        $before  = $this->state($post_id);
+
+        $this->assert_error('missing_expected_hash', $this->update(['post_id' => $post_id, 'operation' => 'remove', 'path' => '1', 'expected_hash' => null]));
+        $this->assert_error('missing_expected_hash', $this->update(['post_id' => $post_id, 'content' => '[fusion_builder_container][/fusion_builder_container]', 'expected_hash' => null]));
+        $this->assertSame($before, $this->state($post_id));
+
+        // A blank page has nothing a stale path could hit.
+        $blank = self::factory()->post->create(['post_type' => 'page', 'post_content' => '']);
+        $this->assert_ok($this->update(['post_id' => $blank, 'content' => '[fusion_builder_container][/fusion_builder_container]', 'expected_hash' => null]));
     }
 
     public function test_a_stale_expected_hash_refuses_the_write_and_a_fresh_one_is_accepted(): void
