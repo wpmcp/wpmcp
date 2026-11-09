@@ -1,9 +1,13 @@
 <?php
 /**
  * Faithful global test double for the Ninja Forms integration, reproducing the
- * Ninja_Forms()->form() model accessor surface the integration calls (verified
- * against Ninja Forms 3.x): get_forms(), get_form(), get_fields(),
- * get_actions() and get_sub(). Submissions are REAL nf_sub posts carrying
+ * Ninja_Forms()->form() model factory surface the integration calls (verified
+ * against NF_Abstracts_ModelFactory in Ninja Forms 3.16): get_forms(), get(),
+ * get_fields(), get_actions() and get_sub(). The factory has no get_form()
+ * (issue #791): get() returns the form model, and returns one for any id,
+ * whether or not a form with that id exists, as the real factory does. The
+ * double offers only methods the real factory has, so a call to one it
+ * lacks fails here too. Submissions are REAL nf_sub posts carrying
  * Ninja Forms' own _form_id / _seq_num / _field_{id} meta, so the WP_Query
  * paging and the snapshot-backed status change run for real. Call
  * NF_Test_Sub::register() in setUp to register the post type.
@@ -160,15 +164,19 @@ class NF_Test_FormHandler
         return array_values(self::$forms);
     }
 
-    public function get_form(): ?NF_Test_Form
+    /**
+     * The form model. Like the real factory, a model comes back for an id
+     * no form has: a blank one, with no settings.
+     */
+    public function get(): NF_Test_Form
     {
-        return self::$forms[(int) $this->current] ?? null;
+        return self::$forms[(int) $this->current] ?? new NF_Test_Form((int) $this->current, []);
     }
 
     /** @return NF_Test_Field[] */
     public function get_fields(): array
     {
-        $form = $this->get_form();
+        $form = self::$forms[(int) $this->current] ?? null;
         return $form ? $form->get_fields() : [];
     }
 

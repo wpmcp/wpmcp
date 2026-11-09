@@ -25,7 +25,9 @@ if (! defined('ABSPATH')) {
  *  - never a Spectra 3 item (spectra/* blocks), which the Spectra release on
  *    wordpress.org does not register and the block suite pack does not know.
  * The filters are sent with every listing and checked again on the item
- * itself before an import, so a changed catalog fails closed.
+ * itself before an import, so a changed catalog fails closed. Some items
+ * carry Spectra 3 blocks without the Spectra 3 term (issue #795); the
+ * listing finds those by their markup and leaves them out.
  *
  * Nothing is sent unless an agent asks for this source, and only while
  * Spectra is active: list-patterns with source "spectra", or import-pattern
@@ -74,6 +76,9 @@ final class Block_Suite_Spectra_Library
     private const HOSTS = [ 'websitedemos.net' ];
 
     private const TIMEOUT = 15;
+
+    /** What a Spectra 3 block's markup starts with, searched for in the library. */
+    private const SPECTRA3_MARKUP = 'wp:spectra/';
 
     /** taxonomy => the term slug the filters need. */
     private const TERMS = [
@@ -135,6 +140,11 @@ final class Block_Suite_Spectra_Library
             $query['blocks-category'] = $categories[ $category ];
         }
 
+        $mislabeled = self::spectra3_ids($terms);
+        if ([] !== $mislabeled) {
+            $query['exclude'] = implode(',', $mislabeled);
+        }
+
         $answer   = self::get(add_query_arg($query, self::BASE . 'astra-blocks'));
         $slugs    = array_flip($categories);
         $patterns = [];
@@ -161,6 +171,46 @@ final class Block_Suite_Spectra_Library
         ];
     }
 
+    /**
+     * Ids of items the version filter lets through whose markup holds
+     * Spectra 3 (spectra/*) blocks all the same (issue #795): tagged v2, or
+     * with no version term. import-pattern refuses them, so the listing
+     * excludes them and its total counts only what imports. The library's
+     * own search finds them by that markup without downloading any pattern
+     * body; it is cached like every other answer. A name the search misses
+     * is still refused on import, from the item itself.
+     *
+     * @param array<string,int> $terms
+     * @return int[]
+     */
+    private static function spectra3_ids(array $terms): array
+    {
+        $ids = [];
+        for ($page = 1; $page <= 10; $page++) {
+            $answer = self::get(add_query_arg([
+                'per_page'                   => self::MAX_PAGE,
+                'page'                       => $page,
+                '_fields'                    => 'id',
+                'search'                     => rawurlencode(self::SPECTRA3_MARKUP),
+                'astra-blocks-page-builder'  => $terms['astra-blocks-page-builder'],
+                'block-type'                 => $terms['block-type'],
+                'block-access-type_exclude'  => $terms['block-access-type'],
+                'spectra-blocks-ver_exclude' => $terms['spectra-blocks-ver'],
+            ], self::BASE . 'astra-blocks'));
+            $rows = is_array($answer['body']) ? $answer['body'] : [];
+            foreach ($rows as $row) {
+                if (is_array($row) && isset($row['id']) && (int) $row['id'] > 0) {
+                    $ids[] = (int) $row['id'];
+                }
+            }
+            if (count($rows) < self::MAX_PAGE) {
+                break;
+            }
+        }
+        sort($ids);
+        return array_values(array_unique($ids));
+    }
+
     /** A free Spectra 2 block pattern's markup, or a refusal. */
     public static function content(string $name): string
     {
@@ -182,8 +232,8 @@ final class Block_Suite_Spectra_Library
         $terms   = self::terms();
         $has     = static fn (string $taxonomy): bool => in_array($terms[ $taxonomy ], array_map('intval', (array) ($raw[ $taxonomy ] ?? [])), true);
         $content = (string) ($raw['original_content'] ?? '');
-        if (! $has('astra-blocks-page-builder') || ! $has('block-type') || $has('block-access-type') || $has('spectra-blocks-ver') || str_contains($content, '<!-- wp:spectra/')) {
-            throw new Operation_Error('unknown_pattern', sprintf('Spectra library pattern %s is not a free Gutenberg block pattern for this Spectra release, so it is not offered.', $id), [ 'name' => $name ]);
+        if (! $has('astra-blocks-page-builder') || ! $has('block-type') || $has('block-access-type') || $has('spectra-blocks-ver') || str_contains($content, '<!-- ' . self::SPECTRA3_MARKUP)) {
+            throw new Operation_Error('unknown_pattern', sprintf('Spectra library pattern %s is not a free Gutenberg block pattern for this Spectra release (it is premium, or built on Spectra 3 blocks), so it cannot be imported.', $id), [ 'name' => $name ]);
         }
         return $content;
     }

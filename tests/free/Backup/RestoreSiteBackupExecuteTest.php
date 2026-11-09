@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tests\Free\Backup;
 
+use WPMCP\Governance\Governance_Audit_Log;
+use WPMCP\MCP\Request_Log;
 use WPMCP\Tools\Backup\Backup_Job_Store;
 use WPMCP\Tools\Backup\Restore_Files;
 use WPMCP\Tools\Backup\Restore_Site_Backup;
@@ -178,6 +180,62 @@ class RestoreSiteBackupExecuteTest extends \WP_UnitTestCase
         $this->assertNotEmpty($after_options);
         $this->assertNotContains(false, $after_options);
         $this->assertFalse(get_option('wpmcp_maintenance'), 'The restored options table had no maintenance row, so none is left behind.');
+    }
+
+    /**
+     * Issue #796: restoring an older dump of the options table keeps every
+     * audit and request log entry made since that backup, and adds one for
+     * the restore that names the archive and the safety archive job.
+     */
+    public function test_a_restore_of_an_older_options_table_keeps_the_logs_and_records_itself(): void
+    {
+        global $wpdb;
+        delete_option(Governance_Audit_Log::OPTION);
+        delete_option(Request_Log::OPTION);
+        Governance_Audit_Log::record('wpmcp/get-page', 'none', true, 'before-backup');
+        Request_Log::record([ 'tool' => 'wpmcp/get-page', 'ok' => true ]);
+        $tables  = [$wpdb->options, $wpdb->posts];
+        $archive = $this->archive_of($tables);
+
+        Governance_Audit_Log::record('wpmcp/trigger-backup', 'none', true, 'after-backup');
+        Request_Log::record([ 'tool' => 'wpmcp/trigger-backup', 'ok' => true ]);
+        Governance_Audit_Log::record('wpmcp/restore-site-backup', 'none', true, '');
+        Request_Log::record([ 'tool' => 'wpmcp/restore-site-backup', 'ok' => true ]);
+
+        $out = $this->restore($archive, [], $tables);
+        $this->assertSame('restored', $out['status']);
+        wp_cache_flush();
+
+        $audit = array_column(Governance_Audit_Log::list(), 'reason');
+        $this->assertContains('before-backup', $audit);
+        $this->assertContains('after-backup', $audit, 'what was logged after the backup survives the restore');
+        $this->assertSame(
+            sprintf('database-restore:restored:archive=%s:user=%d:undo=safety_job_%d', basename($archive), get_current_user_id(), $out['safety_archive']['job_id']),
+            $audit[0],
+            'the newest audit entry is the restore itself'
+        );
+        $this->assertSame('wpmcp/restore-site-backup', Governance_Audit_Log::list(1)[0]['ability']);
+
+        $tools = array_column((array) get_option(Request_Log::OPTION, []), 'tool');
+        $this->assertSame([ 'wpmcp/get-page', 'wpmcp/trigger-backup', 'wpmcp/restore-site-backup' ], $tools);
+
+        delete_option(Governance_Audit_Log::OPTION);
+        delete_option(Request_Log::OPTION);
+    }
+
+    public function test_a_log_the_site_did_not_have_is_not_imported_from_the_dump(): void
+    {
+        global $wpdb;
+        Request_Log::record([ 'tool' => 'wpmcp/from-the-backup', 'ok' => true ]);
+        $tables  = [$wpdb->options, $wpdb->posts];
+        $archive = $this->archive_of($tables);
+        delete_option(Request_Log::OPTION);
+
+        $this->restore($archive, [], $tables);
+        wp_cache_flush();
+
+        $this->assertFalse(get_option(Request_Log::OPTION), 'the dump\'s copy of the request log is not brought back');
+        delete_option(Governance_Audit_Log::OPTION);
     }
 
     public function test_a_maintenance_value_from_before_the_restore_is_put_back(): void
