@@ -14,7 +14,9 @@
 # --live-crm), or, with WPMCP_LIVE_AMELIA=1, Amelia Lite only
 # (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
 # WooCommerce and FunnelKit Funnel Builder only (bin/test-local.sh
-# --live-funnelkit). The script
+# --live-funnelkit), or, with WPMCP_LIVE_WC_SUBSCRIPTIONS=1, WooCommerce plus
+# a local copy of WooCommerce Subscriptions (WPMCP_WC_SUBSCRIPTIONS_SRC) only
+# (bin/test-local.sh --live-wc-subscriptions). The script
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
 #
@@ -178,6 +180,28 @@ elif [ "${WPMCP_LIVE_BREAKDANCE:-}" = "1" ]; then
 	rm -rf "$PLUGINS_DIR/breakdance"
 	cp -R "$src" "$PLUGINS_DIR/breakdance"
 	echo "Copied Breakdance $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/plugin.php" | head -n 1) from $src."
+fi
+
+# The live WooCommerce Subscriptions job (issue #658) runs the subscriptions
+# ops through the real plugin beside WooCommerce. Subscriptions is a
+# commercial plugin and not on wordpress.org, so it is copied from a local
+# directory holding it (WPMCP_WC_SUBSCRIPTIONS_SRC) instead of downloaded.
+# Exclusive too: the stub-backed subscription tests stand in for its API.
+if [ "${WPMCP_LIVE_WC_SUBSCRIPTIONS:-}" = "1" ]; then
+	PLUGINS=(
+		"woocommerce:woocommerce.php"
+	)
+	if [ "$list_only" = false ]; then
+		src=${WPMCP_WC_SUBSCRIPTIONS_SRC:-}
+		if [ -z "$src" ] || [ ! -f "$src/woocommerce-subscriptions.php" ]; then
+			echo "WPMCP_LIVE_WC_SUBSCRIPTIONS=1 needs WPMCP_WC_SUBSCRIPTIONS_SRC, a directory holding the WooCommerce Subscriptions plugin (woocommerce-subscriptions.php)." >&2
+			exit 1
+		fi
+		mkdir -p "$PLUGINS_DIR"
+		rm -rf "$PLUGINS_DIR/woocommerce-subscriptions"
+		cp -R "$src" "$PLUGINS_DIR/woocommerce-subscriptions"
+		echo "Copied WooCommerce Subscriptions $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/woocommerce-subscriptions.php" | head -n 1) from $src."
+	fi
 fi
 
 download() {

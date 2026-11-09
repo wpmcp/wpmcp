@@ -119,6 +119,20 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'breakdance/plugin.php' );
     }
 
+    // The live WooCommerce Subscriptions job (issue #658,
+    // WPMCP_LIVE_WC_SUBSCRIPTIONS=1) runs the subscriptions ops through the
+    // real plugin, copied in from WPMCP_WC_SUBSCRIPTIONS_SRC, beside the
+    // WooCommerce loaded above. Loaded only on request: the stub-backed
+    // subscription tests stand in for its API.
+    if ( getenv( 'WPMCP_LIVE_WC_SUBSCRIPTIONS' ) ) {
+        // Subscriptions decides whether WooCommerce is there from the
+        // active_plugins option, as on a site, and does not load otherwise;
+        // the harness activates nothing.
+        add_filter( 'option_active_plugins', 'wpmcp_test_wc_subscriptions_active_plugins' );
+        add_filter( 'default_option_active_plugins', 'wpmcp_test_wc_subscriptions_active_plugins' );
+        wpmcp_maybe_require_plugin( 'woocommerce-subscriptions/woocommerce-subscriptions.php' );
+    }
+
     // The live CRM job (issue #477, WPMCP_LIVE_CRM=1) runs the FluentCRM
     // and MailPoet ops through the real plugins. Loaded only on request: the
     // stub-backed CRM tests build both plugins' tables from a fixture and
@@ -201,6 +215,13 @@ if ( ! function_exists( 'wpmcp_test_funnelkit_active_plugins' ) ) {
     /** The active_plugins option as the live FunnelKit job's site has it. */
     function wpmcp_test_funnelkit_active_plugins( $plugins ): array {
         return array_values( array_unique( array_merge( (array) $plugins, [ 'woocommerce/woocommerce.php', 'funnel-builder/funnel-builder.php' ] ) ) );
+    }
+}
+
+if ( ! function_exists( 'wpmcp_test_wc_subscriptions_active_plugins' ) ) {
+    /** The active_plugins option as the live WooCommerce Subscriptions job's site has it. */
+    function wpmcp_test_wc_subscriptions_active_plugins( $plugins ): array {
+        return array_values( array_unique( array_merge( (array) $plugins, [ 'woocommerce/woocommerce.php', 'woocommerce-subscriptions/woocommerce-subscriptions.php' ] ) ) );
     }
 }
 
