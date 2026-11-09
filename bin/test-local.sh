@@ -78,7 +78,13 @@
 #      fusion-core plugins (commercial, so not downloadable here): pages
 #      edited through wpmcp still render through the real Avada Builder,
 #      its element map is read, and every write rolls back.
-#  20. Under --all (or --live-adapter alone), runs the adapter leg (issue
+#  20. Runs the live theme add-on group (issue #656) once for each of
+#      WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC and WPMCP_GP_PREMIUM_SRC
+#      that names a local copy of Astra Pro, Kadence Pro or GP Premium
+#      (commercial, so not downloadable here), beside its free theme from
+#      wordpress.org made the active one: layouts written through the theme
+#      ops are read back through the add-on's own code, and roll back.
+#  21. Under --all (or --live-adapter alone), runs the adapter leg (issue
 #      #501): the free and pro suites on the latest MCP Adapter plugin
 #      released on WordPress.org, loaded next to the bundled copy the way a
 #      site that installs the plugin runs us, with the version it tested in
@@ -119,6 +125,8 @@
 #   bin/test-local.sh --live-divi     only the live Divi group (needs WPMCP_DIVI_SRC)
 #   bin/test-local.sh --live-memberpress only the live MemberPress group (needs WPMCP_MEMBERPRESS_SRC)
 #   bin/test-local.sh --live-wc-subscriptions only the live WooCommerce Subscriptions group (needs WPMCP_WC_SUBSCRIPTIONS_SRC)
+#   bin/test-local.sh --live-theme-pro only the live theme add-on group (needs at least one of
+#                                     WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC, WPMCP_GP_PREMIUM_SRC)
 #   bin/test-local.sh --live-adapter  only the adapter leg (both suites on the released MCP Adapter plugin)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments, default WordPress only; skips lint,
 #                                     drift, coverage, the floor leg and the live groups
@@ -139,6 +147,12 @@
 #                        and the fusion-builder/ and fusion-core/ plugins for
 #                        the live Avada group; without it that group is not
 #                        run, except under --live-avada, where it is an error
+#   WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC, WPMCP_GP_PREMIUM_SRC
+#                        local astra-addon, kadence-pro or gp-premium plugin
+#                        directories for the live theme add-on group, one run
+#                        per variable set; with none set that group is not
+#                        run, except under --live-theme-pro, where it is an
+#                        error
 #   WPMCP_WPBAKERY_SRC   a local WPBakery Page Builder directory (js_composer)
 #                        for the live WPBakery group; without it that group is
 #                        not run, except under --live-wpbakery, where it is an
@@ -204,6 +218,7 @@ only_live_memberpress=false
 only_live_amelia=false
 only_live_wc_subscriptions=false
 only_live_adapter=false
+only_live_theme_pro=false
 only_multisite=false
 coverage=true
 plan_only=false
@@ -230,6 +245,7 @@ while [ $# -gt 0 ]; do
 		--live-amelia) only_live_amelia=true ;;
 		--live-wc-subscriptions) only_live_wc_subscriptions=true ;;
 		--live-adapter) only_live_adapter=true ;;
+		--live-theme-pro) only_live_theme_pro=true ;;
 		--multisite) only_multisite=true ;;
 		--stop-db) stop_db=true ;;
 		--plan) plan_only=true ;;
@@ -277,7 +293,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_adapter" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -293,6 +309,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_memberpress" = false ] || LEGS+=("live-memberpress ${only_wp:-$default_wp}")
 	[ "$only_live_amelia" = false ] || LEGS+=("live-amelia ${only_wp:-$default_wp}")
 	[ "$only_live_wc_subscriptions" = false ] || LEGS+=("live-wc-subscriptions ${only_wp:-$default_wp}")
+	[ "$only_live_theme_pro" = false ] || LEGS+=("live-theme-pro ${only_wp:-$default_wp}")
 	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
 elif [ "$only_multisite" = true ]; then
 	LEGS+=("multisite ${only_wp:-$default_wp} none")
@@ -342,6 +359,9 @@ else
 		fi
 		if [ -n "${WPMCP_WC_SUBSCRIPTIONS_SRC:-}" ]; then
 			LEGS+=("live-wc-subscriptions $default_wp")
+		fi
+		if [ -n "${WPMCP_ASTRA_PRO_SRC:-}${WPMCP_KADENCE_PRO_SRC:-}${WPMCP_GP_PREMIUM_SRC:-}" ]; then
+			LEGS+=("live-theme-pro $default_wp")
 		fi
 		# The adapter leg (issue #501) under --all only; see the header.
 		if [ "$run_all" = true ]; then
@@ -481,6 +501,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_MEMBERPRESS:-}" = 1 ] && flavor="-memberpress-live"
 	# And WPMCP_LIVE_WC_SUBSCRIPTIONS=1, WooCommerce and the local Subscriptions copy.
 	[ "${WPMCP_LIVE_WC_SUBSCRIPTIONS:-}" = 1 ] && flavor="-wc-subscriptions-live"
+	# And WPMCP_LIVE_THEME_PRO=<family>, that theme and its local add-on copy.
+	[ -n "${WPMCP_LIVE_THEME_PRO:-}" ] && flavor="-${WPMCP_LIVE_THEME_PRO}-pro-live"
 	echo "$flavor"
 }
 
@@ -889,6 +911,34 @@ run_live_breakdance() {
 	unset WPMCP_LIVE_BREAKDANCE
 }
 
+# The live theme add-on group (issue #656): one run per add-on whose local
+# copy is named (WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC,
+# WPMCP_GP_PREMIUM_SRC), each on its own install with its free theme active,
+# its own database and --fail-on-skipped.
+run_live_theme_pro() {
+	local version=$1 family src dir core config ran=false
+	for family in astra kadence generatepress; do
+		case "$family" in
+			astra) src=${WPMCP_ASTRA_PRO_SRC:-} ;;
+			kadence) src=${WPMCP_KADENCE_PRO_SRC:-} ;;
+			generatepress) src=${WPMCP_GP_PREMIUM_SRC:-} ;;
+		esac
+		[ -n "$src" ] || continue
+		ran=true
+		export WPMCP_LIVE_THEME_PRO=$family
+		dir=$(install_wp "$version")
+		core=$(checkout_core "$dir")
+		RUN_CORES+=("$core")
+		config=$(db_config "$dir" "$version-$family-pro-live" "$core")
+		RUN_CONFIGS+=("$config")
+		say "PHPUnit live $family add-on group on WordPress $version (real add-on from $src)"
+		WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+			"$PHP" vendor/bin/phpunit --group "$family-pro-live" --fail-on-skipped
+		unset WPMCP_LIVE_THEME_PRO
+	done
+	[ "$ran" = true ] || die "the live theme add-on group needs WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC or WPMCP_GP_PREMIUM_SRC"
+}
+
 # The live Avada group (issue #637), the same way, with the Avada theme and
 # the fusion-builder and fusion-core plugins from WPMCP_AVADA_SRC: its own
 # install, its own database and --fail-on-skipped.
@@ -1127,6 +1177,7 @@ run_leg_body() {
 		live-memberpress) run_live_memberpress "$wp" ;;
 		live-amelia) run_live_amelia "$wp" ;;
 		live-wc-subscriptions) run_live_wc_subscriptions "$wp" ;;
+		live-theme-pro) run_live_theme_pro "$wp" ;;
 		live-adapter) run_live_adapter "$wp" ;;
 		*) die "unknown leg: $kind" ;;
 	esac

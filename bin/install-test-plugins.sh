@@ -18,7 +18,9 @@
 # a local copy of WooCommerce Subscriptions (WPMCP_WC_SUBSCRIPTIONS_SRC) only
 # (bin/test-local.sh --live-wc-subscriptions), or, with WPMCP_LIVE_DIVI=1, no
 # plugin and the Divi 5 theme copied from WPMCP_DIVI_SRC (bin/test-local.sh
-# --live-divi). The script
+# --live-divi), or, with WPMCP_LIVE_THEME_PRO=astra|kadence|generatepress, no
+# plugin but that theme's premium add-on copied from a local directory and
+# the free theme from wordpress.org (bin/test-local.sh --live-theme-pro). The script
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
 #
@@ -379,6 +381,40 @@ install_plugin() {
 	installed=$(header_version "$target/$main_file")
 	echo "Installed plugin '$slug' ${installed}."
 }
+
+# The live theme add-on job (issue #656, WPMCP_LIVE_THEME_PRO=astra, kadence
+# or generatepress) runs the theme layout ops against one real premium add-on
+# beside its free theme: Astra Pro (WPMCP_ASTRA_PRO_SRC), Kadence Pro
+# (WPMCP_KADENCE_PRO_SRC) or GP Premium (WPMCP_GP_PREMIUM_SRC). The add-ons
+# are commercial, so each is copied from a local directory holding it; the
+# free theme is downloaded from wordpress.org. Exclusive too: the stub-backed
+# layout tests fake the add-on's presence and hook catalog.
+if [ -n "${WPMCP_LIVE_THEME_PRO:-}" ]; then
+	PLUGINS=()
+fi
+if [ -n "${WPMCP_LIVE_THEME_PRO:-}" ] && [ "$list_only" = false ]; then
+	case "$WPMCP_LIVE_THEME_PRO" in
+		astra) theme=astra; addon=astra-addon; src=${WPMCP_ASTRA_PRO_SRC:-}; var=WPMCP_ASTRA_PRO_SRC ;;
+		kadence) theme=kadence; addon=kadence-pro; src=${WPMCP_KADENCE_PRO_SRC:-}; var=WPMCP_KADENCE_PRO_SRC ;;
+		generatepress) theme=generatepress; addon=gp-premium; src=${WPMCP_GP_PREMIUM_SRC:-}; var=WPMCP_GP_PREMIUM_SRC ;;
+		*) echo "WPMCP_LIVE_THEME_PRO must be astra, kadence or generatepress (got '$WPMCP_LIVE_THEME_PRO')." >&2; exit 1 ;;
+	esac
+	if [ -z "$src" ] || [ ! -f "$src/$addon.php" ]; then
+		echo "WPMCP_LIVE_THEME_PRO=$WPMCP_LIVE_THEME_PRO needs $var, a directory holding the $addon plugin ($addon.php)." >&2
+		exit 1
+	fi
+	mkdir -p "$PLUGINS_DIR" "$WP_CORE_DIR/wp-content/themes"
+	rm -rf "${PLUGINS_DIR:?}/$addon"
+	cp -R "$src" "$PLUGINS_DIR/$addon"
+	echo "Copied $addon $(header_version "$src/$addon.php") from $src."
+	if [ ! -f "$WP_CORE_DIR/wp-content/themes/$theme/style.css" ]; then
+		echo "Installing theme '$theme' from wordpress.org..."
+		download "https://downloads.wordpress.org/theme/$theme.zip" "$TMPDIR/$theme.theme.zip"
+		unzip -q -o "$TMPDIR/$theme.theme.zip" -d "$WP_CORE_DIR/wp-content/themes"
+		rm -f "$TMPDIR/$theme.theme.zip"
+	fi
+	echo "Theme '$theme' $(header_version "$WP_CORE_DIR/wp-content/themes/$theme/style.css") ready."
+fi
 
 if [ "$list_only" = true ]; then
 	for entry in "${PLUGINS[@]+"${PLUGINS[@]}"}"; do
