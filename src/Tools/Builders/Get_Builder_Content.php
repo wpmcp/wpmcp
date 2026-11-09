@@ -58,6 +58,10 @@ class Get_Builder_Content
         }
 
         if ('divi' === $builder) {
+            if (Divi_Content::is_divi5($post_id)) {
+                return Divi_Content::read5($post_id);
+            }
+
             return [
                 'post_id'     => $post_id,
                 'builder'     => 'divi',

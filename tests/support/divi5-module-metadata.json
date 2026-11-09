@@ -1,0 +1,290 @@
+{
+    "text": {
+        "name": "divi/text",
+        "title": "Text",
+        "category": "module",
+        "description": "General-purpose body copy block for paragraphs, lists, and inline-formatted prose.",
+        "childrenName": [],
+        "attributes": {
+            "module": {
+                "settings": {
+                    "meta": {
+                        "meta": []
+                    },
+                    "advanced": {
+                        "elements": [],
+                        "html": [],
+                        "link": [],
+                        "loop": [],
+                        "text": []
+                    },
+                    "decoration": {
+                        "layout": [],
+                        "animation": [],
+                        "attributes": [],
+                        "background": [],
+                        "border": [],
+                        "boxShadow": [],
+                        "conditions": [],
+                        "disabledOn": [],
+                        "filters": [],
+                        "interactions": [],
+                        "overflow": [],
+                        "order": [],
+                        "position": [],
+                        "scroll": [],
+                        "sizing": [],
+                        "spacing": [],
+                        "sticky": [],
+                        "transform": [],
+                        "transition": [],
+                        "zIndex": []
+                    }
+                }
+            },
+            "content": {
+                "settings": {
+                    "innerContent": {
+                        "item": {
+                            "label": "Body"
+                        }
+                    },
+                    "decoration": {
+                        "headingFont": [],
+                        "bodyFont": []
+                    }
+                }
+            }
+        }
+    },
+    "heading": {
+        "name": "divi/heading",
+        "title": "Heading",
+        "category": "module",
+        "description": "Standalone H1 to H6 title used to anchor a section or introduce a content block.",
+        "childrenName": [],
+        "attributes": {
+            "module": {
+                "settings": {
+                    "meta": {
+                        "meta": []
+                    },
+                    "advanced": {
+                        "elements": [],
+                        "html": [],
+                        "link": [],
+                        "loop": [],
+                        "text": []
+                    },
+                    "decoration": {
+                        "animation": [],
+                        "attributes": [],
+                        "background": [],
+                        "border": [],
+                        "boxShadow": [],
+                        "conditions": [],
+                        "disabledOn": [],
+                        "filters": [],
+                        "interactions": [],
+                        "layout": [],
+                        "overflow": [],
+                        "order": [],
+                        "position": [],
+                        "scroll": [],
+                        "sizing": [],
+                        "spacing": [],
+                        "sticky": [],
+                        "transform": [],
+                        "transition": [],
+                        "zIndex": []
+                    }
+                }
+            },
+            "title": {
+                "settings": {
+                    "innerContent": {
+                        "item": {
+                            "label": "Heading"
+                        }
+                    },
+                    "decoration": {
+                        "font": []
+                    }
+                }
+            }
+        }
+    },
+    "accordion": {
+        "name": "divi/accordion",
+        "title": "Accordion",
+        "category": "module",
+        "description": "Stacked panels visitors can expand to reveal hidden content, ideal for FAQs and feature lists.",
+        "childrenName": [
+            "divi/accordion-item"
+        ],
+        "attributes": {
+            "module": {
+                "settings": {
+                    "meta": {
+                        "meta": []
+                    },
+                    "advanced": {
+                        "elements": [],
+                        "html": [],
+                        "link": [],
+                        "loop": [],
+                        "text": []
+                    },
+                    "decoration": {
+                        "animation": [],
+                        "attributes": [],
+                        "background": [],
+                        "conditions": [],
+                        "disabledOn": [],
+                        "filters": [],
+                        "interactions": [],
+                        "layout": [],
+                        "border": [],
+                        "boxShadow": [],
+                        "overflow": [],
+                        "order": [],
+                        "position": [],
+                        "scroll": [],
+                        "sizing": [],
+                        "spacing": [],
+                        "sticky": [],
+                        "transform": [],
+                        "transition": [],
+                        "zIndex": []
+                    }
+                }
+            },
+            "title": {
+                "settings": {
+                    "decoration": {
+                        "font": []
+                    }
+                }
+            },
+            "closedToggleIcon": {
+                "settings": {
+                    "decoration": {
+                        "icon": []
+                    }
+                }
+            },
+            "content": {
+                "settings": {
+                    "decoration": {
+                        "bodyFont": []
+                    }
+                }
+            },
+            "openToggle": {
+                "settings": {
+                    "decoration": {
+                        "background": [],
+                        "font": []
+                    }
+                }
+            },
+            "closedToggle": {
+                "settings": {
+                    "decoration": {
+                        "background": [],
+                        "font": []
+                    }
+                }
+            }
+        }
+    },
+    "accordion-item": {
+        "name": "divi/accordion-item",
+        "title": "Accordion Item",
+        "category": "child-module",
+        "description": "A single expandable panel inside an Accordion module; not used on its own.",
+        "childrenName": [],
+        "attributes": {
+            "module": {
+                "settings": {
+                    "advanced": {
+                        "elements": [],
+                        "html": [],
+                        "link": [],
+                        "loop": [],
+                        "text": []
+                    },
+                    "decoration": {
+                        "animation": [],
+                        "attributes": [],
+                        "background": [],
+                        "conditions": [],
+                        "disabledOn": [],
+                        "filters": [],
+                        "interactions": [],
+                        "border": [],
+                        "boxShadow": [],
+                        "layout": [],
+                        "overflow": [],
+                        "order": [],
+                        "position": [],
+                        "scroll": [],
+                        "sizing": [],
+                        "spacing": [],
+                        "sticky": [],
+                        "transform": [],
+                        "transition": [],
+                        "zIndex": []
+                    }
+                }
+            },
+            "title": {
+                "settings": {
+                    "innerContent": {
+                        "item": {
+                            "label": "Title"
+                        }
+                    },
+                    "decoration": {
+                        "font": []
+                    }
+                }
+            },
+            "closedToggleIcon": {
+                "settings": {
+                    "decoration": {
+                        "icon": []
+                    }
+                }
+            },
+            "openToggle": {
+                "settings": {
+                    "decoration": {
+                        "background": [],
+                        "font": []
+                    }
+                }
+            },
+            "closedToggle": {
+                "settings": {
+                    "decoration": {
+                        "background": [],
+                        "font": []
+                    }
+                }
+            },
+            "content": {
+                "settings": {
+                    "innerContent": {
+                        "item": {
+                            "label": "Body"
+                        }
+                    },
+                    "decoration": {
+                        "bodyFont": []
+                    }
+                }
+            }
+        }
+    }
+}

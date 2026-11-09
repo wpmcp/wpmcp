@@ -8348,7 +8348,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/build-page',
             'free',
-            'Build a page from ONE declarative spec: title, a recursive sections/blocks tree, media (existing attachment ids) and optional menu placement. One atomic, recoverable operation: the spec is validated (node-path-addressed errors, bounded size/nodes/depth) before any write, a mid-build failure removes everything it created, and success returns one operation_id whose rollback-operation removes the page and its menu placement. Markup is composed deterministically; nothing in the spec is evaluated or executed. dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree. Set dry_run=true to validate and compose WITHOUT writing: the reply reports element counts per node type, nesting depth, markup size, unknown widget types, atomic props that had to be coerced, and every referential problem at once',
+            'Compose a page from ONE declarative spec: title, a recursive sections/blocks tree, media (existing attachment ids), optional menu placement. One atomic, recoverable operation: the spec is strictly validated (node-path errors, bounded size/nodes/depth) before any write, a mid-build failure removes everything it created, and success returns one operation_id whose rollback-operation removes the page and its menu placement. Markup is composed deterministically; nothing in the spec is evaluated or executed. dialect "gutenberg" (default, free) builds block markup; "elementor" (PRO, needs Elementor) an _elementor_data element tree. dry_run=true validates and composes WITHOUT writing, reporting element counts per node type, nesting depth, markup size, unknown widget types, coerced atomic props and every referential problem at once',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9474,7 +9474,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-builder',
             'pro',
-            'Post builder: elementor, bricks, divi, wpbakery, avada, beaver-builder, breakdance, oxygen, oxygen-classic, thrive, gutenberg, classic. Read-only',
+            'Post builder: elementor|bricks|divi|wpbakery|avada|beaver-builder|breakdance|oxygen|oxygen-classic|thrive|gutenberg|classic',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9493,7 +9493,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-builder-content',
             'pro',
-            'Bricks elements; Divi/WPBakery/Avada shortcodes, Thrive HTML, oxygen-classic JSON (last 4 with paths); Beaver Builder/Breakdance/Oxygen nodes. Or scope design_system|templates|catalog (element: controls) for builder bricks|breakdance|oxygen|avada. Read-only',
+            'Bricks elements; Divi|WPBakery|Avada shortcodes, Thrive HTML, oxygen-classic JSON, Divi 5 blocks (last 5 with paths); Beaver Builder|Breakdance|Oxygen nodes. Or scope design_system|templates|catalog (element: its controls) for builder bricks|breakdance|oxygen|divi|wpbakery|avada',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9514,7 +9514,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-builder-content',
             'pro',
-            'Bricks JSON; Divi/WPBakery/Avada shortcodes, Thrive HTML; oxygen-classic/Beaver Builder/Breakdance/Oxygen JSON tree. All but Bricks/Divi: operation update (path, attrs, text), add (to, index, element), remove (path), move (path, to, index); to "" = top. Avada: expected_hash (read\'s hash) required, add element {template}, save_template (path, element {title}). scope design_system (bricks|breakdance|avada): add/update/remove at classes|variables|palettes|typography|options/<id>[/<color id>]; expected_hash: read\'s hashes.<list>. Undo: rollback-operation',
+            'Bricks JSON; Divi|WPBakery|Avada shortcodes, Thrive HTML; oxygen-classic|Beaver Builder|Breakdance|Oxygen JSON tree. All but Bricks|Divi 4: operation update(path,attrs,text), add(to,index,element), remove(path), move(path,to,index); to \'\'=top. WPBakery: also publish, restore(path: revision id), element {template}; needs expected_hash. Avada: also element {template}, save_template(path,element {title}); needs expected_hash. scope design_system (bricks|breakdance|avada): add/update/remove at classes|variables|palettes|typography|options/<id>[/<color id>]; scope templates (wpbakery): at <id>. expected_hash: read\'s hash (Divi 5, WPBakery, Avada), hashes.<list>. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [

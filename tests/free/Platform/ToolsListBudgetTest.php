@@ -257,12 +257,21 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  #717) added no tool: nine ops on the theme pair, whose summary now
      *  names site identity and permalinks, paid for by dropping "supports"
      *  and the serial "and" from that summary without dropping a rule:
-     *  208979 -> 208987 bytes over 407 tools. Avada element-level editing
+     *  208979 -> 208987 bytes over 407 tools. Divi 5 element editing
+     *  (#636) added no tool: operations, a Divi 5 read and Divi scope
+     *  reads on the builder pair, paid for by writing the builder lists
+     *  with "|" and the operation signatures without spaces, without
+     *  dropping a rule: 208996 -> 208995 bytes over 407 tools. WPBakery element-level
+     *  editing (#639) added no tool: publish, restore, add from a template,
+     *  expected_hash and a templates scope on update-builder-content, and
+     *  wpbakery in get-builder-content's scope reads, paid for by tightening
+     *  the build-page description and dropping
+     *  "Read-only" from detect-builder and get-builder-content, whose
+     *  readOnlyHint says it, without dropping a rule: 208995 -> 208967
+     *  bytes over 407 tools. Avada element-level editing
      *  (#637) added no tool: library inserts, save_template and the Avada
-     *  design_system and catalog scopes on the builder pair, paid for by
-     *  tightening build-page's opening sentences (its flavor-stripped dialect
-     *  and dry-run sentences untouched) without dropping a rule: 208996 ->
-     *  208986 bytes over 407 tools. */
+     *  design_system and catalog scopes on the builder pair, without
+     *  dropping a rule: 208967 -> 209095 bytes over 407 tools. */
     // Raised 209000 -> 215000 on 2026-11-09 for five integration PRs (#784, #786, #787, #788, WPBakery) that together exceed 209000; owner approved.
     private const TOOLS_LIST_BYTE_BUDGET = 215000;
 

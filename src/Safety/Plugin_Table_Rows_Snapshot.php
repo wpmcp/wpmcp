@@ -24,8 +24,17 @@ if (! defined('ABSPATH')) {
  * a row the write changed returns in place. Not db_rows: that type restores
  * only rows a WHERE matched, so it cannot undo an insert.
  *
+ * MemberPress rule access conditions (issue #668, the
+ * `mepr_rule_access_conditions` table) are keyed by the rule they belong to
+ * (`rule_id`) rather than by their own id, so a snapshot taken before a
+ * write covers the rows the write inserts as well: the restore removes every
+ * row of the captured rules and puts back the ones that were there. That
+ * kind allows the one suffix, "conditions", so it can never name another
+ * MemberPress table.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
- * captured post for a Pods row, manage_options for a dictionary row.
+ * captured post for a Pods row or a MemberPress rule's rows, manage_options
+ * for a dictionary row.
  */
 final class Plugin_Table_Rows_Snapshot
 {
@@ -33,9 +42,26 @@ final class Plugin_Table_Rows_Snapshot
 
     /** kind => table prefix after the site prefix. */
     public const KINDS = [
-        'pods'           => 'pods_',
-        'trp_dictionary' => 'trp_dictionary_',
+        'pods'             => 'pods_',
+        'trp_dictionary'   => 'trp_dictionary_',
+        'mepr_rule_access' => 'mepr_rule_access_',
     ];
+
+    /** kind => the column its ids name, for a kind not keyed by `id`. */
+    private const KEY_COLUMNS = [
+        'mepr_rule_access' => 'rule_id',
+    ];
+
+    /** kind => the only suffixes it allows, for a kind with a fixed table. */
+    private const SUFFIXES = [
+        'mepr_rule_access' => [ 'conditions' ],
+    ];
+
+    /** The column a kind's ids name. */
+    public static function key_column(string $kind): string
+    {
+        return self::KEY_COLUMNS[ $kind ] ?? 'id';
+    }
 
     /** The snapshot key for a set of rows. */
     public static function key(string $kind, string $suffix, array $ids): string
@@ -51,6 +77,9 @@ final class Plugin_Table_Rows_Snapshot
         global $wpdb;
 
         if (! isset(self::KINDS[ $kind ]) || 1 !== preg_match('/^[a-z0-9_-]{1,64}$/', $suffix)) {
+            return null;
+        }
+        if (isset(self::SUFFIXES[ $kind ]) && ! in_array($suffix, self::SUFFIXES[ $kind ], true)) {
             return null;
         }
         return $wpdb->prefix . self::KINDS[ $kind ] . $suffix;
@@ -99,12 +128,13 @@ final class Plugin_Table_Rows_Snapshot
     }
 
     /**
-     * Every row under the given ids, oldest id first, read live.
+     * Every row under the given ids (in $column, `id` unless the kind keys
+     * its rows by another column), oldest id first, read live.
      *
      * @param int[] $ids
      * @return array<int, array<string, string|null>>
      */
-    public static function rows(string $table, array $ids): array
+    public static function rows(string $table, array $ids, string $column = 'id'): array
     {
         global $wpdb;
 
@@ -115,7 +145,7 @@ final class Plugin_Table_Rows_Snapshot
         $in = implode(',', array_fill(0, count($ids), '%d'));
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of a third-party table; $in holds only %d placeholders.
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE id IN ($in) ORDER BY id ASC", $table, ...$ids), ARRAY_A);
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE %i IN ($in) ORDER BY id ASC", $table, $column, ...$ids), ARRAY_A);
 
         return array_values((array) $rows);
     }
@@ -143,7 +173,7 @@ final class Plugin_Table_Rows_Snapshot
                 'suffix'       => $parsed['suffix'],
                 'ids'          => $parsed['ids'],
                 'table_exists' => $exists,
-                'rows'         => $exists ? self::rows((string) $table, $parsed['ids']) : [],
+                'rows'         => $exists ? self::rows((string) $table, $parsed['ids'], self::key_column($parsed['kind'])) : [],
             ],
         ];
     }
@@ -169,7 +199,7 @@ final class Plugin_Table_Rows_Snapshot
         global $wpdb;
         $in = implode(',', array_fill(0, count($ids), '%d'));
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- third-party table with no WP API; $in holds only %d placeholders.
-        if (false === $wpdb->query($wpdb->prepare("DELETE FROM %i WHERE id IN ($in)", $table, ...$ids))) {
+        if (false === $wpdb->query($wpdb->prepare("DELETE FROM %i WHERE %i IN ($in)", $table, self::key_column($kind), ...$ids))) {
             throw new Mutation_Failed('Could not clear the rows being restored in ' . esc_html($table) . '.');
         }
         foreach ((array) ($data['rows'] ?? []) as $row) {
@@ -207,9 +237,13 @@ final class Plugin_Table_Rows_Snapshot
             return;
         }
         foreach ($ids as $id) {
-            if (! current_user_can('edit_post', $id)) {
-                throw new Mutation_Failed('Rollback refused: restoring the Pods fields of post ' . (int) $id . ' requires permission to edit it.');
+            if (current_user_can('edit_post', $id)) {
+                continue;
             }
+            if ('mepr_rule_access' === $kind) {
+                throw new Mutation_Failed('Rollback refused: restoring the MemberPress access conditions of rule ' . (int) $id . ' requires permission to edit it.');
+            }
+            throw new Mutation_Failed('Rollback refused: restoring the Pods fields of post ' . (int) $id . ' requires permission to edit it.');
         }
     }
 }
