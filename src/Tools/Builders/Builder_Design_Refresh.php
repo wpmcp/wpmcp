@@ -21,6 +21,9 @@ if (! defined('ABSPATH')) {
  *   save does.
  * - Breakdance renders its selectors and global settings into CSS files
  *   only on its own saves, so they are rebuilt through the engine.
+ * - Avada compiles every page's CSS from its global options
+ *   (`fusion_options`, issue #637) and keeps the result until its own
+ *   options save resets it, so that reset is done here (Avada_Cache).
  *
  * Lives apart from the writer because the always-loaded rollback path
  * calls it, and every build flavor ships it. A no-op for any other option,
@@ -31,6 +34,8 @@ final class Builder_Design_Refresh
     private const BRICKS_STYLE_MANAGER = ['bricks_color_palette', 'bricks_global_variables'];
 
     private const BREAKDANCE_GLOBAL = ['breakdance_breakdance_classes_json_string', 'breakdance_global_settings_json_string'];
+
+    private const AVADA_OPTIONS = 'fusion_options';
 
     /** @param string[] $names option names just written or restored */
     public static function after_options(array $names): void
@@ -46,6 +51,10 @@ final class Builder_Design_Refresh
 
         if ([] !== array_intersect(self::BREAKDANCE_GLOBAL, $names)) {
             self::breakdance_global();
+        }
+
+        if (in_array(self::AVADA_OPTIONS, $names, true)) {
+            Avada_Cache::invalidate_all();
         }
     }
 

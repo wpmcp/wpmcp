@@ -26,9 +26,9 @@ if (! defined('ABSPATH')) {
  *   opt-in (destructive ops are off until the wpmcp_woo_op_enabled filter
  *   enables them) -> confirm:true for destructive ops -> forbidden params
  *   and meta keys -> path params -> handler checks (Order_Ops,
- *   Shipping_Ops, Webhook_Ops, Review_Ops, Gateway_Ops, Status_Ops for
- *   order_*, shipping_*, webhook_*, review_*, gateway_* and status_*
- *   handlers) -> brand checks (Brand_Ops, rows naming a taxonomy) ->
+ *   Shipping_Ops, Webhook_Ops, Review_Ops, Gateway_Ops, Status_Ops,
+ *   Subscription_Ops for order_*, shipping_*, webhook_*, review_*,
+ *   gateway_*, status_* and subscription_* handlers) -> brand checks (Brand_Ops, rows naming a taxonomy) ->
  *   snapshot target resolves -> Safe_Mutation (snapshot first)
  *   -> dispatch, or the row's in-process handler.
  *
@@ -393,7 +393,7 @@ class Woo_Write
      * The class a row's in-process handler runs through (issue #292), by the
      * handler's prefix, or null for dispatched rows and brand handlers.
      *
-     * @return class-string<Order_Ops>|class-string<Shipping_Ops>|class-string<Webhook_Ops>|class-string<Review_Ops>|class-string<Gateway_Ops>|class-string<Status_Ops>|null
+     * @return class-string<Order_Ops>|class-string<Shipping_Ops>|class-string<Webhook_Ops>|class-string<Review_Ops>|class-string<Gateway_Ops>|class-string<Status_Ops>|class-string<Subscription_Ops>|null
      */
     private static function handler_class(array $def): ?string
     {
@@ -401,7 +401,7 @@ class Woo_Write
         if (! is_string($handler)) {
             return null;
         }
-        foreach ([ 'order_' => Order_Ops::class, 'shipping_' => Shipping_Ops::class, 'webhook_' => Webhook_Ops::class, 'review_' => Review_Ops::class, 'gateway_' => Gateway_Ops::class, 'status_' => Status_Ops::class ] as $prefix => $class) {
+        foreach ([ 'order_' => Order_Ops::class, 'shipping_' => Shipping_Ops::class, 'webhook_' => Webhook_Ops::class, 'review_' => Review_Ops::class, 'gateway_' => Gateway_Ops::class, 'status_' => Status_Ops::class, 'subscription_' => Subscription_Ops::class ] as $prefix => $class) {
             if (str_starts_with($handler, $prefix)) {
                 return $class;
             }

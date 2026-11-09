@@ -54,7 +54,31 @@
 #      names a local copy of Breakdance (a commercial plugin, so not
 #      downloadable here): pages saved by the real Breakdance are detected,
 #      read, edited and rolled back, and Breakdance still loads them.
-#  15. Under --all (or --live-adapter alone), runs the adapter leg (issue
+#  15. Runs the live MemberPress group (issue #668) when
+#      WPMCP_MEMBERPRESS_SRC names a local copy of MemberPress (a commercial
+#      plugin, so not downloadable here): memberships and rules written by the
+#      ops load through MemberPress's own models, and what MemberPress stored
+#      reads back through the ops.
+#  16. Runs the live WooCommerce Subscriptions group (issue #658) when
+#      WPMCP_WC_SUBSCRIPTIONS_SRC names a local copy of the plugin (commercial,
+#      so not downloadable here): the subscriptions ops through the real
+#      plugin beside WooCommerce, every write rolled back.
+#  17. Runs the live Divi group (issue #636) when WPMCP_DIVI_SRC names a
+#      local copy of the Divi 5 theme (commercial, so not downloadable
+#      here), installed as a theme and made the active one: Divi 5 layouts
+#      are detected, read, edited element by element and rolled back, and
+#      Divi still parses and renders them.
+#  18. Runs the live WPBakery group (issue #639) when WPMCP_WPBAKERY_SRC names
+#      a local copy of WPBakery Page Builder (commercial too): its element
+#      catalog, templates and design options are read from the real plugin,
+#      pages and templates written here are rendered and listed by it, and
+#      every write rolls back.
+#  19. Runs the live Avada group (issue #637) when WPMCP_AVADA_SRC names a
+#      local directory holding the Avada theme and the fusion-builder and
+#      fusion-core plugins (commercial, so not downloadable here): pages
+#      edited through wpmcp still render through the real Avada Builder,
+#      its element map is read, and every write rolls back.
+#  20. Under --all (or --live-adapter alone), runs the adapter leg (issue
 #      #501): the free and pro suites on the latest MCP Adapter plugin
 #      released on WordPress.org, loaded next to the bundled copy the way a
 #      site that installs the plugin runs us, with the version it tested in
@@ -90,6 +114,11 @@
 #   bin/test-local.sh --live-amelia   only the live Amelia group (real Amelia Lite)
 #   bin/test-local.sh --live-polylang only the live Polylang group (real Polylang and Elementor)
 #   bin/test-local.sh --live-breakdance only the live Breakdance group (needs WPMCP_BREAKDANCE_SRC)
+#   bin/test-local.sh --live-avada    only the live Avada group (needs WPMCP_AVADA_SRC)
+#   bin/test-local.sh --live-wpbakery only the live WPBakery group (needs WPMCP_WPBAKERY_SRC)
+#   bin/test-local.sh --live-divi     only the live Divi group (needs WPMCP_DIVI_SRC)
+#   bin/test-local.sh --live-memberpress only the live MemberPress group (needs WPMCP_MEMBERPRESS_SRC)
+#   bin/test-local.sh --live-wc-subscriptions only the live WooCommerce Subscriptions group (needs WPMCP_WC_SUBSCRIPTIONS_SRC)
 #   bin/test-local.sh --live-adapter  only the adapter leg (both suites on the released MCP Adapter plugin)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments, default WordPress only; skips lint,
 #                                     drift, coverage, the floor leg and the live groups
@@ -106,6 +135,24 @@
 #   WPMCP_BREAKDANCE_SRC a local Breakdance plugin directory for the live
 #                        Breakdance group; without it that group is not run,
 #                        except under --live-breakdance, where it is an error
+#   WPMCP_AVADA_SRC      a local directory holding the unpacked Avada/ theme
+#                        and the fusion-builder/ and fusion-core/ plugins for
+#                        the live Avada group; without it that group is not
+#                        run, except under --live-avada, where it is an error
+#   WPMCP_WPBAKERY_SRC   a local WPBakery Page Builder directory (js_composer)
+#                        for the live WPBakery group; without it that group is
+#                        not run, except under --live-wpbakery, where it is an
+#                        error
+#   WPMCP_DIVI_SRC       a local Divi 5 theme directory for the live Divi
+#                        group; without it that group is not run, except
+#                        under --live-divi, where it is an error
+#   WPMCP_MEMBERPRESS_SRC a local MemberPress plugin directory for the live
+#                        MemberPress group; without it that group is not run,
+#                        except under --live-memberpress, where it is an error
+#   WPMCP_WC_SUBSCRIPTIONS_SRC a local WooCommerce Subscriptions plugin directory
+#                        for the live Subscriptions group; without it that group
+#                        is not run, except under --live-wc-subscriptions, where
+#                        it is an error
 #   WPMCP_ADAPTER_VERSION the MCP Adapter release the adapter leg tests (default:
 #                        the latest on WordPress.org, asked for on every run)
 #   ELEMENTOR_VERSION    passed to bin/install-test-plugins.sh ('latest' tests
@@ -150,7 +197,12 @@ only_live_crm=false
 only_live_funnelkit=false
 only_live_polylang=false
 only_live_breakdance=false
+only_live_avada=false
+only_live_wpbakery=false
+only_live_divi=false
+only_live_memberpress=false
 only_live_amelia=false
+only_live_wc_subscriptions=false
 only_live_adapter=false
 only_multisite=false
 coverage=true
@@ -171,7 +223,12 @@ while [ $# -gt 0 ]; do
 		--live-funnelkit) only_live_funnelkit=true ;;
 		--live-polylang) only_live_polylang=true ;;
 		--live-breakdance) only_live_breakdance=true ;;
+		--live-avada) only_live_avada=true ;;
+		--live-wpbakery) only_live_wpbakery=true ;;
+		--live-divi) only_live_divi=true ;;
+		--live-memberpress) only_live_memberpress=true ;;
 		--live-amelia) only_live_amelia=true ;;
+		--live-wc-subscriptions) only_live_wc_subscriptions=true ;;
 		--live-adapter) only_live_adapter=true ;;
 		--multisite) only_multisite=true ;;
 		--stop-db) stop_db=true ;;
@@ -220,7 +277,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_adapter" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_adapter" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -230,7 +287,12 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_funnelkit" = false ] || LEGS+=("live-funnelkit ${only_wp:-$default_wp}")
 	[ "$only_live_polylang" = false ] || LEGS+=("live-polylang ${only_wp:-$default_wp}")
 	[ "$only_live_breakdance" = false ] || LEGS+=("live-breakdance ${only_wp:-$default_wp}")
+	[ "$only_live_avada" = false ] || LEGS+=("live-avada ${only_wp:-$default_wp}")
+	[ "$only_live_wpbakery" = false ] || LEGS+=("live-wpbakery ${only_wp:-$default_wp}")
+	[ "$only_live_divi" = false ] || LEGS+=("live-divi ${only_wp:-$default_wp}")
+	[ "$only_live_memberpress" = false ] || LEGS+=("live-memberpress ${only_wp:-$default_wp}")
 	[ "$only_live_amelia" = false ] || LEGS+=("live-amelia ${only_wp:-$default_wp}")
+	[ "$only_live_wc_subscriptions" = false ] || LEGS+=("live-wc-subscriptions ${only_wp:-$default_wp}")
 	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
 elif [ "$only_multisite" = true ]; then
 	LEGS+=("multisite ${only_wp:-$default_wp} none")
@@ -265,6 +327,21 @@ else
 		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp")
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			LEGS+=("live-breakdance $default_wp")
+		fi
+		if [ -n "${WPMCP_AVADA_SRC:-}" ]; then
+			LEGS+=("live-avada $default_wp")
+		fi
+		if [ -n "${WPMCP_WPBAKERY_SRC:-}" ]; then
+			LEGS+=("live-wpbakery $default_wp")
+		fi
+		if [ -n "${WPMCP_DIVI_SRC:-}" ]; then
+			LEGS+=("live-divi $default_wp")
+		fi
+		if [ -n "${WPMCP_MEMBERPRESS_SRC:-}" ]; then
+			LEGS+=("live-memberpress $default_wp")
+		fi
+		if [ -n "${WPMCP_WC_SUBSCRIPTIONS_SRC:-}" ]; then
+			LEGS+=("live-wc-subscriptions $default_wp")
 		fi
 		# The adapter leg (issue #501) under --all only; see the header.
 		if [ "$run_all" = true ]; then
@@ -394,6 +471,16 @@ install_flavor() {
 	[ "${WPMCP_LIVE_AMELIA:-}" = 1 ] && flavor="-amelia-live"
 	# And WPMCP_LIVE_BREAKDANCE=1 and the local Breakdance copy.
 	[ "${WPMCP_LIVE_BREAKDANCE:-}" = 1 ] && flavor="-breakdance-live"
+	# And WPMCP_LIVE_AVADA=1 and the local Avada copies.
+	[ "${WPMCP_LIVE_AVADA:-}" = 1 ] && flavor="-avada-live"
+	# And WPMCP_LIVE_WPBAKERY=1 and the local WPBakery copy.
+	[ "${WPMCP_LIVE_WPBAKERY:-}" = 1 ] && flavor="-wpbakery-live"
+	# And WPMCP_LIVE_DIVI=1 and the local Divi theme copy.
+	[ "${WPMCP_LIVE_DIVI:-}" = 1 ] && flavor="-divi-live"
+	# And WPMCP_LIVE_MEMBERPRESS=1 and the local MemberPress copy.
+	[ "${WPMCP_LIVE_MEMBERPRESS:-}" = 1 ] && flavor="-memberpress-live"
+	# And WPMCP_LIVE_WC_SUBSCRIPTIONS=1, WooCommerce and the local Subscriptions copy.
+	[ "${WPMCP_LIVE_WC_SUBSCRIPTIONS:-}" = 1 ] && flavor="-wc-subscriptions-live"
 	echo "$flavor"
 }
 
@@ -802,6 +889,96 @@ run_live_breakdance() {
 	unset WPMCP_LIVE_BREAKDANCE
 }
 
+# The live Avada group (issue #637), the same way, with the Avada theme and
+# the fusion-builder and fusion-core plugins from WPMCP_AVADA_SRC: its own
+# install, its own database and --fail-on-skipped.
+run_live_avada() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_AVADA_SRC:-}/fusion-builder/fusion-builder.php" ] || die "the live Avada group needs WPMCP_AVADA_SRC, a directory holding Avada/, fusion-builder/ and fusion-core/"
+	export WPMCP_LIVE_AVADA=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-avada-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Avada group on WordPress $version (real Avada from $WPMCP_AVADA_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group avada-live --fail-on-skipped
+	unset WPMCP_LIVE_AVADA
+}
+
+# The live WPBakery group (issue #639), the same way, with the WPBakery copy
+# from WPMCP_WPBAKERY_SRC: its own install, its own database and
+# --fail-on-skipped.
+run_live_wpbakery() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_WPBAKERY_SRC:-}/js_composer.php" ] || die "the live WPBakery group needs WPMCP_WPBAKERY_SRC, a directory holding the WPBakery plugin (js_composer.php)"
+	export WPMCP_LIVE_WPBAKERY=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-wpbakery-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live WPBakery group on WordPress $version (real WPBakery from $WPMCP_WPBAKERY_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group wpbakery-live --fail-on-skipped
+	unset WPMCP_LIVE_WPBAKERY
+}
+
+# The live Divi group (issue #636), the same way, with the Divi theme copy
+# from WPMCP_DIVI_SRC: its own install, its own database and
+# --fail-on-skipped. tests/bootstrap.php switches to the theme.
+run_live_divi() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_DIVI_SRC:-}/style.css" ] || die "the live Divi group needs WPMCP_DIVI_SRC, a directory holding the Divi 5 theme"
+	export WPMCP_LIVE_DIVI=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-divi-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Divi group on WordPress $version (real Divi from $WPMCP_DIVI_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group divi-live --fail-on-skipped
+	unset WPMCP_LIVE_DIVI
+}
+
+# The live MemberPress group (issue #668), the same way, with the MemberPress
+# copy from WPMCP_MEMBERPRESS_SRC: its own install, its own database and
+# --fail-on-skipped.
+run_live_memberpress() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_MEMBERPRESS_SRC:-}/memberpress.php" ] || die "the live MemberPress group needs WPMCP_MEMBERPRESS_SRC, a directory holding the MemberPress plugin"
+	export WPMCP_LIVE_MEMBERPRESS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-memberpress-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live MemberPress group on WordPress $version (real MemberPress from $WPMCP_MEMBERPRESS_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group memberpress-live --fail-on-skipped
+	unset WPMCP_LIVE_MEMBERPRESS
+}
+
+# The live WooCommerce Subscriptions group (issue #658), the same way, with
+# the plugin copied from WPMCP_WC_SUBSCRIPTIONS_SRC beside WooCommerce: its
+# own install, its own database and --fail-on-skipped.
+run_live_wc_subscriptions() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_WC_SUBSCRIPTIONS_SRC:-}/woocommerce-subscriptions.php" ] || die "the live WooCommerce Subscriptions group needs WPMCP_WC_SUBSCRIPTIONS_SRC, a directory holding the WooCommerce Subscriptions plugin"
+	export WPMCP_LIVE_WC_SUBSCRIPTIONS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-wc-subscriptions-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live WooCommerce Subscriptions group on WordPress $version (real Subscriptions from $WPMCP_WC_SUBSCRIPTIONS_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group wc-subscriptions-live --fail-on-skipped
+	unset WPMCP_LIVE_WC_SUBSCRIPTIONS
+}
+
 # ---------------------------------------------------------------- MCP Adapter
 
 # Prints the MCP Adapter release the adapter leg tests: WPMCP_ADAPTER_VERSION,
@@ -944,7 +1121,12 @@ run_leg_body() {
 		live-funnelkit) run_live_funnelkit "$wp" ;;
 		live-polylang) run_live_polylang "$wp" ;;
 		live-breakdance) run_live_breakdance "$wp" ;;
+		live-avada) run_live_avada "$wp" ;;
+		live-wpbakery) run_live_wpbakery "$wp" ;;
+		live-divi) run_live_divi "$wp" ;;
+		live-memberpress) run_live_memberpress "$wp" ;;
 		live-amelia) run_live_amelia "$wp" ;;
+		live-wc-subscriptions) run_live_wc_subscriptions "$wp" ;;
 		live-adapter) run_live_adapter "$wp" ;;
 		*) die "unknown leg: $kind" ;;
 	esac

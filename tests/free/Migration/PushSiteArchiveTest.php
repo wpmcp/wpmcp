@@ -479,4 +479,135 @@ class PushSiteArchiveTest extends \WP_UnitTestCase
         $this->assertStringContainsString('No pre-restore safety archive', $out['error']);
         $this->assertSame('apply', end($this->requests)['input']['action'], 'A real refusal needs no status check.');
     }
+    /** A JSON response written by something other than the target's wpmcp. */
+    private static function json_response(int $code, array $body): array
+    {
+        return [
+            'headers'  => ['content-type' => 'application/json; charset=utf-8'],
+            'body'     => (string) wp_json_encode($body),
+            'response' => ['code' => $code, 'message' => ''],
+            'cookies'  => [],
+            'filename' => null,
+        ];
+    }
+
+    /** The body Cloudflare sends with its 524 to a client that asks for JSON (issue #776 retest). */
+    private static function cloudflare_524_body(): array
+    {
+        return [
+            'type'             => 'https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-524/',
+            'title'            => 'Error 524: A timeout occurred',
+            'status'           => 524,
+            'detail'           => 'The origin web server did not return a complete response within the 120-second Proxy Read Timeout window.',
+            'error_code'       => 524,
+            'error_name'       => 'origin_response_timeout',
+            'error_category'   => 'origin',
+            'cloudflare_error' => true,
+            'retryable'        => true,
+            'retry_after'      => 120,
+        ];
+    }
+
+    /**
+     * Issue #776 retest: Cloudflare answers a client that sends
+     * Accept: application/json with a JSON 524 body. JSON from the proxy is
+     * still not an answer from wpmcp, so the push must report apply_sent.
+     */
+    public function test_a_cloudflare_json_524_on_apply_is_reported_as_apply_sent_not_refused(): void
+    {
+        $archive     = $this->source_archive();
+        $this->fault = static function (array $input) {
+            if ('apply' === ($input['action'] ?? '') && false === ($input['dry_run'] ?? true)) {
+                Incoming_Archive_Store::finalize((string) $input['upload_id']);
+                Incoming_Archive_Store::begin_apply((string) $input['upload_id']);
+
+                return self::json_response(524, self::cloudflare_524_body());
+            }
+            return null;
+        };
+
+        $out = $this->push($this->args($archive, ['dry_run' => false, 'confirm' => true, 'apply' => true, 'chunk_bytes' => 65536]));
+
+        $this->assertSame('apply_sent', $out['status'], (string) wp_json_encode($out));
+        $this->assertSame('gateway_error', $out['reason']);
+        $this->assertSame('applying', $out['target_state']);
+        $this->assertStringContainsString('HTTP 524', $out['error']);
+        $this->assertStringNotContainsString('no JSON body', $out['error'], 'There was a JSON body, just not one from wpmcp.');
+        $this->assertStringNotContainsString('rejected', $out['error']);
+        $this->assertSame('status', end($this->requests)['input']['action']);
+
+        Incoming_Archive_Store::update($out['upload_id'], ['status' => 'applied', 'result' => ['status' => 'migrated', 'upload_id' => $out['upload_id']]]);
+        $this->fault = null;
+        $done        = $this->push($this->args($archive, ['dry_run' => false, 'confirm' => true, 'apply' => true, 'chunk_bytes' => 65536]));
+        $this->assertSame('already_applied', $done['status']);
+        $this->assertSame([], Backup_Job_Store::list(), 'The archive was never applied a second time.');
+    }
+
+    /**
+     * A JSON 429 or 408 from a proxy (no wpmcp code and message) is not a
+     * refusal either: the push asks the target where it stands.
+     *
+     * @dataProvider proxy_json_statuses
+     */
+    public function test_a_proxy_json_error_without_a_wpmcp_envelope_is_unanswered(int $code): void
+    {
+        $archive     = $this->source_archive();
+        $this->fault = static function (array $input) use ($code) {
+            if ('apply' === ($input['action'] ?? '') && false === ($input['dry_run'] ?? true)) {
+                return self::json_response($code, ['status' => $code, 'title' => 'Proxy error']);
+            }
+            return null;
+        };
+
+        $out = $this->push($this->args($archive, ['dry_run' => false, 'confirm' => true, 'apply' => true, 'chunk_bytes' => 65536]));
+
+        $this->assertSame('apply_sent', $out['status'], (string) wp_json_encode($out));
+        $this->assertStringContainsString('HTTP ' . $code, $out['error']);
+        $this->assertSame('status', end($this->requests)['input']['action']);
+    }
+
+    /** @return array<string, array{int}> */
+    public static function proxy_json_statuses(): array
+    {
+        return ['408' => [408], '429' => [429], '502' => [502], '503' => [503]];
+    }
+
+    /**
+     * A PHP fatal on the target during the apply makes WordPress send its
+     * own JSON 500 (code internal_server_error). The target's state is
+     * unknown, so the push checks status instead of reporting a refusal.
+     */
+    public function test_a_wordpress_critical_error_500_on_apply_is_unanswered(): void
+    {
+        $archive     = $this->source_archive();
+        $this->fault = static function (array $input) {
+            if ('apply' === ($input['action'] ?? '') && false === ($input['dry_run'] ?? true)) {
+                return self::json_response(500, ['code' => 'internal_server_error', 'message' => '<p>There has been a critical error on this website.</p>', 'data' => ['status' => 500]]);
+            }
+            return null;
+        };
+
+        $out = $this->push($this->args($archive, ['dry_run' => false, 'confirm' => true, 'apply' => true, 'chunk_bytes' => 65536]));
+
+        $this->assertSame('apply_sent', $out['status'], (string) wp_json_encode($out));
+        $this->assertSame('status', end($this->requests)['input']['action']);
+    }
+
+    public function test_a_wpmcp_error_envelope_on_a_5xx_is_still_a_refusal(): void
+    {
+        $archive     = $this->source_archive();
+        $this->fault = static function (array $input) {
+            if ('apply' === ($input['action'] ?? '') && false === ($input['dry_run'] ?? true)) {
+                return self::json_response(500, ['code' => 'wpmcp_migration_failed', 'message' => 'The archive could not be read.', 'data' => ['status' => 500]]);
+            }
+            return null;
+        };
+
+        $out = $this->push($this->args($archive, ['dry_run' => false, 'confirm' => true, 'apply' => true, 'chunk_bytes' => 65536]));
+
+        $this->assertSame('apply_failed', $out['status'], (string) wp_json_encode($out));
+        $this->assertStringContainsString('refused', $out['error']);
+        $this->assertStringContainsString('could not be read', $out['error']);
+        $this->assertSame('apply', end($this->requests)['input']['action'], 'A real refusal needs no status check.');
+    }
 }

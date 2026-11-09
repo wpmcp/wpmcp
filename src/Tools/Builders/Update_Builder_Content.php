@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Builders;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Safety\Save_Filters;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -37,10 +38,24 @@ if (! defined('ABSPATH')) {
  * Elementor/gutenberg/classic posts are out of scope for this tool (use
  * update-element for Elementor) and return a WP_Error.
  *
+ * Avada pages also need (issue #637) an expected_hash on every write to a
+ * page that has a layout (the read's hash; a page changed since is refused), an add whose element is {template: <id>}
+ * (a library item spliced in, see Avada_Library::insert_template), and the
+ * save_template operation, which saves an element or the whole page to the
+ * Avada library as a new post recorded for undo.
+ *
+ * WPBakery pages need (issue #639) expected_hash, the read's hash, on any
+ * write to a page that has a layout (missing or stale is refused), and take
+ * publish, restore (path: a revision id from the read) and add with element {template: id} (a saved template, or
+ * default:<n> while the plugin is loaded), and scope 'templates' writes its
+ * saved templates (see WPBakery_Templates).
+ *
  * With `scope` 'design_system' the call edits one entry of the builder's
  * global design data instead of a post (issue #391): Bricks classes,
- * variables and palettes, Breakdance classes and palette colors. See
- * Builder_Design_Write, which snapshots the one option it changes.
+ * variables and palettes, Breakdance classes and palette colors, Avada
+ * palette colors, typography sets and global options. See
+ * Builder_Design_Write and Avada_Design, which snapshot the one option they
+ * change.
  *
  * All writes go through Safe_Mutation::run() with object_type='post':
  * Bricks' JSON lives in ordinary postmeta and Divi's shortcodes live in
@@ -57,8 +72,15 @@ class Update_Builder_Content
     {
         $scope = (string) ($args['scope'] ?? '');
         if ('' !== $scope) {
+            if ('templates' === $scope && 'wpbakery' === ($args['builder'] ?? '')) {
+                return WPBakery_Templates::write($args);
+            }
             if ('design_system' !== $scope) {
-                return new \WP_Error('invalid_scope', "update-builder-content's only scope is 'design_system'; got '{$scope}'.");
+                return new \WP_Error('invalid_scope', "update-builder-content's scopes are 'design_system' and, for wpbakery, 'templates'; got '{$scope}'.");
+            }
+
+            if ('avada' === (string) ($args['builder'] ?? '')) {
+                return Avada_Design::write($args);
             }
 
             return Builder_Design_Write::write($args);
@@ -308,6 +330,8 @@ class Update_Builder_Content
     {
         $operation = (string) ($args['operation'] ?? '');
         $path      = null;
+        $status    = null;
+        $current   = WPBakery_Content::get_content($post_id);
 
         if ('' === $operation) {
             $content = $args['content'] ?? null;
@@ -323,10 +347,32 @@ class Update_Builder_Content
                 );
             }
 
-            try {
-                [$content, $path] = $this->apply_operation(WPBakery_Shortcodes::class, WPBakery_Content::get_content($post_id), $operation, $args);
-            } catch (\InvalidArgumentException $e) {
-                return new \WP_Error('invalid_wpbakery_operation', $e->getMessage());
+            if ('publish' === $operation) {
+                $refusal = $this->publish_refusal($post_id);
+                if (null !== $refusal) {
+                    return $refusal;
+                }
+                $content = null;
+                $status  = 'publish';
+            } else {
+                try {
+                    [$content, $path] = $this->apply_wpbakery_operation($post_id, $current, $operation, $args);
+                } catch (\InvalidArgumentException $e) {
+                    return new \WP_Error('invalid_wpbakery_operation', $e->getMessage());
+                }
+            }
+        }
+
+        // A page with a layout is changed only against the hash it was read
+        // with (issue #639), the refusal Divi 5 pages use; a blank page has
+        // nothing to lose.
+        if ('' !== trim($current)) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a WPBakery page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(WPBakery_Page::hash($current), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
             }
         }
 
@@ -338,13 +384,22 @@ class Update_Builder_Content
                 'tool_name'   => 'update-builder-content',
                 'args'        => $args,
             ],
-            function () use ($post_id, $content) {
+            function () use ($post_id, $content, $status) {
+                if (null !== $status) {
+                    Save_Filters::set_post_status($post_id, $status);
+                    return true;
+                }
                 WPBakery_Content::save($post_id, $content);
                 return true;
             }
         );
 
-        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'wpbakery'];
+        $result = [
+            'operation_id' => $out['operation_id'],
+            'post_id'      => $post_id,
+            'builder'      => 'wpbakery',
+            'hash'         => WPBakery_Page::hash(WPBakery_Content::get_content($post_id)),
+        ];
         if (null !== $path) {
             $result['path'] = $path;
         }
@@ -353,8 +408,57 @@ class Update_Builder_Content
     }
 
     /**
-     * Avada pages: whole shortcode content or one element operation, only on
-     * a page detected as Avada or as plain classic content.
+     * WPBakery's operations: the four shared element operations, add from a
+     * template (element {template}), and restore of a revision's layout.
+     *
+     * @return array{0:string,1:?string}
+     */
+    private function apply_wpbakery_operation(int $post_id, string $content, string $operation, array $args): array
+    {
+        $element = $args['element'] ?? null;
+        if ('add' === $operation && is_array($element) && array_key_exists('template', $element)) {
+            if (! is_string($element['template']) || 1 !== count($element)) {
+                throw new \InvalidArgumentException(esc_html('element {template} takes only a template id (a string).'));
+            }
+            $index = isset($args['index']) ? (int) $args['index'] : null;
+
+            return WPBakery_Page::insert_template($content, (string) ($args['to'] ?? ''), $index, $element['template']);
+        }
+
+        if ('restore' === $operation) {
+            return [WPBakery_Page::revision_content($post_id, (string) ($args['path'] ?? '')), null];
+        }
+
+        if (! in_array($operation, ['update', 'add', 'remove', 'move'], true)) {
+            throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move, publish or restore."));
+        }
+
+        return $this->apply_operation(WPBakery_Shortcodes::class, $content, $operation, $args);
+    }
+
+    /** Why this page cannot be published by this user now, or null. */
+    private function publish_refusal(int $post_id): ?\WP_Error
+    {
+        $status = get_post_status($post_id);
+        if ('publish' === $status) {
+            return new \WP_Error('already_published', 'This page is already published.');
+        }
+        if (! in_array($status, ['draft', 'pending', 'private', 'future'], true)) {
+            return new \WP_Error('invalid_wpbakery_operation', "A page with status '{$status}' cannot be published here.");
+        }
+        if (! current_user_can('publish_post', $post_id)) {
+            return new \WP_Error('forbidden', 'You are not allowed to publish this page.');
+        }
+
+        return null;
+    }
+
+    /**
+     * Avada pages: whole shortcode content or one element operation (add
+     * also takes a library item), only on a page detected as Avada or as
+     * plain classic content, and only while the page still has the hash the
+     * caller read (required unless the page is blank). save_template writes
+     * no page.
      */
     private function update_avada(int $post_id, array $args)
     {
@@ -371,9 +475,32 @@ class Update_Builder_Content
             return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not an Avada page.");
         }
 
+        if ('save_template' === $operation) {
+            return Avada_Library::save_template($post_id, $args);
+        }
+
+        // Paths are child indexes, so a write against a page that changed
+        // since the read could land on another element: every write to a
+        // page with a layout needs the hash that read returned (as Divi 5).
+        if ('' !== trim(Avada_Content::get_content($post_id))) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change an Avada page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(Avada_Content::hash($post_id), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+            }
+        }
+
         if ('' !== $operation) {
+            $old = Avada_Content::get_content($post_id);
             try {
-                [$content, $path] = $this->apply_operation(Avada_Shortcodes::class, Avada_Content::get_content($post_id), $operation, $args);
+                $template = 'add' === $operation && is_array($args['element'] ?? null) ? ($args['element']['template'] ?? null) : null;
+                if (null !== $template) {
+                    [$content, $path] = Avada_Library::insert_template($old, (string) ($args['to'] ?? ''), isset($args['index']) ? (int) $args['index'] : null, (int) $template);
+                } else {
+                    [$content, $path] = $this->apply_operation(Avada_Shortcodes::class, $old, $operation, $args);
+                }
             } catch (\InvalidArgumentException $e) {
                 return new \WP_Error('invalid_avada_operation', $e->getMessage());
             }
@@ -393,7 +520,7 @@ class Update_Builder_Content
             }
         );
 
-        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'avada'];
+        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'avada', 'hash' => Avada_Content::hash($post_id)];
         if (null !== $path) {
             $result['path'] = $path;
         }
@@ -646,13 +773,138 @@ class Update_Builder_Content
         return ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'bricks'];
     }
 
-    /** @param mixed $content */
+    /**
+     * Divi pages. A Divi 4 page takes a whole shortcode string, as before.
+     * A Divi 5 page (block markup, see Divi5_Blocks), or a Divi 5 layout
+     * written over a page, takes a whole layout or one element operation
+     * addressed by the dotted paths get-builder-content returns, and needs
+     * Divi 5 loaded and, once the page holds a Divi 5 layout, the hash that
+     * read returned, so a page changed since it was read is never
+     * overwritten.
+     *
+     * @param mixed $content
+     */
     private function update_divi(int $post_id, $content, array $args)
     {
-        if (! is_string($content)) {
-            return new \WP_Error('invalid_divi_content', 'Divi content must be a string.');
+        $operation = (string) ($args['operation'] ?? '');
+        $current   = Divi_Content::get_content($post_id);
+        $page5     = Divi_Content::is_divi5($post_id);
+
+        if ('' === $operation) {
+            if (! is_string($content)) {
+                return new \WP_Error('invalid_divi_content', 'Divi content must be a string.');
+            }
+            if (! $page5 && ! Divi5_Blocks::is_divi5($content)) {
+                return $this->update_divi4($post_id, $content, $args);
+            }
+        } elseif (! $page5) {
+            $detected = Builder_Detector::detect($post_id);
+            if ('divi' === $detected) {
+                return new \WP_Error(
+                    'divi4_operations_unsupported',
+                    'This page holds a Divi 4 (shortcode) layout; element operations need a Divi 5 layout. Open the page in the Divi 5 builder to convert it, or pass the whole content instead.'
+                );
+            }
+            if ('classic' !== $detected || '' !== trim($current)) {
+                return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not a Divi 5 page.");
+            }
         }
 
+        $unavailable = Divi_Content::divi5_unavailable();
+        if (null !== $unavailable) {
+            return $unavailable;
+        }
+
+        if ($page5 && '' !== trim($current)) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a Divi 5 page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(hash('sha256', $current), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+            }
+        }
+
+        // A user without unfiltered_html gets what kses lets through, as for
+        // any post content: the attribute JSON is beyond kses's reach.
+        $map  = current_user_can('unfiltered_html') ? null : 'wp_kses_post';
+        $path = null;
+        try {
+            if ('' === $operation) {
+                Divi5_Blocks::validate($content);
+                $layout = null === $map ? $content : Divi5_Blocks::map_strings($content, $map);
+            } else {
+                [$layout, $path] = $this->apply_divi5_operation($current, $operation, $args, $map);
+            }
+        } catch (\InvalidArgumentException $e) {
+            return new \WP_Error('invalid_divi_request', $e->getMessage());
+        }
+
+        $out = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $post_id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-builder-content',
+                'args'        => $args,
+            ],
+            function () use ($post_id, $layout) {
+                Divi_Content::save5($post_id, $layout);
+                return true;
+            }
+        );
+
+        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'divi', 'hash' => Divi_Content::hash($post_id)];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Apply one Divi 5 element operation; `path` and `to` are dotted paths.
+     *
+     * @return array{0:string,1:?string} new layout, and the element's path
+     *                                    when the operation knows it
+     */
+    private function apply_divi5_operation(string $content, string $operation, array $args, ?callable $map): array
+    {
+        $path  = (string) ($args['path'] ?? '');
+        $to    = (string) ($args['to'] ?? '');
+        $index = isset($args['index']) ? (int) $args['index'] : null;
+
+        switch ($operation) {
+            case 'update':
+                $attrs = $args['attrs'] ?? null;
+                $text  = $args['text'] ?? null;
+                if (null !== $attrs && ! is_array($attrs)) {
+                    throw new \InvalidArgumentException(esc_html('attrs must be an object: the attributes to merge (null removes a key).'));
+                }
+                if (null !== $text && ! is_string($text)) {
+                    throw new \InvalidArgumentException(esc_html('text must be a string.'));
+                }
+                return [Divi5_Blocks::update($content, $path, $attrs, $text, $map), $path];
+
+            case 'add':
+                $element = $args['element'] ?? null;
+                if (! is_array($element)) {
+                    throw new \InvalidArgumentException(esc_html('add needs an element object: {name, attrs?, text?, children?}.'));
+                }
+                return Divi5_Blocks::add($content, $to, $index, $element, Divi_Content::plugin_version(), $map);
+
+            case 'remove':
+                return [Divi5_Blocks::remove($content, $path), null];
+
+            case 'move':
+                return [Divi5_Blocks::move($content, $path, $to, $index), null];
+        }
+
+        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove or move."));
+    }
+
+    private function update_divi4(int $post_id, string $content, array $args)
+    {
         $out = Safe_Mutation::run(
             [
                 'object_type' => 'post',
