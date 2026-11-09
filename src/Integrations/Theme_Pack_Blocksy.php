@@ -22,6 +22,11 @@ if (! defined('ABSPATH')) {
  *    {id, values}. A write edits the default section (type-1, else the
  *    first) and refuses when the placements were never saved, since the
  *    builder's default structure only exists inside the theme.
+ *
+ * After a write and after its undo the pack wipes Blocksy's per-request
+ * copy of the theme mods (blocksy_manager()->db->wipe_cache()) and then
+ * fires blocksy:dynamic-css:refresh-caches, so the dynamic CSS is rebuilt
+ * from the values now stored (issue #797).
  */
 final class Theme_Pack_Blocksy
 {
@@ -74,6 +79,16 @@ final class Theme_Pack_Blocksy
                 'footer_copyright_text' => $item('footer_placements', 'copyright', 'copyright_text', [ 'rule' => 'html' ]),
             ],
             'refresh'  => static function (): void {
+                // Blocksy keeps the theme mods it read earlier in this
+                // request (Blocksy\Database, outside wp-admin, the
+                // Customizer and AJAX), so a rebuild now would use the
+                // values from before the write or its undo, and the live
+                // site would stay one change behind (issue #797). Drop that
+                // copy first, as Blocksy does itself after its own writes.
+                $manager = function_exists('blocksy_manager') ? blocksy_manager() : null;
+                if (is_object($manager) && isset($manager->db) && is_object($manager->db) && method_exists($manager->db, 'wipe_cache')) {
+                    $manager->db->wipe_cache();
+                }
                 // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking Blocksy's own dynamic CSS refresh action (inc/dynamic-css.php), not defining a hook.
                 do_action('blocksy:dynamic-css:refresh-caches');
             },
