@@ -55,15 +55,21 @@ final class Restore_Logs
      */
     public static function reapply(array $captured): void
     {
-        foreach (self::OPTIONS as $option) {
-            if (! array_key_exists($option, $captured)) {
-                continue;
-            }
-            if (is_array($captured[ $option ])) {
-                // The request log is kept out of autoload, as Request_Log stores it.
-                update_option($option, $captured[ $option ], Request_Log::OPTION === $option ? false : null);
+        // Each option by its constant, so the uninstall data registry can
+        // see every key written here.
+        if (array_key_exists(Governance_Audit_Log::OPTION, $captured)) {
+            if (is_array($captured[ Governance_Audit_Log::OPTION ])) {
+                update_option(Governance_Audit_Log::OPTION, $captured[ Governance_Audit_Log::OPTION ]);
             } else {
-                delete_option($option);
+                delete_option(Governance_Audit_Log::OPTION);
+            }
+        }
+        if (array_key_exists(Request_Log::OPTION, $captured)) {
+            if (is_array($captured[ Request_Log::OPTION ])) {
+                // Kept out of autoload, as Request_Log stores it.
+                update_option(Request_Log::OPTION, $captured[ Request_Log::OPTION ], false);
+            } else {
+                delete_option(Request_Log::OPTION);
             }
         }
     }
