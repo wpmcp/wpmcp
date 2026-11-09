@@ -174,8 +174,12 @@ class BackupTasksTest extends \WP_UnitTestCase
         $this->assertSame('cancelled', $this->modern('tasks/get', [ 'taskId' => $task['taskId'] ])['result']['status']);
     }
 
-    /** Cancellation is cooperative: a job already running is acknowledged, not interrupted. */
-    public function test_tasks_cancel_on_a_running_job_is_acknowledged(): void
+    /**
+     * Cancellation is cooperative: a running job is marked canceled (issue
+     * #771) and its run stops at its next heartbeat, so the acknowledgement
+     * and the record agree.
+     */
+    public function test_tasks_cancel_on_a_running_job_marks_it_canceled(): void
     {
         $task   = $this->start_task();
         $job_id = Backup_Job_Store::list()[0]['id'];
@@ -184,7 +188,8 @@ class BackupTasksTest extends \WP_UnitTestCase
         $response = $this->modern('tasks/cancel', [ 'taskId' => $task['taskId'] ]);
 
         $this->assertArrayHasKey('result', $response);
-        $this->assertSame('running', Backup_Job_Store::get($job_id)['status']);
+        $this->assertSame('canceled', Backup_Job_Store::get($job_id)['status']);
+        $this->assertSame('cancelled', $this->modern('tasks/get', [ 'taskId' => $task['taskId'] ])['result']['status']);
     }
 
     public function test_tasks_update_is_acknowledged(): void

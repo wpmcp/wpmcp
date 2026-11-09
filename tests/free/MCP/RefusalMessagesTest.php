@@ -229,6 +229,56 @@ class RefusalMessagesTest extends \WP_UnitTestCase
         }
     }
 
+    /**
+     * Issue #772: a tool an administrator switched off is "disabled by
+     * governance", naming the toggle, not "not registered on this site".
+     *
+     * @dataProvider governance_layers
+     */
+    public function test_call_tool_on_a_governance_disabled_tool_names_the_toggle(callable $disable, string $names): void
+    {
+        $this->as_administrator();
+        $disable();
+
+        $plugin   = Plugin::instance();
+        $prop     = new \ReflectionProperty(Plugin::class, 'registrar');
+        $original = $prop->getValue($plugin);
+        $fresh    = new Registrar();
+        $fresh->register(new Ability('wpmcp/test-toggled-off', 'free', 'A tool', ['type' => 'object'], fn () => [], 'edit_posts', 'testdomain', 'testop'));
+        $fresh->register(new Ability('wpmcp/test-still-on', 'free', 'A tool', ['type' => 'object'], fn () => [], 'edit_posts', 'otherdomain', 'otherop'));
+        $prop->setValue($plugin, $fresh);
+
+        try {
+            foreach ([ new Call_Tool(), new Get_Tool_Schema() ] as $tool) {
+                $result = $tool->handle(['name' => 'wpmcp/test-toggled-off']);
+                $this->assertInstanceOf(\WP_Error::class, $result);
+                $this->assertSame('governance_disabled', $result->get_error_code());
+                $message = $result->get_error_message();
+                $this->assertStringContainsString('disabled by governance', $message);
+                $this->assertStringContainsString($names, $message);
+                $this->assertStringContainsString('administrator', $message);
+                $this->assertStringNotContainsString('not registered', $message);
+            }
+
+            // A name nobody declared is still "no such tool", and a registered one is untouched.
+            $this->assertSame('wpmcp_call_tool_unknown', (new Call_Tool())->handle(['name' => 'wpmcp/nope'])->get_error_code());
+            $this->assertSame('wpmcp/test-still-on', (new Get_Tool_Schema())->handle(['name' => 'wpmcp/test-still-on'])['name']);
+        } finally {
+            $prop->setValue($plugin, $original);
+            remove_all_filters('wpmcp_ability_enabled');
+        }
+    }
+
+    public static function governance_layers(): array
+    {
+        return [
+            'ability toggle'   => [ fn () => Governance::set_ability_toggle('wpmcp/test-toggled-off', false), 'ability toggle for "wpmcp/test-toggled-off"' ],
+            'domain toggle'    => [ fn () => Governance::set_domain_toggle('testdomain', false), 'domain toggle for "testdomain"' ],
+            'operation toggle' => [ fn () => Governance::set_operation_toggle('testop', false), 'operation toggle for "testop"' ],
+            'ability filter'   => [ fn () => add_filter('wpmcp_ability_enabled', fn ($on, $name) => 'wpmcp/test-toggled-off' !== $name && $on, 10, 2), 'wpmcp_ability_enabled filter' ],
+        ];
+    }
+
     public function test_suggest_internal_links_on_a_draft_says_it_must_be_published(): void
     {
         $draft = self::factory()->post->create(['post_status' => 'draft']);

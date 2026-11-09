@@ -208,18 +208,31 @@ class Snapshot_Store
     /**
      * Rewrite a persisted undo point, for a write that only learns after it
      * ran what its undo must also cover (the rows a host plugin's hooks
-     * added, the id the host assigned). Loud on failure, like save().
+     * added, the id the host assigned). The row's object identity follows
+     * the snapshot, object_ref included (issue #777): a create keyed on
+     * ":0" before the write is listed under the id the host assigned once
+     * the recorder re-keys it. $object_ref is the caller's own label, as
+     * passed to save(), so a labelled row keeps its label. Loud on failure,
+     * like save().
      *
      * @throws Mutation_Failed When the snapshot row could not be rewritten.
      */
-    public static function update_snapshot(string $operation_id, array $snapshot): void
+    public static function update_snapshot(string $operation_id, array $snapshot, string $object_ref = ''): void
     {
         global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
-        $written = $wpdb->update(self::table_name(), [
+        $fields = [
             'object_id'   => self::db_object_id($snapshot),
+            'object_ref'  => self::object_ref($snapshot, $object_ref),
             'before_blob' => Snapshot::serialize($snapshot),
-        ], [ 'operation_id' => $operation_id ]);
+        ];
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
+        $written = $wpdb->update(self::table_name(), $fields, [ 'operation_id' => $operation_id ]);
+        if (false === $written && false !== stripos((string) $wpdb->last_error, 'object_ref')) {
+            // A table that predates the object_ref column, as in save().
+            unset($fields['object_ref']);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
+            $written = $wpdb->update(self::table_name(), $fields, [ 'operation_id' => $operation_id ]);
+        }
 
         if (false === $written) {
             throw new Mutation_Failed(

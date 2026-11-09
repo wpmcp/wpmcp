@@ -33,16 +33,39 @@ if (! defined('ABSPATH')) {
  * marked failed the next time the store is read: its cron request died (a PHP
  * timeout or fatal error) and nothing else will ever move it. If that run
  * does finish after all, its own final update still records the archive.
+ *
+ * A running archive job reports progress through heartbeat() (issue #771):
+ * Run_Backup_Job writes the builder's progress (phase, files added, dump
+ * bytes, the partial archive's path) at least every HEARTBEAT_SECONDS while
+ * the build is alive. A job carrying progress is therefore held to the much
+ * shorter STALE_HEARTBEAT_AFTER: one that has not reported in that long is
+ * dead (the request hit max_execution_time or the memory limit, which skips
+ * every catch block), it is marked failed with the last progress in the
+ * reason, and its partial archive is removed. Jobs without progress (the WXR
+ * export, records written by older versions) keep the long limit.
  */
 class Backup_Job_Store
 {
     public const OPTION = 'wpmcp_backup_jobs';
 
     /**
-     * Seconds a job may stay "running" without an update before it is marked
-     * failed. Filter: wpmcp_backup_job_stale_after (never below a minute).
+     * Seconds a job without progress reports may stay "running" without an
+     * update before it is marked failed. Filter: wpmcp_backup_job_stale_after
+     * (never below a minute; the job record is the second argument).
      */
     public const STALE_RUNNING_AFTER = 2 * HOUR_IN_SECONDS;
+
+    /**
+     * Seconds a job that reports progress may go without a heartbeat before
+     * it is marked failed. Heartbeats come every HEARTBEAT_SECONDS while the
+     * build runs, including during the archive's final write (ZipArchive's
+     * progress callback), so ten minutes of silence is a dead request, not a
+     * slow one. Same filter as above.
+     */
+    public const STALE_HEARTBEAT_AFTER = 10 * MINUTE_IN_SECONDS;
+
+    /** Seconds between heartbeat writes while a job is producing its archive. */
+    public const HEARTBEAT_SECONDS = 15;
 
     /** Seconds a write waits for the store lock before going ahead without it. */
     private const LOCK_WAIT = 10;
@@ -141,30 +164,36 @@ class Backup_Job_Store
         }
     }
 
-    /** Seconds after which a running job counts as dead (filterable, at least 60). */
-    public static function stale_after(): int
+    /**
+     * Seconds after which a running job counts as dead (filterable, at least
+     * 60). A job that reports progress gets the heartbeat limit; one that
+     * does not (or when no record is given) gets the long one.
+     */
+    public static function stale_after(array $job = []): int
     {
-        return max(MINUTE_IN_SECONDS, (int) apply_filters('wpmcp_backup_job_stale_after', self::STALE_RUNNING_AFTER));
+        $default = is_array($job['progress'] ?? null) ? self::STALE_HEARTBEAT_AFTER : self::STALE_RUNNING_AFTER;
+
+        return max(MINUTE_IN_SECONDS, (int) apply_filters('wpmcp_backup_job_stale_after', $default, $job));
     }
 
-    private static function is_stale(array $job, int $now, int $limit): bool
+    private static function is_stale(array $job, int $now): bool
     {
-        return 'running' === ($job['status'] ?? '') && $now - (int) ($job['updated_at'] ?? 0) > $limit;
+        return 'running' === ($job['status'] ?? '') && $now - (int) ($job['updated_at'] ?? 0) > self::stale_after($job);
     }
 
     /**
-     * Mark every job that has been running past the limit as failed. Cheap
-     * when there is none: the cached copy is checked first, and only a hit
-     * takes the lock and writes.
+     * Mark every job that has been running past its limit as failed, and
+     * remove the partial archive its progress names. Cheap when there is
+     * none: the cached copy is checked first, and only a hit takes the lock
+     * and writes.
      */
     private static function fail_stale_jobs(): void
     {
-        $now   = self::now();
-        $limit = self::stale_after();
+        $now = self::now();
 
         $any = false;
         foreach (self::load()['jobs'] as $job) {
-            if (is_array($job) && self::is_stale($job, $now, $limit)) {
+            if (is_array($job) && self::is_stale($job, $now)) {
                 $any = true;
                 break;
             }
@@ -173,25 +202,106 @@ class Backup_Job_Store
             return;
         }
 
-        self::locked(static function (array $stored) use ($now, $limit): void {
-            $changed = false;
+        $failed = self::locked(static function (array $stored) use ($now): array {
+            $failed = [];
             foreach ($stored['jobs'] as $id => $job) {
-                if (! is_array($job) || ! self::is_stale($job, $now, $limit)) {
+                if (! is_array($job) || ! self::is_stale($job, $now)) {
                     continue;
                 }
                 $stored['jobs'][ $id ] = array_merge($job, [
                     'status'     => 'failed',
-                    'error'      => sprintf(
-                        'Marked failed: the job was still running %d minutes after its last update, so its run most likely stopped (a PHP timeout or fatal error). Start the backup again.',
-                        intdiv($now - (int) ($job['updated_at'] ?? 0), MINUTE_IN_SECONDS)
-                    ),
+                    'error'      => self::stale_error($job, $now),
                     'updated_at' => $now,
                 ]);
-                $changed = true;
+                $failed[] = $job;
             }
-            if ($changed) {
+            if ([] !== $failed) {
                 self::save($stored);
             }
+            return $failed;
+        });
+
+        // Outside the lock: file deletion is slow next to an option write,
+        // and the record is already final.
+        foreach ($failed as $job) {
+            if (is_array($job['progress'] ?? null)) {
+                Site_Archive_Builder::discard_partial($job['progress']);
+            }
+        }
+    }
+
+    /** The reason recorded on a job the stale sweep marks failed. */
+    private static function stale_error(array $job, int $now): string
+    {
+        $minutes = intdiv($now - (int) ($job['updated_at'] ?? 0), MINUTE_IN_SECONDS);
+
+        if (! is_array($job['progress'] ?? null)) {
+            return sprintf(
+                'Marked failed: the job was still running %d minutes after its last update, so its run most likely stopped (a PHP timeout or fatal error). Start the backup again.',
+                $minutes
+            );
+        }
+
+        return sprintf(
+            'Marked failed: the job reported no progress for %d minutes (last: %s), so its run stopped (the PHP time or memory limit ended the cron request). The partial archive was removed. Start the backup again; a database-only backup (scope database) stays within one request on most hosts.',
+            $minutes,
+            Site_Archive_Builder::describe_progress($job['progress'])
+        );
+    }
+
+    /**
+     * Record a running job's progress, bumping updated_at so the stale sweep
+     * knows the run is alive. Returns the updated record, or null when the
+     * job is no longer running or failed: canceled from another request
+     * (cancel-backup-job on a running job, issue #771), completed, or gone.
+     * The caller stops the build on null.
+     *
+     * A job the stale sweep marked failed is put back to running: the
+     * heartbeat is proof the sweep was wrong, and the final update would
+     * have recorded the archive on it anyway.
+     */
+    public static function heartbeat(int $id, array $progress): ?array
+    {
+        return self::locked(static function (array $stored) use ($id, $progress): ?array {
+            $current = $stored['jobs'][ $id ] ?? null;
+            if (! is_array($current) || ! in_array($current['status'] ?? null, ['running', 'failed'], true)) {
+                return null;
+            }
+
+            $job = array_merge($current, [
+                'status'     => 'running',
+                'error'      => null,
+                'progress'   => $progress,
+                'updated_at' => self::now(),
+            ]);
+
+            $stored['jobs'][ $id ] = $job;
+            self::save($stored);
+
+            return $job;
+        });
+    }
+
+    /**
+     * Record a run's outcome, unless the job was canceled while it ran: a
+     * canceled job keeps that status and null is returned, so the caller
+     * knows to discard what it produced. Otherwise update(): a job the stale
+     * sweep marked failed still records the archive its run produced.
+     */
+    public static function finish(int $id, array $fields): ?array
+    {
+        return self::locked(static function (array $stored) use ($id, $fields): ?array {
+            $current = $stored['jobs'][ $id ] ?? null;
+            if (! is_array($current) || 'canceled' === ($current['status'] ?? null)) {
+                return null;
+            }
+
+            $job                   = array_merge($current, $fields);
+            $job['updated_at']     = self::now();
+            $stored['jobs'][ $id ] = $job;
+            self::save($stored);
+
+            return $job;
         });
     }
 

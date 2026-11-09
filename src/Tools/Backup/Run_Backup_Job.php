@@ -44,6 +44,18 @@ if (! defined('ABSPATH')) {
  * produce a portable site archive (Site_Archive_Builder). Routing here
  * rather than at schedule time means the type recorded on the job is the
  * single source of truth for what was actually backed up.
+ *
+ * The producer's second argument is a progress callback (issue #771). The
+ * catch below only sees an exception; a request that PHP ends for
+ * max_execution_time or memory_limit skips it, and before this change such
+ * a job stayed "running" with updated_at frozen at the claim. The callback
+ * writes the producer's progress to the job every HEARTBEAT_SECONDS
+ * (Backup_Job_Store::heartbeat), so a job that stops reporting is found
+ * dead by the store's stale sweep within STALE_HEARTBEAT_AFTER and its
+ * partial archive is removed; the heartbeat also notices a cancel from
+ * another request and stops the build by throwing Backup_Job_Canceled.
+ * The whole archive is still built in one request; building it in resumable
+ * steps across cron runs is a separate change.
  */
 class Run_Backup_Job
 {
@@ -52,7 +64,7 @@ class Run_Backup_Job
     /** Job types that produce a site archive rather than a WXR export. */
     public const ARCHIVE_TYPES = ['full', 'database', 'files', 'uploads'];
 
-    /** @var callable(array): array */
+    /** @var callable(array, callable): array */
     private $producer;
 
     public function __construct(?callable $producer = null)
@@ -68,19 +80,64 @@ class Run_Backup_Job
      * caller passing something novel) must keep producing the artifact they
      * always did.
      *
-     * @return callable(array): array
+     * @return callable(array, callable): array
      */
     public static function default_producer(): callable
     {
-        return static function (array $job): array {
+        return static function (array $job, ?callable $progress = null): array {
             $scope = self::archive_scope($job);
 
             if (null !== $scope) {
-                return (new Site_Archive_Builder())->build($scope);
+                return (new Site_Archive_Builder())->build($scope, null, $progress);
             }
 
             return (new Export_Content())->handle([]);
         };
+    }
+
+    /**
+     * The progress callback handed to the producer: writes the progress to
+     * the job at most every HEARTBEAT_SECONDS (the first report and a phase
+     * change go through at once, so the partial archive's path is on the
+     * record before a byte is written), and stops the build when the job is
+     * no longer the worker's to finish.
+     *
+     * @return callable(array):void
+     */
+    private static function heartbeat(int $job_id): callable
+    {
+        $last_at    = null;
+        $last_phase = null;
+
+        return static function (array $progress) use ($job_id, &$last_at, &$last_phase): void {
+            $now   = Backup_Job_Store::now();
+            $phase = $progress['phase'] ?? null;
+            if (null !== $last_at && $phase === $last_phase && $now - $last_at < Backup_Job_Store::HEARTBEAT_SECONDS) {
+                return;
+            }
+            $last_at    = $now;
+            $last_phase = $phase;
+
+            if (null === Backup_Job_Store::heartbeat($job_id, $progress)) {
+                throw new Backup_Job_Canceled(sprintf('Backup job %d was canceled while it was running.', (int) $job_id));
+            }
+        };
+    }
+
+    /**
+     * What a cron request may do for a long build without the directory
+     * review's objections: keep running after the loopback client that
+     * spawned WP-Cron goes away, and use the memory WordPress allows an
+     * administrative task (WP_MAX_MEMORY_LIMIT; filter
+     * wpmcp_backup_memory_limit). max_execution_time is left alone, which
+     * is why the heartbeat exists.
+     */
+    private static function extend_limits(): void
+    {
+        if (function_exists('ignore_user_abort')) {
+            ignore_user_abort(true);
+        }
+        wp_raise_memory_limit('wpmcp_backup');
     }
 
     /**
@@ -188,15 +245,30 @@ class Run_Backup_Job
         }
         $job = $claimed;
 
+        self::extend_limits();
+
         try {
-            $artifact = ($this->producer)($job);
-            Backup_Job_Store::update($job_id, [
-                'status' => 'completed',
-                'result' => $artifact,
-                'error'  => null,
+            $artifact = ($this->producer)($job, self::heartbeat($job_id));
+            $recorded = Backup_Job_Store::finish($job_id, [
+                'status'   => 'completed',
+                'result'   => $artifact,
+                'error'    => null,
+                'progress' => null,
             ]);
+            if (null === $recorded) {
+                // Canceled between the last heartbeat and the finish: the
+                // user asked for no archive, so the one just written goes.
+                $file = is_array($artifact) ? (string) ($artifact['file'] ?? '') : '';
+                if ('' !== $file && is_file($file)) {
+                    wp_delete_file($file);
+                }
+            }
+        } catch (Backup_Job_Canceled $e) {
+            // cancel-backup-job wrote the record; the builder removed the
+            // partial archive on the way out.
+            unset($e);
         } catch (\Throwable $e) {
-            Backup_Job_Store::update($job_id, [
+            Backup_Job_Store::finish($job_id, [
                 'status' => 'failed',
                 'result' => null,
                 'error'  => $e->getMessage(),
