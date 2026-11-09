@@ -257,7 +257,11 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  #717) added no tool: nine ops on the theme pair, whose summary now
      *  names site identity and permalinks, paid for by dropping "supports"
      *  and the serial "and" from that summary without dropping a rule:
-     *  208979 -> 208987 bytes over 407 tools. */
+     *  208979 -> 208987 bytes over 407 tools. Divi 5 element editing
+     *  (#636) added no tool: operations, a Divi 5 read and Divi scope
+     *  reads on the builder pair, paid for by writing the builder lists
+     *  with "|" and the operation signatures without spaces, without
+     *  dropping a rule: 208996 -> 208995 bytes over 407 tools. */
     private const TOOLS_LIST_BYTE_BUDGET = 209000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */

@@ -14,7 +14,8 @@
 # --live-crm), or, with WPMCP_LIVE_AMELIA=1, Amelia Lite only
 # (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
 # WooCommerce and FunnelKit Funnel Builder only (bin/test-local.sh
-# --live-funnelkit). The script
+# --live-funnelkit), or, with WPMCP_LIVE_DIVI=1, no plugin and the Divi 5
+# theme copied from WPMCP_DIVI_SRC (bin/test-local.sh --live-divi). The script
 # is idempotent: plugins already present are left untouched, so it is safe to
 # run repeatedly both locally and from CI.
 #
@@ -178,6 +179,27 @@ elif [ "${WPMCP_LIVE_BREAKDANCE:-}" = "1" ]; then
 	rm -rf "$PLUGINS_DIR/breakdance"
 	cp -R "$src" "$PLUGINS_DIR/breakdance"
 	echo "Copied Breakdance $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/plugin.php" | head -n 1) from $src."
+fi
+
+# The live Divi job (issue #636) runs the Divi 5 adapter against a real
+# Divi 5. Divi is a commercial theme, not a plugin, and not on
+# wordpress.org, so it is copied from a local directory holding it
+# (WPMCP_DIVI_SRC) into the themes directory, and tests/bootstrap.php makes
+# it the active theme. Exclusive too: the stub-backed Divi tests stand in for
+# its version and module metadata.
+if [ "${WPMCP_LIVE_DIVI:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_DIVI:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_DIVI_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/style.css" ] || [ ! -d "$src/includes/builder-5" ]; then
+		echo "WPMCP_LIVE_DIVI=1 needs WPMCP_DIVI_SRC, a directory holding the Divi 5 theme (style.css and includes/builder-5)." >&2
+		exit 1
+	fi
+	mkdir -p "$WP_CORE_DIR/wp-content/themes"
+	rm -rf "$WP_CORE_DIR/wp-content/themes/Divi"
+	cp -R "$src" "$WP_CORE_DIR/wp-content/themes/Divi"
+	echo "Copied Divi $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/style.css" | head -n 1) from $src."
 fi
 
 download() {
