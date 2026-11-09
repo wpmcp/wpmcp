@@ -119,6 +119,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'breakdance/plugin.php' );
     }
 
+    // The live WPBakery job (issue #639, WPMCP_LIVE_WPBAKERY=1) runs the
+    // WPBakery adapter against a real WPBakery Page Builder, copied in from
+    // WPMCP_WPBAKERY_SRC. Loaded only on request: the stub-backed WPBakery
+    // tests stand in for its element map and toggle its presence.
+    if ( getenv( 'WPMCP_LIVE_WPBAKERY' ) ) {
+        wpmcp_maybe_require_plugin( 'js_composer/js_composer.php' );
+    }
+
     // The live CRM job (issue #477, WPMCP_LIVE_CRM=1) runs the FluentCRM
     // and MailPoet ops through the real plugins. Loaded only on request: the
     // stub-backed CRM tests build both plugins' tables from a fixture and

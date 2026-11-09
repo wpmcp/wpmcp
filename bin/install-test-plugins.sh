@@ -180,6 +180,26 @@ elif [ "${WPMCP_LIVE_BREAKDANCE:-}" = "1" ]; then
 	echo "Copied Breakdance $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/plugin.php" | head -n 1) from $src."
 fi
 
+# The live WPBakery job (issue #639) runs the WPBakery adapter against a real
+# WPBakery Page Builder. It is a commercial plugin and not on wordpress.org,
+# so it is copied from a local directory holding it (WPMCP_WPBAKERY_SRC)
+# instead of downloaded. Exclusive too: the stub-backed WPBakery tests stand
+# in for its element map and toggle its presence.
+if [ "${WPMCP_LIVE_WPBAKERY:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_WPBAKERY:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_WPBAKERY_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/js_composer.php" ]; then
+		echo "WPMCP_LIVE_WPBAKERY=1 needs WPMCP_WPBAKERY_SRC, a directory holding the WPBakery plugin (js_composer.php)." >&2
+		exit 1
+	fi
+	mkdir -p "$PLUGINS_DIR"
+	rm -rf "$PLUGINS_DIR/js_composer"
+	cp -R "$src" "$PLUGINS_DIR/js_composer"
+	echo "Copied WPBakery $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/js_composer.php" | head -n 1) from $src."
+fi
+
 download() {
 	if command -v curl >/dev/null 2>&1; then
 		curl -fsSL --retry 5 --retry-all-errors "$1" -o "$2"
