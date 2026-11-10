@@ -378,6 +378,8 @@ final class MemberPress_Pack
                     'type'                 => 'object',
                     'properties'           => [
                         'type'      => [ 'type' => 'string', 'enum' => self::ACCESS_TYPES ],
+                        // MeprRule::mepr_access_operators() offers only "is"; accepted so a condition read by list-rules can be written back as it is.
+                        'operator'  => [ 'type' => 'string', 'enum' => [ 'is' ] ],
                         'condition' => [ 'type' => 'string', 'minLength' => 1, 'maxLength' => 60 ],
                     ],
                     'required'             => [ 'type', 'condition' ],
@@ -1030,7 +1032,12 @@ final class MemberPress_Pack
         }
     }
 
-    /** A title for a rule created without one, as the rule screen would show it. */
+    /**
+     * A title for a rule created without one, as the rule screen would show
+     * it: the type's label, then the protected item's name where the type
+     * names one by id (MeprRule::get_content(), as the screen's content field
+     * shows it), otherwise the content as given.
+     */
     private static function rule_title(array $args): string
     {
         $type    = (string) $args['type'];
@@ -1039,7 +1046,16 @@ final class MemberPress_Pack
             $label = (string) (\MeprRule::get_types()[ $type ] ?? $type);
         }
         $content = trim((string) ($args['content'] ?? ''));
-        return '' === $content ? $label : sprintf('%s: %s', $label, $content);
+        if ('' === $content) {
+            return $label;
+        }
+        if (class_exists('MeprRule') && method_exists('MeprRule', 'get_content')) {
+            $item = \MeprRule::get_content($type, $content);
+            if (is_object($item) && isset($item->label) && '' !== trim((string) $item->label)) {
+                $content = (string) $item->label;
+            }
+        }
+        return sprintf('%s: %s', $label, $content);
     }
 
     private static function create_rule(array $args, array $context): array
