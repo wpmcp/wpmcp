@@ -131,9 +131,16 @@
 # on branches that touch the installers or the pins once filled 73 GB in one
 # night (9 to 10 November 2026). So:
 #   - At most WPMCP_TEST_MAX_PARALLEL runs (default 1, so gates queue instead
-#     of colliding on the shared caches) go at once across all worktrees, each holding a slot under $CACHE/locks/run-<n>; another run
-#     says it is waiting and waits up to WPMCP_TEST_SLOT_TIMEOUT seconds
-#     (default 3600). A slot whose holder has died is taken over.
+#     of colliding on the shared caches) go at once across all worktrees,
+#     each holding a slot under $CACHE/locks/run-<n>; another run says it is
+#     waiting and waits up to WPMCP_TEST_SLOT_TIMEOUT seconds (default 3600).
+#     A slot whose holder has died is taken over. Targeted runs (PHPUnit
+#     arguments after --, such as -- --filter Foo) take no slot, so they never
+#     wait behind a gate: their core copy, database and config are per run,
+#     and the installs they share are keyed on their contents and never
+#     changed once ready. They still pass the free-space guard and prune to
+#     the budget below, and an install pruned from under them before they
+#     claim it is built again.
 #   - Before a run, and before building an install, free space on the cache's
 #     volume is checked: under WPMCP_TEST_MIN_FREE_GB (default 20) the cache is
 #     pruned to the two most recently used installs, and under
@@ -214,7 +221,8 @@
 #   bin/test-local.sh --live-wp-mail-smtp only the live WP Mail SMTP group (real WP Mail SMTP)
 #   bin/test-local.sh --live-adapter  only the adapter leg (both suites on the released MCP Adapter plugin)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments, default WordPress only; skips lint,
-#                                     drift, coverage, the floor leg and the live groups
+#                                     drift, coverage, the floor leg and the live groups,
+#                                     and takes no run slot (it never queues behind a gate)
 #   bin/test-local.sh --plan [...]    print the legs the other options would run, run nothing
 #   bin/test-local.sh --resolve-plugins [--wp V] print the test plugin versions and the
 #                                     install a run would use, install nothing
@@ -231,7 +239,8 @@
 #                        the two most recently used installs (default 20)
 #   WPMCP_TEST_HARD_MIN_FREE_GB  below this much free space, after pruning, a
 #                        run stops (default 10)
-#   WPMCP_TEST_MAX_PARALLEL  most runs at once across worktrees (default 1)
+#   WPMCP_TEST_MAX_PARALLEL  most full runs at once across worktrees (default 1;
+#                        targeted runs do not count)
 #   WPMCP_TEST_SLOT_TIMEOUT  seconds a run waits for a slot (default 3600)
 #   WPMCP_TEST_DOWNLOAD_TTL_DAYS  a cached download unused this long is
 #                        removed (default 30)
@@ -799,12 +808,18 @@ install_target() {
 install_wp() {
 	local version=$1 dir
 	dir=$(install_target "$version") || exit 1
-	if [ ! -f "$dir/.ready" ]; then
-		with_lock "install-$(basename "$dir")" install_wp_locked "$version" "$dir"
-	fi
 	# Claims the install for this run, so no prune removes it before the run
-	# exits, and marks it used for the least-recently-used order.
-	with_lock prune claim_install "$dir" || die "the install $(basename "$dir") was pruned before this run could claim it; run again"
+	# exits, and marks it used for the least-recently-used order. Targeted runs
+	# go beside a gate, so another run's prune may remove the install between
+	# the build and the claim: it is then built again, once.
+	for attempt in 1 2; do
+		if [ ! -f "$dir/.ready" ]; then
+			with_lock "install-$(basename "$dir")" install_wp_locked "$version" "$dir"
+		fi
+		with_lock prune claim_install "$dir" && break
+		[ "$attempt" = 1 ] || die "the install $(basename "$dir") was pruned twice before this run could claim it; run again"
+		say "The install $(basename "$dir") was pruned before this run could claim it; building it again." >&2
+	done
 	touch "$dir/.last-used"
 	plugin_note "$dir"
 	echo "$dir"
@@ -1765,7 +1780,17 @@ trap finish_run EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-acquire_slot
+# Only full gates queue for a run slot. A targeted run (PHPUnit arguments
+# after --) shares nothing it could corrupt with a gate going at the same
+# time: its core copy, database and config are its own (keyed on its pid),
+# installs are keyed on their contents, built under their own lock and never
+# changed once ready, and it claims the one it uses. So it skips the slot,
+# but not the free-space guard or the cache budget.
+if [ "$targeted" = true ]; then
+	say "Targeted run: not waiting for a run slot (only full gates queue)."
+else
+	acquire_slot
+fi
 space_guard
 
 # Point git at the versioned hooks, so the pre-push gate is on in every
