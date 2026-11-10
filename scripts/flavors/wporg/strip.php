@@ -236,7 +236,8 @@ $edits['src/MCP/Registrar.php'] = [
      * The refusal for a name that is not registered because it is a Pro
      * tool and this install has no active license (issue #631), or null
      * when that is not the reason. Lets the meta-tools say "needs WP MCP
-     * Pro" instead of "no tool by that name". Grants nothing: the tool is
+     * Pro" instead of "no tool by that name", with the same upgrade offer
+     * the admin banner carries (Pro_Refusal). Grants nothing: the tool is
      * still unregistered and unreachable.
      */
     public function pro_required(string $name): ?\WP_Error
@@ -251,7 +252,7 @@ $edits['src/MCP/Registrar.php'] = [
             sprintf(
                 '"%s" is a WP MCP Pro tool, and this site has no active WP MCP Pro license, so the tool is not available here. Activate a WP MCP Pro license on this site to use it.',
                 $name
-            )
+            ) . Pro_Refusal::upgrade_sentence()
         );
     }
 SRC . "\n\n",
@@ -760,6 +761,23 @@ $edits['src/Skills/library/wpmcp-safe-writes/SKILL.md'] = [
     ],
 ];
 
+// Pro_Refusal looks Pro_Banner up by name for its upgrade offer, and the
+// directory cuts remove Pro_Banner (policy.php), so their class reference
+// gate would see a class they do not ship. Here the offer is simply absent:
+// every refusal is the plain sentence with no link and no coupon.
+$edits['src/MCP/Pro_Refusal.php'] = [
+    [
+        "        \$banner = '\\\\WPMCP\\\\Admin\\\\Pro_Banner';\n"
+            . "        if (! class_exists(\$banner) || ! method_exists(\$banner, 'offer')) {\n"
+            . "            return null;\n"
+            . "        }\n"
+            . "\n"
+            . "        return \$banner::offer(self::MEDIUM);\n",
+        "        return null;\n",
+        1,
+    ],
+];
+
 $edits['src/Tools/Skills/Get_Skill.php'] = [
     [
         " *  - wpmcp_skill_locked: the skill declares `tier: pro` and this site is not\n"
@@ -771,10 +789,7 @@ $edits['src/Tools/Skills/Get_Skill.php'] = [
         "        if (true === (\$skill['locked'] ?? false)) {\n"
             . "            return new \\WP_Error(\n"
             . "                'wpmcp_skill_locked',\n"
-            . "                sprintf(\n"
-            . "                    'The skill \"%s\" is part of the premium skill library and needs an active WP MCP Pro license on this site.',\n"
-            . "                    \$slug\n"
-            . "                ),\n"
+            . "                \\WPMCP\\MCP\\Pro_Refusal::message(sprintf('The skill \"%s\"', \$slug)),\n"
             . "                [\n"
             . "                    'slug' => \$slug,\n"
             . "                    'tier' => 'pro',\n"
@@ -1583,9 +1598,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data'\n"
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums'\n"
             . "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data';\n",
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums';\n",
         1,
     ],
     [
@@ -1645,6 +1660,52 @@ $edits['src/MCP/Tool_Exposure.php'] = [
     [
         " *    scope + pro-license, audited) if invoked anyway; this class only cuts\n",
         " *    scope, audited) if invoked anyway; this class only cuts\n",
+        1,
+    ],
+];
+
+// The stdio transport answers a declared Pro tool with the Registrar's
+// pro_required refusal, which this build removes above, so the transport
+// goes back to "Unknown tool" for every unregistered name.
+$edits['src/MCP/Stdio_Transport.php'] = [
+    [
+        <<<'SRC'
+            // A declared Pro tool is not registered on an unlicensed install
+            // (Registrar::tier_permitted), so the client would otherwise be
+            // told it does not exist. Answer with call-tool's refusal, which
+            // names the plan and the upgrade (issue #631).
+            $refusal = self::pro_refusal($tool_name);
+            return self::error_response($id, -32602, $refusal ?? sprintf('Unknown tool: %s', $tool_name));
+SRC,
+        <<<'SRC'
+            return self::error_response($id, -32602, sprintf('Unknown tool: %s', $tool_name));
+SRC,
+        1,
+    ],
+    [
+        <<<'SRC'
+    /**
+     * The pro_required refusal for a tool name that maps to a declared Pro
+     * ability this install did not register, or null.
+     */
+    private static function pro_refusal(string $tool_name): ?string
+    {
+        if ('' === $tool_name || ! class_exists('\\WPMCP\\Plugin')) {
+            return null;
+        }
+        $plugin = \WPMCP\Plugin::instance();
+        foreach ($plugin->declared_abilities() as $ability) {
+            if (self::tool_name($ability->name) === $tool_name) {
+                $error = $plugin->registrar()->pro_required($ability->name);
+                return null === $error ? null : $error->get_error_message();
+            }
+        }
+        return null;
+    }
+
+
+SRC,
+        '',
         1,
     ],
 ];
