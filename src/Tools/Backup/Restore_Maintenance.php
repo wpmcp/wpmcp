@@ -18,10 +18,10 @@ if (! defined('ABSPATH')) {
  * would run with the guard switched off. So the importer calls
  * after_options_imported() as soon as it moves past the options table: that
  * remembers the imported value as the one to put back and switches the
- * guard on again. While the options table itself is being rebuilt the
- * guard cannot read its row at all; WordPress then refuses to render (it
- * reports a database error because other core tables still exist) rather
- * than serving content or the installer.
+ * guard on again. While the options table itself is being rebuilt the row
+ * does not exist at all, and pages render from whatever rows the import has
+ * written so far; the guard then blocks on Restore_Site_Backup::is_running()
+ * instead, a signal outside the options table (issue #813).
  *
  * leave() always runs, success or failure, and writes back the value the
  * site should end up with: the imported one if the options table made it
@@ -116,11 +116,17 @@ class Restore_Maintenance
         $this->left_at = time();
     }
 
+    /** What a blocked visitor reads while a restore runs. */
+    public static function message(): string
+    {
+        return __('This site is being restored from a backup and will be back shortly.', 'wpmcp');
+    }
+
     private function switch_on(): void
     {
         update_option(self::OPTION, [
             'enabled'     => true,
-            'message'     => __('This site is being restored from a backup and will be back shortly.', 'wpmcp'),
+            'message'     => self::message(),
             'retry_after' => self::RETRY_AFTER,
             'restore'     => true,
         ]);

@@ -2,6 +2,9 @@
 
 namespace WPMCP\Maintenance;
 
+use WPMCP\Tools\Backup\Restore_Maintenance;
+use WPMCP\Tools\Backup\Restore_Site_Backup;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -17,13 +20,21 @@ if (! defined('ABSPATH')) {
  * blocked out: this is the same capability gate used to register the
  * maintenance tools themselves, so anyone who can turn maintenance mode on
  * or off can also still reach the site while it is on.
+ *
+ * A database restore also turns the guard on, through a second signal that
+ * does not live in wp_options (issue #813): while the dump drops, recreates
+ * and refills the options table, the wpmcp_maintenance row is simply not
+ * there, so reading the option alone let visitors through to a half
+ * restored site. Restore_Site_Backup::is_running() (its progress file plus
+ * its MySQL lock) covers that window.
  */
 class Maintenance_Guard
 {
     public function should_block(): bool
     {
         $option = get_option('wpmcp_maintenance');
-        if (! is_array($option) || empty($option['enabled'])) {
+        $on     = is_array($option) && ! empty($option['enabled']);
+        if (! $on && ! Restore_Site_Backup::is_running()) {
             return false;
         }
 
@@ -45,9 +56,9 @@ class Maintenance_Guard
             return;
         }
 
-        $option      = get_option('wpmcp_maintenance');
-        $message     = is_array($option) ? (string) ($option['message'] ?? '') : '';
-        $retry_after = is_array($option) ? (int) ($option['retry_after'] ?? 0) : 0;
+        $response    = $this->response();
+        $message     = $response['message'];
+        $retry_after = $response['retry_after'];
 
         status_header(503);
         nocache_headers();
@@ -57,5 +68,28 @@ class Maintenance_Guard
 
         echo esc_html($message);
         exit;
+    }
+
+    /**
+     * The message and Retry-After for a blocked request: the option's when
+     * maintenance mode is on, otherwise (a restore with the options table
+     * mid-rebuild) the restore's own.
+     *
+     * @return array{message: string, retry_after: int}
+     */
+    public function response(): array
+    {
+        $option = get_option('wpmcp_maintenance');
+        if (is_array($option) && ! empty($option['enabled'])) {
+            return [
+                'message'     => (string) ($option['message'] ?? ''),
+                'retry_after' => (int) ($option['retry_after'] ?? 0),
+            ];
+        }
+
+        return [
+            'message'     => Restore_Maintenance::message(),
+            'retry_after' => Restore_Maintenance::RETRY_AFTER,
+        ];
     }
 }

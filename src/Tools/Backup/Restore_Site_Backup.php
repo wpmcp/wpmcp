@@ -185,6 +185,11 @@ class Restore_Site_Backup
             throw new \RuntimeException('Restore refused: another restore is already running on this site.');
         }
 
+        $interrupted = self::interrupted_restore();
+        if (null !== $interrupted) {
+            $report['warnings'][] = self::interrupted_warning($interrupted, self::relist_safety_archive($interrupted));
+        }
+
         $queued = Backup_Job_Store::create_exclusive(self::JOB_TYPE, (string) ($manifest['scope'] ?? ''), [
             'user_id'          => get_current_user_id(),
             'purpose'          => 'restore',
@@ -258,14 +263,11 @@ class Restore_Site_Backup
 
         $interrupted = self::interrupted_restore();
         if (null !== $interrupted) {
-            $report['warnings'][] = sprintf(
-                'An earlier restore stopped without finishing (started %s, from %s, last at statement %d on table %s). Its pre-restore safety archive is backup job %d; restoring that job puts the site back as it was before that attempt. Maintenance mode may still be on (disable-maintenance turns it off).',
-                esc_html((string) ($interrupted['started_at'] ?? 'unknown')),
-                esc_html((string) ($interrupted['archive'] ?? 'unknown')),
-                (int) ($interrupted['statement'] ?? 0),
-                esc_html((string) ($interrupted['table'] ?? 'unknown')),
-                (int) ($interrupted['safety_job_id'] ?? 0)
-            );
+            // A dry run writes nothing; a real run puts the earlier safety
+            // archive back in the job store before its own import can
+            // overwrite the progress file that names it.
+            $relisted             = $dry_run ? self::listed_safety_job($interrupted) : self::relist_safety_archive($interrupted);
+            $report['warnings'][] = self::interrupted_warning($interrupted, $relisted);
         }
 
         $sql_path = null;
@@ -356,10 +358,14 @@ class Restore_Site_Backup
                 $logs        = Restore_Logs::capture();
                 $session_sql = self::session_variables();
 
+                // The file name, not only the job id (issue #814): if this
+                // request dies after the options table is replaced, the job
+                // store is the backup's copy and that id will be reused.
                 $state = [
                     'started_at'    => gmdate('c'),
                     'archive'       => basename($archive),
                     'safety_job_id' => $safety['job_id'],
+                    'safety_file'   => basename((string) $safety['file']),
                 ];
                 if (null !== $this->job_id) {
                     $state['restore_job_id'] = $this->job_id;
@@ -426,9 +432,10 @@ class Restore_Site_Backup
                 // Something unexpected after the safety archive exists: the
                 // caller needs its job id more than anything else.
                 throw new \RuntimeException(sprintf(
-                    'The restore stopped unexpectedly: %s. The pre-restore safety archive is backup job %d; restore it to put the site back.',
+                    'The restore stopped unexpectedly: %s. The pre-restore safety archive is backup job %d (file %s); restore it to put the site back.',
                     esc_html($e->getMessage()),
-                    (int) $safety['job_id']
+                    (int) $safety['job_id'],
+                    esc_html(basename((string) $safety['file']))
                 ), 0, $e);
             }
         } finally {
@@ -854,6 +861,139 @@ class Restore_Site_Backup
         if (is_file(self::state_path())) {
             wp_delete_file(self::state_path());
         }
+    }
+
+    /**
+     * Whether a restore is importing right now (issue #813): its progress
+     * file is on disk and its lock is held. Maintenance_Guard reads this
+     * because the wpmcp_maintenance row is gone while the dump rebuilds the
+     * options table it lives in; neither the file nor the MySQL lock lives
+     * in that table. A file left by a restore that died does not count (the
+     * server released the lock with the process), so a stale file never
+     * locks visitors out with no way to switch it off. The lock query runs
+     * only when the file exists, so an ordinary page view costs one stat.
+     */
+    public static function is_running(): bool
+    {
+        return is_file(self::state_path()) && ! self::lock_is_free();
+    }
+
+    /**
+     * The safety archive an interrupted restore recorded, as a real path
+     * inside the backup directory, or null when the progress file predates
+     * the file name or the file is gone.
+     */
+    public static function safety_archive_path(array $state): ?string
+    {
+        $name = basename((string) ($state['safety_file'] ?? ''));
+        if ('' === $name) {
+            return null;
+        }
+
+        try {
+            return Archive_Locator::resolve(['path' => Site_Backup_Dir::path() . '/' . $name]);
+        } catch (\RuntimeException $e) {
+            return null;
+        }
+    }
+
+    /**
+     * The id of a job in the store that points at the interrupted
+     * restore's safety archive, or null.
+     */
+    private static function listed_safety_job(array $state): ?int
+    {
+        $path = self::safety_archive_path($state);
+        if (null === $path) {
+            return null;
+        }
+
+        foreach (Backup_Job_Store::list() as $job) {
+            $file = (string) ($job['result']['file'] ?? '');
+            if ('' !== $file && realpath($file) === $path) {
+                return (int) $job['id'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Put an interrupted restore's safety archive back in the job store
+     * (issue #814), so list-backup-jobs shows it and restore-site-backup
+     * takes its job id. The half import left the backup's copy of the
+     * store, which has never heard of it. The archive keeps its original
+     * id when that id is free, which also keeps the id from being handed
+     * to the next job. Returns the job id, or null when there is no file.
+     */
+    private static function relist_safety_archive(array $state): ?int
+    {
+        $listed = self::listed_safety_job($state);
+        if (null !== $listed) {
+            return $listed;
+        }
+
+        $path = self::safety_archive_path($state);
+        if (null === $path) {
+            return null;
+        }
+
+        $job = Backup_Job_Store::relist((int) ($state['safety_job_id'] ?? 0), 'database', 'database', [
+            'status'  => 'completed',
+            'purpose' => 'pre-restore safety archive',
+            'note'    => sprintf(
+                'Taken before a restore that stopped without finishing (started %s); listed again because that restore left an older copy of the job history.',
+                (string) ($state['started_at'] ?? 'unknown')
+            ),
+            'result'  => ['file' => $path, 'size' => (int) filesize($path), 'scope' => 'database'],
+            'error'   => null,
+        ]);
+
+        return (int) $job['id'];
+    }
+
+    /** The warning about an interrupted restore, naming its safety archive by file. */
+    private static function interrupted_warning(array $state, ?int $job_id): string
+    {
+        $intro = sprintf(
+            'An earlier restore stopped without finishing (started %s, from %s, last at statement %d on table %s).',
+            esc_html((string) ($state['started_at'] ?? 'unknown')),
+            esc_html((string) ($state['archive'] ?? 'unknown')),
+            (int) ($state['statement'] ?? 0),
+            esc_html((string) ($state['table'] ?? 'unknown'))
+        );
+        $tail = 'Maintenance mode may still be on (disable-maintenance turns it off).';
+
+        $name = basename((string) ($state['safety_file'] ?? ''));
+        $path = self::safety_archive_path($state);
+
+        if (null !== $path) {
+            return sprintf(
+                '%s Its pre-restore safety archive is the file %s%s; restoring that file (restore-site-backup with path %s) puts the site back as it was before that attempt. A new restore takes its own safety archive of the site as it is now, half restored. %s',
+                $intro,
+                esc_html($name),
+                null !== $job_id ? sprintf(' (backup job %d)', $job_id) : '',
+                esc_html($path),
+                $tail
+            );
+        }
+
+        if ('' !== $name) {
+            return sprintf(
+                '%s Its pre-restore safety archive was the file %s, which is no longer in the backup directory. %s',
+                $intro,
+                esc_html($name),
+                $tail
+            );
+        }
+
+        // A progress file written before the file name was recorded.
+        return sprintf(
+            '%s Its pre-restore safety archive was backup job %d when it started; job ids can be reused after an interrupted restore, so check that job\'s archive was created at that time before restoring it. %s',
+            $intro,
+            (int) ($state['safety_job_id'] ?? 0),
+            $tail
+        );
     }
 
     /** The progress file of a restore that died, or null. */
