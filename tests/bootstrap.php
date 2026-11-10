@@ -282,6 +282,13 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'wp-mail-smtp/wp_mail_smtp.php' );
     }
 
+    // The live Code Snippets job (issue #576, WPMCP_LIVE_CODE_SNIPPETS=1) runs
+    // the Code Snippets ops through the real Code Snippets. Loaded only on
+    // request: the stub-backed tests define a stand-in for its API.
+    if ( getenv( 'WPMCP_LIVE_CODE_SNIPPETS' ) ) {
+        wpmcp_maybe_require_plugin( 'code-snippets/code-snippets.php' );
+    }
+
     // The live Polylang job (issue #498, WPMCP_LIVE_POLYLANG=1) runs the
     // page translation ops through the real Polylang, which the shared suite
     // loads but never boots: with no language defined and no wp-admin
@@ -401,6 +408,15 @@ tests_add_filter( 'init', function () {
         \AmeliaBooking\Plugin::activation( false );
         \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationRolesHook::init();
         \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationSettingsHook::init();
+    }
+}, 1 );
+
+// The live Code Snippets job's table, built by Code Snippets' own DB class
+// once per run, before any test transaction starts. A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_CODE_SNIPPETS' ) && function_exists( 'Code_Snippets\\code_snippets' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        \Code_Snippets\code_snippets()->db->create_or_upgrade_tables();
     }
 }, 1 );
 

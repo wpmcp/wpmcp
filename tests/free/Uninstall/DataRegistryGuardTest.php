@@ -80,6 +80,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // WPBakery's saved templates, written by the builder pair's
             // templates scope (issue #639).
             'wpb_js_templates',
+            // Code Snippets' own recently deactivated list, put back by a
+            // snippet activation's rollback (issue #576).
+            'recently_active_snippets',
         ],
         'transient'      => [
             'scrape_key_*',

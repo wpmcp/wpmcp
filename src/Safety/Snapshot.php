@@ -61,6 +61,9 @@ class Snapshot
         if ('php_snippet' === $object_type) {
             return self::capture_php_snippet((string) $object_id);
         }
+        if (Code_Snippet_Snapshot::TYPE === $object_type) {
+            return Code_Snippet_Snapshot::capture((int) $object_id);
+        }
         if ('term' === $object_type) {
             return self::capture_term((string) $object_id);
         }
