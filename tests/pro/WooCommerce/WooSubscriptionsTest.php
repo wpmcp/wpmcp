@@ -14,6 +14,7 @@ use WPMCP\Tools\WooCommerce\Catalog\Woo_Read;
 use WPMCP\Tools\WooCommerce\Catalog\Woo_Write;
 
 require_once __DIR__ . '/../../support/wc-subscriptions-double.php';
+require_once __DIR__ . '/../../support/wc-subscriptions-plans.php';
 
 /**
  * WooCommerce Subscriptions (issue #658) as ops on the existing woo-read and
@@ -240,6 +241,140 @@ class WooSubscriptionsTest extends \WP_UnitTestCase
         $this->assertSame('month', $row['period']);
         $this->assertSame(7, $row['trial_length']);
         $this->assertSame('5', $row['sign_up_fee']);
+    }
+
+    // ------------------------------------------------- plans (issue #817)
+
+    private function variable_product(string $name, array $prices): array
+    {
+        $parent = new \WC_Product_Variable();
+        $parent->set_name($name);
+        $parent_id = (int) $parent->save();
+        $children  = [];
+        foreach ($prices as $price) {
+            $variation = new \WC_Product_Variation();
+            $variation->set_parent_id($parent_id);
+            $variation->set_regular_price($price);
+            $children[] = (int) $variation->save();
+        }
+        \WC_Product_Variable::sync($parent_id);
+        return [$parent_id, $children];
+    }
+
+    private function product_row(array $out, int $id): ?array
+    {
+        return array_values(array_filter($out['body']['products'], static fn ($p) => $p['id'] === $id))[0] ?? null;
+    }
+
+    private function plan_by_period(array $plans, string $period): array
+    {
+        return array_values(array_filter($plans, static fn ($p) => $p['period'] === $period))[0];
+    }
+
+    public function test_products_sold_through_plans_are_listed_with_each_plan_beside_the_legacy_types(): void
+    {
+        $legacy = $this->subscription_product();
+        $simple = $this->product('50.00', 'Coffee beans');
+        wpmcp_test_wc_set_plans($simple, 'override', ['monthly_discount', 'yearly_override', 'fortnightly_fixed_legacy'], ['_wcsatt_force_subscription' => 'no']);
+        [$variable, $variations] = $this->variable_product('Tea tin', ['20.00', '30.00']);
+        wpmcp_test_wc_set_plans($variable, 'override', ['monthly_discount'], ['_wcsatt_force_subscription' => 'yes']);
+        $this->product('3.00', 'Plain mug');
+
+        $out = $this->read('subscriptions.products');
+        $this->assertSame(200, $out['status'], wp_json_encode($out));
+        $this->assertSame([$legacy, $simple, $variable], array_column($out['body']['products'], 'id'));
+        $this->assertSame(3, $out['body']['total']);
+
+        $old = $this->product_row($out, $legacy);
+        $this->assertSame('subscription_type', $old['sold_as']);
+        $this->assertSame('12', $old['price']);
+        $this->assertSame('month', $old['period']);
+
+        $row = $this->product_row($out, $simple);
+        $this->assertSame('simple', $row['type']);
+        $this->assertSame('plans', $row['sold_as']);
+        $this->assertSame('product', $row['plans_from']);
+        $this->assertFalse($row['subscription_only']);
+        $this->assertSame('50.00', $row['product_price']);
+        $this->assertCount(3, $row['plans']);
+
+        $monthly = $this->plan_by_period($row['plans'], 'month');
+        $this->assertSame('6f1c2b8e-1d3a-4c55-9a0e-0d6c1f2b3a41', $monthly['id']);
+        $this->assertSame(1, $monthly['period_interval']);
+        $this->assertSame(0, $monthly['length']);
+        $this->assertSame(7, $monthly['trial_length']);
+        $this->assertSame('day', $monthly['trial_period']);
+        $this->assertSame('5.00', $monthly['sign_up_fee']);
+        $this->assertSame('inherit', $monthly['pricing']);
+        $this->assertSame('10', $monthly['discount']);
+        $this->assertSame('45.00', $monthly['price'], '10% off 50');
+        $this->assertSame('50.00', $monthly['regular_price']);
+
+        $yearly = $this->plan_by_period($row['plans'], 'year');
+        $this->assertSame(2, $yearly['length']);
+        $this->assertSame('override', $yearly['pricing']);
+        $this->assertSame('90.00', $yearly['price'], 'the plan sale price');
+        $this->assertSame('100.00', $yearly['regular_price']);
+
+        $fortnight = $this->plan_by_period($row['plans'], 'week');
+        $this->assertSame('2_week', $fortnight['id'], 'a plan saved without an id is keyed by its terms');
+        $this->assertSame(2, $fortnight['period_interval']);
+        $this->assertSame('fixed_discount', $fortnight['pricing']);
+        $this->assertSame('47.00', $fortnight['price'], '3 off 50');
+
+        $var = $this->product_row($out, $variable);
+        $this->assertSame('variable', $var['type']);
+        $this->assertTrue($var['subscription_only']);
+        $this->assertSame($variations, array_column($var['variations'], 'id'));
+        $this->assertSame(['18.00', '27.00'], array_map(static fn ($v) => $v['plans'][0]['price'], $var['variations']), '10% off each variation price');
+        $this->assertSame('month', $var['variations'][0]['plans'][0]['period']);
+    }
+
+    public function test_storewide_plans_selection_and_one_time_products(): void
+    {
+        $fixtures = wpmcp_test_wc_plan_fixtures();
+        update_option('wcsatt_subscribe_to_cart_schemes', [$fixtures['storewide_weekly'], $fixtures['storewide_quarterly']]);
+
+        $all      = $this->product('40.00', 'All storewide');
+        wpmcp_test_wc_set_plans($all, 'inherit', [], ['_wcsatt_storewide_selection_mode' => 'all']);
+        $specific = $this->product('40.00', 'One storewide');
+        wpmcp_test_wc_set_plans($specific, 'inherit', [], ['_wcsatt_storewide_selection_mode' => 'specific', '_wcsatt_selected_storewide_plans' => [$fixtures['storewide_quarterly']['id']]]);
+        $disabled = $this->product('40.00', 'One-time only, old plans kept');
+        wpmcp_test_wc_set_plans($disabled, 'disable', ['monthly_discount'], ['_wcsatt_disabled' => 'yes']);
+        $pre_mode = $this->product('40.00', 'Saved before the mode key');
+        wpmcp_test_wc_set_plans($pre_mode, '', ['monthly_discount']);
+
+        $out = $this->read('subscriptions.products');
+        $this->assertSame([$all, $specific, $pre_mode], array_column($out['body']['products'], 'id'), wp_json_encode($out));
+
+        $row = $this->product_row($out, $all);
+        $this->assertSame('storewide', $row['plans_from']);
+        $this->assertSame(['week', 'month'], array_column($row['plans'], 'period'));
+        $this->assertSame(['40.00', '38.00'], array_column($row['plans'], 'price'));
+        $this->assertNull($row['plans'][0]['discount']);
+
+        $this->assertSame([3], array_column($this->product_row($out, $specific)['plans'], 'period_interval'));
+        $this->assertSame('product', $this->product_row($out, $pre_mode)['plans_from']);
+
+        delete_option('wcsatt_subscribe_to_cart_schemes');
+        $none = $this->read('subscriptions.products');
+        $this->assertSame([$pre_mode], array_column($none['body']['products'], 'id'), 'inherit with no storewide plans sells one-time only');
+    }
+
+    public function test_products_pages_and_searches_over_both_kinds(): void
+    {
+        $legacy = $this->subscription_product();
+        $plan   = $this->product('50.00', 'Coffee beans');
+        wpmcp_test_wc_set_plans($plan, 'override', ['monthly_discount']);
+
+        $first  = $this->read('subscriptions.products', ['per_page' => 1]);
+        $second = $this->read('subscriptions.products', ['per_page' => 1, 'page' => 2]);
+        $this->assertSame([$legacy], array_column($first['body']['products'], 'id'));
+        $this->assertSame([$plan], array_column($second['body']['products'], 'id'));
+        $this->assertSame(2, $first['body']['total']);
+
+        $found = $this->read('subscriptions.products', ['search' => 'Coffee beans']);
+        $this->assertSame([$plan], array_column($found['body']['products'], 'id'));
     }
 
     // ------------------------------------------------------------- status
