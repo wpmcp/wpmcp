@@ -7,11 +7,18 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * The default adapter over Wordfence's static classes (wfConfig, wfBlock,
- * wfIssues, wordfence). Every call is behind a class_exists guard so an
- * install without Wordfence, or an older Wordfence missing a method, answers
- * null or false instead of fataling. Tests replace this object through the
- * wpmcp_wordfence_api filter.
+ * The default adapter over Wordfence's own classes (wfConfig, wfFirewall,
+ * wfScanner, wfBlock, wfIssues, wfScanEngine, wfUtils), checked against
+ * Wordfence 9.1. Every call is behind a class_exists guard, so an install
+ * without Wordfence, or one missing a class, answers null or false instead
+ * of fataling. Tests replace this object through the wpmcp_wordfence_api
+ * filter.
+ *
+ * The writes go through the same calls Wordfence's own Blocking and Scan
+ * screens make, so its hooks fire and its firewall resyncs its copy of the
+ * blocks: wfBlock::createIP() for a manual block, wfBlock::unblockIP() plus
+ * clearing the login failure counters for an unblock, and
+ * wfIssues::updateIssue() then the scan notice recount for an ignore.
  */
 class Wordfence_Api
 {
@@ -23,89 +30,80 @@ class Wordfence_Api
     /** @return mixed */
     public function config(string $key)
     {
-        if (! class_exists('wfConfig', false) || ! method_exists('wfConfig', 'get')) {
+        if (! class_exists('wfConfig', false)) {
             return null;
         }
         return \wfConfig::get($key);
     }
 
-    public function waf_status(): ?string
+    /** The firewall mode as Wordfence reports it: enabled, learning-mode or disabled. */
+    public function firewall_mode(): ?string
     {
-        if (! class_exists('wfConfig', false)) {
+        if (! class_exists('wfFirewall', false) || ! class_exists('wfWAF', false) || ! \wfWAF::getInstance()) {
             return null;
         }
-        return class_exists('wfWAF', false) && method_exists('wfWAF', 'getInstance')
-            ? (string) \wfWAF::getInstance()->getStorageEngine()->getConfig('wafStatus', 'disabled')
-            : null;
+        return (string) (new \wfFirewall())->firewallMode();
     }
 
-    /** @return array{by_severity:array<string,int>,new:int,ignored:int} */
-    public function issue_summary(): array
+    /** Whether a scan holds Wordfence's scan lock right now. */
+    public function scan_running(): bool
     {
-        $summary = [ 'by_severity' => [], 'new' => 0, 'ignored' => 0 ];
-        if (! class_exists('wfIssues', false)) {
-            return $summary;
+        if (! class_exists('wfScanner', false)) {
+            return false;
         }
-        $issues = \wfIssues::shared();
-        $new    = $issues->getIssues(0, 1000, 0, 1000);
-        foreach ((array) ($new['new'] ?? []) as $issue) {
-            $summary['new']++;
-            $sev                               = (string) ($issue['severity'] ?? 0);
-            $summary['by_severity'][ $sev ] = ($summary['by_severity'][ $sev ] ?? 0) + 1;
-        }
-        $summary['ignored'] = count((array) ($new['ignoredP'] ?? [])) + count((array) ($new['ignoredC'] ?? []));
-        return $summary;
+        return (bool) \wfScanner::shared()->isRunning();
     }
 
-    /** @return array<int,array<string,mixed>> */
-    public function issues(?string $status, int $limit): array
+    /** Whether Wordfence would refuse to block this IP (its allowlist or its own never-block ranges). */
+    public function is_allowlisted(string $ip): bool
     {
-        if (! class_exists('wfIssues', false)) {
-            return [];
+        if (! class_exists('wfBlock', false)) {
+            return false;
         }
-        $all = \wfIssues::shared()->getIssues(0, $limit, 0, $limit);
-        $map = [ 'new' => 'new', 'ignoreP' => 'ignoredP', 'ignoreC' => 'ignoredC' ];
-        if (null !== $status && isset($map[ $status ])) {
-            return array_slice((array) ($all[ $map[ $status ] ] ?? []), 0, $limit);
-        }
-        $out = [];
-        foreach ($map as $key) {
-            $out = array_merge($out, (array) ($all[ $key ] ?? []));
-        }
-        return array_slice($out, 0, $limit);
+        return (bool) \wfBlock::isWhitelisted($ip);
     }
 
+    /** The IP of the request making this call, as Wordfence resolves it. */
+    public function own_ip(): ?string
+    {
+        if (! class_exists('wfUtils', false)) {
+            return null;
+        }
+        $ip = \wfUtils::getIP();
+        return is_string($ip) && '' !== $ip ? $ip : null;
+    }
+
+    /** A manual block, as Wordfence's Blocking screen creates one (0 seconds: permanent). */
     public function block_ip(string $ip, string $reason, int $duration): void
     {
         if (! class_exists('wfBlock', false)) {
             return;
         }
-        \wfBlock::createIP($reason, $ip, $duration > 0 ? $duration : \wfBlock::DURATION_FOREVER);
+        \wfBlock::createIP($reason, $ip, $duration > 0 ? $duration : \wfBlock::DURATION_FOREVER, time(), false, 0, \wfBlock::TYPE_IP_MANUAL);
     }
 
-    public function unblock_ip(string $ip): int
+    /** Every block on an IP removed, and its login failure counters cleared, as Wordfence's unblock does. */
+    public function unblock_ip(string $ip): void
     {
         if (! class_exists('wfBlock', false)) {
-            return 0;
+            return;
         }
-        $blocks = \wfBlock::allBlocks(false);
-        $ids    = [];
-        foreach ($blocks as $block) {
-            if (method_exists($block, 'ip') && $block->ip() === $ip) {
-                $ids[] = $block->id();
-            }
+        \wfBlock::unblockIP($ip);
+        if (class_exists('wordfence', false) && method_exists('wordfence', 'clearLockoutCounters')) {
+            \wordfence::clearLockoutCounters($ip);
         }
-        if ([] !== $ids) {
-            \wfBlock::removeBlockIDs($ids);
-        }
-        return count($ids);
     }
 
-    public function ignore_issue(int $issue_id, string $how): bool
+    /** A scan issue set to ignoreP or ignoreC, then the scan notice recounted. */
+    public function ignore_issue(int $issue_id, string $how): void
     {
         if (! class_exists('wfIssues', false)) {
-            return false;
+            return;
         }
-        return (bool) \wfIssues::shared()->updateIssue($issue_id, $how);
+        $issues = \wfIssues::shared();
+        $issues->updateIssue($issue_id, $how);
+        if (class_exists('wfScanEngine', false)) {
+            \wfScanEngine::refreshScanNotification($issues);
+        }
     }
 }
