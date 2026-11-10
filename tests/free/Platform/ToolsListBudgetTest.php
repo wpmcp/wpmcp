@@ -244,8 +244,40 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  plugin-data pair, whose two descriptions name them in 24 bytes each,
      *  paid for by "matching args" to "its args" in the integration
      *  dispatcher read template (19 pairs) without dropping a rule:
-     *  208983 -> 208936 bytes over 407 tools. */
-    private const TOOLS_LIST_BYTE_BUDGET = 209000;
+     *  208983 -> 208936 bytes over 407 tools.
+     *  Network plugin scope (#557) added no tool: network_wide on
+     *  activate-plugin, deactivate-plugin and install-plugin, paid for by
+     *  "Undoable" in place of the active_plugins snapshot wording and the
+     *  rollbackable operation_id phrase on those three descriptions
+     *  without dropping a rule: 208972 -> 208956 bytes over 407 tools.
+     *  Tool search (#732) added no tool: a search property on
+     *  list-tool-catalog and list-tools, paid for by tighter wording of
+     *  those two descriptions without dropping a rule: 208956 -> 208987
+     *  bytes over 407 tools. Core site identity and permalinks (#713,
+     *  #717) added no tool: nine ops on the theme pair, whose summary now
+     *  names site identity and permalinks, paid for by dropping "supports"
+     *  and the serial "and" from that summary without dropping a rule:
+     *  208979 -> 208987 bytes over 407 tools. Divi 5 element editing
+     *  (#636) added no tool: operations, a Divi 5 read and Divi scope
+     *  reads on the builder pair, paid for by writing the builder lists
+     *  with "|" and the operation signatures without spaces, without
+     *  dropping a rule: 208996 -> 208995 bytes over 407 tools. WPBakery element-level
+     *  editing (#639) added no tool: publish, restore, add from a template,
+     *  expected_hash and a templates scope on update-builder-content, and
+     *  wpbakery in get-builder-content's scope reads, paid for by tightening
+     *  the build-page description and dropping
+     *  "Read-only" from detect-builder and get-builder-content, whose
+     *  readOnlyHint says it, without dropping a rule: 208995 -> 208967
+     *  bytes over 407 tools. Avada element-level editing
+     *  (#637) added no tool: library inserts, save_template and the Avada
+     *  design_system and catalog scopes on the builder pair, without
+     *  dropping a rule: 208967 -> 209095 bytes over 407 tools. Oxygen 6
+     *  element-level editing (#635) added no tool: publish, restore,
+     *  templates, Components and save_template on the builder pair, the
+     *  WPBakery and Avada notes merged with Oxygen's: 209095 -> 209122
+     *  bytes over 407 tools. */
+    // Raised 209000 -> 215000 on 2026-11-09 for five integration PRs (#784, #786, #787, #788, WPBakery) that together exceed 209000; owner approved.
+    private const TOOLS_LIST_BYTE_BUDGET = 215000;
 
     /** @return array<int, array<string, mixed>> tools/list-shaped entries. */
     private static function payload(): array

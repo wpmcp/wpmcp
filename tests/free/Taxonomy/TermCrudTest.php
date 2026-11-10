@@ -183,6 +183,93 @@ class TermCrudTest extends \WP_UnitTestCase
         $this->assertContains($term_id, array_map('intval', (array) $terms), 'The post must be filed under the restored term again.');
     }
 
+    public function test_delete_counts_a_draft_post_as_an_affected_object(): void
+    {
+        // Issue #597: the term's count column counts published posts only, so
+        // a term whose only post is a draft reported 0 objects affected while
+        // the delete moved that draft to the default category.
+        $created = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Draft Holder']);
+        $term_id = $created['term']['term_id'];
+
+        $draft = self::factory()->post->create(['post_status' => 'draft']);
+        wp_set_object_terms($draft, [$term_id], 'category');
+
+        $out = (new Delete_Term())->handle(['taxonomy' => 'category', 'term_id' => $term_id]);
+
+        $this->assertSame(1, $out['objects_affected']);
+    }
+
+    public function test_undoing_a_delete_takes_back_the_default_category_it_added(): void
+    {
+        // Issue #595: deleting a post's only category moves the post to the
+        // default category. The undo must put it back in the deleted term
+        // ONLY, while a post that was already in the default category keeps
+        // it.
+        $default = (int) get_option('default_category');
+        $created = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Only Home']);
+        $term_id = $created['term']['term_id'];
+
+        $only = self::factory()->post->create(['post_status' => 'draft']);
+        wp_set_object_terms($only, [$term_id], 'category');
+
+        $both = self::factory()->post->create();
+        wp_set_object_terms($both, [$term_id, $default], 'category');
+
+        $out = (new Delete_Term())->handle(['taxonomy' => 'category', 'term_id' => $term_id]);
+        $this->assertSame([$default], array_map('intval', wp_get_object_terms($only, 'category', ['fields' => 'ids'])));
+
+        Rollback_Service::restore_operation((string) $out['operation_id']);
+
+        $this->assertSame([$term_id], array_map('intval', wp_get_object_terms($only, 'category', ['fields' => 'ids'])), 'The post that was only in the deleted term must be only in it again.');
+
+        $kept = array_map('intval', wp_get_object_terms($both, 'category', ['fields' => 'ids']));
+        sort($kept);
+        $expected = [$term_id, $default];
+        sort($expected);
+        $this->assertSame($expected, $kept, 'A post already in the default category before the delete keeps it.');
+    }
+
+    public function test_undoing_a_delete_restores_the_parent_of_its_children(): void
+    {
+        // Issue #596: wp_delete_term() moves the deleted term's direct
+        // children up to its own parent. The undo must hang them back under
+        // the restored term, two levels down included.
+        $top    = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Tree Top'])['term']['term_id'];
+        $parent = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Tree Parent', 'parent' => $top])['term']['term_id'];
+        $child  = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Tree Child', 'parent' => $parent])['term']['term_id'];
+        $grand  = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Tree Grandchild', 'parent' => $child])['term']['term_id'];
+        $link   = get_term_link($child, 'category');
+
+        $out = (new Delete_Term())->handle(['taxonomy' => 'category', 'term_id' => $parent]);
+        $this->assertSame($top, (int) get_term($child, 'category')->parent);
+
+        Rollback_Service::restore_operation((string) $out['operation_id']);
+
+        $this->assertSame($parent, (int) get_term($child, 'category')->parent, 'The child must be under the restored term again.');
+        $this->assertSame($child, (int) get_term($grand, 'category')->parent);
+        $this->assertSame($link, get_term_link($child, 'category'), 'The child keeps its old address.');
+        $this->assertSame([], Rollback_Service::take_warnings());
+    }
+
+    public function test_undoing_a_delete_leaves_a_child_moved_since_and_warns(): void
+    {
+        // A child moved somewhere else after the delete was moved on
+        // purpose; the undo leaves it there and says so.
+        $parent = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Old Parent'])['term']['term_id'];
+        $other  = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'New Parent'])['term']['term_id'];
+        $child  = (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Moved Child', 'parent' => $parent])['term']['term_id'];
+
+        $out = (new Delete_Term())->handle(['taxonomy' => 'category', 'term_id' => $parent]);
+        wp_update_term($child, 'category', ['parent' => $other]);
+
+        Rollback_Service::restore_operation((string) $out['operation_id']);
+
+        $this->assertSame($other, (int) get_term($child, 'category')->parent);
+        $warnings = implode(' ', Rollback_Service::take_warnings());
+        $this->assertStringContainsString((string) $child, $warnings);
+        $this->assertStringContainsString('parent', $warnings);
+    }
+
     public function test_refuses_to_delete_the_default_term(): void
     {
         $default = (int) get_option('default_category');
@@ -258,6 +345,22 @@ class TermCrudTest extends \WP_UnitTestCase
 
         $this->assertCount(2, $out['terms']);
         $this->assertGreaterThanOrEqual(5, $out['total'], 'The total must count every match, not just the page.');
+    }
+
+    public function test_list_returns_terms_as_a_list_on_a_later_page(): void
+    {
+        // Issue #594: get_terms() with an offset keeps keys that do not start
+        // at 0, and a non-sequential array encodes as a JSON object. Every
+        // page must encode the same way, as a list.
+        for ($i = 0; $i < 5; $i++) {
+            (new Create_Term())->handle(['taxonomy' => 'category', 'name' => 'Paged ' . $i]);
+        }
+
+        $out = (new List_Terms())->handle(['taxonomy' => 'category', 'per_page' => 2, 'page' => 2]);
+
+        $this->assertCount(2, $out['terms']);
+        $this->assertTrue(array_is_list($out['terms']), 'terms must be a list on page 2.');
+        $this->assertStringStartsWith('[', (string) wp_json_encode($out['terms']), 'terms must encode as a JSON array on page 2.');
     }
 
     public function test_get_term_returns_the_ancestor_path(): void

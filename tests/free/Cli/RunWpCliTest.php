@@ -15,15 +15,20 @@ use WPMCP\Tools\Cli\Wp_Cli_Guard;
  */
 class RunWpCliTest extends \WP_UnitTestCase
 {
+    // Issue #562: on multisite these tools need a network administrator.
+    use \WPMCP\Tests\Free\MultisiteSecurity\Network_Exec_Caller;
+
     protected function setUp(): void
     {
         parent::setUp();
         delete_option(Governance_Audit_Log::OPTION);
         Wp_Cli_Guard::set_environment_override('local');
+        $this->act_as_network_exec_caller();
     }
 
     protected function tearDown(): void
     {
+        $this->release_network_exec_caller();
         remove_all_filters('wpmcp_allow_wp_cli');
         remove_all_filters('wpmcp_allow_wp_cli_on_production');
         remove_all_filters('wpmcp_wp_cli_allowlist');
@@ -119,7 +124,7 @@ class RunWpCliTest extends \WP_UnitTestCase
         $result = $tool->handle(['command' => 'plugin list --format=json']);
 
         $this->assertCount(1, $calls);
-        $this->assertSame([$bin, 'plugin', 'list', '--format=json'], $calls[0]['argv']);
+        $this->assertSame(array_merge([$bin, 'plugin', 'list', '--format=json'], $this->expected_site_args()), $calls[0]['argv']);
         $this->assertSame('ok', $result['stdout']);
         $this->assertSame(0, $result['exit_code']);
     }

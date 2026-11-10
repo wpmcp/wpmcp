@@ -404,11 +404,11 @@ class I18n_Adapter
     }
 
     /**
-     * Take $new_id back out of the group captured before it was added, so
-     * the source's group is exactly what it was. On Polylang the captured
-     * group term gets its stored map back verbatim and loses $new_id, or,
-     * when the link made the group, the group term goes (unless other posts
-     * have joined it since, when only $new_id leaves). On WPML $new_id is
+     * Take $new_id back out of the group captured before it was added. On
+     * Polylang only $new_id leaves the captured group term's stored map, so
+     * a translation linked into the group since stays linked (issue #556),
+     * or, when the link made the group, the group term goes (unless other
+     * posts have joined it since, when only $new_id leaves). On WPML $new_id is
      * moved into a group of its own (best-effort, untested against a real
      * WPML install).
      *
@@ -455,10 +455,16 @@ class I18n_Adapter
         $source  = (int) ($captured['source'] ?? 0);
 
         if ($term_id > 0 && get_term($term_id, 'post_translations') instanceof \WP_Term) {
-            // The stored map goes back as captured, not through
-            // wp_update_term()'s description filters.
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- restoring a captured column verbatim; clean_term_cache() below invalidates.
-            $wpdb->update($wpdb->term_taxonomy, [ 'description' => (string) ($captured['description'] ?? '') ], [ 'term_id' => $term_id, 'taxonomy' => 'post_translations' ]);
+            // Only $new_id leaves the map as it is now (issue #556): putting
+            // the captured map back would also unlink every translation
+            // linked since. Written directly, not through wp_update_term()'s
+            // description filters, so the other entries stay byte for byte.
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- reading the stored map uncached, the row the update below writes.
+            $stored = $wpdb->get_var($wpdb->prepare("SELECT description FROM {$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'post_translations'", $term_id));
+            $map    = maybe_unserialize((string) $stored);
+            $map    = is_array($map) ? array_filter($map, static fn ($id): bool => (int) $id !== $new_id) : [];
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- writing the stored map without filters; clean_term_cache() below invalidates.
+            $wpdb->update($wpdb->term_taxonomy, [ 'description' => maybe_serialize($map) ], [ 'term_id' => $term_id, 'taxonomy' => 'post_translations' ]);
             clean_term_cache([ $term_id ], 'post_translations');
             wp_remove_object_terms($new_id, $term_id, 'post_translations');
             clean_object_term_cache([ $new_id, $source ], (string) get_post_type($source));

@@ -117,6 +117,74 @@ class SqlImporterTest extends \WP_UnitTestCase
         $this->assertStringContainsString('Only the SET statements', $out['failure']['error']);
     }
 
+    /**
+     * Issue #745: during a restore other requests still run (the
+     * get-backup-status poll, REST, WP-Cron) and a plugin that loads in one
+     * of them recreates its table or writes its option. Here that request
+     * lands right after the dump's DROP (it recreates the table with its
+     * own schema) and again right after the dump's CREATE (it inserts a row
+     * whose key the dump also holds). The import must still finish with
+     * exactly the dump's schema and rows.
+     */
+    public function test_import_survives_a_table_and_a_row_created_by_another_request_mid_import(): void
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'wpmcp_race_745';
+        $q     = '`' . $table . '`';
+        $sql   = "SET FOREIGN_KEY_CHECKS = 0;\n"
+            . "DROP TABLE IF EXISTS {$q};\n"
+            . "CREATE TABLE {$q} (\n  `id` bigint(20) unsigned NOT NULL,\n  `name` varchar(64) NOT NULL,\n  `v` varchar(64) NOT NULL,\n  PRIMARY KEY (`id`),\n  UNIQUE KEY `name` (`name`)\n);\n"
+            . "INSERT INTO {$q} (`id`, `name`, `v`) VALUES\n('1', 'alpha', 'from the dump'),\n('2', 'beta', 'from the dump');\n"
+            . "INSERT INTO {$q} (`id`, `name`, `v`) VALUES\n('3', 'gamma', 'from the dump');\n"
+            . "SET FOREIGN_KEY_CHECKS = 1;\n";
+
+        $other_request = static function (array $statement, array $class) use ($wpdb, $q): void {
+            if ('drop' === $class['kind']) {
+                $wpdb->query("CREATE TABLE {$q} (`id` bigint(20) unsigned NOT NULL, `plugin_only` int NOT NULL, PRIMARY KEY (`id`))");
+            } elseif ('create' === $class['kind']) {
+                $wpdb->query("INSERT INTO {$q} (`id`, `name`, `v`) VALUES (7, 'beta', 'written by a plugin')");
+                $wpdb->query("INSERT INTO {$q} (`id`, `name`, `v`) VALUES (3, 'plugin_row', 'written by a plugin')");
+            }
+        };
+
+        try {
+            $out = (new Sql_Importer($this->dump($sql), $this->policy()))->import(null, $other_request);
+
+            $this->assertNull($out['failure'], 'A table or row created by another request must not break the import.');
+            $this->assertSame(6, $out['executed']);
+            $this->assertNull($wpdb->get_var("SHOW COLUMNS FROM {$q} LIKE 'plugin_only'"), 'The dump\'s schema must win over the one the other request created.');
+            $rows = $wpdb->get_results("SELECT `id`, `name`, `v` FROM {$q} ORDER BY `id`", ARRAY_A);
+            $this->assertSame([
+                ['id' => '1', 'name' => 'alpha', 'v' => 'from the dump'],
+                ['id' => '2', 'name' => 'beta', 'v' => 'from the dump'],
+                ['id' => '3', 'name' => 'gamma', 'v' => 'from the dump'],
+            ], $rows, 'Every row of the dump must be in place; a colliding row from another request gives way to it.');
+        } finally {
+            $wpdb->query("DROP TABLE IF EXISTS {$q}");
+        }
+    }
+
+    public function test_import_still_stops_at_a_statement_the_database_rejects(): void
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'wpmcp_race_745';
+        $q     = '`' . $table . '`';
+        $sql   = "DROP TABLE IF EXISTS {$q};\n"
+            . "CREATE TABLE {$q} (\n  `id` bigint(20) unsigned NOT NULL,\n  PRIMARY KEY (`id`)\n);\n"
+            . "INSERT INTO {$q} (`no_such_column`) VALUES\n('1');\n";
+
+        try {
+            $out = (new Sql_Importer($this->dump($sql), $this->policy()))->import();
+
+            $this->assertSame(2, $out['executed']);
+            $this->assertSame(3, $out['failure']['statement']);
+            $this->assertSame('insert', $out['failure']['kind']);
+            $this->assertStringContainsString('no_such_column', $out['failure']['error']);
+        } finally {
+            $wpdb->query("DROP TABLE IF EXISTS {$q}");
+        }
+    }
+
     public function test_import_reports_a_dump_that_turns_out_truncated(): void
     {
         $out = (new Sql_Importer($this->dump("SET FOREIGN_KEY_CHECKS = 0;\nSET UNIQUE_CHECKS = 1"), $this->policy()))->import();

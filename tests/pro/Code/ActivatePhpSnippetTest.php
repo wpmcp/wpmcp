@@ -25,16 +25,21 @@ use WPMCP\Tools\Code\Update_Php_Snippet;
  */
 class ActivatePhpSnippetTest extends \WP_UnitTestCase
 {
+    // Issue #562: on multisite these tools need a network administrator.
+    use \WPMCP\Tests\Free\MultisiteSecurity\Network_Exec_Caller;
+
     protected function setUp(): void
     {
         parent::setUp();
         delete_option(Php_Snippet_Store::OPTION_NAME);
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
         Php_Snippet_Guard::set_environment_override('development');
+        $this->act_as_network_exec_caller();
     }
 
     protected function tearDown(): void
     {
+        $this->release_network_exec_caller();
         Php_Snippet_Guard::set_environment_override(null);
         remove_all_filters('wpmcp_allow_php_exec');
         remove_all_filters('wpmcp_allow_php_exec_on_production');

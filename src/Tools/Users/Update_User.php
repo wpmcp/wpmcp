@@ -44,7 +44,7 @@ class Update_User
         }
 
         $user = get_userdata($id);
-        if (! $user) {
+        if (! $user || ! Admin_Guard::is_reachable($user)) {
             throw new \RuntimeException('User not found.');
         }
 

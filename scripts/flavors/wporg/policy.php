@@ -168,6 +168,14 @@ return [
         // build them; the Kadence pack and the shared builder stay.
         'src/Integrations/Theme_Pack_GeneratePress.php',
         'src/Integrations/Theme_Pack_Blocksy.php',
+        // The premium theme add-on layout ops (issue #656), paid-tier.
+        // strip.php takes out the merge in Theme_Framework_Pack and the
+        // docblock lines that name them.
+        'src/Integrations/Theme_Layouts_Pack.php',
+        'src/Integrations/Theme_Layouts_Adapter.php',
+        'src/Integrations/Theme_Layouts_Astra.php',
+        'src/Integrations/Theme_Layouts_Kadence.php',
+        'src/Integrations/Theme_Layouts_GeneratePress.php',
         // The Elementor addon suite packs (issue #286): widget catalog and
         // module toggle ops for three addon suites, all paid-tier. strip.php
         // takes out the line in Theme_Integration that merges them and the
@@ -212,6 +220,12 @@ return [
         // free i18n tools' adapter, stays.
         'src/Integrations/I18n_Pack.php',
         'src/Integrations/I18n_Page_Text.php',
+        // MemberPress (issue #668), paid-tier. strip.php takes out the lines
+        // in Plugin_Data_Integration that merge the ops and count the pack
+        // towards availability. The plugin_table_rows kind for its rule
+        // access rows stays: it acts on MemberPress's own table and needs
+        // no MemberPress class.
+        'src/Integrations/MemberPress_Pack.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

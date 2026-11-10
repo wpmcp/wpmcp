@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Cli;
 
+use WPMCP\Governance\Code_Exec_Network_Gate;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
 
@@ -23,6 +24,10 @@ if (! defined('ABSPATH')) {
  *
  *  1. Wp_Cli_Guard::is_enabled()                - default OFF
  *  2. Wp_Cli_Guard::is_allowed_on_environment() - refuses production
+ *     then Code_Exec_Network_Gate                - multisite: a network
+ *                                                 administrator only, unless
+ *                                                 the network granted
+ *                                                 sub-site access (#562)
  *  3. Wp_Cli_Guard::is_allowed_subcommand()     - allowlist, deny by default
  *  4. Wp_Cli_Guard::validate_args()             - shell metacharacter/NUL check
  *  5. Wp_Cli_Guard::validate_flags()            - safe-flag allowlist, deny by
@@ -43,10 +48,14 @@ class Wp_Cli_Guard_Chain
      * relevant message on the first one that fails. Never executes anything.
      *
      * @param string[] $subcommand_argv wp-cli argv WITHOUT the binary.
+     * @param int|null $user_id         Whose permission the multisite gate
+     *                                  checks: the current user when null,
+     *                                  the dispatcher when a queued job runs
+     *                                  under WP-Cron with nobody signed in.
      *
      * @throws \RuntimeException
      */
-    public static function assert_allowed(array $subcommand_argv): void
+    public static function assert_allowed(array $subcommand_argv, ?int $user_id = null): void
     {
         if (! Wp_Cli_Guard::is_enabled()) {
             throw new \RuntimeException(
@@ -59,6 +68,8 @@ class Wp_Cli_Guard_Chain
                 'WP-CLI execution is refused on a production environment. Set WPMCP_ALLOW_WP_CLI_ON_PRODUCTION or the wpmcp_allow_wp_cli_on_production filter to override.'
             );
         }
+
+        Code_Exec_Network_Gate::assert_allowed('wp-cli', 'WP-CLI execution', $user_id);
 
         if (! Wp_Cli_Guard::is_allowed_subcommand($subcommand_argv)) {
             throw new \RuntimeException(
@@ -96,6 +107,31 @@ class Wp_Cli_Guard_Chain
         }
 
         return (string) $binary;
+    }
+
+    /**
+     * The global arguments that point WP-CLI at the site the caller is on.
+     * On multisite WP-CLI otherwise loads the network's main site, so a
+     * command from a sub-site would read or change another site (issue
+     * #562). Callers cannot pass --url themselves (validate_flags() refuses
+     * it), so this is added after the guard chain, from the current blog's
+     * own domain and path, which is exactly what WP-CLI matches a site by.
+     * Empty on single site.
+     *
+     * @return string[]
+     */
+    public static function site_args(): array
+    {
+        if (! is_multisite()) {
+            return [];
+        }
+
+        $site = get_site(get_current_blog_id());
+        if (! $site) {
+            throw new \RuntimeException('The current site could not be resolved, so WP-CLI was not run.');
+        }
+
+        return ['--url=' . $site->domain . $site->path];
     }
 
     /**

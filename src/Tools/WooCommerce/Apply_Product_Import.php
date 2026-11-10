@@ -165,7 +165,7 @@ class Apply_Product_Import
         // The parent's creation record removes every variation under it, so
         // the variations need no records of their own.
         foreach ($op['variations'] as $variation) {
-            (new Create_Variation())->handle($this->variation_args(['product_id' => $id, 'attributes' => $variation['attributes']], $variation));
+            (new Create_Variation())->create($this->variation_args(['product_id' => $id, 'attributes' => $variation['attributes']], $variation));
         }
 
         return $id;
@@ -216,7 +216,7 @@ class Apply_Product_Import
 
         foreach ($op['variations'] as $variation) {
             if ('create' === $variation['action']) {
-                $created = (new Create_Variation())->handle(
+                $created = (new Create_Variation())->create(
                     $this->variation_args(['product_id' => $id, 'attributes' => $variation['attributes']], $variation['desired'])
                 );
                 Product_Create_Snapshot::record((int) $created['id'], $variation['desired'], $session_id);

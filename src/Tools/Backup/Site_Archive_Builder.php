@@ -120,12 +120,30 @@ class Site_Archive_Builder
      * directory only). A database-only archive is the fast, small default
      * for pre-change safety; a full one is what you carry to another host.
      *
+     * The archive is written to $target . PARTIAL_SUFFIX and renamed to
+     * $target only once ZipArchive::close() has succeeded, so a .zip in the
+     * backup directory is always a complete archive and a .part is never one
+     * (issue #771). A request killed mid-build (max_execution_time, the
+     * memory limit) skips every catch block, so the rename is the only
+     * guarantee a half-written file cannot be mistaken for a backup; the
+     * .part it leaves is removed by discard_partial() when the job is found
+     * dead.
+     *
+     * $progress, when given, is called with a progress record (see
+     * describe_progress()) as the build advances: once at the start (so the
+     * partial path is known before any bytes are written), for every chunk
+     * of the dump, for every file added and, while close() writes the
+     * archive, at ZipArchive's progress rate. Run_Backup_Job uses it to
+     * heartbeat the job; a callback that throws stops the build, which
+     * cleans up and rethrows.
+     *
+     * @param callable(array):void|null $progress
      * @return array{
      *     file: string, size: int, scope: string, manifest: array,
      *     tables: array<string,int>, file_count: int
      * }
      */
-    public function build(string $scope = 'all', ?string $target = null): array
+    public function build(string $scope = 'all', ?string $target = null, ?callable $progress = null): array
     {
         if (! class_exists(\ZipArchive::class)) {
             throw new \RuntimeException('The PHP zip extension is required to build a site backup archive.');
@@ -137,13 +155,7 @@ class Site_Archive_Builder
         Site_Backup_Dir::protect($dir);
 
         $target ??= $this->archive_path($dir, $scope);
-
-        $zip = new \ZipArchive();
-        if (true !== $zip->open($target, \ZipArchive::CREATE | \ZipArchive::OVERWRITE)) {
-            throw new \RuntimeException('Could not open the backup archive for writing.');
-        }
-
-        $dump_result = ['tables' => [], 'blob_tables' => [], 'bytes' => 0];
+        $partial = $target . self::PARTIAL_SUFFIX;
 
         // The scratch path is decided BEFORE the dump runs, not returned from
         // it: a dump that throws part-way (a full disk is the realistic case)
@@ -154,16 +166,42 @@ class Site_Archive_Builder
             ? $dir . '/db-' . wp_generate_password(12, false) . '.sql'
             : null;
 
+        $state = [
+            'phase'        => 'start',
+            'partial_file' => $partial,
+            'scratch_file' => $sql_path,
+            'dump_bytes'   => 0,
+            'files_added'  => 0,
+            'percent'      => 0,
+        ];
+        $notify = static function (array $changes) use (&$state, $progress): void {
+            $state = array_merge($state, $changes);
+            if (null !== $progress) {
+                $progress($state);
+            }
+        };
+
+        $zip = new \ZipArchive();
+        if (true !== $zip->open($partial, \ZipArchive::CREATE | \ZipArchive::OVERWRITE)) {
+            throw new \RuntimeException('Could not open the backup archive for writing.');
+        }
+
+        $dump_result = ['tables' => [], 'blob_tables' => [], 'bytes' => 0];
+
         $closing = false;
         try {
+            $notify([]);
+
             if (null !== $sql_path) {
-                $dump_result = $this->write_dump($sql_path);
+                $notify(['phase' => 'dump']);
+                $dump_result = $this->write_dump($sql_path, $notify);
                 $zip->addFile($sql_path, 'db.sql');
             }
 
             $file_count = 0;
             if (in_array($scope, ['all', 'files', 'uploads'], true)) {
-                $file_count = $this->add_files($zip, $scope);
+                $notify(['phase' => 'files']);
+                $file_count = $this->add_files($zip, $scope, $notify);
             }
 
             $manifest = $this->manifest($scope, $dump_result, $file_count);
@@ -172,12 +210,42 @@ class Site_Archive_Builder
                 (string) wp_json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
             );
 
+            // close() is where the bytes move: every addFile() above only
+            // recorded a path. On a 1 GB wp-content it runs for minutes, so
+            // the heartbeat has to keep coming from inside it. An exception
+            // from the callback is held and rethrown after close() returns
+            // rather than thrown through libzip.
+            $notify(['phase' => 'finalise']);
+            $pending = null;
+            if (method_exists($zip, 'registerProgressCallback')) {
+                $zip->registerProgressCallback(0.02, static function (float $rate) use ($notify, &$pending): void {
+                    if (null !== $pending) {
+                        return;
+                    }
+                    try {
+                        $notify(['percent' => (int) round($rate * 100)]);
+                    } catch (\Throwable $e) {
+                        $pending = $e;
+                    }
+                });
+            }
+
             // A failed close() still frees the archive, and a second close()
             // on it throws a ValueError that would skip the cleanup below and
             // hide the real error, so it is attempted once only.
             $closing = true;
-            if (true !== $zip->close()) {
+            $closed  = $zip->close();
+            if (null !== $pending) {
+                throw $pending;
+            }
+            if (true !== $closed) {
                 throw new \RuntimeException('The backup archive could not be finalised.');
+            }
+
+            // Only a complete archive carries the .zip name.
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- WP_Filesystem is not loaded in a cron request; the rename is within the plugin's own backup directory.
+            if (! rename($partial, $target)) {
+                throw new \RuntimeException('The finished backup archive could not be moved into place.');
             }
         } catch (\Throwable $e) {
             // Leave no half-written archive behind: a truncated zip that
@@ -186,11 +254,9 @@ class Site_Archive_Builder
             if (! $closing) {
                 @$zip->close();
             }
+            self::discard_partial($state);
             if (is_file($target)) {
                 wp_delete_file($target);
-            }
-            if (null !== $sql_path && is_file($sql_path)) {
-                wp_delete_file($sql_path);
             }
             throw $e;
         }
@@ -212,6 +278,70 @@ class Site_Archive_Builder
         ];
     }
 
+    /** Suffix of an archive still being written. See build(). */
+    public const PARTIAL_SUFFIX = '.part';
+
+    /**
+     * Remove what an unfinished build left in the backup directory: the
+     * partial archive, libzip's temporary output beside it (it writes
+     * `<partial>.XXXXXX` during close() and renames on success) and the
+     * scratch dump. $progress is the record build() reported, as stored on
+     * the job; every path in it is checked to be inside the backup
+     * directory, because the record comes out of an option and a tampered
+     * one must not be able to delete anything else.
+     */
+    public static function discard_partial(array $progress): void
+    {
+        $root = realpath(Site_Backup_Dir::path());
+        if (false === $root) {
+            return;
+        }
+        $root = trailingslashit($root);
+
+        $inside = static function (string $path) use ($root): bool {
+            $dir = realpath(dirname($path));
+            return false !== $dir && trailingslashit($dir) === $root;
+        };
+
+        foreach (['partial_file', 'scratch_file'] as $key) {
+            $path = $progress[ $key ] ?? null;
+            if (! is_string($path) || '' === $path || ! $inside($path)) {
+                continue;
+            }
+            if (is_file($path)) {
+                wp_delete_file($path);
+            }
+            if ('partial_file' === $key) {
+                foreach (glob($path . '.??????') ?: [] as $temp) {
+                    if (is_file($temp)) {
+                        wp_delete_file($temp);
+                    }
+                }
+            }
+        }
+    }
+
+    /** One line saying how far a build got, for a job's error or status. */
+    public static function describe_progress(array $progress): string
+    {
+        $phase = (string) ($progress['phase'] ?? 'start');
+
+        switch ($phase) {
+            case 'dump':
+                return sprintf('dumping the database, %s written', size_format((int) ($progress['dump_bytes'] ?? 0)));
+            case 'files':
+                return sprintf('adding files, %d added', (int) ($progress['files_added'] ?? 0));
+            case 'finalise':
+                return sprintf(
+                    'writing the archive, %d%% done, %d files',
+                    (int) ($progress['percent'] ?? 0),
+                    (int) ($progress['files_added'] ?? 0)
+                );
+            default:
+                return 'starting';
+        }
+    }
+
     /** Bytes buffered in memory before an append to the scratch dump file. */
     public const FLUSH_BYTES = 1048576;
 
@@ -225,11 +355,13 @@ class Site_Archive_Builder
      * 1MB buffer is what keeps that from meaning one filesystem call per
      * generated statement.
      *
+     * @param callable(array):void $notify progress sink (see build())
      * @return array{tables: array<string,int>, blob_tables: string[], bytes: int}
      */
-    private function write_dump(string $path): array
+    private function write_dump(string $path, callable $notify): array
     {
         $buffer = '';
+        $bytes  = 0;
 
         $flush = static function (string $chunk) use ($path): void {
             if ('' === $chunk) {
@@ -251,12 +383,16 @@ class Site_Archive_Builder
         }
 
         $result = $this->dumper->dump(
-            static function (string $sql) use (&$buffer, $flush): void {
+            static function (string $sql) use (&$buffer, &$bytes, $flush, $notify): void {
                 $buffer .= $sql;
+                $bytes  += strlen($sql);
                 if (strlen($buffer) >= self::FLUSH_BYTES) {
                     $flush($buffer);
                     $buffer = '';
                 }
+                // Every statement, not every flush: a heartbeat that waited
+                // for a megabyte would be silent through a slow table.
+                $notify(['dump_bytes' => $bytes]);
             }
         );
 
@@ -268,8 +404,10 @@ class Site_Archive_Builder
     /**
      * Add the site's files to the archive under a wp-content/ prefix, and
      * return how many were added.
+     *
+     * @param callable(array):void $notify progress sink (see build())
      */
-    private function add_files(\ZipArchive $zip, string $scope): int
+    private function add_files(\ZipArchive $zip, string $scope, callable $notify): int
     {
         $uploads = wp_upload_dir();
         $root    = 'uploads' === $scope
@@ -320,6 +458,7 @@ class Site_Archive_Builder
 
             if ($zip->addFile($absolute, $prefix . '/' . str_replace('\\', '/', $relative))) {
                 $count++;
+                $notify(['files_added' => $count]);
             }
         }
 

@@ -278,4 +278,45 @@ class FunnelKitLiveTest extends \WP_UnitTestCase
         $this->assertTrue(Rollback_Service::restore_operation((string) $created['operation_ids'][0]), implode(' ', Rollback_Service::take_warnings()));
         $this->assertNull(FunnelKit_Funnel_Snapshot::row($id));
     }
+
+    /**
+     * Issue #554: undoing a write removes only the steps that write itself
+     * added. A step a later call added stays, with its page and its place in
+     * the funnel, and the rollback warning names it; undoing the later add
+     * still removes it, and a session's undo removes every step the session
+     * added and only those.
+     */
+    public function test_undoing_an_earlier_step_add_keeps_a_step_added_later(): void
+    {
+        $id     = (int) $this->ok('create-funnelkit-funnel', [ 'title' => 'Two steps' ])['result']['funnel']['id'];
+        $first  = $this->ok('add-funnelkit-step', [ 'funnel_id' => $id, 'type' => 'landing', 'title' => 'First' ]);
+        $second = $this->ok('add-funnelkit-step', [ 'funnel_id' => $id, 'type' => 'optin', 'title' => 'Second' ]);
+        $kept   = (int) $second['result']['step_id'];
+        wp_update_post([ 'ID' => $kept, 'post_content' => 'Hours of work on the opt-in page' ]);
+        Rollback_Service::take_warnings();
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $first['operation_id']));
+        $warnings = implode(' ', Rollback_Service::take_warnings());
+
+        $this->assertNull(get_post((int) $first['result']['step_id']), 'Undoing the add did not remove the step it added.');
+        $this->assertNotNull(get_post($kept), 'The step added by a later call, and its page, were deleted when an earlier add was undone.');
+        $this->assertSame('Hours of work on the opt-in page', get_post($kept)->post_content);
+        $this->assertSame([ [ 'type' => 'optin', 'id' => $kept ] ], $this->funnelkit_steps($id), 'The kept step is no longer part of the funnel.');
+        $this->assertStringContainsString((string) $kept, $warnings, 'The rollback warning does not name the step it kept.');
+
+        // Undoing the later add itself still removes its step.
+        $this->assertTrue(Rollback_Service::restore_operation((string) $second['operation_id']));
+        $this->assertNull(get_post($kept));
+        $this->assertSame([], $this->funnelkit_steps($id));
+
+        // A session's undo removes every step the session added, and keeps one added outside it.
+        $outside = (int) $this->ok('add-funnelkit-step', [ 'funnel_id' => $id, 'type' => 'landing', 'title' => 'Outside' ])['result']['step_id'];
+        $session = 'funnel-steps-' . wp_generate_password(8, false);
+        $a       = (int) $this->ok('add-funnelkit-step', [ 'funnel_id' => $id, 'type' => 'landing', 'title' => 'A' ], [ 'session_id' => $session ])['result']['step_id'];
+        $b       = (int) $this->ok('add-funnelkit-step', [ 'funnel_id' => $id, 'type' => 'optin', 'title' => 'B' ], [ 'session_id' => $session ])['result']['step_id'];
+        Rollback_Service::restore_session($session);
+        $this->assertNull(get_post($a));
+        $this->assertNull(get_post($b), 'A session undo kept a step the session itself added.');
+        $this->assertSame([ [ 'type' => 'landing', 'id' => $outside ] ], $this->funnelkit_steps($id));
+    }
 }

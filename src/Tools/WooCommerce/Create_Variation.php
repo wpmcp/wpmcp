@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\WooCommerce;
 
+use WPMCP\Safety\Post_Creation_Snapshot;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -10,9 +12,12 @@ if (! defined('ABSPATH')) {
  * Add a variation to a variable product through WC_Product_Variation's
  * setters and save().
  *
- * Creation is exempt from Safe_Mutation for the same reason create-product
- * is: there is no prior state to capture. The reply names delete-variation
- * as the undo.
+ * Creation has no prior state to capture, so like create-product it records
+ * a creation row once the variation exists (issue #761,
+ * Post_Creation_Snapshot) and returns its operation_id: rollback-operation
+ * and rollback-session move the variation to the trash, where restore-post
+ * brings it back. apply-product-import calls create() instead, because it
+ * writes its own creation rows (Product_Create_Snapshot).
  *
  * Validation runs before anything is written:
  *  - the parent must be a variable product;
@@ -29,6 +34,20 @@ if (! defined('ABSPATH')) {
 class Create_Variation
 {
     public function handle(array $args): array
+    {
+        $out          = $this->create($args);
+        $operation_id = Post_Creation_Snapshot::record('create-variation', [(int) $out['id']], $args, (string) ($args['session_id'] ?? 'default'));
+
+        return ['operation_id' => $operation_id] + $out;
+    }
+
+    /**
+     * Create the variation without a creation row of its own, for a caller
+     * that records the creation itself.
+     *
+     * @return array<string, mixed> The variation summary, id included.
+     */
+    public function create(array $args): array
     {
         $parent_id = (int) ($args['product_id'] ?? 0);
         if ($parent_id <= 0) {
@@ -72,10 +91,7 @@ class Create_Variation
 
         $fresh = wc_get_product($id);
 
-        return array_merge(
-            $fresh instanceof \WC_Product_Variation ? Variation_View::summary($fresh) : ['id' => $id],
-            ['recoverable' => false, 'undo' => 'delete-variation']
-        );
+        return $fresh instanceof \WC_Product_Variation ? Variation_View::summary($fresh) : ['id' => $id];
     }
 
     /**

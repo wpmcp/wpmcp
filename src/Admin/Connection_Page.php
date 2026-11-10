@@ -378,6 +378,8 @@ class Connection_Page
                 </div>
             <?php endif; ?>
 
+            <?php $this->render_custom_connector(); ?>
+
             <h2><?php echo esc_html__('2. Create a connection', 'wpmcp'); ?></h2>
             <p>
                 <?php echo esc_html__('This creates a standard WordPress Application Password for the chosen user. Least privilege: prefer a dedicated user with only the role the agent needs, the agent can never do more than that user can, and wpmcp governance and tool capability gates narrow further from there. You can revoke the password below at any time.', 'wpmcp'); ?>
@@ -640,6 +642,43 @@ class Connection_Page
             <?php endforeach; ?>
             </tbody>
         </table>
+        <?php
+    }
+
+    /**
+     * The Claude Desktop / claude.ai custom connector (issue #581): it needs
+     * OAuth, which is off by default, so the screen says whether it is on
+     * and exactly how to switch it on. Shown on every render: the connector
+     * never uses an application password, so it does not wait for step 2.
+     */
+    private function render_custom_connector(): void
+    {
+        $connector = Client_Config_Generator::custom_connector(true);
+        ?>
+        <h2><?php echo esc_html__('Custom connector (Claude Desktop and claude.ai)', 'wpmcp'); ?></h2>
+        <p>
+            <?php if ($connector['oauth_enabled']) : ?>
+                <strong><?php echo esc_html__('OAuth is on.', 'wpmcp'); ?></strong>
+            <?php else : ?>
+                <strong><?php echo esc_html__('OAuth is off.', 'wpmcp'); ?></strong>
+            <?php endif; ?>
+            <?php echo esc_html($connector['note']); ?>
+        </p>
+        <?php if (! $connector['oauth_enabled']) : ?>
+            <p><?php echo esc_html__('To switch OAuth on:', 'wpmcp'); ?></p>
+            <ul style="margin-left: 1.5em; list-style: disc;">
+                <?php foreach ($connector['enable_oauth'] as $step) : ?>
+                    <li><?php echo esc_html($step); ?></li>
+                <?php endforeach; ?>
+            </ul>
+            <p><code><?php echo esc_html(Client_Config_Generator::OAUTH_CONSTANT_LINE); ?></code></p>
+        <?php endif; ?>
+        <p><?php echo esc_html__('To add the connector:', 'wpmcp'); ?></p>
+        <ol>
+            <?php foreach ($connector['steps'] as $step) : ?>
+                <li><?php echo esc_html($step); ?></li>
+            <?php endforeach; ?>
+        </ol>
         <?php
     }
 

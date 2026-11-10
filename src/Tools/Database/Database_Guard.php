@@ -23,6 +23,13 @@ class Database_Guard
     public const AUDIT_OPTION = 'wpmcp_db_write_audit_log';
     public const AUDIT_MAX = 100;
 
+    /**
+     * Set once an audit log written before PR #584's write-time masking has
+     * been masked in place. Under the locked wpmcp_db_write_audit_log prefix,
+     * so update-option cannot clear it (clearing would only re-run the pass).
+     */
+    public const AUDIT_MASKED_OPTION = 'wpmcp_db_write_audit_log_masked';
+
     /** Placeholder written over secret values in query results. */
     public const SECRET_MASK = '[REDACTED]';
 
@@ -451,6 +458,7 @@ class Database_Guard
                 $masked = ('option_value' === $column && '' !== $option)
                     ? self::mask_gateway_option_value($option, $value)
                     : $value;
+                $masked = self::mask_audit_log_value($masked);
                 $rows[ $index ][ $column ] = self::scrub_gateway_secrets($masked, $secrets);
             }
         }
@@ -474,10 +482,7 @@ class Database_Guard
         $values = [];
         foreach ($gateways as $gateway) {
             if ($gateway instanceof \WC_Payment_Gateway) {
-                $stored = get_option($gateway->get_option_key());
-                if (is_array($stored)) {
-                    self::collect_gateway_secrets($gateway, $stored, $values);
-                }
+                self::collect_stored_gateway_secrets($gateway, get_option($gateway->get_option_key()), $values);
             }
         }
 
@@ -485,16 +490,34 @@ class Database_Guard
             if (! is_array($row) || ! is_string($row['option_name'] ?? null) || ! is_string($row['option_value'] ?? null)) {
                 continue;
             }
-            $gateway  = Gateway_Secrets::gateway_for_option($row['option_name']);
-            $settings = null === $gateway ? null : self::unserialize_array($row['option_value']);
-            if (null !== $settings) {
-                self::collect_gateway_secrets($gateway, $settings, $values);
+            $gateway = Gateway_Secrets::gateway_for_option($row['option_name']);
+            if (null !== $gateway) {
+                self::collect_stored_gateway_secrets($gateway, $row['option_value'], $values);
             }
         }
 
         $values = array_values(array_unique($values));
         usort($values, static fn (string $a, string $b): int => strlen($b) - strlen($a));
         return $values;
+    }
+
+    /**
+     * Add the credential values of a gateway settings value, in whatever
+     * form it is stored (issue #729), to $values: by key when it decodes to
+     * settings, the whole value when it does not (mask_option() masks such
+     * a value whole, so it is the credential as far as the scrub knows).
+     *
+     * @param mixed              $stored
+     * @param array<int, string> $values
+     */
+    private static function collect_stored_gateway_secrets(\WC_Payment_Gateway $gateway, $stored, array &$values): void
+    {
+        $settings = Gateway_Secrets::decode_settings($stored);
+        if (null !== $settings) {
+            self::collect_gateway_secrets($gateway, $settings, $values);
+        } elseif (is_scalar($stored) && ! is_bool($stored) && strlen((string) $stored) >= self::GATEWAY_SECRET_SCRUB_MIN) {
+            $values[] = (string) $stored;
+        }
     }
 
     /**
@@ -514,16 +537,49 @@ class Database_Guard
         }
     }
 
-    /** A serialized gateway settings option_value with its secrets masked by key. */
-    private static function mask_gateway_option_value(string $option, string $value): string
+    /**
+     * A serialized database write audit log (AUDIT_OPTION) with the gateway
+     * credentials in every entry's before-image masked by key (issue #550).
+     * The log keeps the rows a write replaced, so it can hold a credential
+     * that has since been rotated away, which the scrub of the values stored
+     * now cannot recognize. Recognized by shape rather than by option_name,
+     * so a select that leaves the name out is masked too. Anything else
+     * comes back untouched.
+     */
+    private static function mask_audit_log_value(string $value): string
     {
-        $settings = self::unserialize_array($value);
-        if (null === $settings) {
+        if (false === strpos($value, 's:6:"before";')) {
+            return $value;
+        }
+        $log = self::unserialize_array($value);
+        if (null === $log) {
             return $value;
         }
 
-        $masked = Gateway_Secrets::mask_option($option, $settings);
-        return $masked === $settings ? $value : serialize($masked); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- re-encodes an option_value in the same serialized form the options table stores.
+        $changed = false;
+        foreach ($log as $index => $entry) {
+            if (! is_array($entry) || ! isset($entry['op'], $entry['table']) || ! is_array($entry['before'] ?? null)) {
+                continue;
+            }
+            $before = self::mask_gateway_secrets($entry['before']);
+            if ($before !== $entry['before']) {
+                $log[ $index ]['before'] = $before;
+                $changed = true;
+            }
+        }
+
+        return $changed ? serialize($log) : $value; // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- re-encodes the audit log in the same serialized form the options table stores.
+    }
+
+    /**
+     * A gateway settings option_value with its secrets masked by key, in the
+     * form it is stored in: a serialized array, JSON text or a serialized
+     * string, or masked whole when it holds no settings (issue #729).
+     */
+    private static function mask_gateway_option_value(string $option, string $value): string
+    {
+        $masked = Gateway_Secrets::mask_option($option, $value);
+        return is_string($masked) ? $masked : Gateway_Secrets::MASK;
     }
 
     /**
@@ -908,6 +964,277 @@ class Database_Guard
     }
 
     /**
+     * Table-name suffixes of WP MCP's own stores that hold raw copies of
+     * what a write replaced (issue #550): the snapshot ledger
+     * ({prefix}wpmcp_snapshots, on every site of a network). Its payload is
+     * the exact undo copy, gateway credentials included, encoded as base64
+     * gzip that no result scrub can see into, so the generic database tools
+     * do not reach it at all; list-operations and the rollback tools are
+     * the way in.
+     */
+    public const INTERNAL_STORE_TABLE_SUFFIXES = ['wpmcp_snapshots'];
+
+    /** Whether $table is one of WP MCP's internal raw-copy stores (case-insensitive). */
+    public static function is_internal_store_table(string $table): bool
+    {
+        $table = strtolower(trim($table));
+        foreach (self::INTERNAL_STORE_TABLE_SUFFIXES as $suffix) {
+            if ('' !== $table && str_ends_with($table, $suffix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Read-path refusal for the internal raw-copy stores (issue #550): a
+     * query that names one anywhere (FROM, JOIN, a subquery, a UNION, quoted
+     * or schema-qualified, in any case) is refused, because once the table
+     * is reachable SELECT *, a UNION under positional aliases or a
+     * transform such as HEX() or FROM_BASE64() can carry the payload out
+     * under any column name. Single-quoted literals do not count; SQL the
+     * identifier scan cannot tokenize is refused when it contains a store's
+     * name at all (fail closed).
+     *
+     * @return true|\WP_Error
+     */
+    public static function guard_internal_store_read(string $sql)
+    {
+        $identifiers = self::sql_identifiers($sql);
+        if (null === $identifiers) {
+            $named = false;
+            foreach (self::INTERNAL_STORE_TABLE_SUFFIXES as $suffix) {
+                $named = $named || false !== stripos($sql, $suffix);
+            }
+        } else {
+            $named = [] !== array_filter($identifiers, [self::class, 'is_internal_store_table']);
+        }
+
+        if (! $named) {
+            return true;
+        }
+
+        return new \WP_Error(
+            'internal_store_read_blocked',
+            'Reads of the WP MCP snapshot ledger are blocked: it holds the exact undo copy of every '
+            . 'change, credentials included. Use list-operations to see the undo history and the '
+            . 'rollback tools to restore it.'
+        );
+    }
+
+    /**
+     * Read-path refusal for option values (issue #621). A payment gateway's
+     * live settings row cannot be masked at rest, and mask_gateway_secrets()
+     * only sees a value that comes back intact: REVERSE(), TO_BASE64(), a
+     * subquery, or a LIKE on option_value in the WHERE clause gets around
+     * it. So when the SQL names an options table (any site's) and can read
+     * option_value (by name, or through a * wildcard), it must be a plain
+     * lookup of named options that get-option would also return:
+     *
+     *   SELECT <columns> FROM <options table> [alias]
+     *   WHERE option_name = '<name>' | option_name IN ('<name>', ...) [LIMIT n]
+     *
+     * with no subquery, string literal or comment in the column list, and
+     * no name that is denylisted (Option_Guard::is_denylisted()) or a
+     * gateway settings option (woocommerce_*_settings). Anything else that
+     * reads option_value is refused; queries that never read it (names,
+     * counts) are untouched. SQL the lexer cannot read in every mode is
+     * treated as reading it (fail closed).
+     *
+     * @return true|\WP_Error
+     */
+    public static function guard_option_value_read(string $sql)
+    {
+        $reads = false;
+        foreach ([false, true] as $no_backslash_escapes) {
+            foreach ([true, false] as $strict_double_dash) {
+                $tokens = self::lex_tokens($sql, $no_backslash_escapes, $strict_double_dash);
+                if (null === $tokens) {
+                    $reads = $reads || false !== stripos($sql, 'option');
+                    continue;
+                }
+                $reads = $reads || self::tokens_read_option_value($tokens);
+            }
+        }
+
+        if (! $reads || self::is_plain_option_lookup($sql)) {
+            return true;
+        }
+
+        return new \WP_Error(
+            'option_value_read_blocked',
+            'query reads option_value from the options table only as a plain lookup of named options: '
+            . "SELECT ... FROM <options table> WHERE option_name = '<name>' (or IN (...)), for options get-option "
+            . 'would return. Payment gateway settings and other sensitive options are not readable here; use '
+            . 'get-option, which masks gateway credentials.'
+        );
+    }
+
+    /** Whether $table is an options table of this site or any site of the network. */
+    public static function is_options_table(string $table): bool
+    {
+        global $wpdb;
+        $table = strtolower(trim($table));
+        if ('' === $table) {
+            return false;
+        }
+        if (isset($wpdb->options) && strtolower((string) $wpdb->options) === $table) {
+            return true;
+        }
+        $prefix = strtolower((string) ($wpdb->base_prefix ?? $wpdb->prefix ?? 'wp_'));
+        return 1 === preg_match('/^' . preg_quote($prefix, '/') . '(\d+_)?options$/', $table);
+    }
+
+    /** @param array<int, array{0: string, 1: string}> $tokens */
+    private static function tokens_read_option_value(array $tokens): bool
+    {
+        $names_options = false;
+        $reads_value   = false;
+        $previous      = null;
+        foreach ($tokens as $token) {
+            [ $type, $value ] = $token;
+            if ('id' === $type) {
+                $names_options = $names_options || self::is_options_table($value);
+                $reads_value   = $reads_value || 'option_value' === $value;
+            }
+            if ('p' === $type && '*' === $value && null !== $previous) {
+                // A wildcard column list: after SELECT, DISTINCT, ALL, a
+                // comma or a table qualifier. COUNT(*) and a * b are not.
+                $is_wildcard = ('id' === $previous[0] && in_array($previous[1], [ 'select', 'distinct', 'all', 'distinctrow' ], true))
+                    || ('p' === $previous[0] && in_array($previous[1], [ ',', '.' ], true));
+                $reads_value = $reads_value || $is_wildcard;
+            }
+            $previous = $token;
+        }
+        return $names_options && $reads_value;
+    }
+
+    /** Whether $sql is exactly the plain named-option lookup guard_option_value_read() allows. */
+    private static function is_plain_option_lookup(string $sql): bool
+    {
+        $name    = "'[A-Za-z0-9_.:\\-]+'";
+        $pattern = '/^\s*SELECT\s+(?<cols>[A-Za-z0-9_`.,()*+\-\s]+?)\s+FROM\s+`?(?<table>[A-Za-z0-9_$]+)`?'
+            . '(?:\s+(?:AS\s+)?`?(?<alias>[A-Za-z_][A-Za-z0-9_]*)`?)?'
+            . '\s+WHERE\s+(?:`?[A-Za-z_][A-Za-z0-9_]*`?\.)?`?option_name`?\s*'
+            . '(?:=\s*(?<one>' . $name . ')|IN\s*\((?<list>\s*' . $name . '(?:\s*,\s*' . $name . ')*\s*)\))'
+            . '(?:\s+LIMIT\s+\d+(?:\s*,\s*\d+)?)?\s*;?\s*$/i';
+        if (1 !== preg_match($pattern, $sql, $m)) {
+            return false;
+        }
+        if (! self::is_options_table($m['table'])) {
+            return false;
+        }
+        if (1 === preg_match('/\b(select|from|where|union|into|having|join)\b/i', $m['cols'])) {
+            return false;
+        }
+        $alias = strtolower((string) ($m['alias'] ?? ''));
+        if (in_array($alias, [ 'where', 'join', 'inner', 'left', 'right', 'cross', 'natural', 'straight_join' ], true)) {
+            return false;
+        }
+
+        preg_match_all("/'([^']*)'/", (string) ($m['one'] ?? '') . (string) ($m['list'] ?? ''), $names);
+        foreach ($names[1] as $option) {
+            $gateway = function_exists('WC') && null !== Gateway_Secrets::gateway_for_option($option);
+            $secret  = \WPMCP\Tools\Meta\Option_Guard::is_denylisted($option) || $gateway;
+            if ($secret || 1 === preg_match('/^woocommerce_.+_settings$/i', $option)) {
+                return false;
+            }
+        }
+        return [] !== $names[1];
+    }
+
+    /**
+     * One lexing pass for guard_option_value_read(), the same rules as
+     * lex_identifiers(): identifiers (bare, backticked or double-quoted,
+     * lower-cased) as ['id', name], single-quoted strings as ['s', ''],
+     * every other non-space character as ['p', char]. Comments are dropped,
+     * but their words count as identifiers, as in lex_identifiers(), so a
+     * name hidden in a comment still fails closed. Null on an unterminated
+     * quote or block comment.
+     *
+     * @return array<int, array{0: string, 1: string}>|null
+     */
+    private static function lex_tokens(string $sql, bool $no_backslash_escapes, bool $strict_double_dash): ?array
+    {
+        $out = [];
+        $len = strlen($sql);
+        $i   = 0;
+
+        while ($i < $len) {
+            $c   = $sql[ $i ];
+            $two = substr($sql, $i, 2);
+
+            $dash_comment = '--' === $two
+                && (! $strict_double_dash || $i + 2 >= $len || ord($sql[ $i + 2 ]) <= 32);
+            if ('#' === $c || $dash_comment || '/*' === $two) {
+                if ('/*' === $two) {
+                    $end = strpos($sql, '*/', $i + 2);
+                    if (false === $end) {
+                        return null;
+                    }
+                    $body = substr($sql, $i + 2, $end - $i - 2);
+                    $i    = $end + 2;
+                } else {
+                    $newline = strpos($sql, "\n", $i);
+                    $end     = (false === $newline) ? $len : $newline;
+                    $body    = substr($sql, $i, $end - $i);
+                    $i       = $end + 1;
+                }
+                $words = [];
+                self::collect_words($body, $words);
+                foreach ($words as $word) {
+                    $out[] = [ 'id', $word ];
+                }
+                continue;
+            }
+
+            if ("'" === $c || '"' === $c || '`' === $c) {
+                $content = '';
+                $closed  = false;
+                $i++;
+                while ($i < $len) {
+                    $ch = $sql[ $i ];
+                    if ('`' !== $c && ! $no_backslash_escapes && '\\' === $ch) {
+                        $content .= substr($sql, $i + 1, 1);
+                        $i       += 2;
+                        continue;
+                    }
+                    if ($ch === $c) {
+                        if ($i + 1 < $len && $sql[ $i + 1 ] === $c) {
+                            $content .= $c;
+                            $i       += 2;
+                            continue;
+                        }
+                        $i++;
+                        $closed = true;
+                        break;
+                    }
+                    $content .= $ch;
+                    $i++;
+                }
+                if (! $closed) {
+                    return null;
+                }
+                $out[] = "'" === $c ? [ 's', '' ] : [ 'id', strtolower($content) ];
+                continue;
+            }
+
+            if (preg_match('/[0-9A-Za-z_$\x80-\xFF]+/A', $sql, $match, 0, $i)) {
+                $out[] = [ 'id', strtolower($match[0]) ];
+                $i    += strlen($match[0]);
+                continue;
+            }
+
+            if (ord($c) > 32) {
+                $out[] = [ 'p', $c ];
+            }
+            $i++;
+        }
+
+        return $out;
+    }
+
+    /**
      * Whether writes to $table are refused. Defaults to the users and
      * usermeta tables (credential/identity data with no business being
      * touched by a generic row-write tool) and, on multisite, sitemeta;
@@ -922,7 +1249,10 @@ class Database_Guard
             $defaults[] = $wpdb->sitemeta;
         }
         $protected = apply_filters('wpmcp_db_protected_tables', $defaults);
-        return self::table_is_protected($table, (array) $protected);
+        // The internal raw-copy stores are always protected, whatever the
+        // filter returns: update-rows and delete-rows echo the matched rows
+        // in before_image, and a write could forge an undo copy (#550).
+        return self::is_internal_store_table($table) || self::table_is_protected($table, (array) $protected);
     }
 
     /**
@@ -1433,9 +1763,19 @@ class Database_Guard
      * non-recoverable cases (no primary key, cap exceeded, binary values -
      * see recoverability_probe()) the before-image captured here is the only
      * trail a human has to manually reconstruct a change if needed.
+     *
+     * Payment gateway credentials in the before-image are masked as it is
+     * written (issue #550, PR #584 review): the log row sits in wp_options,
+     * where query can wrap option_value in CONCAT, REVERSE, TO_BASE64 or any
+     * other expression that no read-time mask can see through, and a
+     * rotated credential is no longer recognizable by value. Rollback never
+     * reads this log (it restores from the snapshot ledger, which keeps the
+     * exact copy), so masking here does not change what an undo restores.
      */
     public static function audit(string $operation, string $table, int $affected, array $before = []): void
     {
+        self::mask_internal_stores();
+
         $log = get_option(self::AUDIT_OPTION, []);
         if (! is_array($log)) {
             $log = [];
@@ -1445,7 +1785,7 @@ class Database_Guard
             'op'       => $operation,
             'table'    => $table,
             'affected' => $affected,
-            'before'   => $before,
+            'before'   => self::mask_gateway_secrets($before),
             'user'     => get_current_user_id(),
             'time'     => time(),
         ];
@@ -1455,5 +1795,78 @@ class Database_Guard
         }
 
         update_option(self::AUDIT_OPTION, $log, false);
+    }
+
+    /**
+     * One-time pass over WP MCP's internal logs written before their values
+     * were masked on write (issue #550, PR #584 review): mask the gateway
+     * credentials in every audit log before-image, and drop the captured
+     * arguments of request log rows. Runs before query reads anything and
+     * before the next audit write. The audit log pass needs WooCommerce to
+     * recognize the credentials, so until WooCommerce is loaded it is not
+     * marked done and runs again next time.
+     */
+    public static function mask_internal_stores(): void
+    {
+        if (class_exists(\WPMCP\MCP\Request_Log::class)) {
+            \WPMCP\MCP\Request_Log::drop_legacy_arguments();
+        }
+
+        if ('1' === (string) get_option(self::AUDIT_MASKED_OPTION, '')) {
+            return;
+        }
+        if (! function_exists('WC') || ! class_exists('WC_Payment_Gateway')) {
+            return;
+        }
+
+        $log = get_option(self::AUDIT_OPTION, []);
+        if (is_array($log) && [] !== $log) {
+            $changed = false;
+            foreach ($log as $index => $entry) {
+                if (! is_array($entry) || ! is_array($entry['before'] ?? null)) {
+                    continue;
+                }
+                $masked = self::mask_gateway_secrets($entry['before']);
+                if ($masked !== $entry['before']) {
+                    $log[ $index ]['before'] = $masked;
+                    $changed                 = true;
+                }
+            }
+            if ($changed) {
+                update_option(self::AUDIT_OPTION, $log, false);
+            }
+        }
+
+        update_option(self::AUDIT_MASKED_OPTION, '1', false);
+    }
+
+    /**
+     * Every string in $data with the payment gateway credentials stored now
+     * replaced by the mask, element by element (issue #550). For logs that
+     * keep caller input, such as the request log's captured arguments,
+     * recorded after the call ran, so a credential that call just stored is
+     * already among the stored values.
+     *
+     * @param array<mixed> $data
+     * @return array<mixed>
+     */
+    public static function scrub_gateway_secrets_in(array $data): array
+    {
+        if (! function_exists('WC') || ! class_exists('WC_Payment_Gateway')) {
+            return $data;
+        }
+        $secrets = self::gateway_secret_values([]);
+        if ([] === $secrets) {
+            return $data;
+        }
+        array_walk_recursive(
+            $data,
+            static function (&$item) use ($secrets): void {
+                if (is_string($item)) {
+                    $item = self::scrub_gateway_secrets($item, $secrets);
+                }
+            }
+        );
+        return $data;
     }
 }

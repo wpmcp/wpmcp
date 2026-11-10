@@ -6,6 +6,7 @@ use WPMCP\MCP\Registrar;
 use WPMCP\Safety\Post_Creation_Snapshot;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Save_Filters;
+use WPMCP\Safety\Snapshot_Store;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -43,6 +44,10 @@ if (! defined('ABSPATH')) {
  *    record the new post (its undo trashes it); delete snapshots the id map
  *    and the table's post (its undo puts both back at the same ids). One
  *    call is one session: rollback-session.
+ *  - every id map snapshot names the map entries its write touched
+ *    (`map_entries`), and its undo puts back only those (issue #555,
+ *    narrow_map_restore()), so tables created, copied or renamed after the
+ *    undone write stay in the map.
  *  - place-table is a post snapshot of the page it edits.
  *
  * Capabilities are TablePress's own, on top of the pair's: listing, reading,
@@ -64,6 +69,12 @@ final class TablePress_Pack
 
     /** The option TablePress keeps the table id => post id map in. */
     public const TABLES_OPTION = 'tablepress_tables';
+
+    /** The snapshot data key naming the id map entries a write touched (issue #555). */
+    public const MAP_ENTRIES = 'map_entries';
+
+    /** The snapshot data key holding the map's last_id right after that write (issue #555). */
+    public const MAP_LAST_ID = 'map_last_id';
 
     public const MAX_PER_PAGE = 100;
 
@@ -94,7 +105,12 @@ final class TablePress_Pack
         $base   = [ 'tier' => 'pro', 'requires' => static fn () => Ops_Status_Packs::presence(self::active(), 'tablepress_inactive', 'TablePress') ];
         $edit   = static fn (array $args): ?array => self::table_refusal($args['table_id'] ?? '', 'tablepress_edit_table', true);
         $post   = static fn (array $args): array => [ 'object_type' => 'post', 'object_id' => self::post_id_of(self::table_id($args)) ];
-        $option = static fn (array $args): array => [ 'object_type' => 'option', 'object_id' => self::TABLES_OPTION ];
+        $option = static fn (array $args): array => [
+            'object_type'         => 'option',
+            'object_id'           => self::TABLES_OPTION,
+            // An id change touches the old and the new id's entries only.
+            'extra_snapshot_data' => [ self::MAP_ENTRIES => [ self::table_id($args), trim((string) ($args['new_id'] ?? '')) ] ],
+        ];
 
         return [
             'tablepress-list-tables'    => $base + [
@@ -864,10 +880,13 @@ final class TablePress_Pack
     /**
      * Run $write, which changes the table id map, under an option snapshot
      * of it in this call's session; returns [operation id, $write's result].
+     * The snapshot then names the entries $write touched, so its undo puts
+     * back only those (issue #555).
      */
     private static function under_map_snapshot(array $context, array $args, callable $write): array
     {
-        $out = Safe_Mutation::run(
+        $before = self::id_map();
+        $out    = Safe_Mutation::run(
             [
                 'object_type'         => 'option',
                 'object_id'           => self::TABLES_OPTION,
@@ -879,6 +898,20 @@ final class TablePress_Pack
             ],
             $write
         );
+        $after   = self::id_map();
+        $touched = [];
+        foreach (array_unique(array_merge(array_keys($before), array_keys($after))) as $table_id) {
+            if (($before[ $table_id ] ?? null) !== ($after[ $table_id ] ?? null)) {
+                $touched[] = (string) $table_id;
+            }
+        }
+        $row = Snapshot_Store::get_by_operation((string) $out['operation_id']);
+        if (null !== $row && is_array($row['snapshot'] ?? null)) {
+            $snapshot                              = $row['snapshot'];
+            $snapshot['data'][ self::MAP_ENTRIES ] = $touched;
+            $snapshot['data'][ self::MAP_LAST_ID ] = (int) (self::model()->_debug_get_tables()['last_id'] ?? 0);
+            Snapshot_Store::update_snapshot((string) $out['operation_id'], $snapshot);
+        }
         return [ (string) $out['operation_id'], $out['result'] ];
     }
 
@@ -1104,6 +1137,62 @@ final class TablePress_Pack
         if (null !== $table_id) {
             self::model()->invalidate_table_output_cache($table_id);
         }
+    }
+
+    /**
+     * Narrow the undo of an id map snapshot to the entries its write touched
+     * (issue #555): each of them goes back to what the snapshot holds (its
+     * post id, or no entry), and every other entry stays as it is now, so a
+     * table created, copied or renamed after the undone write keeps its id.
+     * last_id goes back too when no write since has moved it, and otherwise
+     * stays, so an id a later table took is never handed out again. A snapshot
+     * that names no entries (one taken before this) restores the whole map.
+     * Filters wpmcp_rollback_option_snapshot; works whether or not TablePress
+     * is loaded, as it only reads and rebuilds the stored option.
+     *
+     * @param mixed $snapshot
+     * @return mixed
+     */
+    public static function narrow_map_restore($snapshot)
+    {
+        $data = is_array($snapshot) ? (array) ($snapshot['data'] ?? []) : [];
+        if (self::TABLES_OPTION !== ($data['name'] ?? null) || ! is_array($data[ self::MAP_ENTRIES ] ?? null)) {
+            return $snapshot;
+        }
+        $before = self::decode_map(empty($data['existed']) ? null : ($data['value'] ?? null));
+        $now    = self::decode_map(get_option(self::TABLES_OPTION, null));
+        foreach ($data[ self::MAP_ENTRIES ] as $table_id) {
+            $table_id = (string) $table_id;
+            if (isset($before['table_post'][ $table_id ])) {
+                $now['table_post'][ $table_id ] = $before['table_post'][ $table_id ];
+            } else {
+                unset($now['table_post'][ $table_id ]);
+            }
+        }
+        if (isset($data[ self::MAP_LAST_ID ]) && (int) $data[ self::MAP_LAST_ID ] === $now['last_id']) {
+            $now['last_id'] = $before['last_id'];
+        }
+        $snapshot['data']['existed'] = true;
+        $snapshot['data']['value']   = wp_json_encode($now);
+        return $snapshot;
+    }
+
+    /**
+     * The stored id map (TablePress keeps it as JSON), as last_id and
+     * table id => post id; an absent or unreadable one is empty.
+     *
+     * @param mixed $stored
+     * @return array{last_id: int, table_post: array<string, int>}
+     */
+    private static function decode_map($stored): array
+    {
+        $map  = is_string($stored) ? json_decode($stored, true) : $stored;
+        $map  = is_array($map) ? $map : [];
+        $post = [];
+        foreach ((array) ($map['table_post'] ?? []) as $table_id => $post_id) {
+            $post[ (string) $table_id ] = (int) $post_id;
+        }
+        return [ 'last_id' => (int) ($map['last_id'] ?? 0), 'table_post' => $post ];
     }
 
     /**

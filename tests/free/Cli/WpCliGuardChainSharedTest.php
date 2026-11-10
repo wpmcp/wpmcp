@@ -27,16 +27,21 @@ use WPMCP\Tools\Cli\Wp_Cli_Guard;
  */
 class WpCliGuardChainSharedTest extends \WP_UnitTestCase
 {
+    // Issue #562: on multisite these tools need a network administrator.
+    use \WPMCP\Tests\Free\MultisiteSecurity\Network_Exec_Caller;
+
     protected function setUp(): void
     {
         parent::setUp();
         delete_option(Cli_Job_Store::OPTION);
         Cli_Job_Store::set_clock_for_tests(null);
         Wp_Cli_Guard::set_environment_override('local');
+        $this->act_as_network_exec_caller();
     }
 
     protected function tearDown(): void
     {
+        $this->release_network_exec_caller();
         remove_all_filters('wpmcp_allow_wp_cli');
         remove_all_filters('wpmcp_allow_wp_cli_on_production');
         remove_all_filters('wpmcp_wp_cli_allowlist');
@@ -238,7 +243,7 @@ class WpCliGuardChainSharedTest extends \WP_UnitTestCase
             return ['stdout' => 'ok', 'stderr' => '', 'exit_code' => 0, 'timed_out' => false];
         }))->handle($dispatched['job_id']);
 
-        $this->assertSame([array_merge([$bin], $expected_argv)], $sync_calls);
+        $this->assertSame([array_merge([$bin], $expected_argv, $this->expected_site_args())], $sync_calls);
         $this->assertSame($sync_calls, $async_calls);
         $this->assertSame('completed', Cli_Job_Store::get($dispatched['job_id'])['status']);
     }
@@ -274,7 +279,7 @@ class WpCliGuardChainSharedTest extends \WP_UnitTestCase
 
         $dispatched = (new Dispatch_Cli_Job())->handle(['command' => 'user list']);
 
-        $this->assertSame([[$bin, 'user', 'list']], $sync_calls);
+        $this->assertSame([array_merge([$bin, 'user', 'list'], $this->expected_site_args())], $sync_calls);
         $this->assertSame(['user', 'list'], Cli_Job_Store::get($dispatched['job_id'])['argv']);
     }
 }

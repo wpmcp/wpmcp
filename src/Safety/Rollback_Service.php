@@ -43,6 +43,12 @@ class Rollback_Service
      */
     private static bool $blank_commenter_data = false;
 
+    /**
+     * Whether the most recent creation undo left a post it covers untouched
+     * (issue #756), so the undo point was not applied and stays live.
+     */
+    private static bool $post_create_untouched = false;
+
     /** Return and clear the warnings accumulated by the most recent restore. */
     public static function take_warnings(): array
     {
@@ -66,8 +72,18 @@ class Rollback_Service
     public static function restore_operation(string $operation_id): bool
     {
         self::$warnings = [];
+        self::ensure_ledger_schema();
         $row = Snapshot_Store::get_by_operation($operation_id);
         if (! $row) {
+            return false;
+        }
+        // An undone operation is never applied again (issue #593): its
+        // before-image predates every write made since, so a second undo
+        // would wipe newer work, and a delete's undo would insert one more
+        // copy of what it deleted.
+        $undone = Snapshot_Store::rolled_back_at($row);
+        if (null !== $undone) {
+            self::warn(self::already_undone($operation_id, $undone));
             return false;
         }
         // A personal data erasure redacted this snapshot (issue #478).
@@ -109,14 +125,91 @@ class Rollback_Service
             self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
             return false;
         }
+        // Undoing a create-menu or create-user that something has since
+        // built on (issue #598): refused before the claim, so it stays
+        // retryable once the menu or user is back as the call left it.
+        $refused = self::creation_refusal((array) $row['snapshot']);
+        if (null !== $refused) {
+            self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
+            return false;
+        }
         // Another user is editing the post this would restore (issue #452).
         $locked = Edit_Lock::restore_refusal([$row]);
         if (null !== $locked) {
             self::warn(sprintf('operation %s refused: %s', $operation_id, $locked->get_error_message()));
             return false;
         }
-        self::apply_for_caller($row['snapshot']);
+        // Claimed before it is applied, atomically, so two undos racing for
+        // the same operation cannot both apply it. Released again when the
+        // restore throws, or when a file restore is refused by its own site
+        // check (issue #602), so a failed undo stays retryable.
+        if (! Snapshot_Store::claim_rollback($operation_id)) {
+            $row = Snapshot_Store::get_by_operation($operation_id);
+            self::warn(self::already_undone($operation_id, $row ? (string) Snapshot_Store::rolled_back_at($row) : ''));
+            return false;
+        }
+        try {
+            self::apply_for_caller($row['snapshot']);
+        } catch (\Throwable $e) {
+            Snapshot_Store::release_rollback($operation_id);
+            throw $e;
+        }
+        if (self::restore_failed($row['snapshot'])) {
+            Snapshot_Store::release_rollback($operation_id);
+            return false;
+        }
         return true;
+    }
+
+    /**
+     * Whether the restore of $snapshot just now left its object as it was:
+     * a file write whose file its own site check kept (issue #602), or a
+     * creation whose post was left untouched (issue #756). Such an undo
+     * point was not applied, so it is not recorded as undone.
+     */
+    private static function restore_failed(array $snapshot): bool
+    {
+        $type = $snapshot['object_type'] ?? '';
+        if (File_Write_Snapshot::TYPE === $type) {
+            return ! File_Write_Snapshot::last_restored();
+        }
+        return Post_Creation_Snapshot::OBJECT_TYPE === $type && self::$post_create_untouched;
+    }
+
+    /** The refusal for an operation that was already undone (issue #593). */
+    private static function already_undone(string $operation_id, string $at): string
+    {
+        return sprintf(
+            'operation %s refused: it was already undone%s (by rollback-operation, rollback-session or the Restore button), so nothing was changed. Undoing it again would overwrite every change made since.',
+            $operation_id,
+            '' === $at ? '' : ' at ' . $at . ' UTC'
+        );
+    }
+
+    /**
+     * Why undoing this creation row would delete more than the operation
+     * made (issue #598), or null. Only create-menu, create-user and
+     * create-tax-rate (issue #761) rows can be refused this way; every other
+     * type returns null.
+     */
+    private static function creation_refusal(array $snapshot): ?string
+    {
+        return Menu_Creation_Snapshot::refusal($snapshot)
+            ?? User_Creation_Snapshot::refusal($snapshot)
+            ?? Wc_Tax_Rate_Creation_Snapshot::refusal($snapshot);
+    }
+
+    /**
+     * Bring the ledger up to the current schema before an undo reads or
+     * claims rolled_back_at, for a site that upgraded without an admin or
+     * REST request since (WP-CLI, cron). One autoloaded option read when it
+     * is current.
+     */
+    private static function ensure_ledger_schema(): void
+    {
+        if (class_exists('\\WPMCP\\Site_Tables')) {
+            \WPMCP\Site_Tables::maybe_install();
+        }
     }
 
     /**
@@ -199,12 +292,58 @@ class Rollback_Service
         return sprintf('post %d belongs to a WP MCP internal store.', $post_id) . (null === $why ? '' : ' ' . $why);
     }
 
+    /** Core meta capabilities that need an object ID, so are not re-mapped without one. */
+    private const OBJECT_META_CAPS = [
+        'edit_post', 'delete_post', 'read_post', 'publish_post', 'edit_page', 'delete_page', 'read_page',
+        'edit_user', 'delete_user', 'remove_user', 'promote_user', 'edit_comment', 'edit_term', 'delete_term',
+        'assign_term', 'add_post_meta', 'edit_post_meta', 'delete_post_meta', 'edit_block_binding',
+    ];
+
+    /**
+     * Whether the current user holds $capability (edit_post or delete_post)
+     * for a post. A post type registered without map_meta_cap can name a
+     * meta capability as its edit_post: core's custom_css type maps
+     * edit_post to edit_css, which map_meta_cap() returns as is and
+     * current_user_can() then checks as a primitive no role holds, so
+     * nobody could undo an add-custom-css write (issue #726). Only when the
+     * mapping lands on such a meta capability is each mapped capability
+     * asked again, through current_user_can(), so it resolves the way the
+     * write itself was checked (edit_css onto unfiltered_html, or
+     * do_not_allow). A mapping onto primitives was already answered by the
+     * first check and is never asked twice. A meta capability that needs an
+     * object ID is never asked again without one.
+     */
+    private static function user_can_post(string $capability, int $post_id): bool
+    {
+        if (current_user_can($capability, $post_id)) {
+            return true;
+        }
+        $user_id = get_current_user_id();
+        $caps    = map_meta_cap($capability, $user_id, $post_id);
+        $nested  = false;
+        foreach ($caps as $cap) {
+            if (! in_array($cap, self::OBJECT_META_CAPS, true) && [ $cap ] !== map_meta_cap($cap, $user_id)) {
+                $nested = true;
+                break;
+            }
+        }
+        if (! $nested) {
+            return false;
+        }
+        foreach ($caps as $cap) {
+            if (! current_user_can($cap)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static function refused_post_capability(string $capability, \WP_Post $post): ?string
     {
         if (! post_type_exists((string) $post->post_type)) {
             return current_user_can('manage_options') ? null : sprintf('post %d is of a type that is no longer registered.', (int) $post->ID);
         }
-        if (current_user_can($capability, (int) $post->ID)) {
+        if (self::user_can_post($capability, (int) $post->ID)) {
             return null;
         }
         return sprintf('you cannot %s post %d.', 'delete_post' === $capability ? 'delete' : 'edit', (int) $post->ID);
@@ -299,8 +438,11 @@ class Rollback_Service
         $type = $snapshot['object_type'] ?? '';
         // Order snapshots hold the customer's addresses and put a whole
         // order back (or trash one), so restoring one takes the capability
-        // the order writes themselves require (issue #292).
-        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE ], true)) {
+        // the order writes themselves require (issue #292). A subscription
+        // snapshot is a whole order too (issue #658). A booking snapshot
+        // holds a customer's booking and its order's status, and a booking
+        // rules snapshot is store configuration (issue #659).
+        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE, Wc_Subscription_Snapshot::TYPE, Wc_Booking_Snapshot::TYPE, Wc_Booking_Snapshot::CREATE_TYPE, Wc_Booking_Snapshot::RULES_TYPE ], true)) {
             return [ [ 'manage_woocommerce' ] ];
         }
         // Shipping zone and webhook snapshots are store configuration, and a
@@ -361,7 +503,13 @@ class Rollback_Service
                 return [];
             }
             $declared = $snapshot['data']['restore_capability'] ?? null;
-            return [ [ is_string($declared) && '' !== $declared ? $declared : 'manage_options' ] ];
+            $caps     = [ [ is_string($declared) && '' !== $declared ? $declared : 'manage_options' ] ];
+            // A network plugin write also put back active_sitewide_plugins
+            // (issue #557), which only a network admin may change.
+            if (is_array($snapshot['data']['network_plugins'] ?? null)) {
+                $caps[] = [ 'manage_network_plugins' ];
+            }
+            return $caps;
         }
         // A comment snapshot holds the whole comment row, author email and
         // IP included, so restoring one takes moderate_comments, the
@@ -387,6 +535,23 @@ class Rollback_Service
         // itself gates at update_core, so restoring one takes it too (#382).
         if (Core_Files_Snapshot::TYPE === $type) {
             return [ [ 'update_core' ] ];
+        }
+        // Undoing write-file, edit-file or delete-file rewrites a file in the
+        // install, so it takes what those tools take: manage_options and
+        // edit_files (which DISALLOW_FILE_EDIT denies to everyone), not the
+        // rollback tools' edit_posts (issue #602).
+        if (File_Write_Snapshot::TYPE === $type) {
+            return [ [ 'manage_options' ], [ 'edit_files' ] ];
+        }
+        // Undoing create-menu deletes a menu, which core gates at
+        // edit_theme_options like create-menu itself (issue #598).
+        if (Menu_Creation_Snapshot::OBJECT_TYPE === $type) {
+            return [ [ 'edit_theme_options' ] ];
+        }
+        // Undoing create-user deletes a user, which wp-admin gates at
+        // delete_users, not create-user's create_users (issue #598).
+        if (User_Creation_Snapshot::OBJECT_TYPE === $type) {
+            return [ [ 'delete_users' ] ];
         }
         if ('post' !== $type) {
             return [];
@@ -466,6 +631,7 @@ class Rollback_Service
     public static function restore_session(string $session_id): int
     {
         self::$warnings = [];
+        self::ensure_ledger_schema();
         self::assert_session_owner($session_id);
         $pruned = Snapshot_Store::is_loose_session($session_id) ? 0 : Snapshot_Store::pruned_rows_for_session($session_id);
         if ($pruned > 0) {
@@ -478,10 +644,18 @@ class Rollback_Service
         $rows  = Snapshot_Store::list_by_session($session_id); // newest first
         $count = 0;
 
+        // Undo points already undone, by rollback-operation, the Restore
+        // button or an earlier rollback-session, are never applied again
+        // (issue #593). Only the rest are checked and undone below; the
+        // undone ones still take part in the whole-object grouping of pass
+        // 2, so the session still lands on its pre-session state.
+        $live         = array_values(array_filter($rows, static fn(array $r): bool => null === Snapshot_Store::rolled_back_at($r)));
+        $undone_count = count($rows) - count($live);
+
         // All or nothing, like a pruned run: a session whose undo points
         // include one a personal data erasure redacted (issue #478) cannot
         // be put back whole, so none of it is.
-        $erased = self::erased_rows($rows);
+        $erased = self::erased_rows($live);
         if ($erased > 0) {
             throw new Mutation_Failed(sprintf(
                 'Session "%s" can no longer be rolled back: %d of its undo points had personal data removed by a personal data erasure request, so restoring them would write placeholders back over real data. Nothing was restored.',
@@ -492,7 +666,7 @@ class Rollback_Service
 
         // All or nothing: while another user is editing a post the session
         // changed, nothing is restored (issue #452).
-        Edit_Lock::assert_restorable($rows);
+        Edit_Lock::assert_restorable($live);
 
         // No rows left: either the run was pruned long enough ago to have
         // left the exact per-session counts (issue #442), or nothing was ever
@@ -511,6 +685,25 @@ class Rollback_Service
             return 0;
         }
 
+        // Every undo point left was already undone: say so rather than
+        // return a bare 0 (issue #593).
+        if ([] !== $rows && [] === $live) {
+            self::warn(sprintf(
+                'Session "%s" was already undone: all %d of its undo points were rolled back before, so nothing was changed. Undoing them again would overwrite every change made since.',
+                $session_id,
+                count($rows)
+            ));
+            return 0;
+        }
+        if ($undone_count > 0) {
+            self::warn(sprintf(
+                'Session "%s": %d of its undo points were already undone and were skipped; only the other %d were rolled back.',
+                $session_id,
+                $undone_count,
+                count($live)
+            ));
+        }
+
         // Pass 1: db_rows snapshots, applied NEWEST-first, every one of them.
         // Unlike the whole-object snapshots below, a db_rows snapshot covers
         // only the rows its WHERE matched, so two operations in one session
@@ -519,17 +712,36 @@ class Rollback_Service
         // object; for partial captures the only correct unwind is to undo
         // each operation in reverse chronological order, letting older
         // before-images overwrite newer ones where they overlap.
-        $legacy = [];
+        $legacy        = [];
+        $created_terms = [];
         foreach ($rows as $r) {
+            $row_id  = (int) $r['id'];
+            $is_live = null === Snapshot_Store::rolled_back_at($r);
             try {
                 $snapshot = Snapshot::unserialize($r['before_blob']);
             } catch (\RuntimeException $e) {
                 // One corrupt row must not abort the unwind of every other
                 // operation in the session - but it must be visible: the row
                 // is reported, skipped, and NOT counted as restored.
-                self::warn(sprintf('operation %s skipped: %s', $r['operation_id'], $e->getMessage()));
+                if ($is_live) {
+                    self::warn(sprintf('operation %s skipped: %s', $r['operation_id'], $e->getMessage()));
+                }
                 continue;
             }
+            // An already undone row is never applied in this pass. A whole
+            // object one still goes on to pass 2, only to hold its place as
+            // the object's oldest state there (issue #593).
+            if (! $is_live) {
+                if (! self::is_session_reverse_snapshot($snapshot)) {
+                    unset($snapshot['data']['compiled_widget_entry']);
+                    $legacy[] = [ 'snapshot' => $snapshot, 'id' => $row_id, 'live' => false ];
+                }
+                continue;
+            }
+            // Terms any write of the session created are removed after the
+            // whole unwind, from every row, the deduplicated ones included
+            // (issue #588).
+            $created_terms = array_merge($created_terms, Term_Restore::take_created($snapshot));
             // An acf_options snapshot is partial in the same way: it covers
             // the rows under the field names ONE write named, and two writes
             // to one options page can name overlapping sets.
@@ -589,20 +801,16 @@ class Rollback_Service
             // write named, and two writes can name overlapping sets.
             // A database cleanup (issue #414) too: each call's snapshot holds
             // only the rows that call deleted, one bounded batch of many.
-            if (in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'crm_rows', 'amelia_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)) {
-                self::apply_snapshot($snapshot);
-                $count++;
-                continue;
-            }
             // Compiled-widget manifest changes (issue #72) are unwound the
             // same way, newest first, every one of them. A compile snapshot
             // holds ONE widget's entry and bytes, and a status or spec update
             // holds one widget's enabled flag, so several of them touch the
             // same widget in different ways; only a reverse-chronological
             // unwind lands on the pre-session manifest.
-            if (self::is_compiled_widget_snapshot($snapshot)) {
-                self::apply_snapshot($snapshot);
-                $count++;
+            if (self::is_session_reverse_snapshot($snapshot)) {
+                if (self::claim_and_apply($snapshot, [ $row_id ], false, 'operation ' . $r['operation_id'])) {
+                    $count++;
+                }
                 continue;
             }
             if (is_array($snapshot['data']['compiled_widget_entry'] ?? null)) {
@@ -610,45 +818,118 @@ class Rollback_Service
                 // The post half still goes through the oldest-first pass.
                 unset($snapshot['data']['compiled_widget_entry']);
             }
-            $legacy[] = $snapshot;
+            // A network plugin write's active_sitewide_plugins (issue #557)
+            // likewise: unwound newest first, every one, so the network list
+            // lands on its pre-session value even when the session's oldest
+            // active_plugins snapshot was a site-only write that holds none.
+            if (is_array($snapshot['data']['network_plugins'] ?? null)) {
+                self::restore_network_plugins($snapshot['data']['network_plugins']);
+                unset($snapshot['data']['network_plugins']);
+            }
+            $legacy[] = [ 'snapshot' => $snapshot, 'id' => $row_id, 'live' => true ];
         }
 
-        // Pass 2 (unchanged behavior): whole-object snapshots, oldest first,
-        // restoring the OLDEST snapshot per object (its pre-session state).
-        // Runs after the db_rows pass so that when both kinds touched the
-        // same underlying rows, the exact whole-object restore wins.
-        $legacy   = array_reverse($legacy); // oldest first, so we can unwind to the earliest
-        $seen     = [];
-        $deferred = [];
-        foreach ($legacy as $snapshot) {
-            $key = self::object_identity($snapshot);
-            if (isset($seen[ $key ])) {
-                $count++;
-                continue;
-            }
-            $seen[ $key ] = true;
-            // A creation row that covers several posts (duplicate-post with
-            // include_children) claims every one of them, so a later edit of
-            // a created child cannot bring it back out of the trash.
-            if (Post_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
-                foreach (Post_Creation_Snapshot::post_ids($snapshot) as $created_id) {
-                    $seen[ 'post:' . $created_id ] = true;
+        // Pass 2: whole-object snapshots, oldest first, restoring the OLDEST
+        // snapshot per object (its pre-session state). Runs after the
+        // db_rows pass so that when both kinds touched the same underlying
+        // rows, the exact whole-object restore wins.
+        //
+        // The rows are grouped per object first. A group whose rows were
+        // all undone already is left alone (issue #593). Otherwise the
+        // group's oldest snapshot is restored, even when that oldest row was
+        // undone on its own: it is still the pre-session state, and
+        // restoring a later row's before-image instead would bring back the
+        // very change that was undone. Every live row of the group is then
+        // recorded as undone.
+        $legacy = array_reverse($legacy); // oldest first, so we can unwind to the earliest
+        $groups = [];
+        $owner  = [];
+        foreach ($legacy as $entry) {
+            $key   = self::object_identity($entry['snapshot']);
+            $group = $owner[ $key ] ?? $key;
+            $known = isset($groups[ $group ]);
+            if (! $known) {
+                $groups[ $group ] = [ 'snapshot' => $entry['snapshot'], 'rep_live' => $entry['live'], 'live' => [], 'first' => [] ];
+                $owner[ $key ]    = $group;
+                // A creation row that covers several posts (duplicate-post
+                // with include_children) claims every one of them, so a later
+                // edit of a created child cannot bring it back out of the trash.
+                if (Post_Creation_Snapshot::OBJECT_TYPE === $entry['snapshot']['object_type']) {
+                    foreach (Post_Creation_Snapshot::post_ids($entry['snapshot']) as $created_id) {
+                        $owner[ 'post:' . $created_id ] = $owner[ 'post:' . $created_id ] ?? $group;
+                    }
                 }
             }
-            if (! self::may_restore($snapshot)) {
-                // One refused snapshot must not abort the rest of the unwind,
-                // but it must be visible and must NOT be counted as restored.
-                self::warn(sprintf(
-                    'snapshot %s skipped: %s restoring it requires %s.',
-                    $key,
-                    self::refusal_subject($snapshot, 'it'),
-                    self::restore_capability($snapshot)
-                ));
+            // A FunnelKit funnel's oldest snapshot is restored for the whole
+            // session, so it takes on what every later write of the session
+            // did to the funnel: the steps they added are removed too, and
+            // the steps they removed come back (issue #554).
+            if ($known && FunnelKit_Funnel_Snapshot::TYPE === $entry['snapshot']['object_type']) {
+                $groups[ $group ]['snapshot'] = FunnelKit_Funnel_Snapshot::merge_effects($groups[ $group ]['snapshot'], $entry['snapshot']);
+            }
+            // A post the session created and then edited (issue #756): the
+            // oldest later snapshot of each created post holds it as the
+            // create left it, so it is put back first. Otherwise the create's
+            // undo meets the edited post, and a published draft (its
+            // post_date_gmt set) fails the identity check and stays live.
+            if (
+                $known
+                && Post_Creation_Snapshot::OBJECT_TYPE === $groups[ $group ]['snapshot']['object_type']
+                && Post_Creation_Snapshot::OBJECT_TYPE !== $entry['snapshot']['object_type']
+                && ! isset($groups[ $group ]['first'][ $key ])
+            ) {
+                $groups[ $group ]['first'][ $key ] = $entry['snapshot'];
+            }
+            if ($entry['live']) {
+                $groups[ $group ]['live'][] = $entry['id'];
+            }
+        }
+
+        $deferred = [];
+        foreach ($groups as $key => $group) {
+            if ([] === $group['live']) {
                 continue;
             }
-            $refused = self::refused_post($snapshot);
+            $snapshot = $group['snapshot'];
+            // As before #593, the later rows of a refused group still count
+            // (they are deduped onto it) and only the refused row does not.
+            // None of them is recorded as undone.
+            $counted_if_refused = count($group['live']) - ($group['rep_live'] ? 1 : 0);
+            // The snapshots put back before a creation's undo (issue #756)
+            // pass the same checks as the creation row itself.
+            foreach (array_merge([ $snapshot ], array_values($group['first'])) as $checked) {
+                if (! self::may_restore($checked)) {
+                    // One refused snapshot must not abort the rest of the unwind,
+                    // but it must be visible and must NOT be counted as restored.
+                    self::warn(sprintf(
+                        'snapshot %s skipped: %s restoring it requires %s.',
+                        $key,
+                        self::refusal_subject($checked, 'it'),
+                        self::restore_capability($checked)
+                    ));
+                    $count += $counted_if_refused;
+                    continue 2;
+                }
+                $refused = self::refused_post($checked);
+                if (null !== $refused) {
+                    self::warn(sprintf('snapshot %s skipped: %s', $key, $refused));
+                    $count += $counted_if_refused;
+                    continue 2;
+                }
+            }
+            // A created menu is undone after everything else, so the items
+            // the session added to it are removed first (issue #598); its
+            // refusal is asked then, once they are gone. A created tax rate
+            // likewise, so the session's own edits of it are put back first
+            // (issue #761).
+            if (in_array($snapshot['object_type'], [ Menu_Creation_Snapshot::OBJECT_TYPE, Wc_Tax_Rate_Creation_Snapshot::OBJECT_TYPE ], true)) {
+                $deferred[ $key ] = $group;
+                continue;
+            }
+            $refused = self::creation_refusal($snapshot);
             if (null !== $refused) {
                 self::warn(sprintf('snapshot %s skipped: %s', $key, $refused));
+                $count += $counted_if_refused;
                 continue;
             }
             // A child-theme scaffold is undone LAST: its restore refuses to
@@ -656,17 +937,79 @@ class Rollback_Service
             // later switch-theme in the same session changed must be put back
             // first, or the session rollback would leave the scaffold behind.
             if ('theme_scaffold' === $snapshot['object_type']) {
-                $deferred[] = $snapshot;
+                $deferred[ $key ] = $group;
                 continue;
             }
-            self::apply_for_caller($snapshot);
-            $count++;
+            if (self::claim_and_apply($snapshot, $group['live'], true, 'snapshot ' . $key, array_reverse(array_values($group['first'])))) {
+                $count += count($group['live']);
+            }
         }
-        foreach ($deferred as $snapshot) {
-            self::apply_for_caller($snapshot);
-            $count++;
+        foreach ($deferred as $key => $group) {
+            $refused = self::creation_refusal($group['snapshot']);
+            if (null !== $refused) {
+                self::warn(sprintf('snapshot %s skipped: %s', $key, $refused));
+                $count += count($group['live']) - ($group['rep_live'] ? 1 : 0);
+                continue;
+            }
+            if (self::claim_and_apply($group['snapshot'], $group['live'], true, 'snapshot ' . $key)) {
+                $count += count($group['live']);
+            }
+        }
+        foreach (Term_Restore::remove_created($created_terms) as $warning) {
+            self::warn($warning);
         }
         return $count;
+    }
+
+    /**
+     * Whether rollback-session undoes this snapshot on its own, newest
+     * first, because it covers only part of its object (pass 1 of
+     * restore_session()).
+     */
+    private static function is_session_reverse_snapshot(array $snapshot): bool
+    {
+        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'crm_rows', 'amelia_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
+            || self::is_compiled_widget_snapshot($snapshot);
+    }
+
+    /**
+     * Record ledger rows as undone, then restore the snapshot (issue #593).
+     * Rows another request undid first are skipped with a warning; a
+     * restore that throws releases the claim again and rethrows, so a
+     * failed undo stays retryable.
+     *
+     * @param int[]   $ids   The ledger rows this restore undoes.
+     * @param array[] $first Snapshots restored before $snapshot, under the
+     *                       same claim (issue #756).
+     * @return bool Whether the snapshot was restored.
+     */
+    private static function claim_and_apply(array $snapshot, array $ids, bool $for_caller, string $label, array $first = []): bool
+    {
+        if (! Snapshot_Store::claim_rows($ids)) {
+            self::warn(sprintf('%s skipped: another request undid it while this rollback ran.', $label));
+            return false;
+        }
+        try {
+            foreach ($first as $earlier) {
+                self::apply_for_caller($earlier);
+            }
+            if ($for_caller) {
+                self::apply_for_caller($snapshot);
+            } else {
+                self::apply_snapshot($snapshot);
+            }
+        } catch (\Throwable $e) {
+            Snapshot_Store::release_rollback('', $ids);
+            throw $e;
+        }
+        // A file restore its own site check refused left the file as it
+        // was (issue #602), and a creation undo can leave its post untouched
+        // (issue #756): not undone, so not recorded or counted as such.
+        if (self::restore_failed($snapshot)) {
+            Snapshot_Store::release_rollback('', $ids);
+            return false;
+        }
+        return true;
     }
 
     /** How many of these ledger rows hold a snapshot a personal data erasure redacted. Undecodable rows are left to the unwind, which reports them. */
@@ -753,6 +1096,16 @@ class Rollback_Service
         if (Comment_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
             return 'comment:' . $snapshot['object_id'];
         }
+        // And for a menu create-menu made, or a user create-user made (issue
+        // #598): keyed like the menu's term and the user's own snapshots, so
+        // a session that created and then edited one unwinds to "did not
+        // exist yet", whose refusal then keeps it if the edit stayed.
+        if (Menu_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
+            return 'nav_menu:' . $snapshot['object_id'];
+        }
+        if (User_Creation_Snapshot::OBJECT_TYPE === $snapshot['object_type']) {
+            return 'user:' . $snapshot['object_id'];
+        }
         // And for an order orders.create made (issue #292): keyed like the
         // order's full snapshots, so a session that created and then edited
         // an order unwinds to "did not exist yet" and trashes it.
@@ -767,6 +1120,10 @@ class Rollback_Service
         if (Wc_Webhook_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
             return Wc_Webhook_Snapshot::TYPE . ':' . $snapshot['object_id'];
         }
+        // And for a booking bookings.create made (issue #659).
+        if (Wc_Booking_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
+            return Wc_Booking_Snapshot::TYPE . ':' . $snapshot['object_id'];
+        }
         // And for a FunnelKit funnel a theme-write op created (issue #500).
         if (FunnelKit_Funnel_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
             return FunnelKit_Funnel_Snapshot::TYPE . ':' . $snapshot['object_id'];
@@ -775,6 +1132,12 @@ class Rollback_Service
         // state is "did not exist yet", whatever later edits followed.
         if ('wc_product_create' === $snapshot['object_type']) {
             return 'post:' . $snapshot['object_id'];
+        }
+        // A file write's object_id is its operation id; the object is the
+        // file, so a session that wrote one file several times unwinds to the
+        // oldest snapshot of it: the file as it was before the session.
+        if (File_Write_Snapshot::TYPE === $snapshot['object_type']) {
+            return 'file:' . ($snapshot['data']['path'] ?? $snapshot['object_id']);
         }
         // Users, like posts, are identified by an int object_id, so the raw
         // object_type:object_id key is already stable and distinct.
@@ -786,6 +1149,22 @@ class Rollback_Service
     {
         return 'option' === $snapshot['object_type']
             && is_array($snapshot['data']['compiled_widget'] ?? null);
+    }
+
+    /**
+     * Put the network's active_sitewide_plugins back as a network plugin
+     * write found it (issue #557, Plugin_Network_Scope::snapshot_data()).
+     */
+    private static function restore_network_plugins(array $state): void
+    {
+        if (! is_multisite()) {
+            return;
+        }
+        if (! empty($state['existed'])) {
+            update_site_option('active_sitewide_plugins', (array) ($state['value'] ?? []));
+        } else {
+            delete_site_option('active_sitewide_plugins');
+        }
     }
 
     private static function restore_compiled_widget_entry(array $state): void
@@ -828,7 +1207,14 @@ class Rollback_Service
             return;
         }
 
-        $name = (string) $snapshot['data']['name'];
+        /*
+         * Filter: the option snapshot a rollback is about to put back. An
+         * option holding many independent entries (TablePress's table id
+         * map, issue #555) narrows it to the entries the undone write
+         * touched, so entries written since are kept.
+         */
+        $snapshot = (array) apply_filters('wpmcp_rollback_option_snapshot', $snapshot);
+        $name     = (string) $snapshot['data']['name'];
         if ($snapshot['data']['existed']) {
             update_option($name, $snapshot['data']['value']);
         } else {
@@ -1296,10 +1682,49 @@ class Rollback_Service
      * has since reclaimed the same ID. post_date_gmt is set once at
      * creation and never changes on update, making it a reliable identity
      * check that costs nothing extra to capture.
+     *
+     * Except for a draft with a floating date (post_date_gmt still the zero
+     * date): its first save to any other status, trash included, stamps
+     * both dates with the time of that save (issue #589). The snapshot of
+     * such a draft has no fixed date to compare, so the post type stands in
+     * for it; an id is only ever reclaimed by an explicit import_id after
+     * the original row was deleted.
      */
     private static function is_same_post(array $current, array $snapshotted): bool
     {
-        return ($current['post_date_gmt'] ?? null) === ($snapshotted['post_date_gmt'] ?? null);
+        $captured = $snapshotted['post_date_gmt'] ?? null;
+        if ('0000-00-00 00:00:00' === $captured) {
+            return ($current['post_type'] ?? null) === ($snapshotted['post_type'] ?? null);
+        }
+        return ($current['post_date_gmt'] ?? null) === $captured;
+    }
+
+    /**
+     * Take a post the snapshot predates out of the trash the WordPress way
+     * before its columns are written back (issue #589): wp_untrash_post()
+     * fires untrash_post and untrashed_post, deletes _wp_trash_meta_status
+     * and _wp_trash_meta_time, gives the slug back from _wp_desired_post_slug
+     * and returns the comments wp_trash_post() moved to post-trashed. The
+     * status it restores is the snapshot's own, not core's default draft.
+     * A post that is not in the trash, or a snapshot taken while it already
+     * was, needs nothing here.
+     *
+     * @param array<string, mixed> $current     The post row as it is now.
+     * @param array<string, mixed> $snapshotted The post row the snapshot holds.
+     */
+    private static function untrash_for_restore(int $post_id, array $current, array $snapshotted): void
+    {
+        $status = (string) ($snapshotted['post_status'] ?? '');
+        if ('trash' !== ($current['post_status'] ?? '') || '' === $status || 'trash' === $status) {
+            return;
+        }
+        $to_status = static fn (): string => $status;
+        add_filter('wp_untrash_post_status', $to_status, PHP_INT_MAX);
+        try {
+            Save_Filters::untrash_post($post_id);
+        } finally {
+            remove_filter('wp_untrash_post_status', $to_status, PHP_INT_MAX);
+        }
     }
 
     /**
@@ -1323,6 +1748,10 @@ class Rollback_Service
             'wc_order',
             'wc_order_full',
             'wc_order_create',
+            'wc_subscription',
+            'wc_booking',
+            'wc_booking_create',
+            'wc_booking_rules',
             'wc_shipping_zone',
             'wc_shipping_zone_create',
             'wc_webhook',
@@ -1341,12 +1770,15 @@ class Rollback_Service
             'amelia_rows',
             'db_cleanup',
             'wc_tax_rate',
+            'wc_tax_rate_create',
             'php_snippet',
             'page_build',
             'media_import',
             'wc_product_create',
             Post_Creation_Snapshot::OBJECT_TYPE,
             Comment_Creation_Snapshot::OBJECT_TYPE,
+            Menu_Creation_Snapshot::OBJECT_TYPE,
+            User_Creation_Snapshot::OBJECT_TYPE,
             'elementor_global_classes',
             'elementor_global_variables',
             'theme_scaffold',
@@ -1356,6 +1788,7 @@ class Rollback_Service
             'option_set',
             'site_template',
             'core_files',
+            'file_write',
         ];
     }
 
@@ -1430,11 +1863,31 @@ class Rollback_Service
         // (set-widget-status, update-custom-widget): restore the post first,
         // then the flag, so the undo brings back the spec AND the compiled
         // path it was rendering through.
+        // A network plugin write (issue #557) put back the site's
+        // active_plugins and the network's active_sitewide_plugins.
+        if (is_array($snapshot['data']['network_plugins'] ?? null)) {
+            $network = $snapshot['data']['network_plugins'];
+            unset($snapshot['data']['network_plugins']);
+            self::apply_snapshot($snapshot);
+            self::restore_network_plugins($network);
+            return;
+        }
         if (is_array($snapshot['data']['compiled_widget_entry'] ?? null)) {
             $entry = $snapshot['data']['compiled_widget_entry'];
             unset($snapshot['data']['compiled_widget_entry']);
             self::apply_snapshot($snapshot);
             self::restore_compiled_widget_entry($entry);
+            return;
+        }
+
+        // Terms the write created as a side effect go once the rest of the
+        // snapshot is back (issue #588, Term_Restore::remove_created()).
+        $created_terms = Term_Restore::take_created($snapshot);
+        if ([] !== $created_terms) {
+            self::apply_snapshot($snapshot);
+            foreach (Term_Restore::remove_created($created_terms) as $warning) {
+                self::warn($warning);
+            }
             return;
         }
 
@@ -1465,6 +1918,28 @@ class Rollback_Service
             if (null !== $warning) {
                 self::warn($warning);
             }
+            return;
+        }
+
+        // Wc_Subscription_Snapshot::TYPE (issue #658), a literal for the
+        // restorable-types parity test.
+        if ('wc_subscription' === $snapshot['object_type']) {
+            self::warn_if(Wc_Subscription_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // Wc_Booking_Snapshot::TYPE, ::CREATE_TYPE and ::RULES_TYPE (issue
+        // #659), literals for the restorable-types parity test.
+        if ('wc_booking' === $snapshot['object_type']) {
+            self::warn_if(Wc_Booking_Snapshot::restore($snapshot));
+            return;
+        }
+        if ('wc_booking_create' === $snapshot['object_type']) {
+            self::warn_if(Wc_Booking_Snapshot::undo_creation($snapshot));
+            return;
+        }
+        if ('wc_booking_rules' === $snapshot['object_type']) {
+            self::warn_if(Wc_Booking_Snapshot::restore_rules($snapshot));
             return;
         }
 
@@ -1520,6 +1995,13 @@ class Rollback_Service
 
         if ('wc_tax_rate' === $snapshot['object_type']) {
             self::apply_wc_tax_rate_snapshot($snapshot);
+            return;
+        }
+
+        // Wc_Tax_Rate_Creation_Snapshot::OBJECT_TYPE, spelled as a literal
+        // for the restorable-types parity test (issue #761).
+        if ('wc_tax_rate_create' === $snapshot['object_type']) {
+            self::warn_if(Wc_Tax_Rate_Creation_Snapshot::undo_creation($snapshot));
             return;
         }
 
@@ -1611,6 +2093,18 @@ class Rollback_Service
             return;
         }
 
+        // Menu_Creation_Snapshot::OBJECT_TYPE and User_Creation_Snapshot::OBJECT_TYPE,
+        // spelled as literals for the restorable-types parity test (issue #598).
+        if ('menu_create' === $snapshot['object_type']) {
+            self::warn_if(Menu_Creation_Snapshot::undo_creation($snapshot));
+            return;
+        }
+
+        if ('user_create' === $snapshot['object_type']) {
+            self::warn_if(User_Creation_Snapshot::undo_creation($snapshot));
+            return;
+        }
+
         if ('elementor_global_classes' === $snapshot['object_type']) {
             self::apply_elementor_global_classes_snapshot($snapshot);
             return;
@@ -1634,6 +2128,14 @@ class Rollback_Service
 
         if ('package_install' === $snapshot['object_type']) {
             self::apply_package_install_snapshot($snapshot);
+            return;
+        }
+
+        // File_Write_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('file_write' === $snapshot['object_type']) {
+            foreach (File_Write_Snapshot::restore($snapshot) as $warning) {
+                self::warn($warning);
+            }
             return;
         }
 
@@ -1669,6 +2171,7 @@ class Rollback_Service
         if ($snapshot['data']['post']) {
             $current = get_post($object_id, ARRAY_A);
             if ($current && self::is_same_post($current, $snapshot['data']['post'])) {
+                self::untrash_for_restore($object_id, $current, (array) $snapshot['data']['post']);
                 $postarr = array_merge(['ID' => $object_id], self::restore_columns($snapshot['data']['post'], false));
                 // wp_update_post() unslashes its input; the snapshot holds
                 // the raw stored columns, so they are slashed first or every
@@ -2233,7 +2736,9 @@ class Rollback_Service
      * it back, and a custom widget or block spec is deactivated instead,
      * unless the row is marked remove_on_rollback (import-bundle, issue #297),
      * in which case the spec is trashed like any other post. Nothing is
-     * permanently deleted.
+     * permanently deleted, except a menu item add-menu-item added (issue
+     * #598), which is removed the way remove-menu-item removes one: it is a
+     * link in a menu, not content, and a trashed item is listed nowhere.
      *
      * Each post gets the same identity check as the other creation restores:
      * post_type and post_date_gmt are fixed at creation, so a mismatch means
@@ -2243,6 +2748,7 @@ class Rollback_Service
      */
     private static function apply_post_create_snapshot(array $snapshot): void
     {
+        self::$post_create_untouched = false;
         $created = (array) ($snapshot['data']['created'] ?? []);
 
         // Children first, so no trashed parent is ever left with live children.
@@ -2254,7 +2760,27 @@ class Rollback_Service
             }
 
             if (($entry['post_type'] ?? null) !== $current->post_type || ($entry['post_date_gmt'] ?? null) !== $current->post_date_gmt) {
-                self::warn("Post {$post_id} is not the post this operation created (the id was reclaimed); it was left untouched.");
+                self::$post_create_untouched = true;
+                // A draft has no post_date_gmt until it is published or
+                // dated, so for one created as a draft a mismatch is a later
+                // change of the post, not proof of a reclaimed id (issue #756).
+                if (($entry['post_type'] ?? null) === $current->post_type && '0000-00-00 00:00:00' === ($entry['post_date_gmt'] ?? null)) {
+                    self::warn("Post {$post_id} was published or dated after this operation created it as a draft, so it may not be the post this operation created; it was left untouched. Undo the later operations on it first, newest first, or roll back the whole session.");
+                } else {
+                    self::warn("Post {$post_id} is not the post this operation created (the id was reclaimed); it was left untouched.");
+                }
+                continue;
+            }
+
+            // A menu item add-menu-item created is removed, the way
+            // remove-menu-item and core's wp_delete_nav_menu_item() remove
+            // one (issue #598): a menu item in the trash is listed nowhere
+            // and only holds its menu's position. It is a link, not content.
+            if ('nav_menu_item' === $current->post_type) {
+                if (! wp_delete_post($post_id, true)) {
+                    self::$post_create_untouched = true;
+                    self::warn("Menu item {$post_id} created by this operation could not be removed; it was left in place.");
+                }
                 continue;
             }
 
@@ -2270,6 +2796,7 @@ class Rollback_Service
                         static fn () => wp_update_post(['ID' => $post_id, 'post_status' => 'draft'], true)
                     );
                     if (is_wp_error($updated) || 0 === $updated) {
+                        self::$post_create_untouched = true;
                         self::warn("Spec {$post_id} created by this operation could not be deactivated.");
                     }
                 }
@@ -2289,6 +2816,7 @@ class Rollback_Service
             // wp_trash_post() changes the status through wp_update_post(),
             // which would run the same save filters over the whole row.
             if (! Save_Filters::without(self::POST_SAVE_FILTERS, static fn () => wp_trash_post($post_id))) {
+                self::$post_create_untouched = true;
                 self::warn("Post {$post_id} created by this operation could not be moved to the trash; it was left in place.");
             }
         }
@@ -2444,6 +2972,10 @@ class Rollback_Service
         // with assignments made after the operation.
         if ($was_missing) {
             self::restore_term_objects($term_id, $taxonomy, $data);
+            // Then what the delete changed around the term (Term_Restore).
+            foreach (Term_Restore::after_refile($term_id, $taxonomy, $data) as $warning) {
+                self::warn($warning);
+            }
         }
     }
 
@@ -2473,7 +3005,11 @@ class Rollback_Service
             ));
         }
 
-        wp_update_term_count_now($objects ? [$term_id] : [], $taxonomy);
+        // Only with an object refiled: an empty list reaches
+        // clean_term_cache() as "term_taxonomy_id IN ()", a SQL error.
+        if ([] !== $objects) {
+            wp_update_term_count_now([$term_id], $taxonomy);
+        }
     }
 
     /**
