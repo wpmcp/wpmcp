@@ -111,6 +111,13 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'buddypress/bp-loader.php' );
     }
 
+    // The live bbPress job (WPMCP_LIVE_BBPRESS=1) runs the bbPress ops
+    // through the real bbPress. Loaded only on request: the stub-backed
+    // bbPress tests register its post types themselves.
+    if ( getenv( 'WPMCP_LIVE_BBPRESS' ) ) {
+        wpmcp_maybe_require_plugin( 'bbpress/bbpress.php' );
+    }
+
     // The live Breakdance job (issue #457, WPMCP_LIVE_BREAKDANCE=1) runs the
     // Breakdance adapter against a real Breakdance 1.x, copied in from
     // WPMCP_BREAKDANCE_SRC. Loaded only on request: the stub-backed
