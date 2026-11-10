@@ -74,6 +74,7 @@ class LearnDashIntegrationTest extends \WP_UnitTestCase
         }
         wp_set_current_user($this->admin);
         add_filter('wpmcp_learndash_active', '__return_true');
+        add_filter('wpmcp_enable_learndash_learner_write', '__return_true');
         foreach (self::OTHER_FILTERS as $filter) {
             add_filter($filter, '__return_false');
         }
@@ -85,6 +86,7 @@ class LearnDashIntegrationTest extends \WP_UnitTestCase
             remove_all_filters($filter);
         }
         remove_all_filters('wpmcp_learndash_active');
+        remove_all_filters('wpmcp_enable_learndash_learner_write');
         delete_option('learndash_settings_courses_builder');
         wpmcp_test_unregister_learndash_types();
         Gate::set_pro_for_tests(null);
@@ -232,6 +234,31 @@ class LearnDashIntegrationTest extends \WP_UnitTestCase
     {
         remove_all_filters('wpmcp_learndash_active');
         $this->assertSame(defined('LEARNDASH_VERSION'), (new \WPMCP\Integrations\LMS_LearnDash())->active());
+    }
+
+    public function test_learner_writes_are_off_until_the_site_opts_in_and_tree_writes_are_not(): void
+    {
+        [$course] = $this->seed_course();
+        $alice    = self::factory()->user->create();
+        $this->enroll($alice, $course);
+        update_user_meta($alice, '_sfwd-course_progress', [ $course => [ 'completed' => 1, 'total' => 2 ] ]);
+        $before = $this->user_state($alice);
+        $ops    = Snapshot_Store::row_count();
+
+        remove_all_filters('wpmcp_enable_learndash_learner_write');
+        foreach ([ 'learndash-enroll-user', 'learndash-unenroll-user', 'learndash-reset-progress' ] as $op) {
+            $out = $this->write($op, [ 'user_id' => $alice, 'course_id' => $course ]);
+            $this->assertSame('operation_disabled', $out['error']['code'] ?? null, $op);
+            $this->assertStringContainsString('wpmcp_enable_learndash_learner_write', $out['error']['message'], $op);
+        }
+        $this->assertSame($before, $this->user_state($alice));
+        $this->assertSame($ops, Snapshot_Store::row_count(), 'a disabled call takes no snapshot');
+
+        $listed = array_column((new Plugin_Data_Integration())->catalog()['operations'], null, 'name');
+        $this->assertFalse($listed['learndash-enroll-user']['enabled']);
+        $this->assertTrue($listed['learndash-add-section']['enabled']);
+        $this->ok($this->read('learndash-list-user-courses', [ 'user_id' => $alice ]));
+        $this->ok($this->write('learndash-add-section', [ 'course_id' => $course, 'title' => 'Still on' ]));
     }
 
     public function test_course_tree_writes_take_learndash_course_capabilities(): void
