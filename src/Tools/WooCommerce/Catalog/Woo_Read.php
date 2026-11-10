@@ -93,7 +93,7 @@ class Woo_Read
     /**
      * The class an in-process read handler runs through, by its prefix.
      *
-     * @return class-string<Shipping_Ops>|class-string<Review_Ops>|class-string<Report_Ops>|class-string<Gateway_Ops>|class-string<Status_Ops>|class-string<Subscription_Ops>|class-string<Booking_Ops>|null
+     * @return class-string<Shipping_Ops>|class-string<Review_Ops>|class-string<Report_Ops>|class-string<Gateway_Ops>|class-string<Status_Ops>|class-string<Subscription_Ops>|class-string<Booking_Ops>|class-string<Membership_Ops>|null
      */
     private static function handler_class(array $def): ?string
     {
@@ -101,7 +101,7 @@ class Woo_Read
         if (! is_string($handler)) {
             return null;
         }
-        foreach ([ 'shipping_' => Shipping_Ops::class, 'review_' => Review_Ops::class, 'report_' => Report_Ops::class, 'gateway_' => Gateway_Ops::class, 'status_' => Status_Ops::class, 'subscription_' => Subscription_Ops::class, 'booking_' => Booking_Ops::class ] as $prefix => $class) {
+        foreach ([ 'shipping_' => Shipping_Ops::class, 'review_' => Review_Ops::class, 'report_' => Report_Ops::class, 'gateway_' => Gateway_Ops::class, 'status_' => Status_Ops::class, 'subscription_' => Subscription_Ops::class, 'booking_' => Booking_Ops::class, 'membership_' => Membership_Ops::class ] as $prefix => $class) {
             if (str_starts_with($handler, $prefix)) {
                 return $class;
             }

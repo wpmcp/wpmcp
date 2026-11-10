@@ -59,6 +59,10 @@ class WooObjectCapabilityTest extends \WP_UnitTestCase
         'bookings.get:id'                     => 'a booking, gated by the op capability (issue #659)',
         'bookings.update-status:id'           => 'a booking, gated by the op capability (issue #659)',
         'bookings.cancel:id'                  => 'a booking, gated by the op capability (issue #659)',
+        'memberships.pause:id'                => 'a user membership, gated by the op capability (PR #573)',
+        'memberships.resume:id'               => 'a user membership, gated by the op capability (PR #573)',
+        'memberships.extend:id'               => 'a user membership, gated by the op capability (PR #573)',
+        'memberships.cancel:id'               => 'a user membership, gated by the op capability (PR #573)',
     ];
 
     /**
@@ -69,6 +73,9 @@ class WooObjectCapabilityTest extends \WP_UnitTestCase
     private const BODY_ID_KEYS = [
         'orders.create' => [ 'customer_id', 'line_items.*.product_id', 'line_items.*.variation_id' ],
         'bookings.create' => [ 'product_id', 'customer_id' ],
+        'memberships.members' => [ 'plan_id' ],
+        'memberships.user'    => [ 'user_id' ],
+        'memberships.grant'   => [ 'plan_id', 'user_id' ],
         'orders.update' => [ 'customer_id', 'line_items.*.product_id', 'line_items.*.variation_id', 'line_items.*.id' ],
         'reviews.reply' => [ 'id' ],
         'reviews.list'  => [ 'product_id' ],
