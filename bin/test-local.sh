@@ -40,6 +40,9 @@
 #      through the real plugins, one install each.
 #   9. Runs the live TablePress group (issue #481): the TablePress ops
 #      through the real TablePress, on its own install too.
+#   9b. Runs the live Code Snippets group (issue #576): the Code Snippets
+#      ops through the real Code Snippets, every write rolled back and only
+#      a no-op snippet ever activated, on its own install too.
 #  10. Runs the live CRM group (issue #477): the FluentCRM and MailPoet ops
 #      through the real plugins, on their own install.
 #  11. Runs the live Amelia group (issue #499): the Amelia ops through the
@@ -98,7 +101,10 @@
 #      so not downloadable here), beside the pinned free Elementor: submissions
 #      Elementor Pro stores through its own Query are listed, read, exported,
 #      trashed and deleted through the ops, and every write rolls back.
-#  24. Under --all (or --live-adapter alone), runs the adapter leg (issue
+#  24. Runs the live WP Mail SMTP group: the WP Mail SMTP ops on the theme
+#      pair through the real plugin (its Options, encryption and constants),
+#      on its own install, with every write rolled back and no mail sent.
+#  25. Under --all (or --live-adapter alone), runs the adapter leg (issue
 #      #501): the free and pro suites on the latest MCP Adapter plugin
 #      released on WordPress.org, loaded next to the bundled copy the way a
 #      site that installs the plugin runs us, with the version it tested in
@@ -176,6 +182,7 @@
 #   bin/test-local.sh --live-bbpress  only the live bbPress group (real bbPress)
 #   bin/test-local.sh --live-lms      only the live LMS groups (real Tutor LMS, then real LifterLMS)
 #   bin/test-local.sh --live-tablepress only the live TablePress group (real TablePress)
+#   bin/test-local.sh --live-code-snippets only the live Code Snippets group (real Code Snippets)
 #   bin/test-local.sh --live-crm      only the live CRM group (real FluentCRM and MailPoet)
 #   bin/test-local.sh --live-funnelkit only the live FunnelKit group (real Funnel Builder + WooCommerce)
 #   bin/test-local.sh --live-amelia   only the live Amelia group (real Amelia Lite)
@@ -191,6 +198,7 @@
 #   bin/test-local.sh --live-theme-pro only the live theme add-on group (needs at least one of
 #                                     WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC, WPMCP_GP_PREMIUM_SRC)
 #   bin/test-local.sh --live-wc-bookings only the live WooCommerce Bookings group (needs WPMCP_WC_BOOKINGS_SRC)
+#   bin/test-local.sh --live-wp-mail-smtp only the live WP Mail SMTP group (real WP Mail SMTP)
 #   bin/test-local.sh --live-adapter  only the adapter leg (both suites on the released MCP Adapter plugin)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments, default WordPress only; skips lint,
 #                                     drift, coverage, the floor leg and the live groups
@@ -322,6 +330,7 @@ only_live_buddypress=false
 only_live_bbpress=false
 only_live_lms=false
 only_live_tablepress=false
+only_live_code_snippets=false
 only_live_crm=false
 only_live_funnelkit=false
 only_live_polylang=false
@@ -335,6 +344,7 @@ only_live_amelia=false
 only_live_wc_subscriptions=false
 only_live_wc_bookings=false
 only_live_elementor_pro=false
+only_live_wp_mail_smtp=false
 only_live_adapter=false
 only_live_theme_pro=false
 only_multisite=false
@@ -354,6 +364,7 @@ while [ $# -gt 0 ]; do
 		--live-bbpress) only_live_bbpress=true ;;
 		--live-lms) only_live_lms=true ;;
 		--live-tablepress) only_live_tablepress=true ;;
+		--live-code-snippets) only_live_code_snippets=true ;;
 		--live-crm) only_live_crm=true ;;
 		--live-funnelkit) only_live_funnelkit=true ;;
 		--live-polylang) only_live_polylang=true ;;
@@ -367,6 +378,7 @@ while [ $# -gt 0 ]; do
 		--live-wc-subscriptions) only_live_wc_subscriptions=true ;;
 		--live-wc-bookings) only_live_wc_bookings=true ;;
 		--live-elementor-pro) only_live_elementor_pro=true ;;
+		--live-wp-mail-smtp) only_live_wp_mail_smtp=true ;;
 		--live-adapter) only_live_adapter=true ;;
 		--live-theme-pro) only_live_theme_pro=true ;;
 		--multisite) only_multisite=true ;;
@@ -417,13 +429,14 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
 	[ "$only_live_bbpress" = false ] || LEGS+=("live-bbpress ${only_wp:-$default_wp}")
 	[ "$only_live_lms" = false ] || LEGS+=("live-lms ${only_wp:-$default_wp}")
 	[ "$only_live_tablepress" = false ] || LEGS+=("live-tablepress ${only_wp:-$default_wp}")
+	[ "$only_live_code_snippets" = false ] || LEGS+=("live-code-snippets ${only_wp:-$default_wp}")
 	[ "$only_live_crm" = false ] || LEGS+=("live-crm ${only_wp:-$default_wp}")
 	[ "$only_live_funnelkit" = false ] || LEGS+=("live-funnelkit ${only_wp:-$default_wp}")
 	[ "$only_live_polylang" = false ] || LEGS+=("live-polylang ${only_wp:-$default_wp}")
@@ -438,6 +451,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_theme_pro" = false ] || LEGS+=("live-theme-pro ${only_wp:-$default_wp}")
 	[ "$only_live_wc_bookings" = false ] || LEGS+=("live-wc-bookings ${only_wp:-$default_wp}")
 	[ "$only_live_elementor_pro" = false ] || LEGS+=("live-elementor-pro ${only_wp:-$default_wp}")
+	[ "$only_live_wp_mail_smtp" = false ] || LEGS+=("live-wp-mail-smtp ${only_wp:-$default_wp}")
 	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
 elif [ "$only_multisite" = true ]; then
 	LEGS+=("multisite ${only_wp:-$default_wp} none")
@@ -469,7 +483,7 @@ else
 		LEGS+=("multisite $default_wp none")
 	fi
 	if [ "$targeted" = false ]; then
-		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-bbpress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp")
+		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-bbpress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp" "live-wp-mail-smtp $default_wp")
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			LEGS+=("live-breakdance $default_wp")
 		fi
@@ -622,6 +636,8 @@ install_flavor() {
 	[ -n "${WPMCP_LIVE_LMS:-}" ] && flavor="-${WPMCP_LIVE_LMS}-live"
 	# And WPMCP_LIVE_TABLEPRESS=1 and TablePress.
 	[ "${WPMCP_LIVE_TABLEPRESS:-}" = 1 ] && flavor="-tablepress-live"
+	# And WPMCP_LIVE_CODE_SNIPPETS=1 and Code Snippets.
+	[ "${WPMCP_LIVE_CODE_SNIPPETS:-}" = 1 ] && flavor="-code-snippets-live"
 	# And WPMCP_LIVE_CRM=1 and FluentCRM and MailPoet.
 	[ "${WPMCP_LIVE_CRM:-}" = 1 ] && flavor="-crm-live"
 	# And WPMCP_LIVE_FUNNELKIT=1 and Funnel Builder with WooCommerce.
@@ -648,6 +664,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_WC_BOOKINGS:-}" = 1 ] && flavor="-wc-bookings-live"
 	# And WPMCP_LIVE_ELEMENTOR_PRO=1, Elementor and the local Elementor Pro copy.
 	[ "${WPMCP_LIVE_ELEMENTOR_PRO:-}" = 1 ] && flavor="-elementor-pro-live"
+	# And WPMCP_LIVE_WP_MAIL_SMTP=1 and WP Mail SMTP.
+	[ "${WPMCP_LIVE_WP_MAIL_SMTP:-}" = 1 ] && flavor="-wp-mail-smtp-live"
 	echo "$flavor"
 }
 
@@ -1252,6 +1270,38 @@ run_live_tablepress() {
 	unset WPMCP_LIVE_TABLEPRESS
 }
 
+# The live WP Mail SMTP group, the same way: its own install with the real
+# WP Mail SMTP, its own database, and --fail-on-skipped.
+run_live_wp_mail_smtp() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_WP_MAIL_SMTP=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-wp-mail-smtp-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live WP Mail SMTP group on WordPress $version (real WP Mail SMTP)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group wp-mail-smtp-live --fail-on-skipped
+	unset WPMCP_LIVE_WP_MAIL_SMTP
+}
+
+# The live Code Snippets group (issue #576), the same way: its own install
+# with the real Code Snippets, its own database, and --fail-on-skipped.
+run_live_code_snippets() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_CODE_SNIPPETS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-code-snippets-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Code Snippets group on WordPress $version (real Code Snippets)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group code-snippets-live --fail-on-skipped
+	unset WPMCP_LIVE_CODE_SNIPPETS
+}
+
 # The live CRM group (issue #477), the same way: its own install with the real
 # FluentCRM and MailPoet, its own database, and --fail-on-skipped.
 run_live_crm() {
@@ -1678,6 +1728,7 @@ run_leg_body() {
 		live-bbpress) run_live_bbpress "$wp" ;;
 		live-lms) run_live_lms "$wp" ;;
 		live-tablepress) run_live_tablepress "$wp" ;;
+		live-code-snippets) run_live_code_snippets "$wp" ;;
 		live-crm) run_live_crm "$wp" ;;
 		live-funnelkit) run_live_funnelkit "$wp" ;;
 		live-polylang) run_live_polylang "$wp" ;;
@@ -1692,6 +1743,7 @@ run_leg_body() {
 		live-wc-subscriptions) run_live_wc_subscriptions "$wp" ;;
 		live-theme-pro) run_live_theme_pro "$wp" ;;
 		live-wc-bookings) run_live_wc_bookings "$wp" ;;
+		live-wp-mail-smtp) run_live_wp_mail_smtp "$wp" ;;
 		live-adapter) run_live_adapter "$wp" ;;
 		*) die "unknown leg: $kind" ;;
 	esac

@@ -8,6 +8,7 @@ use WPMCP\Identity\Identity_Context;
 use WPMCP\MCP\Ability;
 use WPMCP\Safety\Wc_Booking_Snapshot;
 use WPMCP\Safety\Wc_Subscription_Snapshot;
+use WPMCP\Safety\Wc_User_Membership_Snapshot;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -46,6 +47,7 @@ final class Op_Guard
     public const PLUGINS = [
         'woocommerce-subscriptions' => [ 'name' => 'WooCommerce Subscriptions', 'file' => 'woocommerce-subscriptions/woocommerce-subscriptions.php' ],
         'woocommerce-bookings'      => [ 'name' => 'WooCommerce Bookings', 'file' => 'woocommerce-bookings/woocommerce-bookings.php' ],
+        'woocommerce-memberships'   => [ 'name' => 'WooCommerce Memberships', 'file' => 'woocommerce-memberships/woocommerce-memberships.php' ],
     ];
 
     /** Whether the host plugin is loaded, mirroring Integration_Dispatcher. */
@@ -81,6 +83,9 @@ final class Op_Guard
         }
         if ('woocommerce-bookings' === $plugin) {
             return Wc_Booking_Snapshot::is_active();
+        }
+        if ('woocommerce-memberships' === $plugin) {
+            return Wc_User_Membership_Snapshot::is_active();
         }
         return false;
     }

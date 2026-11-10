@@ -80,6 +80,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // WPBakery's saved templates, written by the builder pair's
             // templates scope (issue #639).
             'wpb_js_templates',
+            // Code Snippets' own recently deactivated list, put back by a
+            // snippet activation's rollback (issue #576).
+            'recently_active_snippets',
         ],
         'transient'      => [
             'scrape_key_*',
@@ -90,7 +93,12 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // write's rollback (issue #557).
             'active_sitewide_plugins',
         ],
-        'user_meta'      => [],
+        'user_meta'      => [
+            // LearnDash's own learner progress and quiz attempts, written by
+            // the LMS pack's LearnDash learner ops (issue #575).
+            '_sfwd-course_progress',
+            '_sfwd-quizzes',
+        ],
     ];
 
     /**
@@ -124,6 +132,7 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
         'src/Safety/BbPress_Posts_Snapshot.php'              => 'puts back the recorded bbPress super sticky list (_bbp_super_sticky_topics)',
         'src/Integrations/Theme_Settings_Pack.php'           => 'theme settings options',
         'src/Integrations/Elementor_Addon_Packs.php'         => 'Elementor add-on settings',
+        'src/Integrations/LMS_LearnDash.php'                 => 'LearnDash\'s own enrollment user meta (course_<id>_access_from)',
     ];
 
     /**

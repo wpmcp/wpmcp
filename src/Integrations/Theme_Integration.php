@@ -249,7 +249,7 @@ class Theme_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'the active theme (context, mods), site identity, permalinks, Redirection, backup, security, analytics, cache status';
+        return 'the active theme (context, mods), site identity, permalinks, Redirection, backup, security, analytics, cache, mail status';
     }
 
     protected function operations(): array

@@ -27,8 +27,9 @@ if (! defined('ABSPATH')) {
  *   enables them) -> confirm:true for destructive ops -> forbidden params
  *   and meta keys -> path params -> handler checks (Order_Ops,
  *   Shipping_Ops, Webhook_Ops, Review_Ops, Gateway_Ops, Status_Ops,
- *   Subscription_Ops, Booking_Ops for order_*, shipping_*, webhook_*,
- *   review_*, gateway_*, status_*, subscription_* and booking_* handlers) -> brand checks (Brand_Ops, rows naming a taxonomy) ->
+ *   Subscription_Ops, Booking_Ops, Membership_Ops for order_*, shipping_*,
+ *   webhook_*, review_*, gateway_*, status_*, subscription_*, booking_* and
+ *   membership_* handlers) -> brand checks (Brand_Ops, rows naming a taxonomy) ->
  *   snapshot target resolves -> Safe_Mutation (snapshot first)
  *   -> dispatch, or the row's in-process handler.
  *
@@ -393,7 +394,7 @@ class Woo_Write
      * The class a row's in-process handler runs through (issue #292), by the
      * handler's prefix, or null for dispatched rows and brand handlers.
      *
-     * @return class-string<Order_Ops>|class-string<Shipping_Ops>|class-string<Webhook_Ops>|class-string<Review_Ops>|class-string<Gateway_Ops>|class-string<Status_Ops>|class-string<Subscription_Ops>|class-string<Booking_Ops>|null
+     * @return class-string<Order_Ops>|class-string<Shipping_Ops>|class-string<Webhook_Ops>|class-string<Review_Ops>|class-string<Gateway_Ops>|class-string<Status_Ops>|class-string<Subscription_Ops>|class-string<Booking_Ops>|class-string<Membership_Ops>|null
      */
     private static function handler_class(array $def): ?string
     {
@@ -401,7 +402,7 @@ class Woo_Write
         if (! is_string($handler)) {
             return null;
         }
-        foreach ([ 'order_' => Order_Ops::class, 'shipping_' => Shipping_Ops::class, 'webhook_' => Webhook_Ops::class, 'review_' => Review_Ops::class, 'gateway_' => Gateway_Ops::class, 'status_' => Status_Ops::class, 'subscription_' => Subscription_Ops::class, 'booking_' => Booking_Ops::class ] as $prefix => $class) {
+        foreach ([ 'order_' => Order_Ops::class, 'shipping_' => Shipping_Ops::class, 'webhook_' => Webhook_Ops::class, 'review_' => Review_Ops::class, 'gateway_' => Gateway_Ops::class, 'status_' => Status_Ops::class, 'subscription_' => Subscription_Ops::class, 'booking_' => Booking_Ops::class, 'membership_' => Membership_Ops::class ] as $prefix => $class) {
             if (str_starts_with($handler, $prefix)) {
                 return $class;
             }
@@ -479,7 +480,7 @@ class Woo_Write
             return [ 'object_type' => 'term', 'object_id' => Snapshot::term_key($taxonomy, $slug) ];
         }
 
-        if (in_array($strategy['type'], [ 'wc_order_create', 'wc_shipping_zone_create', 'wc_webhook_create', 'comment_create', 'wc_booking_create' ], true)) {
+        if (in_array($strategy['type'], [ 'wc_order_create', 'wc_shipping_zone_create', 'wc_webhook_create', 'comment_create', 'wc_booking_create', 'wc_user_membership_create' ], true)) {
             // Nothing exists to capture yet; execute() records the creation.
             return [ 'object_type' => $strategy['type'], 'object_id' => 0, 'creation' => true ];
         }
