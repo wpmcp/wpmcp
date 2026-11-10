@@ -40,6 +40,7 @@ final class Child_Theme_Scaffolder
             // DISALLOW_FILE_EDIT on top, in validate().
             'capability'         => 'edit_themes',
             'enabled_by_default' => (bool) apply_filters('wpmcp_enable_theme_write', false),
+            'opt_in_filter'      => 'wpmcp_enable_theme_write',
             'description'        => 'Scaffold a child theme (style.css + functions.php enqueueing the parent stylesheet) of the active theme, or of an explicit installed parent. Idempotent: re-running against an existing wpmcp-scaffolded child completes or reports it instead of failing. Refuses to build a child of a child (no grandchildren). Requires confirm:true, the edit_themes capability, file editing to be allowed on the site, and the wpmcp_enable_theme_write opt-in. Snapshotted before any file is written; rollback-operation removes the scaffold again (unless it has since been activated). Does not activate the child theme',
             'input_schema'       => [
                 'type'       => 'object',

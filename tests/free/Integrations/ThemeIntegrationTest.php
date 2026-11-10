@@ -100,7 +100,7 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
             'args'      => [ 'values' => [ 'header_textcolor' => '336699' ] ],
         ]);
 
-        $this->assertSame('operation_disabled', $out['error']['code']);
+        $this->assertSame('opt_in_required', $out['error']['code']);
     }
 
     public function test_get_theme_context_reports_core_shape(): void

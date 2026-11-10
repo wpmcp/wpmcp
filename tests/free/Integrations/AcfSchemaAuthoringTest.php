@@ -148,7 +148,7 @@ class AcfSchemaAuthoringTest extends \WP_UnitTestCase
 
         $out = $this->write('save-field-group', [ 'title' => 'Off' ]);
 
-        $this->assertSame('operation_disabled', $out['error']['code']);
+        $this->assertSame('opt_in_required', $out['error']['code']);
     }
 
     public function test_structure_writes_need_acf_capability(): void

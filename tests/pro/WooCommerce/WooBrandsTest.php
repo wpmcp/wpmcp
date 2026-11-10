@@ -376,7 +376,7 @@ class WooBrandsTest extends \WP_UnitTestCase
         $id  = $this->brand('Acme');
         $out = (new Woo_Write())->handle(['op' => 'brands.delete', 'params' => ['id' => $id], 'confirm' => true]);
 
-        $this->assertSame('operation_disabled', $out['error']['code']);
+        $this->assertSame('opt_in_required', $out['error']['code']);
         $this->assertInstanceOf(\WP_Term::class, get_term($id, self::TAX));
     }
 

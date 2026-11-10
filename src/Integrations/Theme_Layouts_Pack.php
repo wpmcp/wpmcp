@@ -52,8 +52,6 @@ final class Theme_Layouts_Pack
     /** Layouts scanned by a list; the add-ons themselves load at most 500 per request. */
     private const MAX_SCAN = 500;
 
-    private const ENABLE_HINT = 'Theme writes are off until the site enables them with the wpmcp_enable_theme_write filter.';
-
     public static function adapter(?string $family): ?Theme_Layouts_Adapter
     {
         if ('astra' === $family) {
@@ -85,7 +83,7 @@ final class Theme_Layouts_Pack
         $write    = $base + [
             'mode'               => 'write',
             'enabled_by_default' => (bool) apply_filters('wpmcp_enable_theme_write', false),
-            'enable_hint'        => self::ENABLE_HINT,
+            'opt_in_filter'      => 'wpmcp_enable_theme_write',
         ];
         $objects  = [ 'layout_id' => [ 'type' => 'post', 'own_type' => true ] ];
         $id       = [ 'type' => 'integer', 'minimum' => 1 ];

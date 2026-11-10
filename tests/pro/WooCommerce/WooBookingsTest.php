@@ -389,7 +389,7 @@ class WooBookingsTest extends \WP_UnitTestCase
         $before = $this->state($id);
 
         $off = $this->write('bookings.cancel', ['id' => $id], ['confirm' => true]);
-        $this->assertSame('operation_disabled', $off['error']['code'] ?? null);
+        $this->assertSame('opt_in_required', $off['error']['code'] ?? null);
 
         $this->enable_cancel();
         $unconfirmed = $this->write('bookings.cancel', ['id' => $id]);

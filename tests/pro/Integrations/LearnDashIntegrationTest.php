@@ -248,7 +248,7 @@ class LearnDashIntegrationTest extends \WP_UnitTestCase
         remove_all_filters('wpmcp_enable_learndash_learner_write');
         foreach ([ 'learndash-enroll-user', 'learndash-unenroll-user', 'learndash-reset-progress' ] as $op) {
             $out = $this->write($op, [ 'user_id' => $alice, 'course_id' => $course ]);
-            $this->assertSame('operation_disabled', $out['error']['code'] ?? null, $op);
+            $this->assertSame('opt_in_required', $out['error']['code'] ?? null, $op);
             $this->assertStringContainsString('wpmcp_enable_learndash_learner_write', $out['error']['message'], $op);
         }
         $this->assertSame($before, $this->user_state($alice));

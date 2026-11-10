@@ -326,6 +326,7 @@ class Theme_Integration extends Integration_Dispatcher
                 'mode'               => 'write',
                 'description'        => 'Set allowlisted presentation theme_mod values (core logo/header/background mods; extend via the wpmcp_theme_mod_allowlist filter). Pass null as a value to clear that mod. Structural keys are always refused; a key with no registered validator is refused; a value that fails its validator is refused rather than coerced. Snapshotted on the theme_mods option; restorable with rollback-operation. Disabled by default (site opts in via the wpmcp_enable_theme_write filter)',
                 'enabled_by_default' => (bool) apply_filters('wpmcp_enable_theme_write', false),
+                'opt_in_filter'      => 'wpmcp_enable_theme_write',
                 'input_schema'       => [
                     'type'       => 'object',
                     'properties' => [
