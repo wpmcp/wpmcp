@@ -220,6 +220,24 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'woocommerce-bookings/woocommerce-bookings.php' );
     }
 
+    // The live cache settings job (issue #692, WPMCP_LIVE_CACHE_SETTINGS=1)
+    // runs the WP Rocket, Perfmatters and FlyingPress settings ops through
+    // the real plugins, each copied in from its WPMCP_*_SRC when set. Loaded
+    // only on request: the stub-backed tests seed each option and fake
+    // presence. Requests leaving the machine get an empty answer, so the
+    // run stays offline (license checks, SaaS jobs, preload crawls).
+    if ( getenv( 'WPMCP_LIVE_CACHE_SETTINGS' ) ) {
+        add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
+            if ( false !== $pre ) {
+                return $pre;
+            }
+            return [ 'headers' => [], 'body' => '{}', 'response' => [ 'code' => 200, 'message' => 'OK' ], 'cookies' => [], 'filename' => null ];
+        }, 10, 3 );
+        wpmcp_maybe_require_plugin( 'wp-rocket/wp-rocket.php' );
+        wpmcp_maybe_require_plugin( 'perfmatters/perfmatters.php' );
+        wpmcp_maybe_require_plugin( 'flying-press/flying-press.php' );
+    }
+
     // The live CRM job (issue #477, WPMCP_LIVE_CRM=1) runs the FluentCRM
     // and MailPoet ops through the real plugins. Loaded only on request: the
     // stub-backed CRM tests build both plugins' tables from a fixture and

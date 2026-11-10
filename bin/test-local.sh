@@ -99,6 +99,11 @@
 #      so not downloadable here), beside the pinned free Elementor: submissions
 #      Elementor Pro stores through its own Query are listed, read, exported,
 #      trashed and deleted through the ops, and every write rolls back.
+#  23b. Runs the live cache settings groups (issue #692) when any of
+#      WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC and WPMCP_FLYING_PRESS_SRC
+#      names a local copy of WP Rocket, Perfmatters or FlyingPress
+#      (commercial, so not downloadable here): each plugin's settings read,
+#      changed and rolled back through its own save path, and its preload.
 #  24. Runs the live WP Mail SMTP group: the WP Mail SMTP ops on the theme
 #      pair through the real plugin (its Options, encryption and constants),
 #      on its own install, with every write rolled back and no mail sent.
@@ -191,6 +196,7 @@
 #   bin/test-local.sh --live-divi     only the live Divi group (needs WPMCP_DIVI_SRC)
 #   bin/test-local.sh --live-memberpress only the live MemberPress group (needs WPMCP_MEMBERPRESS_SRC)
 #   bin/test-local.sh --live-elementor-pro only the live Elementor Pro group (needs WPMCP_ELEMENTOR_PRO_SRC)
+#   bin/test-local.sh --live-cache-settings only the live cache settings groups (needs at least one of WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC, WPMCP_FLYING_PRESS_SRC)
 #   bin/test-local.sh --live-wc-subscriptions only the live WooCommerce Subscriptions group (needs WPMCP_WC_SUBSCRIPTIONS_SRC)
 #   bin/test-local.sh --live-theme-pro only the live theme add-on group (needs at least one of
 #                                     WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC, WPMCP_GP_PREMIUM_SRC)
@@ -255,6 +261,11 @@
 #   WPMCP_ELEMENTOR_PRO_SRC a local Elementor Pro plugin directory for the live
 #                        Elementor Pro group; without it that group is not run,
 #                        except under --live-elementor-pro, where it is an error
+#   WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC, WPMCP_FLYING_PRESS_SRC local
+#                        WP Rocket, Perfmatters and FlyingPress plugin
+#                        directories for the live cache settings groups; each
+#                        plugin's group runs only when its directory is set,
+#                        and --live-cache-settings without any is an error
 #   WPMCP_WC_SUBSCRIPTIONS_SRC a local WooCommerce Subscriptions plugin directory
 #                        for the live Subscriptions group; without it that group
 #                        is not run, except under --live-wc-subscriptions, where
@@ -340,6 +351,7 @@ only_live_amelia=false
 only_live_wc_subscriptions=false
 only_live_wc_bookings=false
 only_live_elementor_pro=false
+only_live_cache_settings=false
 only_live_wp_mail_smtp=false
 only_live_adapter=false
 only_live_theme_pro=false
@@ -373,6 +385,7 @@ while [ $# -gt 0 ]; do
 		--live-wc-subscriptions) only_live_wc_subscriptions=true ;;
 		--live-wc-bookings) only_live_wc_bookings=true ;;
 		--live-elementor-pro) only_live_elementor_pro=true ;;
+		--live-cache-settings) only_live_cache_settings=true ;;
 		--live-wp-mail-smtp) only_live_wp_mail_smtp=true ;;
 		--live-adapter) only_live_adapter=true ;;
 		--live-theme-pro) only_live_theme_pro=true ;;
@@ -424,7 +437,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -445,6 +458,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_theme_pro" = false ] || LEGS+=("live-theme-pro ${only_wp:-$default_wp}")
 	[ "$only_live_wc_bookings" = false ] || LEGS+=("live-wc-bookings ${only_wp:-$default_wp}")
 	[ "$only_live_elementor_pro" = false ] || LEGS+=("live-elementor-pro ${only_wp:-$default_wp}")
+	[ "$only_live_cache_settings" = false ] || LEGS+=("live-cache-settings ${only_wp:-$default_wp}")
 	[ "$only_live_wp_mail_smtp" = false ] || LEGS+=("live-wp-mail-smtp ${only_wp:-$default_wp}")
 	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
 elif [ "$only_multisite" = true ]; then
@@ -507,6 +521,9 @@ else
 		fi
 		if [ -n "${WPMCP_ELEMENTOR_PRO_SRC:-}" ]; then
 			LEGS+=("live-elementor-pro $default_wp")
+		fi
+		if [ -n "${WPMCP_WP_ROCKET_SRC:-}${WPMCP_PERFMATTERS_SRC:-}${WPMCP_FLYING_PRESS_SRC:-}" ]; then
+			LEGS+=("live-cache-settings $default_wp")
 		fi
 		# The adapter leg (issue #501) under --all only; see the header.
 		if [ "$run_all" = true ]; then
@@ -656,6 +673,9 @@ install_flavor() {
 	[ "${WPMCP_LIVE_WC_BOOKINGS:-}" = 1 ] && flavor="-wc-bookings-live"
 	# And WPMCP_LIVE_ELEMENTOR_PRO=1, Elementor and the local Elementor Pro copy.
 	[ "${WPMCP_LIVE_ELEMENTOR_PRO:-}" = 1 ] && flavor="-elementor-pro-live"
+	# And WPMCP_LIVE_CACHE_SETTINGS=1 and the local cache plugin copies.
+	# The copies present are part of the name, so adding one gets a fresh install.
+	[ "${WPMCP_LIVE_CACHE_SETTINGS:-}" = 1 ] && flavor="-cache${WPMCP_WP_ROCKET_SRC:+-rocket}${WPMCP_PERFMATTERS_SRC:+-perfmatters}${WPMCP_FLYING_PRESS_SRC:+-flyingpress}-live"
 	# And WPMCP_LIVE_WP_MAIL_SMTP=1 and WP Mail SMTP.
 	[ "${WPMCP_LIVE_WP_MAIL_SMTP:-}" = 1 ] && flavor="-wp-mail-smtp-live"
 	echo "$flavor"
@@ -1497,6 +1517,28 @@ run_live_elementor_pro() {
 	unset WPMCP_LIVE_ELEMENTOR_PRO
 }
 
+# The live cache settings groups (issue #692), the same way, with each of WP
+# Rocket, Perfmatters and FlyingPress copied from its WPMCP_*_SRC when set:
+# their own install, their own database, and --fail-on-skipped over the
+# groups of the plugins present.
+run_live_cache_settings() {
+	local version=$1 dir core config groups=()
+	[ -z "${WPMCP_WP_ROCKET_SRC:-}" ] || { [ -f "$WPMCP_WP_ROCKET_SRC/wp-rocket.php" ] || die "WPMCP_WP_ROCKET_SRC must be a directory holding the WP Rocket plugin"; groups+=(cache-wp-rocket-live); }
+	[ -z "${WPMCP_PERFMATTERS_SRC:-}" ] || { [ -f "$WPMCP_PERFMATTERS_SRC/perfmatters.php" ] || die "WPMCP_PERFMATTERS_SRC must be a directory holding the Perfmatters plugin"; groups+=(cache-perfmatters-live); }
+	[ -z "${WPMCP_FLYING_PRESS_SRC:-}" ] || { [ -f "$WPMCP_FLYING_PRESS_SRC/flying-press.php" ] || die "WPMCP_FLYING_PRESS_SRC must be a directory holding the FlyingPress plugin"; groups+=(cache-flyingpress-live); }
+	[ ${#groups[@]} -gt 0 ] || die "the live cache settings groups need at least one of WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC and WPMCP_FLYING_PRESS_SRC"
+	export WPMCP_LIVE_CACHE_SETTINGS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-cache-settings-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live cache settings groups on WordPress $version (${groups[*]})"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group "$(IFS=,; echo "${groups[*]}")" --fail-on-skipped
+	unset WPMCP_LIVE_CACHE_SETTINGS
+}
+
 # The live WooCommerce Subscriptions group (issue #658), the same way, with
 # the plugin copied from WPMCP_WC_SUBSCRIPTIONS_SRC beside WooCommerce: its
 # own install, its own database and --fail-on-skipped.
@@ -1714,6 +1756,7 @@ run_leg_body() {
 		live-divi) run_live_divi "$wp" ;;
 		live-memberpress) run_live_memberpress "$wp" ;;
 		live-elementor-pro) run_live_elementor_pro "$wp" ;;
+		live-cache-settings) run_live_cache_settings "$wp" ;;
 		live-amelia) run_live_amelia "$wp" ;;
 		live-wc-subscriptions) run_live_wc_subscriptions "$wp" ;;
 		live-theme-pro) run_live_theme_pro "$wp" ;;

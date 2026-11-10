@@ -391,6 +391,7 @@ bin/test-local.sh --live-amelia         # only the Amelia Lite live group
 bin/test-local.sh --live-wp-mail-smtp   # only the WP Mail SMTP live group
 WPMCP_MEMBERPRESS_SRC=/path/to/memberpress bin/test-local.sh --live-memberpress   # only the MemberPress live group, against a local MemberPress copy
 WPMCP_ELEMENTOR_PRO_SRC=/path/to/elementor-pro bin/test-local.sh --live-elementor-pro   # only the Elementor Pro live group, against a local Elementor Pro copy
+WPMCP_WP_ROCKET_SRC=/path/to/wp-rocket WPMCP_PERFMATTERS_SRC=/path/to/perfmatters WPMCP_FLYING_PRESS_SRC=/path/to/flying-press bin/test-local.sh --live-cache-settings   # only the cache settings live groups, against local copies (any one is enough)
 bin/test-local.sh --live-adapter        # only both suites on the latest MCP Adapter plugin released on WordPress.org (WPMCP_ADAPTER_VERSION pins one)
 bin/test-local.sh --prune               # prune the test cache to its budget now (--prune --all: every install no run is using)
 ```
