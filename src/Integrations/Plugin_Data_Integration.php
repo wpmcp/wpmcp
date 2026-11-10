@@ -41,6 +41,9 @@ if (! defined('ABSPATH')) {
  *  - Issue #498 adds the paid-tier page translation ops (I18n_Pack): for
  *    Polylang and WPML, find untranslated posts, create a linked
  *    translation, and read and write a page's text as segments.
+ *  - bbPress (BbPress_Pack): forums, topics and replies, posting topics
+ *    and replies, and topic moderation (close, stick, spam) through
+ *    bbPress's own API, snapshotted as 'bbpress_posts' images.
  *  - Issue #668 adds the paid-tier MemberPress ops (MemberPress_Pack):
  *    memberships, rules and their access conditions, read and written as
  *    MemberPress stores them, plus read-only members and transactions.
@@ -55,7 +58,8 @@ if (! defined('ABSPATH')) {
  * skipped cleanly: its ops stay documented in list-operations
  * (dependency_met:false) and answer <plugin>_inactive without touching
  * anything. Presence is filterable per plugin (wpmcp_jetengine_active,
- * wpmcp_pods_active, wpmcp_translatepress_active, wpmcp_buddypress_active).
+ * wpmcp_pods_active, wpmcp_translatepress_active, wpmcp_buddypress_active,
+ * wpmcp_bbpress_active).
  *
  * Every write is snapshotted: field values in post meta as a post snapshot,
  * Pods table rows and TranslatePress dictionary rows as a
@@ -73,7 +77,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || TablePress_Pack::active()
             || CRM_Pack::active()
@@ -90,7 +94,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', FluentCRM and MailPoet';
     }
@@ -98,6 +102,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
     protected function operations(): array
     {
         return array_merge(
+            BbPress_Pack::operations(),
             JetEngine_Pack::operations(),
             Pods_Pack::operations(),
             TranslatePress_Pack::operations(),
