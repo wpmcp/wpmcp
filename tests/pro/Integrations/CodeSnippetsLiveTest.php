@@ -42,7 +42,12 @@ class CodeSnippetsLiveTest extends \WP_UnitTestCase
         }
         Snapshot_Store::install();
         Gate::set_pro_for_tests(true);
-        wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        $admin = self::factory()->user->create([ 'role' => 'administrator' ]);
+        if (is_multisite()) {
+            // PHP execution on a network needs a network administrator.
+            grant_super_admin($admin);
+        }
+        wp_set_current_user($admin);
         add_filter('wpmcp_allow_php_exec', '__return_true');
         Php_Snippet_Guard::set_environment_override('local');
         $GLOBALS['wpmcp_cs_live_runs'] = 0;
