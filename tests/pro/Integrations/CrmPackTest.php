@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tests\Pro\Integrations;
 
+use WPMCP\Admin\Audit_Log_Page;
 use WPMCP\Integrations\CRM_Pack;
 use WPMCP\Integrations\Plugin_Data_Integration;
 use WPMCP\MCP\Elicitation;
@@ -12,6 +13,7 @@ use WPMCP\Safety\Snapshot;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tests\Support\Fake_FluentCRM;
 use WPMCP\Tests\Support\Fake_MailPoet;
+use WPMCP\Tools\List_Operations;
 
 require_once __DIR__ . '/../../support/crm-tables.php';
 require_once __DIR__ . '/../../support/crm-doubles.php';
@@ -64,6 +66,7 @@ class CrmPackTest extends \WP_UnitTestCase
         Fake_FluentCRM::$calls        = [];
         Fake_MailPoet::$calls         = [];
         Fake_MailPoet::$confirmation  = true;
+        Fake_MailPoet::$mail_fails    = 0;
         $this->admin                  = self::factory()->user->create([ 'role' => 'administrator' ]);
         $user                         = get_userdata($this->admin);
         foreach (self::MAILPOET_CAPS as $cap) {
@@ -978,6 +981,258 @@ class CrmPackTest extends \WP_UnitTestCase
     }
 
     // ---------------------------------------------------------------
+    // Rows removed after the write stay removed (#553)
+    // ---------------------------------------------------------------
+
+    public function test_rollback_of_a_contact_edit_does_not_rejoin_a_list_left_since(): void
+    {
+        $id    = $this->fc_contact('ada@example.com', 'subscribed');
+        $news  = $this->fc_group('list', 'Newsletter');
+        $pivot = $this->fc_member($id, 'list', $news);
+        $out   = $this->write('fluentcrm-update-contact', [ 'id' => $id, 'first_name' => 'Augusta' ]);
+        $this->ok($out);
+
+        // The person leaves the list from FluentCRM's manage-subscription
+        // page after the write, which deletes the pivot row.
+        global $wpdb;
+        $wpdb->delete($this->t('fc_subscriber_pivot'), [ 'id' => $pivot ]);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame('First', $this->rows('fc_subscribers')[0]['first_name'], 'the name edit is undone');
+        $this->assertSame([], $this->rows('fc_subscriber_pivot'), 'the list the person left is not re-joined');
+        $this->assertStringContainsString(sprintf('fc_subscriber_pivot #%d (removed since the write', $pivot), implode(' ', Rollback_Service::take_warnings()));
+    }
+
+    public function test_rollback_of_a_contact_edit_does_not_recreate_a_contact_deleted_since(): void
+    {
+        $id  = $this->fc_contact('ada@example.com', 'subscribed');
+        $tag = $this->fc_group('tag', 'VIP');
+        $this->fc_member($id, 'tag', $tag);
+        $this->insert('fc_subscriber_meta', [ 'subscriber_id' => $id, 'created_by' => 0, 'object_type' => 'custom_field', 'key' => 'nickname', 'value' => 'Ada' ]);
+        $out = $this->write('fluentcrm-update-contact', [ 'id' => $id, 'first_name' => 'Augusta' ]);
+        $this->ok($out);
+
+        // Deleted after the write (FluentCRM admin, or its personal data eraser).
+        global $wpdb;
+        foreach ([ 'fc_subscriber_pivot', 'fc_subscriber_meta' ] as $table) {
+            $wpdb->delete($this->t($table), [ 'subscriber_id' => $id ]);
+        }
+        $wpdb->delete($this->t('fc_subscribers'), [ 'id' => $id ]);
+
+        Rollback_Service::restore_operation((string) $out['operation_id']);
+        $this->assertSame([ [], [], [] ], [ $this->rows('fc_subscribers'), $this->rows('fc_subscriber_pivot'), $this->rows('fc_subscriber_meta') ], 'a contact deleted since is not recreated');
+        $this->assertStringContainsString(sprintf('fc_subscribers #%d (removed since the write', $id), implode(' ', Rollback_Service::take_warnings()));
+    }
+
+    public function test_rollback_of_a_list_or_tag_rename_does_not_rejoin_members_who_left(): void
+    {
+        $ada  = $this->fc_contact('ada@example.com', 'subscribed');
+        $bob  = $this->fc_contact('bob@example.com', 'subscribed');
+        $news = $this->fc_group('list', 'Newsletter');
+        $vip  = $this->fc_group('tag', 'VIP');
+        $left = $this->fc_member($ada, 'list', $news);
+        $this->fc_member($bob, 'list', $news);
+        $untagged = $this->fc_member($ada, 'tag', $vip);
+
+        $list = $this->write('fluentcrm-update-list', [ 'id' => $news, 'title' => 'Monthly newsletter' ]);
+        $tag  = $this->write('fluentcrm-update-tag', [ 'id' => $vip, 'title' => 'Gold' ]);
+        $this->ok($list);
+        $this->ok($tag);
+
+        global $wpdb;
+        $wpdb->delete($this->t('fc_subscriber_pivot'), [ 'id' => $left ]);
+        $wpdb->delete($this->t('fc_subscriber_pivot'), [ 'id' => $untagged ]);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $tag['operation_id']));
+        $this->assertTrue(Rollback_Service::restore_operation((string) $list['operation_id']));
+        $this->assertSame([ 'Newsletter', 'VIP' ], [ $this->rows('fc_lists')[0]['title'], $this->rows('fc_tags')[0]['title'] ], 'the renames are undone');
+        $this->assertSame([ $bob ], array_map('intval', array_column($this->rows('fc_subscriber_pivot'), 'subscriber_id')), 'only the member who stayed is on the list');
+    }
+
+    public function test_mailpoet_rollback_does_not_recreate_a_subscriber_or_membership_removed_since(): void
+    {
+        $list = $this->mp_list('Newsletter');
+        $id   = $this->mp_contact('ada@example.com', 'subscribed');
+        $this->mp_member($id, $list);
+        $out = $this->write('mailpoet-update-contact', [ 'id' => $id, 'first_name' => 'Augusta' ]);
+        $this->ok($out);
+
+        // Deleted permanently from MailPoet's trash after the write.
+        global $wpdb;
+        $wpdb->delete($this->t('mailpoet_subscriber_segment'), [ 'subscriber_id' => $id ]);
+        $wpdb->delete($this->t('mailpoet_subscribers'), [ 'id' => $id ]);
+
+        Rollback_Service::restore_operation((string) $out['operation_id']);
+        $this->assertSame([], $this->rows('mailpoet_subscribers'), 'a permanently deleted subscriber is not recreated');
+        $this->assertSame([], $this->rows('mailpoet_subscriber_segment'), 'and neither is its list membership');
+        $this->assertStringContainsString(sprintf('mailpoet_subscribers #%d (removed since the write', $id), implode(' ', Rollback_Service::take_warnings()));
+
+        // A list rename, then a member's row is removed: the rename is undone, the row stays gone.
+        $bob    = $this->mp_contact('bob@example.com', 'subscribed');
+        $member = $this->mp_member($bob, $list);
+        $rename = $this->write('mailpoet-update-list', [ 'id' => $list, 'title' => 'Monthly' ]);
+        $this->ok($rename);
+        $wpdb->delete($this->t('mailpoet_subscriber_segment'), [ 'id' => $member ]);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $rename['operation_id']));
+        $this->assertSame('Newsletter', $this->rows('mailpoet_segments')[0]['name']);
+        $this->assertSame([], $this->rows('mailpoet_subscriber_segment'));
+    }
+
+    /**
+     * Issue #553 on MailPoet: its delete moves a subscriber to the trash
+     * (deleted_at), so the row is still there; undoing an edit made before
+     * the delete leaves it in the trash, unchanged, and says so.
+     */
+    public function test_mailpoet_rollback_of_an_edit_leaves_a_subscriber_trashed_since_in_the_trash(): void
+    {
+        $a  = $this->mp_list('A');
+        $b  = $this->mp_list('B');
+        $id = (int) $this->ok($this->write('mailpoet-create-contact', [ 'email' => 'h4mrepro@example.com', 'first_name' => 'R', 'lists' => [ $a, $b ] ]))['contact']['id'];
+        $edit = $this->write('mailpoet-update-contact', [ 'id' => $id, 'first_name' => 'Edited2' ]);
+        $this->ok($edit);
+        $this->ok($this->write('mailpoet-delete-contact', [ 'id' => $id ], true));
+        $trashed = $this->rows('mailpoet_subscribers')[0];
+        $members = $this->rows('mailpoet_subscriber_segment');
+        $this->assertNotNull($trashed['deleted_at']);
+
+        Rollback_Service::take_warnings();
+        Rollback_Service::restore_operation((string) $edit['operation_id']);
+        $this->assertSame([ $trashed ], $this->rows('mailpoet_subscribers'), 'the subscriber stays in the trash, as it is');
+        $this->assertSame($members, $this->rows('mailpoet_subscriber_segment'));
+        $this->assertSame('contact_not_found', $this->code($this->read('mailpoet-get-contact', [ 'id' => $id ])));
+        $this->assertStringContainsString(sprintf('mailpoet_subscribers #%d (trashed since the write', $id), implode(' ', Rollback_Service::take_warnings()));
+    }
+
+    public function test_mailpoet_undo_of_its_own_trash_still_restores_and_an_old_snapshot_leaves_the_trash_alone(): void
+    {
+        $id    = $this->mp_contact('ada@example.com', 'subscribed');
+        $trash = $this->write('mailpoet-delete-contact', [ 'id' => $id ], true);
+        $this->ok($trash);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $trash['operation_id']));
+        $this->assertNull($this->rows('mailpoet_subscribers')[0]['deleted_at'], 'the operation\'s own trash is undone');
+
+        // A delete recorded before the trash was tracked: its undo leaves the trash alone.
+        $again = $this->write('mailpoet-delete-contact', [ 'id' => $id ], true);
+        $this->ok($again);
+        $row = Snapshot_Store::get_by_operation((string) $again['operation_id']);
+        unset($row['snapshot']['data']['trashed']);
+        Snapshot_Store::update_snapshot((string) $again['operation_id'], $row['snapshot']);
+        Rollback_Service::take_warnings();
+        Rollback_Service::restore_operation((string) $again['operation_id']);
+        $this->assertNotNull($this->rows('mailpoet_subscribers')[0]['deleted_at'], 'without the record, a trashed row is never assumed to be the write\'s own');
+        $this->assertStringContainsString(sprintf('mailpoet_subscribers #%d (in the trash, and this operation predates', $id), implode(' ', Rollback_Service::take_warnings()));
+    }
+
+    /**
+     * Issue #760: MailPoet saves the subscriber, then fails to send its
+     * confirmation email. The op returns the contact with a warning and its
+     * undo point, and the undo removes what it created.
+     */
+    public function test_mailpoet_create_whose_confirmation_email_failed_returns_the_contact_and_undoes(): void
+    {
+        $list                      = $this->mp_list('Newsletter');
+        $tag                       = $this->mp_tag('VIP');
+        Fake_MailPoet::$mail_fails = 10;
+        $out                       = $this->write('mailpoet-create-contact', [ 'email' => 'h4one@example.com', 'first_name' => 'One', 'lists' => [ $list ], 'tags' => [ $tag ] ]);
+        $result                    = $this->ok($out);
+        $id                        = (int) $this->rows('mailpoet_subscribers')[0]['id'];
+        $this->assertSame($id, (int) $result['contact']['id']);
+        $this->assertSame('unconfirmed', $result['contact']['status']);
+        $this->assertStringContainsString('confirmation email was not sent', implode(' ', $result['warnings']));
+        $this->assertNotEmpty($out['operation_id']);
+        $this->assertCount(1, $this->rows('mailpoet_subscriber_tag'), 'the tags still go on');
+
+        Rollback_Service::take_warnings();
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame([], Rollback_Service::take_warnings());
+        $this->assertSame([ [], [], [] ], [ $this->rows('mailpoet_subscribers'), $this->rows('mailpoet_subscriber_segment'), $this->rows('mailpoet_subscriber_tag') ], 'the undo removes the contact and its memberships');
+
+        // The same per contact in an import.
+        $import = $this->write('mailpoet-import-contacts', [ 'contacts' => [ [ 'email' => 'i1@example.com' ], [ 'email' => 'i2@example.com' ] ], 'lists' => [ $list ] ]);
+        $done   = $this->ok($import);
+        $this->assertSame([], $done['failed']);
+        $this->assertCount(2, $done['created']);
+        $this->assertStringContainsString('confirmation email was not sent', implode(' ', $done['created'][0]['warnings']));
+        Rollback_Service::restore_session((string) $import['session_id']);
+        $this->assertSame([ [], [] ], [ $this->rows('mailpoet_subscribers'), $this->rows('mailpoet_subscriber_segment') ]);
+
+        // Any other refusal is still the op's error, and a successful create carries no warning.
+        Fake_MailPoet::$mail_fails = 13;
+        $this->assertSame('mailpoet_refused', $this->code($this->write('mailpoet-create-contact', [ 'email' => 'h4two@example.com' ])));
+        Fake_MailPoet::$mail_fails = 0;
+        $this->assertArrayNotHasKey('warnings', $this->ok($this->write('mailpoet-create-contact', [ 'email' => 'h4three@example.com' ])));
+    }
+
+    public function test_undoing_the_operations_own_removal_still_restores_it_but_not_one_made_since(): void
+    {
+        $id = $this->fc_contact('ada@example.com', 'subscribed');
+        $a  = $this->fc_group('list', 'A');
+        $b  = $this->fc_group('list', 'B');
+        $pa = $this->fc_member($id, 'list', $a);
+        $pb = $this->fc_member($id, 'list', $b);
+
+        // The write removes list A; the person later leaves list B.
+        $out = $this->write('fluentcrm-update-contact-lists', [ 'id' => $id, 'remove' => [ $a ] ]);
+        $this->ok($out);
+        global $wpdb;
+        $wpdb->delete($this->t('fc_subscriber_pivot'), [ 'id' => $pb ]);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame([ $pa ], array_map('intval', array_column($this->rows('fc_subscriber_pivot'), 'id')), 'list A the write removed is back, list B the person left is not');
+        $this->assertStringContainsString(sprintf('fc_subscriber_pivot #%d (removed since the write', $pb), implode(' ', Rollback_Service::take_warnings()));
+    }
+
+    public function test_import_and_group_delete_rollback_follow_the_same_rule(): void
+    {
+        $leads = $this->fc_group('list', 'Leads');
+        $news  = $this->fc_group('list', 'Newsletter');
+        $known = $this->fc_contact('known@example.com', 'subscribed');
+        $left  = $this->fc_member($known, 'list', $news);
+
+        // An import updates a known contact; it then leaves the Newsletter list.
+        $out = $this->write('fluentcrm-import-contacts', [ 'contacts' => [ [ 'email' => 'known@example.com', 'first_name' => 'Changed' ] ], 'lists' => [ $leads ], 'update_existing' => true ]);
+        $this->ok($out);
+        global $wpdb;
+        $wpdb->delete($this->t('fc_subscriber_pivot'), [ 'id' => $left ]);
+        Rollback_Service::restore_session((string) $out['session_id']);
+        $this->assertSame('First', $this->rows('fc_subscribers')[0]['first_name'], 'the import is undone');
+        $this->assertSame([], $this->rows('fc_subscriber_pivot'), 'the Leads join is undone and the Newsletter list left since is not re-joined');
+
+        // A list delete takes its memberships with it, and its undo puts them back.
+        $this->fc_member($known, 'list', $news);
+        $before  = [ $this->rows('fc_lists'), $this->rows('fc_subscriber_pivot') ];
+        $deleted = $this->write('fluentcrm-delete-list', [ 'id' => $news ], true);
+        $this->ok($deleted);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $deleted['operation_id']));
+        $this->assertSame($before, [ $this->rows('fc_lists'), $this->rows('fc_subscriber_pivot') ], 'the operation\'s own delete is undone');
+
+        // A MailPoet tag delete likewise.
+        $mp  = $this->mp_contact('ada@example.com');
+        $hot = $this->mp_tag('Hot');
+        $this->insert('mailpoet_subscriber_tag', [ 'subscriber_id' => $mp, 'tag_id' => $hot ]);
+        $before  = [ $this->rows('mailpoet_tags'), $this->rows('mailpoet_subscriber_tag') ];
+        $deleted = $this->write('mailpoet-delete-tag', [ 'id' => $hot ], true);
+        $this->ok($deleted);
+        $this->assertSame([], $this->rows('mailpoet_tags'));
+        $this->assertTrue(Rollback_Service::restore_operation((string) $deleted['operation_id']));
+        $this->assertSame($before, [ $this->rows('mailpoet_tags'), $this->rows('mailpoet_subscriber_tag') ]);
+    }
+
+    public function test_a_snapshot_recorded_before_removals_were_tracked_re_adds_nothing(): void
+    {
+        $id  = $this->fc_contact('ada@example.com');
+        $out = $this->write('fluentcrm-delete-contact', [ 'id' => $id ], true);
+        $this->ok($out);
+        $row = Snapshot_Store::get_by_operation((string) $out['operation_id']);
+        unset($row['snapshot']['data']['deleted_rows']);
+        Snapshot_Store::update_snapshot((string) $out['operation_id'], $row['snapshot']);
+
+        Rollback_Service::restore_operation((string) $out['operation_id']);
+        $this->assertSame([], $this->rows('fc_subscribers'), 'without the record, a missing row is never assumed to be the write\'s own');
+        $this->assertStringContainsString(sprintf('fc_subscribers #%d (missing, and this operation predates', $id), implode(' ', Rollback_Service::take_warnings()));
+    }
+
+    // ---------------------------------------------------------------
     // The snapshot type
     // ---------------------------------------------------------------
 
@@ -1007,5 +1262,34 @@ class CrmPackTest extends \WP_UnitTestCase
         $this->editor();
         $this->expectException(\WPMCP\Safety\Mutation_Failed::class);
         Rollback_Service::restore_operation((string) $out['operation_id']);
+    }
+
+    /**
+     * Issue #777: a create's ledger row is keyed on the id the plugin
+     * assigned, so the Mutations tab and list-operations name the new object
+     * instead of ":0". Edits of the same objects already did.
+     */
+    public function test_mailpoet_creates_are_listed_with_the_new_objects_id(): void
+    {
+        $session = 'sess-777-mp';
+        $list    = (int) $this->ok($this->write('mailpoet-create-list', [ 'title' => 'R' ], false, $session))['list']['id'];
+        $contact = (int) $this->ok($this->write('mailpoet-create-contact', [ 'email' => 'rt553@example.com', 'lists' => [ $list ] ], false, $session))['contact']['id'];
+        $this->ok($this->write('mailpoet-update-contact', [ 'id' => $contact, 'first_name' => 'Edited' ], false, $session));
+        $this->assertGreaterThan(0, $list);
+        $this->assertGreaterThan(0, $contact);
+
+        $refs = array_column((new List_Operations())->handle([ 'session_id' => $session, 'limit' => 10 ])['operations'], 'object_ref');
+        sort($refs);
+        $this->assertSame(
+            [ Crm_Rows_Snapshot::key('mailpoet_list', $list), Crm_Rows_Snapshot::key('mailpoet_subscriber', $contact), Crm_Rows_Snapshot::key('mailpoet_subscriber', $contact) ],
+            $refs
+        );
+
+        ob_start();
+        (new Audit_Log_Page())->render();
+        $html = (string) ob_get_clean();
+        $this->assertStringContainsString('plugin-data-write (' . Crm_Rows_Snapshot::key('mailpoet_list', $list) . ')', $html);
+        $this->assertStringContainsString('plugin-data-write (' . Crm_Rows_Snapshot::key('mailpoet_subscriber', $contact) . ')', $html);
+        $this->assertStringNotContainsString(':0)', $html);
     }
 }

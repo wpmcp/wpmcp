@@ -14,12 +14,15 @@ use WPMCP\Tools\Filesystem\{Edit_File, Filesystem_Guard, Php_Edit_Guard, Write_F
  * No network: every loopback is answered by a pre_http_request mock that
  * checks the scrape key and nonce core would check, then decides from the
  * file on disk, so the "site" breaks exactly when the edited file says so.
+ * Like a real site, the mock answers an admin request that carries no valid
+ * auth cookie with the login page (the redirect followed: HTTP 200, no check
+ * result), so the admin leg passes only when the check signs in (issue #601).
  */
 class PhpEditGuardTest extends \WP_UnitTestCase
 {
     private string $rel_dir;
 
-    /** @var array<int, array{url: string, nonce_ok: bool}> */
+    /** @var array<int, array{url: string, nonce_ok: bool, cookies: array<string, string>}> */
     private array $loopbacks = [];
 
     private int $http_calls = 0;
@@ -67,12 +70,18 @@ class PhpEditGuardTest extends \WP_UnitTestCase
         if (empty($query['wp_scrape_key'])) {
             return new \WP_Error('http_request_failed', 'Unexpected request in PhpEditGuardTest: ' . $url);
         }
-        $key                = (string) $query['wp_scrape_key'];
-        $this->loopbacks[]  = [
+        $key               = (string) $query['wp_scrape_key'];
+        $cookies           = self::cookies_of($args, (string) $url);
+        $this->loopbacks[] = [
             'url'      => (string) $url,
             'nonce_ok' => get_transient('scrape_key_' . $key) === (string) ($query['wp_scrape_nonce'] ?? ''),
+            'cookies'  => $cookies,
         ];
-        $answer = call_user_func($this->responder, (string) $url);
+        // wp-admin sends a request with no valid auth cookie to wp-login.php;
+        // with redirects followed that is a 200 page with no check result.
+        $answer = self::is_admin_url((string) $url) && ! self::signed_in((string) $url, $cookies)
+            ? [200, null]
+            : call_user_func($this->responder, (string) $url);
         if (is_wp_error($answer)) {
             return $answer;
         }
@@ -89,6 +98,43 @@ class PhpEditGuardTest extends \WP_UnitTestCase
             'cookies'  => [],
             'filename' => null,
         ];
+    }
+
+    /**
+     * The cookies the request would send to $url, by name, applying the
+     * domain and path rules WP_Http applies.
+     *
+     * @return array<string, string>
+     */
+    private static function cookies_of($args, string $url): array
+    {
+        $out = [];
+        foreach ((array) ($args['cookies'] ?? []) as $name => $cookie) {
+            if ($cookie instanceof \WP_Http_Cookie) {
+                if ($cookie->test($url)) {
+                    $out[$cookie->name] = (string) $cookie->value;
+                }
+            } else {
+                $out[(string) $name] = (string) $cookie;
+            }
+        }
+        return $out;
+    }
+
+    private static function is_admin_url(string $url): bool
+    {
+        return 0 === strpos($url, admin_url());
+    }
+
+    /** What auth_redirect() checks: the auth cookie for the scheme of the admin URL. */
+    private static function signed_in(string $url, array $cookies): bool
+    {
+        $secure = 'https' === wp_parse_url($url, PHP_URL_SCHEME);
+        $name   = $secure ? SECURE_AUTH_COOKIE : AUTH_COOKIE;
+        if (empty($cookies[$name])) {
+            return false;
+        }
+        return false !== wp_validate_auth_cookie($cookies[$name], $secure ? 'secure_auth' : 'auth');
     }
 
     /** The site fatals whenever the fixture directory holds a file calling wpmcp_missing(). */
@@ -398,5 +444,111 @@ class PhpEditGuardTest extends \WP_UnitTestCase
         $this->assertSame('created', $written['action']);
         $this->assertArrayNotHasKey('php_check', $written);
         $this->assertSame(0, $this->http_calls);
+    }
+
+    public function test_admin_leg_signs_in_without_a_browser_session_and_leaves_no_session_behind(): void
+    {
+        // An MCP call arrives over REST with an Application Password: there
+        // is no browser session and $_COOKIE holds no auth cookie (issue #601).
+        $_COOKIE  = [];
+        $user_id  = get_current_user_id();
+        $sessions = count(\WP_Session_Tokens::get_instance($user_id)->get_all());
+
+        $result = (new Write_File())->handle([
+            'path'    => $this->rel_dir . '/plain.php',
+            'content' => "<?php\n// harmless, valid\n",
+        ]);
+
+        $this->assertSame('passed', $result['php_check']);
+        $this->assertFileExists(ABSPATH . $this->rel_dir . '/plain.php');
+
+        $admin = array_values(array_filter($this->loopbacks, static fn ($l) => self::is_admin_url($l['url'])));
+        $front = array_values(array_filter($this->loopbacks, static fn ($l) => ! self::is_admin_url($l['url'])));
+        $this->assertNotEmpty($admin, 'The admin leg must run.');
+        $this->assertNotEmpty($front, 'The front end leg must run.');
+        foreach ($front as $loopback) {
+            $this->assertSame([], $loopback['cookies'], 'The front end leg checks the site as a visitor sees it.');
+        }
+
+        // The sign-in lasts for the check only: its session is destroyed, so
+        // the cookie it used no longer authenticates anyone.
+        $this->assertCount($sessions, \WP_Session_Tokens::get_instance($user_id)->get_all());
+        foreach ($admin as $loopback) {
+            foreach ($loopback['cookies'] as $value) {
+                $this->assertFalse(wp_validate_auth_cookie($value, 'auth'));
+                $this->assertFalse(wp_validate_auth_cookie($value, 'secure_auth'));
+                $this->assertStringNotContainsString($value, (string) wp_json_encode($result));
+            }
+        }
+        if (! empty($result['backup'])) {
+            @unlink(ABSPATH . $result['backup']);
+        }
+    }
+
+    public function test_admin_sign_in_cookies_are_bound_to_the_admin_host(): void
+    {
+        $_COOKIE = [];
+        $sent    = [];
+        $spy     = static function ($pre, $args, $url) use (&$sent) {
+            if (0 === strpos((string) $url, admin_url())) {
+                $sent = (array) ($args['cookies'] ?? []);
+            }
+            return $pre;
+        };
+        add_filter('pre_http_request', $spy, 5, 3);
+        try {
+            $this->assertSame('ok', Php_Edit_Guard::probe()['state']);
+        } finally {
+            remove_filter('pre_http_request', $spy, 5);
+        }
+
+        $this->assertNotEmpty($sent);
+        $host = (string) wp_parse_url(admin_url(), PHP_URL_HOST);
+        foreach ($sent as $cookie) {
+            $this->assertInstanceOf(\WP_Http_Cookie::class, $cookie, 'A plain name and value would follow a redirect to any host.');
+            $this->assertSame($host, $cookie->domain);
+            $this->assertTrue($cookie->host_only);
+            $this->assertFalse($cookie->test('http://elsewhere.example/wp-admin/'), 'The sign-in cookies must not be sent to another host.');
+        }
+    }
+
+    public function test_runtime_fatal_is_reverted_without_a_browser_session(): void
+    {
+        $_COOKIE = [];
+        $this->responder = function (string $url) {
+            $broken = false !== strpos($this->functions_php(), 'wpmcp_admin_break');
+            if ($broken && self::is_admin_url($url)) {
+                return [500, ['type' => E_ERROR, 'message' => 'Admin fatal', 'file' => 'x.php', 'line' => 1]];
+            }
+            return [200, true];
+        };
+        $before = $this->functions_php();
+        try {
+            (new Edit_File())->handle([
+                'path'       => $this->rel_dir . '/functions.php',
+                'old_string' => "return 'ok';",
+                'new_string' => "return 'wpmcp_admin_break';",
+            ]);
+            $this->fail('A fatal in admin must be reverted over an Application Password connection.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Admin fatal', $e->getMessage());
+            $this->assertStringNotContainsString(AUTH_COOKIE, $e->getMessage());
+        }
+        $this->assertSame($before, $this->functions_php());
+    }
+
+    public function test_without_a_user_the_admin_leg_cannot_pass_and_the_write_is_refused(): void
+    {
+        $_COOKIE = [];
+        wp_set_current_user(0);
+        $before = $this->functions_php();
+        try {
+            Php_Edit_Guard::write(ABSPATH . $this->rel_dir . '/functions.php', "<?php\n// changed\n", false);
+            $this->fail('With no user to sign in as, the admin leg cannot run, so the write must be refused.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('admin', $e->getMessage());
+            $this->assertStringContainsString('unchecked', $e->getMessage());
+        }
+        $this->assertSame($before, $this->functions_php());
     }
 }

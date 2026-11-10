@@ -36,6 +36,9 @@ if (! defined('ABSPATH')) {
  *  - Issue #498 adds the paid-tier page translation ops (I18n_Pack): for
  *    Polylang and WPML, find untranslated posts, create a linked
  *    translation, and read and write a page's text as segments.
+ *  - Issue #668 adds the paid-tier MemberPress ops (MemberPress_Pack):
+ *    memberships, rules and their access conditions, read and written as
+ *    MemberPress stores them, plus read-only members and transactions.
  *
  * The pair registers only while at least one of them is loaded (the LMS
  * and TablePress ops only on an install that may run the paid tier), and
@@ -66,7 +69,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             || TablePress_Pack::active()
             || CRM_Pack::active()
             || Amelia_Pack::active()
-            || I18n_Pack::active();
+            || I18n_Pack::active()
+            || MemberPress_Pack::active();
     }
 
     public function registers_only_when_available(): bool
@@ -92,7 +96,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             TablePress_Pack::operations(),
             CRM_Pack::operations(),
             Amelia_Pack::operations(),
-            I18n_Pack::operations()
+            I18n_Pack::operations(),
+            MemberPress_Pack::operations()
         );
     }
 

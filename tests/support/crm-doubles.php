@@ -184,6 +184,9 @@ if ( ! class_exists( Fake_MailPoet::class ) ) {
 		/** MailPoet's sign-up confirmation setting, as the double sees it. */
 		public static bool $confirmation = true;
 
+		/** MailPoet's APIException code to raise after the subscriber is saved (10: confirmation email failed), or 0. */
+		public static int $mail_fails = 0;
+
 		private static function t( string $name ): string {
 			global $wpdb;
 			return $wpdb->prefix . $name;
@@ -196,12 +199,22 @@ if ( ! class_exists( Fake_MailPoet::class ) ) {
 		protected function api_create_contact( string $email, array $fields, array $custom, array $lists, array $tags, string $status ): int {
 			global $wpdb;
 			self::$calls[] = [ 'create', func_get_args() ];
-			$wpdb->insert( self::t( 'mailpoet_subscribers' ), [ 'email' => $email, 'status' => 'unconfirmed', 'source' => 'api', 'created_at' => self::now() ] + $fields );
-			$id = (int) $wpdb->insert_id;
-			$this->api_update_contact( $id, [], $custom );
-			if ( [] !== $lists ) {
-				$this->api_attach( $id, 'list', $lists );
-			}
+			$id = $this->created_despite_mail(
+				function () use ( $wpdb, $email, $fields, $custom, $lists ): int {
+					$wpdb->insert( self::t( 'mailpoet_subscribers' ), [ 'email' => $email, 'status' => 'unconfirmed', 'source' => 'api', 'created_at' => self::now() ] + $fields );
+					$id = (int) $wpdb->insert_id;
+					$this->api_update_contact( $id, [], $custom );
+					if ( [] !== $lists ) {
+						$this->api_attach( $id, 'list', $lists );
+					}
+					if ( 0 !== self::$mail_fails ) {
+						// MailPoet saved the subscriber, then the email failed.
+						throw new \WPMCP\Integrations\Operation_Error( 'mailpoet_refused', 'Subscriber added to lists, but confirmation email failed to send: There was an error when sending a confirmation email for your subscription.', [ 'mailpoet_code' => self::$mail_fails ] );
+					}
+					return $id;
+				},
+				$email
+			);
 			$this->api_attach( $id, 'tag', $tags );
 			return $id;
 		}

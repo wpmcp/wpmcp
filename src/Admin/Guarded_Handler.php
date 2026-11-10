@@ -12,6 +12,13 @@ if (! defined('ABSPATH')) {
  * nonce and capability checks are never the only line. Registered through
  * Management_Access::add_handler(); the entry point test recognizes a
  * guarded handler by this class.
+ *
+ * The wrapped handler is called with no arguments (issue #587). Those hooks
+ * carry none: admin-post.php and admin-ajax.php fire them bare, so WordPress
+ * hands each callback one empty string, and forwarding it put '' into the
+ * ?callable test seam several handlers take first, a TypeError that turned
+ * the request log export (and the connection bundle download and the
+ * banner dismissals) into a critical error page.
  */
 final class Guarded_Handler
 {
@@ -23,9 +30,10 @@ final class Guarded_Handler
         $this->handler = $handler;
     }
 
-    /** @param mixed ...$args */
+    /** @param mixed ...$args What the hook passed; never forwarded (see above). */
     public function __invoke(...$args): void
     {
+        unset($args);
         if (! Management_Access::can_manage()) {
             if (wp_doing_ajax()) {
                 wp_send_json_error(['message' => Management_Access::refusal_message()], 403);
@@ -33,6 +41,6 @@ final class Guarded_Handler
             wp_die(esc_html(Management_Access::refusal_message()), '', ['response' => 403]);
         }
 
-        call_user_func_array($this->handler, $args);
+        ($this->handler)();
     }
 }

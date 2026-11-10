@@ -228,6 +228,7 @@ class Manage_Updates
             [
                 'object_type'         => 'option',
                 'object_id'           => $option,
+                'object_ref'          => $item,
                 'session_id'          => (string) ($args['session_id'] ?? 'default'),
                 'tool_name'           => 'manage-updates',
                 'args'                => $args,
@@ -249,8 +250,25 @@ class Manage_Updates
             'type'         => $type,
             'item'         => $item,
             'auto_update'  => $enabled,
-            'effective'    => wp_is_auto_update_enabled_for_type($type),
+            'effective'    => self::auto_update_effective($type),
         ];
+    }
+
+    /**
+     * Whether auto-updates for $type are switched on site-wide (core's
+     * wp_is_auto_update_enabled_for_type()), the effective setting the
+     * toggle reports. That function lives in wp-admin/includes/update.php,
+     * which a REST (MCP) request does not load: without the require, the
+     * toggle saved its change and then threw, so the caller got an error
+     * and no operation_id (issue #600).
+     */
+    public static function auto_update_effective(string $type): bool
+    {
+        if (! function_exists('wp_is_auto_update_enabled_for_type')) {
+            require_once ABSPATH . 'wp-admin/includes/update.php';
+        }
+
+        return (bool) wp_is_auto_update_enabled_for_type($type);
     }
 
     /**

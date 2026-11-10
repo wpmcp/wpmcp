@@ -34,9 +34,12 @@ gate rather than substitute for one:
       - `readme.txt`
       - `scripts/flavors/wporg/readme.txt`
       - `scripts/flavors/woocommerce/readme.txt`
-      - `scripts/flavors/wporg/wpmcp.php` (the only loader with the header;
-        `wpmcp.php` and `scripts/flavors/woocommerce/wpmcp-for-woocommerce.php`
-        carry `Requires at least` and `Requires PHP` only)
+
+      No loader carries it (issue #754): Plugin Check reports
+      `plugin_header_tested_up_to_not_allowed` when one does. `wpmcp.php`,
+      `scripts/flavors/wporg/wpmcp.php` and
+      `scripts/flavors/woocommerce/wpmcp-for-woocommerce.php` carry
+      `Requires at least` and `Requires PHP` only.
 
       Bump only after an actual smoke pass against that WordPress version, and
       record the pass below. Then raise `TESTED_UP_TO_FLOOR` in

@@ -151,8 +151,12 @@ class Handshake_Instructions
      */
     public function safety_line(): string
     {
-        return 'wpmcp safety model: every write is snapshotted before it runs and can be rolled back'
-            . ' (list-operations, rollback-operation, rollback-session).';
+        // Worded to claim no more than is true (issue #598): a few writes
+        // record no undo point (the README lists them), so the promise is
+        // tied to the operation_id a write returns, not to every write.
+        return 'wpmcp safety model: a write that returns an operation_id was snapshotted before it ran and can be'
+            . ' rolled back (list-operations, rollback-operation, rollback-session). A write that returns no'
+            . ' operation_id has no undo point.';
     }
 
     /**
@@ -203,9 +207,13 @@ class Handshake_Instructions
      * Whether the current request could call wpmcp/get-site-context itself.
      * Delegates to the registered ability's real permission callback, so
      * every layer that gates the tool (capability, Governance narrowing,
-     * identity scope, and the audit record) gates the handshake summary
-     * identically. An unregistered ability (governance disabled it, or the
-     * Abilities API is absent) is a deny.
+     * identity scope, core's permission result filter) gates the handshake
+     * summary identically. An unregistered ability (governance disabled it,
+     * or the Abilities API is absent) is a deny.
+     *
+     * The check runs inside Registrar::quietly(), so it records no audit
+     * row: no call is being made, and the row cost a rewrite of the whole
+     * audit option on every handshake (issue #733).
      */
     public function can_view_site_context(): bool
     {
@@ -219,7 +227,7 @@ class Handshake_Instructions
         }
 
         try {
-            return true === $ability->check_permissions();
+            return true === Registrar::quietly(static fn () => $ability->check_permissions());
         } catch (\Throwable $e) {
             return false;
         }

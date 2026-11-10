@@ -29,9 +29,13 @@ class SlashRoundTripTest extends Structural_Harness
         if (! post_type_exists('elementor_snippet')) {
             register_post_type('elementor_snippet', ['public' => false, 'show_ui' => false]);
         }
+        // Issue #558: snippets sit behind the JS gate and unfiltered_html.
+        add_filter('wpmcp_allow_js_injection', '__return_true');
+        wpmcp_test_grant_network_admin(get_current_user_id());
         $code = '<script>var re = /a\/b\\d+/; var s = "C:\\temp";</script>' . self::body();
 
         $out = (new Create_Code_Snippet())->handle(['code' => $code, 'title' => self::line()]);
+        remove_all_filters('wpmcp_allow_js_injection');
 
         $this->assertSame($code, get_post_meta($out['snippet_id'], '_elementor_code', true));
         $this->assertSame(self::line(), get_post($out['snippet_id'])->post_title);
