@@ -2,9 +2,12 @@
 
 namespace WPMCP\Tests\Pro\Freemius;
 
+use WPMCP\Admin\Audit_Log_Page;
 use WPMCP\Admin\Management_Access;
 use WPMCP\Freemius\Bootstrap;
 use WPMCP\Freemius\Staging_Copy;
+use WPMCP\Memory\Memory_Store;
+use WPMCP\Plugin;
 
 /**
  * Staging copies of a licensed site keep Pro without using a licence site:
@@ -254,6 +257,37 @@ class StagingCopyTest extends \WP_UnitTestCase
             'This looks like a staging site. Copy it from your licensed live site instead of activating a license here, so it does not use one of your sites.',
             $this->rendered()
         );
+    }
+
+    /**
+     * Core builds a submenu's screen id from the parent's sanitized menu
+     * title, and the wpmcp title carries the pending-proposals badge, so with
+     * proposals waiting a submenu is "wpmcp-N_page_...", not "wpmcp_page_...".
+     * Same premise as the Pro banner's test; the id comes from core.
+     */
+    public function test_render_follows_the_real_submenu_screen_id_while_the_menu_carries_a_badge(): void
+    {
+        if (! post_type_exists(Memory_Store::POST_TYPE)) {
+            $this->markTestSkipped('memory group off in this flavor');
+        }
+        require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        self::factory()->post->create(['post_type' => Memory_Store::POST_TYPE, 'post_status' => 'pending']);
+        self::factory()->post->create(['post_type' => Memory_Store::POST_TYPE, 'post_status' => 'pending']);
+
+        $saved = [$GLOBALS['admin_page_hooks'] ?? null, $GLOBALS['menu'] ?? null, $GLOBALS['submenu'] ?? null, $GLOBALS['_registered_pages'] ?? null];
+        try {
+            $this->as_admin_on('front');
+            Plugin::instance()->register_admin_menu();
+            $screen_id = get_plugin_page_hookname(Audit_Log_Page::SLUG, 'wpmcp');
+            $this->assertStringStartsWith('wpmcp-2_page_', $screen_id, 'the badge changes the hook prefix; if core stopped doing that, this test needs a new premise');
+
+            set_current_screen($screen_id);
+            $this->stage(new Fake_Fs(clone: true, premium: true), new Fake_Clone_Manager(selected: true));
+
+            $this->assertStringContainsString('Staging copy.', $this->rendered());
+        } finally {
+            [$GLOBALS['admin_page_hooks'], $GLOBALS['menu'], $GLOBALS['submenu'], $GLOBALS['_registered_pages']] = $saved;
+        }
     }
 
     public function test_render_nothing_off_wpmcp_screens(): void

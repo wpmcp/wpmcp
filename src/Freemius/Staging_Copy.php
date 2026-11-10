@@ -225,7 +225,13 @@ class Staging_Copy
         return \FS_Clone_Manager::instance();
     }
 
-    /** Same screen rule as Admin\Announcements: wpmcp's top level and its submenus. */
+    /**
+     * wpmcp's top level and its submenus. A submenu's screen id starts with
+     * the parent's sanitized menu title, which carries the pending-proposals
+     * badge ("wpmcp-3_page_"), so the real prefix is read back from core's
+     * $admin_page_hooks the way Admin\Pro_Banner does, with the plain prefix
+     * as the fallback.
+     */
     private static function is_wpmcp_screen(): bool
     {
         if (! function_exists('get_current_screen')) {
@@ -235,7 +241,12 @@ class Staging_Copy
         if (null === $screen) {
             return false;
         }
+        if ('toplevel_page_wpmcp' === $screen->id || 0 === strpos($screen->id, 'wpmcp_page_')) {
+            return true;
+        }
 
-        return 'toplevel_page_wpmcp' === $screen->id || 0 === strpos($screen->id, 'wpmcp_page_');
+        $hook = $GLOBALS['admin_page_hooks']['wpmcp'] ?? '';
+
+        return is_string($hook) && '' !== $hook && 0 === strpos($screen->id, $hook . '_page_');
     }
 }
