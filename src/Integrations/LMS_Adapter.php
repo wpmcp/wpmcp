@@ -15,7 +15,7 @@ if (! defined('ABSPATH')) {
  * One LMS plugin's course structure and enrollments as plugin-data ops
  * (issue #394). The op catalog, argument checks and the snapshot discipline
  * live here, once; a subclass only says where its plugin keeps things
- * (LMS_Tutor, LMS_LifterLMS).
+ * (LMS_Tutor, LMS_LifterLMS, LMS_LearnDash).
  *
  * The tree is course > sections (Tutor LMS calls them topics) > items
  * (lessons, and in Tutor LMS also quizzes and assignments), plus a quiz
@@ -37,6 +37,9 @@ if (! defined('ABSPATH')) {
  *  - move-item reorders a section in its course, or moves an item within or
  *    between sections of the SAME course; every post whose parent or order
  *    changes is snapshotted, one session per call.
+ *  - A plugin that also keeps the tree on the course itself (LearnDash's
+ *    ld_course_steps) rewrites it after an add or a move, under the
+ *    course's post snapshot in the same session (course_update()).
  * Nothing is deleted here: update-item can take a node to draft, and a
  * created node's undo is the trash.
  *
@@ -155,6 +158,24 @@ abstract class LMS_Adapter
     protected function parent_update(string $kind, int $parent, int $created): ?callable
     {
         return null;
+    }
+
+    /**
+     * A write the plugin needs on the COURSE after its tree changed (a
+     * LearnDash course rebuilding its stored step list), run under the
+     * course's post snapshot in the same session. Null when nothing on the
+     * course changes.
+     */
+    protected function course_update(int $course): ?callable
+    {
+        return null;
+    }
+
+    /** Run course_update() for $course under its snapshot; the operation ids it adds. */
+    private function update_course(int $course, array $context, array $args): array
+    {
+        $update = $course > 0 ? $this->course_update($course) : null;
+        return null === $update ? [] : [ $this->snapshotted($course, $context, $args, $update) ];
     }
 
     // ------------------------------------------------------------------
@@ -756,6 +777,9 @@ abstract class LMS_Adapter
         if (null !== $update) {
             $ids[] = $this->snapshotted($parent, $context, $args, $update);
         }
+        if ('course' !== $kind) {
+            $ids = array_merge($ids, $this->update_course($course, $context, $args));
+        }
 
         return [ 'result' => [ 'item' => $this->node(get_post($created), $kind) ], 'operation_ids' => $ids ];
     }
@@ -801,6 +825,9 @@ abstract class LMS_Adapter
             });
         }
         $ids = array_merge($ids, $this->renumber($plan['dest'], $id, $context, $args), $this->renumber($plan['source'], 0, $context, $args));
+        if ([] !== $ids) {
+            $ids = array_merge($ids, $this->update_course($this->course_of($id), $context, $args));
+        }
 
         return [
             'result'        => [ 'item' => $this->node(get_post($id), (string) $plan['kind']), 'order' => array_map('intval', $plan['dest']) ],

@@ -441,8 +441,9 @@ class Rollback_Service
         // the order writes themselves require (issue #292). A subscription
         // snapshot is a whole order too (issue #658). A booking snapshot
         // holds a customer's booking and its order's status, and a booking
-        // rules snapshot is store configuration (issue #659).
-        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE, Wc_Subscription_Snapshot::TYPE, Wc_Booking_Snapshot::TYPE, Wc_Booking_Snapshot::CREATE_TYPE, Wc_Booking_Snapshot::RULES_TYPE ], true)) {
+        // rules snapshot is store configuration (issue #659). A user
+        // membership snapshot holds a customer's plan access (PR #573).
+        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE, Wc_Subscription_Snapshot::TYPE, Wc_Booking_Snapshot::TYPE, Wc_Booking_Snapshot::CREATE_TYPE, Wc_Booking_Snapshot::RULES_TYPE, Wc_User_Membership_Snapshot::TYPE, Wc_User_Membership_Snapshot::CREATE_TYPE ], true)) {
             return [ [ 'manage_woocommerce' ] ];
         }
         // Shipping zone and webhook snapshots are store configuration, and a
@@ -1129,6 +1130,10 @@ class Rollback_Service
         if (Wc_Booking_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
             return Wc_Booking_Snapshot::TYPE . ':' . $snapshot['object_id'];
         }
+        // And for a membership memberships.grant made (PR #573).
+        if (Wc_User_Membership_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
+            return Wc_User_Membership_Snapshot::TYPE . ':' . $snapshot['object_id'];
+        }
         // And for a FunnelKit funnel a theme-write op created (issue #500).
         if (FunnelKit_Funnel_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
             return FunnelKit_Funnel_Snapshot::TYPE . ':' . $snapshot['object_id'];
@@ -1757,6 +1762,8 @@ class Rollback_Service
             'wc_booking',
             'wc_booking_create',
             'wc_booking_rules',
+            'wc_user_membership',
+            'wc_user_membership_create',
             'wc_shipping_zone',
             'wc_shipping_zone_create',
             'wc_webhook',
@@ -1946,6 +1953,17 @@ class Rollback_Service
         }
         if ('wc_booking_rules' === $snapshot['object_type']) {
             self::warn_if(Wc_Booking_Snapshot::restore_rules($snapshot));
+            return;
+        }
+
+        // Wc_User_Membership_Snapshot::TYPE and ::CREATE_TYPE (PR #573),
+        // literals for the restorable-types parity test.
+        if ('wc_user_membership' === $snapshot['object_type']) {
+            self::warn_if(Wc_User_Membership_Snapshot::restore($snapshot));
+            return;
+        }
+        if ('wc_user_membership_create' === $snapshot['object_type']) {
+            self::warn_if(Wc_User_Membership_Snapshot::undo_creation($snapshot));
             return;
         }
 
