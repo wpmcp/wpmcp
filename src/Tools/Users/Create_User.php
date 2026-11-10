@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Users;
 
+use WPMCP\Safety\User_Creation_Snapshot;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -9,11 +11,13 @@ if (! defined('ABSPATH')) {
 /**
  * Create a new, non-admin WordPress user.
  *
- * Safe_Mutation exemption: creation has no prior state to snapshot, and there
- * is deliberately no delete-user tool, so there is nothing to roll back. This
- * tool therefore calls wp_insert_user() directly and returns no operation_id
- * (mirroring how the read tools skip Safe_Mutation, documented in their own
- * docblocks).
+ * Creation has no prior state to snapshot, so like create-post it records a
+ * creation row under the caller's session_id once the user exists (issue
+ * #598, User_Creation_Snapshot) and returns its operation_id. There is still
+ * deliberately no delete-user tool: rollback-operation and rollback-session
+ * delete the created user only while it has no content and nothing about
+ * the account changed since, and refuse with the reason otherwise. Undoing
+ * it takes delete_users.
  *
  * Guardrails:
  *  - Only non-admin roles may be assigned. Any role that would grant an
@@ -42,6 +46,9 @@ class Create_User
             throw new \InvalidArgumentException('That role is not allowed. Only non-admin roles may be created.');
         }
 
+        // Multisite: the network's signup rules, as core applies them (#561).
+        Network_Signup_Rules::assert_allowed($username, $email);
+
         $password = wp_generate_password(24, true, true);
 
         $userdata = [
@@ -63,11 +70,16 @@ class Create_User
         // The generated password never leaves this method.
         wp_new_user_notification((int) $user_id, null, 'user');
 
+        // Recorded after the email, which sets the activation key, so the
+        // fingerprint holds the account exactly as this call left it.
+        $operation_id = User_Creation_Snapshot::record('create-user', (int) $user_id, $args, (string) ($args['session_id'] ?? 'default'));
+
         return [
-            'id'       => (int) $user_id,
-            'username' => $username,
-            'email'    => $email,
-            'role'     => $role,
+            'operation_id' => $operation_id,
+            'id'           => (int) $user_id,
+            'username'     => $username,
+            'email'        => $email,
+            'role'         => $role,
         ];
     }
 

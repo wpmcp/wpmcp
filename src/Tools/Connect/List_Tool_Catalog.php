@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Connect;
 
 use WPMCP\MCP\Registrar;
+use WPMCP\MCP\Tool_Search;
 use WPMCP\Plugin;
 
 if (! defined('ABSPATH')) {
@@ -24,6 +25,10 @@ if (! defined('ABSPATH')) {
  * Each entry reports only metadata already public on the Ability object
  * (name, tier, operation, capability, read/destructive hints); it never
  * invokes a tool's handler, so this has nothing to snapshot or roll back.
+ *
+ * search (issue #732) keeps only the tools whose name, description or
+ * operation names contain the term (Tool_Search); a dispatcher pair matched
+ * through its ops lists them as matched_operations.
  */
 class List_Tool_Catalog
 {
@@ -32,6 +37,7 @@ class List_Tool_Catalog
         $registrar    = $registrar ?? Plugin::instance()->registrar();
         $domain_filter = isset($args['domain']) ? (string) $args['domain'] : '';
         $tier_filter   = isset($args['tier']) ? (string) $args['tier'] : '';
+        $search        = isset($args['search']) ? trim((string) $args['search']) : '';
 
         $domains = [];
 
@@ -42,8 +48,12 @@ class List_Tool_Catalog
             if ('' !== $tier_filter && $ability->tier !== $tier_filter) {
                 continue;
             }
+            $matched_ops = '' === $search ? [] : Tool_Search::match($ability, $search);
+            if (null === $matched_ops) {
+                continue;
+            }
 
-            $domains[ $ability->domain ][] = [
+            $entry = [
                 'name'             => $ability->name,
                 'tier'             => $ability->tier,
                 'operation'        => $ability->operation,
@@ -51,6 +61,11 @@ class List_Tool_Catalog
                 'read_only_hint'   => $ability->read_only_hint,
                 'destructive_hint' => $ability->destructive_hint,
             ];
+            if ([] !== $matched_ops) {
+                $entry['matched_operations'] = $matched_ops;
+            }
+
+            $domains[ $ability->domain ][] = $entry;
         }
 
         ksort($domains);

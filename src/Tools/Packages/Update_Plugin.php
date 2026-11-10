@@ -27,7 +27,7 @@ class Update_Plugin
     public function handle(array $args): array
     {
         if (! self::is_enabled()) {
-            throw new \RuntimeException('The update-plugin tool is disabled. Enable it with the wpmcp_enable_update_plugin filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('The update-plugin tool is disabled.', 'wpmcp_enable_update_plugin');
         }
 
         $plugin = isset($args['plugin']) ? (string) $args['plugin'] : '';
@@ -40,7 +40,7 @@ class Update_Plugin
         }
 
         if (Package_Guard::is_protected_plugin($plugin)) {
-            throw new \RuntimeException(sprintf('Refusing to update protected plugin "%s".', esc_html($plugin)));
+            throw new \RuntimeException(esc_html(Package_Guard::protected_plugin_refusal('update', $plugin)));
         }
 
         if (! function_exists('get_plugins')) {

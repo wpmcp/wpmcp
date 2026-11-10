@@ -107,8 +107,8 @@ class BlockSuitesLiveTest extends \WP_UnitTestCase
      * Several renders share one PHP process here, so what a real request
      * starts without is reset first: the hooks the suites add while a page
      * renders, the style and script queues, the counts of the page actions,
-     * and GenerateBlocks' in-memory list of blocks whose CSS it already
-     * printed. The view also comes more than five seconds after
+     * and GenerateBlocks' in-memory lists of blocks whose CSS it already
+     * printed (one per block class for the 1.x blocks). The view also comes more than five seconds after
      * GenerateBlocks last wrote a stylesheet: its writer runs at most once
      * per five seconds and, inside that window, enqueues the per-post file
      * without writing it.
@@ -126,10 +126,21 @@ class BlockSuitesLiveTest extends \WP_UnitTestCase
         }
         $GLOBALS['wp_styles']  = null;
         $GLOBALS['wp_scripts'] = null;
-        foreach ([ 'GenerateBlocks_Block', 'GenerateBlocks_Block_Text', 'GenerateBlocks_Block_Element' ] as $class) {
-            if (class_exists($class) && property_exists($class, 'block_ids')) {
-                $property = new \ReflectionProperty($class, 'block_ids');
-                $property->setValue(null, []);
+        // The 1.x block classes (issue #794) keep their own private lists,
+        // and a flag for the CSS they print once per page.
+        $gb_classes = [
+            'GenerateBlocks_Block', 'GenerateBlocks_Block_Text', 'GenerateBlocks_Block_Element',
+            'GenerateBlocks_Block_Container', 'GenerateBlocks_Block_Grid', 'GenerateBlocks_Block_Button_Container',
+            'GenerateBlocks_Block_Headline', 'GenerateBlocks_Block_Button', 'GenerateBlocks_Block_Image',
+        ];
+        foreach ($gb_classes as $class) {
+            foreach ([ 'block_ids' => [], 'singular_css_added' => false ] as $name => $fresh) {
+                if (class_exists($class) && property_exists($class, $name)) {
+                    $property = new \ReflectionProperty($class, $name);
+                    if ($property->isStatic() && $property->getDeclaringClass()->getName() === $class) {
+                        $property->setValue(null, $fresh);
+                    }
+                }
             }
         }
         if (function_exists('uagb')) {
@@ -215,6 +226,59 @@ class BlockSuitesLiveTest extends \WP_UnitTestCase
         $this->assertRule($this->css($html), '.gb-text-' . $unique, '#1a2b3c', 'GenerateBlocks printed the compiled CSS for the block id');
 
         $this->assert_edit_and_rollback('generateblocks', $id, $unique, '.gb-text-', [ 'styles' => [ 'color' => '#4d5e6f', 'fontSize' => '21px' ] ], '#4d5e6f', '#1a2b3c', $original);
+    }
+
+    /**
+     * Issue #794: a GenerateBlocks 1.x Headline, as GenerateBlocks 1.x
+     * saved it, takes an attribute edit and a text edit, and its CSS follows
+     * the edit and the rollback.
+     */
+    public function test_generateblocks_legacy_headline_takes_edits_and_its_css_follows(): void
+    {
+        $saved = '<!-- wp:generateblocks/headline {"uniqueId":"a1b2c3d4","element":"h3","textColor":"#c0392b"} -->'
+            . '<h3 class="gb-headline gb-headline-a1b2c3d4 gb-headline-text">GB legacy headline</h3>'
+            . '<!-- /wp:generateblocks/headline -->';
+        $id = self::factory()->post->create([
+            'post_type'    => 'page',
+            'post_status'  => 'publish',
+            'post_content' => '<!-- wp:paragraph --><p>Intro</p><!-- /wp:paragraph -->' . $saved,
+        ]);
+        $original = (string) get_post($id)->post_content;
+
+        $html = $this->render($id);
+        $this->assertStringContainsString('gb-headline-a1b2c3d4', $html);
+        $this->assertRule($this->css($html), '.gb-headline-a1b2c3d4', '#c0392b', 'GenerateBlocks printed CSS for the legacy block');
+
+        $schema = (new Block_Suites_Integration())->handle_read([ 'operation' => 'get-block-schemas', 'args' => [ 'suite' => 'generateblocks', 'name' => 'generateblocks/headline' ] ]);
+        $this->assertSame('allowed', $schema['result']['blocks'][0]['unknown_attributes']);
+        $this->assertArrayHasKey('textColor', $schema['result']['blocks'][0]['attributes'], 'typed from the real GenerateBlocks defaults');
+
+        $this->assert_edit_and_rollback('generateblocks', $id, 'a1b2c3d4', '.gb-headline-', [ 'textColor' => '#1e8449' ], '#1e8449', '#c0392b', $original);
+        $this->assertStringContainsString('"uniqueId":"a1b2c3d4"', (string) get_post($id)->post_content);
+
+        $text = $this->write('update-block', [
+            'suite'         => 'generateblocks',
+            'id'            => $id,
+            'expected_hash' => $this->hash($id),
+            'path'          => [ 1 ],
+            'inner_html'    => '<h3 class="gb-headline gb-headline-a1b2c3d4 gb-headline-text">GB legacy edited</h3>',
+        ]);
+        $this->assertStringContainsString('GB legacy edited', $this->render($id));
+        $this->assertTrue(Rollback_Service::restore_operation($text['operation_ids'][0]));
+    }
+
+    public function test_generateblocks_legacy_container_inserts_with_a_new_id_and_renders_its_css(): void
+    {
+        [ $id, $hash ]  = $this->page();
+        [ $unique ]     = $this->insert('generateblocks', $id, $hash,
+            '<!-- wp:generateblocks/container {"uniqueId":"__UNIQUE_ID__","backgroundColor":"#2c3e50"} -->'
+            . '<div class="gb-container gb-container-__UNIQUE_ID__"></div>'
+            . '<!-- /wp:generateblocks/container -->');
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{8}$/', $unique);
+
+        $html = $this->render($id);
+        $this->assertStringContainsString('gb-container-' . $unique, $html);
+        $this->assertRule($this->css($html), '.gb-container-' . $unique, '#2c3e50', 'GenerateBlocks printed CSS for the inserted legacy container');
     }
 
     public function test_spectra_heading_renders_with_css_keyed_on_its_block_id_and_follows_edits(): void

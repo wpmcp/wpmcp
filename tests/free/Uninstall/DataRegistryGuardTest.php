@@ -67,12 +67,29 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             'wpseo_taxonomy_meta',
             'oxygen_vsb_css_files_state',
             'generateblocks_dynamic_css_posts',
+            // Core's site identity and homepage settings, written by the
+            // Core_Site_Pack ops on the theme pair (issue #713).
+            'site_logo',
+            'site_icon',
+            'show_on_front',
+            'page_on_front',
+            'page_for_posts',
+            // Avada's global options, written by the Avada design_system
+            // scope on the builder pair (issue #637).
+            'fusion_options',
+            // WPBakery's saved templates, written by the builder pair's
+            // templates scope (issue #639).
+            'wpb_js_templates',
         ],
         'transient'      => [
             'scrape_key_*',
         ],
         'site_transient' => [],
-        'site_option'    => [],
+        'site_option'    => [
+            // Core's network plugin list, put back by a network plugin
+            // write's rollback (issue #557).
+            'active_sitewide_plugins',
+        ],
         'user_meta'      => [],
     ];
 

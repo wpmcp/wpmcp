@@ -59,7 +59,7 @@ class Call_Rest
 
         if (in_array($method, self::WRITE_METHODS, true)) {
             if (! self::writes_enabled()) {
-                throw new \RuntimeException('REST writes are disabled. Enable them with the wpmcp_enable_rest_writes filter.');
+                throw new \WPMCP\MCP\Opt_In_Required('REST writes are disabled.', 'wpmcp_enable_rest_writes');
             }
             if (true !== ($args['confirm'] ?? null)) {
                 throw new \WPMCP\MCP\Confirmation_Required('This is a mutating REST request. Pass confirm:true to proceed.');

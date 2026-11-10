@@ -70,9 +70,10 @@ class AvadaAdapterTest extends \WP_UnitTestCase
         $this->assertSame(['global' => 'abc', $post_id => false, 999999 => 'fff'], get_option('fusion_dynamic_css_ids'));
     }
 
+    /** A write with the page's current hash, as a caller that just read it passes (issue #637). */
     private function update(int $post_id, array $args)
     {
-        return (new Update_Builder_Content())->handle(['post_id' => $post_id, 'builder' => 'avada'] + $args);
+        return (new Update_Builder_Content())->handle(['post_id' => $post_id, 'builder' => 'avada', 'expected_hash' => Avada_Content::hash($post_id)] + $args);
     }
 
     private function state(int $post_id): array

@@ -7,6 +7,7 @@ use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot;
 
 require_once __DIR__ . '/../../support/plugin-data-stubs.php';
+require_once __DIR__ . '/../../support/memberpress-stubs.php';
 
 /**
  * The 'plugin_table_rows' snapshot type (issue #299): rows of a Pods
@@ -21,11 +22,13 @@ class PluginTableRowsSnapshotTest extends \WP_UnitTestCase
     public static function wpSetUpBeforeClass(): void
     {
         wpmcp_test_create_trp_table('en_US', 'fr_FR');
+        wpmcp_test_create_memberpress_tables();
     }
 
     public static function wpTearDownAfterClass(): void
     {
         wpmcp_test_drop_trp_table('en_US', 'fr_FR');
+        wpmcp_test_drop_memberpress_tables();
     }
 
     protected function setUp(): void
@@ -77,6 +80,41 @@ class PluginTableRowsSnapshotTest extends \WP_UnitTestCase
         $snapshot = Snapshot::capture(Plugin_Table_Rows_Snapshot::TYPE, Plugin_Table_Rows_Snapshot::key('trp_dictionary', 'en_us_fr_fr', [ $a ]));
 
         wp_set_current_user(self::factory()->user->create([ 'role' => 'editor' ]));
+        $this->expectException(\WPMCP\Safety\Mutation_Failed::class);
+        Plugin_Table_Rows_Snapshot::restore($snapshot);
+    }
+
+    /**
+     * Issue #668: MemberPress rule access conditions are keyed by the rule
+     * (rule_id), not by their own id, so a snapshot taken before a write
+     * covers the rows the write inserts too: the restore removes them and
+     * puts back the rows that were there.
+     */
+    public function test_memberpress_rule_access_rows_are_keyed_by_rule(): void
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'mepr_rule_access_conditions';
+        $rule  = self::factory()->post->create([ 'post_type' => 'post' ]);
+        $other = self::factory()->post->create([ 'post_type' => 'post' ]);
+        $wpdb->insert($table, [ 'rule_id' => $rule, 'access_type' => 'membership', 'access_operator' => 'is', 'access_condition' => '12' ]);
+        $wpdb->insert($table, [ 'rule_id' => $other, 'access_type' => 'role', 'access_operator' => 'is', 'access_condition' => 'editor' ]);
+        $before = wpmcp_test_memberpress_conditions($rule);
+
+        $this->assertSame($table, Plugin_Table_Rows_Snapshot::table('mepr_rule_access', 'conditions'));
+        $this->assertNull(Plugin_Table_Rows_Snapshot::table('mepr_rule_access', 'transactions'), 'only the access conditions table');
+
+        $snapshot = Snapshot::capture(Plugin_Table_Rows_Snapshot::TYPE, Plugin_Table_Rows_Snapshot::key('mepr_rule_access', 'conditions', [ $rule ]));
+        $this->assertCount(1, $snapshot['data']['rows']);
+
+        $wpdb->delete($table, [ 'rule_id' => $rule ]);
+        $wpdb->insert($table, [ 'rule_id' => $rule, 'access_type' => 'login_state', 'access_operator' => 'is', 'access_condition' => 'guest' ]);
+        $wpdb->insert($table, [ 'rule_id' => $rule, 'access_type' => 'role', 'access_operator' => 'is', 'access_condition' => 'author' ]);
+        Rollback_Service::apply_snapshot($snapshot);
+
+        $this->assertSame($before, wpmcp_test_memberpress_conditions($rule));
+        $this->assertCount(1, wpmcp_test_memberpress_conditions($other), 'another rule\'s rows are untouched');
+
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'subscriber' ]));
         $this->expectException(\WPMCP\Safety\Mutation_Failed::class);
         Plugin_Table_Rows_Snapshot::restore($snapshot);
     }

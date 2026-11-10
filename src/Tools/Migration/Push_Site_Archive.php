@@ -269,22 +269,70 @@ class Push_Site_Archive
         ], $apply_timeout);
 
         if (is_wp_error($applied)) {
-            $sent_but_unanswered = 'wpmcp_migration_unreachable' === $applied->get_error_code();
+            if (! Migration_Target_Client::is_unanswered($applied)) {
+                return $base + [
+                    'status' => 'apply_failed',
+                    'error'  => $applied->get_error_message(),
+                    'next'   => 'The target refused the apply; see error.',
+                ];
+            }
 
-            return $base + [
-                'status' => $sent_but_unanswered ? 'apply_sent' : 'apply_failed',
-                'error'  => $applied->get_error_message(),
-                'next'   => $sent_but_unanswered
-                    ? 'No answer from the target, which keeps applying after a dropped connection. Call push-site-archive again with the same arguments (not restart) to read the result.'
-                    : 'The target refused the apply; see error.',
+            return $base + $this->confirm_unanswered_apply($client, $upload_id, $applied);
+        }
+
+        return $base + self::applied($applied);
+    }
+
+    /** The report of an apply the target answered. @return array<string, mixed> */
+    private static function applied(array $result): array
+    {
+        return [
+            'status'         => (string) ($result['status'] ?? 'unknown'),
+            'safety_archive' => $result['safety_archive'] ?? null,
+            'undo'           => isset($result['undo']) ? 'On the target: ' . $result['undo'] : null,
+            'target_result'  => $result,
+        ];
+    }
+
+    /**
+     * The apply request got no answer from wpmcp on the target: the
+     * connection dropped or timed out on this side, or a proxy in front of
+     * the target gave up waiting and sent its own error page (issue #776).
+     * Neither is a refusal: the target keeps restoring after the connection
+     * is gone. Ask the target where it stands before reporting, so a
+     * restore that has already finished is reported as what it is, and one
+     * still running is reported as apply_sent, never apply_failed.
+     *
+     * @return array<string, mixed>
+     */
+    private function confirm_unanswered_apply(Migration_Target_Client $client, string $upload_id, \WP_Error $unanswered): array
+    {
+        $reason = Migration_Target_Client::UNREACHABLE === $unanswered->get_error_code() ? 'connection_lost' : 'gateway_error';
+        $status = $client->call(['action' => 'status', 'upload_id' => $upload_id], 30);
+        $state  = is_wp_error($status) ? null : (string) ($status['status'] ?? '');
+
+        if ('applied' === $state && is_array($status['result'] ?? null)) {
+            return self::applied($status['result']) + ['confirmed_by' => 'status'];
+        }
+        if ('failed' === $state) {
+            $result = is_array($status['result'] ?? null) ? $status['result'] : [];
+
+            return [
+                'status'        => 'apply_failed',
+                'error'         => (string) ($result['steps']['restore']['error'] ?? $result['status'] ?? 'The target recorded the apply as failed.'),
+                'target_result' => $result,
+                'next'          => 'The target\'s apply failed; target_result says why. Call again with apply:true to retry without re-uploading.',
             ];
         }
 
-        return $base + [
-            'status'         => (string) ($applied['status'] ?? 'unknown'),
-            'safety_archive' => $applied['safety_archive'] ?? null,
-            'undo'           => isset($applied['undo']) ? 'On the target: ' . $applied['undo'] : null,
-            'target_result'  => $applied,
+        return [
+            'status'       => 'apply_sent',
+            'reason'       => $reason,
+            'error'        => $unanswered->get_error_message(),
+            'target_state' => $state,
+            'next'         => 'applying' === $state
+                ? 'The target confirms it is applying this archive. Call push-site-archive again with the same arguments (not restart) to read the result.'
+                : 'No answer from the target, which keeps applying after a dropped connection or a proxy timeout. Call push-site-archive again with the same arguments (not restart) to read the result.',
         ];
     }
 

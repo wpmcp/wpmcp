@@ -175,35 +175,29 @@ class DatabaseToolsGatewaySecretMaskingTest extends \WP_UnitTestCase
         $this->assertSame('yes', $settings['enabled'] ?? null);
     }
 
-    public function test_query_masks_every_secret_in_the_gateway_settings_row(): void
+    /**
+     * Since #621 query does not read a gateway settings value at all: the
+     * result mask could not see through a SQL transform. get-option (masked
+     * by key) is the way in; these spellings are all refused.
+     */
+    public function test_query_refuses_the_gateway_settings_row(): void
     {
         global $wpdb;
         $this->as('administrator');
 
-        $out = (new Query())->handle([ 'sql' => "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'woocommerce\\_%\\_settings'" ]);
-
-        $this->assertGreaterThan(0, $out['row_count']);
-        $this->assertNoCredential($out, 'query');
-        $row = array_values(array_filter($out['rows'], static fn (array $r): bool => self::OPTION === $r['option_name']))[0] ?? null;
-        $this->assertNotNull($row, 'The gateway settings row is missing from the result');
-        $this->assertMaskedSettings($row['option_value'], 'query');
-    }
-
-    public function test_query_masks_the_settings_value_without_its_option_name_column(): void
-    {
-        global $wpdb;
-        $this->as('administrator');
-
-        $queries = [
+        foreach ([
+            "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'woocommerce\\_%\\_settings'",
             $wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::OPTION),
             $wpdb->prepare("SELECT option_name AS n, option_value AS v FROM {$wpdb->options} WHERE option_name = %s", self::OPTION),
-            // Not valid serialized data any more: scrubbed as plain text.
             $wpdb->prepare("SELECT SUBSTRING(option_value, 2) AS s FROM {$wpdb->options} WHERE option_name = %s", self::OPTION),
-        ];
-        foreach ($queries as $sql) {
-            $out = (new Query())->handle([ 'sql' => $sql ]);
-            $this->assertSame(1, $out['row_count'], $sql);
-            $this->assertNoCredential($out, $sql);
+        ] as $sql) {
+            try {
+                $out = (new Query())->handle([ 'sql' => $sql ]);
+                $this->fail("query returned the gateway settings row: {$sql} " . wp_json_encode($out));
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('get-option', $e->getMessage());
+                $this->assertNoCredential($e->getMessage(), $sql);
+            }
         }
     }
 
@@ -216,7 +210,6 @@ class DatabaseToolsGatewaySecretMaskingTest extends \WP_UnitTestCase
         $out = (new Query())->handle([ 'sql' => "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name = 'blogname'" ]);
         $this->assertSame(get_option('blogname'), $out['rows'][0]['option_value']);
 
-        (new Query())->handle([ 'sql' => "SELECT option_value FROM {$wpdb->options} WHERE option_name = '" . self::OPTION . "'" ]);
         $this->assertSame($before, $this->raw_row(), 'Masking must never touch the stored value');
         $this->assertSame(self::SECRETS['secret_key'], $this->stored()['secret_key']);
     }
@@ -240,10 +233,12 @@ class DatabaseToolsGatewaySecretMaskingTest extends \WP_UnitTestCase
         $this->assertNoCredential($out, 'update-rows before_image');
         $this->assertMaskedSettings($out['before_image'][0]['option_value'], 'update-rows before_image');
 
-        // The audit copy stays raw: it is the manual-recovery trail.
+        // The audit copy is masked as it is written (issue #550, PR #584
+        // review): query could otherwise unwrap it with any SQL transform.
+        // The ledger keeps the exact copy, so the rollback below is exact.
         $audit = (array) get_option(Database_Guard::AUDIT_OPTION, []);
         $last  = end($audit);
-        $this->assertSame($original, $last['before'][0]['option_value'] ?? null);
+        $this->assertMaskedSettings($last['before'][0]['option_value'] ?? '', 'the stored audit log');
 
         $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
         $this->assertSame($original, $this->raw_row(), 'Rollback did not restore the exact stored credentials');

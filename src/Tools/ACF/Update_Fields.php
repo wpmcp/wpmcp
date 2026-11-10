@@ -39,7 +39,7 @@ class Update_Fields
     public function handle(array $args): array
     {
         if (! self::is_enabled()) {
-            throw new \RuntimeException('The update-fields tool is disabled. Enable it with the wpmcp_enable_acf_write filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('The update-fields tool is disabled.', 'wpmcp_enable_acf_write');
         }
 
         $post_id = (int) ($args['post_id'] ?? 0);

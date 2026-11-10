@@ -24,11 +24,13 @@ class Confirmation_Required extends \InvalidArgumentException
     /**
      * Records a refusal as it leaves an ability's callback.
      *
-     * WordPress 7.1 wraps anything an ability callback throws into a
-     * generic ability_callback_exception WP_Error, which drops the type.
-     * Registrar::throttled() is the last place every ability's exception
-     * is still typed, so it reports the refusal here before re-throwing,
-     * and the transport reads it back with take() after the call.
+     * Anything an ability callback throws comes back as a generic
+     * ability_callback_exception WP_Error, which drops the type (core does
+     * it on WordPress 7.1, Registrar::throttled() on every version, issue
+     * #612). Registrar::throttled() is the last place every ability's
+     * exception is still typed, so it reports the refusal here before
+     * turning it into that WP_Error, and the transport reads it back with
+     * take() after the call.
      */
     public static function observe(self $refusal): void
     {
