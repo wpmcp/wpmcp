@@ -119,8 +119,8 @@
 # The cache. Each install is about 700 MB, and many worktrees running at once
 # on branches that touch the installers or the pins once filled 73 GB in one
 # night (9 to 10 November 2026). So:
-#   - At most WPMCP_TEST_MAX_PARALLEL runs (default 2) go at once across all
-#     worktrees, each holding a slot under $CACHE/locks/run-<n>; another run
+#   - At most WPMCP_TEST_MAX_PARALLEL runs (default 1, so gates queue instead
+#     of colliding on the shared caches) go at once across all worktrees, each holding a slot under $CACHE/locks/run-<n>; another run
 #     says it is waiting and waits up to WPMCP_TEST_SLOT_TIMEOUT seconds
 #     (default 3600). A slot whose holder has died is taken over.
 #   - Before a run, and before building an install, free space on the cache's
@@ -218,7 +218,7 @@
 #                        the two most recently used installs (default 20)
 #   WPMCP_TEST_HARD_MIN_FREE_GB  below this much free space, after pruning, a
 #                        run stops (default 10)
-#   WPMCP_TEST_MAX_PARALLEL  most runs at once across worktrees (default 2)
+#   WPMCP_TEST_MAX_PARALLEL  most runs at once across worktrees (default 1)
 #   WPMCP_TEST_SLOT_TIMEOUT  seconds a run waits for a slot (default 3600)
 #   WPMCP_TEST_DOWNLOAD_TTL_DAYS  a cached download unused this long is
 #                        removed (default 30)
@@ -298,7 +298,7 @@ MAX_GB=${WPMCP_TEST_MAX_GB:-15}
 INSTALL_TTL_HOURS=${WPMCP_TEST_INSTALL_TTL_HOURS:-6}
 MIN_FREE_GB=${WPMCP_TEST_MIN_FREE_GB:-20}
 HARD_MIN_FREE_GB=${WPMCP_TEST_HARD_MIN_FREE_GB:-10}
-MAX_PARALLEL=${WPMCP_TEST_MAX_PARALLEL:-2}
+MAX_PARALLEL=${WPMCP_TEST_MAX_PARALLEL:-1}
 SLOT_TIMEOUT=${WPMCP_TEST_SLOT_TIMEOUT:-3600}
 # The download cache, see bin/download-cache.sh.
 DOWNLOADS="$CACHE/downloads"
