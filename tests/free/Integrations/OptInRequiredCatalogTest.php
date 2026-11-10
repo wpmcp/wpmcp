@@ -170,7 +170,6 @@ class OptInRequiredCatalogTest extends \WP_UnitTestCase
             }
             $dispatcher = new $class();
             $operations = new \ReflectionMethod($dispatcher, 'operations');
-            $operations->setAccessible(true);
             foreach ((array) $operations->invoke($dispatcher) as $op => $def) {
                 if ('read' !== ($def['mode'] ?? 'read')) {
                     $out[] = [ 'dispatcher' => $dispatcher, 'op' => (string) $op, 'def' => (array) $def ];
@@ -184,7 +183,6 @@ class OptInRequiredCatalogTest extends \WP_UnitTestCase
     private function refusal(Integration_Dispatcher $dispatcher, string $op, array $def): array
     {
         $method = new \ReflectionMethod(Integration_Dispatcher::class, 'disabled_refusal');
-        $method->setAccessible(true);
         return (array) $method->invoke($dispatcher, $op, $def);
     }
 
@@ -192,7 +190,6 @@ class OptInRequiredCatalogTest extends \WP_UnitTestCase
     private function woo_refusal(string $op, array $def): array
     {
         $method = new \ReflectionMethod(Woo_Write::class, 'disabled_refusal');
-        $method->setAccessible(true);
         return (array) $method->invoke(null, $op, $def);
     }
 }
