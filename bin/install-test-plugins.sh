@@ -9,7 +9,10 @@
 # WPMCP_LIVE_BLOCKS=1, Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks
 # only (bin/test-local.sh --live-blocks), or, with WPMCP_LIVE_BUDDYPRESS=1,
 # BuddyPress only (bin/test-local.sh --live-buddypress), or, with
+# WPMCP_LIVE_BBPRESS=1, bbPress only (bin/test-local.sh --live-bbpress), or, with
 # WPMCP_LIVE_TABLEPRESS=1, TablePress only (bin/test-local.sh --live-tablepress), or,
+# with WPMCP_LIVE_CODE_SNIPPETS=1, Code Snippets only (bin/test-local.sh
+# --live-code-snippets), or,
 # with WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
 # --live-crm), or, with WPMCP_LIVE_AMELIA=1, Amelia Lite only
 # (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
@@ -22,7 +25,11 @@
 # plugin but that theme's premium add-on copied from a local directory and
 # the free theme from wordpress.org (bin/test-local.sh --live-theme-pro), or,
 # with WPMCP_LIVE_WC_BOOKINGS=1, WooCommerce plus a local copy of WooCommerce
-# Bookings (WPMCP_WC_BOOKINGS_SRC) only (bin/test-local.sh --live-wc-bookings).
+# Bookings (WPMCP_WC_BOOKINGS_SRC) only (bin/test-local.sh --live-wc-bookings),
+# or, with WPMCP_LIVE_ELEMENTOR_PRO=1, Elementor plus a local copy of
+# Elementor Pro (WPMCP_ELEMENTOR_PRO_SRC) only (bin/test-local.sh
+# --live-elementor-pro), or, with WPMCP_LIVE_WP_MAIL_SMTP=1, WP Mail SMTP
+# only (bin/test-local.sh --live-wp-mail-smtp).
 # The script is idempotent: plugins already present are left untouched, so it
 # is safe to run repeatedly both locally and from CI.
 #
@@ -117,6 +124,15 @@ if [ "${WPMCP_LIVE_BUDDYPRESS:-}" = "1" ]; then
 	)
 fi
 
+# The live bbPress job runs the bbPress ops through the real bbPress, so its
+# counts, sticky lists and hooks update as they do on a site. Exclusive too:
+# the stub-backed bbPress tests register its post types themselves.
+if [ "${WPMCP_LIVE_BBPRESS:-}" = "1" ]; then
+	PLUGINS=(
+		"bbpress:bbpress.php"
+	)
+fi
+
 # The live LMS jobs (issue #394) run the Tutor LMS and LifterLMS ops through
 # the real plugins. One plugin per install: both register a post type named
 # "lesson", so loading them together would test neither the way a site runs.
@@ -138,6 +154,26 @@ fi
 if [ "${WPMCP_LIVE_TABLEPRESS:-}" = "1" ]; then
 	PLUGINS=(
 		"tablepress:tablepress.php"
+	)
+fi
+
+# The live WP Mail SMTP job runs the WP Mail SMTP ops on the theme pair
+# through the real plugin, its Options class, encryption and constants.
+# Exclusive too: the stub-backed WP Mail SMTP tests define a stand-in for its
+# Options class and its wp_mail_smtp() container.
+if [ "${WPMCP_LIVE_WP_MAIL_SMTP:-}" = "1" ]; then
+	PLUGINS=(
+		"wp-mail-smtp:wp_mail_smtp.php"
+	)
+fi
+
+# The live Code Snippets job (issue #576) runs the Code Snippets ops through
+# the real Code Snippets, so its own validator, caches and hooks run.
+# Exclusive too: the stub-backed Code Snippets tests define a stand-in for
+# its functions and Snippet class, which the real plugin would contradict.
+if [ "${WPMCP_LIVE_CODE_SNIPPETS:-}" = "1" ]; then
+	PLUGINS=(
+		"code-snippets:code-snippets.php"
 	)
 fi
 
@@ -345,6 +381,28 @@ if [ "${WPMCP_LIVE_WC_BOOKINGS:-}" = "1" ]; then
 	fi
 fi
 
+# The live Elementor Pro job (issue #654) runs the Elementor Pro submissions
+# ops against a real Elementor Pro beside the pinned free Elementor it needs.
+# Elementor Pro is a commercial plugin and not on wordpress.org, so it is
+# copied from a local directory holding it (WPMCP_ELEMENTOR_PRO_SRC) instead
+# of downloaded. Exclusive too: the stub-backed tests build its tables from a
+# fixture and fake its presence.
+if [ "${WPMCP_LIVE_ELEMENTOR_PRO:-}" = "1" ]; then
+	PLUGINS=(
+		"elementor:elementor.php"
+	)
+	if [ "$list_only" = false ]; then
+		src=${WPMCP_ELEMENTOR_PRO_SRC:-}
+		if [ -z "$src" ] || [ ! -f "$src/elementor-pro.php" ]; then
+			echo "WPMCP_LIVE_ELEMENTOR_PRO=1 needs WPMCP_ELEMENTOR_PRO_SRC, a directory holding the Elementor Pro plugin (elementor-pro.php)." >&2
+			exit 1
+		fi
+		mkdir -p "$PLUGINS_DIR"
+		rm -rf "$PLUGINS_DIR/elementor-pro"
+		cp -R "$src" "$PLUGINS_DIR/elementor-pro"
+		echo "Copied Elementor Pro $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/elementor-pro.php" | head -n 1) from $src."
+	fi
+fi
 
 # The version a slug is pinned to here: "latest" means the latest-stable zip.
 default_version() {

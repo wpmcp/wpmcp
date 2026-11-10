@@ -111,6 +111,13 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'buddypress/bp-loader.php' );
     }
 
+    // The live bbPress job (WPMCP_LIVE_BBPRESS=1) runs the bbPress ops
+    // through the real bbPress. Loaded only on request: the stub-backed
+    // bbPress tests register its post types themselves.
+    if ( getenv( 'WPMCP_LIVE_BBPRESS' ) ) {
+        wpmcp_maybe_require_plugin( 'bbpress/bbpress.php' );
+    }
+
     // The live Breakdance job (issue #457, WPMCP_LIVE_BREAKDANCE=1) runs the
     // Breakdance adapter against a real Breakdance 1.x, copied in from
     // WPMCP_BREAKDANCE_SRC. Loaded only on request: the stub-backed
@@ -186,6 +193,14 @@ tests_add_filter( 'muplugins_loaded', function () {
     // MemberPress tests build its tables and post types from a fixture.
     if ( getenv( 'WPMCP_LIVE_MEMBERPRESS' ) ) {
         wpmcp_maybe_require_plugin( 'memberpress/memberpress.php' );
+    }
+
+    // The live Elementor Pro job (issue #654, WPMCP_LIVE_ELEMENTOR_PRO=1)
+    // runs the submissions ops against a real Elementor Pro, copied in from
+    // WPMCP_ELEMENTOR_PRO_SRC, beside the Elementor loaded above. Loaded
+    // only on request: the stub-backed tests build its tables from a fixture.
+    if ( getenv( 'WPMCP_LIVE_ELEMENTOR_PRO' ) ) {
+        wpmcp_maybe_require_plugin( 'elementor-pro/elementor-pro.php' );
     }
 
     // The live WooCommerce Subscriptions job (issue #658,
@@ -265,6 +280,20 @@ tests_add_filter( 'muplugins_loaded', function () {
     // stub-backed TablePress tests define a stand-in TablePress class.
     if ( getenv( 'WPMCP_LIVE_TABLEPRESS' ) ) {
         wpmcp_maybe_require_plugin( 'tablepress/tablepress.php' );
+    }
+
+    // The live WP Mail SMTP job (WPMCP_LIVE_WP_MAIL_SMTP=1) runs the WP Mail
+    // SMTP ops through the real plugin. Loaded only on request: the
+    // stub-backed WP Mail SMTP tests define a stand-in for its Options class.
+    if ( getenv( 'WPMCP_LIVE_WP_MAIL_SMTP' ) ) {
+        wpmcp_maybe_require_plugin( 'wp-mail-smtp/wp_mail_smtp.php' );
+    }
+
+    // The live Code Snippets job (issue #576, WPMCP_LIVE_CODE_SNIPPETS=1) runs
+    // the Code Snippets ops through the real Code Snippets. Loaded only on
+    // request: the stub-backed tests define a stand-in for its API.
+    if ( getenv( 'WPMCP_LIVE_CODE_SNIPPETS' ) ) {
+        wpmcp_maybe_require_plugin( 'code-snippets/code-snippets.php' );
     }
 
     // The live Polylang job (issue #498, WPMCP_LIVE_POLYLANG=1) runs the
@@ -389,6 +418,15 @@ tests_add_filter( 'init', function () {
     }
 }, 1 );
 
+// The live Code Snippets job's table, built by Code Snippets' own DB class
+// once per run, before any test transaction starts. A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_CODE_SNIPPETS' ) && function_exists( 'Code_Snippets\\code_snippets' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        \Code_Snippets\code_snippets()->db->create_or_upgrade_tables();
+    }
+}, 1 );
+
 // The live MemberPress job's tables, built by MemberPress's own MeprDb
 // upgrade once per run, before any test transaction starts. A no-op
 // everywhere else.
@@ -396,6 +434,16 @@ tests_add_filter( 'init', function () {
     if ( getenv( 'WPMCP_LIVE_MEMBERPRESS' ) && class_exists( 'MeprDb' ) ) {
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         \MeprDb::fetch()->upgrade();
+    }
+}, 1 );
+
+// The live Elementor Pro job's submissions tables, built by Elementor Pro's
+// own migrations (it runs them on admin_init) once per run, before any test
+// transaction starts. A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_ELEMENTOR_PRO' ) && class_exists( '\\ElementorPro\\Modules\\Forms\\Submissions\\Database\\Migration' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        \ElementorPro\Modules\Forms\Submissions\Database\Migration::install();
     }
 }, 1 );
 

@@ -163,6 +163,9 @@ return [
         // The ACF batch write (issue #291): the op definition and its handler.
         // strip.php takes out the one line in ACF_Integration that merges it.
         'src/Integrations/ACF_Batch_Update.php',
+        // The Code Snippets activation op (issue #576). strip.php takes out
+        // the one line in Code_Snippets_Pack that merges it.
+        'src/Integrations/Code_Snippets_Activation.php',
         // The GeneratePress and Blocksy theme settings packs (issue #288).
         // strip.php takes out the two cases in Theme_Framework_Pack that
         // build them; the Kadence pack and the shared builder stay.
@@ -195,6 +198,7 @@ return [
         'src/Integrations/LMS_Adapter.php',
         'src/Integrations/LMS_Tutor.php',
         'src/Integrations/LMS_LifterLMS.php',
+        'src/Integrations/LMS_LearnDash.php',
         // TablePress tables (issue #481), paid-tier. strip.php takes out the
         // lines in Plugin_Data_Integration that merge the ops, count the pack
         // towards availability and name it, and its hooks in Plugin.
@@ -226,6 +230,11 @@ return [
         // access rows stays: it acts on MemberPress's own table and needs
         // no MemberPress class.
         'src/Integrations/MemberPress_Pack.php',
+        // Elementor Pro form submissions (issue #654), paid-tier. strip.php
+        // takes out the lines in Plugin_Data_Integration that merge the ops
+        // and count the pack towards availability. The dispatcher's
+        // forwarding of a requirement's data stays: it is generic.
+        'src/Integrations/Elementor_Pro_Forms_Pack.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

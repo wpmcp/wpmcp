@@ -1339,6 +1339,13 @@ $edits['src/MCP/Server.php'] = [
     ],
 ];
 
+// The Code Snippets activation op (issue #576) is the one paid op of that
+// otherwise free pack. Its definition lives in its own file, which policy.php
+// removes, so all that leaves the pack is the line that merges it in.
+$edits['src/Integrations/Code_Snippets_Pack.php'] = [
+    ['            \'code-snippets-activate-snippet\'   => Code_Snippets_Activation::definition($base, $id_only, $row),' . "\n", '', 1],
+];
+
 // The ACF pair's multi-post batch write (issue #291) is the one op in that
 // otherwise free catalog the paid tier adds. Its definition and handler live
 // in their own file, which policy.php removes, so all that leaves the
@@ -1432,6 +1439,29 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The Elementor Pro submissions ops (issue #654) are the paid add-on's
+    // too, removed by policy.php; their lines go first, so the MemberPress
+    // edits below still match.
+    [
+        " *  - Issue #654 adds the paid-tier Elementor Pro ops\n"
+            . " *    (Elementor_Pro_Forms_Pack): forms found in pages, and form submissions\n"
+            . " *    read, exported, marked read or trashed, and deleted, each write under\n"
+            . " *    a db_rows before-image.\n",
+        '',
+        1,
+    ],
+    [
+        "            || MemberPress_Pack::active()\n"
+            . "            || Elementor_Pro_Forms_Pack::active();\n",
+        "            || MemberPress_Pack::active();\n",
+        1,
+    ],
+    [
+        "            MemberPress_Pack::operations(),\n"
+            . "            Elementor_Pro_Forms_Pack::operations()\n",
+        "            MemberPress_Pack::operations()\n",
+        1,
+    ],
     // The MemberPress ops (issue #668) are the paid add-on's too, removed by
     // policy.php; their lines go first, so the page translation edits below
     // still match.
@@ -1515,9 +1545,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "            . ', Tutor LMS and LifterLMS courses, TablePress tables'\n"
+        "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'\n"
             . "            . ', FluentCRM and MailPoet';\n",
-        "            . ', Tutor LMS and LifterLMS courses, TablePress tables';\n",
+        "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
         1,
     ],
     [
@@ -1527,9 +1557,10 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        " *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS and\n"
-            . " *    LifterLMS course, section, lesson and quiz trees with snapshotted\n"
-            . " *    writes, and read-only enrollments.\n"
+        " *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS,\n"
+            . " *    LifterLMS and LearnDash course, section, lesson and quiz trees with\n"
+            . " *    snapshotted writes, and read-only enrollments (LearnDash also enrolls,\n"
+            . " *    unenrolls and resets progress, each snapshotted).\n"
             . " *  - Issue #481 adds the paid-tier TablePress ops (TablePress_Pack): tables\n"
             . " *    read, edited cell by cell, imported, exported and placed through\n"
             . " *    TablePress's own table model, with snapshotted writes.\n",
@@ -1550,9 +1581,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "        return 'JetEngine and Pods fields, TranslatePress strings, BuddyPress community data'\n"
-            . "            . ', Tutor LMS and LifterLMS courses, TablePress tables';\n",
-        "        return 'JetEngine and Pods fields, TranslatePress strings, BuddyPress community data';\n",
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums'\n"
+            . "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums';\n",
         1,
     ],
     [

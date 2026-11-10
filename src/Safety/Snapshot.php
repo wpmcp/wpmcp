@@ -40,6 +40,9 @@ class Snapshot
         if ('wc_booking' === $object_type) {
             return Wc_Booking_Snapshot::capture((int) $object_id);
         }
+        if ('wc_user_membership' === $object_type) {
+            return Wc_User_Membership_Snapshot::capture((int) $object_id);
+        }
         if ('wc_booking_rules' === $object_type) {
             return Wc_Booking_Snapshot::capture_rules((int) $object_id);
         }
@@ -57,6 +60,9 @@ class Snapshot
         }
         if ('php_snippet' === $object_type) {
             return self::capture_php_snippet((string) $object_id);
+        }
+        if (Code_Snippet_Snapshot::TYPE === $object_type) {
+            return Code_Snippet_Snapshot::capture((int) $object_id);
         }
         if ('term' === $object_type) {
             return self::capture_term((string) $object_id);
@@ -78,6 +84,9 @@ class Snapshot
         }
         if (BuddyPress_Rows_Snapshot::TYPE === $object_type) {
             return BuddyPress_Rows_Snapshot::capture((string) $object_id);
+        }
+        if (BbPress_Posts_Snapshot::TYPE === $object_type) {
+            return BbPress_Posts_Snapshot::capture((string) $object_id);
         }
         if (Crm_Rows_Snapshot::TYPE === $object_type) {
             return Crm_Rows_Snapshot::capture((string) $object_id);

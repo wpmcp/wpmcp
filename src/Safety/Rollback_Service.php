@@ -112,6 +112,13 @@ class Rollback_Service
             self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
             return false;
         }
+        // Undoing a bbPress create that later posts were made under would
+        // delete them with it.
+        $refused = BbPress_Posts_Snapshot::refusal((array) $row['snapshot']);
+        if (null !== $refused) {
+            self::warn(sprintf('operation %s refused: %s', $operation_id, $refused));
+            return false;
+        }
         // Mail a CRM write sent cannot be unsent, and a campaign sent since
         // its draft was edited is not edited back (issue #477).
         $refused = Crm_Rows_Snapshot::refusal((array) $row['snapshot']);
@@ -441,8 +448,9 @@ class Rollback_Service
         // the order writes themselves require (issue #292). A subscription
         // snapshot is a whole order too (issue #658). A booking snapshot
         // holds a customer's booking and its order's status, and a booking
-        // rules snapshot is store configuration (issue #659).
-        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE, Wc_Subscription_Snapshot::TYPE, Wc_Booking_Snapshot::TYPE, Wc_Booking_Snapshot::CREATE_TYPE, Wc_Booking_Snapshot::RULES_TYPE ], true)) {
+        // rules snapshot is store configuration (issue #659). A user
+        // membership snapshot holds a customer's plan access (PR #573).
+        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE, Wc_Subscription_Snapshot::TYPE, Wc_Booking_Snapshot::TYPE, Wc_Booking_Snapshot::CREATE_TYPE, Wc_Booking_Snapshot::RULES_TYPE, Wc_User_Membership_Snapshot::TYPE, Wc_User_Membership_Snapshot::CREATE_TYPE ], true)) {
             return [ [ 'manage_woocommerce' ] ];
         }
         // Shipping zone and webhook snapshots are store configuration, and a
@@ -464,6 +472,20 @@ class Rollback_Service
         // manage_options, so restoring one takes it too (issue #354).
         if ('buddypress_rows' === $type) {
             return [ [ 'manage_options' ] ];
+        }
+        // A Code Snippets row is PHP source, and every Code Snippets write
+        // takes manage_options, so restoring one takes it too.
+        if (Code_Snippet_Snapshot::TYPE === $type) {
+            return [ [ 'manage_options' ] ];
+        }
+
+        // A bbPress image puts back forum, topic and reply rows, their meta
+        // and their authors' counts; restoring one takes the capability the
+        // write took (bbPress's moderate, publish_topics or publish_replies),
+        // recorded with it.
+        if (BbPress_Posts_Snapshot::TYPE === $type) {
+            $declared = $snapshot['data']['restore_capability'] ?? null;
+            return [ [ is_string($declared) && '' !== $declared ? $declared : 'manage_options' ] ];
         }
         // FluentCRM and MailPoet rows are contacts' personal data and their
         // subscription consent (issue #477); restoring one takes the
@@ -780,6 +802,14 @@ class Rollback_Service
                     continue;
                 }
             }
+            // So is a bbPress create that later posts depend on.
+            if (BbPress_Posts_Snapshot::TYPE === $snapshot['object_type']) {
+                $refused = BbPress_Posts_Snapshot::refusal($snapshot);
+                if (null !== $refused) {
+                    self::warn(sprintf('snapshot %s skipped: %s', self::object_identity($snapshot), $refused));
+                    continue;
+                }
+            }
             // A CRM send is skipped, not counted: mail cannot be unsent.
             if ('crm_rows' === $snapshot['object_type']) {
                 $refused = Crm_Rows_Snapshot::refusal($snapshot);
@@ -968,7 +998,7 @@ class Rollback_Service
      */
     private static function is_session_reverse_snapshot(array $snapshot): bool
     {
-        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'crm_rows', 'amelia_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
+        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'bbpress_posts', 'crm_rows', 'amelia_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
             || self::is_compiled_widget_snapshot($snapshot);
     }
 
@@ -1123,6 +1153,10 @@ class Rollback_Service
         // And for a booking bookings.create made (issue #659).
         if (Wc_Booking_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
             return Wc_Booking_Snapshot::TYPE . ':' . $snapshot['object_id'];
+        }
+        // And for a membership memberships.grant made (PR #573).
+        if (Wc_User_Membership_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
+            return Wc_User_Membership_Snapshot::TYPE . ':' . $snapshot['object_id'];
         }
         // And for a FunnelKit funnel a theme-write op created (issue #500).
         if (FunnelKit_Funnel_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
@@ -1752,6 +1786,8 @@ class Rollback_Service
             'wc_booking',
             'wc_booking_create',
             'wc_booking_rules',
+            'wc_user_membership',
+            'wc_user_membership_create',
             'wc_shipping_zone',
             'wc_shipping_zone_create',
             'wc_webhook',
@@ -1764,6 +1800,7 @@ class Rollback_Service
             'redirection_item',
             'plugin_table_rows',
             'buddypress_rows',
+            'bbpress_posts',
             'crm_rows',
             'funnelkit_funnel',
             'funnelkit_funnel_create',
@@ -1772,6 +1809,7 @@ class Rollback_Service
             'wc_tax_rate',
             'wc_tax_rate_create',
             'php_snippet',
+            'code_snippet',
             'page_build',
             'media_import',
             'wc_product_create',
@@ -1943,6 +1981,17 @@ class Rollback_Service
             return;
         }
 
+        // Wc_User_Membership_Snapshot::TYPE and ::CREATE_TYPE (PR #573),
+        // literals for the restorable-types parity test.
+        if ('wc_user_membership' === $snapshot['object_type']) {
+            self::warn_if(Wc_User_Membership_Snapshot::restore($snapshot));
+            return;
+        }
+        if ('wc_user_membership_create' === $snapshot['object_type']) {
+            self::warn_if(Wc_User_Membership_Snapshot::undo_creation($snapshot));
+            return;
+        }
+
         if ('wc_order_create' === $snapshot['object_type']) {
             $warning = Wc_Order_Snapshot::undo_creation($snapshot);
             if (null !== $warning) {
@@ -2036,6 +2085,12 @@ class Rollback_Service
             return;
         }
 
+        // BbPress_Posts_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('bbpress_posts' === $snapshot['object_type']) {
+            self::warn_if(BbPress_Posts_Snapshot::restore($snapshot));
+            return;
+        }
+
         // Crm_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('crm_rows' === $snapshot['object_type']) {
             self::warn_if(Crm_Rows_Snapshot::restore($snapshot));
@@ -2062,6 +2117,12 @@ class Rollback_Service
 
         if ('php_snippet' === $snapshot['object_type']) {
             self::apply_php_snippet_snapshot($snapshot);
+            return;
+        }
+
+        // Code_Snippet_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('code_snippet' === $snapshot['object_type']) {
+            self::warn_if(Code_Snippet_Snapshot::restore($snapshot));
             return;
         }
 
