@@ -195,6 +195,7 @@ return [
         'src/Integrations/LMS_Adapter.php',
         'src/Integrations/LMS_Tutor.php',
         'src/Integrations/LMS_LifterLMS.php',
+        'src/Integrations/LMS_LearnDash.php',
         // TablePress tables (issue #481), paid-tier. strip.php takes out the
         // lines in Plugin_Data_Integration that merge the ops, count the pack
         // towards availability and name it, and its hooks in Plugin.

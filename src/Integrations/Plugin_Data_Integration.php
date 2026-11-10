@@ -21,9 +21,10 @@ if (! defined('ABSPATH')) {
  *  - BuddyPress (issue #354): groups, group members, activity and extended
  *    profile field definitions, with group writes, profile field updates
  *    and activity moderation (BuddyPress_Pack).
- *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS and
- *    LifterLMS course, section, lesson and quiz trees with snapshotted
- *    writes, and read-only enrollments.
+ *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS,
+ *    LifterLMS and LearnDash course, section, lesson and quiz trees with
+ *    snapshotted writes, and read-only enrollments (LearnDash also enrolls,
+ *    unenrolls and resets progress, each snapshotted).
  *  - Issue #481 adds the paid-tier TablePress ops (TablePress_Pack): tables
  *    read, edited cell by cell, imported, exported and placed through
  *    TablePress's own table model, with snapshotted writes.
@@ -81,7 +82,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
     protected function summary(): string
     {
         return 'JetEngine and Pods fields, TranslatePress strings, BuddyPress community data'
-            . ', Tutor LMS and LifterLMS courses, TablePress tables'
+            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', FluentCRM and MailPoet';
     }
 
