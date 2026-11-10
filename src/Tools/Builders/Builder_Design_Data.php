@@ -84,9 +84,31 @@ final class Builder_Design_Data
         return (string) wp_json_encode((string) wp_json_encode($document));
     }
 
+    /**
+     * What a site installs and activates to load each builder's element
+     * catalog (issue #816), named in the builder_not_loaded refusal.
+     */
+    public const HOSTS = [
+        'avada'      => 'the Avada theme with its Avada Core and Avada Builder plugins',
+        'breakdance' => 'the Breakdance plugin',
+        'bricks'     => 'the Bricks theme',
+        'divi'       => 'the Divi theme (Divi 5)',
+        'oxygen'     => 'the Oxygen 6 plugin',
+        'wpbakery'   => 'the WPBakery Page Builder plugin',
+    ];
+
     public static function not_loaded(string $builder): \WP_Error
     {
-        return new \WP_Error('builder_not_loaded', "The element catalog comes from the installed plugin, and '{$builder}' is not loaded on this site.");
+        $host = self::HOSTS[ $builder ] ?? null;
+        if (null === $host) {
+            return new \WP_Error('builder_not_loaded', "The element catalog comes from the installed plugin, and '{$builder}' is not loaded on this site.", [ 'builder' => $builder ]);
+        }
+
+        return new \WP_Error(
+            'builder_not_loaded',
+            "The element catalog for '{$builder}' comes from the builder itself, and it is not loaded on this site. Install and activate {$host}, then try again.",
+            [ 'builder' => $builder, 'install' => $host ]
+        );
     }
 
     public static function element_not_found(string $builder, string $element): \WP_Error
