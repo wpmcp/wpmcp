@@ -17,10 +17,8 @@
 #      release therefore gets a new install, built from the newest install of
 #      the same installers with only the changed plugins reinstalled. Offline,
 #      the run uses that newest cached install and says so. Each leg's summary
-#      line names the plugin versions it ran against. An install keyed this
-#      way that no run has used for three days is deleted when a new one is
-#      built; installs from before issue #532 are left behind: delete wp-*
-#      under the cache when nothing is running.
+#      line names the plugin versions it ran against. The installs are kept
+#      inside a budget, see "The cache" below.
 #   3. Gives this checkout its own database, so worktrees can run side by side.
 #   4. Runs composer lint, composer drift:check, then the suite on the default
 #      WordPress (with the coverage floor when pcov is loaded), then the suite
@@ -107,6 +105,52 @@
 # hides the live groups behind it. The run ends with a summary of every leg
 # and exits non-zero if any failed. Use --plan to list the legs of a run.
 #
+# The cache. Each install is about 700 MB, and many worktrees running at once
+# on branches that touch the installers or the pins once filled 73 GB in one
+# night (9 to 10 November 2026). So:
+#   - At most WPMCP_TEST_MAX_PARALLEL runs (default 2) go at once across all
+#     worktrees, each holding a slot under $CACHE/locks/run-<n>; another run
+#     says it is waiting and waits up to WPMCP_TEST_SLOT_TIMEOUT seconds
+#     (default 3600). A slot whose holder has died is taken over.
+#   - Before a run, and before building an install, free space on the cache's
+#     volume is checked: under WPMCP_TEST_MIN_FREE_GB (default 20) the cache is
+#     pruned to the two most recently used installs, and under
+#     WPMCP_TEST_HARD_MIN_FREE_GB (default 10) after that the run stops.
+#   - After every new install and when a run exits (also on Ctrl-C or TERM),
+#     installs are pruned least recently used first (.last-used) to at most
+#     WPMCP_TEST_KEEP_INSTALLS (default 6) and WPMCP_TEST_MAX_GB (default 15)
+#     in all, and any install unused for WPMCP_TEST_INSTALL_TTL_HOURS (default
+#     6) goes. A build that died without finishing goes too. Never removed:
+#     an install a live run has claimed ($dir/.users/<pid>), one whose install
+#     or pristine lock is held, and one used in the last 15 minutes (a run of
+#     an older copy of this script claims nothing). A plain run uses about a
+#     dozen installs (the live groups have one each), more than the default
+#     count: the ones it used last are kept and the next plain run rebuilds
+#     the others from the download cache below, without the network.
+#   - Each run's core copies ($CACHE/cores/<hash>-<pid>) are removed when it
+#     exits; those of runs that are no longer alive are removed by the next
+#     run, and any older than a day regardless.
+#   - Nothing is downloaded twice: WordPress core, the WordPress test library
+#     (svn exports) and every plugin zip are kept in $CACHE/downloads, keyed
+#     by exact version (core/wordpress-<version>.tar.gz,
+#     tests-lib/<version>-includes, plugins/<slug>-<version>.zip), fetched
+#     once under a lock through a .tmp file, and checked before use; see
+#     bin/download-cache.sh. Building an install with everything cached
+#     makes no network call. A plugin's latest release is asked of
+#     WordPress.org at most once per WPMCP_TEST_LATEST_TTL_HOURS (default 24),
+#     kept in $CACHE/downloads/latest. Downloads have their own budget: one
+#     unused for WPMCP_TEST_DOWNLOAD_TTL_DAYS (default 30) goes, then the
+#     least recently used until WPMCP_TEST_DOWNLOAD_MAX_GB (default 3) is
+#     left; one an installer is reading is never removed.
+#   - bin/test-local.sh --prune applies the budgets now; --prune --all removes
+#     every install no live run is using, those from before issue #532 too
+#     (the downloads keep their budget).
+# A branch that edits only bin/install-test-plugins.sh still builds its
+# install from scratch rather than from another installer's install: the
+# plugin installer keeps whatever it finds at the wanted version, so a clone
+# would carry the old installer's output and hide the very change the branch
+# makes. The budget above bounds what those installs cost instead.
+#
 # MariaDB, not MySQL: the WordPress harness turns every CREATE TABLE into a
 # TEMPORARY table, and WooCommerce's order-sync query reads one of them twice
 # on admin_init. MySQL refuses that ("Can't reopen table: 'orders'"), which
@@ -148,9 +192,26 @@
 #   bin/test-local.sh --resolve-plugins [--wp V] print the test plugin versions and the
 #                                     install a run would use, install nothing
 #   bin/test-local.sh --stop-db       stop the private MariaDB server and exit
+#   bin/test-local.sh --prune         prune the cache to its budget now, run nothing
+#   bin/test-local.sh --prune --all   remove every install and core copy no live run is using
 #
 # Environment:
 #   WPMCP_TEST_CACHE     cache root (default ~/.cache/wpmcp-tests)
+#   WPMCP_TEST_KEEP_INSTALLS  most installs kept (default 6)
+#   WPMCP_TEST_MAX_GB    most gigabytes of installs kept (default 15)
+#   WPMCP_TEST_INSTALL_TTL_HOURS  an install unused this long is removed (default 6)
+#   WPMCP_TEST_MIN_FREE_GB  below this much free space the cache is pruned to
+#                        the two most recently used installs (default 20)
+#   WPMCP_TEST_HARD_MIN_FREE_GB  below this much free space, after pruning, a
+#                        run stops (default 10)
+#   WPMCP_TEST_MAX_PARALLEL  most runs at once across worktrees (default 2)
+#   WPMCP_TEST_SLOT_TIMEOUT  seconds a run waits for a slot (default 3600)
+#   WPMCP_TEST_DOWNLOAD_TTL_DAYS  a cached download unused this long is
+#                        removed (default 30)
+#   WPMCP_TEST_DOWNLOAD_MAX_GB  most gigabytes of cached downloads (default 3)
+#   WPMCP_TEST_LATEST_TTL_HOURS  how long a plugin's latest release, and the
+#                        two unversioned downloads, are reused before asking
+#                        again (default 24)
 #   WPMCP_TEST_DB_PORT   MariaDB port (default 3399)
 #   WPMCP_TEST_PHP       PHP binary (default php)
 #   WPMCP_MARIADB_BIN    directory holding mariadbd, if not found automatically
@@ -214,9 +275,33 @@ DB_USER=wpmcp
 DB_PASS=wpmcp
 DB_DIR="$CACHE/mariadb"
 SOCK="$DB_DIR/mariadbd.sock"
+# The cache budget, see "The cache" above.
+KEEP_INSTALLS=${WPMCP_TEST_KEEP_INSTALLS:-6}
+MAX_GB=${WPMCP_TEST_MAX_GB:-15}
+INSTALL_TTL_HOURS=${WPMCP_TEST_INSTALL_TTL_HOURS:-6}
+MIN_FREE_GB=${WPMCP_TEST_MIN_FREE_GB:-20}
+HARD_MIN_FREE_GB=${WPMCP_TEST_HARD_MIN_FREE_GB:-10}
+MAX_PARALLEL=${WPMCP_TEST_MAX_PARALLEL:-2}
+SLOT_TIMEOUT=${WPMCP_TEST_SLOT_TIMEOUT:-3600}
+# The download cache, see bin/download-cache.sh.
+DOWNLOADS="$CACHE/downloads"
+DOWNLOAD_TTL_DAYS=${WPMCP_TEST_DOWNLOAD_TTL_DAYS:-30}
+DOWNLOAD_MAX_GB=${WPMCP_TEST_DOWNLOAD_MAX_GB:-3}
+LATEST_TTL_HOURS=${WPMCP_TEST_LATEST_TTL_HOURS:-24}
+# Seconds since its last use during which an install is never pruned: a run
+# of an older copy of this script marks its installs by .last-used alone.
+RECENT_USE=900
 
 say() { printf '\033[1m[test-local]\033[0m %s\n' "$*"; }
 die() { printf '\033[31m[test-local]\033[0m %s\n' "$*" >&2; exit 1; }
+
+for var in KEEP_INSTALLS INSTALL_TTL_HOURS MAX_PARALLEL SLOT_TIMEOUT DOWNLOAD_TTL_DAYS LATEST_TTL_HOURS; do
+	[[ "${!var}" =~ ^[0-9]+$ ]] || die "WPMCP_TEST_$var must be a whole number (got '${!var}')"
+done
+for var in MAX_GB MIN_FREE_GB HARD_MIN_FREE_GB DOWNLOAD_MAX_GB; do
+	[[ "${!var}" =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "WPMCP_TEST_$var must be a number of gigabytes (got '${!var}')"
+done
+[ "$MAX_PARALLEL" -ge 1 ] || die "WPMCP_TEST_MAX_PARALLEL must be at least 1"
 
 # ---------------------------------------------------------------- arguments
 
@@ -246,6 +331,7 @@ only_multisite=false
 coverage=true
 plan_only=false
 resolve_only=false
+prune_only=false
 phpunit_args=()
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -276,6 +362,7 @@ while [ $# -gt 0 ]; do
 		--stop-db) stop_db=true ;;
 		--plan) plan_only=true ;;
 		--resolve-plugins) resolve_only=true ;;
+		--prune) prune_only=true ;;
 		--) shift; phpunit_args=("$@"); break ;;
 		-h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
 		*) die "unknown option: $1 (see --help)" ;;
@@ -420,9 +507,9 @@ if [ "$plan_only" = true ]; then
 	exit 0
 fi
 
-# --resolve-plugins needs no database.
+# --resolve-plugins and --prune need no database.
 BIN=""
-[ "$resolve_only" = true ] || BIN=$(mariadb_dir)
+[ "$resolve_only" = true ] || [ "$prune_only" = true ] || BIN=$(mariadb_dir)
 
 db_ping() { "$BIN/mariadb-admin" --no-defaults --socket="$SOCK" -uroot ping >/dev/null 2>&1; }
 
@@ -559,6 +646,27 @@ wporg_latest() {
 	return 0
 }
 
+# Prints the latest release of WordPress.org plugin <slug>, asking
+# WordPress.org at most once per WPMCP_TEST_LATEST_TTL_HOURS: the answer is
+# kept in $DOWNLOADS/latest/<slug>. When the kept answer is older and
+# WordPress.org does not answer, it prints nothing, so the run falls back to
+# the newest cached install as before.
+latest_release() {
+	local slug=$1 file="$DOWNLOADS/latest/$1" version=""
+	if [ -s "$file" ] && [ -z "$(find "$file" -mmin +"$((LATEST_TTL_HOURS * 60))" 2>/dev/null)" ] && [ "$LATEST_TTL_HOURS" -gt 0 ]; then
+		cat "$file"
+		return 0
+	fi
+	version=$(wporg_latest "$slug")
+	if [ -n "$version" ]; then
+		mkdir -p "$DOWNLOADS/latest"
+		echo "$version" >"$file.tmp.$$"
+		mv "$file.tmp.$$" "$file"
+	fi
+	[ -z "$version" ] || echo "$version"
+	return 0
+}
+
 # Prints "slug=version" for every WordPress.org plugin the current
 # environment's install carries: its pin, or else its latest release. Each
 # release is asked for once per run and kept in $RESOLVED, so every leg of a
@@ -572,7 +680,7 @@ plugin_versions() {
 			if grep -q "^$slug=" "$RESOLVED" 2>/dev/null; then
 				version=$(sed -n "s/^$slug=//p" "$RESOLVED" | head -1)
 			else
-				version=$(wporg_latest "$slug")
+				version=$(latest_release "$slug")
 				echo "$slug=$version" >>"$RESOLVED"
 			fi
 			[ -n "$version" ] || return 1
@@ -603,7 +711,7 @@ newest_install() {
 # newest cached install of these installers.
 install_target() {
 	local version=$1 base pins dir
-	base="$CACHE/wp-$version$(install_flavor)-$(cat "$ROOT/bin/install-wp-tests.sh" "$ROOT/bin/install-test-plugins.sh" | shasum | cut -c1-12)"
+	base="$CACHE/wp-$version$(install_flavor)-$(cat "$ROOT/bin/install-wp-tests.sh" "$ROOT/bin/install-test-plugins.sh" "$ROOT/bin/download-cache.sh" | shasum | cut -c1-12)"
 	if pins=$(plugin_versions); then
 		echo "$base-plugins-$(printf '%s\n' "$pins" | shasum | cut -c1-8)"
 		return 0
@@ -621,7 +729,9 @@ install_wp() {
 	if [ ! -f "$dir/.ready" ]; then
 		with_lock "install-$(basename "$dir")" install_wp_locked "$version" "$dir"
 	fi
-	# Marks the install as in use, so pruning leaves it alone.
+	# Claims the install for this run, so no prune removes it before the run
+	# exits, and marks it used for the least-recently-used order.
+	with_lock prune claim_install "$dir" || die "the install $(basename "$dir") was pruned before this run could claim it; run again"
 	touch "$dir/.last-used"
 	plugin_note "$dir"
 	echo "$dir"
@@ -631,8 +741,13 @@ install_wp_locked() {
 	local version=$1 dir=$2 pins from
 	[ -f "$dir/.ready" ] && return 0
 	command -v svn >/dev/null 2>&1 || die "svn is required by bin/install-wp-tests.sh: brew install subversion"
+	space_guard >&2
 	pins=$(plugin_versions | tr '\n' ' ') || die "could not resolve the test plugin versions"
 	from=$(newest_install "${dir%-plugins-*}")
+	# The install copied from is claimed too, so a prune cannot remove it mid-copy.
+	if [ -n "$from" ] && ! with_lock prune claim_install "$from"; then
+		from=""
+	fi
 	rm -rf "$dir"
 	mkdir -p "$dir/tmp"
 	if [ -n "$from" ]; then
@@ -641,12 +756,15 @@ install_wp_locked() {
 		say "Updating $(basename "$from") into $dir (plugins: $pins)" >&2
 		clone_dir "$from/wordpress" "$dir/wordpress"
 		clone_dir "$from/wordpress-tests-lib" "$dir/wordpress-tests-lib"
+		rm -f "$from/.users/$$"
 		TMPDIR="$dir/tmp" WP_CORE_DIR="$dir/wordpress/" WPMCP_PLUGIN_VERSIONS="$pins" \
+			WPMCP_DOWNLOAD_CACHE="$DOWNLOADS" WPMCP_TEST_LATEST_TTL_HOURS="$LATEST_TTL_HOURS" \
 			bash "$ROOT/bin/install-test-plugins.sh" >"$dir/install.log" 2>&1 || die "updating the test plugins failed, see $dir/install.log"
 	else
 		say "Installing WordPress $version into $dir (plugins: $pins)" >&2
 		(
 			export TMPDIR="$dir/tmp" WP_CORE_DIR="$dir/wordpress/" WP_TESTS_DIR="$dir/wordpress-tests-lib" WPMCP_PLUGIN_VERSIONS="$pins"
+			export WPMCP_DOWNLOAD_CACHE="$DOWNLOADS" WPMCP_TEST_LATEST_TTL_HOURS="$LATEST_TTL_HOURS"
 			bash "$ROOT/bin/install-wp-tests.sh" wpmcp_unused "$DB_USER" "$DB_PASS" "127.0.0.1:$PORT" "$version" true
 			bash "$ROOT/bin/install-test-plugins.sh"
 		) >"$dir/install.log" 2>&1 || die "WordPress $version install failed, see $dir/install.log"
@@ -660,22 +778,252 @@ clone_dir() {
 	cp -cR "$1" "$2" 2>/dev/null || { rm -rf "$2"; cp -R "$1" "$2"; }
 }
 
-# Deletes the installs keyed on plugin versions, other than <keep>, that no
-# run has used for three days: superseded by a newer release, or by a change
-# to the installers. Every run touches .last-used on the installs it uses, and
-# a run lasts minutes, so nothing in use is removed. Installs from before
-# issue #532 have no plugins key and are never touched here.
+# ---------------------------------------------------------------- cache budget
+
+# Prints the modification time of <file> in epoch seconds, 0 when it is missing.
+mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
+
+pid_alive() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
+
+gb_to_kb() { awk -v g="$1" 'BEGIN { printf "%d\n", g * 1048576 }'; }
+kb_to_gb() { awk -v k="$1" 'BEGIN { printf "%.1f\n", k / 1048576 }'; }
+
+# True when lock <name> is held by a live process, or is being taken (no pid
+# written yet).
+lock_held() {
+	local lock="$CACHE/locks/$1" holder
+	[ -d "$lock" ] || return 1
+	holder=$(cat "$lock/pid" 2>/dev/null || true)
+	[ -z "$holder" ] || pid_alive "$holder"
+}
+
+# True when a live run has claimed install <dir>, or holds its install or
+# pristine lock. Claims of runs that are gone are dropped on the way.
+install_in_use() {
+	local d=$1 name f
+	name=$(basename "$d")
+	lock_held "install-$name" && return 0
+	lock_held "pristine-$name" && return 0
+	for f in "$d/.users/"*; do
+		[ -e "$f" ] || continue
+		pid_alive "$(basename "$f")" && return 0
+		rm -f "$f"
+	done
+	return 1
+}
+
+# Claims ready install <dir> for this run (under the prune lock); fails when it
+# is gone. The claim is dropped when the run exits.
+claim_install() {
+	[ -f "$1/.ready" ] || return 1
+	mkdir -p "$1/.users"
+	touch "$1/.users/$$"
+}
+
+# Prunes the installs keyed on plugin versions under the prune lock; see
+# prune_installs_locked.
 prune_installs() {
-	local keep=$1 d
+	with_lock prune prune_installs_locked "$@"
+}
+
+# Deletes installs keyed on plugin versions, least recently used first (by
+# .last-used), until at most <count> (default WPMCP_TEST_KEEP_INSTALLS) and
+# WPMCP_TEST_MAX_GB in all are left, and every install unused for
+# WPMCP_TEST_INSTALL_TTL_HOURS. Builds that died before .ready are deleted
+# too. Never deleted: <keep>, an install in use (install_in_use), and one used
+# in the last <recent> seconds (default RECENT_USE). Installs that cannot go
+# still count, so the budget can be exceeded by what is in use. Installs from
+# before issue #532 have no plugins key and are left to --prune --all.
+prune_installs_locked() {
+	local keep=${1:-} max_count=${2:-$KEEP_INSTALLS} recent=${3:-$RECENT_USE}
+	local now ttl max_kb d used kb count=0 total=0 rows=()
+	now=$(date +%s)
+	ttl=$((INSTALL_TTL_HOURS * 3600))
+	max_kb=$(gb_to_kb "$MAX_GB")
 	for d in "$CACHE"/wp-*-plugins-*/; do
 		d=${d%/}
-		[ -d "$d" ] && [ "$d" != "$keep" ] || continue
-		[ -e "$d/.last-used" ] || continue
-		if [ -n "$(find "$d/.last-used" -mtime +3 2>/dev/null)" ]; then
-			say "Removing the unused install $(basename "$d")" >&2
+		[ -d "$d" ] || continue
+		if [ ! -f "$d/.ready" ]; then
+			if [ "$d" != "$keep" ] && ! install_in_use "$d"; then
+				say "Removing the unfinished install $(basename "$d")" >&2
+				rm -rf "$d"
+			fi
+			continue
+		fi
+		rows+=("$(mtime "$d/.last-used") $d")
+	done
+	[ ${#rows[@]} -gt 0 ] || return 0
+	while read -r used d; do
+		if [ "$d" = "$keep" ] || [ $((now - used)) -lt "$recent" ] || install_in_use "$d"; then
+			:
+		elif [ $((now - used)) -ge "$ttl" ]; then
+			say "Removing the install $(basename "$d"), unused for $(((now - used) / 3600)) hours (WPMCP_TEST_INSTALL_TTL_HOURS=$INSTALL_TTL_HOURS)" >&2
 			rm -rf "$d"
+			continue
+		else
+			kb=$(du -sk "$d" 2>/dev/null | cut -f1 || true)
+			kb=${kb:-0}
+			if [ $((count + 1)) -gt "$max_count" ] || [ $((total + kb)) -gt "$max_kb" ]; then
+				say "Removing the least recently used install $(basename "$d") (budget: $max_count installs, $MAX_GB GB)" >&2
+				rm -rf "$d"
+				continue
+			fi
+			count=$((count + 1))
+			total=$((total + kb))
+			continue
+		fi
+		kb=$(du -sk "$d" 2>/dev/null | cut -f1 || true)
+		count=$((count + 1))
+		total=$((total + ${kb:-0}))
+	done < <(printf '%s\n' "${rows[@]}" | sort -rn)
+}
+
+# --prune --all: deletes every install, keyed on plugin versions or from
+# before issue #532, that no live run is using.
+prune_all_installs() {
+	local d
+	for d in "$CACHE"/wp-*/; do
+		d=${d%/}
+		[ -d "$d" ] || continue
+		if install_in_use "$d"; then
+			say "Keeping $(basename "$d"): a live run is using it"
+			continue
+		fi
+		say "Removing the install $(basename "$d")"
+		rm -rf "$d"
+	done
+}
+
+# Deletes the per-run core copies ($CACHE/cores/<hash>-<pid>) of runs that are
+# no longer alive, and any older than a day (a reused pid).
+prune_cores() {
+	local c pid
+	for c in "$CACHE/cores/"*; do
+		[ -d "$c" ] || continue
+		pid=${c##*-}
+		if [[ "$pid" =~ ^[0-9]+$ ]] && ! pid_alive "$pid"; then
+			rm -rf "$c"
 		fi
 	done
+	find "$CACHE/cores" -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+}
+
+# Prunes the download cache ($DOWNLOADS/<kind>/<name>, see
+# bin/download-cache.sh): an entry whose last use (its mtime) is older than
+# WPMCP_TEST_DOWNLOAD_TTL_DAYS goes, then the least recently used until
+# WPMCP_TEST_DOWNLOAD_MAX_GB is left. An entry is only removed under its own
+# lock, so one an installer is fetching or reading (it holds that lock) is
+# never touched. Leftover .tmp.<pid> files of dead fetches go too.
+prune_downloads() {
+	local entry name lock now ttl max_kb kb total=0 rows=() used pid
+	[ -d "$DOWNLOADS" ] || return 0
+	now=$(date +%s)
+	ttl=$((DOWNLOAD_TTL_DAYS * 86400))
+	max_kb=$(gb_to_kb "$DOWNLOAD_MAX_GB")
+	for entry in "$DOWNLOADS"/*/*; do
+		[ -e "$entry" ] || continue
+		case "$entry" in
+			"$DOWNLOADS"/latest/*) continue ;;
+			*.fetched) continue ;;
+			*.tmp.*)
+				pid=${entry##*.tmp.}
+				pid_alive "$pid" || rm -rf "$entry"
+				continue ;;
+		esac
+		rows+=("$(mtime "$entry") $entry")
+	done
+	[ ${#rows[@]} -gt 0 ] || return 0
+	while read -r used entry; do
+		kb=$(du -sk "$entry" 2>/dev/null | cut -f1 || true)
+		kb=${kb:-0}
+		if [ $((now - used)) -lt "$ttl" ] && [ $((total + kb)) -le "$max_kb" ]; then
+			total=$((total + kb))
+			continue
+		fi
+		name=${entry#"$DOWNLOADS"/}
+		lock="$DOWNLOADS/.locks/${name//\//__}"
+		mkdir -p "$DOWNLOADS/.locks"
+		if [ -d "$lock" ] && ! pid_alive "$(cat "$lock/pid" 2>/dev/null || true)" && [ -s "$lock/pid" ]; then
+			rm -rf "$lock"
+		fi
+		if ! mkdir "$lock" 2>/dev/null; then
+			# In use: it still counts.
+			total=$((total + kb))
+			continue
+		fi
+		echo $$ >"$lock/pid"
+		say "Removing the cached download $name (budget: $DOWNLOAD_TTL_DAYS days unused, $DOWNLOAD_MAX_GB GB)" >&2
+		rm -rf "$entry" "$entry.fetched"
+		rm -rf "$lock"
+	done < <(printf '%s\n' "${rows[@]}" | sort -rn)
+}
+
+# Prints the free space on the cache's volume in KB, nothing when df cannot tell.
+free_kb() {
+	mkdir -p "$CACHE"
+	df -Pk "$CACHE" 2>/dev/null | awk 'NR == 2 && $4 ~ /^[0-9]+$/ { print $4 }' || true
+}
+
+# The free-space guard: under WPMCP_TEST_MIN_FREE_GB free, prunes the cache to
+# the two most recently used installs (in use or not, nothing in use goes);
+# under WPMCP_TEST_HARD_MIN_FREE_GB after that, stops the run.
+space_guard() {
+	local free
+	free=$(free_kb)
+	[ -n "$free" ] || return 0
+	[ "$free" -lt "$(gb_to_kb "$MIN_FREE_GB")" ] || return 0
+	say "Only $(kb_to_gb "$free") GB free on the volume holding $CACHE (WPMCP_TEST_MIN_FREE_GB=$MIN_FREE_GB): pruning the test cache to the 2 most recently used installs."
+	with_lock prune prune_installs_locked "" 2 0 >&2
+	prune_cores
+	prune_downloads
+	free=$(free_kb)
+	[ -z "$free" ] || [ "$free" -ge "$(gb_to_kb "$HARD_MIN_FREE_GB")" ] \
+		|| die "Only $(kb_to_gb "$free") GB free on the volume holding $CACHE, under WPMCP_TEST_HARD_MIN_FREE_GB=$HARD_MIN_FREE_GB even after pruning the test cache. Free some disk space (bin/test-local.sh --prune --all removes every install no run is using) and run again."
+}
+
+# Takes one of WPMCP_TEST_MAX_PARALLEL run slots ($CACHE/locks/run-<n>), shared
+# by every worktree, waiting up to WPMCP_TEST_SLOT_TIMEOUT seconds for one. A
+# slot whose holder has died is taken over. The slot is released by
+# finish_run, with every other lock this run holds.
+acquire_slot() {
+	local n lock holder holders waited=0 said=false
+	mkdir -p "$CACHE/locks"
+	while :; do
+		holders=""
+		for n in $(seq 1 "$MAX_PARALLEL"); do
+			lock="$CACHE/locks/run-$n"
+			if mkdir "$lock" 2>/dev/null; then
+				echo $$ >"$lock/pid"
+				return 0
+			fi
+			holder=$(cat "$lock/pid" 2>/dev/null || true)
+			if [ -n "$holder" ] && ! pid_alive "$holder"; then
+				rm -rf "$lock"
+				if mkdir "$lock" 2>/dev/null; then
+					echo $$ >"$lock/pid"
+					return 0
+				fi
+			fi
+			holders+="${holders:+, }${holder:-?}"
+		done
+		[ "$waited" -lt "$SLOT_TIMEOUT" ] \
+			|| die "timed out after ${SLOT_TIMEOUT}s waiting for a run slot (WPMCP_TEST_MAX_PARALLEL=$MAX_PARALLEL, WPMCP_TEST_SLOT_TIMEOUT=$SLOT_TIMEOUT; held by pid $holders)"
+		if [ "$said" = false ]; then
+			say "Waiting for a run slot: $MAX_PARALLEL runs are going already (pid $holders; WPMCP_TEST_MAX_PARALLEL=$MAX_PARALLEL), up to ${SLOT_TIMEOUT}s." >&2
+			said=true
+		fi
+		sleep 2
+		waited=$((waited + 2))
+	done
+}
+
+# Prints how big the cache is.
+cache_report() {
+	local n=0 d kb free
+	for d in "$CACHE"/wp-*/; do [ -d "$d" ] && n=$((n + 1)); done
+	kb=$(du -sk "$CACHE" 2>/dev/null | cut -f1 || true)
+	free=$(free_kb)
+	say "The test cache holds $n installs, $(kb_to_gb "${kb:-0}") GB in all${free:+; $(kb_to_gb "$free") GB free on its volume}."
 }
 
 # Adds the versions of the plugins in <install dir> to this leg's summary
@@ -703,10 +1051,10 @@ checkout_core() {
 	[ -f "$dir/pristine/wp-load.php" ] || with_lock "pristine-$(basename "$dir")" make_pristine "$dir"
 	# Per run, not per checkout: two runs started in the same worktree must not
 	# share a core either. The copy is removed when the run exits, and copies
-	# left by killed runs are pruned after a day.
+	# left by killed runs are pruned once their pid is gone.
 	core="$CACHE/cores/$(printf '%s|%s' "$ROOT" "$dir" | shasum | cut -c1-12)-$$"
 	mkdir -p "$CACHE/cores"
-	find "$CACHE/cores" -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+	prune_cores
 	rm -rf "$core"
 	cp -cR "$dir/pristine" "$core" 2>/dev/null || cp -R "$dir/pristine" "$core"
 	echo "$core"
@@ -795,7 +1143,9 @@ run_live_forms() {
 	export WPMCP_LIVE_FORMS=1
 	dir=$(install_wp "$version")
 	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
 	config=$(db_config "$dir" "$version-forms-live" "$core")
+	RUN_CONFIGS+=("$config")
 	say "PHPUnit live forms group on WordPress $version (real Contact Form 7 + Flamingo)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
 		"$PHP" vendor/bin/phpunit --group forms-live --fail-on-skipped
@@ -1128,11 +1478,9 @@ run_live_wc_bookings() {
 # else the latest on WordPress.org. Offline, it falls back to the newest
 # release already in the cache and says so.
 adapter_release() {
-	local version="${WPMCP_ADAPTER_VERSION:-}" info
+	local version="${WPMCP_ADAPTER_VERSION:-}"
 	if [ -z "$version" ]; then
-		info=$(curl -fsSL --max-time 30 'https://api.wordpress.org/plugins/info/1.2/?action=plugin_information&request%5Bslug%5D=mcp-adapter&request%5Bfields%5D%5Bsections%5D=0' 2>/dev/null || true)
-		# shellcheck disable=SC2016 # PHP code, expanded by PHP.
-		version=$("$PHP" -r '$d = json_decode(stream_get_contents(STDIN), true); echo is_array($d) && isset($d["version"]) ? $d["version"] : "";' <<<"$info")
+		version=$(latest_release mcp-adapter)
 		if [ -z "$version" ]; then
 			version=$(find "$CACHE/mcp-adapter" -mindepth 2 -maxdepth 2 -name .ready 2>/dev/null | sed 's#/\.ready$##; s#.*/##' | sort -V | tail -1 || true)
 			[ -n "$version" ] || die "could not ask WordPress.org for the latest MCP Adapter release, and none is cached"
@@ -1210,6 +1558,19 @@ if [ "$resolve_only" = true ]; then
 	exit 0
 fi
 
+if [ "$prune_only" = true ]; then
+	trap 'rm -f "$RESOLVED"' EXIT
+	if [ "$run_all" = true ]; then
+		with_lock prune prune_all_installs
+	else
+		prune_installs
+	fi
+	prune_cores
+	prune_downloads
+	cache_report
+	exit 0
+fi
+
 RUN_CORES=()
 RUN_CONFIGS=()
 cleanup_run() {
@@ -1221,7 +1582,28 @@ cleanup_run() {
 		rm -f "$c"
 	done
 }
-trap 'cleanup_run; rm -f "$RESOLVED"' EXIT
+# When the run exits, however it exits: its databases, configs and core
+# copies go, its claims on installs and its locks (the run slot among them)
+# are released, and the cache is pruned to its budget.
+finish_run() {
+	local lock
+	cleanup_run || true
+	rm -f "$RESOLVED"
+	[ -z "${LEG_NOTE:-}" ] || rm -f "$LEG_NOTE"
+	rm -rf "$CACHE/cores/"*-$$ 2>/dev/null || true
+	rm -f "$CACHE"/wp-*/.users/$$ 2>/dev/null || true
+	for lock in "$CACHE/locks/"*/; do
+		[ "$(cat "${lock}pid" 2>/dev/null || true)" != $$ ] || rm -rf "$lock"
+	done
+	prune_installs || true
+	prune_downloads || true
+}
+trap finish_run EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+acquire_slot
+space_guard
 
 # Point git at the versioned hooks, so the pre-push gate is on in every
 # worktree of this clone once anyone has run the suite.

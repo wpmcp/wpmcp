@@ -25,6 +25,12 @@ download() {
     fi
 }
 
+# WordPress core, the test library and the db.php drop-in come from the
+# shared download cache when WPMCP_DOWNLOAD_CACHE names one (bin/test-local.sh
+# sets it), keyed by the exact version; see bin/download-cache.sh.
+# shellcheck source=bin/download-cache.sh
+. "$(dirname "$0")/download-cache.sh"
+
 if [[ $WP_VERSION =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
 	WP_TESTS_TAG="tags/$WP_VERSION"
 elif [[ $WP_VERSION == 'nightly' || $WP_VERSION == 'trunk' ]]; then
@@ -39,6 +45,12 @@ else
 		exit 1
 	fi
 	WP_TESTS_TAG="tags/$LATEST_VERSION"
+fi
+
+# The test library of a tagged release is cached by its version; trunk is not.
+TESTS_CACHE=""
+if [[ $WP_TESTS_TAG == tags/* ]]; then
+	TESTS_CACHE="tests-lib/${WP_TESTS_TAG#tags/}"
 fi
 
 set -ex
@@ -57,25 +69,21 @@ install_wp() {
 		unzip -q $TMPDIR/wordpress-nightly/wordpress-nightly.zip -d $TMPDIR/wordpress-nightly/
 		cp -r $TMPDIR/wordpress-nightly/wordpress/* $WP_CORE_DIR
 	else
+		# An exact version is cached; "latest" is not, as nothing pins what it is.
+		# (A version-check call used to sit here; both of its branches picked
+		# the same archive, so it is gone.)
+		local ARCHIVE_NAME="wordpress-$WP_VERSION" CACHE_NAME="core/wordpress-$WP_VERSION.tar.gz"
 		if [ $WP_VERSION == 'latest' ]; then
-			local ARCHIVE_NAME='latest'
-		elif [[ $WP_VERSION =~ [0-9]+\.[0-9]+ ]]; then
-			# https serves multiple offers, whereas http serves single.
-			download https://api.wordpress.org/core/version-check/1.7/?version=$WP_VERSION $TMPDIR/wp-latest.json
-			if [[ $WP_VERSION -eq $(grep -o '"version":"[^"]*' $TMPDIR/wp-latest.json | sed 's/"version":"//' | head -1) ]]; then
-				local ARCHIVE_NAME="wordpress-$WP_VERSION"
-			else
-				local ARCHIVE_NAME="wordpress-$WP_VERSION"
-			fi
-		else
-			local ARCHIVE_NAME="wordpress-$WP_VERSION"
+			ARCHIVE_NAME='latest'
+			CACHE_NAME=''
 		fi
 
-		download https://wordpress.org/${ARCHIVE_NAME}.tar.gz  $TMPDIR/wordpress.tar.gz
-		tar --strip-components=1 -zxmf $TMPDIR/wordpress.tar.gz -C $WP_CORE_DIR
+		dc_untar "$CACHE_NAME" https://wordpress.org/${ARCHIVE_NAME}.tar.gz $WP_CORE_DIR
 	fi
 
-	download https://raw.github.com/markoheijnen/wp-mysqli/master/db.php $WP_CORE_DIR/wp-content/db.php
+	# No version in this URL: cached by URL, fetched again after
+	# WPMCP_TEST_LATEST_TTL_HOURS.
+	dc_copy misc/wp-mysqli-db.php https://raw.github.com/markoheijnen/wp-mysqli/master/db.php $WP_CORE_DIR/wp-content/db.php "${WPMCP_TEST_LATEST_TTL_HOURS:-24}"
 }
 
 install_test_suite() {
@@ -90,12 +98,12 @@ install_test_suite() {
 	if [ ! -d $WP_TESTS_DIR ]; then
 		# set up testing suite
 		mkdir -p $WP_TESTS_DIR
-		svn export --quiet https://develop.svn.wordpress.org/${WP_TESTS_TAG}/tests/phpunit/includes/ $WP_TESTS_DIR/includes
-		svn export --quiet https://develop.svn.wordpress.org/${WP_TESTS_TAG}/tests/phpunit/data/ $WP_TESTS_DIR/data
+		dc_export "$TESTS_CACHE${TESTS_CACHE:+-includes}" https://develop.svn.wordpress.org/${WP_TESTS_TAG}/tests/phpunit/includes/ $WP_TESTS_DIR/includes
+		dc_export "$TESTS_CACHE${TESTS_CACHE:+-data}" https://develop.svn.wordpress.org/${WP_TESTS_TAG}/tests/phpunit/data/ $WP_TESTS_DIR/data
 	fi
 
 	if [ ! -f wp-tests-config.php ]; then
-		download https://develop.svn.wordpress.org/${WP_TESTS_TAG}/wp-tests-config-sample.php "$WP_TESTS_DIR"/wp-tests-config.php
+		dc_copy "${TESTS_CACHE:+$TESTS_CACHE-wp-tests-config-sample.php}" https://develop.svn.wordpress.org/${WP_TESTS_TAG}/wp-tests-config-sample.php "$WP_TESTS_DIR"/wp-tests-config.php
 		# remove all forward slashes in the end
 		WP_CORE_DIR=$(echo $WP_CORE_DIR | sed "s:/\+$::")
 		sed $ioption "s:dirname( __FILE__ ) . '/src/':'$WP_CORE_DIR/':" "$WP_TESTS_DIR"/wp-tests-config.php
