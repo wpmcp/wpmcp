@@ -8,10 +8,11 @@ use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
 
 require_once __DIR__ . '/../../support/elementor-addon-stubs.php';
+require_once __DIR__ . '/../../support/jet-elements-stubs.php';
 
 /**
  * Elementor addon suite packs (issue #286): Essential Addons, Premium Addons
- * and Ultimate Addons, as paid-tier ops on the theme dispatcher pair. Each
+ * and Ultimate Addons, plus JetElements (issue #653), as paid-tier ops on the theme dispatcher pair. Each
  * suite gets a widget catalog read (its registered widgets with their
  * controls, from Elementor's widgets manager) and a module toggle pair that
  * reads and writes the suite's own settings option in the suite's own
@@ -22,7 +23,7 @@ require_once __DIR__ . '/../../support/elementor-addon-stubs.php';
  */
 class ElementorAddonPacksTest extends \WP_UnitTestCase
 {
-    private const SUITES = [ 'essential-addons', 'premium-addons', 'ultimate-addons' ];
+    private const SUITES = [ 'essential-addons', 'premium-addons', 'ultimate-addons', 'jet-elements' ];
 
     /** @var string[] widget names registered by a test, unregistered in tearDown */
     private array $widgets = [];
@@ -36,11 +37,12 @@ class ElementorAddonPacksTest extends \WP_UnitTestCase
         \PremiumAddons\Admin\Includes\Admin_Helper::$keys = [];
         \HFE\WidgetsManager\Base\HFE_Helper::$list        = [];
         unset($GLOBALS['eael_config']);
+        $this->reset_jet_settings();
     }
 
     protected function tearDown(): void
     {
-        foreach ([ 'essential_addons', 'premium_addons', 'ultimate_addons' ] as $suite) {
+        foreach ([ 'essential_addons', 'premium_addons', 'ultimate_addons', 'jet_elements' ] as $suite) {
             remove_all_filters("wpmcp_{$suite}_active");
         }
         if ([] !== $this->widgets && class_exists('\\Elementor\\Plugin')) {
@@ -53,6 +55,8 @@ class ElementorAddonPacksTest extends \WP_UnitTestCase
         delete_option('eael_save_settings');
         delete_option('pa_save_settings');
         delete_option('_hfe_widgets');
+        delete_option('jet-elements-settings');
+        $this->reset_jet_settings();
         wp_cache_delete('pa_elements', 'premium_addons');
         Gate::set_pro_for_tests(null);
         parent::tearDown();
@@ -123,6 +127,24 @@ class ElementorAddonPacksTest extends \WP_UnitTestCase
             'Retina'    => [ 'slug' => 'retina', 'default' => true ],
             'Copyright' => [ 'slug' => 'copyright', 'default' => true ],
             'Cart'      => [ 'slug' => 'cart', 'default' => false ],
+        ];
+    }
+
+    private function reset_jet_settings(): void
+    {
+        $settings                               = \Jet_Elements_Settings::get_instance();
+        $settings->avaliable_widgets            = [];
+        $settings->default_avaliable_extensions = [ 'section_parallax' => 'true' ];
+        $settings->settings                     = null;
+    }
+
+    /** The JetElements catalog: widget file slug => Name header, as its settings init() builds it. */
+    private function seed_jet_widgets(): void
+    {
+        \Jet_Elements_Settings::get_instance()->avaliable_widgets = [
+            'jet-elements-banner'   => 'Banner',
+            'jet-elements-button'   => 'Button',
+            'jet-elements-timeline' => 'Timeline',
         ];
     }
 
@@ -372,5 +394,137 @@ class ElementorAddonPacksTest extends \WP_UnitTestCase
         $out = $this->write('set-essential-addons-modules', [ 'modules' => [ 'post-grid' => false ] ]);
         $this->assertSame('operation_denied', $out['error']['code']);
         $this->assertFalse(get_option('eael_save_settings'));
+    }
+
+    public function test_jet_elements_widget_catalog_goes_by_class_name_not_the_shared_category(): void
+    {
+        $this->register_widgets(
+            \Elementor\Jet_Elements_Fixture_Banner::class,
+            \Elementor\Jet_Fixture_Unfold::class,
+            \WPMCP\Tests\Support\ElementorAddons\Essential_Card::class
+        );
+        $this->activate('jet-elements');
+
+        $result = $this->read('list-jet-elements-widgets')['result'];
+        $this->assertSame('jet-elements', $result['suite']);
+        $this->assertSame([ 'jet-fixture-banner' ], array_column($result['widgets'], 'name'), 'Another Crocoblock plugin in the cherry category is not JetElements');
+        $this->assertSame([ 'cherry' ], $result['widgets'][0]['categories']);
+        $this->assertArrayNotHasKey('controls', $result['widgets'][0]);
+
+        $one = $this->read('list-jet-elements-widgets', [ 'widget' => 'jet-fixture-banner' ])['result'];
+        $this->assertArrayHasKey('fixture_title', $one['widgets'][0]['controls']);
+        $this->assertSame('unknown_widget', $this->read('list-jet-elements-widgets', [ 'widget' => 'jet-fixture-unfold' ])['error']['code']);
+    }
+
+    public function test_jet_elements_modules_are_all_on_while_nothing_is_saved(): void
+    {
+        $this->activate('jet-elements');
+        $this->seed_jet_widgets();
+
+        $result = $this->read('get-jet-elements-modules')['result'];
+        $this->assertSame('jet-elements-settings', $result['option']);
+        $this->assertSame(
+            [ 'jet-elements-banner' => true, 'jet-elements-button' => true, 'jet-elements-timeline' => true, 'section_parallax' => true ],
+            $result['modules'],
+            'With no saved widget map JetElements registers every widget, and the parallax extension defaults on'
+        );
+
+        update_option('jet-elements-settings', [ 'api_key' => 'secret', 'avaliable_widgets' => [] ]);
+        \Jet_Elements_Settings::get_instance()->settings = null;
+        $this->assertTrue($this->read('get-jet-elements-modules')['result']['modules']['jet-elements-button'], 'An empty saved map still means every widget');
+    }
+
+    public function test_jet_elements_reads_a_saved_map_the_way_jet_elements_does(): void
+    {
+        $this->activate('jet-elements');
+        $this->seed_jet_widgets();
+        update_option('jet-elements-settings', [
+            'api_key'              => 'secret',
+            'avaliable_widgets'    => [ 'jet-elements-banner' => 'true', 'jet-elements-button' => 'false', 'jet-elements-legacy' => 'true' ],
+            'avaliable_extensions' => [],
+        ]);
+
+        $result = $this->read('get-jet-elements-modules')['result'];
+        $this->assertSame(
+            [
+                'jet-elements-banner'   => true,
+                'jet-elements-button'   => false,
+                'jet-elements-legacy'   => true,
+                'jet-elements-timeline' => false,
+                'section_parallax'      => false,
+            ],
+            $result['modules'],
+            'Once a widget map is saved a missing widget is off; a saved extension map without the key is off'
+        );
+        $this->assertStringNotContainsString('secret', (string) wp_json_encode($result), 'The other settings in the option, API keys among them, are never read out');
+    }
+
+    public function test_jet_elements_toggle_writes_only_the_module_maps_and_rolls_back_exactly(): void
+    {
+        $this->activate('jet-elements');
+        $this->seed_jet_widgets();
+        $stored = [
+            'api_key'            => 'secret',
+            'widgets_load_level' => 100,
+            'avaliable_widgets'  => [ 'jet-elements-banner' => 'true', 'jet-elements-button' => 'true', 'jet-elements-timeline' => 'true' ],
+        ];
+        update_option('jet-elements-settings', $stored);
+        $settings = \Jet_Elements_Settings::get_instance();
+        $this->assertSame('true', $settings->get('avaliable_widgets')['jet-elements-button'], 'JetElements cached its settings for the request');
+
+        $out = $this->write('set-jet-elements-modules', [ 'modules' => [ 'jet-elements-button' => false, 'section_parallax' => false, 'jet-elements-banner' => true ] ]);
+        $this->assertArrayNotHasKey('error', $out);
+        $this->assertTrue($out['recoverable']);
+        $this->assertSame([ 'jet-elements-button' => false, 'section_parallax' => false ], $out['result']['changed']);
+        $this->assertSame(
+            [
+                'api_key'              => 'secret',
+                'widgets_load_level'   => 100,
+                'avaliable_widgets'    => [ 'jet-elements-banner' => 'true', 'jet-elements-button' => 'false', 'jet-elements-timeline' => 'true' ],
+                'avaliable_extensions' => [ 'section_parallax' => 'false' ],
+            ],
+            get_option('jet-elements-settings'),
+            'Every other setting is kept; toggles are stored as the strings JetElements saves'
+        );
+        $this->assertSame('false', $settings->get('avaliable_widgets')['jet-elements-button'], 'The JetElements settings cache is dropped after the write');
+        $this->assertFalse($out['result']['modules']['jet-elements-button']);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame($stored, get_option('jet-elements-settings'), 'Byte for byte');
+        $this->assertSame('true', $settings->get('avaliable_widgets')['jet-elements-button'], 'A rollback drops the settings cache too');
+    }
+
+    public function test_jet_elements_first_toggle_saves_the_full_widget_map(): void
+    {
+        $this->activate('jet-elements');
+        $this->seed_jet_widgets();
+        $this->assertFalse(get_option('jet-elements-settings'));
+
+        $out = $this->write('set-jet-elements-modules', [ 'modules' => [ 'jet-elements-timeline' => false ] ]);
+        $this->assertSame(
+            [ 'avaliable_widgets' => [ 'jet-elements-banner' => 'true', 'jet-elements-button' => 'true', 'jet-elements-timeline' => 'false' ] ],
+            get_option('jet-elements-settings'),
+            'Saving only the toggled widget would switch every other widget off, so the defaults are written out'
+        );
+        $this->assertTrue($this->read('get-jet-elements-modules')['result']['modules']['section_parallax'], 'The untouched extension keeps its default');
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertFalse(get_option('jet-elements-settings'), 'The option is absent again');
+    }
+
+    public function test_jet_elements_refuses_an_unknown_module_and_skips_a_no_op(): void
+    {
+        $this->activate('jet-elements');
+        $this->seed_jet_widgets();
+        $before = Snapshot_Store::row_count();
+
+        $bad = $this->write('set-jet-elements-modules', [ 'modules' => [ 'jet-elements-banner' => false, 'jet-banner' => false ] ]);
+        $this->assertSame('unknown_module', $bad['error']['code'], 'Modules go by file slug, not the Elementor widget name');
+        $this->assertFalse(get_option('jet-elements-settings'));
+
+        $noop = $this->write('set-jet-elements-modules', [ 'modules' => [ 'jet-elements-banner' => true ] ]);
+        $this->assertSame([], $noop['result']['changed']);
+        $this->assertFalse(get_option('jet-elements-settings'));
+        $this->assertSame($before, Snapshot_Store::row_count());
     }
 }
