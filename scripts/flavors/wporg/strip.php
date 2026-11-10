@@ -226,6 +226,38 @@ $edits['src/MCP/Registrar.php'] = [
         "     * including ones governance then dropped. Display-only\n",
         1,
     ],
+    // The meta-tools' "needs the paid tier" refusal (issue #631) has no
+    // tier to name in this build, so it goes, and its two callers below
+    // fall through to the governance refusal (issue #772) and then to
+    // "no such tool" as before.
+    [
+        <<<'SRC'
+    /**
+     * The refusal for a name that is not registered because it is a Pro
+     * tool and this install has no active license (issue #631), or null
+     * when that is not the reason. Lets the meta-tools say "needs WP MCP
+     * Pro" instead of "no tool by that name". Grants nothing: the tool is
+     * still unregistered and unreachable.
+     */
+    public function pro_required(string $name): ?\WP_Error
+    {
+        $declared = $this->declared[ $name ] ?? $this->held_for_plugin[ $name ]['ability'] ?? null;
+        if (null === $declared || isset($this->abilities[ $name ]) || self::tier_permitted($declared->tier)) {
+            return null;
+        }
+
+        return new \WP_Error(
+            'pro_required',
+            sprintf(
+                '"%s" is a WP MCP Pro tool, and this site has no active WP MCP Pro license, so the tool is not available here. Activate a WP MCP Pro license on this site to use it.',
+                $name
+            )
+        );
+    }
+SRC . "\n\n",
+        '',
+        1,
+    ],
 ];
 
 // ------------------------------------------------------- snapshot retention
@@ -252,7 +284,7 @@ $edits['src/Tools/Compose/Build_Page.php'][] = [
     <<<'SRC'
         if ('elementor' === $spec['dialect']) {
             if (! Gate::can_use('build-page-builder')) {
-                throw new \RuntimeException('The builder (Elementor) dialect is not enabled for this install; the Gutenberg dialect is always available.');
+                throw new \RuntimeException('The builder (Elementor) dialect of build-page needs an active WP MCP Pro license on this site. The Gutenberg dialect is free and always available: pass dialect "gutenberg" to build the page with blocks instead.');
             }
             if (! class_exists('\\Elementor\\Plugin')) {
                 throw new \RuntimeException('The builder dialect requires Elementor to be active on this site.');
@@ -982,14 +1014,6 @@ $plugin_edits[] = ["        \$insert_stock_image  = new Insert_Stock_Image();\n"
 // takes the registration; this is the local its handler was assigned to.
 $plugin_edits[] = ["\n        \$install_package_from_zip = new Install_Package_From_Zip();\n", '', 1];
 
-// Every ability in this build is free and Registrar refuses a pro-tier one
-// outright, so offering the agent a free/pro split to filter on describes a
-// product that is not in the zip.
-$plugin_edits[] = [
-    "with tier (free/pro), operation",
-    "with tier, operation",
-    1,
-];
 // The self-hosted translation loader goes with its method (REMOVED_METHODS):
 // the directory serves language packs, so the languages/ directory the header
 // points at is only ever read by the off-directory builds.
@@ -1015,17 +1039,17 @@ $plugin_edits[] = [
 // The ability's agent-facing description and input schema (issue #162): no
 // dialect choice, no "(PRO)" copy, no elementor enum value in this build.
 $plugin_edits[] = [
-    'dialect "gutenberg" (default, free) builds block markup; dialect "elementor" (PRO, requires Elementor) builds an _elementor_data element tree. Set dry_run=true',
-    'The spec composes block editor (Gutenberg) markup. Set dry_run=true',
+    'dialect "gutenberg" (default, free) builds block markup; "elementor" (PRO, needs Elementor) an _elementor_data element tree. dry_run=true',
+    'The spec composes block editor (Gutenberg) markup. dry_run=true',
     1,
 ];
-// "unknown widget types" and "atomic props that had to be coerced" were both
+// "unknown widget types" and "coerced atomic props" were both
 // produced only by the builder composer, which is not in this build, so the
 // dry run can never report either. The description is what the calling model
 // reads, so it must not promise them.
 $plugin_edits[] = [
-    'nesting depth, markup size, unknown widget types, atomic props that had to be coerced, and every referential problem at once',
-    'nesting depth, markup size, and every referential problem at once',
+    'nesting depth, markup size, unknown widget types, coerced atomic props and every referential problem at once',
+    'nesting depth, markup size and every referential problem at once',
     1,
 ];
 $plugin_edits[] = [
@@ -1343,6 +1367,25 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
         '',
         1,
     ],
+    // The theme add-on layout ops (issue #656): their files are removed by
+    // policy.php, so the merge and the docblock lines naming them leave too.
+    [
+        "        return array_merge(self::settings_operations(\$framework), Theme_Layouts_Pack::operations(\$framework));\n",
+        "        return self::settings_operations(\$framework);\n",
+        1,
+    ],
+    [
+        " * spec(). Astra Pro, Kadence Pro and GP Premium custom layouts (issue\n"
+            . " * #656) are Theme_Layouts_Pack ops for the same active family.\n",
+        " * spec().\n",
+        1,
+    ],
+    [
+        "     * The settings pack of the active framework family, or none. The\n"
+            . "     * premium add-on layout ops (issue #656) join it in operations().\n",
+        "     * The settings pack of the active framework family, or none.\n",
+        1,
+    ],
 ];
 
 // The Elementor addon suite packs (issue #286) are the paid add-on's. Their
@@ -1388,6 +1431,28 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The MemberPress ops (issue #668) are the paid add-on's too, removed by
+    // policy.php; their lines go first, so the page translation edits below
+    // still match.
+    [
+        " *  - Issue #668 adds the paid-tier MemberPress ops (MemberPress_Pack):\n"
+            . " *    memberships, rules and their access conditions, read and written as\n"
+            . " *    MemberPress stores them, plus read-only members and transactions.\n",
+        '',
+        1,
+    ],
+    [
+        "            || I18n_Pack::active()\n"
+            . "            || MemberPress_Pack::active();\n",
+        "            || I18n_Pack::active();\n",
+        1,
+    ],
+    [
+        "            I18n_Pack::operations(),\n"
+            . "            MemberPress_Pack::operations()\n",
+        "            I18n_Pack::operations()\n",
+        1,
+    ],
     // The page translation ops (issue #498) are the paid add-on's too,
     // removed by policy.php; their lines go first, so the Amelia edits below
     // still match.
@@ -1512,7 +1577,10 @@ $edits['src/Plugin.php'][] = [
         . "        // keeps its table id map in memory; a rollback of either drops the\n"
         . "        // cache and refreshes the map (issue #481).\n"
         . "        [\\WPMCP\\Integrations\\TablePress_Pack::class, 'after_options_restored'],\n"
-        . "        [\\WPMCP\\Integrations\\TablePress_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],\n",
+        . "        [\\WPMCP\\Integrations\\TablePress_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],\n"
+        . "        // An undo of a TablePress id map write puts back only the entries\n"
+        . "        // that write touched, so later tables stay (issue #555).\n"
+        . "        [\\WPMCP\\Integrations\\TablePress_Pack::class, 'narrow_map_restore', 'wpmcp_rollback_option_snapshot'],\n",
     '',
     1,
 ];
@@ -1534,8 +1602,28 @@ $edits['src/MCP/Tool_Exposure.php'] = [
 
 $edits['src/Tools/Dispatch/Call_Tool.php'] = [
     [
+        "            // A Pro tool on an unlicensed install says so (issue #631)\n"
+            . "            // rather than claiming no such tool exists, and so does a tool\n"
+            . "            // whose plugin is not active (issue #790).\n"
+            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
+        "            // A tool whose plugin is not active says so (issue #790).\n"
+            . "            return \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
+        1,
+    ],
+    [
         " *    scope + the live pro-license re-check, with the decision audited under\n",
         " *    scope, with the decision audited under\n",
+        1,
+    ],
+];
+
+$edits['src/Tools/Dispatch/Get_Tool_Schema.php'] = [
+    [
+        "            // A Pro tool on an unlicensed install says so (issue #631),\n"
+            . "            // and a tool whose plugin is not active names it (issue #790).\n"
+            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
+        "            // A tool whose plugin is not active names it (issue #790).\n"
+            . "            return \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
         1,
     ],
 ];

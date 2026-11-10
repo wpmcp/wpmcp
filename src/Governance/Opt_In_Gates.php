@@ -13,7 +13,11 @@ use WPMCP\Tools\Filesystem\Delete_File;
 use WPMCP\Tools\Filesystem\Edit_File;
 use WPMCP\Tools\Filesystem\Write_File;
 use WPMCP\Tools\Migration\Migration_Guard;
+use WPMCP\Tools\Packages\Delete_Plugin;
+use WPMCP\Tools\Packages\Delete_Theme;
 use WPMCP\Tools\Packages\Package_Guard;
+use WPMCP\Tools\Packages\Update_Plugin;
+use WPMCP\Tools\Packages\Update_Theme;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -70,6 +74,11 @@ class Opt_In_Gates
             // sanitized reject-not-clean and has no opt-in filter to open,
             // and marking it dangerous would blunt the warning.
             'wpmcp/add-custom-js'   => ['filter' => 'wpmcp_allow_js_injection', 'is_open' => [Custom_Js_Guard::class, 'is_enabled']],
+            // An Elementor Custom Code snippet (issue #558) is raw markup
+            // printed in wp_head, wp_body_open or wp_footer on every page:
+            // the same surface, so the same gate. Its list and delete
+            // siblings only read or reduce and are deliberately NOT listed.
+            'wpmcp/create-code-snippet' => ['filter' => 'wpmcp_allow_js_injection', 'is_open' => [Custom_Js_Guard::class, 'is_enabled']],
             'wpmcp/write-file'      => ['filter' => 'wpmcp_enable_fs_writes', 'is_open' => [Write_File::class, 'is_enabled']],
             'wpmcp/edit-file'       => ['filter' => 'wpmcp_enable_fs_writes', 'is_open' => [Edit_File::class, 'is_enabled']],
             'wpmcp/delete-file'     => ['filter' => 'wpmcp_enable_fs_writes', 'is_open' => [Delete_File::class, 'is_enabled']],
@@ -89,6 +98,13 @@ class Opt_In_Gates
             // Installing a plugin or theme from an uploaded ZIP (issue #282) puts
             // code from outside the directory on the site.
             'wpmcp/install-package-from-zip' => ['filter' => 'wpmcp_enable_zip_install', 'is_open' => [Package_Guard::class, 'zip_install_enabled']],
+            // Deleting or updating a plugin or theme (issue #631) replaces or
+            // removes code on disk, and each tool is default-off behind its
+            // own filter, so each is a gate the grid must not appear to open.
+            'wpmcp/delete-plugin' => ['filter' => 'wpmcp_enable_delete_plugin', 'is_open' => [Delete_Plugin::class, 'is_enabled']],
+            'wpmcp/update-plugin' => ['filter' => 'wpmcp_enable_update_plugin', 'is_open' => [Update_Plugin::class, 'is_enabled']],
+            'wpmcp/delete-theme'  => ['filter' => 'wpmcp_enable_delete_theme', 'is_open' => [Delete_Theme::class, 'is_enabled']],
+            'wpmcp/update-theme'  => ['filter' => 'wpmcp_enable_update_theme', 'is_open' => [Update_Theme::class, 'is_enabled']],
         ];
     }
 

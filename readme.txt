@@ -40,6 +40,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
 * With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
 * With Pro, Tutor LMS and LifterLMS: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read)
+* With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
 * Media library plus stock image imports
 * REST passthrough for anything else, still snapshotted
 
@@ -104,6 +105,8 @@ No. Snapshots are fine-grained, per-operation undo, not full-site backups. Keep 
 = Which AI clients work? =
 
 Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authentication works via OAuth 2.1 or WordPress application passwords.
+
+OAuth is off by default. Clients configured with an application password (Claude Code, Cursor, the Claude Desktop bundle or config file) do not need it. The Claude Desktop and claude.ai "Add custom connector" option does: it can only sign in with OAuth, and on a site with OAuth off it fails with "Couldn't register with WP MCP's sign-in service". To switch OAuth on, add define('WPMCP_OAUTH_ENABLED', true); to wp-config.php, or return true from the wpmcp_oauth_enabled filter. The WP MCP Connection screen shows whether OAuth is on and the steps to add the connector.
 
 = Is it really free? =
 

@@ -12,7 +12,9 @@ if (! defined('ABSPATH')) {
  * route template, required path params, the capability the dispatcher
  * checks before dispatch, whether it needs confirm:true, whether it is
  * switched on for this site (a row whose taxonomy is not registered, such
- * as the brand ops on an older WooCommerce, reports false), which snapshot type backs it and whether a
+ * as the brand ops on an older WooCommerce, reports false; a row whose
+ * plugin, such as WooCommerce Subscriptions, is not active is left out and
+ * the rest name the plugin they need in requires), which snapshot type backs it and whether a
  * rollback can fully undo it, plus a one-line summary, grouped by domain and
  * optionally filtered to one domain.
  * Read-only; touches nothing but the static catalog, so it answers even when
@@ -34,6 +36,11 @@ class Woo_Ops
             if ('' !== $domain_filter && $def['domain'] !== $domain_filter) {
                 continue;
             }
+            // A row whose plugin is not active stays out of the listing
+            // (issue #658); a direct call says what to install.
+            if (! Op_Guard::plugin_available($def)) {
+                continue;
+            }
             $domains[$def['domain']][] = [
                 'op'               => $name,
                 'mode'             => $def['mode'],
@@ -47,7 +54,7 @@ class Woo_Ops
                 'snapshot'         => $def['snapshot']['type'] ?? null,
                 'recoverable'      => $def['recoverable'],
                 'summary'          => $def['summary'],
-            ];
+            ] + (null !== $def['plugin'] ? [ 'requires' => Op_Guard::PLUGINS[ $def['plugin'] ]['name'] ?? $def['plugin'] ] : []);
         }
 
         return [

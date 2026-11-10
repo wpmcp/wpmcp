@@ -12,7 +12,9 @@ if (! defined('ABSPATH')) {
  * execution; writes, DDL, stacked statements, executable comments, and
  * file-access SQL are all rejected there. Reads touching the users or
  * usermeta tables are additionally refused by
- * Database_Guard::guard_user_table_read() (credential and session data).
+ * Database_Guard::guard_user_table_read() (credential and session data),
+ * and reads of WP MCP's snapshot ledger by
+ * Database_Guard::guard_internal_store_read() (raw undo copies).
  * On multisite, a caller without manage_network_options may only reference
  * the current site's tables (Database_Guard::guard_query_scope()). For the
  * users tables, sites can opt in via wpmcp_db_allow_user_table_reads, in which case
@@ -41,11 +43,28 @@ class Query
             throw new \RuntimeException(esc_html($user_table_read->get_error_message()));
         }
 
+        // WP MCP's snapshot ledger holds raw undo copies (issue #550).
+        $store_read = Database_Guard::guard_internal_store_read($sql);
+        if (is_wp_error($store_read)) {
+            throw new \RuntimeException(esc_html($store_read->get_error_message()));
+        }
+        // The audit and request logs are masked when written; a log written
+        // before that is masked now, before any SQL can read it.
+        Database_Guard::mask_internal_stores();
+
         // Multisite: a caller without network rights stays inside the
         // current site's tables (issue #526).
         $scope = Database_Guard::guard_query_scope($sql);
         if (is_wp_error($scope)) {
             throw new \RuntimeException(esc_html($scope->get_error_message()));
+        }
+
+        // Option values only through a plain lookup of named, readable
+        // options: the live gateway settings row cannot be masked at rest,
+        // and a SQL transform defeats the result mask (issue #621).
+        $option_read = Database_Guard::guard_option_value_read($sql);
+        if (is_wp_error($option_read)) {
+            throw new \RuntimeException(esc_html($option_read->get_error_message()));
         }
 
         global $wpdb;

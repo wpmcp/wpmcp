@@ -71,7 +71,41 @@ class EndpointsTest extends \WP_Test_REST_TestCase
 
         $this->assertArrayNotHasKey('/wpmcp/v1/oauth/register', $routes);
         $this->assertArrayNotHasKey('/wpmcp/v1/oauth/token', $routes);
-        $this->assertArrayNotHasKey('/wpmcp/v1/oauth/authorize', $routes);
+    }
+
+    /**
+     * Issues #581 and #720: with OAuth off, a client that remembered the
+     * authorization address still opens it, so the address says OAuth is
+     * off and how to switch it on (the Connection screen's words) instead
+     * of a bare rest_no_route. It issues nothing.
+     */
+    public function test_the_authorize_address_explains_oauth_is_off(): void
+    {
+        $this->assertFalse(OAuth_Config::is_enabled());
+
+        global $wp_rest_server;
+        $wp_rest_server = new \WP_REST_Server();
+        do_action('rest_api_init', $wp_rest_server);
+
+        foreach (['GET', 'POST'] as $method) {
+            $request = new \WP_REST_Request($method, '/wpmcp/v1/oauth/authorize');
+            $request->set_header('Accept', 'application/json');
+            $request->set_query_params(['client_id' => 'x', 'response_type' => 'code']);
+            $response = rest_do_request($request);
+
+            $this->assertSame(404, $response->get_status(), $method);
+            $data = $response->get_data();
+            $this->assertSame('oauth_disabled', $data['error'] ?? null, $method);
+            $this->assertStringContainsString('OAuth is off for this site', $data['error_description']);
+            $this->assertStringContainsString("define('WPMCP_OAUTH_ENABLED', true);", $data['error_description']);
+            $this->assertStringContainsString('wp-config.php', $data['error_description']);
+            $this->assertStringNotContainsString('enable_oauth', $data['error_description']);
+            $this->assertArrayNotHasKey('Location', $response->get_headers(), 'Nothing is redirected or issued.');
+        }
+
+        $page = Endpoints::oauth_off_page(Endpoints::oauth_off_message());
+        $this->assertStringContainsString('<h1>OAuth is off</h1>', $page);
+        $this->assertStringContainsString(esc_html("define('WPMCP_OAUTH_ENABLED', true);"), $page);
     }
 
     public function test_well_known_paths_are_not_served_when_oauth_is_disabled(): void

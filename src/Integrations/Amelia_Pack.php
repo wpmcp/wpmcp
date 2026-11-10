@@ -60,6 +60,12 @@ if (! defined('ABSPATH')) {
  * every op that returns them needs amelia_read_customers or
  * amelia_read_appointments.
  *
+ * Amelia grants amelia_read_appointments and amelia_read_events to its own
+ * customer and employee roles too, so the appointment and event reads are
+ * scoped the way Amelia scopes its own lists (viewer()): an administrator
+ * or Amelia manager sees everything, an employee only what is assigned to
+ * them, and anyone else only what they booked, with only their own booking.
+ *
  * Presence is filterable (wpmcp_amelia_active); while Amelia is not loaded
  * the ops stay documented in list-operations (dependency_met:false) and
  * answer amelia_inactive.
@@ -339,7 +345,7 @@ final class Amelia_Pack
                     'properties' => [ 'event_id' => $id ],
                     'required'   => [ 'event_id' ],
                 ],
-                'validate'     => static fn (array $args): ?array => self::exists('events', (int) $args['event_id'], 'Event'),
+                'validate'     => static fn (array $args): ?array => self::exists('events', (int) $args['event_id'], 'Event') ?? self::event_scope_refusal((int) $args['event_id']),
                 'handler'      => static fn (array $args): array => self::attendees((int) $args['event_id']),
             ],
             'amelia-create-category'    => $base + [
@@ -1228,6 +1234,15 @@ final class Amelia_Pack
             $where .= ' AND EXISTS (SELECT 1 FROM %i cb WHERE cb.appointmentId = a.id AND cb.customerId = %d)';
             array_push($vars, self::t('customer_bookings'), (int) $args['customer_id']);
         }
+        $viewer = self::viewer();
+        if (null !== $viewer && 'customer' === $viewer['type']) {
+            // A customer naming someone else learns nothing, not even which of their appointments that person shares.
+            $where .= ' AND EXISTS (SELECT 1 FROM %i own WHERE own.appointmentId = a.id AND own.customerId = %d) AND %d IN (0, %d)';
+            array_push($vars, self::t('customer_bookings'), $viewer['id'], (int) ($args['customer_id'] ?? 0), $viewer['id']);
+        } elseif (null !== $viewer && ! current_user_can('amelia_read_others_appointments')) {
+            $where .= ' AND a.providerId = %d';
+            $vars[] = $viewer['id'];
+        }
         // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $where holds only placeholders.
         $total = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i a WHERE ' . $where, self::t('appointments'), ...$vars));
         // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $where holds only placeholders.
@@ -1261,6 +1276,10 @@ final class Amelia_Pack
             self::t('users'),
             (int) $row['id']
         ), ARRAY_A);
+        $viewer = self::viewer();
+        if (null !== $viewer && 'customer' === $viewer['type']) {
+            $bookings = array_values(array_filter($bookings, static fn (array $b): bool => (int) $b['customerId'] === $viewer['id']));
+        }
 
         return [
             'id'          => (int) $row['id'],
@@ -1338,6 +1357,14 @@ final class Amelia_Pack
             $where .= ' AND e.status = %s';
             $vars[] = (string) $args['status'];
         }
+        $viewer = self::viewer();
+        if (null !== $viewer && 'customer' === $viewer['type']) {
+            $where .= ' AND EXISTS (SELECT 1 FROM %i cb JOIN %i link ON link.customerBookingId = cb.id JOIN %i p2 ON p2.id = link.eventPeriodId WHERE p2.eventId = e.id AND cb.customerId = %d)';
+            array_push($vars, self::t('customer_bookings'), self::t('customer_bookings_to_events_periods'), self::t('events_periods'), $viewer['id']);
+        } elseif (null !== $viewer) {
+            $where .= ' AND EXISTS (SELECT 1 FROM %i ep WHERE ep.eventId = e.id AND ep.userId = %d)';
+            array_push($vars, self::t('events_to_providers'), $viewer['id']);
+        }
         // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $where holds only placeholders.
         $rows = (array) $wpdb->get_results($wpdb->prepare('SELECT e.* FROM %i e WHERE ' . $where . ' ORDER BY e.id ASC', ...$vars), ARRAY_A);
 
@@ -1408,10 +1435,63 @@ final class Amelia_Pack
 
     private static function attendees(int $event_id): array
     {
+        $bookings = self::event_bookings($event_id);
+        $viewer   = self::viewer();
+        if (null !== $viewer && 'customer' === $viewer['type']) {
+            $bookings = array_filter($bookings, static fn (array $b): bool => (int) $b['customerId'] === $viewer['id']);
+        }
         return [
             'event_id'  => $event_id,
-            'attendees' => array_map(static fn (array $b): array => self::attendee_shape($b), self::event_bookings($event_id)),
+            'attendees' => array_values(array_map(static fn (array $b): array => self::attendee_shape($b), $bookings)),
         ];
+    }
+
+    /**
+     * Whose bookings the current user may see, the way Amelia scopes its own
+     * appointment and event lists (GetAppointmentsCommandHandler,
+     * GetEventsCommandHandler, UserRoles::getUserAmeliaRole): null for
+     * everyone's (an administrator, a super admin, anyone with
+     * manage_options, an Amelia manager), otherwise the user's Amelia type
+     * (provider for the wpamelia-provider role, customer for anyone else)
+     * and their Amelia user id, found by externalId (0 when there is none,
+     * which matches nothing).
+     *
+     * @return array{type: string, id: int}|null
+     */
+    private static function viewer(): ?array
+    {
+        global $wpdb;
+
+        $user  = wp_get_current_user();
+        $roles = (array) $user->roles;
+        if (current_user_can('manage_options') || is_super_admin($user->ID) || in_array('administrator', $roles, true) || in_array('wpamelia-manager', $roles, true)) {
+            return null;
+        }
+        $type = in_array('wpamelia-provider', $roles, true) ? 'provider' : 'customer';
+        $id   = $user->ID > 0 ? (int) $wpdb->get_var($wpdb->prepare('SELECT id FROM %i WHERE externalId = %d AND type = %s ORDER BY id ASC LIMIT 1', self::t('users'), $user->ID, $type)) : 0;
+        return [ 'type' => $type, 'id' => $id ];
+    }
+
+    /** Refusal for an event outside the current user's view (not theirs to run, or not booked by them), or null. */
+    private static function event_scope_refusal(int $event_id): ?array
+    {
+        global $wpdb;
+
+        $viewer = self::viewer();
+        if (null === $viewer) {
+            return null;
+        }
+        $mine = 'customer' === $viewer['type']
+            ? in_array($viewer['id'], array_map(static fn (array $b): int => (int) $b['customerId'], self::event_bookings($event_id)), true)
+            : (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE eventId = %d AND userId = %d', self::t('events_to_providers'), $event_id, $viewer['id'])) > 0;
+        if ($mine && $viewer['id'] > 0) {
+            return null;
+        }
+        return self::refusal(
+            'operation_denied',
+            sprintf('Event %d is not %s, and Amelia shows its attendees only to the site\'s administrators and Amelia managers.', $event_id, 'customer' === $viewer['type'] ? 'one you booked' : 'assigned to you'),
+            [ 'reason' => 'capability' ]
+        );
     }
 
     private static function attendee_shape(array $b): array

@@ -25,7 +25,12 @@ class CreateDeleteVariationTest extends \WP_UnitTestCase
         }
         Snapshot_Store::install();
         // The test install does not run WooCommerce's role setup, so the
-        // administrator role lacks the store capability the tools require.
+        // administrator role lacks the store capabilities the tools require.
+        // Installing the roles here keeps this class passing on its own, not
+        // only after another test happened to install them.
+        \WC_Install::create_roles();
+        $GLOBALS['wp_roles'] = null;
+        wp_roles();
         $user = self::factory()->user->create_and_get(['role' => 'administrator']);
         $user->add_cap('manage_woocommerce');
         wp_set_current_user($user->ID);
@@ -73,10 +78,32 @@ class CreateDeleteVariationTest extends \WP_UnitTestCase
         $this->assertSame(['size' => 'medium'], $out['attributes']);
         $this->assertSame('15.00', $out['regular_price']);
         $this->assertSame(4, $out['stock_quantity']);
-        $this->assertSame('delete-variation', $out['undo']);
+        $this->assertIsString($out['operation_id']);
 
         $parent = wc_get_product($ids['parent']);
         $this->assertContains($out['id'], $parent->get_children());
+    }
+
+    /** Issue #761: create-variation returns an undo point, and undoing it trashes the variation. */
+    public function test_create_returns_an_undo_point_that_trashes_the_variation(): void
+    {
+        $ids = $this->parent_with_free_option();
+
+        $out = (new Create_Variation())->handle([
+            'product_id'    => $ids['parent'],
+            'attributes'    => ['size' => 'medium'],
+            'regular_price' => '5.00',
+        ]);
+        $this->assertSame('5.00', wc_get_product($ids['parent'])->get_variation_price('min'));
+
+        $rolled_back = (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        $this->assertTrue($rolled_back['restored'], implode(' ', $rolled_back['warnings']));
+        \WC_Post_Data::do_deferred_product_sync();
+
+        $this->assertSame('trash', get_post_status($out['id']));
+        $parent = wc_get_product($ids['parent']);
+        $this->assertNotContains($out['id'], $parent->get_children());
+        $this->assertSame('10.00', $parent->get_variation_price('min'));
     }
 
     public function test_create_refuses_unknown_attributes_options_and_non_variable_parents(): void

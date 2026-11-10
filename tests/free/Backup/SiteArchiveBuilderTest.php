@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tests\Free\Backup;
 
+use WPMCP\Tools\Backup\Backup_Job_Canceled;
 use WPMCP\Tools\Backup\Db_Dumper;
 use WPMCP\Tools\Backup\Site_Archive_Builder;
 use WPMCP\Tools\Backup\Site_Backup_Dir;
@@ -283,6 +284,82 @@ class SiteArchiveBuilderTest extends \WP_UnitTestCase
             static fn (string $file): bool => str_contains((string) @file_get_contents($file), $marker)
         );
         $this->assertSame([], array_values($leftovers), 'The scratch dump file must be cleaned up after a failed close.');
+    }
+
+    /**
+     * Issue #771: the archive is written under a .part name and renamed
+     * only after close() succeeded, and the build reports its progress
+     * (phase, counts, the partial path) so Run_Backup_Job can heartbeat the
+     * job, including from inside close(), where the bytes actually move.
+     */
+    public function test_the_build_reports_progress_and_only_a_complete_archive_is_named_zip(): void
+    {
+        $marker = WP_CONTENT_DIR . '/wpmcp-archive-fixture-progress.txt';
+        file_put_contents($marker, 'fixture');
+        $this->cleanup[] = $marker;
+
+        $reports = [];
+        $result  = (new Site_Archive_Builder($this->stub_dumper()))->build('all', null, static function (array $progress) use (&$reports): void {
+            $reports[] = $progress;
+        });
+        $this->cleanup[] = $result['file'];
+
+        $this->assertStringEndsWith('.zip', $result['file']);
+        $this->assertFileExists($result['file']);
+        $this->assertFileDoesNotExist($result['file'] . Site_Archive_Builder::PARTIAL_SUFFIX);
+
+        $phases = array_values(array_unique(array_column($reports, 'phase')));
+        $this->assertSame(['start', 'dump', 'files', 'finalise'], $phases);
+
+        $this->assertSame($result['file'] . Site_Archive_Builder::PARTIAL_SUFFIX, $reports[0]['partial_file'], 'The partial path is reported before anything is written');
+        $this->assertStringStartsWith(Site_Backup_Dir::path() . '/db-', (string) $reports[0]['scratch_file']);
+
+        $last = end($reports);
+        $this->assertSame('finalise', $last['phase']);
+        $this->assertSame($result['file_count'], $last['files_added']);
+        $this->assertGreaterThan(0, $last['dump_bytes']);
+        if (method_exists(\ZipArchive::class, 'registerProgressCallback')) {
+            $this->assertSame(100, $last['percent'], 'close() reports its progress through to the end');
+        }
+    }
+
+    public function test_a_progress_callback_that_throws_stops_the_build_and_leaves_nothing_behind(): void
+    {
+        $marker = '-- canceled ' . wp_generate_password(20, false);
+        $dumper = new class ($marker) extends Db_Dumper {
+            public function __construct(private string $marker)
+            {
+            }
+
+            public function dump(callable $write, ?array $tables = null): array
+            {
+                $write($this->marker . "\n");
+                return ['tables' => [], 'blob_tables' => [], 'bytes' => 0];
+            }
+        };
+
+        $target = Site_Backup_Dir::path() . '/wpmcp-canceled-fixture.zip';
+        $this->cleanup[] = $target;
+        $this->cleanup[] = $target . Site_Archive_Builder::PARTIAL_SUFFIX;
+
+        try {
+            (new Site_Archive_Builder($dumper))->build('all', $target, static function (array $progress): void {
+                if ('files' === $progress['phase']) {
+                    throw new Backup_Job_Canceled('canceled from another request');
+                }
+            });
+            $this->fail('A throwing progress callback must stop the build.');
+        } catch (Backup_Job_Canceled $e) {
+            $this->assertSame('canceled from another request', $e->getMessage());
+        }
+
+        $this->assertFileDoesNotExist($target);
+        $this->assertFileDoesNotExist($target . Site_Archive_Builder::PARTIAL_SUFFIX);
+        $leftovers = array_filter(
+            glob(Site_Backup_Dir::path() . '/db-*.sql') ?: [],
+            static fn (string $file): bool => str_contains((string) @file_get_contents($file), $marker)
+        );
+        $this->assertSame([], array_values($leftovers), 'The scratch dump is removed when the build is stopped.');
     }
 
     public function test_the_real_dumper_produces_an_importable_db_sql(): void

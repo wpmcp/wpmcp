@@ -180,6 +180,41 @@ class GetPageSnapshotTest extends \WP_UnitTestCase
         $this->assertFalse($snap['responsive_overrides']['supported']);
     }
 
+    /**
+     * Issue #735: with no tokens referenced, theme_presets and
+     * builder_globals are empty maps and must reach the wire as JSON
+     * objects ({}), not lists ([]). Both the read path and the
+     * password-protected path.
+     */
+    public function test_empty_global_token_maps_encode_as_json_objects(): void
+    {
+        $plain  = $this->post(['post_content' => '<p>No tokens here</p>']);
+        $locked = $this->post(['post_content' => '<p>Secret</p>', 'post_password' => 'hunter2']);
+
+        foreach ([$plain, $locked] as $id) {
+            $snap = $this->tool->handle(['post_id' => $id, 'sections' => ['global_tokens']]);
+            $json = (string) wp_json_encode($snap['global_tokens']);
+
+            $this->assertStringContainsString('"theme_presets":{}', $json, 'theme_presets must encode as {} for post ' . $id);
+            $this->assertStringContainsString('"builder_globals":{}', $json, 'builder_globals must encode as {} for post ' . $id);
+            $wire = json_decode((string) wp_json_encode($snap));
+            $this->assertIsObject($wire->global_tokens->theme_presets);
+            $this->assertIsObject($wire->global_tokens->builder_globals);
+        }
+    }
+
+    /** Issue #735: a filled map still encodes as an object of lists. */
+    public function test_filled_global_token_maps_still_encode_as_objects(): void
+    {
+        $id   = $this->post(['post_content' => '<p class="has-vivid-red-color">Hi</p>']);
+        $snap = $this->tool->handle(['post_id' => $id, 'sections' => ['global_tokens']]);
+
+        $wire = json_decode((string) wp_json_encode($snap));
+        $this->assertIsObject($wire->global_tokens->theme_presets);
+        $this->assertSame(['vivid-red'], $wire->global_tokens->theme_presets->color);
+        $this->assertIsObject($wire->global_tokens->builder_globals);
+    }
+
     public function test_elementor_responsive_overrides_count_stored_breakpoint_keys(): void
     {
         $id   = $this->post(['post_content' => '']);
@@ -617,7 +652,7 @@ class GetPageSnapshotTest extends \WP_UnitTestCase
         $this->assertSame([], $snap['outline']);
         $this->assertSame(0, $snap['structure']['word_count']);
         $this->assertArrayNotHasKey('block_counts', $snap['structure'], 'a withheld body must not be block-counted');
-        $this->assertSame([], $snap['global_tokens']['theme_presets'], 'a withheld body must not be regexed for tokens');
+        $this->assertEquals(new \stdClass(), $snap['global_tokens']['theme_presets'], 'a withheld body must not be regexed for tokens (an empty map, issue #735)');
         $this->assertSame([], $snap['responsive_overrides']['breakpoints']);
     }
 

@@ -40,7 +40,11 @@ class Delete_Term
             ));
         }
 
-        $affected = (int) $term->count;
+        // Every object filed under the term, whatever its status. The term's
+        // count column counts published posts only, so a term holding only
+        // drafts reported 0 while the delete refiled them (issue #597).
+        $objects  = get_objects_in_term([$term_id], [$taxonomy]);
+        $affected = is_array($objects) ? count($objects) : (int) $term->count;
 
         $result = Safe_Mutation::run(
             [

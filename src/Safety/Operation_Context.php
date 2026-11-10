@@ -37,6 +37,19 @@ class Operation_Context
         self::$operation_ids[] = $operation_id;
     }
 
+    /**
+     * Withdraw an id whose undo point was voided again (Safe_Mutation, issue
+     * #728: a write that failed without changing anything), so no observer
+     * links a call to an undo point that no longer exists.
+     */
+    public static function forget(string $operation_id): void
+    {
+        self::$operation_ids = array_values(array_filter(
+            self::$operation_ids,
+            static fn (string $id): bool => $id !== $operation_id
+        ));
+    }
+
     /** A cursor into the current list, to be handed back to since() later. */
     public static function mark(): int
     {

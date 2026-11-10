@@ -18,7 +18,9 @@ if (! defined('ABSPATH')) {
  * restores the layout and both meta rows exactly with no safety-core change.
  *
  * Works whether or not the WPBakery plugin is loaded: nothing here calls
- * into it.
+ * into it. The read also carries the content hash a write can be pinned to
+ * (expected_hash), the loaded plugin's version and the page's revisions,
+ * which update-builder-content's restore operation addresses (issue #639).
  */
 class WPBakery_Content
 {
@@ -47,10 +49,13 @@ class WPBakery_Content
             'post_id'       => $post_id,
             'builder'       => 'wpbakery',
             'plugin_active' => self::plugin_active(),
+            'plugin_version' => WPBakery_Design::plugin_version(),
+            'hash'          => WPBakery_Page::hash($content),
             'tree'          => WPBakery_Shortcodes::tree($content),
             'content'       => $content,
             'js_status'     => (string) get_post_meta($post_id, self::JS_STATUS_META_KEY, true),
             'custom_css'    => (string) get_post_meta($post_id, self::CUSTOM_CSS_META_KEY, true),
+            'revisions'     => WPBakery_Page::revisions($post_id),
         ];
     }
 

@@ -69,6 +69,13 @@ if (! defined('ABSPATH')) {
  *    row and all its meta (rating, verified); ['type' => 'comment_create',
  *    'create' => true]: a reply does not exist yet, so Review_Ops records a
  *    creation row once it does, and rollback trashes the reply;
+ *  - ['type' => 'wc_subscription', 'param' => P]: a whole subscription,
+ *    its schedule dates included (Safety\Wc_Subscription_Snapshot);
+ *  - ['type' => 'wc_booking', 'param' => P]: one booking and its order's
+ *    status; ['type' => 'wc_booking_create', 'create' => true]: Booking_Ops
+ *    records the creation row once the booking exists, and rollback deletes
+ *    it; ['type' => 'wc_booking_rules', 'param' => P]: a bookable product's
+ *    own availability rules (Safety\Wc_Booking_Snapshot);
  *  - ['type' => 'wc_webhook', 'param' => P]: the raw webhook row, secret
  *    included but never shown (Safety\Wc_Webhook_Snapshot);
  *  - ['type' => 'wc_gateway', 'param' => P]: the one option a gateway write
@@ -110,6 +117,12 @@ class Op_Catalog
      */
     private const PRIVILEGE_META = '/(capabilities|user_level|session_tokens)$/i';
 
+    /** The plugin the subscriptions.* rows need (issue #658), an Op_Guard::PLUGINS key. */
+    private const PLUGIN_SUBSCRIPTIONS = 'woocommerce-subscriptions';
+
+    /** The plugin the bookings.* rows need (issue #659), an Op_Guard::PLUGINS key. */
+    private const PLUGIN_BOOKINGS = 'woocommerce-bookings';
+
     /** WooCommerce's native brands taxonomy (issue #293). */
     private const BRAND_TAXONOMY = 'product_brand';
 
@@ -124,9 +137,11 @@ class Op_Catalog
      * (injected unless the caller sets them), 'undo_op' (for creates),
      * 'redact' (top-level keys of each returned record that are masked),
      * 'taxonomy' (the op is unavailable unless it is registered, and a term
-     * snapshot targets it) and 'handler' (the op runs in-process, through
-     * Brand_Ops or, for an order_*, shipping_*, webhook_*, review_*,
-     * report_*, gateway_* or status_* handler, the matching *_Ops class,
+     * snapshot targets it), 'plugin' (an Op_Guard::PLUGINS key: the op is
+     * left out of woo-ops and refused unless that plugin is active) and
+     * 'handler' (the op runs in-process, through Brand_Ops or, for an
+     * order_*, shipping_*, webhook_*, review_*, report_*, gateway_*,
+     * status_*, subscription_* or booking_* handler, the matching *_Ops class,
      * instead of dispatching its route; status_run_tool only validates, and
      * its route is dispatched).
      * Keep op names domain.kebab-case and route templates rooted at /wc/v3.
@@ -291,6 +306,41 @@ class Op_Catalog
         'webhooks.pause'      => [ 'PUT', '/wc/v3/webhooks/{id}', 'webhooks', self::CAP_STORE, 'Pause a webhook (status paused); deliveries stop until it is set active again', 'write', [ 'type' => 'wc_webhook', 'param' => 'id' ], [ 'handler' => 'webhook_pause' ] ],
         'webhooks.delete'     => [ 'DELETE', '/wc/v3/webhooks/{id}', 'webhooks', self::CAP_STORE, 'Delete a webhook', 'destructive', [ 'type' => 'wc_webhook', 'param' => 'id' ], [ 'handler' => 'webhook_delete' ] ],
 
+        // WooCommerce Subscriptions (issue #658), in-process through the
+        // Subscriptions API (Subscription_Ops). Every row needs the plugin
+        // ('plugin'): without it the rows are left out of woo-ops and a
+        // call is refused with plugin_missing or plugin_inactive. Reads
+        // return a curated view (no order meta). Each write snapshots the
+        // whole subscription (status, schedule, items, totals); a status
+        // change can email the customer, so update-status needs
+        // confirm:true, and cancel is destructive (off by default) and not
+        // recoverable: a gateway's own recurring profile stays cancelled.
+        'subscriptions.list'                => [ 'GET', '/wc/v3/subscriptions', 'subscriptions', self::CAP_ORDERS, 'Subscriptions newest first, filterable by status (or a list), customer_id and product_id; page, per_page (max 50). Each: status, customer, total, period, next payment, end, line items', 'read', null, [ 'handler' => 'subscription_list', 'plugin' => self::PLUGIN_SUBSCRIPTIONS ] ],
+        'subscriptions.get'                 => [ 'GET', '/wc/v3/subscriptions/{id}', 'subscriptions', self::CAP_ORDERS, 'One subscription: items, addresses, totals, billing period and interval, trial, schedule dates (UTC) and related order counts; no order meta', 'read', null, [ 'handler' => 'subscription_get', 'plugin' => self::PLUGIN_SUBSCRIPTIONS ] ],
+        'subscriptions.products'            => [ 'GET', '/wc/v3/products', 'subscriptions', self::CAP_STORE, 'Subscription and variable subscription products with their terms: price, period, interval, length, trial, sign-up fee (variations listed too); search, page, per_page', 'read', null, [ 'handler' => 'subscription_products', 'plugin' => self::PLUGIN_SUBSCRIPTIONS ] ],
+        'subscriptions.renewal-orders'      => [ 'GET', '/wc/v3/subscriptions/{id}/orders', 'subscriptions', self::CAP_ORDERS, 'Orders related to one subscription, newest first: relation renewal (default), parent, switch, resubscribe or all', 'read', null, [ 'handler' => 'subscription_orders', 'plugin' => self::PLUGIN_SUBSCRIPTIONS ] ],
+        'subscriptions.update-status'       => [ 'PUT', '/wc/v3/subscriptions/{id}', 'subscriptions', self::CAP_STORE, 'Set a subscription active or on-hold, by Subscriptions\' own transition rules (note optional). May email the customer, so needs confirm:true. End one with subscriptions.cancel', 'write', [ 'type' => 'wc_subscription', 'param' => 'id' ], [ 'handler' => 'subscription_status', 'plugin' => self::PLUGIN_SUBSCRIPTIONS ] ],
+        'subscriptions.update-next-payment' => [ 'PUT', '/wc/v3/subscriptions/{id}', 'subscriptions', self::CAP_STORE, 'Move the next payment date (next_payment, future UTC "YYYY-MM-DD HH:MM:SS"); validated against the schedule and the renewal is rescheduled', 'write', [ 'type' => 'wc_subscription', 'param' => 'id' ], [ 'handler' => 'subscription_next_payment', 'plugin' => self::PLUGIN_SUBSCRIPTIONS ] ],
+        'subscriptions.update-items'        => [ 'PUT', '/wc/v3/subscriptions/{id}', 'subscriptions', self::CAP_STORE, 'Edit a subscription\'s line_items, shipping_lines and fee_lines as orders.update does; totals recalculated unless recalculate:false. Refused when the payment method cannot take amount changes', 'write', [ 'type' => 'wc_subscription', 'param' => 'id' ], [ 'handler' => 'subscription_items', 'plugin' => self::PLUGIN_SUBSCRIPTIONS ] ],
+        'subscriptions.cancel'              => [ 'PUT', '/wc/v3/subscriptions/{id}', 'subscriptions', self::CAP_STORE, 'Cancel a subscription at the end of its prepaid term (pending-cancel), or now with immediately:true. Emails are sent and a gateway\'s own recurring profile is cancelled, so it is not recoverable', 'destructive', [ 'type' => 'wc_subscription', 'param' => 'id' ], [ 'handler' => 'subscription_cancel', 'plugin' => self::PLUGIN_SUBSCRIPTIONS, 'recoverable' => false ] ],
+
+        // WooCommerce Bookings (issue #659), in-process through Booking_Ops.
+        // Every row needs the plugin: without it the rows are left out of
+        // woo-ops and a call is refused with plugin_missing or
+        // plugin_inactive. Dates are the store's local time, as Bookings
+        // keeps them. Writes go through the plugin (its rules, emails and
+        // order sync); each is snapshotted. create and update-status can
+        // email the customer, so they need confirm:true; cancel is
+        // destructive (off by default) and not recoverable.
+        'bookings.products'                 => [ 'GET', '/wc-bookings/v1/products', 'bookings', self::CAP_STORE, 'Bookable products with duration, unit and type, base and block cost, capacity, confirmation, persons, resource ids and default availability; search, page, per_page', 'read', null, [ 'handler' => 'booking_products', 'plugin' => self::PLUGIN_BOOKINGS ] ],
+        'bookings.list'                     => [ 'GET', '/wc-bookings/v1/bookings', 'bookings', self::CAP_ORDERS, 'Bookings by start date (order desc or asc), filterable by status (or a list), product_id, customer_id, resource_id, from and to (YYYY-MM-DD, store time); page, per_page (max 50)', 'read', null, [ 'handler' => 'booking_list', 'plugin' => self::PLUGIN_BOOKINGS ] ],
+        'bookings.get'                      => [ 'GET', '/wc-bookings/v1/bookings/{id}', 'bookings', self::CAP_ORDERS, 'One booking: status, product, resource, customer, order, start and end (store time), all_day, persons, cost, note, attendance', 'read', null, [ 'handler' => 'booking_get', 'plugin' => self::PLUGIN_BOOKINGS ] ],
+        'bookings.availability'             => [ 'GET', '/wc-bookings/v1/products/slots', 'bookings', self::CAP_STORE, 'A bookable product\'s own availability rules and its bookable slots from (YYYY-MM-DD, default today) to (default from + 7 days, at most 31): available and booked per slot; resource_id, hide_unavailable, page, per_page', 'read', null, [ 'handler' => 'booking_availability', 'plugin' => self::PLUGIN_BOOKINGS ] ],
+        'bookings.create'                   => [ 'POST', '/wc-bookings/v1/bookings', 'bookings', self::CAP_STORE, 'Book a product (no order): product_id, start ("YYYY-MM-DD" or "YYYY-MM-DD HH:MM", store time), duration (blocks, when the customer picks it), resource_id, persons (a number, or {person_type_id: n}), customer_id, status (confirmed default, unpaid, pending-confirmation, paid), note. Checked and priced by Bookings. May email, so needs confirm:true. Rollback deletes it', 'write', [ 'type' => 'wc_booking_create', 'create' => true ], [ 'handler' => 'booking_create', 'plugin' => self::PLUGIN_BOOKINGS ] ],
+        'bookings.update-status'            => [ 'PUT', '/wc-bookings/v1/bookings/{id}', 'bookings', self::CAP_STORE, 'Set a booking unpaid, pending-confirmation, confirmed, paid or complete through Bookings (which may email and move a single-booking order). Needs confirm:true. Cancel with bookings.cancel', 'write', [ 'type' => 'wc_booking', 'param' => 'id' ], [ 'handler' => 'booking_status', 'plugin' => self::PLUGIN_BOOKINGS ] ],
+        'bookings.cancel'                   => [ 'PUT', '/wc-bookings/v1/bookings/{id}', 'bookings', self::CAP_STORE, 'Cancel a booking through Bookings: the customer is emailed, a calendar sync removes the event and an order holding only this booking is cancelled, so it is not recoverable (rollback restores the booking and the order status)', 'destructive', [ 'type' => 'wc_booking', 'param' => 'id' ], [ 'handler' => 'booking_cancel', 'plugin' => self::PLUGIN_BOOKINGS, 'recoverable' => false ] ],
+        'bookings.set-availability-rules'   => [ 'PUT', '/wc-bookings/v1/products/{product_id}', 'bookings', self::CAP_STORE, 'Replace a bookable product\'s own availability rules: rules, a list of {type (custom, months, weeks, days, time, time:1-7, time:range, custom:daterange), bookable yes|no, priority, from, to, from_date, to_date}; [] clears them', 'write', [ 'type' => 'wc_booking_rules', 'param' => 'product_id' ], [ 'handler' => 'booking_rules', 'plugin' => self::PLUGIN_BOOKINGS ] ],
+
         // Settings.
         'settings.groups'     => [ 'GET', '/wc/v3/settings', 'settings', self::CAP_STORE, 'Store settings groups (general, products, tax, shipping, ...)' ],
         'settings.options'    => [ 'GET', '/wc/v3/settings/{group_id}', 'settings', self::CAP_STORE, 'All options in one settings group with current values' ],
@@ -361,10 +411,33 @@ class Op_Catalog
         'reviews.trash'      => [ 'id' => 'comment' ],
         'reviews.update'     => [ 'id' => 'comment' ],
         'reviews.reply'      => [ 'id' => 'comment' ],
+        // Subscriptions are orders of their own type; Object_Guard's order
+        // check covers them (issue #658).
+        'subscriptions.get'                 => [ 'id' => 'order' ],
+        'subscriptions.renewal-orders'      => [ 'id' => 'order' ],
+        'subscriptions.update-status'       => [ 'id' => 'order' ],
+        'subscriptions.update-next-payment' => [ 'id' => 'order' ],
+        'subscriptions.update-items'        => [
+            'id'                        => 'order',
+            'line_items.*.product_id'   => [ 'type' => 'post', 'access' => 'read' ],
+            'line_items.*.variation_id' => [ 'type' => 'post', 'access' => 'read' ],
+        ],
+        // Cancelling ends the subscription; it does not delete it.
+        'subscriptions.cancel'              => [ 'id' => [ 'type' => 'order', 'access' => 'write' ] ],
+        // A booking's product is a post and its customer a user (issue
+        // #659). The booking itself is gated by the op's capability, as a
+        // webhook row is: its post type carries Bookings' own wc_booking
+        // capabilities, which a store manager need not hold.
+        'bookings.availability'             => [ 'product_id' => [ 'type' => 'post', 'access' => 'read' ] ],
+        'bookings.create'                   => [
+            'product_id'  => [ 'type' => 'post', 'access' => 'read' ],
+            'customer_id' => [ 'type' => 'user', 'access' => 'read' ],
+        ],
+        'bookings.set-availability-rules'   => [ 'product_id' => 'post' ],
     ];
 
     /**
-     * @return array<string, array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool, taxonomy: ?string, handler: ?string, objects: array<string, array{type: string, access: string, own_type: bool, capability: string}>}>
+     * @return array<string, array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool, taxonomy: ?string, handler: ?string, plugin: ?string, objects: array<string, array{type: string, access: string, own_type: bool, capability: string}>}>
      */
     public static function ops(): array
     {
@@ -396,6 +469,7 @@ class Op_Catalog
                 'guard_variations' => (bool) ($extra['guard_variations'] ?? false),
                 'taxonomy'         => $extra['taxonomy'] ?? null,
                 'handler'          => $extra['handler'] ?? null,
+                'plugin'           => $extra['plugin'] ?? null,
                 'objects'          => self::objects_of($name, $mode, $capability),
             ];
         }
@@ -482,7 +556,7 @@ class Op_Catalog
     }
 
     /**
-     * @return array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool, taxonomy: ?string, handler: ?string, objects: array<string, array{type: string, access: string, own_type: bool, capability: string}>}
+     * @return array{method: string, route: string, domain: string, capability: string, summary: string, path_params: string[], mode: string, snapshot: ?array, recoverable: bool, forbidden_params: string[], defaults: array<string, mixed>, undo_op: ?string, redact: string[], forbidden_meta: ?string, guard_variations: bool, taxonomy: ?string, handler: ?string, plugin: ?string, objects: array<string, array{type: string, access: string, own_type: bool, capability: string}>}
      */
     public static function get(string $op): array
     {
