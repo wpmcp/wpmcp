@@ -67,7 +67,7 @@ class Call_Tool
             // A Pro tool on an unlicensed install says so (issue #631)
             // rather than claiming no such tool exists, and so does a tool
             // whose plugin is not active (issue #790).
-            return $registrar->pro_required($name) ?? $registrar->governance_disabled($name) ?? $registrar->plugin_inactive($name) ?? new \WP_Error(
+            return $registrar->pro_required($name) ?? $registrar->governance_disabled($name) ?? $registrar->plugin_inactive($name, $arguments) ?? new \WP_Error(
                 'wpmcp_call_tool_unknown',
                 sprintf('No wpmcp tool named "%s" is registered on this site. Use wpmcp/list-tools to discover names.', $name)
             );

@@ -2,6 +2,8 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\MCP\Registrar;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -96,7 +98,49 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
     {
         return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
-            . ', FluentCRM and MailPoet';
+            . ', FluentCRM and MailPoet'
+            . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms';
+    }
+
+    /**
+     * The plugin each op needs (issue #815), so a refusal while none of
+     * them is active names the one plugin the asked op works with: every
+     * pack operations() merges, a pack with adapters by each adapter's own
+     * label, and ops either of two plugins serves by both. Ops this
+     * install's tier may not run are left out, since activating the plugin
+     * alone would not bring them back.
+     */
+    public function operation_hosts(): array
+    {
+        $groups = [
+            [ 'bbPress', false, BbPress_Pack::operations() ],
+            [ 'JetEngine', false, JetEngine_Pack::operations() ],
+            [ 'Pods', false, Pods_Pack::operations() ],
+            [ 'TranslatePress', false, TranslatePress_Pack::operations() ],
+            [ 'Code Snippets', false, Code_Snippets_Pack::operations() ],
+            [ 'BuddyPress', false, BuddyPress_Pack::operations() ],
+        ];
+        foreach (LMS_Pack::adapters() as $adapter) {
+            $groups[] = [ $adapter->label(), false, $adapter->operations() ];
+        }
+        $groups[] = [ 'TablePress', false, TablePress_Pack::operations() ];
+        foreach (CRM_Pack::adapters() as $adapter) {
+            $groups[] = [ $adapter->label(), false, $adapter->operations() ];
+        }
+        $groups[] = [ 'Amelia', false, Amelia_Pack::operations() ];
+        $groups[] = [ 'Polylang, WPML', true, I18n_Pack::operations() ];
+        $groups[] = [ 'MemberPress', false, MemberPress_Pack::operations() ];
+        $groups[] = [ 'Elementor Pro', false, Elementor_Pro_Forms_Pack::operations() ];
+
+        $hosts = [];
+        foreach ($groups as [ $plugin, $several, $ops ]) {
+            foreach ($ops as $op => $def) {
+                if (Registrar::tier_permitted((string) ($def['tier'] ?? 'free'))) {
+                    $hosts[ (string) $op ] = [ 'name' => $plugin, 'several' => $several ];
+                }
+            }
+        }
+        return $hosts;
     }
 
     protected function operations(): array
