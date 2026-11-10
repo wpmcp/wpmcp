@@ -9,6 +9,7 @@
 # WPMCP_LIVE_BLOCKS=1, Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks
 # only (bin/test-local.sh --live-blocks), or, with WPMCP_LIVE_BUDDYPRESS=1,
 # BuddyPress only (bin/test-local.sh --live-buddypress), or, with
+# WPMCP_LIVE_BBPRESS=1, bbPress only (bin/test-local.sh --live-bbpress), or, with
 # WPMCP_LIVE_TABLEPRESS=1, TablePress only (bin/test-local.sh --live-tablepress), or,
 # with WPMCP_LIVE_CODE_SNIPPETS=1, Code Snippets only (bin/test-local.sh
 # --live-code-snippets), or,
@@ -120,6 +121,15 @@ fi
 if [ "${WPMCP_LIVE_BUDDYPRESS:-}" = "1" ]; then
 	PLUGINS=(
 		"buddypress:bp-loader.php"
+	)
+fi
+
+# The live bbPress job runs the bbPress ops through the real bbPress, so its
+# counts, sticky lists and hooks update as they do on a site. Exclusive too:
+# the stub-backed bbPress tests register its post types themselves.
+if [ "${WPMCP_LIVE_BBPRESS:-}" = "1" ]; then
+	PLUGINS=(
+		"bbpress:bbpress.php"
 	)
 fi
 

@@ -34,6 +34,8 @@
 #      GenerateBlocks, Spectra and Otter Blocks, on its own install too.
 #   7. Runs the live BuddyPress group (issue #363): the BuddyPress ops run
 #      through the real BuddyPress, its hooks firing, on its own install too.
+#   7b. Runs the live bbPress group: the bbPress ops through the real
+#      bbPress, every write rolled back, on its own install too.
 #   8. Runs the live LMS groups (issue #394): the Tutor LMS and LifterLMS ops
 #      through the real plugins, one install each.
 #   9. Runs the live TablePress group (issue #481): the TablePress ops
@@ -177,6 +179,7 @@
 #   bin/test-local.sh --live-forms    only the live forms group (real Contact Form 7 + Flamingo)
 #   bin/test-local.sh --live-blocks   only the live blocks group (real block suites)
 #   bin/test-local.sh --live-buddypress only the live BuddyPress group (real BuddyPress)
+#   bin/test-local.sh --live-bbpress  only the live bbPress group (real bbPress)
 #   bin/test-local.sh --live-lms      only the live LMS groups (real Tutor LMS, then real LifterLMS)
 #   bin/test-local.sh --live-tablepress only the live TablePress group (real TablePress)
 #   bin/test-local.sh --live-code-snippets only the live Code Snippets group (real Code Snippets)
@@ -324,6 +327,7 @@ only_wp=""
 only_live_forms=false
 only_live_blocks=false
 only_live_buddypress=false
+only_live_bbpress=false
 only_live_lms=false
 only_live_tablepress=false
 only_live_code_snippets=false
@@ -357,6 +361,7 @@ while [ $# -gt 0 ]; do
 		--live-forms) only_live_forms=true ;;
 		--live-blocks) only_live_blocks=true ;;
 		--live-buddypress) only_live_buddypress=true ;;
+		--live-bbpress) only_live_bbpress=true ;;
 		--live-lms) only_live_lms=true ;;
 		--live-tablepress) only_live_tablepress=true ;;
 		--live-code-snippets) only_live_code_snippets=true ;;
@@ -424,10 +429,11 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
+	[ "$only_live_bbpress" = false ] || LEGS+=("live-bbpress ${only_wp:-$default_wp}")
 	[ "$only_live_lms" = false ] || LEGS+=("live-lms ${only_wp:-$default_wp}")
 	[ "$only_live_tablepress" = false ] || LEGS+=("live-tablepress ${only_wp:-$default_wp}")
 	[ "$only_live_code_snippets" = false ] || LEGS+=("live-code-snippets ${only_wp:-$default_wp}")
@@ -477,7 +483,7 @@ else
 		LEGS+=("multisite $default_wp none")
 	fi
 	if [ "$targeted" = false ]; then
-		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp" "live-wp-mail-smtp $default_wp")
+		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-bbpress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp" "live-wp-mail-smtp $default_wp")
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			LEGS+=("live-breakdance $default_wp")
 		fi
@@ -624,6 +630,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_BLOCKS:-}" = 1 ] && flavor="-blocks-live"
 	# And WPMCP_LIVE_BUDDYPRESS=1 and BuddyPress.
 	[ "${WPMCP_LIVE_BUDDYPRESS:-}" = 1 ] && flavor="-buddypress-live"
+	# And WPMCP_LIVE_BBPRESS=1 and bbPress.
+	[ "${WPMCP_LIVE_BBPRESS:-}" = 1 ] && flavor="-bbpress-live"
 	# And WPMCP_LIVE_LMS=tutor or lifterlms and that one LMS plugin.
 	[ -n "${WPMCP_LIVE_LMS:-}" ] && flavor="-${WPMCP_LIVE_LMS}-live"
 	# And WPMCP_LIVE_TABLEPRESS=1 and TablePress.
@@ -1211,6 +1219,22 @@ run_live_buddypress() {
 	unset WPMCP_LIVE_BUDDYPRESS
 }
 
+# The live bbPress group, the same way: its own install with the real
+# bbPress, its own database, and --fail-on-skipped.
+run_live_bbpress() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_BBPRESS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-bbpress-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live bbPress group on WordPress $version (real bbPress)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group bbpress-live --fail-on-skipped
+	unset WPMCP_LIVE_BBPRESS
+}
+
 # The live LMS groups (issue #394), the same way, once per plugin: Tutor LMS
 # and LifterLMS both register a "lesson" post type, so each gets its own
 # install, its own database and its own group, with --fail-on-skipped.
@@ -1701,6 +1725,7 @@ run_leg_body() {
 		live-forms) run_live_forms "$wp" ;;
 		live-blocks) run_live_blocks "$wp" ;;
 		live-buddypress) run_live_buddypress "$wp" ;;
+		live-bbpress) run_live_bbpress "$wp" ;;
 		live-lms) run_live_lms "$wp" ;;
 		live-tablepress) run_live_tablepress "$wp" ;;
 		live-code-snippets) run_live_code_snippets "$wp" ;;

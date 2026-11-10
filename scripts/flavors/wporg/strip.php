@@ -1583,9 +1583,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data'\n"
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums'\n"
             . "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data';\n",
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums';\n",
         1,
     ],
     [
