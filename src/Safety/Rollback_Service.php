@@ -439,8 +439,10 @@ class Rollback_Service
         // Order snapshots hold the customer's addresses and put a whole
         // order back (or trash one), so restoring one takes the capability
         // the order writes themselves require (issue #292). A subscription
-        // snapshot is a whole order too (issue #658).
-        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE, Wc_Subscription_Snapshot::TYPE ], true)) {
+        // snapshot is a whole order too (issue #658). A booking snapshot
+        // holds a customer's booking and its order's status, and a booking
+        // rules snapshot is store configuration (issue #659).
+        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE, Wc_Subscription_Snapshot::TYPE, Wc_Booking_Snapshot::TYPE, Wc_Booking_Snapshot::CREATE_TYPE, Wc_Booking_Snapshot::RULES_TYPE ], true)) {
             return [ [ 'manage_woocommerce' ] ];
         }
         // Shipping zone and webhook snapshots are store configuration, and a
@@ -1118,6 +1120,10 @@ class Rollback_Service
         if (Wc_Webhook_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
             return Wc_Webhook_Snapshot::TYPE . ':' . $snapshot['object_id'];
         }
+        // And for a booking bookings.create made (issue #659).
+        if (Wc_Booking_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
+            return Wc_Booking_Snapshot::TYPE . ':' . $snapshot['object_id'];
+        }
         // And for a FunnelKit funnel a theme-write op created (issue #500).
         if (FunnelKit_Funnel_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
             return FunnelKit_Funnel_Snapshot::TYPE . ':' . $snapshot['object_id'];
@@ -1743,6 +1749,9 @@ class Rollback_Service
             'wc_order_full',
             'wc_order_create',
             'wc_subscription',
+            'wc_booking',
+            'wc_booking_create',
+            'wc_booking_rules',
             'wc_shipping_zone',
             'wc_shipping_zone_create',
             'wc_webhook',
@@ -1916,6 +1925,21 @@ class Rollback_Service
         // restorable-types parity test.
         if ('wc_subscription' === $snapshot['object_type']) {
             self::warn_if(Wc_Subscription_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // Wc_Booking_Snapshot::TYPE, ::CREATE_TYPE and ::RULES_TYPE (issue
+        // #659), literals for the restorable-types parity test.
+        if ('wc_booking' === $snapshot['object_type']) {
+            self::warn_if(Wc_Booking_Snapshot::restore($snapshot));
+            return;
+        }
+        if ('wc_booking_create' === $snapshot['object_type']) {
+            self::warn_if(Wc_Booking_Snapshot::undo_creation($snapshot));
+            return;
+        }
+        if ('wc_booking_rules' === $snapshot['object_type']) {
+            self::warn_if(Wc_Booking_Snapshot::restore_rules($snapshot));
             return;
         }
 

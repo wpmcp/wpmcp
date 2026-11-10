@@ -119,6 +119,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'breakdance/plugin.php' );
     }
 
+    // The live Oxygen job (issue #635, WPMCP_LIVE_OXYGEN=1) runs the Oxygen 6
+    // adapter against a real Oxygen 6, copied in from WPMCP_OXYGEN_SRC.
+    // Loaded only on request: the stub-backed Oxygen tests stand in for its
+    // cache generator and toggle its presence.
+    if ( getenv( 'WPMCP_LIVE_OXYGEN' ) ) {
+        wpmcp_maybe_require_plugin( 'oxygen/plugin.php' );
+    }
+
     // The live Avada job (issue #637, WPMCP_LIVE_AVADA=1) runs the Avada
     // adapter against the real Avada Core and Avada Builder plugins and the
     // Avada theme, copied in from WPMCP_AVADA_SRC. Loaded only on request:
@@ -150,6 +158,28 @@ tests_add_filter( 'muplugins_loaded', function () {
         add_filter( 'pre_option_stylesheet', static fn () => 'Divi' );
     }
 
+    // The live theme add-on job (issue #656, WPMCP_LIVE_THEME_PRO=astra,
+    // kadence or generatepress) runs the theme layout ops against one real
+    // premium add-on, copied in from WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC
+    // or WPMCP_GP_PREMIUM_SRC, beside its free theme made the active one.
+    // Each add-on's layouts module is switched on the way its own settings
+    // screen stores it, before the add-on reads it.
+    $wpmcp_theme_pro = (string) getenv( 'WPMCP_LIVE_THEME_PRO' );
+    if ( in_array( $wpmcp_theme_pro, [ 'astra', 'kadence', 'generatepress' ], true ) && is_dir( WP_CONTENT_DIR . '/themes/' . $wpmcp_theme_pro ) ) {
+        add_filter( 'pre_option_template', static fn () => $wpmcp_theme_pro );
+        add_filter( 'pre_option_stylesheet', static fn () => $wpmcp_theme_pro );
+        if ( 'astra' === $wpmcp_theme_pro ) {
+            add_filter( 'pre_option__astra_ext_enabled_extensions', static fn () => [ 'advanced-hooks' => 'advanced-hooks' ] );
+            wpmcp_maybe_require_plugin( 'astra-addon/astra-addon.php' );
+        } elseif ( 'kadence' === $wpmcp_theme_pro ) {
+            add_filter( 'pre_option_kadence_pro_theme_config', static fn () => wp_json_encode( [ 'elements' => true ] ) );
+            wpmcp_maybe_require_plugin( 'kadence-pro/kadence-pro.php' );
+        } else {
+            add_filter( 'pre_option_generate_package_elements', static fn () => 'activated' );
+            wpmcp_maybe_require_plugin( 'gp-premium/gp-premium.php' );
+        }
+    }
+
     // The live MemberPress job (issue #668, WPMCP_LIVE_MEMBERPRESS=1) runs
     // the MemberPress ops against a real MemberPress, copied in from
     // WPMCP_MEMBERPRESS_SRC. Loaded only on request: the stub-backed
@@ -178,6 +208,16 @@ tests_add_filter( 'muplugins_loaded', function () {
         add_filter( 'option_active_plugins', 'wpmcp_test_wc_subscriptions_active_plugins' );
         add_filter( 'default_option_active_plugins', 'wpmcp_test_wc_subscriptions_active_plugins' );
         wpmcp_maybe_require_plugin( 'woocommerce-subscriptions/woocommerce-subscriptions.php' );
+    }
+
+    // The live WooCommerce Bookings job (issue #659, WPMCP_LIVE_WC_BOOKINGS=1)
+    // runs the bookings ops through the real plugin, copied in from
+    // WPMCP_WC_BOOKINGS_SRC, beside the WooCommerce loaded above. Loaded
+    // only on request: the stub-backed booking tests stand in for its API.
+    if ( getenv( 'WPMCP_LIVE_WC_BOOKINGS' ) ) {
+        add_filter( 'option_active_plugins', 'wpmcp_test_wc_bookings_active_plugins' );
+        add_filter( 'default_option_active_plugins', 'wpmcp_test_wc_bookings_active_plugins' );
+        wpmcp_maybe_require_plugin( 'woocommerce-bookings/woocommerce-bookings.php' );
     }
 
     // The live CRM job (issue #477, WPMCP_LIVE_CRM=1) runs the FluentCRM
@@ -269,6 +309,13 @@ if ( ! function_exists( 'wpmcp_test_wc_subscriptions_active_plugins' ) ) {
     /** The active_plugins option as the live WooCommerce Subscriptions job's site has it. */
     function wpmcp_test_wc_subscriptions_active_plugins( $plugins ): array {
         return array_values( array_unique( array_merge( (array) $plugins, [ 'woocommerce/woocommerce.php', 'woocommerce-subscriptions/woocommerce-subscriptions.php' ] ) ) );
+    }
+}
+
+if ( ! function_exists( 'wpmcp_test_wc_bookings_active_plugins' ) ) {
+    /** The active_plugins option as the live WooCommerce Bookings job's site has it. */
+    function wpmcp_test_wc_bookings_active_plugins( $plugins ): array {
+        return array_values( array_unique( array_merge( (array) $plugins, [ 'woocommerce/woocommerce.php', 'woocommerce-bookings/woocommerce-bookings.php' ] ) ) );
     }
 }
 

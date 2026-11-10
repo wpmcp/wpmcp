@@ -81,6 +81,27 @@ class NinjaFormsIntegrationTest extends \WP_UnitTestCase
         $this->assertNull($out['result']['form']);
     }
 
+    /**
+     * Issue #791: the real factory has no get_form(), and its get() hands
+     * back a model for any id, so a form that does not exist has to be told
+     * apart from one that does by what list-forms lists.
+     */
+    public function test_per_form_reads_of_a_missing_form_return_null(): void
+    {
+        $i = new Ninja_Forms_Integration();
+        $this->assertNull($i->handle_read(['operation' => 'list-fields', 'args' => ['form_id' => 999]])['result']['fields']);
+        $this->assertNull($i->handle_read(['operation' => 'list-notifications', 'args' => ['form_id' => 999]])['result']['notifications']);
+    }
+
+    public function test_the_factory_double_has_only_the_real_factory_methods(): void
+    {
+        // NF_Abstracts_ModelFactory (Ninja Forms 3.16) forwards unknown
+        // methods to the form model and returns null for the rest, so a
+        // double with a method the real class lacks hides the bug.
+        $this->assertFalse(method_exists(\NF_Test_FormHandler::class, 'get_form'));
+        $this->assertTrue(method_exists(\NF_Test_FormHandler::class, 'get'));
+    }
+
     public function test_list_fields_and_email_notifications(): void
     {
         $i      = new Ninja_Forms_Integration();

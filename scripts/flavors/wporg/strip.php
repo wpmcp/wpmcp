@@ -241,7 +241,7 @@ $edits['src/MCP/Registrar.php'] = [
      */
     public function pro_required(string $name): ?\WP_Error
     {
-        $declared = $this->declared[ $name ] ?? null;
+        $declared = $this->declared[ $name ] ?? $this->held_for_plugin[ $name ]['ability'] ?? null;
         if (null === $declared || isset($this->abilities[ $name ]) || self::tier_permitted($declared->tier)) {
             return null;
         }
@@ -1370,6 +1370,25 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
         '',
         1,
     ],
+    // The theme add-on layout ops (issue #656): their files are removed by
+    // policy.php, so the merge and the docblock lines naming them leave too.
+    [
+        "        return array_merge(self::settings_operations(\$framework), Theme_Layouts_Pack::operations(\$framework));\n",
+        "        return self::settings_operations(\$framework);\n",
+        1,
+    ],
+    [
+        " * spec(). Astra Pro, Kadence Pro and GP Premium custom layouts (issue\n"
+            . " * #656) are Theme_Layouts_Pack ops for the same active family.\n",
+        " * spec().\n",
+        1,
+    ],
+    [
+        "     * The settings pack of the active framework family, or none. The\n"
+            . "     * premium add-on layout ops (issue #656) join it in operations().\n",
+        "     * The settings pack of the active framework family, or none.\n",
+        1,
+    ],
 ];
 
 // The Elementor addon suite packs (issue #286) are the paid add-on's. Their
@@ -1610,9 +1629,11 @@ $edits['src/MCP/Tool_Exposure.php'] = [
 $edits['src/Tools/Dispatch/Call_Tool.php'] = [
     [
         "            // A Pro tool on an unlicensed install says so (issue #631)\n"
-            . "            // rather than claiming no such tool exists.\n"
-            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? new \\WP_Error(\n",
-        "            return \$registrar->governance_disabled(\$name) ?? new \\WP_Error(\n",
+            . "            // rather than claiming no such tool exists, and so does a tool\n"
+            . "            // whose plugin is not active (issue #790).\n"
+            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
+        "            // A tool whose plugin is not active says so (issue #790).\n"
+            . "            return \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
         1,
     ],
     [
@@ -1624,9 +1645,11 @@ $edits['src/Tools/Dispatch/Call_Tool.php'] = [
 
 $edits['src/Tools/Dispatch/Get_Tool_Schema.php'] = [
     [
-        "            // A Pro tool on an unlicensed install says so (issue #631).\n"
-            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? new \\WP_Error(\n",
-        "            return \$registrar->governance_disabled(\$name) ?? new \\WP_Error(\n",
+        "            // A Pro tool on an unlicensed install says so (issue #631),\n"
+            . "            // and a tool whose plugin is not active names it (issue #790).\n"
+            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
+        "            // A tool whose plugin is not active names it (issue #790).\n"
+            . "            return \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
         1,
     ],
 ];

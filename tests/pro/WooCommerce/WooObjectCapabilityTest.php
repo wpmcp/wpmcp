@@ -56,6 +56,9 @@ class WooObjectCapabilityTest extends \WP_UnitTestCase
         'settings.update:group_id'            => 'a settings group id (a string)',
         'settings.update:id'                  => 'a setting id (a string)',
         'orders.update:line_items.*.id'       => 'an order item row of the order being edited',
+        'bookings.get:id'                     => 'a booking, gated by the op capability (issue #659)',
+        'bookings.update-status:id'           => 'a booking, gated by the op capability (issue #659)',
+        'bookings.cancel:id'                  => 'a booking, gated by the op capability (issue #659)',
     ];
 
     /**
@@ -65,6 +68,7 @@ class WooObjectCapabilityTest extends \WP_UnitTestCase
      */
     private const BODY_ID_KEYS = [
         'orders.create' => [ 'customer_id', 'line_items.*.product_id', 'line_items.*.variation_id' ],
+        'bookings.create' => [ 'product_id', 'customer_id' ],
         'orders.update' => [ 'customer_id', 'line_items.*.product_id', 'line_items.*.variation_id', 'line_items.*.id' ],
         'reviews.reply' => [ 'id' ],
         'reviews.list'  => [ 'product_id' ],
