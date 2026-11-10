@@ -79,6 +79,9 @@ class Snapshot
         if (BuddyPress_Rows_Snapshot::TYPE === $object_type) {
             return BuddyPress_Rows_Snapshot::capture((string) $object_id);
         }
+        if (BbPress_Posts_Snapshot::TYPE === $object_type) {
+            return BbPress_Posts_Snapshot::capture((string) $object_id);
+        }
         if (Crm_Rows_Snapshot::TYPE === $object_type) {
             return Crm_Rows_Snapshot::capture((string) $object_id);
         }

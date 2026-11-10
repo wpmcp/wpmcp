@@ -3612,7 +3612,6 @@ final class Plugin
             new \WPMCP\Integrations\Modern_Events_Calendar_Integration(),
             new \WPMCP\Integrations\The_Events_Calendar_Integration(),
             new \WPMCP\Integrations\Give_Integration(),
-            new \WPMCP\Integrations\BbPress_Integration(),
             new \WPMCP\Integrations\Paid_Memberships_Pro_Integration(),
             new \WPMCP\Integrations\Meta_Box_Integration(),
             new \WPMCP\Integrations\Plugin_Data_Integration(),
