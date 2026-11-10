@@ -58,6 +58,9 @@ class TestPluginRefreshTest extends TestCase
             'TMPDIR'            => $this->tmp,
             'WPMCP_TEST_PHP'    => PHP_BINARY,
             'WPMCP_TEST_CACHE'  => $this->tmp . '/cache',
+            // Ask for the latest releases on every call: these tests publish
+            // new ones between calls.
+            'WPMCP_TEST_LATEST_TTL_HOURS' => '0',
         ];
         $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $this->repository(), $env);
         $this->assertIsResource($process);
