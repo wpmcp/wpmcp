@@ -8,7 +8,10 @@ use WPMCP\Plugin;
  * Capability gating for the Filesystem domain: every ability, reads
  * included, requires manage_options. Arbitrary file read/write inside the
  * WordPress install is equivalent to server-level access, so even reads sit
- * well above the default edit_posts capability.
+ * well above the default edit_posts capability. On multisite the reads take
+ * manage_network_options instead (issue #559): the install holds every
+ * site's files, so a sub-site administrator gets none of them
+ * (SubSiteFilesystemReadTest).
  */
 class FilesystemCapabilityTest extends \WP_UnitTestCase
 {
@@ -36,12 +39,19 @@ class FilesystemCapabilityTest extends \WP_UnitTestCase
 
     public function test_registered_capability_matches_expected_map(): void
     {
+        $expected = self::EXPECTED;
+        if (is_multisite()) {
+            foreach (['wpmcp/read-file', 'wpmcp/list-directory', 'wpmcp/search-files'] as $read) {
+                $expected[ $read ] = 'manage_network_options';
+            }
+        }
+
         $abilities = [];
         foreach (Plugin::instance()->registrar()->all() as $ability) {
             $abilities[ $ability->name ] = $ability;
         }
 
-        foreach (self::EXPECTED as $name => $capability) {
+        foreach ($expected as $name => $capability) {
             $this->assertArrayHasKey($name, $abilities, "Expected {$name} to be registered");
             $this->assertSame(
                 $capability,
@@ -63,11 +73,18 @@ class FilesystemCapabilityTest extends \WP_UnitTestCase
         );
 
         $admin = self::factory()->user->create(['role' => 'administrator']);
+        if (is_multisite()) {
+            // Issue #559: on multisite only the network administrator reads files.
+            grant_super_admin($admin);
+        }
         wp_set_current_user($admin);
         $this->assertTrue(
             $abilities['wpmcp/read-file']->check_permissions(),
             'wpmcp/read-file must allow a user holding manage_options'
         );
+        if (is_multisite()) {
+            revoke_super_admin($admin);
+        }
     }
 
     public function test_write_ability_denies_editor_and_allows_manage_options(): void

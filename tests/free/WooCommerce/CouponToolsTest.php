@@ -4,6 +4,7 @@ namespace WPMCP\Tests\Free\WooCommerce;
 
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Rollback_Operation;
+use WPMCP\Tools\WooCommerce\Coupon_View;
 use WPMCP\Tools\WooCommerce\Create_Coupon;
 use WPMCP\Tools\WooCommerce\Delete_Coupon;
 use WPMCP\Tools\WooCommerce\Get_Coupon;
@@ -27,7 +28,12 @@ class CouponToolsTest extends \WP_UnitTestCase
         }
         Snapshot_Store::install();
         // The test install does not run WooCommerce's role setup, so the
-        // administrator role lacks the store capability the tools require.
+        // administrator role lacks the store capabilities the tools require.
+        // Installing the roles here keeps this class passing on its own, not
+        // only after another test happened to install them.
+        \WC_Install::create_roles();
+        $GLOBALS['wp_roles'] = null;
+        wp_roles();
         $user = self::factory()->user->create_and_get(['role' => 'administrator']);
         $user->add_cap('manage_woocommerce');
         wp_set_current_user($user->ID);
@@ -58,8 +64,25 @@ class CouponToolsTest extends \WP_UnitTestCase
         $this->assertSame('draft', $out['status']);
         $this->assertSame('fixed_cart', $out['discount_type']);
         $this->assertSame('5', $out['amount']);
-        $this->assertFalse($out['recoverable']);
-        $this->assertSame('delete-coupon', $out['undo']);
+        $this->assertIsString($out['operation_id']);
+        $this->assertArrayNotHasKey('recoverable', $out);
+    }
+
+    /** Issue #761: create-coupon returns an undo point, and undoing it trashes the coupon. */
+    public function test_create_returns_an_undo_point_that_trashes_the_coupon(): void
+    {
+        $out = $this->create(['code' => 'UNDO761']);
+        $this->assertNotEmpty($out['operation_id']);
+        $this->assertSame($out['id'], Coupon_View::find_id_by_code('undo761'));
+
+        $rolled_back = (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        $this->assertTrue($rolled_back['restored'], implode(' ', $rolled_back['warnings']));
+
+        $this->assertSame('trash', get_post_status($out['id']));
+        // A trashed coupon no longer holds its code, so it can be created again.
+        $this->assertSame(0, Coupon_View::find_id_by_code('undo761'));
+        $again = $this->create(['code' => 'UNDO761']);
+        $this->assertNotSame($out['id'], $again['id']);
     }
 
     public function test_create_refuses_duplicate_codes_even_against_drafts(): void

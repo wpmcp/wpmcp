@@ -32,7 +32,7 @@ class Delete_Comment
     public function handle(array $args): array
     {
         if (! self::is_enabled()) {
-            throw new \RuntimeException('The delete-comment tool is disabled. Enable it with the wpmcp_enable_delete_comment filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('The delete-comment tool is disabled.', 'wpmcp_enable_delete_comment');
         }
 
         $id = (int) ($args['id'] ?? 0);

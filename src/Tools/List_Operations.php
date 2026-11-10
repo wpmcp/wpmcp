@@ -30,15 +30,17 @@ class List_Operations
         global $wpdb;
 
         $limit = (int) ($args['limit'] ?? 20);
+        // Rows to skip, newest first, so the Mutations tab can page (#759).
+        $offset = max(0, (int) ($args['offset'] ?? 0));
         $table = Snapshot_Store::table_name();
 
         [$where, $params] = $this->build_where($args);
         $where_sql         = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
 
-        $sql = "SELECT operation_id, session_id, tool_name, object_type, object_id, user_id, created_at "
-            . "FROM %i {$where_sql} ORDER BY id DESC LIMIT %d";
+        $sql = "SELECT operation_id, session_id, tool_name, object_type, object_id, object_ref, user_id, created_at, rolled_back_at "
+            . "FROM %i {$where_sql} ORDER BY id DESC LIMIT %d OFFSET %d";
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- wpmcp_snapshots is this plugin's own audit table; $sql is literal fragments from build_where() (this file) with %i/%s/%d placeholders, all bound on this line, which the sniffs cannot follow through the variable. The log must never be stale.
-        $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge([$table], $params, [$limit])), ARRAY_A);
+        $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge([$table], $params, [$limit, $offset])), ARRAY_A);
 
         $count_sql = "SELECT COUNT(*) FROM %i {$where_sql}";
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- same shape as $sql above: literal fragments from build_where() (this file) with %i/%s/%d placeholders, all bound on this line; the count must match the live log.
@@ -52,20 +54,44 @@ class List_Operations
 
         $ops = array_map(function (array $r) use ($abilities_by_tool, $restorable) {
             $domain = $abilities_by_tool[$r['tool_name']] ?? null;
+            // An undone operation is never undone again (issue #593), so it
+            // is not offered as restorable either.
+            $rolled_back_at = Snapshot_Store::rolled_back_at($r);
+            // Rows written before issue #723 may carry the wpmcp/ prefix.
+            $tool_name = Snapshot_Store::short_tool_name((string) $r['tool_name']);
+            $domain    = $domain ?? ($abilities_by_tool[ $tool_name ] ?? null);
             return [
                 'operation_id'       => $r['operation_id'],
                 'session_id'         => $r['session_id'],
-                'tool_name'          => $r['tool_name'],
+                'tool_name'          => $tool_name,
                 'object_type'        => $r['object_type'],
                 'object_id'          => (int) $r['object_id'],
+                'object_ref'         => (string) ($r['object_ref'] ?? ''),
                 'created_at'         => $r['created_at'],
                 'user_id'            => (int) $r['user_id'],
                 'domain'             => $domain,
-                'rollback_available' => in_array($r['object_type'], $restorable, true),
+                'rollback_available' => null === $rolled_back_at && in_array($r['object_type'], $restorable, true),
+                'rolled_back_at'     => $rolled_back_at,
             ];
         }, $rows);
 
         return ['operations' => $ops, 'total_count' => $total_count];
+    }
+
+    /**
+     * How a row names the object it changed (issue #723): "#<id>" for a
+     * numeric id, else its object_ref (a term key, file path, option name,
+     * plugin file), else nothing. Never "#0", which names no object.
+     *
+     * @param array<string, mixed> $op One row of handle()'s operations.
+     */
+    public static function object_label(array $op): string
+    {
+        $id = (int) ($op['object_id'] ?? 0);
+        if ($id > 0) {
+            return '#' . $id;
+        }
+        return (string) ($op['object_ref'] ?? '');
     }
 
     /**
@@ -131,11 +157,21 @@ class List_Operations
         return [$where, $params];
     }
 
-    /** @return array<string, string> tool name (without wpmcp/ prefix) => domain */
+    /**
+     * Tool name => domain, from the declared ability surface, not the
+     * exposed one (issue #590). In a wp-admin request no registration hook
+     * has fired, so registrar()->all() is empty there and every row of the
+     * Mutations tab had a blank Domain; declared_abilities() replays the
+     * registration when it has not run. It also keeps the domain of a tool
+     * governance or the licence tier has since switched off: its rows are
+     * still in the log.
+     *
+     * @return array<string, string> tool name (without wpmcp/ prefix) => domain
+     */
     private function abilities_by_tool_name(): array
     {
         $map = [];
-        foreach (Plugin::instance()->registrar()->all() as $ability) {
+        foreach (Plugin::instance()->declared_abilities() as $ability) {
             $short_name        = preg_replace('#^wpmcp/#', '', $ability->name);
             $map[$short_name]   = $ability->domain;
         }

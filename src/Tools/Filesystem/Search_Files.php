@@ -19,6 +19,8 @@ class Search_Files
 
     public function handle(array $args): array
     {
+        Filesystem_Guard::assert_reads_allowed();
+
         $query = (string) ($args['query'] ?? '');
         if ('' === $query) {
             throw new \InvalidArgumentException('A search query is required.');
@@ -90,6 +92,10 @@ class Search_Files
 
             $content = (string) file_get_contents($f->getPathname());
             if (! Filesystem_Guard::is_utf8($content)) {
+                continue;
+            }
+            // A copy of wp-config.php under any name (issue #606).
+            if (Filesystem_Guard::holds_wp_secrets($content)) {
                 continue;
             }
 

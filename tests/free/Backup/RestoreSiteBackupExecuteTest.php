@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tests\Free\Backup;
 
+use WPMCP\Governance\Governance_Audit_Log;
+use WPMCP\MCP\Request_Log;
 use WPMCP\Tools\Backup\Backup_Job_Store;
 use WPMCP\Tools\Backup\Restore_Files;
 use WPMCP\Tools\Backup\Restore_Site_Backup;
@@ -180,6 +182,62 @@ class RestoreSiteBackupExecuteTest extends \WP_UnitTestCase
         $this->assertFalse(get_option('wpmcp_maintenance'), 'The restored options table had no maintenance row, so none is left behind.');
     }
 
+    /**
+     * Issue #796: restoring an older dump of the options table keeps every
+     * audit and request log entry made since that backup, and adds one for
+     * the restore that names the archive and the safety archive job.
+     */
+    public function test_a_restore_of_an_older_options_table_keeps_the_logs_and_records_itself(): void
+    {
+        global $wpdb;
+        delete_option(Governance_Audit_Log::OPTION);
+        delete_option(Request_Log::OPTION);
+        Governance_Audit_Log::record('wpmcp/get-page', 'none', true, 'before-backup');
+        Request_Log::record([ 'tool' => 'wpmcp/get-page', 'ok' => true ]);
+        $tables  = [$wpdb->options, $wpdb->posts];
+        $archive = $this->archive_of($tables);
+
+        Governance_Audit_Log::record('wpmcp/trigger-backup', 'none', true, 'after-backup');
+        Request_Log::record([ 'tool' => 'wpmcp/trigger-backup', 'ok' => true ]);
+        Governance_Audit_Log::record('wpmcp/restore-site-backup', 'none', true, '');
+        Request_Log::record([ 'tool' => 'wpmcp/restore-site-backup', 'ok' => true ]);
+
+        $out = $this->restore($archive, [], $tables);
+        $this->assertSame('restored', $out['status']);
+        wp_cache_flush();
+
+        $audit = array_column(Governance_Audit_Log::list(), 'reason');
+        $this->assertContains('before-backup', $audit);
+        $this->assertContains('after-backup', $audit, 'what was logged after the backup survives the restore');
+        $this->assertSame(
+            sprintf('database-restore:restored:archive=%s:user=%d:undo=safety_job_%d', basename($archive), get_current_user_id(), $out['safety_archive']['job_id']),
+            $audit[0],
+            'the newest audit entry is the restore itself'
+        );
+        $this->assertSame('wpmcp/restore-site-backup', Governance_Audit_Log::list(1)[0]['ability']);
+
+        $tools = array_column((array) get_option(Request_Log::OPTION, []), 'tool');
+        $this->assertSame([ 'wpmcp/get-page', 'wpmcp/trigger-backup', 'wpmcp/restore-site-backup' ], $tools);
+
+        delete_option(Governance_Audit_Log::OPTION);
+        delete_option(Request_Log::OPTION);
+    }
+
+    public function test_a_log_the_site_did_not_have_is_not_imported_from_the_dump(): void
+    {
+        global $wpdb;
+        Request_Log::record([ 'tool' => 'wpmcp/from-the-backup', 'ok' => true ]);
+        $tables  = [$wpdb->options, $wpdb->posts];
+        $archive = $this->archive_of($tables);
+        delete_option(Request_Log::OPTION);
+
+        $this->restore($archive, [], $tables);
+        wp_cache_flush();
+
+        $this->assertFalse(get_option(Request_Log::OPTION), 'the dump\'s copy of the request log is not brought back');
+        delete_option(Governance_Audit_Log::OPTION);
+    }
+
     public function test_a_maintenance_value_from_before_the_restore_is_put_back(): void
     {
         $archive = $this->archive_of($this->posts_tables());
@@ -197,9 +255,11 @@ class RestoreSiteBackupExecuteTest extends \WP_UnitTestCase
         $post = self::factory()->post->create(['post_title' => 'As backed up']);
         [$sql, $result] = $this->dump_tables($this->posts_tables());
 
-        // A duplicate primary key passes the policy (it is a literal-only
-        // INSERT) but the database rejects it half-way through the import.
-        $dup  = "INSERT INTO `{$wpdb->posts}` (`ID`, `post_title`) VALUES\n('{$post}', 'duplicate');\n";
+        // An unknown column passes the policy (it is a literal-only INSERT)
+        // but the database rejects it half-way through the import. (A
+        // duplicate key no longer fails the import: since issue #745 it is
+        // treated as a row another request wrote, and the dump's row wins.)
+        $dup  = "INSERT INTO `{$wpdb->posts}` (`ID`, `no_such_column`) VALUES\n('{$post}', 'x');\n";
         $at   = strrpos($sql, "\nSET FOREIGN_KEY_CHECKS = 1;");
         $sql  = substr($sql, 0, $at) . "\n" . $dup . substr($sql, $at);
         $path = $this->archive_from_sql($sql, $result['tables']);
@@ -212,7 +272,7 @@ class RestoreSiteBackupExecuteTest extends \WP_UnitTestCase
         $this->assertSame('failed_rolled_back', $out['status']);
         $this->assertSame($wpdb->posts, $out['failure']['table']);
         $this->assertSame('insert', $out['failure']['kind']);
-        $this->assertStringContainsString('Duplicate', $out['failure']['error']);
+        $this->assertStringContainsString('no_such_column', $out['failure']['error']);
         $this->assertGreaterThan(0, $out['failure']['statement']);
         $this->assertLessThan($out['import']['statements_total'], $out['import']['statements_executed']);
 
@@ -222,6 +282,48 @@ class RestoreSiteBackupExecuteTest extends \WP_UnitTestCase
         $this->assertFalse(get_option('wpmcp_maintenance'), 'A failed restore must not leave the site in maintenance mode.');
         $this->assertNotNull(Backup_Job_Store::get($out['safety_archive']['job_id']));
         $this->assertFileExists($out['safety_archive']['file']);
+    }
+
+    /**
+     * Issue #745: a plugin loaded by another request (the get-backup-status
+     * poll, REST, WP-Cron) recreates its table right after the dump drops
+     * it, and writes a row into a table the dump has just created. Neither
+     * the import nor the rollback may stop on that, and the rollback must
+     * put the safety archive back in full.
+     */
+    public function test_a_table_or_row_recreated_by_another_request_breaks_neither_the_import_nor_the_rollback(): void
+    {
+        global $wpdb;
+        $post = self::factory()->post->create(['post_title' => 'As backed up']);
+        $meta = (int) add_post_meta($post, 'colour', 'blue');
+        [$sql, $result] = $this->dump_tables($this->posts_tables());
+        $sql  = str_replace("SET FOREIGN_KEY_CHECKS = 1;\n", "INSERT INTO `{$wpdb->posts}` (`no_such_column`) VALUES ('x');\n", $sql);
+        $path = $this->archive_from_sql($sql, $result['tables']);
+
+        wp_update_post(['ID' => $post, 'post_title' => 'Live value']);
+        update_post_meta($post, 'colour', 'live');
+
+        $interference = 0;
+        add_action('wpmcp_restore_statement_executed', static function (array $statement, array $class) use ($wpdb, $post, $meta, &$interference): void {
+            if ('drop' === $class['kind'] && $class['table'] === $wpdb->posts) {
+                $wpdb->query("CREATE TABLE `{$wpdb->posts}` (`ID` bigint(20) unsigned NOT NULL, PRIMARY KEY (`ID`))");
+                $interference++;
+            } elseif ('create' === $class['kind'] && $class['table'] === $wpdb->postmeta) {
+                $wpdb->query($wpdb->prepare("INSERT INTO %i (`meta_id`, `post_id`, `meta_key`, `meta_value`) VALUES (%d, %d, 'colour', 'written by a plugin')", $wpdb->postmeta, $meta, $post));
+                $interference++;
+            }
+        }, 10, 2);
+
+        $out = $this->restore($path);
+
+        $this->assertSame(4, $interference, 'The other request must have run during both the import and the rollback.');
+        $this->assertSame('failed_rolled_back', $out['status'], 'Only the real defect in the dump may fail the import: ' . wp_json_encode($out['failure']));
+        $this->assertStringContainsString('no_such_column', $out['failure']['error']);
+        $this->assertTrue($out['rollback']['restored'], 'The rollback must complete: ' . wp_json_encode($out['rollback']));
+        $this->assertSame('Live value', $this->title($post));
+        wp_cache_flush();
+        $this->assertSame('live', get_post_meta($post, 'colour', true), 'The safety archive\'s row must win over the one the other request wrote.');
+        $this->assertTrue($out['session']['preserved']);
     }
 
     public function test_the_failure_leaves_foreign_key_checks_and_sql_mode_as_they_were(): void

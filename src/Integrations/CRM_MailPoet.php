@@ -58,6 +58,15 @@ class CRM_MailPoet extends CRM_Adapter
         'automations_write' => 'mailpoet_manage_automations',
     ];
 
+    /** MailPoet's APIException code for a confirmation email it could not send. */
+    private const CONFIRMATION_FAILED = 10;
+
+    /** MailPoet's APIException code for a welcome email it could not schedule. */
+    private const WELCOME_FAILED = 17;
+
+    /** The codes MailPoet raises after the subscriber is saved. */
+    private const MAIL_AFTER_SAVE = [ self::CONFIRMATION_FAILED, self::WELCOME_FAILED ];
+
     public function slug(): string
     {
         return 'mailpoet';
@@ -564,12 +573,40 @@ class CRM_MailPoet extends CRM_Adapter
 
     protected function api_create_contact(string $email, array $fields, array $custom, array $lists, array $tags, string $status): int
     {
-        $created = self::api(static fn ($mp) => $mp->addSubscriber([ 'email' => $email ] + $fields + $custom, $lists));
-        $id      = (int) ($created['id'] ?? 0);
+        $id = $this->created_despite_mail(static fn (): int => (int) (self::api(static fn ($mp) => $mp->addSubscriber([ 'email' => $email ] + $fields + $custom, $lists))['id'] ?? 0), $email);
         foreach ($tags as $tag) {
             self::api(static fn ($mp) => $mp->tagSubscriber($id, (int) $tag));
         }
         return $id;
+    }
+
+    /**
+     * Run a subscriber create. MailPoet saves the subscriber and its list
+     * memberships before it sends the confirmation email or schedules the
+     * welcome email, and raises the failure of either afterwards (issue
+     * #760): the contact then exists, so its id is returned with a warning
+     * instead of the refusal, and the write's snapshot records it.
+     *
+     * @param callable(): int $create
+     */
+    protected function created_despite_mail(callable $create, string $email): int
+    {
+        try {
+            return $create();
+        } catch (Operation_Error $e) {
+            $code = (int) ($e->error_data()['mailpoet_code'] ?? 0);
+            $id   = in_array($code, self::MAIL_AFTER_SAVE, true) ? $this->contact_id_by_email($email) : 0;
+            if ($id <= 0) {
+                throw $e;
+            }
+            $this->warn(sprintf(
+                'MailPoet created subscriber %d, but %s: %s',
+                $id,
+                self::WELCOME_FAILED === $code ? 'its welcome email could not be scheduled' : 'its confirmation email was not sent, so the subscriber stays unconfirmed until it is sent again from MailPoet',
+                $e->getMessage()
+            ));
+            return $id;
+        }
     }
 
     protected function api_update_contact(int $id, array $fields, array $custom): void

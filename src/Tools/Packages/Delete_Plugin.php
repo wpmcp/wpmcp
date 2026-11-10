@@ -30,7 +30,7 @@ class Delete_Plugin
     public function handle(array $args): array
     {
         if (! self::is_enabled()) {
-            throw new \RuntimeException('The delete-plugin tool is disabled. Enable it with the wpmcp_enable_delete_plugin filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('The delete-plugin tool is disabled.', 'wpmcp_enable_delete_plugin');
         }
 
         $plugin = isset($args['plugin']) ? (string) $args['plugin'] : '';
@@ -43,7 +43,7 @@ class Delete_Plugin
         }
 
         if (Package_Guard::is_protected_plugin($plugin)) {
-            throw new \RuntimeException(sprintf('Refusing to delete protected plugin "%s".', esc_html($plugin)));
+            throw new \RuntimeException(esc_html(Package_Guard::protected_plugin_refusal('delete', $plugin)));
         }
 
         if (! function_exists('get_plugins')) {

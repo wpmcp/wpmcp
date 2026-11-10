@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\WooCommerce;
 
+use WPMCP\Safety\Post_Creation_Snapshot;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -10,10 +12,12 @@ if (! defined('ABSPATH')) {
  * Create a simple WooCommerce product via the CRUD layer (WC_Product_Simple
  * setters + save()).
  *
- * Creation is exempt from Safe_Mutation: there is no prior state to snapshot,
- * and the created product can be removed with delete-product if it was a
- * mistake. Only a fixed set of writable fields is honored; anything else in
- * the args is ignored.
+ * Creation has no prior state to snapshot, so like create-post it records a
+ * creation row under the caller's session_id once the product exists
+ * (issue #761, Post_Creation_Snapshot) and returns its operation_id:
+ * rollback-operation and rollback-session move the product to the trash,
+ * where restore-post brings it back. Only a fixed set of writable fields is
+ * honored; anything else in the args is ignored.
  */
 class Create_Product
 {
@@ -60,6 +64,8 @@ class Create_Product
             throw new \RuntimeException('Could not create the product.');
         }
 
-        return Product_View::detail(wc_get_product($id));
+        $operation_id = Post_Creation_Snapshot::record('create-product', [(int) $id], $args, (string) ($args['session_id'] ?? 'default'));
+
+        return ['operation_id' => $operation_id] + Product_View::detail(wc_get_product($id));
     }
 }

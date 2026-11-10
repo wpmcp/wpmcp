@@ -34,6 +34,15 @@ class Snapshot
         if ('wc_order_full' === $object_type) {
             return Wc_Order_Snapshot::capture((int) $object_id);
         }
+        if ('wc_subscription' === $object_type) {
+            return Wc_Subscription_Snapshot::capture((int) $object_id);
+        }
+        if ('wc_booking' === $object_type) {
+            return Wc_Booking_Snapshot::capture((int) $object_id);
+        }
+        if ('wc_booking_rules' === $object_type) {
+            return Wc_Booking_Snapshot::capture_rules((int) $object_id);
+        }
         if ('wc_shipping_zone' === $object_type) {
             return Wc_Shipping_Zone_Snapshot::capture((int) $object_id);
         }
@@ -93,6 +102,9 @@ class Snapshot
         }
         if (Core_Files_Snapshot::TYPE === $object_type) {
             return Core_Files_Snapshot::capture((string) $object_id);
+        }
+        if (File_Write_Snapshot::TYPE === $object_type) {
+            return File_Write_Snapshot::capture((string) $object_id);
         }
         if ('acf_structure' === $object_type) {
             return self::capture_acf_structure((string) $object_id);
@@ -357,6 +369,7 @@ class Snapshot
         $meta      = [];
         $objects   = [];
         $truncated = false;
+        $around    = [];
 
         if (is_array($term) && isset($term['term_id'])) {
             $term_id = (int) $term['term_id'];
@@ -380,6 +393,10 @@ class Snapshot
                 $objects   = array_slice($objects, 0, self::MAX_TERM_OBJECTS);
                 $truncated = true;
             }
+
+            // What wp_delete_term() changes around the term, so its undo can
+            // put that back too (see Term_Restore).
+            $around = Term_Restore::capture($term_id, $taxonomy, $objects);
         }
 
         return [
@@ -393,7 +410,7 @@ class Snapshot
                 'meta'             => $meta,
                 'objects'          => $objects,
                 'objects_truncated' => $truncated,
-            ],
+            ] + $around,
         ];
     }
 

@@ -34,6 +34,15 @@ class Search_Index_Store
     public const SCHEMA_OPTION  = 'wpmcp_search_index_schema';
     public const SCHEMA_VERSION = '1';
 
+    /**
+     * Whether the index covers the whole site (issue #592): 'building' while
+     * an unfiltered reindex-search pass is under way, 'complete' once one has
+     * reached its last page; absent until then, so an index written only by
+     * save-time indexing reads as partial. Content created before the plugin
+     * is in the index only after such a pass. A wipe (truncate) resets it.
+     */
+    public const COVERAGE_OPTION = 'wpmcp_search_index_coverage';
+
     /** Longest text we keep for a single fragment. Bounds pathological pages. */
     public const MAX_FRAGMENT_CHARS = 2000;
 
@@ -140,6 +149,7 @@ class Search_Index_Store
     public static function truncate(): void
     {
         global $wpdb;
+        delete_option(self::COVERAGE_OPTION);
         $table = self::table_name();
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- full clear of wpmcp_search_index, this plugin's own table (bound with %i); a rebuild has to start from an empty index.
         $wpdb->query($wpdb->prepare('DELETE FROM %i', $table));
@@ -207,6 +217,28 @@ class Search_Index_Store
         $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge([$table], $params)), ARRAY_A);
 
         return is_array($rows) ? $rows : [];
+    }
+
+    /** An unfiltered reindex pass has started (offset 0, every indexable post type). */
+    public static function mark_build_started(): void
+    {
+        if (! self::is_complete()) {
+            update_option(self::COVERAGE_OPTION, 'building', false);
+        }
+    }
+
+    /** An unfiltered reindex pass reached its last page. */
+    public static function mark_build_finished(): void
+    {
+        if ('building' === get_option(self::COVERAGE_OPTION, '')) {
+            update_option(self::COVERAGE_OPTION, 'complete', false);
+        }
+    }
+
+    /** Whether an unfiltered reindex-search pass has covered every indexable post. */
+    public static function is_complete(): bool
+    {
+        return 'complete' === get_option(self::COVERAGE_OPTION, '');
     }
 
     /** @return array{documents:int,objects:int,last_indexed_at:?string,by_source:array<string,int>} */

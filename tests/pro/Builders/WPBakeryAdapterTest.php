@@ -53,7 +53,11 @@ class WPBakeryAdapterTest extends \WP_UnitTestCase
 
     private function update(int $post_id, array $args)
     {
-        return (new Update_Builder_Content())->handle(['post_id' => $post_id, 'builder' => 'wpbakery'] + $args);
+        // Writes to a page with a layout need its current hash (issue #639);
+        // pass expected_hash => null to send none.
+        $args += ['expected_hash' => hash('sha256', (string) get_post($post_id)->post_content)];
+
+        return (new Update_Builder_Content())->handle(array_filter(['post_id' => $post_id, 'builder' => 'wpbakery'] + $args, static fn ($value) => null !== $value));
     }
 
     private function state(int $post_id): array

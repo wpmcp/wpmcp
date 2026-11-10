@@ -54,10 +54,12 @@ final class Tasks
     /** Task kinds: the tool that starts the job and the tools that read and cancel it. */
     private const KINDS = [
         'backup' => [
-            'start'  => 'wpmcp/trigger-backup',
-            'get'    => 'wpmcp/get-backup-status',
-            'cancel' => 'wpmcp/cancel-backup-job',
-            'label'  => 'Backup job',
+            'start'   => 'wpmcp/trigger-backup',
+            'get'     => 'wpmcp/get-backup-status',
+            'cancel'  => 'wpmcp/cancel-backup-job',
+            // A running backup stops at its next heartbeat (issue #771).
+            'cancels' => [ 'queued', 'running' ],
+            'label'   => 'Backup job',
         ],
         'cli'    => [
             'start'  => 'wpmcp/dispatch-cli-job',

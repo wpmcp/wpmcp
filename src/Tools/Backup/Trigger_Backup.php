@@ -43,7 +43,9 @@ class Trigger_Backup
             return new \WP_Error('wpmcp_backup_network_only', 'A backup on a multisite network holds every site\'s tables and the network users, so it needs a network administrator (manage_network_options).');
         }
 
-        $job = Backup_Job_Store::create($type, $scope);
+        // Who queued it: Run_Backup_Job re-checks this user's capability
+        // when the job runs under WP-Cron (issue #563).
+        $job = Backup_Job_Store::create($type, $scope, ['user_id' => get_current_user_id()]);
 
         wp_schedule_single_event(time(), Run_Backup_Job::HOOK, [$job['id']]);
 

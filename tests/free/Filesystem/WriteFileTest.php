@@ -39,7 +39,10 @@ class WriteFileTest extends \WP_UnitTestCase
 
         $this->assertSame('created', $result['action']);
         $this->assertNull($result['backup']);
-        $this->assertFalse($result['recoverable']);
+        // Nothing to back up, but still undoable: rollback-operation removes
+        // the created file (issue #602).
+        $this->assertTrue($result['recoverable']);
+        $this->assertIsString($result['operation_id']);
         $this->assertSame('hello world', file_get_contents(ABSPATH . $this->rel_dir . '/new.txt'));
     }
 
