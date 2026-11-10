@@ -10,8 +10,9 @@ if (! defined('ABSPATH')) {
 
 /**
  * Elementor addon suite packs (issue #286): Essential Addons, Premium Addons
- * and Ultimate Addons for Elementor, as paid-tier ops on the theme dispatcher
- * pair, so the three suites add no top-level tools.
+ * and Ultimate Addons for Elementor, plus Crocoblock JetElements (issue
+ * #653), as paid-tier ops on the theme dispatcher pair, so the suites add no
+ * top-level tools.
  *
  * Per suite, three ops:
  *  - list-{suite}-widgets reads the suite's widgets as Elementor's own widgets
@@ -30,7 +31,8 @@ if (! defined('ABSPATH')) {
  * cleanly: its ops stay documented in list-operations (dependency_met:false)
  * and answer addon_suite_inactive without touching anything. Presence is
  * filterable per suite (wpmcp_essential_addons_active,
- * wpmcp_premium_addons_active, wpmcp_ultimate_addons_active).
+ * wpmcp_premium_addons_active, wpmcp_ultimate_addons_active,
+ * wpmcp_jet_elements_active).
  *
  * Storage formats, verified against the free wordpress.org builds:
  *  - Essential Addons 6.8, eael_save_settings: module key => bool. A key
@@ -44,6 +46,19 @@ if (! defined('ABSPATH')) {
  *  - Ultimate Addons 2.9 (header-footer-elementor), _hfe_widgets: widget key
  *    => the key itself when on, 'disabled' when off; a key that is not saved
  *    takes the widget list's own 'default'.
+ *  - JetElements 2.9.2 (licensed build), one jet-elements-settings option
+ *    that also holds the suite's other settings (API keys among them, never
+ *    read out here). Its avaliable_widgets map is widget file slug (as in
+ *    jet-elements-banner) => 'true' or 'false'; while that map is missing
+ *    or empty every widget is registered, and once saved a missing slug is
+ *    off. Its avaliable_extensions map works the same way for the one
+ *    extension, section_parallax, which defaults on while the map is not
+ *    saved. The suite has no version constant, so presence is its
+ *    jet_elements() function. Its widgets are Elementor\Jet_Elements_*
+ *    classes; the 'cherry' category is shared with the other Crocoblock
+ *    plugins, so it is not used to recognize them. The suite caches the
+ *    option on its settings singleton for the request, which is dropped
+ *    after a write and after a rollback.
  */
 final class Elementor_Addon_Packs
 {
@@ -78,7 +93,19 @@ final class Elementor_Addon_Packs
             'categories' => [ 'hfe-widgets' ],
             'namespaces' => [ 'HFE\\WidgetsManager\\' ],
         ],
+        'jet-elements'     => [
+            'label'      => 'JetElements',
+            'function'   => 'jet_elements',
+            'option'     => 'jet-elements-settings',
+            'format'     => 'jet_settings',
+            'categories' => [],
+            'namespaces' => [ 'Elementor\\Jet_Elements_' ],
+        ],
     ];
+
+    /** The two module maps inside the JetElements settings option. */
+    private const JET_WIDGETS    = 'avaliable_widgets';
+    private const JET_EXTENSIONS = 'avaliable_extensions';
 
     /**
      * The three ops of every suite.
@@ -156,15 +183,21 @@ final class Elementor_Addon_Packs
      */
     public static function after_restore(array $names): void
     {
-        if (in_array(self::SUITES['premium-addons']['option'], $names, true)) {
-            self::after_write('premium-addons');
+        foreach ([ 'premium-addons', 'jet-elements' ] as $suite) {
+            if (in_array(self::SUITES[ $suite ]['option'], $names, true)) {
+                self::after_write($suite);
+            }
         }
     }
 
     /** Whether a suite is loaded, filterable per suite for sites and tests. */
     public static function active(string $suite): bool
     {
-        $loaded = defined(self::SUITES[ $suite ]['constant']);
+        $def    = self::SUITES[ $suite ];
+        $loaded = isset($def['function']) ? function_exists($def['function']) : defined($def['constant']);
+        if ('jet-elements' === $suite) {
+            return (bool) apply_filters('wpmcp_jet_elements_active', $loaded);
+        }
         if ('essential-addons' === $suite) {
             return (bool) apply_filters('wpmcp_essential_addons_active', $loaded);
         }
@@ -286,6 +319,16 @@ final class Elementor_Addon_Packs
                     }
                 }
             }
+        } elseif ('jet-elements' === $suite) {
+            $settings = self::jet_settings();
+            if (null !== $settings) {
+                foreach (array_keys((array) $settings->avaliable_widgets) as $slug) {
+                    $out[ (string) $slug ] = true;
+                }
+                foreach (array_keys((array) $settings->default_avaliable_extensions) as $key) {
+                    $out[ (string) $key ] = true;
+                }
+            }
         } else {
             $helper = '\\HFE\\WidgetsManager\\Base\\HFE_Helper';
             if (is_callable([ $helper, 'get_widget_list' ])) {
@@ -308,6 +351,9 @@ final class Elementor_Addon_Packs
     private static function state(string $suite, $raw): array
     {
         $format = self::SUITES[ $suite ]['format'];
+        if ('jet_settings' === $format) {
+            return self::jet_state($raw);
+        }
         $stored = is_array($raw) ? $raw : [];
         $known  = self::known($suite) + array_fill_keys(array_map('strval', array_keys($stored)), false);
         $out    = [];
@@ -355,6 +401,9 @@ final class Elementor_Addon_Packs
         }
 
         $value = is_array($raw) ? $raw : [];
+        if ('jet_settings' === $def['format']) {
+            return [ 'changes' => $changes, 'value' => [] === $changes ? $value : self::jet_value($value, $state, $changes) ];
+        }
         if ('enabled_only' === $def['format'] && ! is_array($raw)) {
             // No saved option means the suite's defaults are live; saving
             // only the toggled key would switch every other module off.
@@ -405,5 +454,87 @@ final class Elementor_Addon_Packs
         if ('premium-addons' === $suite) {
             wp_cache_delete('pa_elements', 'premium_addons');
         }
+        if ('jet-elements' === $suite) {
+            $settings = self::jet_settings();
+            if (null !== $settings && property_exists($settings, 'settings')) {
+                $settings->settings = null;
+            }
+        }
+    }
+
+    /** The JetElements settings singleton, when the suite has loaded it. */
+    private static function jet_settings(): ?object
+    {
+        $class = '\\Jet_Elements_Settings';
+        if (! is_callable([ $class, 'get_instance' ])) {
+            return null;
+        }
+        $settings = $class::get_instance();
+        return is_object($settings) ? $settings : null;
+    }
+
+    /**
+     * JetElements module state for a raw jet-elements-settings value: the
+     * widget and extension maps resolved the way the suite's own
+     * register_addons() and section extension read them.
+     *
+     * @param mixed $raw
+     * @return array<string,bool>
+     */
+    private static function jet_state($raw): array
+    {
+        $stored     = is_array($raw) ? $raw : [];
+        $known      = self::known('jet-elements');
+        $settings   = self::jet_settings();
+        $ext_keys   = null !== $settings ? array_map('strval', array_keys((array) $settings->default_avaliable_extensions)) : [];
+        $widgets    = $stored[ self::JET_WIDGETS ] ?? null;
+        $extensions = array_key_exists(self::JET_EXTENSIONS, $stored) ? $stored[ self::JET_EXTENSIONS ] : null;
+        $widgets    = is_array($widgets) ? $widgets : [];
+
+        $out = [];
+        foreach (array_keys($known + array_fill_keys(array_map('strval', array_keys($widgets)), true)) as $key) {
+            $key = (string) $key;
+            if (in_array($key, $ext_keys, true)) {
+                $value = is_array($extensions) ? ($extensions[ $key ] ?? false) : true;
+            } else {
+                // An empty or missing map registers every widget.
+                $value = [] === $widgets ? true : ($widgets[ $key ] ?? false);
+            }
+            $out[ $key ] = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+        }
+        ksort($out);
+        return $out;
+    }
+
+    /**
+     * The jet-elements-settings value with the changes applied: every other
+     * setting kept as stored, toggles as the 'true'/'false' strings the
+     * suite saves. A map the suite has not saved yet is written out in full
+     * from the current state, since saving only the toggled key would switch
+     * every other widget off.
+     *
+     * @param array<mixed>       $value
+     * @param array<string,bool> $state
+     * @param array<string,bool> $changes
+     * @return array<mixed>
+     */
+    private static function jet_value(array $value, array $state, array $changes): array
+    {
+        $settings = self::jet_settings();
+        $ext_keys = null !== $settings ? array_map('strval', array_keys((array) $settings->default_avaliable_extensions)) : [];
+
+        foreach ($changes as $key => $on) {
+            $map = in_array((string) $key, $ext_keys, true) ? self::JET_EXTENSIONS : self::JET_WIDGETS;
+            if (! isset($value[ $map ]) || ! is_array($value[ $map ]) || [] === $value[ $map ]) {
+                $value[ $map ] = [];
+                foreach ($state as $name => $current) {
+                    if (in_array($name, $ext_keys, true) === (self::JET_EXTENSIONS === $map)) {
+                        $value[ $map ][ $name ] = $current ? 'true' : 'false';
+                    }
+                }
+            }
+            $value[ $map ][ (string) $key ] = $on ? 'true' : 'false';
+        }
+        return $value;
     }
 }

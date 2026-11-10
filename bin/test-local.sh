@@ -101,10 +101,16 @@
 #      so not downloadable here), beside the pinned free Elementor: submissions
 #      Elementor Pro stores through its own Query are listed, read, exported,
 #      trashed and deleted through the ops, and every write rolls back.
-#  24. Runs the live WP Mail SMTP group: the WP Mail SMTP ops on the theme
+#  24. Runs the live JetElements group (issue #653) when
+#      WPMCP_JET_ELEMENTS_SRC names a local copy of JetElements (commercial,
+#      so not downloadable here), beside the pinned free Elementor: its
+#      widgets and modules are read through the addon pack ops, a module
+#      toggle is read back through JetElements' own settings, and it rolls
+#      back.
+#  25. Runs the live WP Mail SMTP group: the WP Mail SMTP ops on the theme
 #      pair through the real plugin (its Options, encryption and constants),
 #      on its own install, with every write rolled back and no mail sent.
-#  25. Under --all (or --live-adapter alone), runs the adapter leg (issue
+#  26. Under --all (or --live-adapter alone), runs the adapter leg (issue
 #      #501): the free and pro suites on the latest MCP Adapter plugin
 #      released on WordPress.org, loaded next to the bundled copy the way a
 #      site that installs the plugin runs us, with the version it tested in
@@ -194,6 +200,7 @@
 #   bin/test-local.sh --live-divi     only the live Divi group (needs WPMCP_DIVI_SRC)
 #   bin/test-local.sh --live-memberpress only the live MemberPress group (needs WPMCP_MEMBERPRESS_SRC)
 #   bin/test-local.sh --live-elementor-pro only the live Elementor Pro group (needs WPMCP_ELEMENTOR_PRO_SRC)
+#   bin/test-local.sh --live-jet-elements only the live JetElements group (needs WPMCP_JET_ELEMENTS_SRC)
 #   bin/test-local.sh --live-wc-subscriptions only the live WooCommerce Subscriptions group (needs WPMCP_WC_SUBSCRIPTIONS_SRC)
 #   bin/test-local.sh --live-theme-pro only the live theme add-on group (needs at least one of
 #                                     WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC, WPMCP_GP_PREMIUM_SRC)
@@ -258,6 +265,9 @@
 #   WPMCP_ELEMENTOR_PRO_SRC a local Elementor Pro plugin directory for the live
 #                        Elementor Pro group; without it that group is not run,
 #                        except under --live-elementor-pro, where it is an error
+#   WPMCP_JET_ELEMENTS_SRC a local JetElements plugin directory for the live
+#                        JetElements group; without it that group is not run,
+#                        except under --live-jet-elements, where it is an error
 #   WPMCP_WC_SUBSCRIPTIONS_SRC a local WooCommerce Subscriptions plugin directory
 #                        for the live Subscriptions group; without it that group
 #                        is not run, except under --live-wc-subscriptions, where
@@ -344,6 +354,7 @@ only_live_amelia=false
 only_live_wc_subscriptions=false
 only_live_wc_bookings=false
 only_live_elementor_pro=false
+only_live_jet_elements=false
 only_live_wp_mail_smtp=false
 only_live_adapter=false
 only_live_theme_pro=false
@@ -378,6 +389,7 @@ while [ $# -gt 0 ]; do
 		--live-wc-subscriptions) only_live_wc_subscriptions=true ;;
 		--live-wc-bookings) only_live_wc_bookings=true ;;
 		--live-elementor-pro) only_live_elementor_pro=true ;;
+		--live-jet-elements) only_live_jet_elements=true ;;
 		--live-wp-mail-smtp) only_live_wp_mail_smtp=true ;;
 		--live-adapter) only_live_adapter=true ;;
 		--live-theme-pro) only_live_theme_pro=true ;;
@@ -429,7 +441,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -451,6 +463,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_theme_pro" = false ] || LEGS+=("live-theme-pro ${only_wp:-$default_wp}")
 	[ "$only_live_wc_bookings" = false ] || LEGS+=("live-wc-bookings ${only_wp:-$default_wp}")
 	[ "$only_live_elementor_pro" = false ] || LEGS+=("live-elementor-pro ${only_wp:-$default_wp}")
+	[ "$only_live_jet_elements" = false ] || LEGS+=("live-jet-elements ${only_wp:-$default_wp}")
 	[ "$only_live_wp_mail_smtp" = false ] || LEGS+=("live-wp-mail-smtp ${only_wp:-$default_wp}")
 	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
 elif [ "$only_multisite" = true ]; then
@@ -513,6 +526,9 @@ else
 		fi
 		if [ -n "${WPMCP_ELEMENTOR_PRO_SRC:-}" ]; then
 			LEGS+=("live-elementor-pro $default_wp")
+		fi
+		if [ -n "${WPMCP_JET_ELEMENTS_SRC:-}" ]; then
+			LEGS+=("live-jet-elements $default_wp")
 		fi
 		# The adapter leg (issue #501) under --all only; see the header.
 		if [ "$run_all" = true ]; then
@@ -664,6 +680,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_WC_BOOKINGS:-}" = 1 ] && flavor="-wc-bookings-live"
 	# And WPMCP_LIVE_ELEMENTOR_PRO=1, Elementor and the local Elementor Pro copy.
 	[ "${WPMCP_LIVE_ELEMENTOR_PRO:-}" = 1 ] && flavor="-elementor-pro-live"
+	# And WPMCP_LIVE_JET_ELEMENTS=1, Elementor and the local JetElements copy.
+	[ "${WPMCP_LIVE_JET_ELEMENTS:-}" = 1 ] && flavor="-jet-elements-live"
 	# And WPMCP_LIVE_WP_MAIL_SMTP=1 and WP Mail SMTP.
 	[ "${WPMCP_LIVE_WP_MAIL_SMTP:-}" = 1 ] && flavor="-wp-mail-smtp-live"
 	echo "$flavor"
@@ -1521,6 +1539,24 @@ run_live_elementor_pro() {
 	unset WPMCP_LIVE_ELEMENTOR_PRO
 }
 
+# The live JetElements group (issue #653), the same way, with JetElements
+# copied from WPMCP_JET_ELEMENTS_SRC beside the pinned Elementor: its own
+# install, its own database and --fail-on-skipped.
+run_live_jet_elements() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_JET_ELEMENTS_SRC:-}/jet-elements.php" ] || die "the live JetElements group needs WPMCP_JET_ELEMENTS_SRC, a directory holding the JetElements plugin"
+	export WPMCP_LIVE_JET_ELEMENTS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-jet-elements-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live JetElements group on WordPress $version (real JetElements from $WPMCP_JET_ELEMENTS_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group jet-elements-live --fail-on-skipped
+	unset WPMCP_LIVE_JET_ELEMENTS
+}
+
 # The live WooCommerce Subscriptions group (issue #658), the same way, with
 # the plugin copied from WPMCP_WC_SUBSCRIPTIONS_SRC beside WooCommerce: its
 # own install, its own database and --fail-on-skipped.
@@ -1739,6 +1775,7 @@ run_leg_body() {
 		live-divi) run_live_divi "$wp" ;;
 		live-memberpress) run_live_memberpress "$wp" ;;
 		live-elementor-pro) run_live_elementor_pro "$wp" ;;
+		live-jet-elements) run_live_jet_elements "$wp" ;;
 		live-amelia) run_live_amelia "$wp" ;;
 		live-wc-subscriptions) run_live_wc_subscriptions "$wp" ;;
 		live-theme-pro) run_live_theme_pro "$wp" ;;
