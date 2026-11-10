@@ -3,6 +3,9 @@
 namespace WPMCP\Tests\Free\Admin;
 
 use WPMCP\Admin\Announcements;
+use WPMCP\Admin\Audit_Log_Page;
+use WPMCP\Memory\Memory_Store;
+use WPMCP\Plugin;
 
 /**
  * Issue #138: the admin announcements feed. Fetched from WP MCP Cloud
@@ -208,6 +211,38 @@ class AnnouncementsTest extends \WP_UnitTestCase
     {
         set_current_screen('wpmcp_page_wpmcp-connection');
         $this->assertStringContainsString('Launch', $this->rendered_notices());
+    }
+
+    /**
+     * Core derives a submenu's screen id from the SANITIZED MENU TITLE of its
+     * parent (wp-admin/includes/plugin.php, add_menu_page writes
+     * $admin_page_hooks[$slug] = sanitize_title($menu_title)), and our title
+     * carries the pending-proposals badge, so with proposals waiting the
+     * Audit Log screen is "wpmcp-N_page_wpmcp-audit-log", not "wpmcp_page_".
+     * The id is taken from core here, never typed by hand.
+     */
+    public function test_notices_render_on_the_real_submenu_screen_id_while_the_menu_carries_a_badge(): void
+    {
+        if (! post_type_exists(Memory_Store::POST_TYPE)) {
+            $this->markTestSkipped('memory group off in this flavor');
+        }
+        require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        self::factory()->post->create(['post_type' => Memory_Store::POST_TYPE, 'post_status' => 'pending']);
+        self::factory()->post->create(['post_type' => Memory_Store::POST_TYPE, 'post_status' => 'pending']);
+        self::factory()->post->create(['post_type' => Memory_Store::POST_TYPE, 'post_status' => 'pending']);
+
+        $saved = [$GLOBALS['admin_page_hooks'] ?? null, $GLOBALS['menu'] ?? null, $GLOBALS['submenu'] ?? null, $GLOBALS['_registered_pages'] ?? null];
+        try {
+            Plugin::instance()->register_admin_menu();
+            $screen_id = get_plugin_page_hookname(Audit_Log_Page::SLUG, 'wpmcp');
+
+            $this->assertStringStartsWith('wpmcp-3_page_', $screen_id, 'the badge changes the hook prefix; if core stopped doing that, this test needs a new premise');
+
+            set_current_screen($screen_id);
+            $this->assertStringContainsString('Launch', $this->rendered_notices(), 'announcements must follow the screen id core really produces');
+        } finally {
+            [$GLOBALS['admin_page_hooks'], $GLOBALS['menu'], $GLOBALS['submenu'], $GLOBALS['_registered_pages']] = $saved;
+        }
     }
 
     public function test_an_empty_feed_renders_nothing(): void
