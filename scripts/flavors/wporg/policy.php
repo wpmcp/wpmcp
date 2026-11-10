@@ -235,6 +235,14 @@ return [
         // and count the pack towards availability. The dispatcher's
         // forwarding of a requirement's data stays: it is generic.
         'src/Integrations/Elementor_Pro_Forms_Pack.php',
+        // Cache and performance plugin settings (issue #692), paid-tier.
+        // strip.php takes out the line in Theme_Integration that merges the
+        // ops and the rollback refresher in Plugin.
+        'src/Integrations/Cache_Settings_Pack.php',
+        'src/Integrations/Cache_Settings_Adapter.php',
+        'src/Integrations/Cache_Settings_WP_Rocket.php',
+        'src/Integrations/Cache_Settings_Perfmatters.php',
+        'src/Integrations/Cache_Settings_FlyingPress.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

@@ -293,6 +293,7 @@ class Theme_Integration extends Integration_Dispatcher
             Theme_Framework_Pack::operations($this->detect_framework()),
             Core_Site_Pack::operations(),
             Ops_Status_Packs::operations(),
+            Cache_Settings_Pack::operations(),
             Redirection_Pack::operations(),
             Elementor_Addon_Packs::operations(),
             FunnelKit_Pack::operations(),

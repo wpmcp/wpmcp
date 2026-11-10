@@ -1635,6 +1635,21 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
 ];
+// The cache and performance plugin settings ops (issue #692) are the paid
+// add-on's. Their files are removed by policy.php, so the line that merges
+// them into the theme pair and their rollback refresher leave with them.
+$edits['src/Integrations/Theme_Integration.php'][] = [
+    "            Cache_Settings_Pack::operations(),\n",
+    '',
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "        // An undo of a cache plugin settings write lets the plugin rebuild\n"
+        . "        // what it derives from its settings, as its own save does (#692).\n"
+        . "        [\\WPMCP\\Integrations\\Cache_Settings_Pack::class, 'after_options_restored'],\n",
+    '',
+    1,
+];
 $edits['src/Plugin.php'][] = [
     "            // TablePress registers its post type without core's meta\n"
         . "            // capability mapping; a rollback of a table snapshot asks for\n"

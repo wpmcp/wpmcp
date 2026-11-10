@@ -508,6 +508,9 @@ final class Plugin
         // An undo of set-permalink-structure rebuilds the rewrite rules for
         // the restored structure and bases, as the write did (issue #785).
         [\WPMCP\Integrations\Core_Site_Pack::class, 'after_options_restored'],
+        // An undo of a cache plugin settings write lets the plugin rebuild
+        // what it derives from its settings, as its own save does (#692).
+        [\WPMCP\Integrations\Cache_Settings_Pack::class, 'after_options_restored'],
         [\WPMCP\Tools\I18n\I18n_Adapter::class, 'restore_translation_group', 'wpmcp_rollback_translation_group'],
         [\WPMCP\Tools\I18n\I18n_Adapter::class, 'hold_sync', 'wpmcp_rollback_hold_translation_sync'],
         [\WPMCP\Tools\I18n\I18n_Adapter::class, 'release_sync', 'wpmcp_rollback_release_translation_sync'],
