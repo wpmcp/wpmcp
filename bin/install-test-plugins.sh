@@ -50,6 +50,12 @@
 
 set -euo pipefail
 
+# Every download goes through the shared download cache when
+# WPMCP_DOWNLOAD_CACHE names one (bin/test-local.sh sets it); see the file.
+# shellcheck source=bin/download-cache.sh
+. "$(dirname "$0")/download-cache.sh"
+download() { dc_download "$@"; }
+
 TMPDIR=${TMPDIR-/tmp}
 TMPDIR=$(echo "$TMPDIR" | sed -e "s/\/$//")
 WP_CORE_DIR=${WP_CORE_DIR-$TMPDIR/wordpress/}
@@ -339,16 +345,6 @@ if [ "${WPMCP_LIVE_WC_BOOKINGS:-}" = "1" ]; then
 	fi
 fi
 
-download() {
-	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL --retry 5 --retry-all-errors "$1" -o "$2"
-	elif command -v wget >/dev/null 2>&1; then
-		wget -nv -O "$2" "$1"
-	else
-		echo "Neither curl nor wget is available." >&2
-		exit 1
-	fi
-}
 
 # The version a slug is pinned to here: "latest" means the latest-stable zip.
 default_version() {
@@ -401,6 +397,17 @@ install_plugin() {
 		rm -rf "$target"
 	fi
 
+	if [ -n "${WPMCP_DOWNLOAD_CACHE:-}" ] && [ "$ref" != "latest-stable" ]; then
+		# From the download cache, fetched once per exact version.
+		echo "Installing plugin '$slug' ($ref) from the download cache or wordpress.org..."
+		local name="plugins/${slug}-${ref}.zip"
+		dc_get "$name" zip "" fetch_plugin_zip "$slug" "$ref" || exit 1
+		unzip -q -o "$DC_PATH" -d "$PLUGINS_DIR" || { dc_unlock "$name"; exit 1; }
+		dc_unlock "$name"
+		installed_check "$slug" "$main_file"
+		return 0
+	fi
+
 	echo "Installing plugin '$slug' ($ref) from wordpress.org..."
 	local zip="$TMPDIR/${slug}.${ref}.zip"
 	if ! download "https://downloads.wordpress.org/plugin/${slug}.${ref}.zip" "$zip"; then
@@ -416,14 +423,32 @@ install_plugin() {
 	fi
 	unzip -q -o "$zip" -d "$PLUGINS_DIR"
 	rm -f "$zip"
+	installed_check "$slug" "$main_file"
+}
 
-	if [ ! -f "$target/$main_file" ]; then
-		echo "Expected '$target/$main_file' after install but it is missing." >&2
+# Fails unless plugin <slug> is in place with <main file>, and says which
+# version it is.
+installed_check() {
+	local target="$PLUGINS_DIR/$1"
+	if [ ! -f "$target/$2" ]; then
+		echo "Expected '$target/$2' after install but it is missing." >&2
 		exit 1
 	fi
-	local installed
-	installed=$(header_version "$target/$main_file")
-	echo "Installed plugin '$slug' ${installed}."
+	echo "Installed plugin '$1' $(header_version "$target/$2")."
+}
+
+# Fetches the zip of plugin <slug> at version <ref> to <file>: the versioned
+# zip, or for a resolved latest release WordPress.org keeps no versioned zip
+# for (a plugin released from trunk), the latest-stable one.
+fetch_plugin_zip() {
+	local slug=$1 ref=$2 file=$3
+	dc_download "https://downloads.wordpress.org/plugin/${slug}.${ref}.zip" "$file" && return 0
+	if [ "$(default_version "$slug")" != "latest" ]; then
+		echo "Could not download '$slug' $ref from wordpress.org." >&2
+		return 1
+	fi
+	echo "No versioned zip for '$slug' $ref; installing latest-stable instead." >&2
+	dc_download "https://downloads.wordpress.org/plugin/${slug}.latest-stable.zip" "$file"
 }
 
 # The live theme add-on job (issue #656, WPMCP_LIVE_THEME_PRO=astra, kadence
@@ -453,9 +478,9 @@ if [ -n "${WPMCP_LIVE_THEME_PRO:-}" ] && [ "$list_only" = false ]; then
 	echo "Copied $addon $(header_version "$src/$addon.php") from $src."
 	if [ ! -f "$WP_CORE_DIR/wp-content/themes/$theme/style.css" ]; then
 		echo "Installing theme '$theme' from wordpress.org..."
-		download "https://downloads.wordpress.org/theme/$theme.zip" "$TMPDIR/$theme.theme.zip"
-		unzip -q -o "$TMPDIR/$theme.theme.zip" -d "$WP_CORE_DIR/wp-content/themes"
-		rm -f "$TMPDIR/$theme.theme.zip"
+		# The theme zip has no version in its URL: cached by URL, fetched again
+		# after WPMCP_TEST_LATEST_TTL_HOURS.
+		dc_unzip "themes/$theme.zip" "https://downloads.wordpress.org/theme/$theme.zip" "$WP_CORE_DIR/wp-content/themes" "${WPMCP_TEST_LATEST_TTL_HOURS:-24}" || exit 1
 	fi
 	echo "Theme '$theme' $(header_version "$WP_CORE_DIR/wp-content/themes/$theme/style.css") ready."
 fi
