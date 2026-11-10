@@ -50,10 +50,15 @@ if (! defined('ABSPATH')) {
  * adds learner ops: list a user's enrollments with progress (list_users,
  * personal data) and enroll, unenroll or reset a user's progress in one
  * course (edit_users plus edit_user on that user, through Object_Guard),
- * each under a user snapshot.
+ * each under a user snapshot. Those learner writes grant or take away access,
+ * so they are off until a site opts in with the
+ * wpmcp_enable_learndash_learner_write filter (as MemberPress writes are);
+ * the course tree writes are on, like the other LMS adapters'.
  */
 final class LMS_LearnDash extends LMS_Adapter
 {
+    public const ENABLE_HINT = 'A site enables LearnDash enroll, unenroll and reset-progress with the wpmcp_enable_learndash_learner_write filter.';
+
     private const PROGRESS_META = '_sfwd-course_progress';
 
     private const QUIZZES_META = '_sfwd-quizzes';
@@ -302,15 +307,17 @@ final class LMS_LearnDash extends LMS_Adapter
         ];
         $base     = [ 'tier' => 'pro', 'requires' => $requires ];
         $write    = $base + [
-            'mode'         => 'write',
-            'capability'   => 'edit_users',
-            'objects'      => [
+            'mode'               => 'write',
+            'enabled_by_default' => (bool) apply_filters('wpmcp_enable_learndash_learner_write', false),
+            'enable_hint'        => self::ENABLE_HINT,
+            'capability'         => 'edit_users',
+            'objects'            => [
                 'user_id'   => [ 'type' => 'user' ],
                 'course_id' => [ 'type' => 'post', 'own_type' => true, 'access' => 'read' ],
             ],
-            'input_schema' => $pair,
-            'validate'     => fn (array $args): ?array => $this->learner_refusal($args),
-            'snapshot'     => static fn (array $args): array => [ 'object_type' => 'user', 'object_id' => (int) $args['user_id'] ],
+            'input_schema'       => $pair,
+            'validate'           => fn (array $args): ?array => $this->learner_refusal($args),
+            'snapshot'           => static fn (array $args): array => [ 'object_type' => 'user', 'object_id' => (int) $args['user_id'] ],
         ];
 
         return parent::operations() + [
