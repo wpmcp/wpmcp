@@ -360,6 +360,33 @@ class Backup_Job_Store
         });
     }
 
+    /**
+     * Record a finished job for an archive that is on disk but no longer in
+     * the store (issue #814): a restore that died after replacing the
+     * options table leaves the backup's copy of this store behind, which
+     * has never heard of the pre-restore safety archive. The record goes
+     * back under $preferred_id when that id is free, so advice that named
+     * it stays true and the id is never handed out again; otherwise it gets
+     * the next id. One locked step, so no other job can take the id between
+     * the check and the write.
+     *
+     * @param array<string, mixed> $fields The record without id, type, scope or timestamps.
+     */
+    public static function relist(int $preferred_id, string $type, string $scope, array $fields): array
+    {
+        return self::locked(static function (array $stored) use ($preferred_id, $type, $scope, $fields): array {
+            $id  = $preferred_id > 0 && ! isset($stored['jobs'][ $preferred_id ]) ? $preferred_id : (int) $stored['next_id'];
+            $now = self::now();
+            $job = ['id' => $id, 'type' => $type, 'scope' => $scope, 'created_at' => $now, 'updated_at' => $now] + $fields;
+
+            $stored['jobs'][ $id ] = $job;
+            $stored['next_id']     = max((int) $stored['next_id'], $id + 1);
+            self::save($stored);
+
+            return $job;
+        });
+    }
+
     private static function create_in(array $stored, string $type, string $scope, array $extra): array
     {
         $id  = $stored['next_id'];

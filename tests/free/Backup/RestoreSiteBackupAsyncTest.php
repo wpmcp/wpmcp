@@ -324,6 +324,62 @@ class RestoreSiteBackupAsyncTest extends \WP_UnitTestCase
         $this->assertSame(17, $out['progress']['statement']);
     }
 
+    /**
+     * Issue #814: the interrupted-restore warning comes back when the next
+     * restore is queued, before it runs, and the earlier safety archive is
+     * put back in the job store so it can be found and restored.
+     */
+    public function test_queueing_after_an_interrupted_restore_warns_and_lists_the_earlier_safety_archive(): void
+    {
+        $archive = $this->archive_of($this->posts_tables());
+        $safety  = $this->archive_of($this->posts_tables());
+        Site_Backup_Dir::protect(Site_Backup_Dir::path());
+        file_put_contents(Site_Backup_Dir::path() . '/restore-in-progress.json', (string) wp_json_encode([
+            'started_at'    => '2026-01-01T00:00:00+00:00',
+            'archive'       => basename($archive),
+            'safety_job_id' => 7,
+            'safety_file'   => basename($safety),
+            'statement'     => 601,
+            'table'         => 'wp_options',
+        ]));
+
+        $out = $this->tool()->handle_request(['path' => $archive, 'dry_run' => false]);
+
+        $this->assertSame('async', $out['mode']);
+        $warning = implode(' ', $out['warnings']);
+        $this->assertStringContainsString('stopped without finishing', $warning);
+        $this->assertStringContainsString(basename($safety), $warning);
+
+        $adopted = Backup_Job_Store::get(7);
+        $this->assertNotNull($adopted, 'The earlier safety archive is listed again under its own id when that id is free.');
+        $this->assertSame('completed', $adopted['status']);
+        $this->assertSame(realpath($safety), realpath((string) $adopted['result']['file']));
+        $this->assertGreaterThan(7, $out['job_id'], 'The queued restore does not reuse an id the interrupted restore handed out.');
+    }
+
+    public function test_a_restore_that_died_mid_import_names_its_safety_archive_file(): void
+    {
+        $safety = $this->archive_of($this->posts_tables());
+        $job    = Backup_Job_Store::create('restore', 'database', ['user_id' => $this->admin]);
+        Backup_Job_Store::transition($job['id'], 'queued', ['status' => 'running']);
+        file_put_contents(Site_Backup_Dir::path() . '/restore-in-progress.json', (string) wp_json_encode([
+            'started_at'     => '2026-01-01T00:00:00+00:00',
+            'archive'        => 'wpmcp-database-old.zip',
+            'safety_job_id'  => 41,
+            'safety_file'    => basename($safety),
+            'restore_job_id' => $job['id'],
+            'statement'      => 601,
+            'table'          => 'wp_options',
+        ]));
+
+        $out = $this->status($job['id']);
+
+        $this->assertSame('failed', $out['status']);
+        $this->assertStringContainsString(basename($safety), $out['error']);
+        $this->assertStringNotContainsString('backup job 41', $out['error']);
+        $this->assertSame(basename($safety), $out['safety_archive']['file']);
+    }
+
     public function test_wait_true_keeps_the_synchronous_restore(): void
     {
         $post    = self::factory()->post->create(['post_title' => 'As backed up']);
