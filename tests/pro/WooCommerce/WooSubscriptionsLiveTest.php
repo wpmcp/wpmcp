@@ -11,6 +11,8 @@ use WPMCP\Tools\WooCommerce\Catalog\Woo_Ops;
 use WPMCP\Tools\WooCommerce\Catalog\Woo_Read;
 use WPMCP\Tools\WooCommerce\Catalog\Woo_Write;
 
+require_once __DIR__ . '/../../support/wc-subscriptions-plans.php';
+
 /**
  * Issue #658: the subscriptions.* ops against the real WooCommerce
  * Subscriptions.
@@ -169,6 +171,103 @@ class WooSubscriptionsLiveTest extends \WP_UnitTestCase
         $this->assertNotNull($row, wp_json_encode($products));
         $this->assertSame('subscription', $row['type']);
         $this->assertSame('month', $row['period']);
+    }
+
+    /**
+     * Issue #817: products sold through subscription plans, made with the
+     * plugin's own plans manager, are listed beside a legacy subscription
+     * product, and every plan and price matches what Subscriptions itself
+     * resolves for the product.
+     */
+    public function test_products_lists_plan_products_as_the_plugin_resolves_them(): void
+    {
+        $this->assertTrue(class_exists('WCS_ATT_Plans_Manager') && class_exists('WCS_ATT_Product_Schemes') && class_exists('WCS_ATT_Product_Prices'), 'Subscriptions 9.x carries subscription plans');
+        $fixtures = wpmcp_test_wc_plan_fixtures();
+        $no_id    = static function (array $plan): array {
+            unset($plan['id']);
+            return $plan;
+        };
+
+        $legacy = new \WC_Product_Subscription();
+        $legacy->set_name('Monthly beans');
+        $legacy->set_regular_price('12');
+        $legacy->update_meta_data('_subscription_price', '12');
+        $legacy->update_meta_data('_subscription_period', 'month');
+        $legacy->update_meta_data('_subscription_period_interval', '1');
+        $legacy_id = $legacy->save();
+
+        $products = new \WCS_ATT_Plans_Manager('product');
+        $simple   = $this->product('50.00', 'Coffee beans');
+        foreach (['monthly_discount', 'yearly_override', 'fortnightly_fixed_legacy'] as $name) {
+            $products->create($no_id($fixtures[ $name ]), $simple);
+        }
+
+        $parent = new \WC_Product_Variable();
+        $parent->set_name('Tea tin');
+        $variable = (int) $parent->save();
+        foreach (['20.00', '30.00'] as $price) {
+            $variation = new \WC_Product_Variation();
+            $variation->set_parent_id($variable);
+            $variation->set_regular_price($price);
+            $variation->save();
+        }
+        \WC_Product_Variable::sync($variable);
+        $products->create($no_id($fixtures['monthly_discount']), $variable);
+
+        $storewide = new \WCS_ATT_Plans_Manager('storewide');
+        foreach (['storewide_weekly', 'storewide_quarterly'] as $name) {
+            $storewide->create($no_id($fixtures[ $name ]));
+        }
+        $inherit = wc_get_product($this->product('40.00', 'Storewide plans'));
+        \WCS_ATT_Product::set_subscription_scheme_mode($inherit, 'inherit');
+        $inherit->update_meta_data('_wcsatt_storewide_selection_mode', 'all');
+        $inherit->save();
+
+        $one_time = $this->product('3.00', 'Plain mug');
+
+        // The plugin stores plans in the shape the fixtures record.
+        wp_cache_flush();
+        $stored = get_post_meta($simple, '_wcsatt_schemes', true);
+        $this->assertSame('override', get_post_meta($simple, '_wcsatt_schemes_status', true));
+        foreach (array_keys($no_id($fixtures['monthly_discount'])) as $key) {
+            $this->assertArrayHasKey($key, $stored[0], $key);
+        }
+        $this->assertArrayHasKey('id', $stored[0]);
+
+        $out = (new Woo_Read())->handle(['op' => 'subscriptions.products', 'params' => ['per_page' => 50]]);
+        $this->assertSame(200, $out['status'], wp_json_encode($out));
+        $ids = array_column($out['body']['products'], 'id');
+        foreach ([$legacy_id, $simple, $variable, $inherit->get_id()] as $id) {
+            $this->assertContains($id, $ids, wp_json_encode($out));
+        }
+        $this->assertNotContains($one_time, $ids);
+
+        $rows = array_column($out['body']['products'], null, 'id');
+        $this->assertSame('subscription_type', $rows[ $legacy_id ]['sold_as']);
+        $this->assertSame('storewide', $rows[ $inherit->get_id() ]['plans_from']);
+
+        $checks = [ $simple => $rows[ $simple ]['plans'], $inherit->get_id() => $rows[ $inherit->get_id() ]['plans'] ];
+        foreach ($rows[ $variable ]['variations'] as $variation_row) {
+            $checks[ $variation_row['id'] ] = $variation_row['plans'];
+        }
+        $this->assertCount(3, $rows[ $simple ]['plans']);
+        $this->assertCount(2, $rows[ $variable ]['variations']);
+
+        foreach ($checks as $product_id => $plans) {
+            $product = wc_get_product($product_id);
+            $schemes = \WCS_ATT_Product_Schemes::get_subscription_schemes($product);
+            $this->assertSame(array_keys($schemes), array_column($plans, 'id'), "plans of {$product_id}");
+            foreach ($plans as $plan) {
+                $scheme = $schemes[ $plan['id'] ];
+                $this->assertSame($scheme->get_period(), $plan['period']);
+                $this->assertSame((int) $scheme->get_interval(), $plan['period_interval']);
+                $this->assertSame((int) $scheme->get_length(), $plan['length']);
+                $this->assertSame((int) $scheme->get_trial_length(), $plan['trial_length']);
+                $this->assertSame($scheme->get_pricing_mode(), $plan['pricing']);
+                $this->assertEqualsWithDelta($scheme->get_signup_fee(), (float) $plan['sign_up_fee'], 0.001);
+                $this->assertEqualsWithDelta((float) \WCS_ATT_Product_Prices::get_price($product, $plan['id'], 'edit'), (float) $plan['price'], 0.001, "price of plan {$plan['id']} on {$product_id}");
+            }
+        }
     }
 
     public function test_a_status_change_goes_through_the_plugin_and_rolls_back_with_its_renewal(): void

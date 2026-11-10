@@ -49,8 +49,37 @@ final class Subscription_Ops
     /** Related order kinds Subscriptions records. */
     private const RELATIONS = ['parent', 'renewal', 'switch', 'resubscribe'];
 
-    /** Product types Subscriptions adds. */
+    /** Product types Subscriptions adds (sold as subscriptions by type, the legacy way). */
     private const PRODUCT_TYPES = ['subscription', 'variable-subscription'];
+
+    /**
+     * Subscription plans (Subscriptions 9.x, issue #817): a simple or
+     * variable product is sold on subscription through plans kept in its
+     * meta rather than by its type. The keys are the plugin's own:
+     *
+     *  - _wcsatt_schemes_status: the product's mode, disable (one-time only),
+     *    override (its own plans, in _wcsatt_schemes) or inherit (the
+     *    storewide plans in the wcsatt_subscribe_to_cart_schemes option);
+     *  - _wcsatt_disabled, _wcsatt_storewide_selection_mode and
+     *    _wcsatt_schemes: what the mode is read from on products saved
+     *    before the mode key existed;
+     *  - _wcsatt_selected_storewide_plans: the storewide plan ids a product
+     *    offers when its selection mode is specific.
+     */
+    private const PLAN_MODE_META     = '_wcsatt_schemes_status';
+    private const PLAN_META          = '_wcsatt_schemes';
+    private const PLAN_DISABLED_META = '_wcsatt_disabled';
+    private const PLAN_SELECTION_META = '_wcsatt_storewide_selection_mode';
+    private const PLAN_SELECTED_META = '_wcsatt_selected_storewide_plans';
+    private const PLAN_FORCED_META   = '_wcsatt_force_subscription';
+    private const STOREWIDE_PLANS    = 'wcsatt_subscribe_to_cart_schemes';
+    private const PLAN_MODES         = ['disable', 'override', 'inherit'];
+
+    /** Product types plans can be added to, before the plugin's filter. */
+    private const PLAN_PRODUCT_TYPES = ['simple', 'variable', 'mix-and-match', 'bundle', 'composite'];
+
+    /** Statuses subscriptions.products lists. */
+    private const PRODUCT_STATUSES = ['publish', 'private', 'draft', 'pending', 'future'];
 
     /** Product meta Subscriptions keeps a subscription product's terms in, by the name shown. */
     private const PRODUCT_META = [
@@ -129,49 +158,345 @@ final class Subscription_Ops
         return [ 'page' => $page, 'per_page' => $per_page, 'subscriptions' => $rows ];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Subscription products of both kinds (issue #817): the legacy
+     * subscription and variable-subscription types with their terms, and
+     * products sold through subscription plans with each plan. Paged over
+     * the two sets together, in id order.
+     *
+     * @return array<string, mixed>
+     */
     private static function products(array $params): array
     {
         self::refuse_unknown($params, ['page', 'per_page', 'search'], 'subscriptions.products');
 
         $page     = self::positive($params['page'] ?? 1, 'page');
         $per_page = min(self::MAX_PER_PAGE, self::positive($params['per_page'] ?? self::DEFAULT_PER_PAGE, 'per_page'));
-        $query    = [
-            'type'     => self::PRODUCT_TYPES,
-            'status'   => ['publish', 'private', 'draft', 'pending', 'future'],
-            'limit'    => $per_page,
-            'page'     => $page,
-            'orderby'  => 'ID',
-            'order'    => 'ASC',
-            'paginate' => true,
-        ];
-        if (isset($params['search']) && is_string($params['search']) && '' !== trim($params['search'])) {
-            $query['s'] = sanitize_text_field($params['search']);
-        }
-        $found = wc_get_products($query);
+        $search   = isset($params['search']) && is_string($params['search']) && '' !== trim($params['search']) ? sanitize_text_field($params['search']) : '';
+
+        $storewide = self::storewide_plans();
+        $plan_ids  = array_values(array_filter(
+            self::product_ids(self::plan_product_types(), $search, self::plan_candidates_need_meta()),
+            static fn (int $id): bool => [] !== self::plan_data($id, $storewide)['plans']
+        ));
+        $ids = array_values(array_unique(array_merge(self::product_ids(self::PRODUCT_TYPES, $search, false), $plan_ids)));
+        sort($ids);
 
         $rows = [];
-        foreach ($found->products as $product) {
-            $row = [
-                'id'     => $product->get_id(),
-                'name'   => $product->get_name(),
-                'type'   => self::product_type($product),
-                'status' => $product->get_status(),
-                'sku'    => $product->get_sku(),
-            ] + self::terms($product);
-            if ('variable-subscription' === $row['type']) {
-                $row['variations'] = [];
-                foreach ($product->get_children() as $child_id) {
-                    $child = wc_get_product($child_id);
-                    if ($child) {
-                        $row['variations'][] = [ 'id' => $child->get_id(), 'name' => $child->get_name(), 'sku' => $child->get_sku() ] + self::terms($child);
-                    }
-                }
+        foreach (array_slice($ids, ($page - 1) * $per_page, $per_page) as $id) {
+            $product = wc_get_product($id);
+            if (! $product instanceof \WC_Product) {
+                continue;
             }
-            $rows[] = $row;
+            $rows[] = in_array($id, $plan_ids, true) && ! in_array(self::product_type($product), self::PRODUCT_TYPES, true)
+                ? self::plan_product_row($product, $storewide)
+                : self::legacy_product_row($product);
         }
 
-        return [ 'page' => $page, 'per_page' => $per_page, 'total' => (int) $found->total, 'products' => $rows ];
+        return [ 'page' => $page, 'per_page' => $per_page, 'total' => count($ids), 'products' => $rows ];
+    }
+
+    /** @return array<string, mixed> */
+    private static function legacy_product_row(\WC_Product $product): array
+    {
+        $row = [
+            'id'      => $product->get_id(),
+            'name'    => $product->get_name(),
+            'type'    => self::product_type($product),
+            'status'  => $product->get_status(),
+            'sku'     => $product->get_sku(),
+            'sold_as' => 'subscription_type',
+        ] + self::terms($product);
+        if ('variable-subscription' === $row['type']) {
+            $row['variations'] = [];
+            foreach ($product->get_children() as $child_id) {
+                $child = wc_get_product($child_id);
+                if ($child) {
+                    $row['variations'][] = [ 'id' => $child->get_id(), 'name' => $child->get_name(), 'sku' => $child->get_sku() ] + self::terms($child);
+                }
+            }
+        }
+        return $row;
+    }
+
+    /**
+     * A product sold through subscription plans: its one-time price, whether
+     * it can still be bought once, and each plan with the price it charges
+     * for this product. A variable product lists its variations, each with
+     * its plans priced from the variation's own price.
+     *
+     * @param list<array<string, mixed>> $storewide
+     * @return array<string, mixed>
+     */
+    private static function plan_product_row(\WC_Product $product, array $storewide): array
+    {
+        $data = self::plan_data($product->get_id(), $storewide);
+        $row  = [
+            'id'                => $product->get_id(),
+            'name'              => $product->get_name(),
+            'type'              => self::product_type($product),
+            'status'            => $product->get_status(),
+            'sku'               => $product->get_sku(),
+            'sold_as'           => 'plans',
+            'plans_from'        => $data['from'],
+            'subscription_only' => 'yes' === (string) get_post_meta($product->get_id(), self::PLAN_FORCED_META, true),
+            'product_price'     => self::price_or_null($product->get_price('edit')),
+            'plans'             => self::priced_plans($data['plans'], $product),
+        ];
+        if ($product->is_type('variable')) {
+            $row['variations'] = [];
+            foreach ($product->get_children() as $child_id) {
+                $child = wc_get_product($child_id);
+                if ($child instanceof \WC_Product) {
+                    $row['variations'][] = [
+                        'id'            => $child->get_id(),
+                        'name'          => $child->get_name(),
+                        'sku'           => $child->get_sku(),
+                        'product_price' => self::price_or_null($child->get_price('edit')),
+                        'plans'         => self::priced_plans(self::variation_plans($child->get_id(), $product->get_id(), $data, $storewide), $child),
+                    ];
+                }
+            }
+        }
+        return $row;
+    }
+
+    /**
+     * Ids of products of the given types, in id order. With $with_plan_meta
+     * only products carrying one of the plan meta keys (a product without
+     * them is sold one-time only, unless the site changed the default).
+     *
+     * @param string[] $types
+     * @return int[]
+     */
+    private static function product_ids(array $types, string $search, bool $with_plan_meta): array
+    {
+        if ([] === $types) {
+            return [];
+        }
+        $args = [
+            'post_type'              => 'product',
+            'post_status'            => self::PRODUCT_STATUSES,
+            'fields'                 => 'ids',
+            'posts_per_page'         => -1,
+            'orderby'                => 'ID',
+            'order'                  => 'ASC',
+            'no_found_rows'          => true,
+            'suppress_filters'       => false,
+            'update_post_term_cache' => false,
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query -- the product type is a taxonomy; this is how WooCommerce itself filters by type.
+            'tax_query'              => [ [ 'taxonomy' => 'product_type', 'field' => 'slug', 'terms' => $types ] ],
+        ];
+        if ($with_plan_meta) {
+            $meta = [ 'relation' => 'OR' ];
+            foreach ([ self::PLAN_MODE_META, self::PLAN_META, self::PLAN_DISABLED_META, self::PLAN_SELECTION_META ] as $key) {
+                $meta[] = [ 'key' => $key, 'compare' => 'EXISTS' ];
+            }
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- narrows the scan to products that carry plan settings.
+            $args['meta_query'] = $meta;
+        }
+        if ('' !== $search) {
+            $args['s'] = $search;
+        }
+        $ids = array_map('intval', (array) ( new \WP_Query($args) )->posts);
+        if ([] !== $ids) {
+            update_meta_cache('post', $ids);
+        }
+        return $ids;
+    }
+
+    /** @return string[] */
+    private static function plan_product_types(): array
+    {
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- applying WooCommerce Subscriptions' own filter, as it does when deciding which products take plans; wpmcp adds no callback to it.
+        $types = (array) apply_filters('wcsatt_supported_product_types', array_merge(self::PLAN_PRODUCT_TYPES, ['variation']));
+        return array_values(array_diff(array_filter($types, 'is_string'), ['variation']));
+    }
+
+    /** A product with no plan settings is one-time only unless the site changed the default mode. */
+    private static function plan_candidates_need_meta(): bool
+    {
+        return 'disable' === self::default_plan_mode();
+    }
+
+    /** The mode of a product with no plan settings: disable (one-time only) unless the site changed it. */
+    private static function default_plan_mode(): string
+    {
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- applying WooCommerce Subscriptions' own filter, as it does for a product without plan settings; wpmcp adds no callback to it.
+        $default = apply_filters('woocommerce_subscriptions_default_product_subscription_scheme_mode', 'disable');
+        return is_string($default) && in_array($default, self::PLAN_MODES, true) ? $default : 'disable';
+    }
+
+    /**
+     * A parent product's plan mode and plans, read from its meta the way
+     * Subscriptions reads them.
+     *
+     * @param list<array<string, mixed>> $storewide
+     * @return array{mode: string, from: string, plans: list<array<string, mixed>>}
+     */
+    private static function plan_data(int $id, array $storewide): array
+    {
+        $mode = self::plan_mode($id);
+        if ('override' === $mode) {
+            return [ 'mode' => $mode, 'from' => 'product', 'plans' => self::plans(get_post_meta($id, self::PLAN_META, true)) ];
+        }
+        if ('inherit' === $mode) {
+            return [ 'mode' => $mode, 'from' => 'storewide', 'plans' => self::selected_storewide($id, $storewide) ];
+        }
+        return [ 'mode' => $mode, 'from' => 'none', 'plans' => [] ];
+    }
+
+    /**
+     * A variation's plans: the parent's mode decides; in override a
+     * variation's own plans win over the parent's.
+     *
+     * @param array{mode: string, from: string, plans: list<array<string, mixed>>} $parent
+     * @param list<array<string, mixed>> $storewide
+     * @return list<array<string, mixed>>
+     */
+    private static function variation_plans(int $variation_id, int $parent_id, array $parent, array $storewide): array
+    {
+        if ('override' === $parent['mode']) {
+            $own = self::plans(get_post_meta($variation_id, self::PLAN_META, true));
+            return [] !== $own ? $own : $parent['plans'];
+        }
+        return 'inherit' === $parent['mode'] ? self::selected_storewide($parent_id, $storewide) : [];
+    }
+
+    private static function plan_mode(int $id): string
+    {
+        $mode = get_post_meta($id, self::PLAN_MODE_META, true);
+        if (is_string($mode) && in_array($mode, self::PLAN_MODES, true)) {
+            return $mode;
+        }
+        // Products saved before the mode key existed.
+        if ('yes' === get_post_meta($id, self::PLAN_DISABLED_META, true)) {
+            return 'disable';
+        }
+        if (metadata_exists('post', $id, self::PLAN_SELECTION_META)) {
+            return 'inherit';
+        }
+        $plans = get_post_meta($id, self::PLAN_META, true);
+        if (is_array($plans) && [] !== $plans) {
+            return 'override';
+        }
+        if (metadata_exists('post', $id, self::PLAN_META) || metadata_exists('post', $id, self::PLAN_DISABLED_META)) {
+            return 'inherit';
+        }
+        return self::default_plan_mode();
+    }
+
+    /**
+     * @param list<array<string, mixed>> $storewide
+     * @return list<array<string, mixed>>
+     */
+    private static function selected_storewide(int $id, array $storewide): array
+    {
+        if ('specific' !== get_post_meta($id, self::PLAN_SELECTION_META, true)) {
+            return $storewide;
+        }
+        $selected = get_post_meta($id, self::PLAN_SELECTED_META, true);
+        if (! is_array($selected) || [] === $selected) {
+            return $storewide;
+        }
+        return array_values(array_filter($storewide, static fn (array $plan): bool => in_array($plan['id'], $selected, true)));
+    }
+
+    /** @return list<array<string, mixed>> */
+    private static function storewide_plans(): array
+    {
+        return self::plans(get_option(self::STOREWIDE_PLANS, []));
+    }
+
+    /**
+     * Stored plans normalised the way Subscriptions reads each one; plans
+     * with the same id (or, for plans saved without one, the same
+     * interval, period and length) are listed once.
+     *
+     * @param mixed $stored
+     * @return list<array<string, mixed>>
+     */
+    private static function plans($stored): array
+    {
+        if (! is_array($stored)) {
+            return [];
+        }
+        $plans = [];
+        foreach ($stored as $raw) {
+            if (! is_array($raw)) {
+                continue;
+            }
+            $plan = [
+                'period'          => isset($raw['subscription_period']) ? (string) $raw['subscription_period'] : '',
+                'period_interval' => isset($raw['subscription_period_interval']) ? absint($raw['subscription_period_interval']) : 0,
+                'length'          => isset($raw['subscription_length']) ? absint($raw['subscription_length']) : 0,
+                'trial_length'    => isset($raw['subscription_trial_length']) ? absint($raw['subscription_trial_length']) : 0,
+                'trial_period'    => isset($raw['subscription_trial_period']) ? (string) $raw['subscription_trial_period'] : 'day',
+                'sign_up_fee'     => (string) wc_format_decimal(isset($raw['subscription_signup_fee']) ? (float) $raw['subscription_signup_fee'] : 0, wc_get_price_decimals()),
+            ];
+            $method        = $raw['subscription_pricing_method'] ?? '';
+            $method        = in_array($method, ['inherit', 'override', 'fixed_discount'], true) ? $method : 'inherit';
+            $regular       = 'override' === $method && isset($raw['subscription_regular_price']) ? (string) wc_format_decimal($raw['subscription_regular_price']) : '';
+            $sale          = 'override' === $method && isset($raw['subscription_sale_price']) ? (string) wc_format_decimal($raw['subscription_sale_price']) : '';
+            if ('override' === $method && '' === $regular && '' === $sale) {
+                $method = 'inherit';
+            }
+            $discount = 'override' !== $method && isset($raw['subscription_discount']) && ! empty($raw['subscription_discount']) ? (float) $raw['subscription_discount'] : 0.0;
+
+            $id = isset($raw['id']) && '' !== (string) $raw['id']
+                ? (string) $raw['id']
+                : implode('_', array_filter([ $plan['period_interval'], $plan['period'], $plan['length'] ]));
+            if (isset($plans[ $id ])) {
+                continue;
+            }
+            $plans[ $id ] = [ 'id' => $id ] + $plan + [
+                'pricing'               => $method,
+                'discount'              => $discount > 0 ? (string) wc_format_decimal($discount) : null,
+                'override_regular_price' => $regular,
+                'override_sale_price'    => $sale,
+            ];
+        }
+        return array_values($plans);
+    }
+
+    /**
+     * Each plan with the price it charges for this product: the product's
+     * price, less a percentage (pricing inherit) or a fixed amount
+     * (fixed_discount), or the plan's own price (override).
+     *
+     * @param list<array<string, mixed>> $plans
+     * @return list<array<string, mixed>>
+     */
+    private static function priced_plans(array $plans, \WC_Product $product): array
+    {
+        $out = [];
+        foreach ($plans as $plan) {
+            $regular = (string) $product->get_regular_price('edit');
+            $price   = (string) $product->get_price('edit');
+            if ('override' === $plan['pricing']) {
+                $regular = $plan['override_regular_price'];
+                $sale    = $plan['override_sale_price'];
+                $price   = '' !== $sale && (float) $sale < (float) $regular ? $sale : $regular;
+            } elseif (null !== $plan['discount'] && ('' !== $price || '' !== $regular)) {
+                $regular  = '' === $regular ? $price : $regular;
+                $price    = '' === $price ? $regular : $price;
+                $discount = (float) $plan['discount'];
+                $price    = 'fixed_discount' === $plan['pricing']
+                    ? max(0, round((float) $price - $discount, wc_get_price_decimals()))
+                    : round((float) $price * (100 - $discount) / 100, wc_get_price_decimals());
+            }
+            unset($plan['override_regular_price'], $plan['override_sale_price']);
+            $plan['regular_price'] = self::price_or_null($regular);
+            $plan['price']         = self::price_or_null($price);
+            $out[]                 = $plan;
+        }
+        return $out;
+    }
+
+    /** A price at the store's decimals, or null when the product has none. @param mixed $price */
+    private static function price_or_null($price): ?string
+    {
+        return '' === (string) $price ? null : (string) wc_format_decimal($price, wc_get_price_decimals());
     }
 
     /** @return array<string, mixed> */
