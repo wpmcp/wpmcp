@@ -40,6 +40,9 @@
 #      through the real plugins, one install each.
 #   9. Runs the live TablePress group (issue #481): the TablePress ops
 #      through the real TablePress, on its own install too.
+#   9b. Runs the live Code Snippets group (issue #576): the Code Snippets
+#      ops through the real Code Snippets, every write rolled back and only
+#      a no-op snippet ever activated, on its own install too.
 #  10. Runs the live CRM group (issue #477): the FluentCRM and MailPoet ops
 #      through the real plugins, on their own install.
 #  11. Runs the live Amelia group (issue #499): the Amelia ops through the
@@ -124,6 +127,7 @@
 #   bin/test-local.sh --live-buddypress only the live BuddyPress group (real BuddyPress)
 #   bin/test-local.sh --live-lms      only the live LMS groups (real Tutor LMS, then real LifterLMS)
 #   bin/test-local.sh --live-tablepress only the live TablePress group (real TablePress)
+#   bin/test-local.sh --live-code-snippets only the live Code Snippets group (real Code Snippets)
 #   bin/test-local.sh --live-crm      only the live CRM group (real FluentCRM and MailPoet)
 #   bin/test-local.sh --live-funnelkit only the live FunnelKit group (real Funnel Builder + WooCommerce)
 #   bin/test-local.sh --live-amelia   only the live Amelia group (real Amelia Lite)
@@ -224,6 +228,7 @@ only_live_blocks=false
 only_live_buddypress=false
 only_live_lms=false
 only_live_tablepress=false
+only_live_code_snippets=false
 only_live_crm=false
 only_live_funnelkit=false
 only_live_polylang=false
@@ -253,6 +258,7 @@ while [ $# -gt 0 ]; do
 		--live-buddypress) only_live_buddypress=true ;;
 		--live-lms) only_live_lms=true ;;
 		--live-tablepress) only_live_tablepress=true ;;
+		--live-code-snippets) only_live_code_snippets=true ;;
 		--live-crm) only_live_crm=true ;;
 		--live-funnelkit) only_live_funnelkit=true ;;
 		--live-polylang) only_live_polylang=true ;;
@@ -314,12 +320,13 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
 	[ "$only_live_lms" = false ] || LEGS+=("live-lms ${only_wp:-$default_wp}")
 	[ "$only_live_tablepress" = false ] || LEGS+=("live-tablepress ${only_wp:-$default_wp}")
+	[ "$only_live_code_snippets" = false ] || LEGS+=("live-code-snippets ${only_wp:-$default_wp}")
 	[ "$only_live_crm" = false ] || LEGS+=("live-crm ${only_wp:-$default_wp}")
 	[ "$only_live_funnelkit" = false ] || LEGS+=("live-funnelkit ${only_wp:-$default_wp}")
 	[ "$only_live_polylang" = false ] || LEGS+=("live-polylang ${only_wp:-$default_wp}")
@@ -364,7 +371,7 @@ else
 		LEGS+=("multisite $default_wp none")
 	fi
 	if [ "$targeted" = false ]; then
-		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp")
+		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp")
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			LEGS+=("live-breakdance $default_wp")
 		fi
@@ -512,6 +519,8 @@ install_flavor() {
 	[ -n "${WPMCP_LIVE_LMS:-}" ] && flavor="-${WPMCP_LIVE_LMS}-live"
 	# And WPMCP_LIVE_TABLEPRESS=1 and TablePress.
 	[ "${WPMCP_LIVE_TABLEPRESS:-}" = 1 ] && flavor="-tablepress-live"
+	# And WPMCP_LIVE_CODE_SNIPPETS=1 and Code Snippets.
+	[ "${WPMCP_LIVE_CODE_SNIPPETS:-}" = 1 ] && flavor="-code-snippets-live"
 	# And WPMCP_LIVE_CRM=1 and FluentCRM and MailPoet.
 	[ "${WPMCP_LIVE_CRM:-}" = 1 ] && flavor="-crm-live"
 	# And WPMCP_LIVE_FUNNELKIT=1 and Funnel Builder with WooCommerce.
@@ -859,6 +868,22 @@ run_live_tablepress() {
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
 		"$PHP" vendor/bin/phpunit --group tablepress-live --fail-on-skipped
 	unset WPMCP_LIVE_TABLEPRESS
+}
+
+# The live Code Snippets group (issue #576), the same way: its own install
+# with the real Code Snippets, its own database, and --fail-on-skipped.
+run_live_code_snippets() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_CODE_SNIPPETS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-code-snippets-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Code Snippets group on WordPress $version (real Code Snippets)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group code-snippets-live --fail-on-skipped
+	unset WPMCP_LIVE_CODE_SNIPPETS
 }
 
 # The live CRM group (issue #477), the same way: its own install with the real
@@ -1236,6 +1261,7 @@ run_leg_body() {
 		live-buddypress) run_live_buddypress "$wp" ;;
 		live-lms) run_live_lms "$wp" ;;
 		live-tablepress) run_live_tablepress "$wp" ;;
+		live-code-snippets) run_live_code_snippets "$wp" ;;
 		live-crm) run_live_crm "$wp" ;;
 		live-funnelkit) run_live_funnelkit "$wp" ;;
 		live-polylang) run_live_polylang "$wp" ;;

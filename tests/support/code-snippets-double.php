@@ -23,7 +23,7 @@
 // phpcs:disable
 
 namespace Code_Snippets\Model {
-    if (! class_exists('Code_Snippets\Model\Snippet', false)) {
+    if (! function_exists('Code_Snippets\code_snippets') && ! class_exists('Code_Snippets\Model\Snippet')) {
         class Snippet
         {
             private array $fields = [

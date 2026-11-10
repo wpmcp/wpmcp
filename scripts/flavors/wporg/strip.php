@@ -1345,7 +1345,7 @@ $edits['src/MCP/Server.php'] = [
 // otherwise free pack. Its definition lives in its own file, which policy.php
 // removes, so all that leaves the pack is the line that merges it in.
 $edits['src/Integrations/Code_Snippets_Pack.php'] = [
-    ["            'code-snippets-activate-snippet'   => Code_Snippets_Activation::definition($base, $id_only, $row),\n", '', 1],
+    ['            \'code-snippets-activate-snippet\'   => Code_Snippets_Activation::definition($base, $id_only, $row),' . "\n", '', 1],
 ];
 
 // The ACF pair's multi-post batch write (issue #291) is the one op in that

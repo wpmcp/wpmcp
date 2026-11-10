@@ -10,6 +10,8 @@
 # only (bin/test-local.sh --live-blocks), or, with WPMCP_LIVE_BUDDYPRESS=1,
 # BuddyPress only (bin/test-local.sh --live-buddypress), or, with
 # WPMCP_LIVE_TABLEPRESS=1, TablePress only (bin/test-local.sh --live-tablepress), or,
+# with WPMCP_LIVE_CODE_SNIPPETS=1, Code Snippets only (bin/test-local.sh
+# --live-code-snippets), or,
 # with WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
 # --live-crm), or, with WPMCP_LIVE_AMELIA=1, Amelia Lite only
 # (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
@@ -132,6 +134,16 @@ fi
 if [ "${WPMCP_LIVE_TABLEPRESS:-}" = "1" ]; then
 	PLUGINS=(
 		"tablepress:tablepress.php"
+	)
+fi
+
+# The live Code Snippets job (issue #576) runs the Code Snippets ops through
+# the real Code Snippets, so its own validator, caches and hooks run.
+# Exclusive too: the stub-backed Code Snippets tests define a stand-in for
+# its functions and Snippet class, which the real plugin would contradict.
+if [ "${WPMCP_LIVE_CODE_SNIPPETS:-}" = "1" ]; then
+	PLUGINS=(
+		"code-snippets:code-snippets.php"
 	)
 fi
 
