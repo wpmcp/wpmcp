@@ -283,7 +283,7 @@ SH);
         ]);
 
         $this->assertNotSame(0, $status, 'the stand-in database never starts');
-        $this->assertStringContainsString('15 GB free', $out);
+        $this->assertStringContainsString('15.0 GB free', $out);
         $this->assertSame($this->names([1, 2]), $this->left(), $out);
         $this->assertFileExists($this->tmp . '/db.log', 'above the hard minimum the run goes on to the database');
     }
@@ -357,18 +357,20 @@ SH);
         $process = proc_open($command, [1 => ['file', $this->tmp . '/out.log', 'w'], 2 => ['file', $this->tmp . '/out.log', 'a']], $pipes, $this->repository(), $env);
         $this->assertIsResource($process);
 
-        $slot = null;
-        for ($i = 0; $i < 100 && null === $slot; $i++) {
-            usleep(100000);
-            $slot = is_dir($this->cache . '/locks/run-2') ? $this->cache . '/locks/run-2' : null;
+        try {
+            $slot = false;
+            for ($i = 0; $i < 100 && ! $slot; $i++) {
+                usleep(100000);
+                $slot = is_dir($this->cache . '/locks/run-2');
+            }
+            $this->assertTrue($slot, 'the run took the free slot: ' . file_get_contents($this->tmp . '/out.log'));
+            // The installs are not pruned before the run ends: none is new.
+            $this->assertCount(5, $this->left());
+            sleep(1);
+        } finally {
+            proc_terminate($process, 15);
+            $status = proc_close($process);
         }
-        $this->assertNotNull($slot, 'the run took the free slot: ' . file_get_contents($this->tmp . '/out.log'));
-        // The installs are not pruned before the run ends: none is new.
-        $this->assertCount(5, $this->left());
-        sleep(1);
-
-        proc_terminate($process, 15);
-        $status = proc_close($process);
 
         $out = (string) file_get_contents($this->tmp . '/out.log');
         $this->assertNotSame(0, $status, $out);
