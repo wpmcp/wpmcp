@@ -75,7 +75,7 @@ class Get_Backup_Status
                 'statement' => (int) ($state['statement'] ?? 0),
                 'table'     => (string) ($state['table'] ?? ''),
             ],
-            'safety_archive' => ['job_id' => $safety],
+            'safety_archive' => ['job_id' => $safety, 'file' => isset($state['safety_file']) ? basename((string) $state['safety_file']) : null],
             'maintenance'    => [
                 'enabled_during_restore' => true,
                 'started_at'             => $state['maintenance_started_at'] ?? null,
@@ -88,13 +88,20 @@ class Get_Backup_Status
             return array_merge($base, $live, ['status' => 'running', 'error' => null]);
         }
 
+        // Name the file (issue #814): the half import rewound the job store,
+        // so the job id may already belong to a different archive.
+        $path = Restore_Site_Backup::safety_archive_path($state);
+        $undo = null !== $path
+            ? sprintf('Restore the file %s (its pre-restore safety archive; restore-site-backup with path %s)', esc_html(basename($path)), esc_html($path))
+            : sprintf('Restore backup job %d (its pre-restore safety archive)', $safety);
+
         return array_merge($base, $live, [
             'status' => 'failed',
             'error'  => sprintf(
-                'The restore stopped mid-import without finishing (last at statement %d on table %s). Restore backup job %d (its pre-restore safety archive) to put the site back; maintenance mode may still be on (disable-maintenance turns it off).',
+                'The restore stopped mid-import without finishing (last at statement %d on table %s). %s to put the site back; maintenance mode may still be on (disable-maintenance turns it off).',
                 (int) ($state['statement'] ?? 0),
                 esc_html((string) ($state['table'] ?? 'unknown')),
-                $safety
+                $undo
             ),
         ]);
     }
