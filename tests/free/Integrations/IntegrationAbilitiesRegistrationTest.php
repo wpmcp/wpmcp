@@ -33,8 +33,6 @@ class IntegrationAbilitiesRegistrationTest extends \WP_UnitTestCase
         'wpmcp/pmpro-write',
         'wpmcp/theme-read',
         'wpmcp/theme-write',
-        'wpmcp/wpmailsmtp-read',
-        'wpmcp/wpmailsmtp-write',
     ];
 
     public function test_dispatcher_pair_is_registered_as_free_abilities(): void

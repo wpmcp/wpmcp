@@ -374,8 +374,6 @@ return [
         'wpmcp/tec-write' => 'free',
         'wpmcp/theme-read' => 'free',
         'wpmcp/theme-write' => 'free',
-        'wpmcp/wpmailsmtp-read' => 'free',
-        'wpmcp/wpmailsmtp-write' => 'free',
         'wpmcp/trigger-backup' => 'free',
         'wpmcp/unschedule-event' => 'free',
         'wpmcp/update-atomic-widget' => 'pro',

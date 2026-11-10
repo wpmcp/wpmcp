@@ -3619,7 +3619,6 @@ final class Plugin
             new \WPMCP\Integrations\SureForms_Integration(),
             new \WPMCP\Integrations\MetForm_Integration(),
             new \WPMCP\Integrations\Theme_Integration(),
-            new \WPMCP\Integrations\WP_Mail_SMTP_Integration(),
         ]);
         $this->register_forms_pack_abilities($registrar);
         $this->register_block_suite_abilities($registrar);
