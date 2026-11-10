@@ -43,6 +43,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * With Pro, Tutor LMS, LifterLMS and LearnDash: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read); LearnDash also lists a learner's courses with progress and can enroll, unenroll or reset progress (off until the site turns them on), each undoable
 * With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
 * With Pro, Elementor Pro forms: forms found in pages, and form submissions listed, read and exported as CSV, with undoable status changes and deletes (off until the site turns them on)
+* With Pro, Elementor addon packs: Essential Addons, Premium Addons, Ultimate Addons and JetElements widgets listed with their controls, and each pack's modules switched on or off, every toggle undoable
 * Media library plus stock image imports
 * REST passthrough for anything else, still snapshotted
 

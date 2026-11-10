@@ -196,6 +196,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'elementor-pro/elementor-pro.php' );
     }
 
+    // The live JetElements job (issue #653, WPMCP_LIVE_JET_ELEMENTS=1) runs
+    // the JetElements addon pack ops against a real JetElements, copied in
+    // from WPMCP_JET_ELEMENTS_SRC, beside the Elementor loaded above. Loaded
+    // only on request: the stub-backed tests fake its presence.
+    if ( getenv( 'WPMCP_LIVE_JET_ELEMENTS' ) ) {
+        wpmcp_maybe_require_plugin( 'jet-elements/jet-elements.php' );
+    }
+
     // The live WooCommerce Subscriptions job (issue #658,
     // WPMCP_LIVE_WC_SUBSCRIPTIONS=1) runs the subscriptions ops through the
     // real plugin, copied in from WPMCP_WC_SUBSCRIPTIONS_SRC, beside the
