@@ -42,6 +42,10 @@ if (! defined('ABSPATH')) {
  *  - Issue #668 adds the paid-tier MemberPress ops (MemberPress_Pack):
  *    memberships, rules and their access conditions, read and written as
  *    MemberPress stores them, plus read-only members and transactions.
+ *  - Issue #654 adds the paid-tier Elementor Pro ops
+ *    (Elementor_Pro_Forms_Pack): forms found in pages, and form submissions
+ *    read, exported, marked read or trashed, and deleted, each write under
+ *    a db_rows before-image.
  *
  * The pair registers only while at least one of them is loaded (the LMS
  * and TablePress ops only on an install that may run the paid tier), and
@@ -74,7 +78,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             || CRM_Pack::active()
             || Amelia_Pack::active()
             || I18n_Pack::active()
-            || MemberPress_Pack::active();
+            || MemberPress_Pack::active()
+            || Elementor_Pro_Forms_Pack::active();
     }
 
     public function registers_only_when_available(): bool
@@ -102,7 +107,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             CRM_Pack::operations(),
             Amelia_Pack::operations(),
             I18n_Pack::operations(),
-            MemberPress_Pack::operations()
+            MemberPress_Pack::operations(),
+            Elementor_Pro_Forms_Pack::operations()
         );
     }
 
