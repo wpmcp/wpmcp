@@ -1540,9 +1540,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "            . ', Tutor LMS and LifterLMS courses, TablePress tables'\n"
+        "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'\n"
             . "            . ', FluentCRM and MailPoet';\n",
-        "            . ', Tutor LMS and LifterLMS courses, TablePress tables';\n",
+        "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
         1,
     ],
     [
@@ -1552,9 +1552,10 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        " *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS and\n"
-            . " *    LifterLMS course, section, lesson and quiz trees with snapshotted\n"
-            . " *    writes, and read-only enrollments.\n"
+        " *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS,\n"
+            . " *    LifterLMS and LearnDash course, section, lesson and quiz trees with\n"
+            . " *    snapshotted writes, and read-only enrollments (LearnDash also enrolls,\n"
+            . " *    unenrolls and resets progress, each snapshotted).\n"
             . " *  - Issue #481 adds the paid-tier TablePress ops (TablePress_Pack): tables\n"
             . " *    read, edited cell by cell, imported, exported and placed through\n"
             . " *    TablePress's own table model, with snapshotted writes.\n",
@@ -1576,7 +1577,7 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
     ],
     [
         "        return 'JetEngine and Pods fields, TranslatePress strings, BuddyPress community data'\n"
-            . "            . ', Tutor LMS and LifterLMS courses, TablePress tables';\n",
+            . "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
         "        return 'JetEngine and Pods fields, TranslatePress strings, BuddyPress community data';\n",
         1,
     ],

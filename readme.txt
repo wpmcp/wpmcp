@@ -40,7 +40,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
 * WP Mail SMTP: the active mailer and from identity with credentials never returned, the Pro email log, a test send to your own address, and an undoable from name and address change
 * With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
-* With Pro, Tutor LMS and LifterLMS: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read)
+* With Pro, Tutor LMS, LifterLMS and LearnDash: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read); LearnDash also lists a learner's courses with progress and can enroll, unenroll or reset progress (off until the site turns them on), each undoable
 * With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
 * With Pro, Elementor Pro forms: forms found in pages, and form submissions listed, read and exported as CSV, with undoable status changes and deletes (off until the site turns them on)
 * Media library plus stock image imports
