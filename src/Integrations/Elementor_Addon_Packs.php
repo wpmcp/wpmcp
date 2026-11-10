@@ -18,7 +18,10 @@ if (! defined('ABSPATH')) {
  *  - list-{suite}-widgets reads the suite's widgets as Elementor's own widgets
  *    manager has them registered (so only modules the suite switched on),
  *    recognized by the suite's widget category or class namespace. Controls
- *    come on request, or always for one named widget.
+ *    come on request, or always for one named widget, as a summary per
+ *    control (type, label, default, option keys). One widget's control
+ *    stack runs to hundreds of KB on a real request, so the complete
+ *    definitions (detail:"full") come only for one named widget.
  *  - get-{suite}-modules reads every module's on/off state from the suite's
  *    own settings option, resolved exactly as the suite resolves it.
  *  - set-{suite}-modules switches modules on or off by rewriting that option
@@ -122,12 +125,13 @@ final class Elementor_Addon_Packs
             $ops[ "list-{$suite}-widgets" ] = [
                 'mode'         => 'read',
                 'tier'         => 'pro',
-                'description'  => sprintf('List the %s widgets registered in Elementor (name, title, categories, control count). include_controls:true adds each control stack; naming one widget returns just it with its controls', $label),
+                'description'  => sprintf('List the %s widgets registered in Elementor (name, title, categories, control count). include_controls:true adds a control summary per widget (type, label, default, option keys of select-like controls); naming one widget returns just it with that summary. detail:"full" with a named widget returns its complete control definitions (conditions, selectors, repeater fields); refused without one', $label),
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
                         'widget'           => [ 'type' => 'string' ],
                         'include_controls' => [ 'type' => 'boolean' ],
+                        'detail'           => [ 'type' => 'string', 'enum' => [ 'summary', 'full' ] ],
                     ],
                 ],
                 'requires'     => static fn () => self::requirement($suite, true),
@@ -230,6 +234,17 @@ final class Elementor_Addon_Packs
     private static function widgets(string $suite, array $args): array
     {
         $only    = (string) ($args['widget'] ?? '');
+        $detail  = (string) ($args['detail'] ?? 'summary');
+        $label   = self::SUITES[ $suite ]['label'];
+        if (! in_array($detail, [ 'summary', 'full' ], true)) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
+            throw new Operation_Refused('invalid_detail', sprintf('detail is "summary" (the default) or "full", not "%s".', $detail), [ 'detail' => $detail ]);
+        }
+        if ('full' === $detail && '' === $only) {
+            $message = sprintf('Full control definitions run to hundreds of KB per widget, so they come for one named widget only. Ask for one with {"widget": "<name>", "detail": "full"}; include_controls:true on the list gives every %s widget\'s control summary.', $label);
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
+            throw new Operation_Refused('full_detail_needs_widget', $message, [ 'detail' => 'full' ]);
+        }
         $include = '' !== $only || ! empty($args['include_controls']);
         $rows    = [];
 
@@ -241,27 +256,30 @@ final class Elementor_Addon_Packs
             if ('' !== $only && $name !== $only) {
                 continue;
             }
-            $controls = Widget_View::controls($widget);
-            $row      = [
+            $row = [
                 'name'          => $name,
                 'title'         => (string) $widget->get_title(),
                 'categories'    => array_values((array) $widget->get_categories()),
                 'icon'          => (string) $widget->get_icon(),
-                'control_count' => count($controls),
+                'control_count' => count((array) $widget->get_controls()),
             ];
             if ($include) {
-                $row['controls'] = $controls;
+                $row['controls'] = 'full' === $detail ? Widget_View::control_definitions($widget) : Widget_View::control_summary($widget);
             }
             $rows[ $name ] = $row;
         }
 
         if ('' !== $only && [] === $rows) {
             // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-            throw new Operation_Refused('unknown_widget', sprintf('No %s widget is registered as "%s".', self::SUITES[ $suite ]['label'], $only), [ 'widget' => $only ]);
+            throw new Operation_Refused('unknown_widget', sprintf('No %s widget is registered as "%s".', $label, $only), [ 'widget' => $only ]);
         }
         ksort($rows);
 
-        return [ 'suite' => $suite, 'count' => count($rows), 'widgets' => array_values($rows) ];
+        $out = [ 'suite' => $suite, 'count' => count($rows), 'widgets' => array_values($rows) ];
+        if ($include) {
+            $out['detail'] = $detail;
+        }
+        return $out;
     }
 
     /** Whether a registered widget belongs to the suite, by category or class namespace. */

@@ -106,10 +106,74 @@ class JetElementsLiveTest extends \WP_UnitTestCase
         // the first time that widget's controls are built.
         $this->setExpectedIncorrectUsage('Elementor\\Controls_Manager::add_control_to_stack');
         $summary = strlen((string) wp_json_encode($out['result']));
-        $one     = strlen((string) wp_json_encode($this->read('list-jet-elements-widgets', [ 'widget' => 'jet-banner' ])['result']));
-        $full    = strlen((string) wp_json_encode($this->read('list-jet-elements-widgets', [ 'include_controls' => true ])['result']));
-        fwrite(STDERR, sprintf("\n[jet-elements payload] %d widgets: list %d bytes, jet-banner with controls %d bytes, all with controls %d bytes\n", count($names), $summary, $one, $full));
-        $this->assertLessThan($full, $summary, 'Controls only on request');
+        $all     = strlen((string) wp_json_encode($this->read('list-jet-elements-widgets', [ 'include_controls' => true ])['result']));
+        $this->assertLessThan($all, $summary, 'Controls only on request');
+    }
+
+    /**
+     * Control payloads as a real MCP request sees them. Elementor strips the
+     * editor keys (label, options, selectors) and sets the style controls
+     * aside on a front-end request, which a PHPUnit run is; on a REST
+     * request it keeps them all. So the stacks are rebuilt in REST mode for
+     * this test, and the sizes are printed for the record.
+     */
+    public function test_controls_come_as_a_summary_and_full_detail_only_for_one_widget(): void
+    {
+        $this->setExpectedIncorrectUsage('Elementor\\Controls_Manager::add_control_to_stack');
+        $frontend = new \ReflectionProperty(\Elementor\Core\Frontend\Performance::class, 'is_frontend');
+        $stacks   = new \ReflectionProperty(\Elementor\Controls_Manager::class, 'stacks');
+        $was     = $frontend->getValue();
+        $manager = \Elementor\Plugin::instance()->controls_manager;
+        $frontend->setValue(null, false);
+        $stacks->setValue($manager, []);
+
+        try {
+            $size   = static fn (array $out): int => strlen((string) wp_json_encode($out['result'] ?? $out));
+            $list   = $this->read('list-jet-elements-widgets', [ 'include_controls' => true ]);
+            $one    = $this->read('list-jet-elements-widgets', [ 'widget' => 'jet-banner' ]);
+            $full   = $this->read('list-jet-elements-widgets', [ 'widget' => 'jet-banner', 'detail' => 'full' ]);
+            $refuse = $this->read('list-jet-elements-widgets', [ 'detail' => 'full' ]);
+
+            // The controls as the read returned them before the summary
+            // (Widget_View::controls), in place of what it returns now.
+            $old = static function (array $result): int {
+                foreach ($result['widgets'] as $i => $row) {
+                    $widget = \Elementor\Plugin::instance()->widgets_manager->get_widget_types($row['name']);
+                    $result['widgets'][ $i ]['controls'] = \WPMCP\Tools\Elementor\Widget_View::controls($widget);
+                }
+                unset($result['detail']);
+                return strlen((string) wp_json_encode($result));
+            };
+
+            $this->assertSame('summary', $list['result']['detail']);
+            $controls = $one['result']['widgets'][0]['controls'];
+            $this->assertNotEmpty($controls);
+            $selects = array_filter($controls, static fn (array $c): bool => 'select' === $c['type']);
+            $this->assertNotEmpty($selects, 'The banner has select controls');
+            foreach ($selects as $name => $control) {
+                $this->assertArrayHasKey('options', $control, "{$name} lists its option keys");
+            }
+            foreach ($controls as $name => $control) {
+                $this->assertNotContains($control['type'], [ 'section', 'tab', 'tabs', 'heading', 'raw_html', 'divider', 'alert' ], "{$name}: no layout controls in the summary");
+                $this->assertSame([], array_diff(array_keys($control), [ 'type', 'label', 'default', 'options' ]), "{$name}: summary keys only");
+            }
+            $this->assertArrayHasKey('selectors', array_merge(...array_values(array_map(static fn ($c): array => (array) $c, $full['result']['widgets'][0]['controls']))), 'Full detail keeps the CSS selectors');
+            $this->assertSame('full_detail_needs_widget', $refuse['error']['code']);
+            $this->assertLessThan($size($full), $size($one));
+
+            fwrite(STDERR, sprintf(
+                "\n[jet-elements controls, REST mode] jet-banner: before %d, summary %d, full %d bytes. All %d widgets with controls: before %d, summary %d bytes. Full list refused.\n",
+                $old($one['result']),
+                $size($one),
+                $size($full),
+                $list['result']['count'],
+                $old($list['result']),
+                $size($list)
+            ));
+        } finally {
+            $frontend->setValue(null, $was);
+            $stacks->setValue($manager, []);
+        }
     }
 
     public function test_a_toggle_reads_back_through_jet_elements_and_rolls_back(): void

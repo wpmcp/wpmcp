@@ -527,4 +527,62 @@ class ElementorAddonPacksTest extends \WP_UnitTestCase
         $this->assertFalse(get_option('jet-elements-settings'));
         $this->assertSame($before, Snapshot_Store::row_count());
     }
+
+    /**
+     * Widget reads default to a control summary, the same in every suite;
+     * complete definitions come only for one named widget (detail:"full").
+     */
+    public function test_widget_controls_are_summarized_unless_one_widget_asks_for_full_detail(): void
+    {
+        $this->register_widgets(
+            \WPMCP\Tests\Support\ElementorAddons\Essential_Card::class,
+            \WPMCP\Tests\Support\ElementorAddons\Premium_Banner::class,
+            \WPMCP\Tests\Support\ElementorAddons\Ultimate_Retina::class,
+            \Elementor\Jet_Elements_Fixture_Banner::class
+        );
+        $this->activate(...self::SUITES);
+        $fixtures = [
+            'essential-addons' => 'eael-fixture-card',
+            'premium-addons'   => 'premium-addon-fixture-banner',
+            'ultimate-addons'  => 'fixture-retina',
+            'jet-elements'     => 'jet-fixture-banner',
+        ];
+        $expected = [
+            'fixture_title'         => [ 'type' => 'text', 'label' => 'Title', 'default' => 'Hello' ],
+            'fixture_link'          => [ 'type' => 'text', 'label' => 'Link' ],
+            'fixture_tag'           => [ 'type' => 'select', 'label' => 'Title HTML Tag', 'default' => 'h5', 'options' => [ 'h1', 'h2', 'h5', 'div' ] ],
+            'fixture_height'        => [ 'type' => 'slider', 'label' => 'Height', 'default' => [ 'unit' => 'px', 'size' => 300 ] ],
+            'fixture_height_tablet' => [ 'type' => 'slider', 'label' => 'Height' ],
+            'fixture_items'         => [ 'type' => 'repeater', 'label' => 'Items' ],
+        ];
+
+        foreach ($fixtures as $suite => $widget) {
+            $op = "list-{$suite}-widgets";
+
+            $list = $this->read($op, [ 'include_controls' => true ])['result'];
+            $this->assertSame('summary', $list['detail'], $suite);
+            $this->assertSame($expected, $list['widgets'][0]['controls'], "{$suite}: type, label, default, option keys; no layout controls, empty values or editor internals");
+            $this->assertSame(8, $list['widgets'][0]['control_count'], "{$suite}: the count is still every control");
+
+            $one = $this->read($op, [ 'widget' => $widget ])['result'];
+            $this->assertSame('summary', $one['detail'], "{$suite}: a named widget defaults to the summary");
+            $this->assertSame($expected, $one['widgets'][0]['controls']);
+
+            $full = $this->read($op, [ 'widget' => $widget, 'detail' => 'full' ])['result'];
+            $this->assertSame('full', $full['detail']);
+            $controls = $full['widgets'][0]['controls'];
+            $this->assertSame(array_keys((new \ReflectionClass(\WPMCP\Tests\Support\ElementorAddons\Essential_Card::class))->newInstanceWithoutConstructor()->get_controls()), array_keys($controls), "{$suite}: full detail keeps every control, layout ones too");
+            $this->assertSame([ 'fixture_title!' => '' ], $controls['fixture_tag']['condition']);
+            $this->assertSame([ 'h1' => 'H1', 'h2' => 'H2', 'h5' => 'H5', 'div' => 'div' ], $controls['fixture_tag']['options']);
+            $this->assertSame('fixture_height', $controls['fixture_height_tablet']['parent']);
+            $this->assertArrayHasKey('item_text', $controls['fixture_items']['fields']);
+
+            $refused = $this->read($op, [ 'detail' => 'full', 'include_controls' => true ]);
+            $this->assertSame('full_detail_needs_widget', $refused['error']['code'], "{$suite}: no full detail for the whole list");
+            $this->assertStringContainsString('"widget"', $refused['error']['message'], 'The refusal says how to ask for one widget');
+
+            $this->assertArrayNotHasKey('detail', $this->read($op)['result'], 'The bare list carries no controls, so no detail');
+            $this->assertArrayHasKey('error', $this->read($op, [ 'widget' => $widget, 'detail' => 'everything' ]), 'An unknown detail is refused');
+        }
+    }
 }
