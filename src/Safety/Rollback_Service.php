@@ -465,6 +465,11 @@ class Rollback_Service
         if ('buddypress_rows' === $type) {
             return [ [ 'manage_options' ] ];
         }
+        // A Code Snippets row is PHP source, and every Code Snippets write
+        // takes manage_options, so restoring one takes it too.
+        if (Code_Snippet_Snapshot::TYPE === $type) {
+            return [ [ 'manage_options' ] ];
+        }
         // FluentCRM and MailPoet rows are contacts' personal data and their
         // subscription consent (issue #477); restoring one takes the
         // plugin's own permission, which Crm_Rows_Snapshot::restore()
@@ -1772,6 +1777,7 @@ class Rollback_Service
             'wc_tax_rate',
             'wc_tax_rate_create',
             'php_snippet',
+            'code_snippet',
             'page_build',
             'media_import',
             'wc_product_create',
@@ -2062,6 +2068,12 @@ class Rollback_Service
 
         if ('php_snippet' === $snapshot['object_type']) {
             self::apply_php_snippet_snapshot($snapshot);
+            return;
+        }
+
+        // Code_Snippet_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('code_snippet' === $snapshot['object_type']) {
+            self::warn_if(Code_Snippet_Snapshot::restore($snapshot));
             return;
         }
 
