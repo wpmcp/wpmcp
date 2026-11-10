@@ -129,6 +129,7 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
         'src/Privacy/Personal_Data.php'                      => 'cursor and address keys built from CURSOR_PREFIX (wpmcp_privacy_cursor_) and IPS_PREFIX (wpmcp_privacy_ips_)',
         'src/Safety/Rollback_Service.php'                    => 'puts back recorded options and user meta',
         'src/Safety/Wc_Shipping_Zone_Snapshot.php'           => 'puts back recorded WooCommerce options',
+        'src/Safety/BbPress_Posts_Snapshot.php'              => 'puts back the recorded bbPress super sticky list (_bbp_super_sticky_topics)',
         'src/Integrations/Theme_Settings_Pack.php'           => 'theme settings options',
         'src/Integrations/Elementor_Addon_Packs.php'         => 'Elementor add-on settings',
         'src/Integrations/LMS_LearnDash.php'                 => 'LearnDash\'s own enrollment user meta (course_<id>_access_from)',
