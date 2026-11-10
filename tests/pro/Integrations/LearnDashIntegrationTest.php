@@ -21,12 +21,18 @@ require_once __DIR__ . '/../../support/lms-stubs.php';
  * is the course, topics (the tree's items) and quizzes are `sfwd-topic` and
  * `sfwd-quiz` posts whose course_id and lesson_id meta link them, all ordered
  * by menu_order, questions are `sfwd-question` posts whose quiz_id meta is
- * the quiz, and an enrollment is the user meta course_{id}_access_from.
- * Progress is the `_sfwd-course_progress` user meta.
+ * the quiz, the course builder's tree is the course's ld_course_steps meta,
+ * and an enrollment is the user meta course_{id}_access_from. Progress is
+ * the `_sfwd-course_progress` user meta, with course_completed_{id} and the
+ * `_sfwd-quizzes` attempts. Unverified against a real LearnDash: LearnDash
+ * is commercial and not in the test plugin set, so there is no live leg.
  *
  * Writes are snapshotted: a created node is recorded for rollback (it goes
- * to the trash), an enrollment or progress change is a user snapshot, and one
- * call is one session, so rollback-session undoes it.
+ * to the trash), a renumbered sibling or a rewritten ld_course_steps is a
+ * post snapshot, an enrollment or progress change is a user snapshot, and
+ * one call is one session, so rollback-session undoes it. The rollback
+ * tests compare every post row, post meta and user meta value with what was
+ * there before.
  */
 class LearnDashIntegrationTest extends \WP_UnitTestCase
 {
@@ -57,6 +63,15 @@ class LearnDashIntegrationTest extends \WP_UnitTestCase
         Gate::set_pro_for_tests(true);
         wpmcp_test_register_learndash_types();
         $this->admin = self::factory()->user->create([ 'role' => 'administrator', 'display_name' => 'Ada Admin' ]);
+        $user        = get_userdata($this->admin);
+        foreach (wpmcp_test_learndash_admin_caps() as $cap) {
+            $user->add_cap($cap);
+        }
+        // edit_users, which the learner writes take, is a super admin's on
+        // multisite (core maps it to manage_network_users there).
+        if (is_multisite()) {
+            grant_super_admin($this->admin);
+        }
         wp_set_current_user($this->admin);
         add_filter('wpmcp_learndash_active', '__return_true');
         foreach (self::OTHER_FILTERS as $filter) {
@@ -70,6 +85,7 @@ class LearnDashIntegrationTest extends \WP_UnitTestCase
             remove_all_filters($filter);
         }
         remove_all_filters('wpmcp_learndash_active');
+        delete_option('learndash_settings_courses_builder');
         wpmcp_test_unregister_learndash_types();
         Gate::set_pro_for_tests(null);
         parent::tearDown();
@@ -126,6 +142,28 @@ class LearnDashIntegrationTest extends \WP_UnitTestCase
         update_user_meta($user, "course_{$course}_access_from", $when);
     }
 
+    /** Every value a tree write may touch: each post's row and meta. */
+    private function tree_state(array $ids): array
+    {
+        $out = [];
+        foreach ($ids as $id) {
+            clean_post_cache($id);
+            $row = get_post($id, ARRAY_A);
+            unset($row['post_modified'], $row['post_modified_gmt'], $row['filter']);
+            $out[ $id ] = [ 'row' => $row, 'meta' => get_post_meta($id) ];
+        }
+        return $out;
+    }
+
+    /** Every user meta value of $user, as stored. */
+    private function user_state(int $user): array
+    {
+        wp_cache_delete($user, 'user_meta');
+        $meta = get_user_meta($user);
+        ksort($meta);
+        return $meta;
+    }
+
     // ---------------------------------------------------------------
     // Catalog and gating
     // ---------------------------------------------------------------
@@ -141,6 +179,7 @@ class LearnDashIntegrationTest extends \WP_UnitTestCase
         $this->assertSame('list_users', $ops['learndash-list-enrollments']['capability']);
         $this->assertSame('list_users', $ops['learndash-list-user-courses']['capability']);
         $this->assertSame('edit_users', $ops['learndash-enroll-user']['capability']);
+        $this->assertSame('edit_users', $ops['learndash-reset-progress']['capability']);
     }
 
     public function test_without_pro_the_learndash_ops_are_not_in_the_catalog(): void
@@ -154,14 +193,91 @@ class LearnDashIntegrationTest extends \WP_UnitTestCase
         $this->assertFalse($integration->is_available());
     }
 
-    public function test_while_learndash_is_inactive_its_ops_answer_learndash_inactive(): void
+    public function test_while_learndash_is_inactive_its_ops_stay_listed_answer_learndash_inactive_and_write_nothing(): void
     {
+        [$course] = $this->seed_course();
+        $alice    = self::factory()->user->create();
+        $before   = $this->user_state($alice);
+        $posts    = wp_count_posts('sfwd-lessons');
+
         remove_all_filters('wpmcp_learndash_active');
         add_filter('wpmcp_learndash_active', '__return_false');
         remove_all_filters('wpmcp_buddypress_active');
         add_filter('wpmcp_buddypress_active', '__return_true');
+
+        $ops = array_column((new Plugin_Data_Integration())->catalog()['operations'], null, 'name');
+        foreach (array_keys(self::OPS) as $name) {
+            $this->assertArrayHasKey($name, $ops, $name);
+            $this->assertFalse($ops[ $name ]['dependency_met'], $name);
+        }
+
         $out = $this->read('learndash-list-courses');
         $this->assertSame('learndash_inactive', $out['error']['code'] ?? null);
+        $this->assertStringContainsString('LearnDash', $out['error']['message']);
+
+        $before_ops = Snapshot_Store::row_count();
+        foreach ([
+            [ 'learndash-enroll-user', [ 'user_id' => $alice, 'course_id' => $course ] ],
+            [ 'learndash-reset-progress', [ 'user_id' => $alice, 'course_id' => $course ] ],
+            [ 'learndash-add-section', [ 'course_id' => $course, 'title' => 'Never' ] ],
+        ] as [$op, $args]) {
+            $this->assertSame('learndash_inactive', $this->write($op, $args)['error']['code'] ?? null, $op);
+        }
+        $this->assertSame($before, $this->user_state($alice));
+        $this->assertEquals($posts, wp_count_posts('sfwd-lessons'));
+        $this->assertSame($before_ops, Snapshot_Store::row_count(), 'a refused call takes no snapshot');
+    }
+
+    public function test_presence_defaults_to_the_learndash_version_constant(): void
+    {
+        remove_all_filters('wpmcp_learndash_active');
+        $this->assertSame(defined('LEARNDASH_VERSION'), (new \WPMCP\Integrations\LMS_LearnDash())->active());
+    }
+
+    public function test_course_tree_writes_take_learndash_course_capabilities(): void
+    {
+        [$course, $l1] = $this->seed_course();
+        $editor        = self::factory()->user->create([ 'role' => 'editor' ]);
+        wp_set_current_user($editor);
+
+        $before = $this->tree_state([ $course, $l1 ]);
+        foreach ([
+            [ 'learndash-create-course', [ 'title' => 'Nope' ] ],
+            [ 'learndash-add-section', [ 'course_id' => $course, 'title' => 'Nope' ] ],
+            [ 'learndash-update-item', [ 'id' => $l1, 'title' => 'Nope' ] ],
+        ] as [$op, $args]) {
+            $out = $this->write($op, $args);
+            $this->assertArrayHasKey('error', $out, $op);
+        }
+        $this->assertSame($before, $this->tree_state([ $course, $l1 ]));
+        $this->assertSame([], get_posts([ 'post_type' => 'sfwd-courses', 'title' => 'Nope', 'post_status' => 'any' ]));
+
+        $user = get_userdata($editor);
+        foreach (wpmcp_test_learndash_admin_caps() as $cap) {
+            $user->add_cap($cap);
+        }
+        wp_set_current_user(0);
+        wp_set_current_user($editor);
+        $this->ok($this->write('learndash-add-section', [ 'course_id' => $course, 'title' => 'Allowed' ]));
+    }
+
+    public function test_learner_writes_need_edit_users_and_nothing_is_written_without_it(): void
+    {
+        [$course] = $this->seed_course();
+        $alice    = self::factory()->user->create();
+        $before   = $this->user_state($alice);
+
+        $editor = self::factory()->user->create([ 'role' => 'editor' ]);
+        $user   = get_userdata($editor);
+        foreach (wpmcp_test_learndash_admin_caps() as $cap) {
+            $user->add_cap($cap);
+        }
+        wp_set_current_user($editor);
+        foreach ([ 'learndash-enroll-user', 'learndash-unenroll-user', 'learndash-reset-progress' ] as $op) {
+            $this->assertArrayHasKey('error', $this->write($op, [ 'user_id' => $alice, 'course_id' => $course ]), $op);
+        }
+        $this->assertArrayHasKey('error', $this->read('learndash-list-user-courses', [ 'user_id' => $alice ]));
+        $this->assertSame($before, $this->user_state($alice));
     }
 
     // ---------------------------------------------------------------
@@ -279,49 +395,166 @@ class LearnDashIntegrationTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_enroll_and_unenroll_write_the_access_meta_under_a_user_snapshot(): void
+    public function test_adding_a_lesson_at_the_front_rewrites_ld_course_steps_and_rollback_restores_every_value(): void
+    {
+        [$course, $l1, $l2, $t1, $quiz, $t2, $tq] = $this->seed_course();
+        $final = $this->post('sfwd-quiz', 'Final exam', [ 'course_id' => $course ], 9);
+        update_post_meta($course, 'ld_course_steps', wpmcp_test_learndash_steps($course, [
+            $l1 => [ 'topics' => [ $t1 => [ $tq ] ], 'quizzes' => [ $quiz ] ],
+            $l2 => [ 'topics' => [ $t2 => [] ] ],
+        ], [ $final ]));
+        $ids    = [ $course, $l1, $l2, $t1, $quiz, $t2, $tq, $final ];
+        $before = $this->tree_state($ids);
+
+        $session = wp_generate_uuid4();
+        $out     = $this->ok($this->write('learndash-add-section', [ 'course_id' => $course, 'title' => 'Intro', 'position' => 0 ], $session));
+        $intro   = $out['result']['item']['id'];
+        $this->assertSame([ $intro, $l1, $l2 ], array_column($this->ok($this->read('learndash-get-course', [ 'id' => $course ]))['result']['sections'], 'id'));
+        $this->assertSame([ 1, 2, 3 ], array_map(static fn (int $id): int => (int) get_post_field('menu_order', $id), [ $intro, $l1, $l2 ]));
+
+        $steps = get_post_meta($course, 'ld_course_steps', true);
+        $this->assertSame([ $intro, $l1, $l2 ], array_keys($steps['steps']['h']['sfwd-lessons']));
+        $this->assertSame([ $t1 ], array_keys($steps['steps']['h']['sfwd-lessons'][ $l1 ]['sfwd-topic']));
+        $this->assertSame([ $tq ], array_keys($steps['steps']['h']['sfwd-lessons'][ $l1 ]['sfwd-topic'][ $t1 ]['sfwd-quiz']));
+        $this->assertSame([ $quiz ], array_keys($steps['steps']['h']['sfwd-lessons'][ $l1 ]['sfwd-quiz']));
+        $this->assertSame([ $final ], array_keys($steps['steps']['h']['sfwd-quiz']), 'course-level quizzes are kept');
+        $this->assertSame(8, $steps['steps_count']);
+
+        Rollback_Service::restore_session($session);
+        $this->assertSame('trash', get_post_status($intro));
+        $this->assertSame($before, $this->tree_state($ids));
+    }
+
+    public function test_moving_a_topic_between_lessons_rewrites_ld_course_steps_and_rollback_restores_every_value(): void
+    {
+        [$course, $l1, $l2, $t1, $quiz, $t2, $tq] = $this->seed_course();
+        update_post_meta($course, 'ld_course_steps', wpmcp_test_learndash_steps($course, [
+            $l1 => [ 'topics' => [ $t1 => [ $tq ] ], 'quizzes' => [ $quiz ] ],
+            $l2 => [ 'topics' => [ $t2 => [] ] ],
+        ]));
+        $ids    = [ $course, $l1, $l2, $t1, $quiz, $t2, $tq ];
+        $before = $this->tree_state($ids);
+
+        $session = wp_generate_uuid4();
+        $this->ok($this->write('learndash-move-item', [ 'id' => $t1, 'parent_id' => $l2, 'position' => 0 ], $session));
+        $this->assertSame($l2, (int) get_post_meta($t1, 'lesson_id', true));
+        $steps = get_post_meta($course, 'ld_course_steps', true)['steps']['h']['sfwd-lessons'];
+        $this->assertSame([], $steps[ $l1 ]['sfwd-topic']);
+        $this->assertSame([ $t1, $t2 ], array_keys($steps[ $l2 ]['sfwd-topic']));
+        $this->assertSame([ $tq ], array_keys($steps[ $l2 ]['sfwd-topic'][ $t1 ]['sfwd-quiz']), 'a topic quiz moves with its topic');
+
+        Rollback_Service::restore_session($session);
+        $this->assertSame($before, $this->tree_state($ids));
+    }
+
+    public function test_reordering_lessons_and_updating_a_topic_roll_back_exactly_without_ld_course_steps(): void
+    {
+        [$course, $l1, $l2, $t1] = $this->seed_course();
+        $ids    = [ $course, $l1, $l2, $t1 ];
+        $before = $this->tree_state($ids);
+
+        $session = wp_generate_uuid4();
+        $this->ok($this->write('learndash-move-item', [ 'id' => $l2, 'position' => 0 ], $session));
+        $this->ok($this->write('learndash-update-item', [ 'id' => $t1, 'title' => 'Grip', 'status' => 'draft' ], $session));
+        $this->assertSame('', get_post_meta($course, 'ld_course_steps', true), 'a course without stored steps is left for LearnDash to build');
+        $this->assertSame('Grip', get_the_title($t1));
+
+        Rollback_Service::restore_session($session);
+        $this->assertSame($before, $this->tree_state($ids));
+    }
+
+    public function test_tree_writes_are_refused_while_the_course_builder_shares_steps(): void
+    {
+        [$course, $l1, $l2] = $this->seed_course();
+        update_option('learndash_settings_courses_builder', [ 'enabled' => 'yes', 'shared_steps' => 'yes' ]);
+        $before = $this->tree_state([ $course, $l1, $l2 ]);
+
+        $this->assertSame('shared_steps_unsupported', $this->write('learndash-add-section', [ 'course_id' => $course, 'title' => 'X' ])['error']['code'] ?? null);
+        $this->assertSame('shared_steps_unsupported', $this->write('learndash-move-item', [ 'id' => $l2, 'position' => 0 ])['error']['code'] ?? null);
+        $this->assertSame($before, $this->tree_state([ $course, $l1, $l2 ]));
+        $this->ok($this->read('learndash-get-course', [ 'id' => $course ]));
+    }
+
+    public function test_enroll_writes_the_access_meta_and_rollback_restores_the_users_meta_exactly(): void
     {
         [$course] = $this->seed_course();
         $alice    = self::factory()->user->create();
+        $before   = $this->user_state($alice);
 
         $session = wp_generate_uuid4();
         $out     = $this->ok($this->write('learndash-enroll-user', [ 'user_id' => $alice, 'course_id' => $course ], $session));
         $this->assertTrue($out['recoverable']);
         $this->assertTrue($out['result']['enrolled']);
-        $this->assertNotEmpty(get_user_meta($alice, "course_{$course}_access_from", true));
+        $this->assertTrue($out['result']['changed']);
+        $this->assertTrue(is_numeric(get_user_meta($alice, "course_{$course}_access_from", true)));
+        $this->assertSame([ $alice ], array_column($this->ok($this->read('learndash-list-enrollments', [ 'course_id' => $course ]))['result']['enrollments'], 'user_id'));
 
         $again = $this->ok($this->write('learndash-enroll-user', [ 'user_id' => $alice, 'course_id' => $course ]));
         $this->assertFalse($again['result']['changed']);
 
         Rollback_Service::restore_session($session);
-        $this->assertSame('', get_user_meta($alice, "course_{$course}_access_from", true), 'rollback removes the enrollment');
-
-        $this->enroll($alice, $course);
-        $session = wp_generate_uuid4();
-        $this->ok($this->write('learndash-unenroll-user', [ 'user_id' => $alice, 'course_id' => $course ], $session));
-        $this->assertSame('', get_user_meta($alice, "course_{$course}_access_from", true));
-        Rollback_Service::restore_session($session);
-        $this->assertSame('1700000000', (string) get_user_meta($alice, "course_{$course}_access_from", true), 'rollback restores the enrollment');
+        $this->assertSame($before, $this->user_state($alice));
     }
 
-    public function test_reset_progress_clears_one_course_and_rollback_restores_it(): void
+    public function test_unenroll_removes_the_access_meta_and_rollback_restores_the_users_meta_exactly(): void
+    {
+        [$course] = $this->seed_course();
+        $alice    = self::factory()->user->create();
+        $this->enroll($alice, $course);
+        $before = $this->user_state($alice);
+
+        $session = wp_generate_uuid4();
+        $out     = $this->ok($this->write('learndash-unenroll-user', [ 'user_id' => $alice, 'course_id' => $course ], $session));
+        $this->assertFalse($out['result']['enrolled']);
+        $this->assertFalse(metadata_exists('user', $alice, "course_{$course}_access_from"));
+        $this->assertSame(0, $this->ok($this->read('learndash-list-user-courses', [ 'user_id' => $alice ]))['result']['total']);
+
+        Rollback_Service::restore_session($session);
+        $this->assertSame($before, $this->user_state($alice));
+    }
+
+    public function test_reset_progress_clears_one_course_and_rollback_restores_the_users_meta_exactly(): void
     {
         [$course] = $this->seed_course();
         $other    = $this->post('sfwd-courses', 'Watercolor');
         $alice    = self::factory()->user->create();
         $this->enroll($alice, $course);
-        $progress = [ $course => [ 'completed' => 2, 'total' => 4 ], $other => [ 'completed' => 1, 'total' => 1 ] ];
-        update_user_meta($alice, '_sfwd-course_progress', $progress);
+        $this->enroll($alice, $other);
+        update_user_meta($alice, '_sfwd-course_progress', [
+            $course => [ 'lessons' => [ 1 => 1 ], 'topics' => [], 'completed' => 2, 'total' => 4, 'last_id' => 1 ],
+            $other  => [ 'lessons' => [], 'topics' => [], 'completed' => 1, 'total' => 1 ],
+        ]);
         update_user_meta($alice, "course_completed_{$course}", 1700000000);
+        update_user_meta($alice, '_sfwd-quizzes', [
+            [ 'quiz' => 11, 'course' => $course, 'score' => 3, 'pass' => 1 ],
+            [ 'quiz' => 12, 'course' => $other, 'score' => 1, 'pass' => 1 ],
+        ]);
+        $before = $this->user_state($alice);
 
         $session = wp_generate_uuid4();
         $out     = $this->ok($this->write('learndash-reset-progress', [ 'user_id' => $alice, 'course_id' => $course ], $session));
-        $this->assertTrue($out['result']['reset']);
-        $this->assertSame([ $other => [ 'completed' => 1, 'total' => 1 ] ], get_user_meta($alice, '_sfwd-course_progress', true));
-        $this->assertSame('', get_user_meta($alice, "course_completed_{$course}", true));
+        $this->assertTrue($out['result']['changed']);
+        $this->assertSame([ $other ], array_keys(get_user_meta($alice, '_sfwd-course_progress', true)));
+        $this->assertFalse(metadata_exists('user', $alice, "course_completed_{$course}"));
+        $this->assertSame([ $other ], array_column(get_user_meta($alice, '_sfwd-quizzes', true), 'course'));
+        $this->assertTrue(metadata_exists('user', $alice, "course_{$course}_access_from"), 'the enrollment stays');
 
         Rollback_Service::restore_session($session);
-        $this->assertSame($progress, get_user_meta($alice, '_sfwd-course_progress', true));
+        $this->assertSame($before, $this->user_state($alice));
+    }
+
+    public function test_on_multisite_a_site_administrator_cannot_enroll_users(): void
+    {
+        if (! is_multisite()) {
+            $this->markTestSkipped('multisite only');
+        }
+        [$course] = $this->seed_course();
+        $alice    = self::factory()->user->create();
+        $site     = self::factory()->user->create([ 'role' => 'administrator' ]);
+        wp_set_current_user($site);
+        $out = $this->write('learndash-enroll-user', [ 'user_id' => $alice, 'course_id' => $course ]);
+        $this->assertSame('operation_denied', $out['error']['code'] ?? null);
+        $this->assertFalse(metadata_exists('user', $alice, "course_{$course}_access_from"));
     }
 
     public function test_enroll_refuses_an_unknown_user_and_a_non_course(): void
