@@ -529,13 +529,12 @@ class Stdio_Transport
         $ability_name = self::ability_for_tool($tool_name);
 
         if (null === $ability_name) {
-            // A declared 'pro' tier tool is not registered on a free install
+            // A declared Pro tool is not registered on an unlicensed install
             // (Registrar::tier_permitted), so the client would otherwise be
-            // told it does not exist. Name the plan and the upgrade instead.
-            if (self::is_declared_pro_tool($tool_name)) {
-                return self::error_response($id, -32602, Pro_Refusal::message(sprintf('The tool "%s"', $tool_name)));
-            }
-            return self::error_response($id, -32602, sprintf('Unknown tool: %s', $tool_name));
+            // told it does not exist. Answer with call-tool's refusal, which
+            // names the plan and the upgrade (issue #631).
+            $refusal = self::pro_refusal($tool_name);
+            return self::error_response($id, -32602, $refusal ?? sprintf('Unknown tool: %s', $tool_name));
         }
 
         // wp_has_ability() first: wp_get_ability() on an unknown name raises
@@ -788,6 +787,25 @@ class Stdio_Transport
     }
 
     /**
+     * The pro_required refusal for a tool name that maps to a declared Pro
+     * ability this install did not register, or null.
+     */
+    private static function pro_refusal(string $tool_name): ?string
+    {
+        if ('' === $tool_name || ! class_exists('\\WPMCP\\Plugin')) {
+            return null;
+        }
+        $plugin = \WPMCP\Plugin::instance();
+        foreach ($plugin->declared_abilities() as $ability) {
+            if (self::tool_name($ability->name) === $tool_name) {
+                $error = $plugin->registrar()->pro_required($ability->name);
+                return null === $error ? null : $error->get_error_message();
+            }
+        }
+        return null;
+    }
+
+    /**
      * The ability name behind an advertised MCP tool name, or null when no
      * registered wpmcp ability maps to it.
      *
@@ -797,20 +815,6 @@ class Stdio_Transport
      * rewrites out-of-charset ones), so guessing where the '/' was is wrong
      * for exactly the names that are hardest to debug.
      */
-    /** Whether a tool name belongs to a declared ability the free tier withholds. */
-    private static function is_declared_pro_tool(string $tool_name): bool
-    {
-        if ('' === $tool_name || ! class_exists('\\WPMCP\\Plugin')) {
-            return false;
-        }
-        foreach (\WPMCP\Plugin::instance()->declared_abilities() as $ability) {
-            if ('pro' === $ability->tier && self::tool_name($ability->name) === $tool_name) {
-                return ! Registrar::tier_permitted('pro');
-            }
-        }
-        return false;
-    }
-
     private static function ability_for_tool(string $tool_name): ?string
     {
         if (

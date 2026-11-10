@@ -236,7 +236,8 @@ $edits['src/MCP/Registrar.php'] = [
      * The refusal for a name that is not registered because it is a Pro
      * tool and this install has no active license (issue #631), or null
      * when that is not the reason. Lets the meta-tools say "needs WP MCP
-     * Pro" instead of "no tool by that name". Grants nothing: the tool is
+     * Pro" instead of "no tool by that name", with the same upgrade offer
+     * the admin banner carries (Pro_Refusal). Grants nothing: the tool is
      * still unregistered and unreachable.
      */
     public function pro_required(string $name): ?\WP_Error
@@ -251,7 +252,7 @@ $edits['src/MCP/Registrar.php'] = [
             sprintf(
                 '"%s" is a WP MCP Pro tool, and this site has no active WP MCP Pro license, so the tool is not available here. Activate a WP MCP Pro license on this site to use it.',
                 $name
-            )
+            ) . Pro_Refusal::upgrade_sentence()
         );
     }
 SRC . "\n\n",
@@ -1596,6 +1597,52 @@ $edits['src/MCP/Tool_Exposure.php'] = [
     [
         " *    scope + pro-license, audited) if invoked anyway; this class only cuts\n",
         " *    scope, audited) if invoked anyway; this class only cuts\n",
+        1,
+    ],
+];
+
+// The stdio transport answers a declared Pro tool with the Registrar's
+// pro_required refusal, which this build removes above, so the transport
+// goes back to "Unknown tool" for every unregistered name.
+$edits['src/MCP/Stdio_Transport.php'] = [
+    [
+        <<<'SRC'
+            // A declared Pro tool is not registered on an unlicensed install
+            // (Registrar::tier_permitted), so the client would otherwise be
+            // told it does not exist. Answer with call-tool's refusal, which
+            // names the plan and the upgrade (issue #631).
+            $refusal = self::pro_refusal($tool_name);
+            return self::error_response($id, -32602, $refusal ?? sprintf('Unknown tool: %s', $tool_name));
+SRC,
+        <<<'SRC'
+            return self::error_response($id, -32602, sprintf('Unknown tool: %s', $tool_name));
+SRC,
+        1,
+    ],
+    [
+        <<<'SRC'
+    /**
+     * The pro_required refusal for a tool name that maps to a declared Pro
+     * ability this install did not register, or null.
+     */
+    private static function pro_refusal(string $tool_name): ?string
+    {
+        if ('' === $tool_name || ! class_exists('\\WPMCP\\Plugin')) {
+            return null;
+        }
+        $plugin = \WPMCP\Plugin::instance();
+        foreach ($plugin->declared_abilities() as $ability) {
+            if (self::tool_name($ability->name) === $tool_name) {
+                $error = $plugin->registrar()->pro_required($ability->name);
+                return null === $error ? null : $error->get_error_message();
+            }
+        }
+        return null;
+    }
+
+
+SRC,
+        '',
         1,
     ],
 ];

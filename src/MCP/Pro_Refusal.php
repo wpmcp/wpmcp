@@ -2,6 +2,10 @@
 
 namespace WPMCP\MCP;
 
+if (! defined('ABSPATH')) {
+    exit;
+}
+
 /**
  * The sentence a free install answers with when an AI client asks for a
  * Pro-only tool, skill or ability.
@@ -32,12 +36,10 @@ final class Pro_Refusal
             $subject = 'This tool';
         }
 
-        $banner = '\\WPMCP\\Admin\\Pro_Banner';
-        if (! class_exists($banner) || ! method_exists($banner, 'offer')) {
+        $offer = self::offer();
+        if (null === $offer) {
             return sprintf('%s is part of WP MCP Pro and is not available on this install.', $subject);
         }
-
-        $offer = $banner::offer(self::MEDIUM);
 
         return sprintf(
             '%s is part of WP MCP Pro. Upgrade at %s (code %s takes %d%% off).',
@@ -46,5 +48,32 @@ final class Pro_Refusal
             $offer['coupon'],
             $offer['percent']
         );
+    }
+
+    /**
+     * The upgrade sentence alone, for a refusal that already says what is
+     * missing (Registrar::pro_required): " Or upgrade at <url> (code X
+     * takes N% off)." with a leading space, or '' when this build carries
+     * no offer.
+     */
+    public static function upgrade_sentence(): string
+    {
+        $offer = self::offer();
+        if (null === $offer) {
+            return '';
+        }
+
+        return sprintf(' Or upgrade at %s (code %s takes %d%% off).', $offer['url'], $offer['coupon'], $offer['percent']);
+    }
+
+    /** @return array{coupon: string, percent: int, url: string}|null */
+    private static function offer(): ?array
+    {
+        $banner = '\\WPMCP\\Admin\\Pro_Banner';
+        if (! class_exists($banner) || ! method_exists($banner, 'offer')) {
+            return null;
+        }
+
+        return $banner::offer(self::MEDIUM);
     }
 }
