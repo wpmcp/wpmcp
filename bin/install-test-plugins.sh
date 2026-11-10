@@ -296,6 +296,26 @@ elif [ "${WPMCP_LIVE_WPBAKERY:-}" = "1" ]; then
 	echo "Copied WPBakery $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/js_composer.php" | head -n 1) from $src."
 fi
 
+# The live Thrive Architect job (issue #640) runs the Thrive adapter against
+# a real Thrive Architect. It is a commercial plugin and not on
+# wordpress.org, so it is copied from a local directory holding it
+# (WPMCP_THRIVE_ARCHITECT_SRC) instead of downloaded. Exclusive too: the
+# other Thrive tests stand in for its rows and toggle its presence.
+if [ "${WPMCP_LIVE_THRIVE:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_THRIVE:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_THRIVE_ARCHITECT_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/thrive-visual-editor.php" ]; then
+		echo "WPMCP_LIVE_THRIVE=1 needs WPMCP_THRIVE_ARCHITECT_SRC, a directory holding the Thrive Architect plugin (thrive-visual-editor.php)." >&2
+		exit 1
+	fi
+	mkdir -p "$PLUGINS_DIR"
+	rm -rf "$PLUGINS_DIR/thrive-visual-editor"
+	cp -R "$src" "$PLUGINS_DIR/thrive-visual-editor"
+	echo "Copied Thrive Architect $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/thrive-visual-editor.php" | head -n 1) from $src."
+fi
+
 # The live Divi job (issue #636) runs the Divi 5 adapter against a real
 # Divi 5. Divi is a commercial theme, not a plugin, and not on
 # wordpress.org, so it is copied from a local directory holding it

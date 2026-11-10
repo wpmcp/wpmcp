@@ -76,6 +76,12 @@
 #      catalog, templates and design options are read from the real plugin,
 #      pages and templates written here are rendered and listed by it, and
 #      every write rolls back.
+#  18b. Runs the live Thrive Architect group (issue #640) when
+#      WPMCP_THRIVE_ARCHITECT_SRC names a local copy of Thrive Architect
+#      (commercial too): pages saved by Thrive's own save pipeline are read,
+#      edited element by element, restored from Thrive's revisions and still
+#      render through Thrive, its element catalog is read, templates saved
+#      here load through its own model, and every write rolls back.
 #  19. Runs the live Avada group (issue #637) when WPMCP_AVADA_SRC names a
 #      local directory holding the Avada theme and the fusion-builder and
 #      fusion-core plugins (commercial, so not downloadable here): pages
@@ -191,6 +197,7 @@
 #   bin/test-local.sh --live-avada    only the live Avada group (needs WPMCP_AVADA_SRC)
 #   bin/test-local.sh --live-oxygen   only the live Oxygen group (needs WPMCP_OXYGEN_SRC)
 #   bin/test-local.sh --live-wpbakery only the live WPBakery group (needs WPMCP_WPBAKERY_SRC)
+#   bin/test-local.sh --live-thrive   only the live Thrive Architect group (needs WPMCP_THRIVE_ARCHITECT_SRC)
 #   bin/test-local.sh --live-divi     only the live Divi group (needs WPMCP_DIVI_SRC)
 #   bin/test-local.sh --live-memberpress only the live MemberPress group (needs WPMCP_MEMBERPRESS_SRC)
 #   bin/test-local.sh --live-elementor-pro only the live Elementor Pro group (needs WPMCP_ELEMENTOR_PRO_SRC)
@@ -249,6 +256,10 @@
 #                        for the live WPBakery group; without it that group is
 #                        not run, except under --live-wpbakery, where it is an
 #                        error
+#   WPMCP_THRIVE_ARCHITECT_SRC a local Thrive Architect directory
+#                        (thrive-visual-editor) for the live Thrive group;
+#                        without it that group is not run, except under
+#                        --live-thrive, where it is an error
 #   WPMCP_DIVI_SRC       a local Divi 5 theme directory for the live Divi
 #                        group; without it that group is not run, except
 #                        under --live-divi, where it is an error
@@ -337,6 +348,7 @@ only_live_polylang=false
 only_live_breakdance=false
 only_live_avada=false
 only_live_wpbakery=false
+only_live_thrive=false
 only_live_oxygen=false
 only_live_divi=false
 only_live_memberpress=false
@@ -371,6 +383,7 @@ while [ $# -gt 0 ]; do
 		--live-breakdance) only_live_breakdance=true ;;
 		--live-avada) only_live_avada=true ;;
 		--live-wpbakery) only_live_wpbakery=true ;;
+		--live-thrive) only_live_thrive=true ;;
 		--live-oxygen) only_live_oxygen=true ;;
 		--live-divi) only_live_divi=true ;;
 		--live-memberpress) only_live_memberpress=true ;;
@@ -429,7 +442,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -443,6 +456,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_breakdance" = false ] || LEGS+=("live-breakdance ${only_wp:-$default_wp}")
 	[ "$only_live_avada" = false ] || LEGS+=("live-avada ${only_wp:-$default_wp}")
 	[ "$only_live_wpbakery" = false ] || LEGS+=("live-wpbakery ${only_wp:-$default_wp}")
+	[ "$only_live_thrive" = false ] || LEGS+=("live-thrive ${only_wp:-$default_wp}")
 	[ "$only_live_oxygen" = false ] || LEGS+=("live-oxygen ${only_wp:-$default_wp}")
 	[ "$only_live_divi" = false ] || LEGS+=("live-divi ${only_wp:-$default_wp}")
 	[ "$only_live_memberpress" = false ] || LEGS+=("live-memberpress ${only_wp:-$default_wp}")
@@ -492,6 +506,9 @@ else
 		fi
 		if [ -n "${WPMCP_WPBAKERY_SRC:-}" ]; then
 			LEGS+=("live-wpbakery $default_wp")
+		fi
+		if [ -n "${WPMCP_THRIVE_ARCHITECT_SRC:-}" ]; then
+			LEGS+=("live-thrive $default_wp")
 		fi
 		if [ -n "${WPMCP_OXYGEN_SRC:-}" ]; then
 			LEGS+=("live-oxygen $default_wp")
@@ -650,6 +667,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_AVADA:-}" = 1 ] && flavor="-avada-live"
 	# And WPMCP_LIVE_WPBAKERY=1 and the local WPBakery copy.
 	[ "${WPMCP_LIVE_WPBAKERY:-}" = 1 ] && flavor="-wpbakery-live"
+	# And WPMCP_LIVE_THRIVE=1 and the local Thrive Architect copy.
+	[ "${WPMCP_LIVE_THRIVE:-}" = 1 ] && flavor="-thrive-live"
 	# And WPMCP_LIVE_OXYGEN=1 and the local Oxygen copy.
 	[ "${WPMCP_LIVE_OXYGEN:-}" = 1 ] && flavor="-oxygen-live"
 	# And WPMCP_LIVE_DIVI=1 and the local Divi theme copy.
@@ -1449,6 +1468,24 @@ run_live_wpbakery() {
 	unset WPMCP_LIVE_WPBAKERY
 }
 
+# The live Thrive Architect group (issue #640), the same way, with the
+# Thrive Architect copy from WPMCP_THRIVE_ARCHITECT_SRC: its own install, its
+# own database and --fail-on-skipped.
+run_live_thrive() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_THRIVE_ARCHITECT_SRC:-}/thrive-visual-editor.php" ] || die "the live Thrive Architect group needs WPMCP_THRIVE_ARCHITECT_SRC, a directory holding the Thrive Architect plugin (thrive-visual-editor.php)"
+	export WPMCP_LIVE_THRIVE=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-thrive-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Thrive Architect group on WordPress $version (real Thrive Architect from $WPMCP_THRIVE_ARCHITECT_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group thrive-live --fail-on-skipped
+	unset WPMCP_LIVE_THRIVE
+}
+
 # The live Oxygen group (issue #635), the same way, with the Oxygen 6 copy
 # from WPMCP_OXYGEN_SRC: its own install, its own database and
 # --fail-on-skipped.
@@ -1735,6 +1772,7 @@ run_leg_body() {
 		live-breakdance) run_live_breakdance "$wp" ;;
 		live-avada) run_live_avada "$wp" ;;
 		live-wpbakery) run_live_wpbakery "$wp" ;;
+		live-thrive) run_live_thrive "$wp" ;;
 		live-oxygen) run_live_oxygen "$wp" ;;
 		live-divi) run_live_divi "$wp" ;;
 		live-memberpress) run_live_memberpress "$wp" ;;

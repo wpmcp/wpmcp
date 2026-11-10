@@ -40,6 +40,8 @@ class Thrive_Content
 {
     public const LAYOUT_META_KEY = 'tve_updated_post';
 
+    public const CSS_META_KEY = 'tve_custom_css';
+
     public const OPTIMIZED_VERSION_META_KEY = '_tve_lightspeed_version';
 
     /** Script lists Thrive loads instead of all of its scripts when present. */
@@ -86,12 +88,15 @@ class Thrive_Content
         }
 
         $out = [
-            'post_id'       => $post_id,
-            'builder'       => 'thrive',
-            'plugin_active' => self::plugin_active(),
-            'landing_page'  => self::landing_page($post_id),
-            'tree'          => $tree,
-            'content'       => $content,
+            'post_id'        => $post_id,
+            'builder'        => 'thrive',
+            'plugin_active'  => self::plugin_active(),
+            'plugin_version' => Thrive_Page::plugin_version(),
+            'landing_page'   => self::landing_page($post_id),
+            'hash'           => Thrive_Page::hash($content),
+            'revisions'      => Thrive_Page::revisions($post_id),
+            'tree'           => $tree,
+            'content'        => $content,
         ];
         if (null !== $error) {
             $out['tree_error'] = $error;
@@ -154,13 +159,49 @@ class Thrive_Content
      * optimized assets computed for the old one, and refresh the plain-text
      * copy through Thrive when it is loaded.
      */
-    public static function save(int $post_id, string $content, ?string $before_more): void
+    public static function save(int $post_id, string $content, ?string $before_more, ?string $css = null): void
     {
         update_post_meta($post_id, self::key($post_id, self::LAYOUT_META_KEY), wp_slash($content));
         if (null !== $before_more) {
             update_post_meta($post_id, self::key($post_id, 'tve_content_before_more'), wp_slash($before_more));
         }
+        if (null !== $css) {
+            update_post_meta($post_id, self::key($post_id, self::CSS_META_KEY), wp_slash($css));
+        }
 
+        self::refresh_derived($post_id);
+    }
+
+    /** The element CSS row Thrive generates for this page. */
+    public static function get_css(int $post_id): string
+    {
+        $value = get_post_meta($post_id, self::key($post_id, self::CSS_META_KEY), true);
+
+        return is_string($value) ? $value : '';
+    }
+
+    /**
+     * Write rows a revision restore puts back (base key => value, each
+     * stored under this page's key), then refresh what Thrive derives.
+     *
+     * @param array<string,mixed> $rows
+     */
+    public static function restore_rows(int $post_id, array $rows): void
+    {
+        foreach ($rows as $base => $value) {
+            update_post_meta($post_id, self::key($post_id, $base), wp_slash($value));
+        }
+
+        self::refresh_derived($post_id);
+    }
+
+    /**
+     * Drop the optimized assets computed for the old layout and refresh the
+     * plain-text copy through Thrive when it is loaded (see the class
+     * comment).
+     */
+    private static function refresh_derived(int $post_id): void
+    {
         $version = get_post_meta($post_id, self::OPTIMIZED_VERSION_META_KEY, true);
         if ('' !== (string) $version && 0 !== (int) $version) {
             update_post_meta($post_id, self::OPTIMIZED_VERSION_META_KEY, 0);

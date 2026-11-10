@@ -408,6 +408,7 @@ namespace WPMCP\Tests\Pro\Builders {
                 'bricks'     => 'Install and activate the Bricks theme, then try again.',
                 'divi'       => 'Install and activate the Divi theme (Divi 5), then try again.',
                 'oxygen'     => 'Install and activate the Oxygen 6 plugin, then try again.',
+                'thrive'     => 'Install and activate the Thrive Architect plugin, then try again.',
                 'wpbakery'   => 'Install and activate the WPBakery Page Builder plugin, then try again.',
             ];
             $this->assertSame(array_keys($expected), array_keys(Builder_Design_Data::HOSTS));

@@ -127,6 +127,14 @@ class Thrive_Html
         return [substr($html, 0, $offset) . $markup . substr($html, $offset), $path];
     }
 
+    /** The exact stored markup of the element at $path. */
+    public static function markup(string $html, string $path): string
+    {
+        $node = self::resolve($html, $path, false);
+
+        return substr($html, $node['start'], $node['end'] - $node['start']);
+    }
+
     public static function remove(string $html, string $path): string
     {
         $node = self::resolve($html, $path, false);
