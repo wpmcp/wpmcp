@@ -128,7 +128,7 @@ class AcfIntegrationTest extends \WP_UnitTestCase
             'args'      => [ 'post_id' => $post_id, 'fields' => [ 'wpmcp_dispatch_text' => 'x' ] ],
         ]);
 
-        $this->assertSame('operation_disabled', $out['error']['code']);
+        $this->assertSame('opt_in_required', $out['error']['code']);
     }
 
     public function test_update_fields_writes_through_safe_mutation_and_rolls_back(): void

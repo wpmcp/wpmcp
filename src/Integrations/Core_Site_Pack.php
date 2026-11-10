@@ -54,8 +54,6 @@ final class Core_Site_Pack
     /** The site-wide opt-in for every write op of this pack. */
     public const ENABLE_FILTER = 'wpmcp_enable_core_site_write';
 
-    private const ENABLE_HINT = 'The site opts in with add_filter("wpmcp_enable_core_site_write", "__return_true"), or per operation with the wpmcp_integration_op_enabled filter.';
-
     /** What a permalink structure may contain: letters, digits, / - _ . and %tag%. */
     private const STRUCTURE_PATTERN = '/^[A-Za-z0-9\/\-_%.]*$/';
 
@@ -126,7 +124,7 @@ final class Core_Site_Pack
                 'mode'               => 'write',
                 'description'        => 'Set the site logo (the custom_logo theme mod) to an image attachment, or pass null to remove it. Refuses a missing or non-image attachment and a value already in place. Snapshotted on the theme_mods option; undo: rollback-operation. Disabled by default (wpmcp_enable_core_site_write filter)',
                 'enabled_by_default' => $enabled,
-                'enable_hint'        => self::ENABLE_HINT,
+                'opt_in_filter'      => self::ENABLE_FILTER,
                 'input_schema'       => $attachment,
                 'objects'            => [ 'attachment_id' => 'post' ],
                 'validate'           => static fn (array $args): ?array => self::logo_refusal(self::id_or_null($args['attachment_id'])),
@@ -138,7 +136,7 @@ final class Core_Site_Pack
                 'capability'         => 'manage_options',
                 'description'        => 'Set the site icon (favicon, the site_icon option) to an image attachment of at least 512 by 512 pixels, or pass null to remove it. Refuses a missing, non-image or too small attachment and a value already in place. Snapshotted; undo: rollback-operation. Disabled by default (wpmcp_enable_core_site_write filter)',
                 'enabled_by_default' => $enabled,
-                'enable_hint'        => self::ENABLE_HINT,
+                'opt_in_filter'      => self::ENABLE_FILTER,
                 'input_schema'       => $attachment,
                 'objects'            => [ 'attachment_id' => 'post' ],
                 'validate'           => static fn (array $args): ?array => self::icon_refusal(self::id_or_null($args['attachment_id'])),
@@ -150,7 +148,7 @@ final class Core_Site_Pack
                 'capability'         => 'manage_options',
                 'description'        => 'Show a published page as the static front page (sets show_on_front to page and page_on_front), or pass null to show the latest posts again. Refuses a missing, unpublished or non-page post, the current posts page, and a value already in place. Both options are one undo point; undo: rollback-operation. Disabled by default (wpmcp_enable_core_site_write filter)',
                 'enabled_by_default' => $enabled,
-                'enable_hint'        => self::ENABLE_HINT,
+                'opt_in_filter'      => self::ENABLE_FILTER,
                 'input_schema'       => $page,
                 'objects'            => [ 'page_id' => 'post' ],
                 'validate'           => static fn (array $args): ?array => self::front_page_refusal(self::id_or_null($args['page_id'])),
@@ -162,7 +160,7 @@ final class Core_Site_Pack
                 'capability'         => 'manage_options',
                 'description'        => 'Make a published page the posts page (page_for_posts), or pass null to clear it. Refuses a missing, unpublished or non-page post, the current front page, and a value already in place; notes when show_on_front still shows posts. Snapshotted; undo: rollback-operation. Disabled by default (wpmcp_enable_core_site_write filter)',
                 'enabled_by_default' => $enabled,
-                'enable_hint'        => self::ENABLE_HINT,
+                'opt_in_filter'      => self::ENABLE_FILTER,
                 'input_schema'       => $page,
                 'objects'            => [ 'page_id' => 'post' ],
                 'validate'           => static fn (array $args): ?array => self::posts_page_refusal(self::id_or_null($args['page_id'])),
@@ -174,7 +172,7 @@ final class Core_Site_Pack
                 'capability'         => 'manage_options',
                 'description'        => 'Change the permalink structure (empty for plain, otherwise a structure with at least one %tag%, e.g. /%postname%/) and optionally the category_base and tag_base, then flush the rewrite rules (soft; hard:true also rewrites .htaccess or web.config like the Permalinks screen). Existing inbound links break, so it needs confirm:true and the preview shows the before and after example URL. The structure and both bases are one undo point (rollback-operation), which also rebuilds the rules (soft). Disabled by default (wpmcp_enable_core_site_write filter)',
                 'enabled_by_default' => $enabled,
-                'enable_hint'        => self::ENABLE_HINT,
+                'opt_in_filter'      => self::ENABLE_FILTER,
                 'input_schema'       => [
                     'type'       => 'object',
                     'properties' => [
@@ -194,7 +192,7 @@ final class Core_Site_Pack
                 'capability'         => 'manage_options',
                 'description'        => 'Rebuild the rewrite rules from the current permalink structure and registered post types and taxonomies (soft; hard:true also rewrites .htaccess or web.config). Run it with hard:true after undoing a set-permalink-structure that used hard:true. Not snapshotted: rebuilding the rules destroys nothing. Disabled by default (wpmcp_enable_core_site_write filter)',
                 'enabled_by_default' => $enabled,
-                'enable_hint'        => self::ENABLE_HINT,
+                'opt_in_filter'      => self::ENABLE_FILTER,
                 'input_schema'       => [ 'type' => 'object', 'properties' => $hard ],
                 'handler'            => static fn (array $args): array => self::flush(! empty($args['hard'])),
             ],

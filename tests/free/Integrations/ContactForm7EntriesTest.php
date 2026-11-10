@@ -286,7 +286,7 @@ class ContactForm7EntriesTest extends \WP_UnitTestCase
             'confirm'   => true,
         ]);
 
-        $this->assertSame('operation_disabled', $out['error']['code']);
+        $this->assertSame('opt_in_required', $out['error']['code']);
         $this->assertNotNull(get_post($this->entries_a[0]));
     }
 

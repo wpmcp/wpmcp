@@ -214,7 +214,7 @@ class PluginDataIntegrationTest extends \WP_UnitTestCase
     {
         $post_id = self::factory()->post->create();
         $out     = $this->write('jetengine-update-fields', [ 'post_id' => $post_id, 'fields' => [ 'subtitle' => 'x' ] ]);
-        $this->assertSame('operation_disabled', $this->error_code($out));
+        $this->assertSame('opt_in_required', $this->error_code($out));
     }
 
     public function test_jetengine_write_refuses_undefined_and_layout_fields(): void
@@ -287,7 +287,7 @@ class PluginDataIntegrationTest extends \WP_UnitTestCase
     public function test_pods_write_is_disabled_by_default(): void
     {
         $post_id = self::factory()->post->create();
-        $this->assertSame('operation_disabled', $this->error_code($this->write('pods-update-fields', [ 'post_id' => $post_id, 'fields' => [ 'tagline' => 'x' ] ])));
+        $this->assertSame('opt_in_required', $this->error_code($this->write('pods-update-fields', [ 'post_id' => $post_id, 'fields' => [ 'tagline' => 'x' ] ])));
     }
 
     public function test_pods_table_storage_insert_round_trip_and_rollback_removes_the_row(): void

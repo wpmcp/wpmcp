@@ -182,7 +182,7 @@ class MemberPressPackTest extends \WP_UnitTestCase
     {
         remove_all_filters('wpmcp_enable_memberpress_write');
         $out = $this->write('memberpress-create-membership', [ 'title' => 'Gold' ]);
-        $this->assertSame('operation_disabled', $out['error']['code'] ?? null);
+        $this->assertSame('opt_in_required', $out['error']['code'] ?? null);
         $this->assertStringContainsString('wpmcp_enable_memberpress_write', $out['error']['message']);
         $this->assertSame([], get_posts([ 'post_type' => 'memberpressproduct', 'post_status' => 'any', 'title' => 'Gold' ]));
     }

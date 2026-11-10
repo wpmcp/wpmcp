@@ -74,6 +74,7 @@ final class Theme_Settings_Pack
                 'tier'               => $tier,
                 'capability'         => 'edit_theme_options',
                 'enabled_by_default' => (bool) apply_filters('wpmcp_enable_theme_write', false),
+                'opt_in_filter'      => 'wpmcp_enable_theme_write',
                 'description'        => sprintf('Set allowlisted %s settings. One invalid value refuses the whole batch before any write. Snapshotted for rollback-operation. Disabled by default (wpmcp_enable_theme_write filter)', $label),
                 'input_schema'       => [
                     'type'       => 'object',

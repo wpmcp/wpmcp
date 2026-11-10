@@ -83,8 +83,8 @@ class ThemeScaffoldAndPackTest extends \WP_UnitTestCase
 
         remove_filter('template', $astra);
         add_filter('wpmcp_enable_theme_write', '__return_true');
-        $this->assertSame('operation_disabled', $scaffold['error']['code']);
-        $this->assertSame('operation_disabled', $pack['error']['code']);
+        $this->assertSame('opt_in_required', $scaffold['error']['code']);
+        $this->assertSame('opt_in_required', $pack['error']['code']);
         $this->assertDirectoryDoesNotExist($this->scaffold_dir());
     }
 

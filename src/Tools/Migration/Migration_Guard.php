@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Migration;
 
+use WPMCP\MCP\Opt_In_Required;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -46,18 +48,21 @@ class Migration_Guard
 
     public static function incoming_disabled_error(): \WP_Error
     {
-        return new \WP_Error(
-            'wpmcp_migration_receive_disabled',
-            'This site does not accept incoming migrations (default). Its owner can allow them with define(\'WPMCP_ACCEPT_INCOMING_MIGRATIONS\', true) or the wpmcp_accept_incoming_migrations filter, on this site, for the duration of the move.',
+        return Opt_In_Required::error(
+            'This site does not accept incoming migrations.',
+            'wpmcp_accept_incoming_migrations',
+            'WPMCP_ACCEPT_INCOMING_MIGRATIONS',
+            'Allow it on this site only for the duration of the move.',
             ['status' => 403]
         );
     }
 
     public static function outgoing_disabled_error(): \WP_Error
     {
-        return new \WP_Error(
-            'wpmcp_migration_send_disabled',
-            'Pushing a site archive to another site is disabled here (default). Allow it with define(\'WPMCP_ALLOW_OUTGOING_MIGRATIONS\', true) or the wpmcp_allow_outgoing_migrations filter.'
+        return Opt_In_Required::error(
+            'Pushing a site archive to another site is disabled here.',
+            'wpmcp_allow_outgoing_migrations',
+            'WPMCP_ALLOW_OUTGOING_MIGRATIONS'
         );
     }
 }

@@ -5,6 +5,7 @@ namespace WPMCP\Tools\Cli;
 use WPMCP\Governance\Code_Exec_Network_Gate;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
+use WPMCP\MCP\Opt_In_Required;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -58,9 +59,7 @@ class Wp_Cli_Guard_Chain
     public static function assert_allowed(array $subcommand_argv, ?int $user_id = null): void
     {
         if (! Wp_Cli_Guard::is_enabled()) {
-            throw new \RuntimeException(
-                'WP-CLI execution is disabled. Enable it with the WPMCP_ALLOW_WP_CLI constant or the wpmcp_allow_wp_cli filter.'
-            );
+            throw new Opt_In_Required('WP-CLI execution is disabled.', 'wpmcp_allow_wp_cli', 'WPMCP_ALLOW_WP_CLI');
         }
 
         if (! Wp_Cli_Guard::is_allowed_on_environment()) {

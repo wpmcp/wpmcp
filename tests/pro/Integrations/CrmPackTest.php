@@ -834,7 +834,7 @@ class CrmPackTest extends \WP_UnitTestCase
         $id   = $this->ok($this->write('fluentcrm-create-campaign', [ 'subject' => 'Hello', 'body' => 'x', 'lists' => [ $list ] ]))['campaign']['id'];
 
         $off = $this->write('fluentcrm-send-campaign', [ 'id' => $id ], true);
-        $this->assertSame('operation_disabled', $this->code($off));
+        $this->assertSame('opt_in_required', $this->code($off));
         $this->assertStringContainsString('wpmcp_enable_crm_send', $off['error']['message']);
 
         add_filter('wpmcp_enable_crm_send', '__return_true');

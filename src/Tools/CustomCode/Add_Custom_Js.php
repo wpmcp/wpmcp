@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\CustomCode;
 
 use WPMCP\Governance\Governance_Audit_Log;
+use WPMCP\MCP\Opt_In_Required;
 use WPMCP\Safety\Safe_Mutation;
 
 if (! defined('ABSPATH')) {
@@ -94,9 +95,12 @@ class Add_Custom_Js
     private function guard(string $js, bool $clear): void
     {
         if (! Custom_Js_Guard::is_enabled()) {
-            $this->refuse(
-                'Custom JS injection is disabled. Enable it with the WPMCP_ALLOW_JS_INJECTION constant or the wpmcp_allow_js_injection filter. Stored JS runs in every visitor\'s browser; only enable this deliberately.',
-                self::REASON_GATE_CLOSED
+            Governance_Audit_Log::record_quietly('wpmcp/add-custom-js', false, self::REASON_GATE_CLOSED);
+            throw new Opt_In_Required(
+                'Custom JS injection is disabled.',
+                'wpmcp_allow_js_injection',
+                'WPMCP_ALLOW_JS_INJECTION',
+                'Stored JS runs in every visitor\'s browser; only enable this deliberately.'
             );
         }
 
