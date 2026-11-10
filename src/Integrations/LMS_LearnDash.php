@@ -251,7 +251,8 @@ final class LMS_LearnDash extends LMS_Adapter
     protected function questions(int $quiz): ?array
     {
         $rows = [];
-        foreach ($this->children_linked('sfwd-question', 'quiz_id', $quiz, true) as $q) {
+        // Only the questions the caller may read (issue #465), as LifterLMS does.
+        foreach ($this->children_linked('sfwd-question', 'quiz_id', $quiz) as $q) {
             $points = get_post_meta($q->ID, 'question_points', true);
             $rows[] = [
                 'id'     => (int) $q->ID,
