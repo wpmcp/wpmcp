@@ -761,6 +761,23 @@ $edits['src/Skills/library/wpmcp-safe-writes/SKILL.md'] = [
     ],
 ];
 
+// Pro_Refusal looks Pro_Banner up by name for its upgrade offer, and the
+// directory cuts remove Pro_Banner (policy.php), so their class reference
+// gate would see a class they do not ship. Here the offer is simply absent:
+// every refusal is the plain sentence with no link and no coupon.
+$edits['src/MCP/Pro_Refusal.php'] = [
+    [
+        "        \$banner = '\\\\WPMCP\\\\Admin\\\\Pro_Banner';\n"
+            . "        if (! class_exists(\$banner) || ! method_exists(\$banner, 'offer')) {\n"
+            . "            return null;\n"
+            . "        }\n"
+            . "\n"
+            . "        return \$banner::offer(self::MEDIUM);\n",
+        "        return null;\n",
+        1,
+    ],
+];
+
 $edits['src/Tools/Skills/Get_Skill.php'] = [
     [
         " *  - wpmcp_skill_locked: the skill declares `tier: pro` and this site is not\n"
