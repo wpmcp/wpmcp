@@ -94,7 +94,7 @@ class WooWriteTest extends \WP_UnitTestCase
 
     // ------------------------------------------------------------ catalog
 
-    /** Acceptance criterion 4: every domain the issue names has ops, plus brands (issue #293), subscriptions (issue #658) and bookings (issue #659). */
+    /** Acceptance criterion 4: every domain the issue names has ops, plus brands (issue #293), subscriptions (issue #658), bookings (issue #659) and memberships (PR #573). */
     public function test_the_catalog_covers_every_domain(): void
     {
         $covered = [];
@@ -104,7 +104,7 @@ class WooWriteTest extends \WP_UnitTestCase
         ksort($covered);
 
         $this->assertSame(
-            ['bookings', 'brands', 'coupons', 'customers', 'gateways', 'orders', 'products', 'refunds', 'reports', 'reviews', 'settings', 'shipping', 'subscriptions', 'system-status', 'taxes', 'variations', 'webhooks'],
+            ['bookings', 'brands', 'coupons', 'customers', 'gateways', 'memberships', 'orders', 'products', 'refunds', 'reports', 'reviews', 'settings', 'shipping', 'subscriptions', 'system-status', 'taxes', 'variations', 'webhooks'],
             array_keys($covered)
         );
     }
