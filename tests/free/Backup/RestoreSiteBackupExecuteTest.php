@@ -3,6 +3,9 @@
 namespace WPMCP\Tests\Free\Backup;
 
 use WPMCP\Governance\Governance_Audit_Log;
+use WPMCP\Maintenance\Maintenance_Guard;
+use WPMCP\Tools\Backup\Archive_Locator;
+use WPMCP\Tools\Backup\Db_Dumper;
 use WPMCP\MCP\Request_Log;
 use WPMCP\Tools\Backup\Backup_Job_Store;
 use WPMCP\Tools\Backup\Restore_Files;
@@ -180,6 +183,44 @@ class RestoreSiteBackupExecuteTest extends \WP_UnitTestCase
         $this->assertNotEmpty($after_options);
         $this->assertNotContains(false, $after_options);
         $this->assertFalse(get_option('wpmcp_maintenance'), 'The restored options table had no maintenance row, so none is left behind.');
+    }
+
+    /**
+     * Issue #813: while wp_options itself is dropped, recreated and refilled
+     * the wpmcp_maintenance row does not exist, yet visitors must still get
+     * the maintenance page after every statement of the import.
+     */
+    public function test_the_guard_blocks_after_every_statement_of_a_multi_batch_options_import(): void
+    {
+        global $wpdb;
+        // Enough bytes that the dump writes wp_options as several INSERT
+        // statements (they are cut at Db_Dumper::MAX_STATEMENT_BYTES).
+        $values = [];
+        $filler = str_repeat('x', 1000);
+        $rows   = (int) ceil(2.5 * Db_Dumper::MAX_STATEMENT_BYTES / 1000);
+        for ($i = 0; $i < $rows; $i++) {
+            $values[] = $wpdb->prepare('(%s, %s, %s)', 'wpmcp_test_813_' . $i, $filler, 'off');
+        }
+        $wpdb->query("INSERT INTO `{$wpdb->options}` (`option_name`, `option_value`, `autoload`) VALUES " . implode(', ', $values));
+        $tables  = [$wpdb->options, $wpdb->posts];
+        $archive = $this->archive_of($tables);
+        wp_set_current_user(0);
+
+        $seen = [];
+        add_action('wpmcp_restore_statement_executed', static function (array $statement, array $class) use (&$seen): void {
+            wp_cache_flush();
+            $seen[] = [(string) $class['kind'], (string) $class['table'], (int) $statement['index'], (new Maintenance_Guard())->should_block()];
+        }, 10, 2);
+
+        $out = $this->restore($archive, [], $tables);
+
+        $this->assertSame('restored', $out['status']);
+        $options_inserts = array_filter($seen, static fn(array $s): bool => 'insert' === $s[0] && $wpdb->options === $s[1]);
+        $this->assertGreaterThanOrEqual(3, count($options_inserts), 'The dump must hold several INSERT batches for wp_options.');
+        foreach ($seen as [$kind, $table, $index, $blocked]) {
+            $this->assertTrue($blocked, sprintf('The guard let a visitor through after statement %d (%s on %s).', $index, $kind, $table));
+        }
+        $this->assertFalse((new Maintenance_Guard())->should_block(), 'Once the restore has finished the site is served again.');
     }
 
     /**
@@ -485,6 +526,96 @@ class RestoreSiteBackupExecuteTest extends \WP_UnitTestCase
         $this->assertStringContainsString('stopped without finishing', $warning);
         $this->assertStringContainsString('backup job 41', $warning);
         $this->assertStringContainsString('statement 17', $warning);
+    }
+
+    /**
+     * Issue #814: a dry run after an interrupted restore names that
+     * restore's safety archive by file, so the advice survives job ids
+     * being reused once the job store was rewound by the half import.
+     */
+    public function test_an_interrupted_restore_is_reported_with_its_safety_archive_file(): void
+    {
+        $archive = $this->archive_of($this->posts_tables());
+        $safety  = $this->archive_of($this->posts_tables());
+        $state   = Site_Backup_Dir::path() . '/restore-in-progress.json';
+        file_put_contents($state, (string) wp_json_encode([
+            'started_at'    => '2026-01-01T00:00:00+00:00',
+            'archive'       => 'wpmcp-database-old.zip',
+            'safety_job_id' => 41,
+            'safety_file'   => basename($safety),
+            'statement'     => 601,
+            'table'         => 'wp_options',
+        ]));
+        $this->fixture_files[] = $state;
+
+        $out = (new Restore_Site_Backup())->handle(['path' => $archive]);
+
+        $warning = implode(' ', $out['warnings']);
+        $this->assertStringContainsString('stopped without finishing', $warning);
+        $this->assertStringContainsString(basename($safety), $warning);
+        $this->assertStringNotContainsString('backup job 41', $warning, 'A job id from a rewound job store is not evidence of anything.');
+        $this->assertSame([], Backup_Job_Store::list(), 'A dry run writes nothing.');
+    }
+
+    /**
+     * Issue #814: interrupt a restore after wp_options is imported (the job
+     * store is then the backup's copy), run a second restore, and check the
+     * warning points to the first attempt's safety archive, which is still
+     * listed and restorable, and that job ids are not handed out twice.
+     */
+    public function test_after_an_interrupted_restore_the_next_one_points_to_the_first_safety_archive(): void
+    {
+        global $wpdb;
+        $tables = [$wpdb->options, $wpdb->posts];
+        Backup_Job_Store::create('database', 'database');
+        $archive = $this->archive_of($tables);
+
+        // What a crash right after wp_options was replaced leaves behind:
+        // the progress file, and the job store as the dump recorded it.
+        $crash = null;
+        add_action('wpmcp_restore_statement_executed', static function (array $statement, array $class) use (&$crash, $wpdb): void {
+            if (null === $crash && $class['table'] === $wpdb->posts) {
+                wp_cache_flush();
+                $crash = [
+                    'state' => (string) file_get_contents(Site_Backup_Dir::path() . '/restore-in-progress.json'),
+                    'jobs'  => get_option(Backup_Job_Store::OPTION, null),
+                ];
+            }
+        }, 10, 2);
+        $first = $this->restore($archive, [], $tables);
+        remove_all_actions('wpmcp_restore_statement_executed');
+
+        $this->assertNotNull($crash);
+        $first_file = (string) $first['safety_archive']['file'];
+        $this->assertFileExists($first_file);
+        Site_Backup_Dir::protect(Site_Backup_Dir::path());
+        file_put_contents(Site_Backup_Dir::path() . '/restore-in-progress.json', $crash['state']);
+        $this->fixture_files[] = Site_Backup_Dir::path() . '/restore-in-progress.json';
+        if (null === $crash['jobs']) {
+            delete_option(Backup_Job_Store::OPTION);
+        } else {
+            update_option(Backup_Job_Store::OPTION, $crash['jobs']);
+        }
+        $this->assertNull(Backup_Job_Store::get((int) $first['safety_archive']['job_id']), 'The rewound job store has forgotten the first safety archive.');
+
+        $second = $this->restore($archive, [], $tables);
+
+        $this->assertSame('restored', $second['status']);
+        $warning = implode(' ', $second['warnings']);
+        $this->assertStringContainsString('stopped without finishing', $warning);
+        $this->assertStringContainsString(basename($first_file), $warning);
+        $this->assertStringNotContainsString(basename((string) $second['safety_archive']['file']), $warning);
+        $this->assertNotSame($first['safety_archive']['job_id'], $second['safety_archive']['job_id'], 'A job id must not be handed out twice.');
+
+        wp_cache_flush();
+        $listed = array_values(array_filter(
+            Backup_Job_Store::list(),
+            static fn(array $job): bool => realpath((string) ($job['result']['file'] ?? '')) === realpath($first_file)
+        ));
+        $this->assertCount(1, $listed, 'The first safety archive is listed again.');
+        $this->assertSame('completed', $listed[0]['status']);
+        $this->assertStringContainsString('backup job ' . $listed[0]['id'], $warning);
+        $this->assertSame(realpath($first_file), Archive_Locator::resolve(['job_id' => $listed[0]['id']]));
     }
 
     public function test_a_second_restore_is_refused_while_one_holds_the_lock(): void
