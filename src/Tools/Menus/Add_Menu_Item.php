@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Menus;
 
+use WPMCP\Safety\Post_Creation_Snapshot;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -10,9 +12,11 @@ if (! defined('ABSPATH')) {
  * Add an item to a navigation menu.
  *
  * A menu item is a nav_menu_item post created via wp_update_nav_menu_item()
- * with id 0. Creation has no prior state to snapshot, so this is exempt from
- * Safe_Mutation (matching add-order-note / create-*): a mistaken item can be
- * removed with remove-menu-item. Supports the common custom-link case (title +
+ * with id 0. Creation has no prior state to snapshot, so like create-post it
+ * records a creation row under the caller's session_id (issue #598,
+ * Post_Creation_Snapshot) and returns its operation_id: rollback-operation
+ * and rollback-session remove the item again, as remove-menu-item does.
+ * Supports the common custom-link case (title +
  * url) plus optional parent and position; object links (post/term) can be
  * added by passing type, object, and object_id.
  */
@@ -56,9 +60,12 @@ class Add_Menu_Item
             throw new \RuntimeException('Could not add the menu item: ' . esc_html($item_id->get_error_message()));
         }
 
+        $operation_id = Post_Creation_Snapshot::record('add-menu-item', [ (int) $item_id ], $args, (string) ($args['session_id'] ?? 'default'));
+
         return [
-            'menu_id' => $menu_id,
-            'item_id' => (int) $item_id,
+            'operation_id' => $operation_id,
+            'menu_id'      => $menu_id,
+            'item_id'      => (int) $item_id,
         ];
     }
 }

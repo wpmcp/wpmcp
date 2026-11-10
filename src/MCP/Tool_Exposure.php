@@ -11,7 +11,7 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * The compact tool-surface mode (issue #79): 160+ flat tools bloats or
+ * The compact tool-surface mode (issue #79): 407 flat tools bloats or
  * outright breaks real MCP clients, so a site (or a single scoped identity)
  * can collapse the ADVERTISED tools/list to a handful of meta-tools plus
  * connection basics, with the entire long tail still reachable through

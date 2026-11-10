@@ -45,7 +45,7 @@ class PostStatusCapabilityRegistryTest extends \WP_UnitTestCase
         'wpmcp/set-widget-status'    => 'switches a plugin-owned widget definition on or off; manage_options only',
         'wpmcp/set-block-status'     => 'switches a plugin-owned block definition on or off; manage_options only',
         'wpmcp/set-site-part-status' => 'switches a plugin-owned site part on or off; manage_options only',
-        'wpmcp/create-code-snippet'  => 'an Elementor custom-code row, not content; manage_options only',
+        'wpmcp/create-code-snippet'  => 'an Elementor custom-code row, not content; manage_options plus unfiltered_html behind the JS gate',
         'wpmcp/import-content'       => 'a site import (manage_options); WordPress\'s importer keeps each item\'s status too',
         'wpmcp/apply-change-set'     => 'a site-to-site sync (manage_options) that never publishes or trashes from a change set on its own',
         'wpmcp/apply-product-import' => 'creates products under the product rule (see WooCommerce probes) and delegates every other write to create-variation and update-product',

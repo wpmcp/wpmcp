@@ -113,6 +113,115 @@ class CrawlerFilesTest extends \WP_UnitTestCase
         $this->assertFalse(get_option(Crawler_Files::OPTION));
     }
 
+    /** Store robots rules the way the write does, without a snapshot. */
+    private static function store_rules(string $rules): void
+    {
+        $settings                 = Crawler_Files::settings();
+        $settings['robots_rules'] = $rules;
+        update_option(Crawler_Files::OPTION, $settings, false);
+    }
+
+    /** Issue #731: one group, the rule joins it and the Sitemap line stays last. */
+    public function test_robots_rules_join_the_matching_group_ahead_of_the_sitemap_line(): void
+    {
+        self::store_rules('Disallow: /private/');
+        $core = "User-agent: *\nDisallow: /wp-admin/\nAllow: /wp-admin/admin-ajax.php\n\nSitemap: https://example.org/wp-sitemap.xml\n";
+
+        $this->assertSame(
+            "User-agent: *\nDisallow: /wp-admin/\nAllow: /wp-admin/admin-ajax.php\nDisallow: /private/\n\nSitemap: https://example.org/wp-sitemap.xml\n",
+            Crawler_Files::filter_robots($core)
+        );
+    }
+
+    /** Issue #731: several groups, each rule goes to its own agent's group, a new agent gets a new group before the Sitemap lines. */
+    public function test_robots_rules_go_to_the_group_of_their_user_agent_among_several(): void
+    {
+        self::store_rules("Disallow: /tmp/\nUser-agent: GPTBot\nDisallow: /private/\nUser-agent: CCBot\nDisallow: /\nSitemap: https://example.org/extra.xml");
+        $output = "User-agent: *\nDisallow: /wp-admin/\n\nSitemap: https://example.org/a.xml\n\nUser-agent: Googlebot\nUser-agent: Bingbot\nAllow: /\n\nuser-agent: gptbot\nDisallow: /drafts/\n";
+
+        $this->assertSame(
+            "User-agent: *\nDisallow: /wp-admin/\nDisallow: /tmp/\n\n"
+            . "User-agent: Googlebot\nUser-agent: Bingbot\nAllow: /\n\n"
+            . "user-agent: gptbot\nDisallow: /drafts/\nDisallow: /private/\n\n"
+            . "User-agent: CCBot\nDisallow: /\n\n"
+            . "Sitemap: https://example.org/a.xml\nSitemap: https://example.org/extra.xml\n",
+            Crawler_Files::filter_robots($output)
+        );
+    }
+
+    /** Issue #731: no group in the output, the rules get a group of their own. */
+    public function test_robots_rules_get_their_own_group_when_the_output_has_none(): void
+    {
+        self::store_rules('Disallow: /private/');
+
+        $this->assertSame(
+            "# managed elsewhere\n\nUser-agent: *\nDisallow: /private/\n\nSitemap: https://example.org/wp-sitemap.xml\n",
+            Crawler_Files::filter_robots("# managed elsewhere\nSitemap: https://example.org/wp-sitemap.xml\n")
+        );
+        $this->assertSame("User-agent: *\nDisallow: /private/\n", Crawler_Files::filter_robots(''));
+    }
+
+    /** Issue #731: a group of several agents is matched only by the same set, never split. */
+    public function test_robots_rules_for_one_agent_do_not_join_a_shared_group(): void
+    {
+        self::store_rules("User-agent: Googlebot\nDisallow: /x/");
+
+        $this->assertSame(
+            "User-agent: Googlebot\nUser-agent: Bingbot\nAllow: /\n\nUser-agent: Googlebot\nDisallow: /x/\n",
+            Crawler_Files::filter_robots("User-agent: Googlebot\nUser-agent: Bingbot\nAllow: /\n")
+        );
+    }
+
+    /** Issue #731: the call names the user agent, end to end through core's robots.txt with its Sitemap line. */
+    public function test_the_call_can_target_a_user_agent_and_core_sitemap_stays_last(): void
+    {
+        update_option('blog_public', '1');
+        // The harness loads Yoast SEO, which appends its own block after
+        // every other robots_txt filter; only core and this plugin are under test.
+        global $wp_filter;
+        foreach (array_keys($wp_filter['robots_txt']->callbacks) as $priority) {
+            if ($priority > Crawler_Files::ROBOTS_PRIORITY) {
+                foreach ($wp_filter['robots_txt']->callbacks[ $priority ] as $callback) {
+                    remove_filter('robots_txt', $callback['function'], $priority);
+                }
+            }
+        }
+        // Core hooks its Sitemap line only when sitemaps were on at init,
+        // which Yoast prevented; hook it as core does.
+        add_filter('robots_txt', [wp_sitemaps_get_server(), 'add_robots'], 0, 2);
+        $out = (new Update_Crawler_Files())->handle(['robots_rules' => 'Disallow: /private/', 'user_agent' => 'GPTBot']);
+
+        $this->assertSame("User-agent: GPTBot\nDisallow: /private/", $out['settings']['robots_rules']);
+        $robots = $this->robots();
+        $this->assertStringContainsString('Sitemap:', $robots, 'Core sitemaps are on, so core adds its Sitemap line.');
+        $lines = array_values(array_filter(explode("\n", $robots), static fn (string $l): bool => '' !== trim($l)));
+        $ua    = array_search('User-agent: GPTBot', $lines, true);
+        $this->assertNotFalse($ua);
+        $this->assertSame('Disallow: /private/', $lines[ $ua + 1 ]);
+        $last_rule = max(array_keys(array_filter($lines, static fn (string $l): bool => 0 !== stripos($l, 'sitemap:'))));
+        foreach ($lines as $i => $line) {
+            if (0 === stripos($line, 'sitemap:')) {
+                $this->assertGreaterThan($last_rule, $i, 'Sitemap lines come after every group.');
+            }
+        }
+    }
+
+    public function test_a_user_agent_with_rules_that_name_their_own_is_refused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('user_agent');
+
+        (new Update_Crawler_Files())->handle(['robots_rules' => "User-agent: CCBot\nDisallow: /", 'user_agent' => 'GPTBot']);
+    }
+
+    public function test_a_user_agent_that_is_not_a_plain_token_is_refused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('user_agent');
+
+        (new Update_Crawler_Files())->handle(['robots_rules' => 'Disallow: /', 'user_agent' => "GPTBot\nDisallow: /"]);
+    }
+
     public function test_robots_rules_that_are_not_directives_are_refused(): void
     {
         $this->expectException(\InvalidArgumentException::class);

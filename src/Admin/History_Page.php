@@ -22,6 +22,13 @@ class History_Page
         return 'wpmcp-op-' . preg_replace('/[^A-Za-z0-9_-]/', '', $operation_id);
     }
 
+    /** What an undone row shows in place of its Restore button (issue #593). */
+    public static function undone_label(string $rolled_back_at): string
+    {
+        /* translators: %s: UTC date and time the change was undone. */
+        return sprintf(__('Undone %s UTC', 'wpmcp'), $rolled_back_at);
+    }
+
     public function render(): void
     {
         $ops = (new List_Operations())->handle(['limit' => 50])['operations'];
@@ -29,15 +36,25 @@ class History_Page
         $nonce = wp_create_nonce('wpmcp_restore');
         foreach ($ops as $op) {
             printf(
-                '<tr id="%s"><td>%s</td><td>#%d</td><td>%s</td><td><button class="button wpmcp-restore" data-op="%s" data-nonce="%s">%s</button></td></tr>',
+                '<tr id="%s"><td>%s</td><td>%s</td><td>%s</td><td>',
                 esc_attr(self::row_anchor((string) $op['operation_id'])),
                 esc_html($op['tool_name']),
-                (int) $op['object_id'],
-                esc_html($op['created_at']),
-                esc_attr($op['operation_id']),
-                esc_attr($nonce),
-                esc_html__('Restore', 'wpmcp')
+                esc_html(List_Operations::object_label($op)),
+                esc_html($op['created_at'])
             );
+            if (! empty($op['rollback_available'])) {
+                printf(
+                    '<button class="button wpmcp-restore" data-op="%s" data-nonce="%s">%s</button>',
+                    esc_attr($op['operation_id']),
+                    esc_attr($nonce),
+                    esc_html__('Restore', 'wpmcp')
+                );
+            } elseif (! empty($op['rolled_back_at'])) {
+                // Already undone (issue #593): restoring it again would
+                // overwrite every change made since.
+                echo esc_html(self::undone_label((string) $op['rolled_back_at']));
+            }
+            echo '</td></tr>';
         }
         echo '</tbody></table></div>';
         // Inline JS: POST operation_id+nonce to ajaxurl action=wpmcp_restore, reload on success.

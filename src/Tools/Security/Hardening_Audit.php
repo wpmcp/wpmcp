@@ -35,7 +35,7 @@ class Hardening_Audit
     public function evaluate_debug_display(bool $on, string $environment): array
     {
         if (! $on) {
-            return Security_Finding::make('harden_debug_display', 'hardening', 'Debug output', 'pass', false, 'WP_DEBUG_DISPLAY is off.');
+            return Security_Finding::make('harden_debug_display', 'hardening', 'Debug output', 'pass', false, 'Debug output is off (it needs both WP_DEBUG and WP_DEBUG_DISPLAY on).');
         }
         if ('production' === $environment) {
             return Security_Finding::make(
@@ -49,6 +49,24 @@ class Hardening_Audit
             );
         }
         return Security_Finding::make('harden_debug_display', 'hardening', 'Debug output', 'info', true, sprintf('Debug output is on (environment: %s).', $environment));
+    }
+
+    /**
+     * Live: the debug output finding, from this site's constants and
+     * environment.
+     *
+     * Read the way core's wp_debug_mode() applies them (issue #605): errors
+     * are only displayed when WP_DEBUG is on AND WP_DEBUG_DISPLAY is on.
+     * Core defines WP_DEBUG_DISPLAY as true by default, so reading it alone
+     * reported debug output on every site with WP_DEBUG off, disagreeing
+     * with Site Health.
+     */
+    public function debug_display_finding(): array
+    {
+        $wp_debug      = defined('WP_DEBUG') && WP_DEBUG;
+        $debug_display = $wp_debug && (! defined('WP_DEBUG_DISPLAY') || (bool) WP_DEBUG_DISPLAY);
+        $environment   = function_exists('wp_get_environment_type') ? wp_get_environment_type() : 'production';
+        return $this->evaluate_debug_display($debug_display, $environment);
     }
 
     public function evaluate_admin_user(bool $exists): array
@@ -151,9 +169,7 @@ class Hardening_Audit
         $disallow_edit = defined('DISALLOW_FILE_EDIT') && DISALLOW_FILE_EDIT;
         $findings[]    = $this->evaluate_file_edit($disallow_edit);
 
-        $debug_display = defined('WP_DEBUG_DISPLAY') ? (bool) WP_DEBUG_DISPLAY : (defined('WP_DEBUG') && WP_DEBUG);
-        $environment   = function_exists('wp_get_environment_type') ? wp_get_environment_type() : 'production';
-        $findings[]    = $this->evaluate_debug_display($debug_display, $environment);
+        $findings[] = $this->debug_display_finding();
 
         $admin_exists = function_exists('username_exists') && username_exists('admin');
         $findings[]   = $this->evaluate_admin_user((bool) $admin_exists);

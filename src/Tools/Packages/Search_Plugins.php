@@ -65,6 +65,11 @@ class Search_Plugins
 
         $plugins = [];
         foreach ((array) ($result->plugins ?? []) as $plugin) {
+            // plugins_api() decodes the plugins/info/1.2 response as arrays
+            // and casts only the top level to an object, so each row is an
+            // array (issue #599); a filtered or older response may still
+            // give objects. Read both the same way.
+            $plugin    = (object) $plugin;
             $plugins[] = [
                 'name'              => $plugin->name ?? '',
                 'slug'              => $plugin->slug ?? '',

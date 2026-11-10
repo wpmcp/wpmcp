@@ -201,6 +201,63 @@ class ConnectionPageTest extends \WP_UnitTestCase
         $this->assertStringContainsString('wpmcp_connection_action', $html);
     }
 
+    /**
+     * Issue #581: the screen says the custom connector needs OAuth, whether
+     * it is on, and how to switch it on, on every render (no password
+     * needed, since the connector never uses one).
+     */
+    public function test_render_explains_the_custom_connector_needs_oauth_and_how_to_switch_it_on(): void
+    {
+        remove_all_filters('wpmcp_oauth_enabled');
+        set_current_screen('admin_page_' . Connection_Page::SLUG);
+
+        ob_start();
+        (new Connection_Page())->render();
+        $html = ob_get_clean();
+
+        $this->assertStringContainsString('Custom connector', $html);
+        $this->assertStringContainsString('OAuth is off', $html);
+        $this->assertStringContainsString(esc_html("define('WPMCP_OAUTH_ENABLED', true);"), $html);
+        $this->assertStringContainsString('wp-config.php', $html);
+        $this->assertStringContainsString('wpmcp_oauth_enabled', $html);
+        // Issue #720: no internal key name on the screen.
+        $this->assertStringNotContainsString('enable_oauth', $html);
+
+        add_filter('wpmcp_oauth_enabled', '__return_true');
+        ob_start();
+        (new Connection_Page())->render();
+        $on = ob_get_clean();
+        remove_filter('wpmcp_oauth_enabled', '__return_true');
+
+        $this->assertStringContainsString('OAuth is on', $on);
+        $this->assertStringNotContainsString('OAuth is off', $on);
+    }
+
+    /**
+     * Issue #751: with OAuth off, the note on the Connection screen says
+     * what to do (the wp-config.php line, steps below) and never sends the
+     * reader to the Connection screen they are already on.
+     */
+    public function test_render_oauth_off_note_does_not_point_to_the_connection_screen_itself(): void
+    {
+        remove_all_filters('wpmcp_oauth_enabled');
+        set_current_screen('admin_page_' . Connection_Page::SLUG);
+
+        ob_start();
+        (new Connection_Page())->render();
+        $html = ob_get_clean();
+
+        $this->assertSame(1, preg_match('#<strong>OAuth is off\.</strong>(.*?)</p>#s', $html, $m), 'The OAuth-off note must render.');
+        $note = $m[1];
+
+        $this->assertStringNotContainsString('WP MCP, Connection', $note);
+        $this->assertStringNotContainsString('that screen', $note);
+        $this->assertStringContainsString(esc_html("define('WPMCP_OAUTH_ENABLED', true);"), $note);
+        $this->assertStringContainsString('wp-config.php', $note);
+        $this->assertStringContainsString(esc_html("That's all, stop editing!"), $note);
+        $this->assertStringContainsString('below', $note);
+    }
+
     /** Issue #416: each scoped identity is listed with the addresses it is pinned to. */
     public function test_render_lists_each_identity_with_its_allowed_addresses(): void
     {

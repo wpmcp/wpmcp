@@ -5,6 +5,7 @@ namespace WPMCP\Tests\Pro\WooCommerce;
 use WPMCP\Pro\Gate;
 use WPMCP\Tests\Free\Platform\RegisteredAbilities;
 use WPMCP\Tools\WooCommerce\Catalog\Op_Catalog;
+use WPMCP\Tools\WooCommerce\Catalog\Op_Guard;
 use WPMCP\Tools\WooCommerce\Catalog\Woo_Ops;
 use WPMCP\Tools\WooCommerce\Catalog\Woo_Read;
 
@@ -71,6 +72,11 @@ class WooCatalogTest extends \WP_UnitTestCase
         $this->assertNotEmpty($routes);
 
         foreach (Op_Catalog::ops() as $name => $def) {
+            // A row that needs another plugin (WooCommerce Subscriptions,
+            // issue #658) routes into it only while it is active.
+            if (! Op_Guard::plugin_available($def)) {
+                continue;
+            }
             $pattern = $def['route'];
             // Turn the catalog's {param} template into the regex-ish shape
             // WordPress registers, then match structurally on segment count
@@ -181,7 +187,8 @@ class WooCatalogTest extends \WP_UnitTestCase
 
         $this->assertArrayHasKey('domains', $out);
         $this->assertArrayHasKey('orders', $out['domains']);
-        $this->assertSame(count(Op_Catalog::ops()), $out['total']);
+        // Rows whose plugin is not active are left out (issue #658).
+        $this->assertSame(count(array_filter(Op_Catalog::ops(), [ Op_Guard::class, 'plugin_available' ])), $out['total']);
 
         $coupon_ops = array_filter(Op_Catalog::ops(), static fn ($def) => 'coupons' === $def['domain']);
         $filtered   = (new Woo_Ops())->handle(['domain' => 'coupons']);

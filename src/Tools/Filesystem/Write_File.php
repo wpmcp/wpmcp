@@ -10,8 +10,10 @@ if (! defined('ABSPATH')) {
  * Create or overwrite a file inside the WordPress install. Disabled by
  * default: sites must opt in via the wpmcp_enable_fs_writes filter. Requires
  * the edit_files capability and honors DISALLOW_FILE_EDIT. Refuses
- * wp-config.php/.htaccess. Backs up an existing file before overwriting it,
- * so the change is genuinely recoverable (see Filesystem_Guard::restore()).
+ * wp-config.php/.htaccess. Records the write as an undoable operation
+ * (File_Write_Operation): an existing file is backed up first, and
+ * rollback-operation with the returned operation_id writes it back, or
+ * removes the file when this call created it (issue #602).
  * A .php target is syntax-checked and site-checked first (Php_Edit_Guard).
  */
 class Write_File
@@ -24,7 +26,7 @@ class Write_File
     public function handle(array $args): array
     {
         if (! self::is_enabled()) {
-            throw new \RuntimeException('The write-file tool is disabled. Enable it with the wpmcp_enable_fs_writes filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('The write-file tool is disabled.', 'wpmcp_enable_fs_writes');
         }
 
         $gate = Filesystem_Guard::writes_allowed();
@@ -51,37 +53,39 @@ class Write_File
         $content = (string) ($args['content'] ?? '');
         $existed = is_file($abs);
 
-        $php_check = null;
-        if (Php_Edit_Guard::applies($abs)) {
-            $done      = Php_Edit_Guard::write($abs, $content, ! empty($args['unchecked']));
-            $backup    = $done['backup'];
-            $bytes     = $done['bytes'];
-            $php_check = $done['php_check'];
-        } else {
-            $backup = Filesystem_Guard::backup($abs);
-            if (is_wp_error($backup)) {
-                throw new \RuntimeException(esc_html($backup->get_error_message()));
+        $done = File_Write_Operation::run(
+            'write-file',
+            $abs,
+            $args,
+            static function (string $backup) use ($abs, $content, $args): array {
+                if (Php_Edit_Guard::applies($abs)) {
+                    $written = Php_Edit_Guard::write($abs, $content, ! empty($args['unchecked']), $backup);
+                    return ['bytes' => $written['bytes'], 'php_check' => $written['php_check']];
+                }
+                if (! wp_mkdir_p(dirname($abs))) {
+                    throw new \RuntimeException('Could not create the parent directory.');
+                }
+                $bytes = file_put_contents($abs, $content);
+                if (false === $bytes) {
+                    throw new \RuntimeException('Could not write the file (check permissions).');
+                }
+                return ['bytes' => $bytes, 'php_check' => null];
             }
-
-            if (! wp_mkdir_p(dirname($abs))) {
-                throw new \RuntimeException('Could not create the parent directory.');
-            }
-
-            $bytes = file_put_contents($abs, $content);
-            if (false === $bytes) {
-                throw new \RuntimeException('Could not write the file (check permissions).');
-            }
-        }
+        );
+        $php_check = $done['result']['php_check'];
 
         $rel = Filesystem_Guard::to_relative($abs);
         Filesystem_Guard::log($existed ? 'overwrite' : 'create', $rel);
 
         return [
-            'path'        => $rel,
-            'bytes'       => (int) $bytes,
-            'action'      => $existed ? 'overwritten' : 'created',
-            'backup'      => $backup ? Filesystem_Guard::to_relative($backup) : null,
-            'recoverable' => '' !== $backup,
+            'path'         => $rel,
+            'bytes'        => (int) $done['result']['bytes'],
+            'action'       => $existed ? 'overwritten' : 'created',
+            'operation_id' => $done['operation_id'],
+            'backup'       => '' !== $done['backup'] ? Filesystem_Guard::to_relative($done['backup']) : null,
+            // A create is undone by removing the file, an overwrite by
+            // writing the backup back: both through rollback-operation.
+            'recoverable'  => true,
         ] + (null === $php_check ? [] : ['php_check' => $php_check]);
     }
 }

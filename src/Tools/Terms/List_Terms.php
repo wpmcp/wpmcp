@@ -61,10 +61,14 @@ class List_Terms
 
         return [
             'taxonomy' => $taxonomy,
-            'terms'    => array_map(
+            // array_values(): for a hierarchical taxonomy WP_Term_Query
+            // skips the SQL LIMIT and slices the page with preserved keys,
+            // so page 2 and later start at the offset, and an array that is
+            // not a list encodes as a JSON object (issue #594).
+            'terms'    => array_values(array_map(
                 static fn(\WP_Term $term): array => Term_Support::shape($term),
                 is_array($terms) ? $terms : []
-            ),
+            )),
             'page'     => $page,
             'per_page' => $per_page,
             'total'    => is_wp_error($total) ? null : (int) $total,

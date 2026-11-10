@@ -11,9 +11,10 @@ if (! defined('ABSPATH')) {
 /**
  * Registers every OAuth 2.1 + Dynamic Client Registration endpoint (issue
  * #43), but ONLY when OAuth_Config::is_enabled() is true (default false).
- * When disabled, register() is a complete no-op: none of these endpoints
- * exist at all, so an existing install is unaffected and cannot even detect
- * the feature exists via route probing.
+ * When disabled, none of these endpoints serve OAuth: register() adds only
+ * the authorization address, answering with a page that says OAuth is off
+ * and how to switch it on (issues #581, #720), and no registration, token
+ * or discovery endpoint exists.
  *
  * Two delivery mechanisms, because register_rest_route() refuses an empty
  * namespace (WordPress requires every REST route be namespaced, logging an
@@ -70,6 +71,18 @@ class Endpoints
     public function register(): void
     {
         if (! OAuth_Config::is_enabled()) {
+            // One exception to "nothing exists while OAuth is off" (issues
+            // #581 and #720): a client that remembered this site's
+            // authorization address still opens it in the browser, and a
+            // bare rest_no_route page left the person with no next step.
+            // The address now says OAuth is off and how to switch it on.
+            // It serves no OAuth at all: no client registration, no code,
+            // no token, and the discovery documents stay absent.
+            register_rest_route(self::NAMESPACE, '/oauth/authorize', [
+                'methods'             => [ 'GET', 'POST' ],
+                'permission_callback' => '__return_true',
+                'callback'            => [$this, 'oauth_off'],
+            ]);
             return;
         }
 
@@ -294,6 +307,63 @@ class Endpoints
         $response->header('Location', \WPMCP\Admin\OAuth_Consent_Page::url($request->get_query_params()));
 
         return $response;
+    }
+
+    /**
+     * The authorization address while OAuth is off (issues #581, #720): a
+     * 404, since there is no sign-in service here, that says why and how to
+     * switch it on, in the Connection screen's words. A browser gets it as
+     * a small HTML page; a client asking for JSON gets an OAuth-style error
+     * body with the same text.
+     */
+    public function oauth_off(\WP_REST_Request $request): \WP_REST_Response
+    {
+        $message  = self::oauth_off_message();
+        $response = new \WP_REST_Response(
+            [
+                'error'             => 'oauth_disabled',
+                'error_description' => $message,
+            ],
+            404
+        );
+
+        if ('GET' === $request->get_method() && ! wp_is_json_request()) {
+            $page = self::oauth_off_page($message);
+            $response->header('Content-Type', 'text/html; charset=' . get_option('blog_charset'));
+            add_filter(
+                'rest_pre_serve_request',
+                static function ($served) use ($page) {
+                    if ($served) {
+                        return $served;
+                    }
+                    echo $page; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from escaped parts in oauth_off_page().
+                    return true;
+                }
+            );
+        }
+
+        return $response;
+    }
+
+    /** What the authorization address says while OAuth is off. */
+    public static function oauth_off_message(): string
+    {
+        return __('OAuth is off for this site (the default), so WP MCP has no sign-in service here and a custom connector cannot connect.', 'wpmcp')
+            . ' ' . \WPMCP\Connect\Client_Config_Generator::oauth_switch_on();
+    }
+
+    /** The HTML page a browser sees at the authorization address while OAuth is off. */
+    public static function oauth_off_page(string $message): string
+    {
+        $title = __('OAuth is off', 'wpmcp');
+
+        return '<!doctype html><html><head><meta charset="' . esc_attr(get_option('blog_charset')) . '">'
+            . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<title>' . esc_html($title) . '</title></head>'
+            . '<body style="font-family: sans-serif; max-width: 40em; margin: 3em auto; padding: 0 1em; line-height: 1.5;">'
+            . '<h1>' . esc_html($title) . '</h1>'
+            . '<p>' . esc_html($message) . '</p>'
+            . '</body></html>';
     }
 
     public function token(\WP_REST_Request $request): \WP_REST_Response
