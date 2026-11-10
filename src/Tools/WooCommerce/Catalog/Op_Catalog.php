@@ -76,6 +76,10 @@ if (! defined('ABSPATH')) {
  *    records the creation row once the booking exists, and rollback deletes
  *    it; ['type' => 'wc_booking_rules', 'param' => P]: a bookable product's
  *    own availability rules (Safety\Wc_Booking_Snapshot);
+ *  - ['type' => 'wc_user_membership', 'param' => P]: one user membership's
+ *    post fields and meta; ['type' => 'wc_user_membership_create', 'create'
+ *    => true]: Membership_Ops records the creation row once the membership
+ *    exists, and rollback deletes it (Safety\Wc_User_Membership_Snapshot);
  *  - ['type' => 'wc_webhook', 'param' => P]: the raw webhook row, secret
  *    included but never shown (Safety\Wc_Webhook_Snapshot);
  *  - ['type' => 'wc_gateway', 'param' => P]: the one option a gateway write
@@ -123,6 +127,9 @@ class Op_Catalog
     /** The plugin the bookings.* rows need (issue #659), an Op_Guard::PLUGINS key. */
     private const PLUGIN_BOOKINGS = 'woocommerce-bookings';
 
+    /** The plugin the memberships.* rows need (PR #573), an Op_Guard::PLUGINS key. */
+    private const PLUGIN_MEMBERSHIPS = 'woocommerce-memberships';
+
     /** WooCommerce's native brands taxonomy (issue #293). */
     private const BRAND_TAXONOMY = 'product_brand';
 
@@ -141,7 +148,7 @@ class Op_Catalog
      * left out of woo-ops and refused unless that plugin is active) and
      * 'handler' (the op runs in-process, through Brand_Ops or, for an
      * order_*, shipping_*, webhook_*, review_*, report_*, gateway_*,
-     * status_*, subscription_* or booking_* handler, the matching *_Ops class,
+     * status_*, subscription_*, booking_* or membership_* handler, the matching *_Ops class,
      * instead of dispatching its route; status_run_tool only validates, and
      * its route is dispatched).
      * Keep op names domain.kebab-case and route templates rooted at /wc/v3.
@@ -341,6 +348,22 @@ class Op_Catalog
         'bookings.cancel'                   => [ 'PUT', '/wc-bookings/v1/bookings/{id}', 'bookings', self::CAP_STORE, 'Cancel a booking through Bookings: the customer is emailed, a calendar sync removes the event and an order holding only this booking is cancelled, so it is not recoverable (rollback restores the booking and the order status)', 'destructive', [ 'type' => 'wc_booking', 'param' => 'id' ], [ 'handler' => 'booking_cancel', 'plugin' => self::PLUGIN_BOOKINGS, 'recoverable' => false ] ],
         'bookings.set-availability-rules'   => [ 'PUT', '/wc-bookings/v1/products/{product_id}', 'bookings', self::CAP_STORE, 'Replace a bookable product\'s own availability rules: rules, a list of {type (custom, months, weeks, days, time, time:1-7, time:range, custom:daterange), bookable yes|no, priority, from, to, from_date, to_date}; [] clears them', 'write', [ 'type' => 'wc_booking_rules', 'param' => 'product_id' ], [ 'handler' => 'booking_rules', 'plugin' => self::PLUGIN_BOOKINGS ] ],
 
+        // WooCommerce Memberships (PR #573), in-process through
+        // Membership_Ops. Every row needs the plugin: without it the rows are
+        // left out of woo-ops and a call is refused with plugin_missing or
+        // plugin_inactive. Dates are UTC. Writes go through the plugin; each
+        // is snapshotted. grant and resume can email, so they need
+        // confirm:true; cancel is destructive (off by default) and not
+        // recoverable.
+        'memberships.plans'                 => [ 'GET', '/wc/v3/memberships/plans', 'memberships', self::CAP_STORE, 'Membership plans: access method, length and dates, product ids, member counts by status and access rules (content, product, discount); page, per_page', 'read', null, [ 'handler' => 'membership_plans', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],
+        'memberships.members'               => [ 'GET', '/wc/v3/memberships/members', 'memberships', self::CAP_CUSTOMERS, 'User memberships newest first, filterable by plan_id and status (or a list); page, per_page (max 50). Each: status, plan, user and email, start, end, paused and cancelled dates (UTC), order', 'read', null, [ 'handler' => 'membership_members', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],
+        'memberships.user'                  => [ 'GET', '/wc/v3/memberships/members', 'memberships', self::CAP_CUSTOMERS, 'Every membership one user_id holds, any status', 'read', null, [ 'handler' => 'membership_user', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],
+        'memberships.grant'                 => [ 'POST', '/wc/v3/memberships/members', 'memberships', self::CAP_STORE, 'Grant plan_id to user_id through Memberships (refused when they already hold that plan). May email, so needs confirm:true. Rollback deletes it', 'write', [ 'type' => 'wc_user_membership_create', 'create' => true ], [ 'handler' => 'membership_grant', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],
+        'memberships.pause'                 => [ 'PUT', '/wc/v3/memberships/members/{id}', 'memberships', self::CAP_STORE, 'Pause an active, complimentary or free_trial membership: access stops until resumed', 'write', [ 'type' => 'wc_user_membership', 'param' => 'id' ], [ 'handler' => 'membership_pause', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],
+        'memberships.resume'                => [ 'PUT', '/wc/v3/memberships/members/{id}', 'memberships', self::CAP_STORE, 'Reactivate a paused membership. May email, so needs confirm:true', 'write', [ 'type' => 'wc_user_membership', 'param' => 'id' ], [ 'handler' => 'membership_resume', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],
+        'memberships.extend'                => [ 'PUT', '/wc/v3/memberships/members/{id}', 'memberships', self::CAP_STORE, 'Move a membership\'s end_date later ("YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS" UTC, null for no end); expiry and reminders are rescheduled', 'write', [ 'type' => 'wc_user_membership', 'param' => 'id' ], [ 'handler' => 'membership_extend', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],
+        'memberships.cancel'                => [ 'PUT', '/wc/v3/memberships/members/{id}', 'memberships', self::CAP_STORE, 'Cancel a membership through Memberships: access ends now, the member may be emailed and a tied subscription may react, so it is not recoverable (rollback restores the membership)', 'destructive', [ 'type' => 'wc_user_membership', 'param' => 'id' ], [ 'handler' => 'membership_cancel', 'plugin' => self::PLUGIN_MEMBERSHIPS, 'recoverable' => false ] ],
+
         // Settings.
         'settings.groups'     => [ 'GET', '/wc/v3/settings', 'settings', self::CAP_STORE, 'Store settings groups (general, products, tax, shipping, ...)' ],
         'settings.options'    => [ 'GET', '/wc/v3/settings/{group_id}', 'settings', self::CAP_STORE, 'All options in one settings group with current values' ],
@@ -434,6 +457,15 @@ class Op_Catalog
             'customer_id' => [ 'type' => 'user', 'access' => 'read' ],
         ],
         'bookings.set-availability-rules'   => [ 'product_id' => 'post' ],
+        // A membership's plan is a post and its member a user (PR #573).
+        // The user membership itself is gated by the op's capability, as a
+        // booking is: its post type carries Memberships' own capabilities.
+        'memberships.members'               => [ 'plan_id' => [ 'type' => 'post', 'access' => 'read' ] ],
+        'memberships.user'                  => [ 'user_id' => [ 'type' => 'user', 'access' => 'read' ] ],
+        'memberships.grant'                 => [
+            'plan_id' => [ 'type' => 'post', 'access' => 'read' ],
+            'user_id' => [ 'type' => 'user', 'access' => 'read' ],
+        ],
     ];
 
     /**
