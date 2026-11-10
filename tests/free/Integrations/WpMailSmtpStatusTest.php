@@ -414,6 +414,8 @@ class WpMailSmtpStatusTest extends \WP_UnitTestCase
             return;
         }
 
+        // A plugin in the shared install still hooks the deprecated blog creation action.
+        $this->setExpectedDeprecated('wpmu_new_blog');
         grant_super_admin($this->admin);
         switch_to_blog(self::factory()->blog->create());
         try {

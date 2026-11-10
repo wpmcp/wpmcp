@@ -135,7 +135,7 @@ final class WP_Mail_SMTP_Status
             'from_name_forced'  => (bool) $options->get('mail', 'from_name_force'),
             'return_path'       => (bool) $options->get('mail', 'return_path'),
             'do_not_send'       => (bool) $options->get('general', 'do_not_send'),
-            'pro'               => self::is_pro(),
+            'pro'               => null !== self::pro_edition(),
             'constants'         => $constants,
             'mailer_settings'   => in_array($mailer, self::mailers(), true) ? self::mask((array) $options->get_group($mailer)) : [],
         ];
@@ -157,17 +157,14 @@ final class WP_Mail_SMTP_Status
     private static function log(int $limit): array
     {
         $limit = max(1, min(100, $limit));
-        $logs  = null;
-        if (self::is_pro()) {
-            $pro  = self::container()->get_pro();
-            $logs = is_object($pro) && method_exists($pro, 'get_logs') ? $pro->get_logs() : null;
-        }
+        $pro   = self::pro_edition();
+        $logs  = null !== $pro && method_exists($pro, 'get_logs') ? $pro->get_logs() : null;
         $enabled = is_object($logs) && method_exists($logs, 'is_enabled') && (bool) $logs->is_enabled();
 
         if (! $enabled || ! class_exists(self::EMAILS_CLASS)) {
             return [
                 'logging_enabled' => false,
-                'pro'             => self::is_pro(),
+                'pro'             => null !== $pro,
                 'emails'          => [],
                 'hint'            => 'The email log needs WP Mail SMTP Pro with logging turned on in its Email Log settings.',
             ];
@@ -208,9 +205,9 @@ final class WP_Mail_SMTP_Status
             $report['test'] = [ 'status' => 'confirmation_required', 'recipient' => strtolower(trim($recipient)), 'message' => $e->getMessage() ];
             return $report;
         } catch (\InvalidArgumentException $e) {
-            throw new Operation_Refused('mail_test_recipient_refused', $e->getMessage());
+            throw new Operation_Refused('mail_test_recipient_refused', esc_html($e->getMessage()));
         } catch (\RuntimeException $e) {
-            throw new Operation_Refused('mail_test_refused', $e->getMessage());
+            throw new Operation_Refused('mail_test_refused', esc_html($e->getMessage()));
         }
     }
 
@@ -274,10 +271,12 @@ final class WP_Mail_SMTP_Status
         return is_object($container) ? $container : new \stdClass();
     }
 
-    private static function is_pro(): bool
+    /** WP Mail SMTP's own Pro code (its email log lives there), or null on the free edition. */
+    private static function pro_edition(): ?object
     {
         $container = self::container();
-        return method_exists($container, 'is_pro') && (bool) $container->is_pro();
+        $pro       = method_exists($container, 'get_pro') ? $container->get_pro() : null;
+        return is_object($pro) ? $pro : null;
     }
 
     /** @return string[] */

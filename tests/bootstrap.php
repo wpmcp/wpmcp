@@ -267,6 +267,13 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'tablepress/tablepress.php' );
     }
 
+    // The live WP Mail SMTP job (WPMCP_LIVE_WP_MAIL_SMTP=1) runs the WP Mail
+    // SMTP ops through the real plugin. Loaded only on request: the
+    // stub-backed WP Mail SMTP tests define a stand-in for its Options class.
+    if ( getenv( 'WPMCP_LIVE_WP_MAIL_SMTP' ) ) {
+        wpmcp_maybe_require_plugin( 'wp-mail-smtp/wp_mail_smtp.php' );
+    }
+
     // The live Polylang job (issue #498, WPMCP_LIVE_POLYLANG=1) runs the
     // page translation ops through the real Polylang, which the shared suite
     // loads but never boots: with no language defined and no wp-admin

@@ -22,7 +22,9 @@
 # plugin but that theme's premium add-on copied from a local directory and
 # the free theme from wordpress.org (bin/test-local.sh --live-theme-pro), or,
 # with WPMCP_LIVE_WC_BOOKINGS=1, WooCommerce plus a local copy of WooCommerce
-# Bookings (WPMCP_WC_BOOKINGS_SRC) only (bin/test-local.sh --live-wc-bookings).
+# Bookings (WPMCP_WC_BOOKINGS_SRC) only (bin/test-local.sh --live-wc-bookings),
+# or, with WPMCP_LIVE_WP_MAIL_SMTP=1, WP Mail SMTP only (bin/test-local.sh
+# --live-wp-mail-smtp).
 # The script is idempotent: plugins already present are left untouched, so it
 # is safe to run repeatedly both locally and from CI.
 #
@@ -132,6 +134,16 @@ fi
 if [ "${WPMCP_LIVE_TABLEPRESS:-}" = "1" ]; then
 	PLUGINS=(
 		"tablepress:tablepress.php"
+	)
+fi
+
+# The live WP Mail SMTP job runs the WP Mail SMTP ops on the theme pair
+# through the real plugin, its Options class, encryption and constants.
+# Exclusive too: the stub-backed WP Mail SMTP tests define a stand-in for its
+# Options class and its wp_mail_smtp() container.
+if [ "${WPMCP_LIVE_WP_MAIL_SMTP:-}" = "1" ]; then
+	PLUGINS=(
+		"wp-mail-smtp:wp_mail_smtp.php"
 	)
 fi
 
