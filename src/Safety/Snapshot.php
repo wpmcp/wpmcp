@@ -37,6 +37,12 @@ class Snapshot
         if ('wc_subscription' === $object_type) {
             return Wc_Subscription_Snapshot::capture((int) $object_id);
         }
+        if ('wc_booking' === $object_type) {
+            return Wc_Booking_Snapshot::capture((int) $object_id);
+        }
+        if ('wc_booking_rules' === $object_type) {
+            return Wc_Booking_Snapshot::capture_rules((int) $object_id);
+        }
         if ('wc_shipping_zone' === $object_type) {
             return Wc_Shipping_Zone_Snapshot::capture((int) $object_id);
         }

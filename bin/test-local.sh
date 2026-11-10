@@ -89,7 +89,11 @@
 #      (commercial, so not downloadable here), beside its free theme from
 #      wordpress.org made the active one: layouts written through the theme
 #      ops are read back through the add-on's own code, and roll back.
-#  22. Under --all (or --live-adapter alone), runs the adapter leg (issue
+#  22. Runs the live WooCommerce Bookings group (issue #659) when
+#      WPMCP_WC_BOOKINGS_SRC names a local copy of the plugin (commercial, so
+#      not downloadable here): the bookings ops through the real plugin
+#      beside WooCommerce, every write rolled back.
+#  23. Under --all (or --live-adapter alone), runs the adapter leg (issue
 #      #501): the free and pro suites on the latest MCP Adapter plugin
 #      released on WordPress.org, loaded next to the bundled copy the way a
 #      site that installs the plugin runs us, with the version it tested in
@@ -133,6 +137,7 @@
 #   bin/test-local.sh --live-wc-subscriptions only the live WooCommerce Subscriptions group (needs WPMCP_WC_SUBSCRIPTIONS_SRC)
 #   bin/test-local.sh --live-theme-pro only the live theme add-on group (needs at least one of
 #                                     WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC, WPMCP_GP_PREMIUM_SRC)
+#   bin/test-local.sh --live-wc-bookings only the live WooCommerce Bookings group (needs WPMCP_WC_BOOKINGS_SRC)
 #   bin/test-local.sh --live-adapter  only the adapter leg (both suites on the released MCP Adapter plugin)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments, default WordPress only; skips lint,
 #                                     drift, coverage, the floor leg and the live groups
@@ -176,6 +181,9 @@
 #                        for the live Subscriptions group; without it that group
 #                        is not run, except under --live-wc-subscriptions, where
 #                        it is an error
+#   WPMCP_WC_BOOKINGS_SRC a local WooCommerce Bookings plugin directory for the
+#                        live Bookings group; without it that group is not run,
+#                        except under --live-wc-bookings, where it is an error
 #   WPMCP_ADAPTER_VERSION the MCP Adapter release the adapter leg tests (default:
 #                        the latest on WordPress.org, asked for on every run)
 #   ELEMENTOR_VERSION    passed to bin/install-test-plugins.sh ('latest' tests
@@ -227,6 +235,7 @@ only_live_divi=false
 only_live_memberpress=false
 only_live_amelia=false
 only_live_wc_subscriptions=false
+only_live_wc_bookings=false
 only_live_adapter=false
 only_live_theme_pro=false
 only_multisite=false
@@ -255,6 +264,7 @@ while [ $# -gt 0 ]; do
 		--live-memberpress) only_live_memberpress=true ;;
 		--live-amelia) only_live_amelia=true ;;
 		--live-wc-subscriptions) only_live_wc_subscriptions=true ;;
+		--live-wc-bookings) only_live_wc_bookings=true ;;
 		--live-adapter) only_live_adapter=true ;;
 		--live-theme-pro) only_live_theme_pro=true ;;
 		--multisite) only_multisite=true ;;
@@ -304,7 +314,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -322,6 +332,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_amelia" = false ] || LEGS+=("live-amelia ${only_wp:-$default_wp}")
 	[ "$only_live_wc_subscriptions" = false ] || LEGS+=("live-wc-subscriptions ${only_wp:-$default_wp}")
 	[ "$only_live_theme_pro" = false ] || LEGS+=("live-theme-pro ${only_wp:-$default_wp}")
+	[ "$only_live_wc_bookings" = false ] || LEGS+=("live-wc-bookings ${only_wp:-$default_wp}")
 	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
 elif [ "$only_multisite" = true ]; then
 	LEGS+=("multisite ${only_wp:-$default_wp} none")
@@ -377,6 +388,9 @@ else
 		fi
 		if [ -n "${WPMCP_ASTRA_PRO_SRC:-}${WPMCP_KADENCE_PRO_SRC:-}${WPMCP_GP_PREMIUM_SRC:-}" ]; then
 			LEGS+=("live-theme-pro $default_wp")
+		fi
+		if [ -n "${WPMCP_WC_BOOKINGS_SRC:-}" ]; then
+			LEGS+=("live-wc-bookings $default_wp")
 		fi
 		# The adapter leg (issue #501) under --all only; see the header.
 		if [ "$run_all" = true ]; then
@@ -520,6 +534,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_WC_SUBSCRIPTIONS:-}" = 1 ] && flavor="-wc-subscriptions-live"
 	# And WPMCP_LIVE_THEME_PRO=<family>, that theme and its local add-on copy.
 	[ -n "${WPMCP_LIVE_THEME_PRO:-}" ] && flavor="-${WPMCP_LIVE_THEME_PRO}-pro-live"
+	# And WPMCP_LIVE_WC_BOOKINGS=1, WooCommerce and the local Bookings copy.
+	[ "${WPMCP_LIVE_WC_BOOKINGS:-}" = 1 ] && flavor="-wc-bookings-live"
 	echo "$flavor"
 }
 
@@ -1064,6 +1080,24 @@ run_live_wc_subscriptions() {
 	unset WPMCP_LIVE_WC_SUBSCRIPTIONS
 }
 
+# The live WooCommerce Bookings group (issue #659), the same way, with the
+# plugin copied from WPMCP_WC_BOOKINGS_SRC beside WooCommerce: its own
+# install, its own database and --fail-on-skipped.
+run_live_wc_bookings() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_WC_BOOKINGS_SRC:-}/woocommerce-bookings.php" ] || die "the live WooCommerce Bookings group needs WPMCP_WC_BOOKINGS_SRC, a directory holding the WooCommerce Bookings plugin"
+	export WPMCP_LIVE_WC_BOOKINGS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-wc-bookings-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live WooCommerce Bookings group on WordPress $version (real Bookings from $WPMCP_WC_BOOKINGS_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group wc-bookings-live --fail-on-skipped
+	unset WPMCP_LIVE_WC_BOOKINGS
+}
+
 # ---------------------------------------------------------------- MCP Adapter
 
 # Prints the MCP Adapter release the adapter leg tests: WPMCP_ADAPTER_VERSION,
@@ -1214,6 +1248,7 @@ run_leg_body() {
 		live-amelia) run_live_amelia "$wp" ;;
 		live-wc-subscriptions) run_live_wc_subscriptions "$wp" ;;
 		live-theme-pro) run_live_theme_pro "$wp" ;;
+		live-wc-bookings) run_live_wc_bookings "$wp" ;;
 		live-adapter) run_live_adapter "$wp" ;;
 		*) die "unknown leg: $kind" ;;
 	esac

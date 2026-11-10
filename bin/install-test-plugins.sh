@@ -20,9 +20,11 @@
 # plugin and the Divi 5 theme copied from WPMCP_DIVI_SRC (bin/test-local.sh
 # --live-divi), or, with WPMCP_LIVE_THEME_PRO=astra|kadence|generatepress, no
 # plugin but that theme's premium add-on copied from a local directory and
-# the free theme from wordpress.org (bin/test-local.sh --live-theme-pro). The script
-# is idempotent: plugins already present are left untouched, so it is safe to
-# run repeatedly both locally and from CI.
+# the free theme from wordpress.org (bin/test-local.sh --live-theme-pro), or,
+# with WPMCP_LIVE_WC_BOOKINGS=1, WooCommerce plus a local copy of WooCommerce
+# Bookings (WPMCP_WC_BOOKINGS_SRC) only (bin/test-local.sh --live-wc-bookings).
+# The script is idempotent: plugins already present are left untouched, so it
+# is safe to run repeatedly both locally and from CI.
 #
 # WPMCP_PLUGIN_VERSIONS="slug=version ..." asks for exact versions instead
 # (issue #532): bin/test-local.sh resolves the latest stable release of every
@@ -312,6 +314,28 @@ if [ "${WPMCP_LIVE_WC_SUBSCRIPTIONS:-}" = "1" ]; then
 		rm -rf "$PLUGINS_DIR/woocommerce-subscriptions"
 		cp -R "$src" "$PLUGINS_DIR/woocommerce-subscriptions"
 		echo "Copied WooCommerce Subscriptions $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/woocommerce-subscriptions.php" | head -n 1) from $src."
+	fi
+fi
+
+# The live WooCommerce Bookings job (issue #659) runs the bookings ops
+# through the real plugin beside WooCommerce. Bookings is a commercial
+# plugin and not on wordpress.org, so it is copied from a local directory
+# holding it (WPMCP_WC_BOOKINGS_SRC) instead of downloaded. Exclusive too:
+# the stub-backed booking tests stand in for its API.
+if [ "${WPMCP_LIVE_WC_BOOKINGS:-}" = "1" ]; then
+	PLUGINS=(
+		"woocommerce:woocommerce.php"
+	)
+	if [ "$list_only" = false ]; then
+		src=${WPMCP_WC_BOOKINGS_SRC:-}
+		if [ -z "$src" ] || [ ! -f "$src/woocommerce-bookings.php" ]; then
+			echo "WPMCP_LIVE_WC_BOOKINGS=1 needs WPMCP_WC_BOOKINGS_SRC, a directory holding the WooCommerce Bookings plugin (woocommerce-bookings.php)." >&2
+			exit 1
+		fi
+		mkdir -p "$PLUGINS_DIR"
+		rm -rf "$PLUGINS_DIR/woocommerce-bookings"
+		cp -R "$src" "$PLUGINS_DIR/woocommerce-bookings"
+		echo "Copied WooCommerce Bookings $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/woocommerce-bookings.php" | head -n 1) from $src."
 	fi
 fi
 
