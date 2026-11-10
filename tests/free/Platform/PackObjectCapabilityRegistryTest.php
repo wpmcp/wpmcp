@@ -36,6 +36,14 @@ class PackObjectCapabilityRegistryTest extends \WP_UnitTestCase
      */
     private const NOT_WP_OBJECTS = [
         'gravitytables:get-table:table_id'                     => 'a Gravity Tables table row',
+        'plugin-data:elementor-get-submission:id' => 'an Elementor Pro submission row, behind manage_options (Elementor Pro\'s own submissions capability)',
+        'plugin-data:elementor-export-submissions:ids' => 'an Elementor Pro submission row, behind manage_options (Elementor Pro\'s own submissions capability)',
+        'plugin-data:elementor-update-submission-status:id' => 'an Elementor Pro submission row, behind manage_options (Elementor Pro\'s own submissions capability)',
+        'plugin-data:elementor-delete-submission:id' => 'an Elementor Pro submission row, behind manage_options (Elementor Pro\'s own submissions capability)',
+        'plugin-data:code-snippets-get-snippet:id' => 'a Code Snippets snippet row in its own table, behind manage_options (Code Snippets\' own capability)',
+        'plugin-data:code-snippets-update-snippet:id' => 'a Code Snippets snippet row in its own table, behind manage_options (Code Snippets\' own capability)',
+        'plugin-data:code-snippets-activate-snippet:id' => 'a Code Snippets snippet row in its own table, behind manage_options (Code Snippets\' own capability)',
+        'plugin-data:code-snippets-deactivate-snippet:id' => 'a Code Snippets snippet row in its own table, behind manage_options (Code Snippets\' own capability)',
         'plugin-data:tablepress-get-table:table_id' => 'a TablePress table id, behind TablePress\'s own table capabilities',
         'plugin-data:tablepress-export-table:table_id' => 'a TablePress table id, behind TablePress\'s own table capabilities',
         'plugin-data:tablepress-render-table:table_id' => 'a TablePress table id, behind TablePress\'s own table capabilities',

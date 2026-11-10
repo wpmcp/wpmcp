@@ -441,8 +441,9 @@ class Rollback_Service
         // the order writes themselves require (issue #292). A subscription
         // snapshot is a whole order too (issue #658). A booking snapshot
         // holds a customer's booking and its order's status, and a booking
-        // rules snapshot is store configuration (issue #659).
-        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE, Wc_Subscription_Snapshot::TYPE, Wc_Booking_Snapshot::TYPE, Wc_Booking_Snapshot::CREATE_TYPE, Wc_Booking_Snapshot::RULES_TYPE ], true)) {
+        // rules snapshot is store configuration (issue #659). A user
+        // membership snapshot holds a customer's plan access (PR #573).
+        if (in_array($type, [ Wc_Order_Snapshot::TYPE, Wc_Order_Snapshot::CREATE_TYPE, Wc_Subscription_Snapshot::TYPE, Wc_Booking_Snapshot::TYPE, Wc_Booking_Snapshot::CREATE_TYPE, Wc_Booking_Snapshot::RULES_TYPE, Wc_User_Membership_Snapshot::TYPE, Wc_User_Membership_Snapshot::CREATE_TYPE ], true)) {
             return [ [ 'manage_woocommerce' ] ];
         }
         // Shipping zone and webhook snapshots are store configuration, and a
@@ -463,6 +464,11 @@ class Rollback_Service
         // profile field definitions, and every BuddyPress write takes
         // manage_options, so restoring one takes it too (issue #354).
         if ('buddypress_rows' === $type) {
+            return [ [ 'manage_options' ] ];
+        }
+        // A Code Snippets row is PHP source, and every Code Snippets write
+        // takes manage_options, so restoring one takes it too.
+        if (Code_Snippet_Snapshot::TYPE === $type) {
             return [ [ 'manage_options' ] ];
         }
         // FluentCRM and MailPoet rows are contacts' personal data and their
@@ -1124,6 +1130,10 @@ class Rollback_Service
         if (Wc_Booking_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
             return Wc_Booking_Snapshot::TYPE . ':' . $snapshot['object_id'];
         }
+        // And for a membership memberships.grant made (PR #573).
+        if (Wc_User_Membership_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
+            return Wc_User_Membership_Snapshot::TYPE . ':' . $snapshot['object_id'];
+        }
         // And for a FunnelKit funnel a theme-write op created (issue #500).
         if (FunnelKit_Funnel_Snapshot::CREATE_TYPE === $snapshot['object_type']) {
             return FunnelKit_Funnel_Snapshot::TYPE . ':' . $snapshot['object_id'];
@@ -1752,6 +1762,8 @@ class Rollback_Service
             'wc_booking',
             'wc_booking_create',
             'wc_booking_rules',
+            'wc_user_membership',
+            'wc_user_membership_create',
             'wc_shipping_zone',
             'wc_shipping_zone_create',
             'wc_webhook',
@@ -1772,6 +1784,7 @@ class Rollback_Service
             'wc_tax_rate',
             'wc_tax_rate_create',
             'php_snippet',
+            'code_snippet',
             'page_build',
             'media_import',
             'wc_product_create',
@@ -1943,6 +1956,17 @@ class Rollback_Service
             return;
         }
 
+        // Wc_User_Membership_Snapshot::TYPE and ::CREATE_TYPE (PR #573),
+        // literals for the restorable-types parity test.
+        if ('wc_user_membership' === $snapshot['object_type']) {
+            self::warn_if(Wc_User_Membership_Snapshot::restore($snapshot));
+            return;
+        }
+        if ('wc_user_membership_create' === $snapshot['object_type']) {
+            self::warn_if(Wc_User_Membership_Snapshot::undo_creation($snapshot));
+            return;
+        }
+
         if ('wc_order_create' === $snapshot['object_type']) {
             $warning = Wc_Order_Snapshot::undo_creation($snapshot);
             if (null !== $warning) {
@@ -2062,6 +2086,12 @@ class Rollback_Service
 
         if ('php_snippet' === $snapshot['object_type']) {
             self::apply_php_snippet_snapshot($snapshot);
+            return;
+        }
+
+        // Code_Snippet_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('code_snippet' === $snapshot['object_type']) {
+            self::warn_if(Code_Snippet_Snapshot::restore($snapshot));
             return;
         }
 

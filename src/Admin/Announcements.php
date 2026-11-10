@@ -189,6 +189,13 @@ class Announcements
     /**
      * Whether the current admin screen is one of wpmcp's own. Announcements
      * never appear anywhere else in wp-admin.
+     *
+     * Core builds a submenu's screen id from the parent's SANITIZED MENU
+     * TITLE, not its slug (add_menu_page writes $admin_page_hooks[$slug] =
+     * sanitize_title($menu_title)). Our title carries the pending-proposals
+     * badge, so with proposals waiting the prefix becomes "wpmcp-3_page_".
+     * The real hook is read back from that global alongside the plain prefix,
+     * the same way Pro_Banner::screen_allowed() does.
      */
     private function is_wpmcp_screen(): bool
     {
@@ -199,8 +206,14 @@ class Announcements
         if (null === $screen) {
             return false;
         }
+        if ('toplevel_page_wpmcp' === $screen->id) {
+            return true;
+        }
 
-        return 'toplevel_page_wpmcp' === $screen->id || 0 === strpos($screen->id, 'wpmcp_page_');
+        $hook = $GLOBALS['admin_page_hooks']['wpmcp'] ?? '';
+        $real = is_string($hook) && '' !== $hook ? $hook . '_page_' : 'wpmcp_page_';
+
+        return 0 === strpos($screen->id, 'wpmcp_page_') || 0 === strpos($screen->id, $real);
     }
 
     /**

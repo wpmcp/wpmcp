@@ -21,9 +21,14 @@ if (! defined('ABSPATH')) {
  *  - BuddyPress (issue #354): groups, group members, activity and extended
  *    profile field definitions, with group writes, profile field updates
  *    and activity moderation (BuddyPress_Pack).
- *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS and
- *    LifterLMS course, section, lesson and quiz trees with snapshotted
- *    writes, and read-only enrollments.
+ *  - Code Snippets (issue #576): PHP snippets listed, read, created
+ *    inactive and edited behind the static check, and deactivated, with
+ *    'code_snippet' row snapshots (Code_Snippets_Pack, presence through
+ *    wpmcp_code_snippets_active).
+ *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS,
+ *    LifterLMS and LearnDash course, section, lesson and quiz trees with
+ *    snapshotted writes, and read-only enrollments (LearnDash also enrolls,
+ *    unenrolls and resets progress, each snapshotted).
  *  - Issue #481 adds the paid-tier TablePress ops (TablePress_Pack): tables
  *    read, edited cell by cell, imported, exported and placed through
  *    TablePress's own table model, with snapshotted writes.
@@ -39,6 +44,10 @@ if (! defined('ABSPATH')) {
  *  - Issue #668 adds the paid-tier MemberPress ops (MemberPress_Pack):
  *    memberships, rules and their access conditions, read and written as
  *    MemberPress stores them, plus read-only members and transactions.
+ *  - Issue #654 adds the paid-tier Elementor Pro ops
+ *    (Elementor_Pro_Forms_Pack): forms found in pages, and form submissions
+ *    read, exported, marked read or trashed, and deleted, each write under
+ *    a db_rows before-image.
  *
  * The pair registers only while at least one of them is loaded (the LMS
  * and TablePress ops only on an install that may run the paid tier), and
@@ -64,13 +73,14 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || BuddyPress_Pack::active()
+        return JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || TablePress_Pack::active()
             || CRM_Pack::active()
             || Amelia_Pack::active()
             || I18n_Pack::active()
-            || MemberPress_Pack::active();
+            || MemberPress_Pack::active()
+            || Elementor_Pro_Forms_Pack::active();
     }
 
     public function registers_only_when_available(): bool
@@ -80,8 +90,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, BuddyPress community data'
-            . ', Tutor LMS and LifterLMS courses, TablePress tables'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data'
+            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', FluentCRM and MailPoet';
     }
 
@@ -91,13 +101,15 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             JetEngine_Pack::operations(),
             Pods_Pack::operations(),
             TranslatePress_Pack::operations(),
+            Code_Snippets_Pack::operations(),
             BuddyPress_Pack::operations(),
             LMS_Pack::operations(),
             TablePress_Pack::operations(),
             CRM_Pack::operations(),
             Amelia_Pack::operations(),
             I18n_Pack::operations(),
-            MemberPress_Pack::operations()
+            MemberPress_Pack::operations(),
+            Elementor_Pro_Forms_Pack::operations()
         );
     }
 
