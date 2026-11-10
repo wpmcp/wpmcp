@@ -91,10 +91,18 @@ class Pro_Banner
      * percent to 1..99, the URL through esc_url_raw with the pricing page as
      * the fallback.
      *
+     * $medium is the utm_medium the link carries: 'admin-banner' for the
+     * notice, 'tool-refusal' when a Pro-only tool call is turned down (see
+     * MCP\Pro_Refusal), so the pricing page can tell the two triggers apart.
+     *
      * @return array{coupon: string, percent: int, url: string}
      */
-    public static function offer(): array
+    public static function offer(string $medium = 'admin-banner'): array
     {
+        $medium = (string) preg_replace('/[^a-z0-9_-]/', '', strtolower($medium));
+        if ('' === $medium) {
+            $medium = 'admin-banner';
+        }
         $defaults = [
             'coupon'  => self::COUPON,
             'percent' => self::PERCENT,
@@ -129,7 +137,7 @@ class Pro_Banner
                 [
                     'coupon'       => $coupon,
                     'utm_source'   => 'plugin',
-                    'utm_medium'   => 'admin-banner',
+                    'utm_medium'   => $medium,
                     'utm_campaign' => 'pro-banner',
                 ],
                 $base

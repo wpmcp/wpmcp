@@ -194,6 +194,18 @@ class ProBannerTest extends \WP_UnitTestCase
         $this->assertStringContainsString('admin.php?page=wpmcp', (string) $redirect);
     }
 
+    public function test_the_offer_medium_is_selectable_for_tool_refusals(): void
+    {
+        $default = Pro_Banner::offer();
+        $refusal = Pro_Banner::offer('tool-refusal');
+
+        $this->assertStringContainsString('utm_medium=admin-banner', $default['url']);
+        $this->assertStringContainsString('utm_medium=tool-refusal', $refusal['url']);
+        $this->assertStringContainsString('coupon=WPMCP20', $refusal['url']);
+        $this->assertSame($default['coupon'], $refusal['coupon']);
+        $this->assertStringNotContainsString('utm_medium=admin-banner', $refusal['url']);
+    }
+
     public function test_the_offer_is_filterable_and_sanitized(): void
     {
         add_filter('wpmcp_pro_banner_offer', static fn (array $offer): array => [
