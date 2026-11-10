@@ -115,6 +115,9 @@ class Cli_Job_Store
             'argv'       => array_values($argv),
             'timeout'    => $timeout,
             'status'     => 'queued',
+            // Who queued it: Run_Cli_Job re-checks this user against the
+            // multisite network gate at run time (issue #562).
+            'user_id'    => get_current_user_id(),
             'created_at' => $now,
             'updated_at' => $now,
             'result'     => null,

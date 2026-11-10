@@ -34,8 +34,11 @@ class Audit_Log_Page
     public const TAB_MUTATIONS = 'mutations';
     public const TAB_REQUESTS  = 'requests';
 
-    /** Rows shown on the Requests tab. */
-    private const REQUEST_ROWS = 100;
+    /** Undo points per page on the Mutations tab (issue #759). */
+    public const MUTATIONS_PER_PAGE = 20;
+
+    /** Request rows per page on the Requests tab (issue #770). */
+    public const REQUESTS_PER_PAGE = 20;
 
     /** admin-post action and nonce action of the request log CSV export. */
     public const EXPORT_ACTION = 'wpmcp_export_request_log';
@@ -44,10 +47,26 @@ class Audit_Log_Page
     private const REQUEST_FILTERS = [ 'date_from', 'date_to', 'user_id', 'tool', 'outcome' ];
 
     /**
+     * Test seam: receives the CSV the export would stream, so a test can run
+     * the export through its real admin-post hook (issue #587) without the
+     * exit. Guarded by WPMCP_TESTING.
+     *
+     * @var callable|null
+     */
+    private static $sender_for_tests = null;
+
+    /** Set or clear the export's test sender. Ignored outside WPMCP_TESTING. */
+    public static function send_for_tests(?callable $sender): void
+    {
+        self::$sender_for_tests = defined('WPMCP_TESTING') && WPMCP_TESTING ? $sender : null;
+    }
+
+    /**
      * @param array<string, mixed> $filters Same shape as wpmcp/list-operations'
      *                                       input_schema (user_id, tool_name,
      *                                       domain, object_type, object_id,
-     *                                       date_from, date_to, limit).
+     *                                       date_from, date_to, limit,
+     *                                       offset).
      */
     public function get_operations(array $filters): array
     {
@@ -56,14 +75,14 @@ class Audit_Log_Page
 
     /**
      * Newest-first MCP request outcome rows matching $filters (see
-     * Request_Log::query()).
+     * Request_Log::query()), $limit of them from $offset.
      *
      * @param array<string, mixed> $filters
      * @return array<int, array<string, mixed>>
      */
-    public function get_requests(int $limit = self::REQUEST_ROWS, array $filters = []): array
+    public function get_requests(int $limit = self::REQUESTS_PER_PAGE, array $filters = [], int $offset = 0): array
     {
-        return Request_Log::query($filters, $limit);
+        return Request_Log::query($filters, $limit, $offset);
     }
 
     /**
@@ -90,6 +109,11 @@ class Audit_Log_Page
         $csv      = Request_Log::to_csv(Request_Log::query($this->request_filters(), Request_Log::cap()));
         $filename = 'wpmcp-request-log-' . gmdate('Ymd-His') . '.csv';
 
+        // Only the download is diverted for a hook-level test; a refusal
+        // above still dies with the 403 the real request gets.
+        if (null === $sender && defined('WPMCP_TESTING') && WPMCP_TESTING) {
+            $sender = self::$sender_for_tests;
+        }
         if (null !== $sender) {
             $sender($csv, $filename);
             return null;
@@ -149,11 +173,27 @@ class Audit_Log_Page
 
     private function render_mutations(): void
     {
-        $filters = $this->filters_from_request();
-        $ops     = $this->get_operations($filters)['operations'];
-        $nonce   = wp_create_nonce('wpmcp_restore');
+        $filters  = $this->filters_from_request();
+        $per_page = self::MUTATIONS_PER_PAGE;
+        $paged    = $this->current_page();
+
+        // The rows and the total come from List_Operations, which scopes
+        // both to the caller's own undo points below manage_options (#461);
+        // the screen itself is gated at the management capability.
+        $result = $this->get_operations($filters + ['limit' => $per_page, 'offset' => ($paged - 1) * $per_page]);
+        $total  = (int) $result['total_count'];
+        $pages  = max(1, (int) ceil($total / $per_page));
+        if ($paged > $pages) {
+            // A page past the end (rows undone or filtered away since the
+            // link was made) shows the last page instead of an empty table.
+            $paged  = $pages;
+            $result = $this->get_operations($filters + ['limit' => $per_page, 'offset' => ($paged - 1) * $per_page]);
+        }
+        $ops   = $result['operations'];
+        $nonce = wp_create_nonce('wpmcp_restore');
 
         $this->render_filter_form($filters);
+        $this->render_pagination(self::TAB_MUTATIONS, $filters, $total, $paged, $pages, 'top');
         echo '<table class="widefat"><thead><tr>'
             . '<th>' . esc_html__('Who', 'wpmcp') . '</th>'
             . '<th>' . esc_html__('When', 'wpmcp') . '</th>'
@@ -167,7 +207,8 @@ class Audit_Log_Page
             /* translators: %d: numeric user ID. */
             $user_label = __('User #%d', 'wpmcp');
             $who   = $user ? $user->display_name : sprintf($user_label, (int) $op['user_id']);
-            $what  = sprintf('%s (#%d)', $op['tool_name'], (int) $op['object_id']);
+            $object = List_Operations::object_label($op);
+            $what   = '' !== $object ? sprintf('%s (%s)', $op['tool_name'], $object) : (string) $op['tool_name'];
 
             echo '<tr>';
             printf('<td>%s</td>', esc_html($who));
@@ -182,17 +223,77 @@ class Audit_Log_Page
                     esc_attr($nonce),
                     esc_html__('Restore', 'wpmcp')
                 );
+            } elseif (! empty($op['rolled_back_at'])) {
+                // Already undone (issue #593): no second Restore.
+                echo esc_html(History_Page::undone_label((string) $op['rolled_back_at']));
             }
             echo '</td></tr>';
         }
 
         echo '</tbody></table>';
+        $this->render_pagination(self::TAB_MUTATIONS, $filters, $total, $paged, $pages, 'bottom');
+    }
+
+    /** The requested page of either tab, 1 or more. */
+    private function current_page(): int
+    {
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page number on an admin list screen; it only picks which rows render.
+        $paged = isset($_GET['paged']) && is_scalar($_GET['paged']) ? absint(wp_unslash($_GET['paged'])) : 1;
+        return max(1, $paged);
+    }
+
+    /**
+     * The list-table style "N items" count and page links (issues #759 and
+     * #770). Each link keeps the tab and the filters, so paging never drops
+     * them.
+     *
+     * @param array<string, mixed> $filters
+     */
+    private function render_pagination(string $tab, array $filters, int $total, int $paged, int $pages, string $which): void
+    {
+        printf('<div class="tablenav %s"><div class="tablenav-pages%s">', esc_attr($which), $pages > 1 ? '' : ' one-page');
+        printf(
+            '<span class="displaying-num">%s</span>',
+            /* translators: %s: number of rows (undo points or requests). */
+            esc_html(sprintf(_n('%s item', '%s items', $total, 'wpmcp'), number_format_i18n($total)))
+        );
+
+        if ($pages > 1) {
+            $base = add_query_arg(
+                array_map('rawurlencode', array_merge(['page' => self::SLUG, 'tab' => $tab], array_map('strval', $filters))),
+                admin_url('admin.php')
+            );
+            $links = paginate_links([
+                'base'      => add_query_arg('paged', '%#%', $base),
+                'format'    => '',
+                'current'   => $paged,
+                'total'     => $pages,
+                'prev_text' => __('&lsaquo; Previous', 'wpmcp'),
+                'next_text' => __('Next &rsaquo;', 'wpmcp'),
+            ]);
+            // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- paginate_links() escapes its own URLs and the link text above is translator-provided entities.
+            echo ' <span class="pagination-links">' . $links . '</span>';
+        }
+
+        echo '</div><br class="clear" /></div>';
     }
 
     private function render_requests(): void
     {
-        $filters = $this->request_filters();
-        $rows    = $this->get_requests(self::REQUEST_ROWS, $filters);
+        $filters  = $this->request_filters();
+        $per_page = self::REQUESTS_PER_PAGE;
+        $paged    = $this->current_page();
+
+        // Every stored request is reachable through the pages (issue #770);
+        // the CSV export keeps taking the whole filtered log in one go.
+        $total = Request_Log::count($filters);
+        $pages = max(1, (int) ceil($total / $per_page));
+        if ($paged > $pages) {
+            // A page past the end (rows pruned or filtered away since the
+            // link was made) shows the last page instead of an empty table.
+            $paged = $pages;
+        }
+        $rows = $this->get_requests($per_page, $filters, ($paged - 1) * $per_page);
 
         printf(
             '<p class="description">%s</p>',
@@ -204,6 +305,7 @@ class Audit_Log_Page
         );
 
         $this->render_request_filter_form($filters);
+        $this->render_pagination(self::TAB_REQUESTS, $filters, $total, $paged, $pages, 'top');
 
         echo '<table class="widefat"><thead><tr>'
             . '<th>' . esc_html__('When', 'wpmcp') . '</th>'
@@ -242,6 +344,7 @@ class Audit_Log_Page
         }
 
         echo '</tbody></table>';
+        $this->render_pagination(self::TAB_REQUESTS, $filters, $total, $paged, $pages, 'bottom');
     }
 
     /**

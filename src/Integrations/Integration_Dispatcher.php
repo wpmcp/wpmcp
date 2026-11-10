@@ -204,6 +204,20 @@ abstract class Integration_Dispatcher
     }
 
     /**
+     * The plugin a "not active" refusal names when this pair is not
+     * registered because its host plugin is not loaded (issue #790): 'name'
+     * is the plugin, or with 'several' the list of plugins any one of which
+     * would do. The default is the summary, which for a pair that works
+     * with several plugins lists them.
+     *
+     * @return array{name: string, several: bool}
+     */
+    public function host_plugin(): array
+    {
+        return [ 'name' => $this->summary(), 'several' => true ];
+    }
+
+    /**
      * The read/write Ability pair for this integration, ready for
      * Registrar::register(). The write half carries destructive_hint when
      * any registered op is destructive.
@@ -294,6 +308,19 @@ abstract class Integration_Dispatcher
             'available'   => $this->is_available(),
             'operations'  => $ops,
         ];
+    }
+
+    /**
+     * Names of the ops one dispatcher half answers ('read' or 'write'; write
+     * covers write and destructive ops), in catalog order. Tool search
+     * (issue #732) matches against these so an integration that lives as
+     * ops inside a pair, rather than as tools of its own, is findable.
+     *
+     * @return string[]
+     */
+    public function operation_names(string $channel): array
+    {
+        return array_map('strval', array_keys($this->channel_operations('read' === $channel ? 'read' : 'write')));
     }
 
     /**

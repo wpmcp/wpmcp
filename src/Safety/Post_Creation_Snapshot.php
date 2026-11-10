@@ -12,7 +12,8 @@ if (! defined('ABSPATH')) {
 
 /**
  * The ledger row for a tool that CREATED posts (create-post, duplicate-post,
- * create-custom-widget, create-custom-block), issue #192.
+ * create-custom-widget, create-custom-block, issue #192; add-menu-item,
+ * issue #598).
  *
  * Like 'page_build' and 'media_import', a 'post_create' row records what the
  * operation created, because there is no prior state to capture. It exists
@@ -23,7 +24,8 @@ if (! defined('ABSPATH')) {
  * Unlike those two, undoing a 'post_create' row is non-destructive: an
  * ordinary post is moved to the trash (restore-post brings it back) and a
  * custom widget or block spec is deactivated (post status draft, the spec
- * store's own "inactive"). Nothing is permanently deleted.
+ * store's own "inactive"). Nothing is permanently deleted, except a menu
+ * item, which is removed like remove-menu-item removes it (issue #598).
  *
  * One row per operation, even when the operation created several posts
  * (duplicate-post with include_children): object_id is the primary post and

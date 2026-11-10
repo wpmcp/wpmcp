@@ -29,7 +29,7 @@ class Crawler_Files
 
     /**
      * Priority on robots_txt: after the SEO plugins that rebuild the whole
-     * output at the default priority, so the managed rules are appended to
+     * output at the default priority, so the managed rules are merged into
      * whatever they produce instead of being replaced by it.
      */
     public const ROBOTS_PRIORITY = 100;
@@ -184,7 +184,16 @@ class Crawler_Files
     // robots.txt
     // -----------------------------------------------------------------
 
-    /** Hooked to robots_txt: append the managed rules after everything else. */
+    /**
+     * Hooked to robots_txt: merge the managed rules into the output's
+     * User-agent groups (issue #731). Rules before any User-agent line in
+     * the managed rules are for "*". Each managed group joins the output
+     * group with the same set of user agents (case-insensitive), or is
+     * added as a new group after the last one. Sitemap lines, from the
+     * output and from the managed rules, move to the end, outside every
+     * group. A group naming several agents is only joined by rules for
+     * that same set, so a rule never reaches an agent it was not meant for.
+     */
     public static function filter_robots($output, $public = true): string
     {
         $output = (string) $output;
@@ -192,7 +201,161 @@ class Crawler_Files
         if ('' === $rules) {
             return $output;
         }
-        return rtrim($output, "\n") . "\n\n" . $rules . "\n";
+
+        $sitemaps = [];
+        $lines    = [];
+        foreach (preg_split('/\r\n|\r|\n/', rtrim($output, "\r\n")) ?: [] as $line) {
+            if (self::is_sitemap_line($line)) {
+                $sitemaps[] = trim($line);
+            } else {
+                $lines[] = $line;
+            }
+        }
+        if ([''] === $lines) {
+            $lines = [];
+        }
+
+        // The output's groups: agent set key => index of the group's last non-blank line.
+        $ends    = [];
+        $agents  = [];
+        $current = null;
+        $ruled   = false;
+        foreach ($lines as $i => $line) {
+            $trimmed = trim($line);
+            if ('' === $trimmed) {
+                continue;
+            }
+            $agent = self::user_agent_of($trimmed);
+            if (null !== $agent) {
+                if (null === $current || $ruled) {
+                    $current = count($agents);
+                    $agents[ $current ] = [];
+                    $ruled  = false;
+                }
+                $agents[ $current ][] = strtolower($agent);
+                $ends[ $current ]     = $i;
+                continue;
+            }
+            if (null !== $current) {
+                $ruled            = $ruled || '#' !== $trimmed[0];
+                $ends[ $current ] = $i;
+            }
+        }
+        $by_key = [];
+        foreach ($agents as $g => $names) {
+            $key = self::agent_key($names);
+            if (! isset($by_key[ $key ])) {
+                $by_key[ $key ] = $g;
+            }
+        }
+
+        $inserts    = [];
+        $new_groups = [];
+        foreach (self::managed_groups($rules, $sitemaps) as $group) {
+            $key = self::agent_key(array_map('strtolower', $group['agents']));
+            if (isset($by_key[ $key ])) {
+                $at = $ends[ $by_key[ $key ] ];
+                $inserts[ $at ] = array_merge($inserts[ $at ] ?? [], $group['rules']);
+                continue;
+            }
+            $block = [];
+            foreach ($group['agents'] as $name) {
+                $block[] = 'User-agent: ' . $name;
+            }
+            $new_groups[] = array_merge($block, $group['rules']);
+        }
+
+        $merged = [];
+        foreach ($lines as $i => $line) {
+            // A Sitemap line taken out of the middle can leave two blank lines in a row.
+            if ('' === trim($line) && [] !== $merged && '' === trim((string) end($merged))) {
+                continue;
+            }
+            $merged[] = $line;
+            foreach ($inserts[ $i ] ?? [] as $rule) {
+                $merged[] = $rule;
+            }
+        }
+        while ([] !== $merged && '' === trim((string) end($merged))) {
+            array_pop($merged);
+        }
+
+        $blocks = [];
+        if ([] !== $merged) {
+            $blocks[] = implode("\n", $merged);
+        }
+        foreach ($new_groups as $group) {
+            $blocks[] = implode("\n", $group);
+        }
+        $sitemaps = array_values(array_unique($sitemaps));
+        if ([] !== $sitemaps) {
+            $blocks[] = implode("\n", $sitemaps);
+        }
+
+        return implode("\n\n", $blocks) . "\n";
+    }
+
+    /**
+     * The managed rules as groups: [agents => string[], rules => string[]].
+     * Sitemap lines are moved into $sitemaps instead.
+     *
+     * @param string[] $sitemaps
+     * @return array<int, array{agents: string[], rules: string[]}>
+     */
+    private static function managed_groups(string $rules, array &$sitemaps): array
+    {
+        $groups  = [];
+        $current = -1;
+        $ruled   = true;
+        foreach (preg_split('/\r\n|\r|\n/', $rules) ?: [] as $line) {
+            $line = trim($line);
+            if ('' === $line) {
+                continue;
+            }
+            if (self::is_sitemap_line($line)) {
+                $sitemaps[] = $line;
+                continue;
+            }
+            $agent = self::user_agent_of($line);
+            if (null !== $agent) {
+                if ($ruled) {
+                    $groups[] = ['agents' => [], 'rules' => []];
+                    $current  = count($groups) - 1;
+                    $ruled    = false;
+                }
+                $groups[ $current ]['agents'][] = $agent;
+                continue;
+            }
+            if (-1 === $current) {
+                $groups[] = ['agents' => ['*'], 'rules' => []];
+                $current  = 0;
+            }
+            $groups[ $current ]['rules'][] = $line;
+            $ruled = $ruled || '#' !== $line[0];
+        }
+        return $groups;
+    }
+
+    /** The agent a "User-agent:" line names, or null for any other line. */
+    private static function user_agent_of(string $line): ?string
+    {
+        if (preg_match('/^\s*user-agent\s*:\s*(.*?)\s*(#.*)?$/i', $line, $m)) {
+            return $m[1];
+        }
+        return null;
+    }
+
+    private static function is_sitemap_line(string $line): bool
+    {
+        return 1 === preg_match('/^\s*sitemap\s*:/i', $line);
+    }
+
+    /** @param string[] $names lower-cased agent names */
+    private static function agent_key(array $names): string
+    {
+        $names = array_values(array_unique($names));
+        sort($names);
+        return implode("\n", $names);
     }
 
     /**
@@ -242,6 +405,28 @@ class Crawler_Files
         }
 
         return trim(implode("\n", $clean));
+    }
+
+    /**
+     * Put rules under a named user agent (issue #731): the result starts
+     * with "User-agent: <name>". Refused when the name is not a plain
+     * product token or "*", or when the rules already name their own agent.
+     */
+    public static function rules_for_user_agent(string $rules, string $user_agent): string
+    {
+        $user_agent = trim($user_agent);
+        if ('' === $user_agent || ! preg_match('/^(\*|[A-Za-z0-9_.-]+)$/', $user_agent)) {
+            throw new \InvalidArgumentException('user_agent must be "*" or a crawler name of letters, digits, "_", "-" and ".".');
+        }
+        if ('' === $rules) {
+            return '';
+        }
+        foreach (preg_split('/\n/', $rules) ?: [] as $line) {
+            if (null !== self::user_agent_of($line)) {
+                throw new \InvalidArgumentException('Pass either user_agent or User-agent lines in robots_rules, not both.');
+            }
+        }
+        return 'User-agent: ' . $user_agent . "\n" . $rules;
     }
 
     // -----------------------------------------------------------------

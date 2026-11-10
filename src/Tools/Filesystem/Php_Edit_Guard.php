@@ -24,7 +24,7 @@ if (! defined('ABSPATH')) {
  *     loopback, the technique the theme and plugin file editor uses
  *     (wp_start_scraping_edited_file_errors() in wp-settings.php reports the
  *     last fatal of a request carrying a matching key and nonce), on the
- *     front end and in admin;
+ *     front end as a visitor and in admin signed in as the current user;
  *  5. restores the backup (or removes a new file) in the same call when the
  *     site fatals, or stops answering the check, after the save.
  *
@@ -39,6 +39,8 @@ class Php_Edit_Guard
     public const LOCK_OPTION = 'wpmcp_php_edit_lock';
     public const LOCK_TTL    = 300;
     public const TIMEOUT     = 30;
+    /** Lifetime of the session the admin leg of the check signs in with; destroyed as soon as the check ends. */
+    public const SESSION_TTL = 120;
 
     private static ?string $lock_token = null;
 
@@ -155,15 +157,22 @@ class Php_Edit_Guard
      * RuntimeException, with the file left as it was, on any refusal or
      * rollback.
      *
+     * $content null removes the file instead, with the same lock and site
+     * check (undoing a write that created a .php file, issue #602).
+     * $backup, when given, is the copy of $abs's current bytes to revert to
+     * ('' when $abs does not exist yet); left null, one is made with
+     * Filesystem_Guard::backup(). $restore words the refusals for a
+     * rollback, which has no unchecked argument to suggest.
+     *
      * @return array{bytes: int, backup: string, php_check: string}
      */
-    public static function write(string $abs, string $content, bool $unchecked): array
+    public static function write(string $abs, ?string $content, bool $unchecked, ?string $backup = null, bool $restore = false): array
     {
         if (self::is_own_file($abs)) {
             throw new \RuntimeException('wpmcp does not edit its own PHP files through this tool; that could take the MCP endpoint down.');
         }
 
-        $parse = self::lint($content);
+        $parse = null === $content ? null : self::lint($content);
         if (null !== $parse) {
             throw new \RuntimeException(esc_html(sprintf(
                 'PHP syntax error on line %d: %s. Nothing was written.',
@@ -177,14 +186,14 @@ class Php_Edit_Guard
         }
 
         try {
-            return self::write_locked($abs, $content, $unchecked);
+            return self::write_locked($abs, $content, $unchecked, $backup, $restore);
         } finally {
             self::release_lock();
         }
     }
 
     /** @return array{bytes: int, backup: string, php_check: string} */
-    private static function write_locked(string $abs, string $content, bool $unchecked): array
+    private static function write_locked(string $abs, ?string $content, bool $unchecked, ?string $backup, bool $restore): array
     {
         $check = self::is_loaded($abs) ? 'loopback' : 'syntax only (inactive plugin or theme, not loaded)';
 
@@ -193,7 +202,9 @@ class Php_Edit_Guard
             if ('ok' !== $before['state']) {
                 if (! $unchecked) {
                     throw new \RuntimeException(esc_html(sprintf(
-                        'The site check for PHP edits cannot run (%s), so nothing was written. Pass unchecked:true to write without it; the backup still allows restore.',
+                        $restore
+                            ? 'The site check for PHP edits cannot run (%s), so nothing was written.'
+                            : 'The site check for PHP edits cannot run (%s), so nothing was written. Pass unchecked:true to write without it; the backup still allows restore.',
                         $before['detail']
                     )));
                 }
@@ -201,16 +212,26 @@ class Php_Edit_Guard
             }
         }
 
-        $backup = Filesystem_Guard::backup($abs);
-        if (is_wp_error($backup)) {
-            throw new \RuntimeException(esc_html($backup->get_error_message()));
+        if (null === $backup) {
+            $backup = Filesystem_Guard::backup($abs);
+            if (is_wp_error($backup)) {
+                throw new \RuntimeException(esc_html($backup->get_error_message()));
+            }
         }
-        if (! wp_mkdir_p(dirname($abs))) {
-            throw new \RuntimeException('Could not create the parent directory.');
-        }
-        $bytes = file_put_contents($abs, $content);
-        if (false === $bytes) {
-            throw new \RuntimeException('Could not write the file (check permissions).');
+        if (null === $content) {
+            wp_delete_file($abs);
+            if (file_exists($abs)) {
+                throw new \RuntimeException('Could not delete the file (check permissions).');
+            }
+            $bytes = 0;
+        } else {
+            if (! wp_mkdir_p(dirname($abs))) {
+                throw new \RuntimeException('Could not create the parent directory.');
+            }
+            $bytes = file_put_contents($abs, $content);
+            if (false === $bytes) {
+                throw new \RuntimeException('Could not write the file (check permissions).');
+            }
         }
         self::invalidate($abs);
 
@@ -242,7 +263,7 @@ class Php_Edit_Guard
             )));
         }
         throw new \RuntimeException(esc_html(sprintf(
-            'The edit broke the site (%s), so %s and nothing changed.',
+            $restore ? 'The restore broke the site (%s), so it was reverted (%s) and nothing changed.' : 'The edit broke the site (%s), so %s and nothing changed.',
             $after['detail'],
             $what
         )));
@@ -251,6 +272,15 @@ class Php_Edit_Guard
     /**
      * Request the front end, then admin, with a scrape key and nonce, and
      * read core's verdict from the response.
+     *
+     * The admin request must be signed in, or wp-admin answers with the
+     * login page and no verdict. Core's file editor forwards the browser's
+     * cookies; an MCP call has none (it arrives over REST with an
+     * Application Password or a bearer token), so the admin leg signs in
+     * with auth cookies made for the current user on a session of its own,
+     * destroyed when the check ends (issue #601). The cookies go only to
+     * admin_url() and never into the result. With no current user the admin
+     * leg gets the login page, and the check reports that it cannot run.
      *
      * @return array{state: string, detail: string} state is ok, fatal or unreachable.
      */
@@ -263,15 +293,23 @@ class Php_Edit_Guard
         $end   = "###### wp_scraping_result_end:$key ######";
         // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- applying core's loopback SSL filter, as core's file editor and Site Health do for this same request, not defining one.
         $sslverify = (bool) apply_filters('https_local_ssl_verify', false);
+        $user_id   = get_current_user_id();
+        $session   = null;
 
         try {
             foreach (['front end', 'admin'] as $where) {
-                $params   = ['wp_scrape_key' => $key, 'wp_scrape_nonce' => $nonce];
-                $url      = 'admin' === $where ? admin_url() : home_url('/');
+                $params  = ['wp_scrape_key' => $key, 'wp_scrape_nonce' => $nonce];
+                $url     = 'admin' === $where ? admin_url() : home_url('/');
+                $cookies = [];
+                if ('admin' === $where && $user_id > 0) {
+                    $session = \WP_Session_Tokens::get_instance($user_id)->create(time() + self::SESSION_TTL);
+                    $cookies = self::auth_cookies($user_id, $session, $url);
+                }
                 $response = wp_remote_get(add_query_arg($params, $url), [
                     'timeout'   => self::TIMEOUT,
                     'headers'   => ['Cache-Control' => 'no-cache'],
                     'sslverify' => $sslverify,
+                    'cookies'   => $cookies,
                 ]);
 
                 if (is_wp_error($response)) {
@@ -306,9 +344,38 @@ class Php_Edit_Guard
             }
         } finally {
             delete_transient('scrape_key_' . $key);
+            if (null !== $session) {
+                \WP_Session_Tokens::get_instance($user_id)->destroy($session);
+            }
         }
 
         return ['state' => 'ok', 'detail' => ''];
+    }
+
+    /**
+     * The cookies a browser signed in as $user_id sends to wp-admin, for
+     * both schemes, since whether the loopback arrives over HTTPS depends
+     * on the server, not only on admin_url(). Made with
+     * wp_generate_auth_cookie() rather than wp_set_auth_cookie(), so no
+     * Set-Cookie header reaches the MCP response and no login hooks fire.
+     * Each cookie is host-only for $url's host and path: a plain name and
+     * value would be sent on to any host a redirect points at.
+     *
+     * @return array<int, \WP_Http_Cookie>
+     */
+    private static function auth_cookies(int $user_id, string $session, string $url): array
+    {
+        $expires = time() + self::SESSION_TTL;
+        $cookies = [];
+        foreach ([AUTH_COOKIE => 'auth', SECURE_AUTH_COOKIE => 'secure_auth', LOGGED_IN_COOKIE => 'logged_in'] as $name => $scheme) {
+            $cookies[] = new \WP_Http_Cookie([
+                'name'      => $name,
+                'value'     => wp_generate_auth_cookie($user_id, $expires, $scheme, $session),
+                'expires'   => $expires,
+                'host_only' => true,
+            ], $url);
+        }
+        return $cookies;
     }
 
     private static function invalidate(string $abs): void

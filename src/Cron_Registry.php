@@ -54,6 +54,7 @@ final class Cron_Registry
      */
     public const JOB_HOOKS = [
         'wpmcp_run_backup_job'         => [ 'wpmcp_backup_jobs', 'jobs' ],
+        'wpmcp_run_restore_job'        => [ 'wpmcp_backup_jobs', 'jobs' ],
         'wpmcp_run_cli_job'            => [ 'wpmcp_cli_jobs', 'jobs' ],
         'wpmcp_run_broken_link_scan'   => [ 'wpmcp_broken_link_scans', 'scans' ],
         'wpmcp_run_optimize_media_job' => [ 'wpmcp_optimize_media_jobs', 'jobs' ],

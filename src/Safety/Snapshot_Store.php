@@ -79,11 +79,13 @@ class Snapshot_Store
             session_id CHAR(36) NOT NULL,
             object_type VARCHAR(32) NOT NULL,
             object_id BIGINT(20) UNSIGNED NOT NULL,
+            object_ref VARCHAR(191) NOT NULL DEFAULT '',
             tool_name VARCHAR(64) NOT NULL,
             args_hash CHAR(64) NOT NULL,
             before_blob LONGBLOB NOT NULL,
             user_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
+            rolled_back_at DATETIME NULL DEFAULT NULL,
             PRIMARY KEY (id),
             KEY operation_id (operation_id),
             KEY session_id (session_id)
@@ -98,15 +100,48 @@ class Snapshot_Store
     /**
      * The object_id column is a BIGINT UNSIGNED, so it can only ever store a
      * numeric post/user/etc ID. Object types identified by a string (e.g.
-     * 'option', keyed by option name) have no numeric ID to put there; the
-     * real identifier already lives inside the serialized snapshot blob
-     * (data.name), so the column is simply 0 for those rows. Existing
-     * consumers (List_Operations, History_Page) already (int)-cast this
-     * column for display, so this is backward compatible.
+     * 'option', keyed by option name) have no numeric ID to put there, so the
+     * column is 0 for those rows and the identity goes in object_ref instead
+     * (see object_ref()). Existing consumers (List_Operations, History_Page)
+     * already (int)-cast this column, so this is backward compatible.
      */
     private static function db_object_id(array $snapshot): int
     {
         return is_int($snapshot['object_id']) ? $snapshot['object_id'] : 0;
+    }
+
+    /** Longest object_ref the column holds (VARCHAR(191), utf8mb4 index safe). */
+    public const OBJECT_REF_MAX = 191;
+
+    /**
+     * What the ledger row names as its object when it has no numeric id
+     * (issue #723): the caller's own label when it gave one (a plugin file,
+     * a file path, a cron hook), else the string object_id the snapshot is
+     * keyed by (a term key, an option or table name). Empty for a row with a
+     * numeric id and no label, which already says what it changed.
+     */
+    public static function object_ref(array $snapshot, string $explicit = ''): string
+    {
+        $ref = $explicit;
+        $id  = $snapshot['object_id'] ?? null;
+        if ('' === $ref && is_string($id)) {
+            $ref = $id;
+        }
+        if ('0' === $ref) {
+            $ref = '';
+        }
+        return function_exists('mb_substr') ? mb_substr($ref, 0, self::OBJECT_REF_MAX) : substr($ref, 0, self::OBJECT_REF_MAX);
+    }
+
+    /**
+     * The tool name a ledger row is filed under: the short name, without the
+     * ability namespace (issue #723). A few tools passed "wpmcp/<name>", so
+     * their rows read differently from every other row and a tool_name
+     * filter on the short name missed them.
+     */
+    public static function short_tool_name(string $tool_name): string
+    {
+        return (string) preg_replace('#^wpmcp/#', '', $tool_name);
     }
 
     /**
@@ -124,7 +159,7 @@ class Snapshot_Store
      * @throws Mutation_Failed When the snapshot row could not be written, or
      *                         the session belongs to another user.
      */
-    public static function save(string $operation_id, string $session_id, array $snapshot, string $tool_name, string $args_hash): int
+    public static function save(string $operation_id, string $session_id, array $snapshot, string $tool_name, string $args_hash, string $object_ref = ''): int
     {
         global $wpdb;
 
@@ -137,18 +172,28 @@ class Snapshot_Store
             throw new Mutation_Failed($denial); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- session_write_denial() escapes the only variable part.
         }
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
-        $written = $wpdb->insert(self::table_name(), [
+        $row = [
             'operation_id' => $operation_id,
             'session_id'   => $session_id,
             'object_type'  => $snapshot['object_type'],
             'object_id'    => self::db_object_id($snapshot),
-            'tool_name'    => $tool_name,
+            'object_ref'   => self::object_ref($snapshot, $object_ref),
+            'tool_name'    => self::short_tool_name($tool_name),
             'args_hash'    => $args_hash,
             'before_blob'  => Snapshot::serialize($snapshot),
             'user_id'      => get_current_user_id(),
             'created_at'   => current_time('mysql', true),
-        ]);
+        ];
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
+        $written = $wpdb->insert(self::table_name(), $row);
+        if (false === $written && false !== stripos((string) $wpdb->last_error, 'object_ref')) {
+            // A table that predates the object_ref column (Site_Tables has
+            // not upgraded this site yet): the undo point matters more than
+            // its label, so it is written without one.
+            unset($row['object_ref']);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
+            $written = $wpdb->insert(self::table_name(), $row);
+        }
 
         if (false === $written) {
             throw new Mutation_Failed(
@@ -163,18 +208,31 @@ class Snapshot_Store
     /**
      * Rewrite a persisted undo point, for a write that only learns after it
      * ran what its undo must also cover (the rows a host plugin's hooks
-     * added, the id the host assigned). Loud on failure, like save().
+     * added, the id the host assigned). The row's object identity follows
+     * the snapshot, object_ref included (issue #777): a create keyed on
+     * ":0" before the write is listed under the id the host assigned once
+     * the recorder re-keys it. $object_ref is the caller's own label, as
+     * passed to save(), so a labelled row keeps its label. Loud on failure,
+     * like save().
      *
      * @throws Mutation_Failed When the snapshot row could not be rewritten.
      */
-    public static function update_snapshot(string $operation_id, array $snapshot): void
+    public static function update_snapshot(string $operation_id, array $snapshot, string $object_ref = ''): void
     {
         global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
-        $written = $wpdb->update(self::table_name(), [
+        $fields = [
             'object_id'   => self::db_object_id($snapshot),
+            'object_ref'  => self::object_ref($snapshot, $object_ref),
             'before_blob' => Snapshot::serialize($snapshot),
-        ], [ 'operation_id' => $operation_id ]);
+        ];
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
+        $written = $wpdb->update(self::table_name(), $fields, [ 'operation_id' => $operation_id ]);
+        if (false === $written && false !== stripos((string) $wpdb->last_error, 'object_ref')) {
+            // A table that predates the object_ref column, as in save().
+            unset($fields['object_ref']);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own table; the undo point must be written directly.
+            $written = $wpdb->update(self::table_name(), $fields, [ 'operation_id' => $operation_id ]);
+        }
 
         if (false === $written) {
             throw new Mutation_Failed(
@@ -194,6 +252,123 @@ class Snapshot_Store
         }
         $row['snapshot'] = Snapshot::unserialize($row['before_blob']);
         return $row;
+    }
+
+    /**
+     * When this ledger row's operation was undone (UTC), or null while it
+     * has not been (issue #593). A row read without the column (INDEX_COLUMNS)
+     * reads as not undone.
+     */
+    public static function rolled_back_at(array $row): ?string
+    {
+        $at = $row['rolled_back_at'] ?? null;
+        return null === $at || '' === $at ? null : (string) $at;
+    }
+
+    /**
+     * Record that an operation was undone, unless it already is (issue
+     * #593). Atomic: the rows are claimed only while rolled_back_at is still
+     * empty, so of two undos racing for one operation exactly one wins and
+     * the other restores nothing. Every ledger row of the operation is
+     * claimed together.
+     *
+     * @return bool True when this call claimed the operation, false when it
+     *              was already undone or has no ledger row.
+     * @throws Mutation_Failed When the claim could not be written: the undo
+     *                         is refused rather than left unrecorded.
+     */
+    public static function claim_rollback(string $operation_id): bool
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger; the claim must be one atomic conditional write.
+        $claimed = $wpdb->query($wpdb->prepare(
+            'UPDATE %i SET rolled_back_at = %s WHERE operation_id = %s AND rolled_back_at IS NULL',
+            self::table_name(),
+            current_time('mysql', true),
+            $operation_id
+        ));
+        return self::claimed($claimed) > 0;
+    }
+
+    /**
+     * Claim ledger rows by row id, for rollback-session, which undoes a
+     * session row by row. Same atomic semantics as claim_rollback(): true
+     * only when every given row was still unclaimed and this call claimed
+     * it. On a partial claim (a concurrent undo took some of them) the rows
+     * this call stamped are released again and false is returned, so the
+     * caller restores nothing.
+     *
+     * @param int[] $ids
+     * @throws Mutation_Failed When the claim could not be written.
+     */
+    public static function claim_rows(array $ids): bool
+    {
+        global $wpdb;
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if ([] === $ids) {
+            return false;
+        }
+        $at    = current_time('mysql', true);
+        $in    = self::id_list_sql(count($ids));
+        $claim = "UPDATE %i SET rolled_back_at = %s WHERE id IN ({$in}) AND rolled_back_at IS NULL";
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- wpmcp_snapshots is this plugin's own ledger; $claim is a literal with an id_list_sql() list of %d placeholders, all bound on this line.
+        $claimed = self::claimed($wpdb->query($wpdb->prepare($claim, array_merge([ self::table_name(), $at ], $ids))));
+        if ($claimed === count($ids)) {
+            return true;
+        }
+        if ($claimed > 0) {
+            $release = "UPDATE %i SET rolled_back_at = NULL WHERE id IN ({$in}) AND rolled_back_at = %s";
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- same literal shape as $claim; releases only the rows this call stamped.
+            $wpdb->query($wpdb->prepare($release, array_merge([ self::table_name() ], $ids, [ $at ])));
+        }
+        return false;
+    }
+
+    /** "%d, %d, ..." for $count ids: a literal placeholder list, never data. */
+    private static function id_list_sql(int $count): string
+    {
+        return implode(', ', array_fill(0, max(1, $count), '%d'));
+    }
+
+    /**
+     * Release a claim whose restore then failed, so the operation stays
+     * restorable: by operation id (claim_rollback()) or by row ids
+     * (claim_rows()).
+     *
+     * @param int[] $ids
+     */
+    public static function release_rollback(string $operation_id, array $ids = []): void
+    {
+        global $wpdb;
+        if ('' !== $operation_id) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- wpmcp_snapshots is this plugin's own ledger.
+            $wpdb->query($wpdb->prepare('UPDATE %i SET rolled_back_at = NULL WHERE operation_id = %s', self::table_name(), $operation_id));
+        }
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if ([] !== $ids) {
+            $release = 'UPDATE %i SET rolled_back_at = NULL WHERE id IN (' . self::id_list_sql(count($ids)) . ')';
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- wpmcp_snapshots is this plugin's own ledger; $release is a literal with an id_list_sql() list of %d placeholders, all bound on this line.
+            $wpdb->query($wpdb->prepare($release, array_merge([ self::table_name() ], $ids)));
+        }
+    }
+
+    /**
+     * The row count a claim query affected.
+     *
+     * @param int|bool $affected What $wpdb->query() returned.
+     * @throws Mutation_Failed When the claim query failed.
+     */
+    private static function claimed($affected): int
+    {
+        global $wpdb;
+        if (false === $affected) {
+            throw new Mutation_Failed(
+                'Nothing was restored: the undo could not be recorded in the snapshot history'
+                    . ($wpdb->last_error ? ' (' . esc_html($wpdb->last_error) . ')' : '')
+                    . ', and an unrecorded undo could be applied a second time.'
+            );
+        }
+        return (int) $affected;
     }
 
     /**

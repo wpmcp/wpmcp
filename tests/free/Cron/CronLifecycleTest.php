@@ -9,6 +9,7 @@ use WPMCP\Deactivator;
 use WPMCP\Tools\Backup\Backup_Job_Store;
 use WPMCP\Tools\Backup\Backup_Schedule;
 use WPMCP\Tools\Backup\Run_Backup_Job;
+use WPMCP\Tools\Backup\Run_Restore_Job;
 use WPMCP\Tools\Cli\Cli_Job_Store;
 use WPMCP\Tools\Cli\Run_Cli_Job;
 use WPMCP\Tools\Media\Optimize_Media_Job;
@@ -98,6 +99,9 @@ class CronLifecycleTest extends \WP_UnitTestCase
         $backup = Backup_Job_Store::create('database', 'all');
         wp_schedule_single_event(time(), Run_Backup_Job::HOOK, [$backup['id']]);
 
+        $restore = Backup_Job_Store::create('restore', 'database');
+        wp_schedule_single_event(time(), Run_Restore_Job::HOOK, [$restore['id']]);
+
         $cli = Cli_Job_Store::create(['option', 'get', 'home'], 60);
         wp_schedule_single_event(time(), Run_Cli_Job::HOOK, [$cli['id']]);
 
@@ -107,7 +111,7 @@ class CronLifecycleTest extends \WP_UnitTestCase
 
         $optimize = Optimize_Media_Job::create(['background' => true], get_current_user_id(), 20);
 
-        return ['backup' => $backup['id'], 'cli' => $cli['id'], 'scan' => $scan['id'], 'optimize' => $optimize['id']];
+        return ['backup' => $backup['id'], 'restore' => $restore['id'], 'cli' => $cli['id'], 'scan' => $scan['id'], 'optimize' => $optimize['id']];
     }
 
     public function test_deactivation_leaves_no_plugin_events(): void
@@ -144,6 +148,7 @@ class CronLifecycleTest extends \WP_UnitTestCase
 
         $jobs = [
             'backup'   => Backup_Job_Store::get($ids['backup']),
+            'restore'  => Backup_Job_Store::get($ids['restore']),
             'cli'      => Cli_Job_Store::get($ids['cli']),
             'scan'     => Broken_Link_Scan_Store::get($ids['scan']),
             'optimize' => Optimize_Media_Job::get($ids['optimize']),

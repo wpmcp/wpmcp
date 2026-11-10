@@ -31,8 +31,13 @@ final class Site_Tables
     /**
      * Schema version of the whole set. Bump it whenever any table's
      * definition changes, so every site runs the installers once more.
+     *
+     * 2: wpmcp_snapshots.rolled_back_at, so an undone operation is never
+     *    undone a second time (issue #593).
+     * 3: wpmcp_snapshots.object_ref, the object a row without a numeric id
+     *    changed (a term, file, option or plugin; issue #723).
      */
-    public const VERSION = '1';
+    public const VERSION = '3';
 
     /** Per-site option recording the VERSION a site's tables were built at. */
     public const VERSION_OPTION = 'wpmcp_site_tables_version';

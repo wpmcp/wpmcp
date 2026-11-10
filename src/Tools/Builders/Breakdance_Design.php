@@ -23,7 +23,8 @@ if (! defined('ABSPATH')) {
  *   Builder_Design_Data::engine_decode()) and the document is otherwise
  *   returned as stored.
  * - Templates are posts of the `<prefix>template`, `<prefix>header`,
- *   `<prefix>footer`, `<prefix>block` and `<prefix>popup` types. Each keeps
+ *   `<prefix>footer`, `<prefix>block` and `<prefix>popup` types (Oxygen 6:
+ *   template, header, footer, block and part, see OXYGEN_TEMPLATE_KINDS). Each keeps
  *   its tree in the same data row a page does (read through
  *   Breakdance_Content) and its conditions in
  *   `_<prefix>template_settings` (unprefixed on Breakdance 1.x, like the
@@ -35,6 +36,12 @@ if (! defined('ABSPATH')) {
 class Breakdance_Design
 {
     public const TEMPLATE_KINDS = ['template', 'header', 'footer', 'block', 'popup'];
+
+    /**
+     * Oxygen 6's own kinds (its themeless constants): no popups, `block` is
+     * what Oxygen calls a Component, and `part` holds design library parts.
+     */
+    public const OXYGEN_TEMPLATE_KINDS = ['template', 'header', 'footer', 'block', 'part'];
 
     /** The option and post type prefix, without the meta row's leading underscore. */
     private static function prefix(string $builder): string
@@ -87,7 +94,8 @@ class Breakdance_Design
     public static function templates(string $builder): array
     {
         $prefix = self::prefix($builder);
-        $types  = array_map(static fn ($kind) => $prefix . $kind, self::TEMPLATE_KINDS);
+        $kinds  = 'oxygen' === $builder ? self::OXYGEN_TEMPLATE_KINDS : self::TEMPLATE_KINDS;
+        $types  = array_map(static fn ($kind) => $prefix . $kind, $kinds);
 
         $templates = [];
         foreach (Builder_Design_Data::posts($types) as $post) {
@@ -97,7 +105,7 @@ class Breakdance_Design
             }
             $doc = Breakdance_Content::get_document($post->ID, $builder);
 
-            $templates[] = [
+            $item = [
                 'id'       => (int) $post->ID,
                 'title'    => $post->post_title,
                 'status'   => $post->post_status,
@@ -105,6 +113,11 @@ class Breakdance_Design
                 'settings' => is_array($settings) ? $settings : [],
                 'tree'     => null === $doc ? [] : Breakdance_Tree::nodes($doc),
             ];
+            // Each is edited by id like a page, against this hash (issue #635).
+            if ('oxygen' === $builder) {
+                $item['hash'] = Oxygen_Page::hash((int) $post->ID);
+            }
+            $templates[] = $item;
         }
 
         return [
