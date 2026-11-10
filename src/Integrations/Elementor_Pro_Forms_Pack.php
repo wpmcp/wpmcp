@@ -72,8 +72,6 @@ final class Elementor_Pro_Forms_Pack
 
     public const DEFAULT_EXPORT = 500;
 
-    public const ENABLE_HINT = 'A site enables Elementor Pro submission writes with the wpmcp_enable_elementor_pro_write filter.';
-
     /** The plugin's main file under the plugins directory. */
     public const PLUGIN_FILE = 'elementor-pro/elementor-pro.php';
 
@@ -204,7 +202,7 @@ final class Elementor_Pro_Forms_Pack
             'capability' => self::CAPABILITY,
             'requires'   => static fn () => self::submissions_presence(),
         ];
-        $write  = $base + [ 'enabled_by_default' => $writes, 'enable_hint' => self::ENABLE_HINT ];
+        $write  = $base + [ 'enabled_by_default' => $writes, 'opt_in_filter' => 'wpmcp_enable_elementor_pro_write' ];
 
         return [
             'elementor-list-forms'               => [

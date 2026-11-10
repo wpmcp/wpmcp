@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Elementor;
 
 use WPMCP\Governance\Governance_Audit_Log;
+use WPMCP\MCP\Opt_In_Required;
 use WPMCP\Tools\CustomCode\Custom_Js_Guard;
 
 if (! defined('ABSPATH')) {
@@ -42,10 +43,12 @@ class Create_Code_Snippet
         // The gate answers before the payload is validated, so an install
         // that never opened it does not reveal that the tool is live.
         if (! Custom_Js_Guard::is_enabled()) {
-            return $this->refuse(
-                'js_gate_closed',
-                'Elementor custom code snippets are disabled. Enable them with the WPMCP_ALLOW_JS_INJECTION constant or the wpmcp_allow_js_injection filter. A snippet runs in every visitor\'s browser; only enable this deliberately.',
-                self::REASON_GATE_CLOSED
+            Governance_Audit_Log::record_quietly(self::ABILITY, false, self::REASON_GATE_CLOSED);
+            return Opt_In_Required::error(
+                'Elementor custom code snippets are disabled.',
+                'wpmcp_allow_js_injection',
+                'WPMCP_ALLOW_JS_INJECTION',
+                'A snippet runs in every visitor\'s browser; only enable this deliberately.'
             );
         }
 

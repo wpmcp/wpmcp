@@ -4,6 +4,7 @@ namespace WPMCP\Tools\Bridge;
 
 use WPMCP\Governance\Governance;
 use WPMCP\MCP\Ability;
+use WPMCP\MCP\Opt_In_Required;
 use WPMCP\Memory\Memory_Guard;
 
 if (! defined('ABSPATH')) {
@@ -55,9 +56,10 @@ class Bridge_Guard
     /** The WP_Error every bridge tool returns while the gate is closed. */
     public static function disabled_error(): \WP_Error
     {
-        return new \WP_Error(
-            'wpmcp_bridge_disabled',
-            'The third-party ability bridge is disabled on this site (default). Opt in with define(\'WPMCP_ENABLE_ABILITY_BRIDGE\', true) or the wpmcp_enable_ability_bridge filter.'
+        return Opt_In_Required::error(
+            'The third-party ability bridge is disabled on this site.',
+            'wpmcp_enable_ability_bridge',
+            'WPMCP_ENABLE_ABILITY_BRIDGE'
         );
     }
 

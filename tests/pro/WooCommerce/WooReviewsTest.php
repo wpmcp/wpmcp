@@ -255,7 +255,7 @@ class WooReviewsTest extends \WP_UnitTestCase
         $before = $this->state($id);
 
         $off = $this->write('reviews.trash', ['id' => $id], ['confirm' => true]);
-        $this->assertSame('operation_disabled', $off['error']['code'] ?? null);
+        $this->assertSame('opt_in_required', $off['error']['code'] ?? null);
 
         add_filter('wpmcp_woo_op_enabled', static fn ($enabled, $op) => 'reviews.trash' === $op ? true : $enabled, 10, 2);
         $unconfirmed = $this->write('reviews.trash', ['id' => $id]);

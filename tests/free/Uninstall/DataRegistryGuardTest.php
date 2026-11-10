@@ -133,6 +133,7 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
         'src/Integrations/Theme_Settings_Pack.php'           => 'theme settings options',
         'src/Integrations/Elementor_Addon_Packs.php'         => 'Elementor add-on settings',
         'src/Integrations/LMS_LearnDash.php'                 => 'LearnDash\'s own enrollment user meta (course_<id>_access_from)',
+        'src/Integrations/Cache_Settings_Adapter.php'        => 'the cache plugin\'s own settings option (wp_rocket_settings, perfmatters_options, FLYING_PRESS_CONFIG)',
     ];
 
     /**

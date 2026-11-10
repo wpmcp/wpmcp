@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\WooCommerce\Catalog;
 
+use WPMCP\MCP\Opt_In_Required;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Snapshot;
 use WPMCP\Safety\Snapshot_Store;
@@ -109,6 +110,39 @@ class Woo_Write
     }
 
     /**
+     * The refusal for an op is_op_enabled() turned down: opt_in_required for
+     * a destructive op the site has not opted into, with the exact filter
+     * call that opens it; operation_disabled for a write op (on by default)
+     * a site switched off with the same filter.
+     *
+     * @param array<string, mixed> $def
+     * @return array<string, mixed>
+     */
+    private static function disabled_refusal(string $op, array $def): array
+    {
+        if ('destructive' !== ($def['mode'] ?? '')) {
+            return Op_Guard::error(
+                'operation_disabled',
+                "Op \"{$op}\" is switched off on this site by a " . self::ENABLE_FILTER
+                . ' filter. Write ops are on by default; remove that filter to restore it.',
+                [ 'filter' => self::ENABLE_FILTER ]
+            );
+        }
+
+        return Op_Guard::error(
+            Opt_In_Required::CODE,
+            Opt_In_Required::message(
+                "Op \"{$op}\" is disabled: destructive WooCommerce ops are opt-in.",
+                self::ENABLE_FILTER,
+                '',
+                '',
+                sprintf("add_filter('%s', fn (\$on, \$op) => '%s' === \$op ? true : \$on, 10, 2);", self::ENABLE_FILTER, $op)
+            ),
+            [ 'filter' => self::ENABLE_FILTER ]
+        );
+    }
+
+    /**
      * @param mixed $items
      */
     private function handle_batch($items, bool $confirm, string $session_id): array
@@ -208,12 +242,7 @@ class Woo_Write
         }
 
         if (! self::is_op_enabled($op, $def)) {
-            return Op_Guard::error(
-                'operation_disabled',
-                "Op \"{$op}\" is disabled. Destructive ops are off by default; a site enables one with the "
-                . self::ENABLE_FILTER . ' filter.',
-                [ 'filter' => self::ENABLE_FILTER ]
-            );
+            return self::disabled_refusal($op, $def);
         }
 
         if ('destructive' === $def['mode'] && ! $confirm) {

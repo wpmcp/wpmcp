@@ -123,6 +123,7 @@ final class JetEngine_Pack
                 'objects'            => [ 'post_id' => 'post' ],
                 'description'        => 'Set JetEngine field values on a post (keys must be fields of its post type). Snapshotted on the post; restorable with rollback-operation. Off until the site opts in via the wpmcp_enable_jetengine_write filter',
                 'enabled_by_default' => (bool) apply_filters('wpmcp_enable_jetengine_write', false),
+                'opt_in_filter'      => 'wpmcp_enable_jetengine_write',
                 'input_schema'       => Plugin_Data_Integration::update_fields_schema(),
                 'requires'           => $requires,
                 'validate'           => static fn (array $args): ?array => self::refusal($args, true),

@@ -143,6 +143,7 @@ final class Theme_Framework_Pack
                 'mode'               => 'write',
                 'capability'         => 'edit_theme_options',
                 'enabled_by_default' => (bool) apply_filters('wpmcp_enable_theme_write', false),
+                'opt_in_filter'      => 'wpmcp_enable_theme_write',
                 'description'        => 'Set allowlisted Astra theme settings (colors as hex, rgb/rgba, or an Astra palette reference like var(--ast-global-color-0); site-content-width as pixels). Values are sanitized per key, the whole batch is rejected before any write if one is invalid, the astra-settings option is snapshotted for rollback-operation, and Astra\'s compiled CSS cache is refreshed afterwards',
                 'input_schema'       => [
                     'type'       => 'object',

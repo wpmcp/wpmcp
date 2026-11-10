@@ -87,6 +87,7 @@ class ACF_Integration extends Integration_Dispatcher
                 'objects'            => [ 'post_id' => 'post' ],
                 'description'        => 'Set one or more ACF field values on a post via update_field(). Snapshotted on the post target; restorable with rollback-operation. Disabled by default (site opts in via the wpmcp_enable_acf_write filter)',
                 'enabled_by_default' => (bool) apply_filters('wpmcp_enable_acf_write', false),
+                'opt_in_filter'      => 'wpmcp_enable_acf_write',
                 'input_schema'       => [
                     'type'       => 'object',
                     'properties' => [
@@ -128,6 +129,7 @@ class ACF_Integration extends Integration_Dispatcher
             'description'        => $description . ' Upsert by key (omit key to create). Snapshotted; rollback-operation restores it exactly. Disabled by default (wpmcp_enable_acf_write filter)',
             'capability'         => $cap,
             'enabled_by_default' => $writes_on,
+            'opt_in_filter'      => 'wpmcp_enable_acf_write',
             'input_schema'       => [
                 'type'       => 'object',
                 'properties' => [ 'key' => $key ] + $properties,
@@ -209,6 +211,7 @@ class ACF_Integration extends Integration_Dispatcher
                 'description'        => 'Set field values on an options page via update_field(). Snapshotted; rollback-operation restores the prior rows exactly. Needs ACF Pro. Disabled by default (wpmcp_enable_acf_write filter)',
                 'capability'         => $cap,
                 'enabled_by_default' => $writes_on,
+                'opt_in_filter'      => 'wpmcp_enable_acf_write',
                 'requires'           => [ ACF_Options::class, 'requirement' ],
                 'input_schema'       => [
                     'type'       => 'object',

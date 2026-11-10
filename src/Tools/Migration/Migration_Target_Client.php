@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Migration;
 
+use WPMCP\MCP\Opt_In_Required;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -158,7 +160,10 @@ class Migration_Target_Client
             : sprintf(is_array($data) ? 'HTTP %d with a body that wpmcp did not write' : 'HTTP %d with no JSON body', $code);
         $reason     = is_array($data) && isset($data['code']) && is_scalar($data['code']) ? (string) $data['code'] : 'http_' . $code;
 
-        if (in_array($code, [401, 403], true) && 'wpmcp_migration_receive_disabled' !== $reason) {
+        // A closed receive gate is the target's own answer, not a credentials
+        // problem: opt_in_required now, wpmcp_migration_receive_disabled from
+        // a target on an older wpmcp.
+        if (in_array($code, [401, 403], true) && ! in_array($reason, [ Opt_In_Required::CODE, 'wpmcp_migration_receive_disabled' ], true)) {
             $message .= ' (check that the credentials belong to an administrator on the target, that application passwords are available there, and that wpmcp is active on the target)';
         } elseif (404 === $code) {
             $message .= ' (the target has no receive-site-archive ability: is wpmcp installed and up to date there?)';

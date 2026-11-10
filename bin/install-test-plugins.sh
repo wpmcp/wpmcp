@@ -31,7 +31,10 @@
 # --live-elementor-pro), or, with WPMCP_LIVE_JET_ELEMENTS=1, Elementor plus
 # a local copy of JetElements (WPMCP_JET_ELEMENTS_SRC) only (bin/test-local.sh
 # --live-jet-elements), or, with WPMCP_LIVE_WP_MAIL_SMTP=1, WP Mail SMTP
-# only (bin/test-local.sh --live-wp-mail-smtp).
+# only (bin/test-local.sh --live-wp-mail-smtp), or, with
+# WPMCP_LIVE_CACHE_SETTINGS=1, local copies of WP Rocket, Perfmatters and
+# FlyingPress (WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC,
+# WPMCP_FLYING_PRESS_SRC) only (bin/test-local.sh --live-cache-settings).
 # The script is idempotent: plugins already present are left untouched, so it
 # is safe to run repeatedly both locally and from CI.
 #
@@ -380,6 +383,36 @@ if [ "${WPMCP_LIVE_WC_BOOKINGS:-}" = "1" ]; then
 		rm -rf "$PLUGINS_DIR/woocommerce-bookings"
 		cp -R "$src" "$PLUGINS_DIR/woocommerce-bookings"
 		echo "Copied WooCommerce Bookings $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/woocommerce-bookings.php" | head -n 1) from $src."
+	fi
+fi
+
+# The live cache settings job (issue #692) runs the WP Rocket, Perfmatters
+# and FlyingPress settings ops through the real plugins. All three are
+# commercial and not on wordpress.org, so each is copied from a local
+# directory holding it (WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC,
+# WPMCP_FLYING_PRESS_SRC) when set, instead of downloaded. Exclusive too: the
+# stub-backed settings tests seed each plugin's option and fake its presence.
+if [ "${WPMCP_LIVE_CACHE_SETTINGS:-}" = "1" ]; then
+	PLUGINS=()
+	if [ "$list_only" = false ]; then
+		copied=0
+		for pair in "wp-rocket:wp-rocket.php:${WPMCP_WP_ROCKET_SRC:-}" "perfmatters:perfmatters.php:${WPMCP_PERFMATTERS_SRC:-}" "flying-press:flying-press.php:${WPMCP_FLYING_PRESS_SRC:-}"; do
+			IFS=: read -r slug main src <<<"$pair"
+			[ -n "$src" ] || continue
+			if [ ! -f "$src/$main" ]; then
+				echo "The live cache settings job needs $src to hold the $slug plugin ($main)." >&2
+				exit 1
+			fi
+			mkdir -p "$PLUGINS_DIR"
+			rm -rf "${PLUGINS_DIR:?}/$slug"
+			cp -R "$src" "$PLUGINS_DIR/$slug"
+			echo "Copied $slug $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/$main" | head -n 1) from $src."
+			copied=$((copied + 1))
+		done
+		if [ "$copied" -eq 0 ]; then
+			echo "WPMCP_LIVE_CACHE_SETTINGS=1 needs at least one of WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC and WPMCP_FLYING_PRESS_SRC." >&2
+			exit 1
+		fi
 	fi
 fi
 

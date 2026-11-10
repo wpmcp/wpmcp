@@ -112,7 +112,7 @@ class CodeSnippetsActivationTest extends \WP_UnitTestCase
         $id  = $this->seed();
         $out = $this->activate($id);
 
-        $this->assertSame('php_execution_disabled', $out['error']['code'] ?? null);
+        $this->assertSame('opt_in_required', $out['error']['code'] ?? null);
         $this->assertSame('0', (string) Code_Snippet_Snapshot::row($id)['active']);
         $this->assertSame([], Snapshot_Store::recent(5));
         $this->assertFalse((bool) $this->audit()[0]['allowed']);

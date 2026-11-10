@@ -101,6 +101,11 @@
 #      so not downloadable here), beside the pinned free Elementor: submissions
 #      Elementor Pro stores through its own Query are listed, read, exported,
 #      trashed and deleted through the ops, and every write rolls back.
+#  23b. Runs the live cache settings groups (issue #692) when any of
+#      WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC and WPMCP_FLYING_PRESS_SRC
+#      names a local copy of WP Rocket, Perfmatters or FlyingPress
+#      (commercial, so not downloadable here): each plugin's settings read,
+#      changed and rolled back through its own save path, and its preload.
 #  24. Runs the live JetElements group (issue #653) when
 #      WPMCP_JET_ELEMENTS_SRC names a local copy of JetElements (commercial,
 #      so not downloadable here), beside the pinned free Elementor: its
@@ -126,9 +131,16 @@
 # on branches that touch the installers or the pins once filled 73 GB in one
 # night (9 to 10 November 2026). So:
 #   - At most WPMCP_TEST_MAX_PARALLEL runs (default 1, so gates queue instead
-#     of colliding on the shared caches) go at once across all worktrees, each holding a slot under $CACHE/locks/run-<n>; another run
-#     says it is waiting and waits up to WPMCP_TEST_SLOT_TIMEOUT seconds
-#     (default 3600). A slot whose holder has died is taken over.
+#     of colliding on the shared caches) go at once across all worktrees,
+#     each holding a slot under $CACHE/locks/run-<n>; another run says it is
+#     waiting and waits up to WPMCP_TEST_SLOT_TIMEOUT seconds (default 3600).
+#     A slot whose holder has died is taken over. Targeted runs (PHPUnit
+#     arguments after --, such as -- --filter Foo) take no slot, so they never
+#     wait behind a gate: their core copy, database and config are per run,
+#     and the installs they share are keyed on their contents and never
+#     changed once ready. They still pass the free-space guard and prune to
+#     the budget below, and an install pruned from under them before they
+#     claim it is built again.
 #   - Before a run, and before building an install, free space on the cache's
 #     volume is checked: under WPMCP_TEST_MIN_FREE_GB (default 20) the cache is
 #     pruned to the two most recently used installs, and under
@@ -200,6 +212,7 @@
 #   bin/test-local.sh --live-divi     only the live Divi group (needs WPMCP_DIVI_SRC)
 #   bin/test-local.sh --live-memberpress only the live MemberPress group (needs WPMCP_MEMBERPRESS_SRC)
 #   bin/test-local.sh --live-elementor-pro only the live Elementor Pro group (needs WPMCP_ELEMENTOR_PRO_SRC)
+#   bin/test-local.sh --live-cache-settings only the live cache settings groups (needs at least one of WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC, WPMCP_FLYING_PRESS_SRC)
 #   bin/test-local.sh --live-jet-elements only the live JetElements group (needs WPMCP_JET_ELEMENTS_SRC)
 #   bin/test-local.sh --live-wc-subscriptions only the live WooCommerce Subscriptions group (needs WPMCP_WC_SUBSCRIPTIONS_SRC)
 #   bin/test-local.sh --live-theme-pro only the live theme add-on group (needs at least one of
@@ -208,7 +221,8 @@
 #   bin/test-local.sh --live-wp-mail-smtp only the live WP Mail SMTP group (real WP Mail SMTP)
 #   bin/test-local.sh --live-adapter  only the adapter leg (both suites on the released MCP Adapter plugin)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments, default WordPress only; skips lint,
-#                                     drift, coverage, the floor leg and the live groups
+#                                     drift, coverage, the floor leg and the live groups,
+#                                     and takes no run slot (it never queues behind a gate)
 #   bin/test-local.sh --plan [...]    print the legs the other options would run, run nothing
 #   bin/test-local.sh --resolve-plugins [--wp V] print the test plugin versions and the
 #                                     install a run would use, install nothing
@@ -225,7 +239,8 @@
 #                        the two most recently used installs (default 20)
 #   WPMCP_TEST_HARD_MIN_FREE_GB  below this much free space, after pruning, a
 #                        run stops (default 10)
-#   WPMCP_TEST_MAX_PARALLEL  most runs at once across worktrees (default 1)
+#   WPMCP_TEST_MAX_PARALLEL  most full runs at once across worktrees (default 1;
+#                        targeted runs do not count)
 #   WPMCP_TEST_SLOT_TIMEOUT  seconds a run waits for a slot (default 3600)
 #   WPMCP_TEST_DOWNLOAD_TTL_DAYS  a cached download unused this long is
 #                        removed (default 30)
@@ -265,6 +280,11 @@
 #   WPMCP_ELEMENTOR_PRO_SRC a local Elementor Pro plugin directory for the live
 #                        Elementor Pro group; without it that group is not run,
 #                        except under --live-elementor-pro, where it is an error
+#   WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC, WPMCP_FLYING_PRESS_SRC local
+#                        WP Rocket, Perfmatters and FlyingPress plugin
+#                        directories for the live cache settings groups; each
+#                        plugin's group runs only when its directory is set,
+#                        and --live-cache-settings without any is an error
 #   WPMCP_JET_ELEMENTS_SRC a local JetElements plugin directory for the live
 #                        JetElements group; without it that group is not run,
 #                        except under --live-jet-elements, where it is an error
@@ -354,6 +374,7 @@ only_live_amelia=false
 only_live_wc_subscriptions=false
 only_live_wc_bookings=false
 only_live_elementor_pro=false
+only_live_cache_settings=false
 only_live_jet_elements=false
 only_live_wp_mail_smtp=false
 only_live_adapter=false
@@ -389,6 +410,7 @@ while [ $# -gt 0 ]; do
 		--live-wc-subscriptions) only_live_wc_subscriptions=true ;;
 		--live-wc-bookings) only_live_wc_bookings=true ;;
 		--live-elementor-pro) only_live_elementor_pro=true ;;
+		--live-cache-settings) only_live_cache_settings=true ;;
 		--live-jet-elements) only_live_jet_elements=true ;;
 		--live-wp-mail-smtp) only_live_wp_mail_smtp=true ;;
 		--live-adapter) only_live_adapter=true ;;
@@ -441,7 +463,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -463,6 +485,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_theme_pro" = false ] || LEGS+=("live-theme-pro ${only_wp:-$default_wp}")
 	[ "$only_live_wc_bookings" = false ] || LEGS+=("live-wc-bookings ${only_wp:-$default_wp}")
 	[ "$only_live_elementor_pro" = false ] || LEGS+=("live-elementor-pro ${only_wp:-$default_wp}")
+	[ "$only_live_cache_settings" = false ] || LEGS+=("live-cache-settings ${only_wp:-$default_wp}")
 	[ "$only_live_jet_elements" = false ] || LEGS+=("live-jet-elements ${only_wp:-$default_wp}")
 	[ "$only_live_wp_mail_smtp" = false ] || LEGS+=("live-wp-mail-smtp ${only_wp:-$default_wp}")
 	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
@@ -526,6 +549,9 @@ else
 		fi
 		if [ -n "${WPMCP_ELEMENTOR_PRO_SRC:-}" ]; then
 			LEGS+=("live-elementor-pro $default_wp")
+		fi
+		if [ -n "${WPMCP_WP_ROCKET_SRC:-}${WPMCP_PERFMATTERS_SRC:-}${WPMCP_FLYING_PRESS_SRC:-}" ]; then
+			LEGS+=("live-cache-settings $default_wp")
 		fi
 		if [ -n "${WPMCP_JET_ELEMENTS_SRC:-}" ]; then
 			LEGS+=("live-jet-elements $default_wp")
@@ -680,6 +706,9 @@ install_flavor() {
 	[ "${WPMCP_LIVE_WC_BOOKINGS:-}" = 1 ] && flavor="-wc-bookings-live"
 	# And WPMCP_LIVE_ELEMENTOR_PRO=1, Elementor and the local Elementor Pro copy.
 	[ "${WPMCP_LIVE_ELEMENTOR_PRO:-}" = 1 ] && flavor="-elementor-pro-live"
+	# And WPMCP_LIVE_CACHE_SETTINGS=1 and the local cache plugin copies.
+	# The copies present are part of the name, so adding one gets a fresh install.
+	[ "${WPMCP_LIVE_CACHE_SETTINGS:-}" = 1 ] && flavor="-cache${WPMCP_WP_ROCKET_SRC:+-rocket}${WPMCP_PERFMATTERS_SRC:+-perfmatters}${WPMCP_FLYING_PRESS_SRC:+-flyingpress}-live"
 	# And WPMCP_LIVE_JET_ELEMENTS=1, Elementor and the local JetElements copy.
 	[ "${WPMCP_LIVE_JET_ELEMENTS:-}" = 1 ] && flavor="-jet-elements-live"
 	# And WPMCP_LIVE_WP_MAIL_SMTP=1 and WP Mail SMTP.
@@ -779,12 +808,18 @@ install_target() {
 install_wp() {
 	local version=$1 dir
 	dir=$(install_target "$version") || exit 1
-	if [ ! -f "$dir/.ready" ]; then
-		with_lock "install-$(basename "$dir")" install_wp_locked "$version" "$dir"
-	fi
 	# Claims the install for this run, so no prune removes it before the run
-	# exits, and marks it used for the least-recently-used order.
-	with_lock prune claim_install "$dir" || die "the install $(basename "$dir") was pruned before this run could claim it; run again"
+	# exits, and marks it used for the least-recently-used order. Targeted runs
+	# go beside a gate, so another run's prune may remove the install between
+	# the build and the claim: it is then built again, once.
+	for attempt in 1 2; do
+		if [ ! -f "$dir/.ready" ]; then
+			with_lock "install-$(basename "$dir")" install_wp_locked "$version" "$dir"
+		fi
+		with_lock prune claim_install "$dir" && break
+		[ "$attempt" = 1 ] || die "the install $(basename "$dir") was pruned twice before this run could claim it; run again"
+		say "The install $(basename "$dir") was pruned before this run could claim it; building it again." >&2
+	done
 	touch "$dir/.last-used"
 	plugin_note "$dir"
 	echo "$dir"
@@ -1539,6 +1574,28 @@ run_live_elementor_pro() {
 	unset WPMCP_LIVE_ELEMENTOR_PRO
 }
 
+# The live cache settings groups (issue #692), the same way, with each of WP
+# Rocket, Perfmatters and FlyingPress copied from its WPMCP_*_SRC when set:
+# their own install, their own database, and --fail-on-skipped over the
+# groups of the plugins present.
+run_live_cache_settings() {
+	local version=$1 dir core config groups=()
+	[ -z "${WPMCP_WP_ROCKET_SRC:-}" ] || { [ -f "$WPMCP_WP_ROCKET_SRC/wp-rocket.php" ] || die "WPMCP_WP_ROCKET_SRC must be a directory holding the WP Rocket plugin"; groups+=(cache-wp-rocket-live); }
+	[ -z "${WPMCP_PERFMATTERS_SRC:-}" ] || { [ -f "$WPMCP_PERFMATTERS_SRC/perfmatters.php" ] || die "WPMCP_PERFMATTERS_SRC must be a directory holding the Perfmatters plugin"; groups+=(cache-perfmatters-live); }
+	[ -z "${WPMCP_FLYING_PRESS_SRC:-}" ] || { [ -f "$WPMCP_FLYING_PRESS_SRC/flying-press.php" ] || die "WPMCP_FLYING_PRESS_SRC must be a directory holding the FlyingPress plugin"; groups+=(cache-flyingpress-live); }
+	[ ${#groups[@]} -gt 0 ] || die "the live cache settings groups need at least one of WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC and WPMCP_FLYING_PRESS_SRC"
+	export WPMCP_LIVE_CACHE_SETTINGS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-cache-settings-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live cache settings groups on WordPress $version (${groups[*]})"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group "$(IFS=,; echo "${groups[*]}")" --fail-on-skipped
+	unset WPMCP_LIVE_CACHE_SETTINGS
+}
+
 # The live JetElements group (issue #653), the same way, with JetElements
 # copied from WPMCP_JET_ELEMENTS_SRC beside the pinned Elementor: its own
 # install, its own database and --fail-on-skipped.
@@ -1723,7 +1780,17 @@ trap finish_run EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-acquire_slot
+# Only full gates queue for a run slot. A targeted run (PHPUnit arguments
+# after --) shares nothing it could corrupt with a gate going at the same
+# time: its core copy, database and config are its own (keyed on its pid),
+# installs are keyed on their contents, built under their own lock and never
+# changed once ready, and it claims the one it uses. So it skips the slot,
+# but not the free-space guard or the cache budget.
+if [ "$targeted" = true ]; then
+	say "Targeted run: not waiting for a run slot (only full gates queue)."
+else
+	acquire_slot
+fi
 space_guard
 
 # Point git at the versioned hooks, so the pre-push gate is on in every
@@ -1775,6 +1842,7 @@ run_leg_body() {
 		live-divi) run_live_divi "$wp" ;;
 		live-memberpress) run_live_memberpress "$wp" ;;
 		live-elementor-pro) run_live_elementor_pro "$wp" ;;
+		live-cache-settings) run_live_cache_settings "$wp" ;;
 		live-jet-elements) run_live_jet_elements "$wp" ;;
 		live-amelia) run_live_amelia "$wp" ;;
 		live-wc-subscriptions) run_live_wc_subscriptions "$wp" ;;
