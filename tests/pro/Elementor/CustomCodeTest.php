@@ -27,6 +27,11 @@ class CustomCodeTest extends \WP_UnitTestCase
         Gate::set_pro_for_tests(true);
         Snapshot_Store::install();
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        // add-custom-css needs edit_css and create-code-snippet needs
+        // unfiltered_html behind the default-off JS gate (issue #558); the
+        // refusals are covered by CodeSnippetScriptGateTest.
+        wpmcp_test_grant_network_admin(get_current_user_id());
+        add_filter('wpmcp_allow_js_injection', '__return_true');
 
         // Elementor Pro registers this; simulate it so the CPT tools are testable.
         if (! post_type_exists('elementor_snippet')) {
@@ -36,6 +41,7 @@ class CustomCodeTest extends \WP_UnitTestCase
 
     protected function tearDown(): void
     {
+        remove_all_filters('wpmcp_allow_js_injection');
         Gate::set_pro_for_tests(null);
         parent::tearDown();
     }
@@ -72,6 +78,37 @@ class CustomCodeTest extends \WP_UnitTestCase
         $out = (new Add_Custom_Css())->handle([]);
         $this->assertInstanceOf(\WP_Error::class, $out);
         $this->assertSame('missing_css', $out->get_error_code());
+    }
+
+    /** Discussion #749: css "" with replace=true clears the Additional CSS, undoably. */
+    public function test_empty_css_with_replace_clears_and_is_undoable(): void
+    {
+        (new Add_Custom_Css())->handle(['css' => '.keep{color:red}']);
+        $rows = Snapshot_Store::row_count();
+
+        $out = (new Add_Custom_Css())->handle(['css' => '', 'replace' => true]);
+
+        $this->assertIsArray($out);
+        $this->assertTrue($out['cleared']);
+        $this->assertSame('', $out['css']);
+        $this->assertSame('', trim((string) wp_get_custom_css()));
+        $this->assertSame($rows + 1, Snapshot_Store::row_count(), 'Clearing is a snapshotted write.');
+
+        $restored = (new \WPMCP\Tools\Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        $this->assertTrue($restored['restored']);
+        $this->assertStringContainsString('.keep{color:red}', wp_get_custom_css());
+    }
+
+    /** Discussion #749: without replace, empty css keeps the refusal. */
+    public function test_empty_css_without_replace_is_still_refused(): void
+    {
+        (new Add_Custom_Css())->handle(['css' => '.keep{}']);
+
+        $out = (new Add_Custom_Css())->handle(['css' => '', 'replace' => false]);
+
+        $this->assertInstanceOf(\WP_Error::class, $out);
+        $this->assertSame('missing_css', $out->get_error_code());
+        $this->assertStringContainsString('.keep{}', wp_get_custom_css());
     }
 
     public function test_add_custom_css_returns_operation_id(): void

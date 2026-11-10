@@ -40,11 +40,14 @@ class Update_Crawler_Files
 
         if ($has_robots) {
             $next['robots_rules'] = Crawler_Files::sanitize_robots_rules((string) $args['robots_rules']);
+            if (isset($args['user_agent']) && '' !== (string) $args['user_agent']) {
+                $next['robots_rules'] = Crawler_Files::rules_for_user_agent($next['robots_rules'], (string) $args['user_agent']);
+            }
             if ('' !== $next['robots_rules'] && Crawler_Files::has_physical_file('robots.txt')) {
                 $refused[] = 'A physical robots.txt at the site root is served instead of the virtual one; edit or remove that file.';
             }
             if ('' !== $next['robots_rules'] && '' !== SEO_Adapter::active_plugin()) {
-                $notes[] = sprintf('The rules are appended after the robots.txt output of %s.', Crawler_Files::plugin_name(SEO_Adapter::active_plugin()));
+                $notes[] = sprintf('The rules are merged into the User-agent groups of the robots.txt output of %s.', Crawler_Files::plugin_name(SEO_Adapter::active_plugin()));
             }
         }
 

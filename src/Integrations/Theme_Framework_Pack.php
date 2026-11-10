@@ -20,7 +20,8 @@ if (! defined('ABSPATH')) {
  * frameworks). Kadence, GeneratePress and Blocksy (issue #288) keep their
  * settings in nested theme storage, so each is a declarative spec built
  * by Theme_Settings_Pack; a further family adds another case to
- * spec().
+ * spec(). Astra Pro, Kadence Pro and GP Premium custom layouts (issue
+ * #656) are Theme_Layouts_Pack ops for the same active family.
  */
 final class Theme_Framework_Pack
 {
@@ -46,6 +47,17 @@ final class Theme_Framework_Pack
      * @return array<string,array<string,mixed>>
      */
     public static function operations(?string $framework): array
+    {
+        return array_merge(self::settings_operations($framework), Theme_Layouts_Pack::operations($framework));
+    }
+
+    /**
+     * The settings pack of the active framework family, or none. The
+     * premium add-on layout ops (issue #656) join it in operations().
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    private static function settings_operations(?string $framework): array
     {
         if ('astra' === $framework) {
             return self::astra_pack();

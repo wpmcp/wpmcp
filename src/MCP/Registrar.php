@@ -30,11 +30,23 @@ class Registrar
     /** @var Ability[] every ability handed to register(), before any gating. */
     private array $declared = [];
 
+    /**
+     * Abilities left unregistered because their host plugin is not active
+     * (issue #790), with the plugin to name in the refusal. Kept apart from
+     * $declared: they are not part of the surface the ability grid shows.
+     *
+     * @var array<string, array{ability: Ability, plugin: string, several: bool}>
+     */
+    private array $held_for_plugin = [];
+
     /** @var array<string, true> abilities whose execute() has begun but not yet checked permission. */
     private static array $invoked = [];
 
     /** The last decision recorded by a check made outside execute(). */
     private static ?string $standalone = null;
+
+    /** Depth of quietly() probes running: above 0, decisions are not audited. */
+    private static int $quiet = 0;
 
     /** How many tool calls are running, counting a tool one dispatches. */
     private static int $depth = 0;
@@ -133,6 +145,12 @@ class Registrar
         $reason  = $this->denial_reason($a, $input);
         $allowed = null === $reason;
 
+        if (self::$quiet > 0) {
+            // A probe inside quietly(): the decision is the same one, but no
+            // call is being made, so there is nothing to audit (issue #733).
+            return $allowed;
+        }
+
         // One call, one row (issue #412). The adapter's tools/call and
         // core's REST run route both check permission and then call
         // execute(), which checks again. The check inside execute() (marked
@@ -169,7 +187,92 @@ class Registrar
 
         // An input naming an agent memory entry is told to use the memory
         // tools (issue #517) rather than handed a bare permission denial.
-        return Client_Access::denial($a) ?? Content_Guard::input_refusal($a, $input) ?? false;
+        return Client_Access::denial($a) ?? self::plugin_missing($a) ?? Content_Guard::input_refusal($a, $input) ?? false;
+    }
+
+    /**
+     * Governance domains whose every tool needs one plugin loaded, keyed by
+     * domain: the plugin's name for the refusal, its slug for the error
+     * data, and the class or function that is present only while the plugin
+     * is active (issue #631). Named as strings: the directory build strips
+     * some of these integrations, and this core class must not name a class
+     * a build lacks.
+     *
+     * Integration dispatcher pairs are not listed: they answer
+     * integration_unavailable themselves, and their list-operations op works
+     * without the plugin. Neither is Elementor: its tools read stored
+     * Elementor data and detect the version without Elementor loaded, and
+     * each one that needs the runtime refuses with elementor_not_active.
+     *
+     * @var array<string, array{name: string, slug: string, class?: string, function?: string}>
+     */
+    private const PLUGIN_DOMAINS = [
+        'woocommerce' => [ 'name' => 'WooCommerce', 'slug' => 'woocommerce', 'class' => 'WooCommerce' ],
+        'acf'         => [ 'name' => 'Advanced Custom Fields', 'slug' => 'advanced-custom-fields', 'function' => 'acf_get_field_groups' ],
+    ];
+
+    /** @var array<string, bool> Test seam: per domain, stands in for whether its plugin is loaded. */
+    private static array $plugin_loaded_for_tests = [];
+
+    public static function set_plugin_loaded_for_tests(string $domain, ?bool $loaded): void
+    {
+        if (! defined('WPMCP_TESTING') || ! WPMCP_TESTING) {
+            return;
+        }
+        if (null === $loaded) {
+            unset(self::$plugin_loaded_for_tests[ $domain ]);
+            return;
+        }
+        self::$plugin_loaded_for_tests[ $domain ] = $loaded;
+    }
+
+    public static function set_woocommerce_loaded_for_tests(?bool $loaded): void
+    {
+        self::set_plugin_loaded_for_tests('woocommerce', $loaded);
+    }
+
+    /** Whether the plugin a domain depends on is loaded; true for a domain with none. */
+    private static function plugin_loaded(string $domain): bool
+    {
+        $dependency = self::PLUGIN_DOMAINS[ $domain ] ?? null;
+        if (null === $dependency) {
+            return true;
+        }
+        if (isset(self::$plugin_loaded_for_tests[ $domain ])) {
+            return self::$plugin_loaded_for_tests[ $domain ];
+        }
+        if (isset($dependency['class'])) {
+            return class_exists($dependency['class']);
+        }
+        return function_exists($dependency['function'] ?? '');
+    }
+
+    /**
+     * The refusal for a tool whose plugin is not active (issue #631), or
+     * null when the plugin is loaded or the tool needs none. Asked twice:
+     * after a permission denial, because a plugin never installed leaves no
+     * capability and "Permission denied" points at the wrong fix; and before
+     * every callback, because a deactivated plugin (WooCommerce) leaves its
+     * capabilities on the administrator role, so the permission check passes
+     * and the callback would call functions that are not there. It never
+     * allows anything.
+     */
+    private static function plugin_missing(Ability $a): ?\WP_Error
+    {
+        if (self::plugin_loaded($a->domain)) {
+            return null;
+        }
+        $dependency = self::PLUGIN_DOMAINS[ $a->domain ];
+
+        return new \WP_Error(
+            'plugin_missing',
+            sprintf(
+                '%1$s is not active on this site, so %2$s cannot run. Install and activate %1$s, then try again.',
+                $dependency['name'],
+                $a->name
+            ),
+            [ 'status' => 403, 'plugin' => $dependency['slug'] ]
+        );
     }
 
     /**
@@ -181,6 +284,30 @@ class Registrar
     public static function note_invoked($name): void
     {
         self::$invoked[ (string) $name ] = true;
+    }
+
+    /**
+     * Runs $probe with audit rows suppressed, for a caller that must ask the
+     * full permission path (the registered permission_callback and core's
+     * wp_ability_permission_result filter, which would_permit() does not
+     * reach) about a call nobody is making. The handshake summary (issue
+     * #733) is one: it asks whether the connecting client could call
+     * get-site-context, and recording that as a call wrote a row, and so
+     * rewrote the whole audit option, on every initialize and
+     * server/discover.
+     *
+     * @template T
+     * @param callable(): T $probe
+     * @return T
+     */
+    public static function quietly(callable $probe)
+    {
+        self::$quiet++;
+        try {
+            return $probe();
+        } finally {
+            self::$quiet--;
+        }
     }
 
     /**
@@ -295,6 +422,106 @@ class Registrar
     }
 
     /**
+     * The refusal for a name that is not registered because it is a Pro
+     * tool and this install has no active license (issue #631), or null
+     * when that is not the reason. Lets the meta-tools say "needs WP MCP
+     * Pro" instead of "no tool by that name". Grants nothing: the tool is
+     * still unregistered and unreachable.
+     */
+    public function pro_required(string $name): ?\WP_Error
+    {
+        $declared = $this->declared[ $name ] ?? $this->held_for_plugin[ $name ]['ability'] ?? null;
+        if (null === $declared || isset($this->abilities[ $name ]) || self::tier_permitted($declared->tier)) {
+            return null;
+        }
+
+        return new \WP_Error(
+            'pro_required',
+            sprintf(
+                '"%s" is a WP MCP Pro tool, and this site has no active WP MCP Pro license, so the tool is not available here. Activate a WP MCP Pro license on this site to use it.',
+                $name
+            )
+        );
+    }
+
+    /**
+     * Note an ability that is not registered because the plugin it works
+     * with is not active (issue #790): a pair whose integration registers
+     * only while its host plugin is loaded. $plugin names that plugin, or,
+     * with $several, the plugins any one of which would do. Grants nothing.
+     */
+    public function hold_for_plugin(Ability $a, string $plugin, bool $several = false): void
+    {
+        $this->held_for_plugin[ $a->name ] = [ 'ability' => $a, 'plugin' => $plugin, 'several' => $several ];
+    }
+
+    /**
+     * The refusal for a name that is not registered because its plugin is
+     * not active (issue #790), or null when that is not the reason. Names
+     * the plugin to activate instead of claiming no such tool exists. A
+     * tool this install's tier cannot run is left to the tier refusal,
+     * since activating the plugin alone would not bring it back. Grants
+     * nothing: the tool stays unregistered and unreachable.
+     */
+    public function plugin_inactive(string $name): ?\WP_Error
+    {
+        $held = $this->held_for_plugin[ $name ] ?? null;
+        if (null === $held || isset($this->abilities[ $name ]) || ! self::tier_permitted($held['ability']->tier)) {
+            return null;
+        }
+
+        $message = $held['several']
+            ? sprintf(
+                'None of the plugins %1$s works with is active on this site (%2$s), so %1$s cannot run. Install and activate one of them, then try again.',
+                $name,
+                $held['plugin']
+            )
+            : sprintf(
+                '%1$s is not active on this site, so %2$s cannot run. Install and activate %1$s, then try again.',
+                $held['plugin'],
+                $name
+            );
+
+        return new \WP_Error('plugin_missing', $message, [ 'plugin' => $held['plugin'] ]);
+    }
+
+    /**
+     * The refusal for a name that is declared but not registered because
+     * governance switched it off (issue #772), or null when that is not
+     * the reason. Names the layer that decided (an ability, domain or
+     * operation toggle, or one of the wpmcp_*_enabled filters) and where
+     * to switch it back on, instead of the "not registered" answer an
+     * unknown name gets. Grants nothing: the tool stays unregistered.
+     */
+    public function governance_disabled(string $name): ?\WP_Error
+    {
+        $declared = $this->declared[ $name ] ?? null;
+        if (null === $declared || isset($this->abilities[ $name ]) || ! self::tier_permitted($declared->tier)) {
+            return null;
+        }
+        $layer = Governance::explain($declared)['layer'];
+        if (null === $layer) {
+            return null;
+        }
+
+        [ $dimension, $kind ] = explode('_', $layer, 2);
+        $key                  = 'ability' === $dimension ? $name : $declared->{$dimension};
+        if ('toggle' === $kind) {
+            $cause = sprintf('the %s toggle for "%s" is off', $dimension, $key);
+            $fix   = 'An administrator can switch it back on under WP MCP > Abilities in wp-admin, or with wpmcp/update-governance-settings.';
+        } else {
+            $cause = sprintf('the wpmcp_%s_enabled filter on this site switches off "%s"', $dimension, $key);
+            $fix   = 'An administrator or developer has to change that filter in the site code before it can be used.';
+        }
+
+        return new \WP_Error(
+            'governance_disabled',
+            sprintf('"%s" is registered on this site but disabled by governance: %s. %s', $name, $cause, $fix),
+            [ 'layer' => $layer, 'dimension' => $dimension, 'key' => $key ]
+        );
+    }
+
+    /**
      * Record a governance-decision outcome to Governance_Audit_Log. Wrapped
      * in a try/catch so a logging failure (e.g. an option-write error) can
      * never turn an otherwise-successful permission check into a fatal
@@ -348,6 +575,14 @@ class Registrar
                 return $error;
             }
 
+            // A tool whose plugin is not active never reaches its callback
+            // (issue #631), whatever the permission check decided.
+            $missing = self::plugin_missing($a);
+            if (null !== $missing) {
+                $this->record_outcome($a, $client, $missing, 0, $args, null);
+                return $missing;
+            }
+
             // Bracket the call rather than resetting the context, so a tool
             // that dispatches another tool cannot steal this call's undo point.
             $mark    = Operation_Context::mark();
@@ -379,8 +614,8 @@ class Registrar
                     Confirmation_Required::observe($e);
                 }
                 // A failed write still leaves a snapshot behind, so the row
-                // keeps its undo point; the exception itself is re-thrown
-                // untouched.
+                // keeps its undo point, and the row keeps the real exception
+                // class, which the WP_Error below no longer carries.
                 $this->record_outcome(
                     $a,
                     $client,
@@ -389,7 +624,14 @@ class Registrar
                     $args,
                     Operation_Context::since($mark)
                 );
-                throw $e;
+                // Returned, not re-thrown (issue #612). WordPress 7.1 turns
+                // anything a callback throws into this same WP_Error inside
+                // WP_Ability, but 6.9 has no such catch: there the exception
+                // left execute(), the MCP Adapter answered with an opaque
+                // JSON-RPC "Failed to execute tool" and the client never saw
+                // the reason. Building core 7.1's error here gives every
+                // supported WordPress the same outcome.
+                return self::exception_error($a, $e);
             } finally {
                 --self::$depth;
             }
@@ -404,6 +646,58 @@ class Registrar
             );
             return $result;
         };
+    }
+
+    /**
+     * The WP_Error a thrown exception becomes. This wrapper catches what a
+     * callback throws before core 7.1's own catch in WP_Ability can, so the
+     * outcome is the same on every supported WordPress (issue #612).
+     *
+     * The message is plain text (issue #724). An MCP tool error is not
+     * HTML, and tools escape the names they put into exception messages
+     * (the WordPress coding standards ask for it), so this decodes those
+     * entities rather than adding more: a refusal reaches the client as
+     * "wpmcp_db_write_audit_log", not &quot;wpmcp_db_write_audit_log&quot;.
+     * Whatever prints a message into wp-admin escapes it there.
+     *
+     * An expected refusal (any \Exception: the tools throw
+     * InvalidArgumentException, RuntimeException and their subclasses on
+     * purpose) carries only its own message (issue #631). The core-style
+     * "callback threw an exception" prefix made a clear refusal read like a
+     * crash. A PHP engine error (\Error, such as a TypeError) is a real
+     * crash, so it keeps the prefix. An Opt_In_Required refusal gets the
+     * opt_in_required code; everything else keeps ability_callback_exception.
+     */
+    private static function exception_error(Ability $a, \Throwable $e): \WP_Error
+    {
+        $message = self::plain_text($e->getMessage());
+
+        if (! $e instanceof \Exception) {
+            return new \WP_Error(
+                'ability_callback_exception',
+                sprintf(
+                    /* translators: 1: Ability name, 2: Exception message. */
+                    __('Ability "%1$s" callback threw an exception: %2$s', 'wpmcp'),
+                    $a->name,
+                    $message
+                )
+            );
+        }
+
+        return new \WP_Error(
+            $e instanceof Opt_In_Required ? 'opt_in_required' : 'ability_callback_exception',
+            $message
+        );
+    }
+
+    /**
+     * A message as plain text for the MCP wire (issue #724): the HTML
+     * special characters esc_html() encodes, decoded once, so a message a
+     * tool escaped reads as it was written.
+     */
+    public static function plain_text(string $message): string
+    {
+        return wp_specialchars_decode($message, ENT_QUOTES);
     }
 
     private static function elapsed_ms(float $started): int

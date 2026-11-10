@@ -174,10 +174,10 @@ class Stdio_Transport
             // A throwing tool costs one HTTP request on the other
             // transport; here it would cost the whole session, and the
             // client would block forever on a request id that never gets
-            // an answer. WP_Ability::execute() does not catch Throwable on
-            // the WordPress versions this plugin targets, and
-            // Registrar::throttled() re-throws deliberately, so the loop
-            // owns the last line of defence.
+            // an answer. Registrar::throttled() turns a tool's exception
+            // into a WP_Error (issue #612), but the transport itself and a
+            // foreign ability can still throw, so the loop owns the last
+            // line of defence.
             try {
                 $response = $transport->handle_request($request);
             } catch (\Throwable $e) {
@@ -495,11 +495,17 @@ class Stdio_Transport
                 'description' => is_object($ability) && method_exists($ability, 'get_description')
                     ? (string) $ability->get_description()
                     : '',
-                'inputSchema' => is_object($ability) && method_exists($ability, 'get_input_schema')
-                    ? (array) $ability->get_input_schema()
-                    : [ 'type' => 'object' ],
+                // Wire_Schema turns the empty PHP arrays a schema is written
+                // with into the JSON objects JSON Schema requires, at any
+                // depth (issues #586, #591): this list serves stdio and the
+                // HTTP 2026-07-28 path, which the adapter's own DTOs never see.
+                'inputSchema' => Wire_Schema::input(
+                    is_object($ability) && method_exists($ability, 'get_input_schema')
+                        ? $ability->get_input_schema()
+                        : []
+                ),
                 // Issue #387; see Output_Schemas for why these live at the wire.
-                'outputSchema' => Output_Schemas::for_ability($name),
+                'outputSchema' => Wire_Schema::schema(Output_Schemas::for_ability($name)),
             ];
         }
 
@@ -615,10 +621,10 @@ class Stdio_Transport
      *
      * The adapter's ToolsHandler::call_tool() catches Throwable and
      * returns an isError CallToolResult, so the HTTP route survives a
-     * throwing tool. WP_Ability::execute() does not catch Throwable on
-     * the WordPress versions this plugin targets, and
-     * Registrar::throttled() re-throws on purpose, so parity here has
-     * to be written rather than assumed.
+     * throwing tool. Registrar::throttled() returns a wpmcp tool's
+     * exception as a WP_Error on every WordPress (issue #612), but an
+     * ability registered by another plugin can still throw on 6.9, so
+     * parity here has to be written rather than assumed.
      *
      * @param object              $ability The WP_Ability.
      * @param array<string,mixed> $input
@@ -656,7 +662,7 @@ class Stdio_Transport
         if ($outcome instanceof \Throwable) {
             return [
                 'isError' => true,
-                'content' => [ [ 'type' => 'text', 'text' => $outcome->getMessage() ] ],
+                'content' => [ [ 'type' => 'text', 'text' => Registrar::plain_text($outcome->getMessage()) ] ],
             ];
         }
 

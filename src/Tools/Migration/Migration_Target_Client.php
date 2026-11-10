@@ -62,9 +62,49 @@ class Migration_Target_Client
     }
 
     /**
+     * The request produced no answer: the connection failed or timed out
+     * before a response arrived. The target may have received it and may
+     * still be working on it.
+     */
+    public const UNREACHABLE = 'wpmcp_migration_unreachable';
+
+    /**
+     * Something in front of the target's wpmcp answered: a proxy or CDN
+     * gateway timeout (502, 504, 524), the web server's own error page, an
+     * empty reply. Nothing is known about whether the target got the request
+     * or finished it (issue #776).
+     */
+    public const NO_ANSWER = 'wpmcp_migration_no_answer';
+
+    /** The target's wpmcp answered with an error of its own: a real refusal. */
+    public const TARGET_ERROR = 'wpmcp_migration_target_error';
+
+    /** True when the call got no usable answer and the target's state is unknown. */
+    public static function is_unanswered(\WP_Error $error): bool
+    {
+        return in_array($error->get_error_code(), [self::UNREACHABLE, self::NO_ANSWER], true);
+    }
+
+    /**
+     * True when a decoded body is an error envelope the target's wpmcp
+     * wrote: a string code and message. WordPress's own critical-error
+     * reply after a PHP fatal has the same shape but says nothing about
+     * whether the request was carried out, so it does not count.
+     */
+    private static function is_wpmcp_error($data): bool
+    {
+        return is_array($data)
+            && isset($data['code'], $data['message'])
+            && is_string($data['code'])
+            && is_string($data['message'])
+            && 'internal_server_error' !== $data['code'];
+    }
+
+    /**
      * Run one action on the target.
      *
      * @return array<string, mixed>|\WP_Error Decoded result, or an error
+     *         whose code says who answered (see the constants above) and
      *         whose message says what the target (or the network) said.
      */
     public function call(array $input, int $timeout = 60)
@@ -81,7 +121,9 @@ class Migration_Target_Client
         ]);
 
         if (is_wp_error($response)) {
-            return new \WP_Error('wpmcp_migration_unreachable', 'Could not reach the target site: ' . $response->get_error_message());
+            // A connection failure or a timeout (cURL 28) on this side: no
+            // response at all, so nothing is known about the target's state.
+            return new \WP_Error(self::UNREACHABLE, 'Could not reach the target site: ' . $response->get_error_message(), ['status' => 0]);
         }
 
         $code = (int) wp_remote_retrieve_response_code($response);
@@ -91,8 +133,30 @@ class Migration_Target_Client
             return $data;
         }
 
-        $message = is_array($data) && isset($data['message']) ? (string) $data['message'] : sprintf('HTTP %d with no JSON body', $code);
-        $reason  = is_array($data) && isset($data['code']) ? (string) $data['code'] : 'http_' . $code;
+        $from_wpmcp = self::is_wpmcp_error($data);
+
+        if (! $from_wpmcp && ($code >= 500 || in_array($code, [408, 429], true) || (! is_array($data) && $code < 400))) {
+            // wpmcp on the target did not write this answer: a proxy or CDN
+            // timed out waiting (502, 504, 524), the web server returned its
+            // own error page, the reply was empty, or WordPress itself sent
+            // its critical-error JSON after a fatal. A CDN may send its own
+            // JSON body here too (Cloudflare does for Accept:
+            // application/json), so JSON alone does not mean wpmcp answered.
+            // The target may have the request and may still be working on
+            // it, so this is not a refusal (issue #776). A 4xx other than a
+            // timeout or rate limit is different: the request was rejected
+            // before wpmcp saw it.
+            return new \WP_Error(self::NO_ANSWER, sprintf(
+                'No answer from wpmcp on the target: HTTP %d %s (a proxy or the web server in front of the target replied, usually after a timeout). The target may still be working on the request.',
+                $code,
+                is_array($data) ? 'with a body that wpmcp did not write' : 'with no JSON body'
+            ), ['status' => $code]);
+        }
+
+        $message    = is_array($data) && isset($data['message']) && is_scalar($data['message'])
+            ? (string) $data['message']
+            : sprintf(is_array($data) ? 'HTTP %d with a body that wpmcp did not write' : 'HTTP %d with no JSON body', $code);
+        $reason     = is_array($data) && isset($data['code']) && is_scalar($data['code']) ? (string) $data['code'] : 'http_' . $code;
 
         if (in_array($code, [401, 403], true) && 'wpmcp_migration_receive_disabled' !== $reason) {
             $message .= ' (check that the credentials belong to an administrator on the target, that application passwords are available there, and that wpmcp is active on the target)';
@@ -100,7 +164,8 @@ class Migration_Target_Client
             $message .= ' (the target has no receive-site-archive ability: is wpmcp installed and up to date there?)';
         }
 
-        return new \WP_Error('wpmcp_migration_target_error', sprintf('The target refused the request: %s', $message), [
+        // "Refused" is reserved for an error the target's wpmcp wrote itself.
+        return new \WP_Error(self::TARGET_ERROR, sprintf($from_wpmcp ? 'The target refused the request: %s' : 'The target rejected the request: %s', $message), [
             'status'      => $code,
             'target_code' => $reason,
             'target_data' => is_array($data) ? ($data['data'] ?? null) : null,

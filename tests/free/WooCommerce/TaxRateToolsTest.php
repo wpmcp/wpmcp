@@ -4,6 +4,7 @@ namespace WPMCP\Tests\Free\WooCommerce;
 
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Rollback_Operation;
+use WPMCP\Tools\Rollback_Session;
 use WPMCP\Tools\WooCommerce\Create_Tax_Rate;
 use WPMCP\Tools\WooCommerce\Delete_Tax_Rate;
 use WPMCP\Tools\WooCommerce\List_Tax_Rates;
@@ -19,7 +20,12 @@ class TaxRateToolsTest extends \WP_UnitTestCase
         }
         Snapshot_Store::install();
         // The test install does not run WooCommerce's role setup, so the
-        // administrator role lacks the store capability the tools require.
+        // administrator role lacks the store capabilities the tools require.
+        // Installing the roles here keeps this class passing on its own, not
+        // only after another test happened to install them.
+        \WC_Install::create_roles();
+        $GLOBALS['wp_roles'] = null;
+        wp_roles();
         $user = self::factory()->user->create_and_get(['role' => 'administrator']);
         $user->add_cap('manage_woocommerce');
         wp_set_current_user($user->ID);
@@ -55,8 +61,50 @@ class TaxRateToolsTest extends \WP_UnitTestCase
         $this->assertSame(['90210', '941*'], $out['postcodes']);
         $this->assertSame(['LOS ANGELES'], $out['cities']);
         $this->assertSame('standard', $out['class']);
-        $this->assertFalse($out['recoverable']);
-        $this->assertSame('delete-tax-rate', $out['undo']);
+        $this->assertIsString($out['operation_id']);
+        $this->assertArrayNotHasKey('recoverable', $out);
+    }
+
+    /** Issue #761: create-tax-rate returns an undo point, and undoing it deletes the rate. */
+    public function test_create_returns_an_undo_point_that_deletes_the_rate(): void
+    {
+        $out = $this->create();
+        $this->assertNotEmpty($out['operation_id']);
+
+        $rolled_back = (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        $this->assertTrue($rolled_back['restored'], implode(' ', $rolled_back['warnings']));
+
+        $this->assertEmpty(\WC_Tax::_get_tax_rate($out['id']));
+        $this->assertSame([], (new List_Tax_Rates())->handle(['country' => 'US'])['rates'] ?? []);
+    }
+
+    /** Issue #761: a rate edited since its creation is kept, with a warning, and the undo stays retryable. */
+    public function test_undo_of_a_create_refuses_a_rate_changed_since(): void
+    {
+        $out = $this->create();
+        $update = (new Update_Tax_Rate())->handle(['id' => $out['id'], 'rate' => '8']);
+
+        $refused = (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        $this->assertFalse($refused['restored']);
+        $this->assertStringContainsString('changed since create-tax-rate', implode(' ', $refused['warnings']));
+        $this->assertNotEmpty(\WC_Tax::_get_tax_rate($out['id']));
+
+        // Once the edit is undone the rate is as the call left it again, and
+        // the creation's undo goes through.
+        $this->assertTrue((new Rollback_Operation())->handle(['operation_id' => $update['operation_id']])['restored']);
+        $rolled_back = (new Rollback_Operation())->handle(['operation_id' => $out['operation_id']]);
+        $this->assertTrue($rolled_back['restored'], implode(' ', $rolled_back['warnings']));
+        $this->assertEmpty(\WC_Tax::_get_tax_rate($out['id']));
+    }
+
+    /** Issue #761: rollback-session over a create then an edit lands on "no rate". */
+    public function test_rollback_session_undoes_a_create_and_its_edit(): void
+    {
+        $out = $this->create(['session_id' => 'tax-761']);
+        (new Update_Tax_Rate())->handle(['id' => $out['id'], 'rate' => '8', 'postcodes' => ['10001'], 'session_id' => 'tax-761']);
+
+        $result = (new Rollback_Session())->handle(['session_id' => 'tax-761']);
+        $this->assertEmpty(\WC_Tax::_get_tax_rate($out['id']), implode(' ', (array) ($result['warnings'] ?? [])));
     }
 
     public function test_create_refuses_what_woocommerce_would_silently_coerce(): void

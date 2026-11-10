@@ -11,8 +11,12 @@ if (! defined('ABSPATH')) {
 /**
  * Ninja Forms integration (wpmcp/ninjaforms-read / -write pair), part of the
  * forms adapter pack (issue #66, pro tier). Delegates to Ninja Forms' own
- * model factory, Ninja_Forms()->form() (verified against Ninja Forms 3.x):
- * get_forms(), get_form(), get_fields(), get_actions() and get_sub().
+ * model factory, Ninja_Forms()->form() (verified against
+ * NF_Abstracts_ModelFactory in Ninja Forms 3.16): get_forms(), get_fields(),
+ * get_actions() and get_sub(). The factory has no get_form() (issue #791):
+ * its magic __call() answers null for it, and its get() returns a form model
+ * for any id, whether or not that form exists, so a form is looked up in
+ * get_forms(), the list list-forms answers from.
  *
  * Ninja Forms stores each submission as an nf_sub post whose _form_id meta
  * names its form. The factory's own get_subs() loads every submission of a
@@ -62,8 +66,12 @@ class Ninja_Forms_Integration extends Forms_Integration
     /** The form model, or null when Ninja Forms has no such form. */
     private static function form_model(int $form_id)
     {
-        $model = Ninja_Forms()->form($form_id)->get_form();
-        return $model ? $model : null;
+        foreach ((array) Ninja_Forms()->form()->get_forms() as $form) {
+            if ((int) $form->get_id() === $form_id) {
+                return $form;
+            }
+        }
+        return null;
     }
 
     /** @return \WP_Post|null the nf_sub post, or null for any other id. */
@@ -124,13 +132,12 @@ class Ninja_Forms_Integration extends Forms_Integration
                 'description'  => 'Read one Ninja Forms form with its field definitions (id, type, label)',
                 'input_schema' => $form_only,
                 'handler'      => function (array $args): array {
-                    $form  = Ninja_Forms()->form((int) $args['form_id']);
-                    $model = $form->get_form();
-                    if (! $model) {
+                    $model = self::form_model((int) $args['form_id']);
+                    if (null === $model) {
                         return [ 'form' => null ];
                     }
                     $fields = [];
-                    foreach ((array) $form->get_fields() as $field) {
+                    foreach ((array) Ninja_Forms()->form((int) $args['form_id'])->get_fields() as $field) {
                         $fields[] = [
                             'id'    => (int) $field->get_id(),
                             'type'  => (string) $field->get_setting('type'),

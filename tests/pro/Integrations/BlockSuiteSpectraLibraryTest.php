@@ -26,6 +26,7 @@ class BlockSuiteSpectraLibraryTest extends \WP_UnitTestCase
     private const ITEMS    = self::BASE . 'astra-blocks';
     private const IMAGE    = 'https://websitedemos.net/wp-content/uploads/2024/03/hero.jpg';
     private const OFFLIST  = 'https://images.rawpixel.com/image_1300/abc.jpg';
+    private const SCAN     = 'scan';
 
     private const GUTENBERG = 1623;
     private const ELEMENTOR = 1622;
@@ -104,18 +105,34 @@ class BlockSuiteSpectraLibraryTest extends \WP_UnitTestCase
         }
 
         $endpoint = strtok($url, '?');
+        if (self::is_scan($url)) {
+            // The search for items that hold Spectra 3 markup (issue #795):
+            // none unless a test says otherwise.
+            return $this->answers[ self::SCAN ] ?? $this->json([], [ 'x-wp-total' => '0' ]);
+        }
         return $this->answers[ $endpoint ] ?? new \WP_Error('http_request_failed', 'unexpected request to ' . $url);
     }
 
     private function answer(string $endpoint, $body, int $code = 200, array $headers = []): void
     {
-        $this->answers[ $endpoint ] = [
+        $this->answers[ $endpoint ] = $this->json($body, $headers, $code);
+    }
+
+    private function json($body, array $headers = [], int $code = 200): array
+    {
+        return [
             'headers'  => $headers + [ 'content-type' => 'application/json' ],
             'body'     => is_string($body) ? $body : (string) wp_json_encode($body),
             'response' => [ 'code' => $code, 'message' => 'OK' ],
             'cookies'  => [],
             'filename' => null,
         ];
+    }
+
+    /** Whether a request is the listing's search for Spectra 3 markup. */
+    private static function is_scan(string $url): bool
+    {
+        return str_starts_with($url, self::ITEMS . '?') && 'wp:spectra/' === (self::query($url)['search'] ?? '');
     }
 
     /** The library's own taxonomies, looked up by slug. */
@@ -191,7 +208,13 @@ class BlockSuiteSpectraLibraryTest extends \WP_UnitTestCase
     /** @return array<int,array{url:string,args:array}> */
     private function requests_to(string $endpoint): array
     {
-        return array_values(array_filter($this->requests, static fn ($r) => strtok($r['url'], '?') === $endpoint));
+        return array_values(array_filter($this->requests, static fn ($r) => strtok($r['url'], '?') === $endpoint && ! self::is_scan($r['url'])));
+    }
+
+    /** @return array<int,array{url:string,args:array}> */
+    private function scans(): array
+    {
+        return array_values(array_filter($this->requests, static fn ($r) => self::is_scan($r['url'])));
     }
 
     // ------------------------------------------------------------ browse
@@ -240,6 +263,45 @@ class BlockSuiteSpectraLibraryTest extends \WP_UnitTestCase
         $again = $this->read('list-patterns', [ 'source' => 'spectra', 'search' => 'hero', 'limit' => 2, 'offset' => 4 ]);
         $this->assertSame($result, $again['result']);
         $this->assertCount($count, $this->requests, 'a repeat browse is served from the cache');
+    }
+
+    /**
+     * Issue #795: items tagged v2 (or with no version term) whose markup
+     * holds Spectra 3 blocks are refused on import, so the listing leaves
+     * them out, and its total counts only what imports.
+     */
+    public function test_items_with_spectra_3_markup_are_left_out_of_the_listing(): void
+    {
+        $this->answers[ self::SCAN ] = $this->json([ [ 'id' => 179977 ], [ 'id' => 139761 ] ], [ 'x-wp-total' => '2' ]);
+        $this->answer(self::ITEMS, [ self::summary(114742, 'Hero 3') ], 200, [ 'x-wp-total' => '185' ]);
+
+        $out = $this->read('list-patterns', [ 'source' => 'spectra', 'limit' => 3 ]);
+        $this->assertArrayNotHasKey('error', $out, wp_json_encode($out));
+        $this->assertSame([ 'spectra:114742' ], array_column($out['result']['patterns'], 'name'));
+        $this->assertSame(185, $out['result']['total']);
+
+        $list = self::query($this->requests_to(self::ITEMS)[0]['url']);
+        $this->assertSame('139761,179977', $list['exclude'], 'the library leaves them out, so pages and total stay exact');
+
+        $scans = $this->scans();
+        $this->assertCount(1, $scans);
+        $scan = self::query($scans[0]['url']);
+        $this->assertSame('id', $scan['_fields'], 'the search downloads no pattern bodies');
+        $this->assertSame((string) self::GUTENBERG, $scan['astra-blocks-page-builder']);
+        $this->assertSame((string) self::PREMIUM, $scan['block-access-type_exclude']);
+        $this->assertSame((string) self::V3, $scan['spectra-blocks-ver_exclude']);
+
+        $count = count($this->requests);
+        $this->read('list-patterns', [ 'source' => 'spectra', 'limit' => 3 ]);
+        $this->assertCount($count, $this->requests, 'the search is cached with the listing');
+    }
+
+    public function test_a_listing_with_no_spectra_3_markup_sends_no_exclude(): void
+    {
+        $this->answer(self::ITEMS, [ self::summary(114742, 'Hero 3') ], 200, [ 'x-wp-total' => '1' ]);
+
+        $this->read('list-patterns', [ 'source' => 'spectra' ]);
+        $this->assertArrayNotHasKey('exclude', self::query($this->requests_to(self::ITEMS)[0]['url']));
     }
 
     public function test_page_size_is_capped_at_the_rest_maximum(): void

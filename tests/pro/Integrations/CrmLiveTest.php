@@ -263,6 +263,155 @@ class CrmLiveTest extends \WP_UnitTestCase
         $this->assertStringContainsString('left in place', implode(' ', Rollback_Service::take_warnings()));
         $this->assertSame('unsubscribed', $mp->getSubscriber($id)['status']);
     }
+    /**
+     * Issue #553: a rollback puts back only what its own operation removed.
+     * A list the person left, or a contact deleted, after the write stays
+     * that way, through FluentCRM's own detach and delete.
+     */
+    public function test_fluentcrm_rollback_never_re_adds_what_was_removed_after_the_write(): void
+    {
+        $this->block_http();
+        $news  = $this->call('write', 'fluentcrm-create-list', [ 'title' => 'Live left since' ])['result']['list']['id'];
+        $other = $this->call('write', 'fluentcrm-create-list', [ 'title' => 'Live renamed' ])['result']['list']['id'];
+        $id    = (int) FluentCrmApi('contacts')->createOrUpdate([ 'email' => 'live-left@example.com', 'first_name' => 'Ada', 'status' => 'subscribed', 'lists' => [ $news, $other ] ])->id;
+        $this->assertSame([ $news, $other ], array_map('intval', $this->fluentcrm($id)->lists->pluck('id')->sort()->values()->toArray()));
+
+        // A name edit, then the person leaves a list: the undo keeps them off it.
+        $edit = $this->call('write', 'fluentcrm-update-contact', [ 'id' => $id, 'first_name' => 'Augusta' ]);
+        $this->fluentcrm($id)->detachLists([ $news ]);
+        Rollback_Service::take_warnings();
+        $this->assertTrue(Rollback_Service::restore_operation((string) $edit['operation_id']));
+        $this->assertSame('Ada', $this->fluentcrm($id)->first_name, 'the name edit is undone');
+        $this->assertSame([ $other ], array_map('intval', $this->fluentcrm($id)->lists->pluck('id')->toArray()), 'the list left since is not re-joined');
+        $this->assertStringContainsString('removed since the write', self::warnings());
+
+        // A list rename, then its member leaves: the rename is undone, the member stays out.
+        $rename = $this->call('write', 'fluentcrm-update-list', [ 'id' => $other, 'title' => 'Live renamed twice' ]);
+        $this->fluentcrm($id)->detachLists([ $other ]);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $rename['operation_id']));
+        $this->assertSame('Live renamed', \FluentCrm\App\Models\Lists::find($other)->title);
+        $this->assertSame([], $this->fluentcrm($id)->lists->pluck('id')->toArray());
+
+        // An edit, then the contact is deleted through FluentCRM: the undo does not recreate it.
+        $again = $this->call('write', 'fluentcrm-update-contact', [ 'id' => $id, 'last_name' => 'Lovelace' ]);
+        \FluentCrm\App\Services\Helper::deleteContacts([ $id ]);
+        Rollback_Service::take_warnings();
+        $this->assertTrue(Rollback_Service::restore_operation((string) $again['operation_id']));
+        $this->assertNull($this->fluentcrm($id));
+        $this->assertFalse((bool) FluentCrmApi('contacts')->getContact('live-left@example.com'), 'a deleted contact is not brought back subscribed');
+        $this->assertStringContainsString('removed since the write', self::warnings());
+    }
+
+    /**
+     * Issue #553 on MailPoet: a membership removed from a list, or a
+     * subscriber deleted permanently, after the write is not put back.
+     */
+    public function test_mailpoet_rollback_never_re_adds_what_was_removed_after_the_write(): void
+    {
+        $this->block_http();
+        $mp          = \MailPoet\API\API::MP('v1');
+        $container   = \MailPoet\DI\ContainerWrapper::getInstance();
+        $subscribers = $container->get(\MailPoet\Subscribers\SubscribersRepository::class);
+        $list        = $this->call('write', 'mailpoet-create-list', [ 'title' => 'Live removed since' ])['result']['list']['id'];
+        $id          = (int) $mp->addSubscriber([ 'email' => 'live-mp-removed@example.com', 'first_name' => 'Ada' ], [ $list ], [ 'send_confirmation_email' => false, 'schedule_welcome_email' => false, 'skip_subscriber_notification' => true ])['id'];
+        $this->assertSame([ (string) $list ], array_map('strval', array_column($mp->getSubscriber($id)['subscriptions'], 'segment_id')));
+
+        // A list rename, then MailPoet removes the member from the list.
+        $rename  = $this->call('write', 'mailpoet-update-list', [ 'id' => $list, 'title' => 'Live renamed list' ]);
+        $segment = $container->get(\MailPoet\Segments\SegmentsRepository::class)->findOneById($list);
+        $this->assertSame(1, $subscribers->bulkRemoveFromSegment($segment, [ $id ]));
+        Rollback_Service::take_warnings();
+        $this->assertTrue(Rollback_Service::restore_operation((string) $rename['operation_id']));
+        $this->assertContains('Live removed since', array_column($mp->getLists(), 'name'), 'the rename is undone');
+        $this->assertSame([], $mp->getSubscriber($id)['subscriptions'], 'the removed membership is not put back');
+        $this->assertStringContainsString('removed since the write', self::warnings());
+
+        // An edit, then the subscriber is deleted permanently: the undo does not recreate it.
+        $edit = $this->call('write', 'mailpoet-update-contact', [ 'id' => $id, 'first_name' => 'Augusta' ]);
+        $this->assertSame(1, $subscribers->bulkDelete([ $id ]));
+        \WPMCP\Safety\Crm_Rows_Snapshot::flush('mailpoet');
+        $this->assertTrue(Rollback_Service::restore_operation((string) $edit['operation_id']));
+        try {
+            $mp->getSubscriber('live-mp-removed@example.com');
+            $this->fail('a permanently deleted subscriber is not recreated');
+        } catch (\MailPoet\API\MP\v1\APIException $e) {
+            $this->assertSame(\MailPoet\API\MP\v1\APIException::SUBSCRIBER_NOT_EXISTS, $e->getCode());
+        }
+    }
+
+    /**
+     * Issue #553 on MailPoet: its delete moves the subscriber to the trash,
+     * so the row stays; undoing an edit made before the delete leaves it
+     * there, unchanged, and names it in the warning.
+     */
+    public function test_mailpoet_rollback_of_an_edit_leaves_a_subscriber_trashed_since_in_the_trash(): void
+    {
+        $this->block_http();
+        $mp   = \MailPoet\API\API::MP('v1');
+        $a    = $this->call('write', 'mailpoet-create-list', [ 'title' => 'Live trash A' ])['result']['list']['id'];
+        $b    = $this->call('write', 'mailpoet-create-list', [ 'title' => 'Live trash B' ])['result']['list']['id'];
+        $id   = (int) $mp->addSubscriber([ 'email' => 'live-mp-trash@example.com', 'first_name' => 'R' ], [ $a, $b ], [ 'send_confirmation_email' => false, 'schedule_welcome_email' => false, 'skip_subscriber_notification' => true ])['id'];
+        $edit = $this->call('write', 'mailpoet-update-contact', [ 'id' => $id, 'first_name' => 'Edited2' ]);
+        $this->call('write', 'mailpoet-delete-contact', [ 'id' => $id ], true);
+        $this->assertNotNull($mp->getSubscriber($id)['deleted_at']);
+
+        Rollback_Service::take_warnings();
+        Rollback_Service::restore_operation((string) $edit['operation_id']);
+        $after = $mp->getSubscriber($id);
+        $this->assertNotNull($after['deleted_at'], 'the subscriber stays in MailPoet\'s trash');
+        $this->assertSame('Edited2', $after['first_name'], 'and is left as it is');
+        $this->assertSame('contact_not_found', (string) ((new Plugin_Data_Integration())->handle_read([ 'operation' => 'mailpoet-get-contact', 'args' => [ 'id' => $id ] ])['error']['code'] ?? ''));
+        $this->assertStringContainsString(sprintf('mailpoet_subscribers #%d (trashed since the write', $id), self::warnings());
+    }
+
+    /**
+     * Issue #760: with no working mailer, MailPoet saves the subscriber and
+     * its list memberships, then fails to send the confirmation email. The
+     * op returns the contact with a warning, and its undo removes it.
+     */
+    public function test_mailpoet_create_whose_confirmation_email_failed_returns_the_contact_and_undoes(): void
+    {
+        $this->block_http();
+        $mp   = \MailPoet\API\API::MP('v1');
+        $list = $this->call('write', 'mailpoet-create-list', [ 'title' => 'Live no mailer' ])['result']['list']['id'];
+        remove_all_filters('mailpoet_mailer_smtp_instance');
+        add_filter('mailpoet_mailer_smtp_instance', static fn () => new Failing_PHPMailer(true));
+        $factory = \MailPoet\DI\ContainerWrapper::getInstance()->get(\MailPoet\Mailer\MailerFactory::class);
+        (function (): void {
+            $this->defaultMailer = null;
+        })->call($factory);
+
+        try {
+            $out = $this->call('write', 'mailpoet-create-contact', [ 'email' => 'live-mp-nomail@example.com', 'first_name' => 'One', 'lists' => [ $list ] ]);
+            $id  = (int) $out['result']['contact']['id'];
+            $this->assertSame((string) $id, (string) $mp->getSubscriber('live-mp-nomail@example.com')['id']);
+            $this->assertSame('unconfirmed', $out['result']['contact']['status']);
+            $this->assertStringContainsString('confirmation email was not sent', implode(' ', $out['result']['warnings']));
+            $this->assertNotEmpty($out['operation_id']);
+
+            $import = $this->call('write', 'mailpoet-import-contacts', [ 'contacts' => [ [ 'email' => 'live-mp-nomail-2@example.com' ] ], 'lists' => [ $list ] ]);
+            $this->assertSame([], $import['result']['failed']);
+            $this->assertStringContainsString('confirmation email was not sent', implode(' ', $import['result']['created'][0]['warnings']));
+        } finally {
+            \MailPoet\Mailer\MailerLog::resetMailerLog();
+        }
+
+        Rollback_Service::take_warnings();
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        Rollback_Service::restore_session((string) $import['session_id']);
+        $this->assertSame('', self::warnings());
+        foreach ([ 'live-mp-nomail@example.com', 'live-mp-nomail-2@example.com' ] as $email) {
+            try {
+                $mp->getSubscriber($email);
+                $this->fail('the created subscriber is gone: ' . $email);
+            } catch (\MailPoet\API\MP\v1\APIException $e) {
+                $this->assertSame(\MailPoet\API\MP\v1\APIException::SUBSCRIBER_NOT_EXISTS, $e->getCode());
+            }
+        }
+        global $wpdb;
+        $this->assertSame('0', (string) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE segment_id = %d', $wpdb->prefix . 'mailpoet_subscriber_segment', $list)), 'and so are their list memberships');
+    }
+
     public function test_fluentcrm_campaigns_imports_and_automations_run_through_fluentcrm(): void
     {
         $mail = $this->capture_wp_mail();
@@ -429,6 +578,18 @@ if (! class_exists(Capturing_PHPMailer::class) && class_exists('\\PHPMailer\\PHP
                 self::$sent[] = [ 'to' => (string) $to[0], 'subject' => (string) $this->Subject ];
             }
             return true;
+        }
+    }
+}
+
+if (! class_exists(Failing_PHPMailer::class) && class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
+    /** A PHPMailer that cannot reach any mail server: every send fails. */
+    class Failing_PHPMailer extends \PHPMailer\PHPMailer\PHPMailer
+    {
+        public function send()
+        {
+            $this->ErrorInfo = 'SMTP connect() failed.';
+            return false;
         }
     }
 }
