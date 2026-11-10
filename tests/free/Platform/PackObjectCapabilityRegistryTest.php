@@ -44,6 +44,7 @@ class PackObjectCapabilityRegistryTest extends \WP_UnitTestCase
         'plugin-data:code-snippets-update-snippet:id' => 'a Code Snippets snippet row in its own table, behind manage_options (Code Snippets\' own capability)',
         'plugin-data:code-snippets-activate-snippet:id' => 'a Code Snippets snippet row in its own table, behind manage_options (Code Snippets\' own capability)',
         'plugin-data:code-snippets-deactivate-snippet:id' => 'a Code Snippets snippet row in its own table, behind manage_options (Code Snippets\' own capability)',
+        'theme:ignore-wordfence-scan-issue:issue_id' => 'a Wordfence scan issue row in its own table, behind manage_options (manage_network on a network), Wordfence\'s own capability',
         'plugin-data:tablepress-get-table:table_id' => 'a TablePress table id, behind TablePress\'s own table capabilities',
         'plugin-data:tablepress-export-table:table_id' => 'a TablePress table id, behind TablePress\'s own table capabilities',
         'plugin-data:tablepress-render-table:table_id' => 'a TablePress table id, behind TablePress\'s own table capabilities',

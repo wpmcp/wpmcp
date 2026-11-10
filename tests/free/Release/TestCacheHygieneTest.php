@@ -329,6 +329,19 @@ SH);
         $this->assertSame((string) getmypid(), file_get_contents($this->cache . '/locks/run-1/pid'), 'the live holder keeps its slot');
     }
 
+    public function test_by_default_one_run_goes_at_a_time(): void
+    {
+        mkdir($this->cache . '/locks/run-1', 0777, true);
+        file_put_contents($this->cache . '/locks/run-1/pid', (string) getmypid());
+
+        [$status, $out] = $this->run_gate(['--wp', '7.1'], ['WPMCP_TEST_SLOT_TIMEOUT' => '2']);
+
+        $this->assertNotSame(0, $status, $out);
+        $this->assertStringContainsString('WPMCP_TEST_MAX_PARALLEL=1', $out, 'a second run queues behind the first');
+        $this->assertDirectoryDoesNotExist($this->cache . '/locks/run-2', 'there is no second slot');
+        $this->assertFileDoesNotExist($this->tmp . '/db.log', 'a run without a slot starts nothing');
+    }
+
     public function test_a_slot_held_by_a_dead_run_is_reclaimed_and_released_on_exit(): void
     {
         mkdir($this->cache . '/locks/run-1', 0777, true);
@@ -353,7 +366,7 @@ SH);
         file_put_contents($this->cache . '/locks/db/pid', (string) getmypid());
 
         $command = ['bash', $this->repository() . '/bin/test-local.sh', '--wp', '7.1'];
-        $env     = $this->environment(['WPMCP_TEST_KEEP_INSTALLS' => '2', 'WPMCP_TEST_INSTALL_TTL_HOURS' => '100']);
+        $env     = $this->environment(['WPMCP_TEST_MAX_PARALLEL' => '2', 'WPMCP_TEST_KEEP_INSTALLS' => '2', 'WPMCP_TEST_INSTALL_TTL_HOURS' => '100']);
         $process = proc_open($command, [1 => ['file', $this->tmp . '/out.log', 'w'], 2 => ['file', $this->tmp . '/out.log', 'a']], $pipes, $this->repository(), $env);
         $this->assertIsResource($process);
 

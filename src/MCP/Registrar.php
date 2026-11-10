@@ -425,7 +425,8 @@ class Registrar
      * The refusal for a name that is not registered because it is a Pro
      * tool and this install has no active license (issue #631), or null
      * when that is not the reason. Lets the meta-tools say "needs WP MCP
-     * Pro" instead of "no tool by that name". Grants nothing: the tool is
+     * Pro" instead of "no tool by that name", with the same upgrade offer
+     * the admin banner carries (Pro_Refusal). Grants nothing: the tool is
      * still unregistered and unreachable.
      */
     public function pro_required(string $name): ?\WP_Error
@@ -440,7 +441,7 @@ class Registrar
             sprintf(
                 '"%s" is a WP MCP Pro tool, and this site has no active WP MCP Pro license, so the tool is not available here. Activate a WP MCP Pro license on this site to use it.',
                 $name
-            )
+            ) . Pro_Refusal::upgrade_sentence()
         );
     }
 
