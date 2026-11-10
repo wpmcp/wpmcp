@@ -18,6 +18,7 @@ if (! defined('ABSPATH')) {
  *  - get-solid-security-status (Solid_Security_Status)
  *  - get-monsterinsights-status (MonsterInsights_Status)
  *  - get-w3tc-status and purge-w3tc-cache (W3TC_Status)
+ *  - WP Mail SMTP config, log, test send and set-from (WP_Mail_SMTP_Status)
  *
  * Every op runs at manage_options, the capability each plugin gates its own
  * settings behind, and declares a 'requires' check, so an inactive plugin is
@@ -52,7 +53,8 @@ final class Ops_Status_Packs
             Duplicator_Status::operations(),
             Solid_Security_Status::operations(),
             MonsterInsights_Status::operations(),
-            W3TC_Status::operations()
+            W3TC_Status::operations(),
+            WP_Mail_SMTP_Status::operations()
         );
     }
 
