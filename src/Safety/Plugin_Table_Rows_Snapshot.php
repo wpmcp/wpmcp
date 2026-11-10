@@ -411,7 +411,7 @@ final class Plugin_Table_Rows_Snapshot
     {
         if (isset(self::WORDFENCE_KINDS[ $kind ])) {
             if (! current_user_can(self::wordfence_capability())) {
-                throw new Mutation_Failed('Rollback refused: restoring Wordfence ' . ('wordfence_blocks' === $kind ? 'IP blocks' : 'scan issues') . ' requires the ' . self::wordfence_capability() . ' capability.');
+                throw new Mutation_Failed('Rollback refused: restoring Wordfence ' . ('wordfence_blocks' === $kind ? 'IP blocks' : 'scan issues') . ' requires the ' . esc_html(self::wordfence_capability()) . ' capability.');
             }
             return;
         }
