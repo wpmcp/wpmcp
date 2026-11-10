@@ -94,6 +94,7 @@ namespace WPMCP\Tests\Pro\Builders {
 
     use WPMCP\Pro\Gate;
     use WPMCP\Tests\Free\Platform\RegisteredAbilities;
+    use WPMCP\Tools\Builders\Builder_Design_Data;
     use WPMCP\Tools\Builders\Get_Builder_Content;
 
     /**
@@ -393,6 +394,33 @@ namespace WPMCP\Tests\Pro\Builders {
 
             $this->assertInstanceOf(\WP_Error::class, $out);
             $this->assertSame('builder_not_loaded', $out->get_error_code());
+        }
+
+        /**
+         * Issue #816: with the builder not loaded, the catalog refusal names
+         * what to install and activate, for every builder the catalog covers.
+         */
+        public function test_catalog_refusal_names_what_to_install_for_every_builder(): void
+        {
+            $expected = [
+                'avada'      => 'Install and activate the Avada theme with its Avada Core and Avada Builder plugins, then try again.',
+                'breakdance' => 'Install and activate the Breakdance plugin, then try again.',
+                'bricks'     => 'Install and activate the Bricks theme, then try again.',
+                'divi'       => 'Install and activate the Divi theme (Divi 5), then try again.',
+                'oxygen'     => 'Install and activate the Oxygen 6 plugin, then try again.',
+                'wpbakery'   => 'Install and activate the WPBakery Page Builder plugin, then try again.',
+            ];
+            $this->assertSame(array_keys($expected), array_keys(Builder_Design_Data::HOSTS));
+
+            foreach ($expected as $builder => $sentence) {
+                $out = $this->read(['builder' => $builder, 'scope' => 'catalog']);
+
+                $this->assertInstanceOf(\WP_Error::class, $out, $builder);
+                $this->assertSame('builder_not_loaded', $out->get_error_code(), $builder);
+                $this->assertStringEndsWith($sentence, $out->get_error_message(), $builder);
+                $this->assertStringContainsString("'{$builder}'", $out->get_error_message(), $builder);
+                $this->assertSame(['builder' => $builder, 'install' => Builder_Design_Data::HOSTS[ $builder ]], $out->get_error_data(), $builder);
+            }
         }
 
         // ------------------------------------------------------ arguments

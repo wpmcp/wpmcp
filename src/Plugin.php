@@ -3675,8 +3675,9 @@ final class Plugin
                 // not held, so it stays an unknown name.
                 if (! $integration->is_available()) {
                     $host = $integration->host_plugin();
+                    $ops  = $integration->operation_hosts();
                     foreach ($integration->abilities() as $ability) {
-                        $registrar->hold_for_plugin($ability, $host['name'], $host['several']);
+                        $registrar->hold_for_plugin($ability, $host['name'], $host['several'], $ops);
                     }
                 }
                 continue;

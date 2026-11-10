@@ -28,7 +28,9 @@
 # Bookings (WPMCP_WC_BOOKINGS_SRC) only (bin/test-local.sh --live-wc-bookings),
 # or, with WPMCP_LIVE_ELEMENTOR_PRO=1, Elementor plus a local copy of
 # Elementor Pro (WPMCP_ELEMENTOR_PRO_SRC) only (bin/test-local.sh
-# --live-elementor-pro), or, with WPMCP_LIVE_WP_MAIL_SMTP=1, WP Mail SMTP
+# --live-elementor-pro), or, with WPMCP_LIVE_JET_ELEMENTS=1, Elementor plus
+# a local copy of JetElements (WPMCP_JET_ELEMENTS_SRC) only (bin/test-local.sh
+# --live-jet-elements), or, with WPMCP_LIVE_WP_MAIL_SMTP=1, WP Mail SMTP
 # only (bin/test-local.sh --live-wp-mail-smtp), or, with
 # WPMCP_LIVE_CACHE_SETTINGS=1, local copies of WP Rocket, Perfmatters and
 # FlyingPress (WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC,
@@ -434,6 +436,28 @@ if [ "${WPMCP_LIVE_ELEMENTOR_PRO:-}" = "1" ]; then
 		rm -rf "$PLUGINS_DIR/elementor-pro"
 		cp -R "$src" "$PLUGINS_DIR/elementor-pro"
 		echo "Copied Elementor Pro $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/elementor-pro.php" | head -n 1) from $src."
+	fi
+fi
+
+# The live JetElements job (issue #653) runs the JetElements addon pack ops
+# against a real JetElements beside the pinned free Elementor it needs.
+# JetElements is a commercial plugin and not on wordpress.org, so it is
+# copied from a local directory holding it (WPMCP_JET_ELEMENTS_SRC) instead
+# of downloaded. Exclusive too: the stub-backed tests fake its presence.
+if [ "${WPMCP_LIVE_JET_ELEMENTS:-}" = "1" ]; then
+	PLUGINS=(
+		"elementor:elementor.php"
+	)
+	if [ "$list_only" = false ]; then
+		src=${WPMCP_JET_ELEMENTS_SRC:-}
+		if [ -z "$src" ] || [ ! -f "$src/jet-elements.php" ]; then
+			echo "WPMCP_LIVE_JET_ELEMENTS=1 needs WPMCP_JET_ELEMENTS_SRC, a directory holding the JetElements plugin (jet-elements.php)." >&2
+			exit 1
+		fi
+		mkdir -p "$PLUGINS_DIR"
+		rm -rf "$PLUGINS_DIR/jet-elements"
+		cp -R "$src" "$PLUGINS_DIR/jet-elements"
+		echo "Copied JetElements $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/jet-elements.php" | head -n 1) from $src."
 	fi
 fi
 

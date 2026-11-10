@@ -1456,6 +1456,30 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The per-op plugin names of the paid packs (issue #815) go with them,
+    // and so does their part of the summary; these lines go first, so the
+    // pack edits below still match.
+    [
+        "        foreach (LMS_Pack::adapters() as \$adapter) {\n"
+            . "            \$groups[] = [ \$adapter->label(), false, \$adapter->operations() ];\n"
+            . "        }\n"
+            . "        \$groups[] = [ 'TablePress', false, TablePress_Pack::operations() ];\n"
+            . "        foreach (CRM_Pack::adapters() as \$adapter) {\n"
+            . "            \$groups[] = [ \$adapter->label(), false, \$adapter->operations() ];\n"
+            . "        }\n"
+            . "        \$groups[] = [ 'Amelia', false, Amelia_Pack::operations() ];\n"
+            . "        \$groups[] = [ 'Polylang, WPML', true, I18n_Pack::operations() ];\n"
+            . "        \$groups[] = [ 'MemberPress', false, MemberPress_Pack::operations() ];\n"
+            . "        \$groups[] = [ 'Elementor Pro', false, Elementor_Pro_Forms_Pack::operations() ];\n",
+        '',
+        1,
+    ],
+    [
+        "            . ', FluentCRM and MailPoet'\n"
+            . "            . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms';\n",
+        "            . ', FluentCRM and MailPoet';\n",
+        1,
+    ],
     // The Elementor Pro submissions ops (issue #654) are the paid add-on's
     // too, removed by policy.php; their lines go first, so the MemberPress
     // edits below still match.
@@ -1715,9 +1739,9 @@ $edits['src/Tools/Dispatch/Call_Tool.php'] = [
         "            // A Pro tool on an unlicensed install says so (issue #631)\n"
             . "            // rather than claiming no such tool exists, and so does a tool\n"
             . "            // whose plugin is not active (issue #790).\n"
-            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
+            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name, \$arguments) ?? new \\WP_Error(\n",
         "            // A tool whose plugin is not active says so (issue #790).\n"
-            . "            return \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
+            . "            return \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name, \$arguments) ?? new \\WP_Error(\n",
         1,
     ],
     [

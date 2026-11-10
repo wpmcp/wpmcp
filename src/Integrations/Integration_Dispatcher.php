@@ -219,6 +219,20 @@ abstract class Integration_Dispatcher
     }
 
     /**
+     * The plugin each op needs, for a pair that works with several plugins
+     * (issue #815): op name => ['name' => plugin, 'several' => whether
+     * 'name' lists plugins any one of which would do]. A "not active"
+     * refusal for one of these ops names its plugin instead of every
+     * plugin host_plugin() lists. The default declares none.
+     *
+     * @return array<string, array{name: string, several: bool}>
+     */
+    public function operation_hosts(): array
+    {
+        return [];
+    }
+
+    /**
      * The read/write Ability pair for this integration, ready for
      * Registrar::register(). The write half carries destructive_hint when
      * any registered op is destructive.
