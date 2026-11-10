@@ -18,10 +18,17 @@ if (! defined('ABSPATH')) {
  * type, with that step's settings in its post meta (a checkout's products
  * in _wfacp_selected_products, for example). 'funnelkit_funnel' captures
  * all three verbatim, keyed by the funnel id, so rollback puts back exactly
- * what was there: the row and its meta rows are rewritten raw, each step
- * post returns at its own id with exactly its captured meta, and a step
- * post the write added (listed now, not captured, and of a FunnelKit step
- * type) is deleted again.
+ * what that write changed: the row and its meta rows are rewritten raw, and
+ * each step post returns at its own id with exactly its captured meta.
+ *
+ * An undo takes back only its own write (issue #554). Right after the write
+ * the snapshot records what it did ('effects', record_effects()): the step
+ * posts it added, the captured step posts it removed, and whether it removed
+ * the funnel. The restore then deletes only the steps that write added; a
+ * step added since stays, at its place in the step list, and is named in the
+ * warning. A captured step or funnel removed since is not brought back (and
+ * is named), while one the write itself removed is. A snapshot recorded
+ * before 'effects' existed deletes no step it did not capture.
  *
  * Rows are written back raw rather than through FunnelKit, whose own save
  * stamps the funnel and fires its update hooks; a restore must do neither.
@@ -99,6 +106,55 @@ final class FunnelKit_Funnel_Snapshot
         ];
     }
 
+    /**
+     * Note in a 'funnelkit_funnel' snapshot what its write did (issue #554):
+     * the step posts it added, the captured step posts it removed, and
+     * whether it removed the funnel. Called right after the write.
+     */
+    public static function record_effects(string $operation_id): void
+    {
+        $stored   = '' === $operation_id ? null : Snapshot_Store::get_by_operation($operation_id);
+        $snapshot = is_array($stored['snapshot'] ?? null) ? $stored['snapshot'] : null;
+        if (null === $snapshot || self::TYPE !== ($snapshot['object_type'] ?? null) || empty($snapshot['data']['exists'])) {
+            return;
+        }
+        $captured = array_keys(self::captured_posts((array) $snapshot['data']));
+        $current  = self::row((int) ($snapshot['object_id'] ?? 0));
+        $listed   = null === $current ? [] : self::step_ids($current);
+
+        $snapshot['data']['effects'] = [
+            'created_steps'  => array_values(array_filter(array_diff($listed, $captured), static fn (int $id): bool => in_array((string) get_post_type($id), self::STEP_POST_TYPES, true))),
+            'removed_steps'  => array_values(array_filter($captured, static fn (int $id): bool => null === self::post_row($id))),
+            'funnel_removed' => null === $current,
+        ];
+        Snapshot_Store::update_snapshot($operation_id, $snapshot);
+    }
+
+    /**
+     * $oldest with the effects of $later, a later write of the same session
+     * on the same funnel, added to its own: a session undo restores only the
+     * oldest snapshot, and takes back what every write of the session did.
+     * A snapshot that recorded no effects keeps the result at none.
+     */
+    public static function merge_effects(array $oldest, array $later): array
+    {
+        $mine   = $oldest['data']['effects'] ?? null;
+        $theirs = $later['data']['effects'] ?? null;
+        if (! is_array($mine) || self::TYPE !== ($oldest['object_type'] ?? null)) {
+            return $oldest;
+        }
+        if (! is_array($theirs)) {
+            unset($oldest['data']['effects']);
+            return $oldest;
+        }
+        foreach ([ 'created_steps', 'removed_steps' ] as $key) {
+            $mine[ $key ] = array_values(array_unique(array_merge(array_map('intval', (array) ($mine[ $key ] ?? [])), array_map('intval', (array) ($theirs[ $key ] ?? [])))));
+        }
+        $mine['funnel_removed']    = ! empty($mine['funnel_removed']) || ! empty($theirs['funnel_removed']);
+        $oldest['data']['effects'] = $mine;
+        return $oldest;
+    }
+
     /** Put a funnel back to a 'funnelkit_funnel' snapshot. Returns a warning, or null. */
     public static function restore(array $snapshot): ?string
     {
@@ -110,19 +166,40 @@ final class FunnelKit_Funnel_Snapshot
             return null;
         }
 
-        $captured = [];
-        foreach ((array) ($data['posts'] ?? []) as $entry) {
-            $post_id = (int) ($entry['post']['ID'] ?? 0);
-            if ($post_id > 0 && in_array((string) ($entry['post']['post_type'] ?? ''), self::STEP_POST_TYPES, true)) {
-                $captured[ $post_id ] = $entry;
+        // What the write did, or null for a snapshot recorded before that
+        // was noted: such a snapshot deletes no step it did not capture.
+        $effects  = is_array($data['effects'] ?? null) ? $data['effects'] : null;
+        $created  = array_map('intval', (array) ($effects['created_steps'] ?? []));
+        $removed  = array_map('intval', (array) ($effects['removed_steps'] ?? []));
+        $captured = self::captured_posts($data);
+        $current  = self::row($id);
+
+        if (null === $current && null !== $effects && empty($effects['funnel_removed'])) {
+            return "FunnelKit funnel {$id} was deleted since this operation; it was not brought back.";
+        }
+
+        // Step posts listed now and not captured: this write's own are
+        // deleted again, any added since are kept.
+        $later = [];
+        foreach (null === $current ? [] : self::step_ids($current) as $post_id) {
+            if (isset($captured[ $post_id ]) || ! in_array((string) get_post_type($post_id), self::STEP_POST_TYPES, true)) {
+                continue;
+            }
+            if (in_array($post_id, $created, true)) {
+                wp_delete_post($post_id, true);
+            } else {
+                $later[] = $post_id;
             }
         }
 
-        // Step posts the write added: listed on the funnel now, not captured.
-        $current = self::row($id);
-        foreach (null === $current ? [] : self::step_ids($current) as $post_id) {
-            if (! isset($captured[ $post_id ]) && in_array((string) get_post_type($post_id), self::STEP_POST_TYPES, true)) {
-                wp_delete_post($post_id, true);
+        // A captured step post gone now comes back only when this write removed it.
+        $gone = [];
+        if (null !== $effects) {
+            foreach (array_keys($captured) as $post_id) {
+                if (! in_array($post_id, $removed, true) && null === self::post_row($post_id)) {
+                    $gone[] = $post_id;
+                    unset($captured[ $post_id ]);
+                }
             }
         }
 
@@ -143,8 +220,12 @@ final class FunnelKit_Funnel_Snapshot
             wp_cache_delete($post_id, 'post_meta');
         }
 
+        $row = (array) $data['row'];
+        if ([] !== $later || [] !== $gone) {
+            $row['steps'] = (string) wp_json_encode(self::merged_steps((string) ($row['steps'] ?? ''), (string) ($current['steps'] ?? ''), $later, $gone));
+        }
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- FunnelKit's own table; its cache is dropped below.
-        $written = $wpdb->replace(self::funnels_table(), (array) $data['row']);
+        $written = $wpdb->replace(self::funnels_table(), $row);
         if (self::table_exists(self::meta_table())) {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- FunnelKit's own meta table.
             $wpdb->delete(self::meta_table(), [ 'bwf_funnel_id' => $id ], [ '%d' ]);
@@ -158,7 +239,83 @@ final class FunnelKit_Funnel_Snapshot
         if (false === $written) {
             return "FunnelKit funnel {$id} could not be restored.";
         }
-        return [] === $failed ? null : sprintf('FunnelKit funnel %d was restored, but its step posts %s could not be.', $id, implode(', ', $failed));
+        $warnings = [];
+        if ([] !== $failed) {
+            $warnings[] = sprintf('FunnelKit funnel %d was restored, but its step posts %s could not be.', $id, implode(', ', $failed));
+        }
+        if ([] !== $later) {
+            $warnings[] = sprintf('FunnelKit funnel %d keeps step posts %s, added after this operation.', $id, implode(', ', $later));
+        }
+        if ([] !== $gone) {
+            $warnings[] = sprintf('FunnelKit funnel %d step posts %s were deleted since this operation; they were not brought back.', $id, implode(', ', $gone));
+        }
+        return [] === $warnings ? null : implode(' ', $warnings);
+    }
+
+    /**
+     * The captured step list with the steps removed since taken out and the
+     * steps added since kept where they are now: a later top-level step is
+     * appended in its current order, a later substep joins its captured
+     * parent's substeps.
+     *
+     * @param int[] $later
+     * @param int[] $gone
+     */
+    private static function merged_steps(string $captured_json, string $current_json, array $later, array $gone): array
+    {
+        $captured = json_decode($captured_json, true);
+        $current  = json_decode($current_json, true);
+        $captured = is_array($captured) ? array_values(array_filter($captured, 'is_array')) : [];
+        $current  = is_array($current) ? array_values(array_filter($current, 'is_array')) : [];
+        $keep     = static fn ($sub): bool => ! in_array((int) $sub, $gone, true);
+
+        $out = [];
+        foreach ($captured as $step) {
+            if (in_array((int) ($step['id'] ?? 0), $gone, true)) {
+                continue;
+            }
+            if (is_array($step['substeps'] ?? null)) {
+                foreach ($step['substeps'] as $group => $subs) {
+                    $step['substeps'][ $group ] = array_values(array_filter((array) $subs, $keep));
+                }
+            }
+            $out[ (int) ($step['id'] ?? 0) ] = $step;
+        }
+        foreach ($current as $step) {
+            $step_id = (int) ($step['id'] ?? 0);
+            if (in_array($step_id, $later, true)) {
+                $out[ $step_id ] = $step;
+                continue;
+            }
+            if (! isset($out[ $step_id ]) || ! is_array($step['substeps'] ?? null)) {
+                continue;
+            }
+            foreach ($step['substeps'] as $group => $subs) {
+                foreach ((array) $subs as $sub) {
+                    if (in_array((int) $sub, $later, true)) {
+                        $out[ $step_id ]['substeps'][ $group ][] = $sub;
+                    }
+                }
+            }
+        }
+        return array_values($out);
+    }
+
+    /**
+     * The step posts a snapshot captured, by post id.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private static function captured_posts(array $data): array
+    {
+        $captured = [];
+        foreach ((array) ($data['posts'] ?? []) as $entry) {
+            $post_id = (int) ($entry['post']['ID'] ?? 0);
+            if ($post_id > 0 && in_array((string) ($entry['post']['post_type'] ?? ''), self::STEP_POST_TYPES, true)) {
+                $captured[ $post_id ] = (array) $entry;
+            }
+        }
+        return $captured;
     }
 
     /**

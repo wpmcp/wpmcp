@@ -47,4 +47,36 @@ final class Avada_Cache
             }
         }
     }
+
+    /**
+     * After a change to Avada's global options (`fusion_options`, issue
+     * #637), which every page's compiled CSS is built from: what Avada's own
+     * Fusion_Dynamic_CSS::reset_all_caches() does when its options are saved.
+     * Every `fusion_dynamic_css_<id>` transient goes, and both options are
+     * emptied, so each page recompiles on its next view. Options that do not
+     * exist are left absent.
+     */
+    public static function invalidate_all(): void
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the transients have dynamic names, as in Avada's own reset.
+        $names = (array) $wpdb->get_col($wpdb->prepare("SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like('_transient_fusion_dynamic_css_') . '%'));
+        foreach ($names as $name) {
+            delete_transient(substr((string) $name, strlen('_transient_')));
+        }
+
+        foreach (self::OPTIONS as $name) {
+            $option = get_option($name);
+            if (false === $option) {
+                continue;
+            }
+            // Under a persistent object cache the transients are not rows,
+            // so each page the options name as compiled is reset by id too.
+            foreach (is_array($option) ? array_keys($option) : [] as $id) {
+                delete_transient('fusion_dynamic_css_' . $id);
+            }
+            update_option($name, []);
+        }
+    }
 }

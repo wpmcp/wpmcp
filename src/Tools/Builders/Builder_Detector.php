@@ -20,9 +20,9 @@ if (! defined('ABSPATH')) {
  *
  * Checked in priority order: Elementor's `_elementor_edit_mode` flag,
  * Bricks' `_bricks_page_content_2` postmeta, Divi's `_et_pb_use_builder`
- * flag, WPBakery's `_wpb_vc_js_status` = 'true' editor flag, Beaver
- * Builder's `_fl_builder_enabled` flag, a Breakdance `_breakdance_data`
- * row holding a valid tree (a root with id, data and children inside its
+ * flag (or Divi 5's `_et_pb_use_divi_5`), WPBakery's `_wpb_vc_js_status`
+ * = 'true' editor flag, Beaver Builder's `_fl_builder_enabled` flag, a
+ * Breakdance `_breakdance_data` row holding a valid tree (a root with id, data and children inside its
  * `tree_json_string`), the same for Oxygen 6's `_oxygen_data`, Avada's
  * `fusion_builder_status` = 'active' flag, Thrive Architect's
  * `tcb_editor_enabled` flag or `tve_landing_page` template (checked before
@@ -32,7 +32,8 @@ if (! defined('ABSPATH')) {
  * with elements, or a non-empty `_ct_builder_shortcodes` /
  * `ct_builder_shortcodes`, Oxygen's own test for a page it renders; checked
  * before block markers, since Oxygen leaves post_content as it was),
- * Gutenberg's `<!-- wp: -->` block
+ * Divi 5's `<!-- wp:divi/ -->` blocks (a Divi 5 layout whose flags were
+ * never written, as on imported content), Gutenberg's `<!-- wp: -->` block
  * comment markers in post_content, then a WPBakery `[vc_row]` or
  * `[vc_section]` shortcode in post_content (a WPBakery page saved with its
  * backend editor off) or an Avada `[fusion_builder_container]` (an Avada
@@ -52,7 +53,7 @@ class Builder_Detector
             return 'bricks';
         }
 
-        if ('on' === get_post_meta($post_id, '_et_pb_use_builder', true)) {
+        if ('on' === get_post_meta($post_id, '_et_pb_use_builder', true) || 'on' === get_post_meta($post_id, '_et_pb_use_divi_5', true)) {
             return 'divi';
         }
 
@@ -92,6 +93,11 @@ class Builder_Detector
 
         $post = get_post($post_id);
         $content = $post ? (string) $post->post_content : '';
+
+        // Divi 5 stores its layout as divi/ blocks (in a divi/placeholder).
+        if (preg_match('/<!--\s+wp:divi\//', $content)) {
+            return 'divi';
+        }
 
         if (false !== strpos($content, '<!-- wp:')) {
             return 'gutenberg';

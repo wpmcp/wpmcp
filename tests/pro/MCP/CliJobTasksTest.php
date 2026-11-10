@@ -29,6 +29,9 @@ use WPMCP\Tools\Cli\Wp_Cli_Guard;
  */
 class CliJobTasksTest extends \WP_UnitTestCase
 {
+    // Issue #562: on multisite these tools need a network administrator.
+    use \WPMCP\Tests\Free\MultisiteSecurity\Network_Exec_Caller;
+
     private const NAMES = [ 'wpmcp/dispatch-cli-job', 'wpmcp/get-cli-job', 'wpmcp/cancel-cli-job' ];
 
     private ?Registrar $original = null;
@@ -51,10 +54,12 @@ class CliJobTasksTest extends \WP_UnitTestCase
         add_filter('wpmcp_wp_cli_binary', fn() => $bin);
         wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
         $this->register_cli_abilities();
+        $this->act_as_network_exec_caller();
     }
 
     protected function tearDown(): void
     {
+        $this->release_network_exec_caller();
         foreach (self::NAMES as $name) {
             if (wp_has_ability($name)) {
                 wp_unregister_ability($name);

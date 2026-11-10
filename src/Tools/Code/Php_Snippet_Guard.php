@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Code;
 
+use WPMCP\Governance\Code_Exec_Network_Gate;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
 
@@ -56,6 +57,10 @@ class Php_Snippet_Guard
      * which is the drift the split between "execution" and
      * "exec-adjacent" would otherwise invite.
      *
+     * On multisite a third gate follows: the caller must be a network
+     * administrator unless the network granted sub-site administrators
+     * access (Code_Exec_Network_Gate, issue #562).
+     *
      * Deliberately NOT included: Php_Snippet_Validator. The validator is a
      * usability speed-bump that an authorized caller can trivially evade,
      * and its message differs per surface; the two checks here are the
@@ -74,6 +79,10 @@ class Php_Snippet_Guard
                 'PHP execution is refused on this environment. Production and any unrecognized/unknown environment are refused by default (fail closed); set WPMCP_ALLOW_PHP_EXEC_ON_PRODUCTION or the wpmcp_allow_php_exec_on_production filter to override.'
             );
         }
+
+        // Issue #562: the opt-in is network-wide on multisite, so it cannot
+        // be what lets a sub-site administrator run code on every site.
+        Code_Exec_Network_Gate::assert_allowed('php', 'PHP execution');
     }
 
     /**
@@ -152,6 +161,9 @@ class Php_Snippet_Guard
         }
         if (! self::is_allowed_on_environment()) {
             return 'environment_refused';
+        }
+        if (! Code_Exec_Network_Gate::allows_current_user('php')) {
+            return 'network_admin_required';
         }
         if ($e instanceof \InvalidArgumentException) {
             return 'invalid_argument';

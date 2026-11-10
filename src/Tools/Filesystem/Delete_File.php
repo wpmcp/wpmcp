@@ -10,9 +10,10 @@ if (! defined('ABSPATH')) {
  * Delete a file inside the WordPress install. Disabled by default: sites
  * must opt in via the wpmcp_enable_fs_writes filter. Requires the
  * edit_files capability and honors DISALLOW_FILE_EDIT. Always requires
- * confirm:true. Refuses wp-config.php/.htaccess. Backs up the file before
- * deleting it, so the deletion is genuinely recoverable via
- * Filesystem_Guard::restore().
+ * confirm:true. Refuses wp-config.php/.htaccess. Records the deletion as an
+ * undoable operation (File_Write_Operation): the file is backed up first and
+ * rollback-operation with the returned operation_id puts it back byte for
+ * byte (issue #602).
  */
 class Delete_File
 {
@@ -24,7 +25,7 @@ class Delete_File
     public function handle(array $args): array
     {
         if (! self::is_enabled()) {
-            throw new \RuntimeException('The delete-file tool is disabled. Enable it with the wpmcp_enable_fs_writes filter.');
+            throw new \WPMCP\MCP\Opt_In_Required('The delete-file tool is disabled.', 'wpmcp_enable_fs_writes');
         }
 
         if (true !== ($args['confirm'] ?? null)) {
@@ -49,25 +50,29 @@ class Delete_File
             throw new \RuntimeException('File not found.');
         }
 
-        $backup = Filesystem_Guard::backup($abs);
-        if (is_wp_error($backup)) {
-            throw new \RuntimeException(esc_html($backup->get_error_message()));
-        }
-
         $rel = Filesystem_Guard::to_relative($abs);
 
-        wp_delete_file($abs);
-        if (is_file($abs)) {
-            throw new \RuntimeException('Could not delete the file (check permissions).');
-        }
+        $done = File_Write_Operation::run(
+            'delete-file',
+            $abs,
+            $args,
+            static function () use ($abs): bool {
+                wp_delete_file($abs);
+                if (is_file($abs)) {
+                    throw new \RuntimeException('Could not delete the file (check permissions).');
+                }
+                return true;
+            }
+        );
 
         Filesystem_Guard::log('delete', $rel);
 
         return [
-            'path'        => $rel,
-            'deleted'     => true,
-            'backup'      => $backup ? Filesystem_Guard::to_relative($backup) : null,
-            'recoverable' => '' !== $backup,
+            'path'         => $rel,
+            'deleted'      => true,
+            'operation_id' => $done['operation_id'],
+            'backup'       => Filesystem_Guard::to_relative($done['backup']),
+            'recoverable'  => true,
         ];
     }
 }

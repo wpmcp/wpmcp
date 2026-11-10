@@ -58,7 +58,8 @@ class Search_Content
         $offset = max(0, (int) ($args['offset'] ?? 0));
         $hits   = max(1, min(self::MAX_HITS, (int) ($args['hits_per_result'] ?? self::DEFAULT_HITS)));
 
-        $stats = Search_Index_Store::stats();
+        $stats    = Search_Index_Store::stats();
+        $complete = Search_Index_Store::is_complete();
 
         $rows = Search_Index_Store::candidates($terms, [
             'object_types' => $this->string_list($args['object_types'] ?? []),
@@ -110,12 +111,33 @@ class Search_Content
                 'last_indexed_at' => $stats['last_indexed_at'],
                 'by_source'       => $stats['by_source'],
                 'empty'           => 0 === $stats['documents'],
+                'complete'        => $complete,
             ],
-            'hint'      => 0 === $stats['documents']
-                ? 'The search index is empty. Run wpmcp/reindex-search once to build it; after that it updates incrementally on every save.'
-                : null,
+            'hint'      => $this->hint($stats, $complete),
             'hidden'    => $skipped,
         ];
+    }
+
+    /**
+     * Why the results may be missing matches, or null when the index covers
+     * the site. A partial index (issue #592) holds only what was saved since
+     * the plugin was installed, so a miss there does not mean the text is
+     * not on the site.
+     *
+     * @param array{documents:int,objects:int} $stats
+     */
+    private function hint(array $stats, bool $complete): ?string
+    {
+        if (0 === $stats['documents']) {
+            return 'The search index is empty. Run wpmcp/reindex-search once to build it; after that it updates incrementally on every save.';
+        }
+        if (! $complete) {
+            return sprintf(
+                'The search index is partial (%d objects): it has not been fully built, so content saved before WP MCP was installed may be missing and an empty result does not mean the text is not on the site. Run wpmcp/reindex-search until complete is true; after that it updates on every save.',
+                (int) $stats['objects']
+            );
+        }
+        return null;
     }
 
     /** @return string[] */

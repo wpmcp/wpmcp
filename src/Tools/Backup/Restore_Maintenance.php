@@ -43,11 +43,35 @@ class Restore_Maintenance
 
     private bool $had_row = false;
 
+    /** Unix time the guard went on, or null before enter(). */
+    private ?int $entered_at = null;
+
+    /** Unix time the guard was released, or null while it is on. */
+    private ?int $left_at = null;
+
     public function enter(): void
     {
         [$this->had_row, $this->restore_to] = self::read();
         $this->switch_on();
-        $this->active = true;
+        $this->active     = true;
+        $this->entered_at = time();
+        $this->left_at    = null;
+    }
+
+    /**
+     * The maintenance window this restore opened (issue #727), as reported
+     * to the caller: when visitors started getting the 503 and when it
+     * stopped. Both null when maintenance was never entered.
+     *
+     * @return array{started_at: ?string, ended_at: ?string, seconds: ?int}
+     */
+    public function window(): array
+    {
+        return [
+            'started_at' => null === $this->entered_at ? null : gmdate('c', $this->entered_at),
+            'ended_at'   => null === $this->left_at ? null : gmdate('c', $this->left_at),
+            'seconds'    => null === $this->entered_at || null === $this->left_at ? null : max(0, $this->left_at - $this->entered_at),
+        ];
     }
 
     public function is_active(): bool
@@ -88,7 +112,8 @@ class Restore_Maintenance
             delete_option(self::OPTION);
         }
 
-        $this->active = false;
+        $this->active  = false;
+        $this->left_at = time();
     }
 
     private function switch_on(): void

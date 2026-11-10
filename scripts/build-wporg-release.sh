@@ -321,24 +321,25 @@ php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --hooks \
 # 4b. Compatibility headers, re-derived from the staged files rather than
 #     from the checkout the strip ran over. `Tested up to` is a Plugin Check
 #     error when it trails the current release and the plugin then stops
-#     appearing in directory search (issue #172, finding B-23). The values in
-#     the zip must equal the value the repository declares, and the repository
-#     value is the one tests/free/Release/ReleaseHeadersTest.php pins.
+#     appearing in directory search (issue #172, finding B-23). It lives in
+#     readme.txt only: Plugin Check reports plugin_header_tested_up_to_not_allowed
+#     when the loader declares it (issue #754), so the staged loader must carry
+#     none. The value in the zip must equal the value the repository declares,
+#     and the repository value is the one tests/free/Release/ReleaseHeadersTest.php pins.
 #     Each capture is stripped of a trailing CR and trailing whitespace before
 #     the comparison, the way the PHP test trims, so two values that print the
 #     same cannot fail the equality for an invisible reason; the numeric check
 #     then runs on the trimmed value.
 header_value() { tr -d '\r' | sed 's/[[:space:]]*$//' | head -1; }
 readme_tested="$(sed -n 's/^Tested up to:[[:space:]]*//p' "$STAGE/readme.txt" | header_value)"
-loader_tested="$(sed -n 's/^[[:space:]]*\*[[:space:]]*Tested up to:[[:space:]]*//p' "$STAGE/$SLUG.php" | header_value)"
 root_tested="$(sed -n 's/^Tested up to:[[:space:]]*//p' "$ROOT/readme.txt" | header_value)"
 
 [ -n "$readme_tested" ] || fail "the staged readme.txt has no Tested up to header"
-[ -n "$loader_tested" ] || fail "the staged $SLUG.php has no Tested up to header"
 [ -n "$root_tested" ] || fail "the repository readme.txt has no Tested up to header"
 echo "$readme_tested" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || fail "staged readme.txt Tested up to \"$readme_tested\" must be numbers only"
-echo "$loader_tested" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || fail "staged $SLUG.php Tested up to \"$loader_tested\" must be numbers only"
-[ "$readme_tested" = "$loader_tested" ] || fail "staged readme.txt says Tested up to $readme_tested and $SLUG.php says $loader_tested"
+if grep -Eq '^[[:space:]]*\*[[:space:]]*Tested up to:' "$STAGE/$SLUG.php"; then
+  fail "the staged $SLUG.php declares Tested up to; Plugin Check allows it in readme.txt only"
+fi
 [ "$readme_tested" = "$root_tested" ] || fail "the zip declares Tested up to $readme_tested and the repository readme.txt declares $root_tested"
 
 staged_stable="$(sed -n 's/^Stable tag:[[:space:]]*//p' "$STAGE/readme.txt" | head -1)"

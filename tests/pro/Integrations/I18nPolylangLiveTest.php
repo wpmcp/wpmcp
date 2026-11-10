@@ -39,7 +39,7 @@ class I18nPolylangLiveTest extends \WP_UnitTestCase
             return;
         }
         $model = PLL()->model;
-        foreach ([ [ 'English', 'en', 'en_US' ], [ 'Deutsch', 'de', 'de_DE' ], [ 'Francais', 'fr', 'fr_FR' ] ] as [ $name, $slug, $locale ]) {
+        foreach ([ [ 'English', 'en', 'en_US' ], [ 'Deutsch', 'de', 'de_DE' ], [ 'Francais', 'fr', 'fr_FR' ], [ 'Espanol', 'es', 'es_ES' ] ] as [ $name, $slug, $locale ]) {
             if (! $model->get_language($slug)) {
                 $model->add_language([ 'name' => $name, 'slug' => $slug, 'locale' => $locale, 'rtl' => false, 'term_group' => 0 ]);
             }
@@ -277,5 +277,32 @@ class I18nPolylangLiveTest extends \WP_UnitTestCase
         sort($ids);
         $this->assertSame([ $todo, $fr ], $ids);
         $this->assertSame(2, $out['total']);
+    }
+
+    /**
+     * Issue #556: undoing an earlier create-translation unlinks only the
+     * translation it made; one linked into the group after it stays.
+     */
+    public function test_undoing_an_earlier_translation_keeps_a_later_one_linked(): void
+    {
+        $source = $this->page('en');
+        $fr     = $this->page('fr', [ 'post_title' => 'Accueil' ]);
+        pll_save_post_translations([ 'en' => $source, 'fr' => $fr ]);
+
+        $first  = $this->call('write', 'create-translation', [ 'post_id' => $source, 'language' => 'de' ]);
+        $de     = (int) $first['result']['post_id'];
+        $second = $this->call('write', 'create-translation', [ 'post_id' => $source, 'language' => 'es' ]);
+        $es     = (int) $second['result']['post_id'];
+
+        $this->assertTrue(Rollback_Service::restore_operation($first['operation_ids'][0]));
+
+        $group = pll_get_post_translations($source);
+        ksort($group);
+        $this->assertSame([ 'en' => $source, 'es' => $es, 'fr' => $fr ], $group, 'The es translation made after the de one dropped out of the group when the de one was undone.');
+        $this->assertSame('trash', get_post_status($de), 'The undone translation is still removed.');
+        $this->assertNotContains($source, pll_get_post_translations($de), 'The undone translation is still unlinked.');
+        $from_es = pll_get_post_translations($es);
+        ksort($from_es);
+        $this->assertSame($group, $from_es);
     }
 }

@@ -215,4 +215,59 @@ class TablePressLiveTest extends \WP_UnitTestCase
         $this->assertSame([ $page => [ 'block' ], $post => [ 'shortcode' ] ], $usage);
         $this->assertStringContainsString('>Basic<', $this->call('read', 'tablepress-render-table', [ 'table_id' => $id ])['result']['html']);
     }
+
+    /**
+     * Issue #555: undoing a create, copy or import adds back only the map
+     * entry it touched, so tables created after it stay in the map.
+     */
+    public function test_undoing_an_earlier_create_copy_or_import_keeps_tables_created_later(): void
+    {
+        $first  = $this->call('write', 'tablepress-create-table', [ 'name' => 'First', 'data' => [ [ 'a' ] ] ]);
+        $id     = (string) $first['result']['table']['id'];
+        $copy   = $this->call('write', 'tablepress-copy-table', [ 'table_id' => $id ]);
+        $copied = (string) $copy['result']['table']['id'];
+        $import = $this->call('write', 'tablepress-import-table', [ 'data' => "x,y\n1,2", 'name' => 'Imported' ]);
+        $added  = (string) $import['result']['table']['id'];
+        $later  = $this->create([ [ 'keep me' ] ], 'Later');
+
+        Rollback_Service::restore_session((string) $import['session_id']);
+        $this->assertFalse(\TablePress::$model_table->table_exists($added), 'The undone import still reverses its own table.');
+        Rollback_Service::restore_session((string) $copy['session_id']);
+        $this->assertFalse(\TablePress::$model_table->table_exists($copied), 'The undone copy still reverses its own table.');
+        Rollback_Service::restore_session((string) $first['session_id']);
+        $this->assertFalse(\TablePress::$model_table->table_exists($id), 'The undone create still reverses its own table.');
+
+        $this->assertTrue(\TablePress::$model_table->table_exists($later), 'Table "' . $later . '", created by a later call, vanished when earlier writes were undone.');
+        $this->assertSame([ [ 'keep me' ] ], $this->model($later)['data']);
+    }
+
+    /** Issue #555: undoing a delete puts its table back and keeps one created after it. */
+    public function test_undoing_a_delete_keeps_a_table_created_after_it(): void
+    {
+        $doomed  = $this->create([ [ 'x' ] ], 'Doomed');
+        $deleted = $this->call('write', 'tablepress-delete-table', [ 'table_id' => $doomed ], [ 'confirm' => true ]);
+        $later   = $this->create([ [ 'keep me' ] ], 'Later');
+
+        Rollback_Service::restore_session((string) $deleted['session_id']);
+
+        $this->assertTrue(\TablePress::$model_table->table_exists($doomed));
+        $this->assertSame([ [ 'x' ] ], $this->model($doomed)['data']);
+        $this->assertTrue(\TablePress::$model_table->table_exists($later), 'Table "' . $later . '", created after the delete, vanished when the delete was undone.');
+        $this->assertSame([ [ 'keep me' ] ], $this->model($later)['data']);
+    }
+
+    /** Issue #555: undoing an id change moves only that table back and keeps one created after it. */
+    public function test_undoing_an_id_change_keeps_a_table_created_after_it(): void
+    {
+        $id    = $this->create([ [ 'a' ] ]);
+        $moved = $this->call('write', 'tablepress-change-table-id', [ 'table_id' => $id, 'new_id' => 'moved-' . $id ]);
+        $later = $this->create([ [ 'keep me' ] ], 'Later');
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $moved['operation_id']), implode('; ', Rollback_Service::take_warnings()));
+
+        $this->assertTrue(\TablePress::$model_table->table_exists($id));
+        $this->assertFalse(\TablePress::$model_table->table_exists('moved-' . $id));
+        $this->assertSame([ [ 'a' ] ], $this->model($id)['data']);
+        $this->assertTrue(\TablePress::$model_table->table_exists($later), 'Table "' . $later . '", created after the id change, vanished when it was undone.');
+    }
 }

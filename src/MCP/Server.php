@@ -75,6 +75,11 @@ class Server
         // (issue #386): server/discover always, the rest only when the
         // adapter predates the revision.
         Modern_Http_Bridge::register();
+
+        // How long the server took, on every response of this route, so a
+        // slow handshake through a tunnel can be split into server and
+        // network time (issue #733).
+        Handshake_Timing::register();
     }
 
     public static function boot(): void

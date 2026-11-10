@@ -119,4 +119,24 @@ class AbilityRestExposureTest extends \WP_Test_REST_TestCase
         $this->assertSame($post_id, $data['post_id'] ?? null);
         $this->assertSame('Transport boundary probe', $data['title'] ?? null);
     }
+
+    /**
+     * A tool that refuses by throwing answers the run endpoint with an error
+     * response carrying the reason, on every supported WordPress (issue
+     * #612). WordPress 6.9's run controller and WP_Ability catch nothing, so
+     * before the Registrar returned the exception as a WP_Error this request
+     * died with an uncaught exception there.
+     */
+    public function test_a_refusing_ability_answers_the_run_controller_with_an_error_not_an_exception(): void
+    {
+        $request = new \WP_REST_Request('POST', self::LIST_ROUTE . '/wpmcp/get-post/run');
+        $request->set_header('Content-Type', 'application/json');
+        $request->set_body((string) wp_json_encode(['input' => ['post_id' => 99999999]]));
+
+        $response = rest_do_request($request);
+
+        $this->assertTrue($response->is_error(), 'A refusal must come back as an error response.');
+        $this->assertSame('ability_callback_exception', $response->as_error()->get_error_code());
+        $this->assertStringContainsString('Post not found', $response->as_error()->get_error_message());
+    }
 }
