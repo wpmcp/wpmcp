@@ -35,7 +35,7 @@ class Registrar
      * (issue #790), with the plugin to name in the refusal. Kept apart from
      * $declared: they are not part of the surface the ability grid shows.
      *
-     * @var array<string, array{ability: Ability, plugin: string, several: bool}>
+     * @var array<string, array{ability: Ability, plugin: string, several: bool, operations: array<string, array{name: string, several: bool}>}>
      */
     private array $held_for_plugin = [];
 
@@ -449,11 +449,17 @@ class Registrar
      * Note an ability that is not registered because the plugin it works
      * with is not active (issue #790): a pair whose integration registers
      * only while its host plugin is loaded. $plugin names that plugin, or,
-     * with $several, the plugins any one of which would do. Grants nothing.
+     * with $several, the plugins any one of which would do. $operations
+     * names, for a dispatcher pair, the plugin each op needs (op name =>
+     * ['name', 'several'], issue #815), so a refusal for one op names that
+     * op's plugin rather than every plugin the pair works with. Grants
+     * nothing.
+     *
+     * @param array<string, array{name: string, several: bool}> $operations
      */
-    public function hold_for_plugin(Ability $a, string $plugin, bool $several = false): void
+    public function hold_for_plugin(Ability $a, string $plugin, bool $several = false, array $operations = []): void
     {
-        $this->held_for_plugin[ $a->name ] = [ 'ability' => $a, 'plugin' => $plugin, 'several' => $several ];
+        $this->held_for_plugin[ $a->name ] = [ 'ability' => $a, 'plugin' => $plugin, 'several' => $several, 'operations' => $operations ];
     }
 
     /**
@@ -461,14 +467,38 @@ class Registrar
      * not active (issue #790), or null when that is not the reason. Names
      * the plugin to activate instead of claiming no such tool exists. A
      * tool this install's tier cannot run is left to the tier refusal,
-     * since activating the plugin alone would not bring it back. Grants
-     * nothing: the tool stays unregistered and unreachable.
+     * since activating the plugin alone would not bring it back. When
+     * $arguments name an 'operation' whose plugin the pair declared, the
+     * refusal names that op's plugin (issue #815). Grants nothing: the
+     * tool stays unregistered and unreachable.
+     *
+     * @param array<string, mixed> $arguments the call's arguments, if any
      */
-    public function plugin_inactive(string $name): ?\WP_Error
+    public function plugin_inactive(string $name, array $arguments = []): ?\WP_Error
     {
         $held = $this->held_for_plugin[ $name ] ?? null;
         if (null === $held || isset($this->abilities[ $name ]) || ! self::tier_permitted($held['ability']->tier)) {
             return null;
+        }
+
+        $operation = is_string($arguments['operation'] ?? null) ? $arguments['operation'] : '';
+        $host      = '' === $operation ? null : ( $held['operations'][ $operation ] ?? null );
+        if (null !== $host) {
+            $message = $host['several']
+                ? sprintf(
+                    'Op "%1$s" of %2$s works with %3$s, and none of them is active on this site, so it cannot run. Install and activate one of them, then try again.',
+                    $operation,
+                    $name,
+                    $host['name']
+                )
+                : sprintf(
+                    '%1$s is not active on this site, so op "%2$s" of %3$s cannot run. Install and activate %1$s, then try again.',
+                    $host['name'],
+                    $operation,
+                    $name
+                );
+
+            return new \WP_Error('plugin_missing', $message, [ 'plugin' => $host['name'], 'operation' => $operation ]);
         }
 
         $message = $held['several']
