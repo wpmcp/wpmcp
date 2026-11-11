@@ -112,6 +112,11 @@ namespace WPMCP\Tests\Pro\Builders {
 
         private function update(int $post_id, array $args)
         {
+            // Page writes need the page's current hash (issue #640).
+            if (! array_key_exists('expected_hash', $args)) {
+                $args['expected_hash'] = hash('sha256', Thrive_Content::get_content($post_id));
+            }
+
             return (new Update_Builder_Content())->handle(['post_id' => $post_id, 'builder' => 'thrive'] + $args);
         }
 

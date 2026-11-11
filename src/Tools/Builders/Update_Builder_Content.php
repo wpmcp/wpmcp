@@ -50,6 +50,11 @@ if (! defined('ABSPATH')) {
  * default:<n> while the plugin is loaded), and scope 'templates' writes its
  * saved templates (see WPBakery_Templates).
  *
+ * Thrive Architect pages need (issue #640) expected_hash, the read's
+ * hash, on any write to a page that has a layout, and take publish,
+ * restore (path: a revision id from the read), add with element
+ * {template: id} (a user template) and save_template (see Thrive_Page).
+ *
  * Oxygen 6 pages need (issue #635) Oxygen loaded (plugin_missing
  * otherwise) and expected_hash, the read's hash of the stored data row, on
  * any write to a page that has a layout; they take publish, restore (path: a
@@ -631,30 +636,72 @@ class Update_Builder_Content
      * Thrive Architect pages: a whole layout HTML string or one element
      * operation, only on a page already detected as Thrive (a first layout
      * is made in the Thrive editor, which sets up the page's other rows).
+     * Issue #640: a page with a layout is changed only against the hash it
+     * was read with; publish, restore (path: a revision id) and add with
+     * element {template: id} (a user template, its rules added to the page
+     * CSS) are page writes too, and save_template writes no page.
      */
     private function update_thrive(int $post_id, array $args)
     {
         $operation = (string) ($args['operation'] ?? '');
         $path      = null;
+        $css       = null;
+        $rows      = null;
+        $status    = null;
 
         $detected = Builder_Detector::detect($post_id);
         if ('thrive' !== $detected) {
             return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not a Thrive Architect page.");
         }
 
+        if ('save_template' === $operation) {
+            return Thrive_Page::save_template($post_id, $args);
+        }
+
         $old = Thrive_Content::get_content($post_id);
+        if ('' !== trim($old)) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a Thrive Architect page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(Thrive_Page::hash($old), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+            }
+        }
+
+        $content     = $old;
+        $before_more = null;
         try {
-            if ('' === $operation) {
+            $element = $args['element'] ?? null;
+            if ('publish' === $operation) {
+                $refusal = $this->publish_refusal($post_id, 'invalid_thrive_request');
+                if (null !== $refusal) {
+                    return $refusal;
+                }
+                $status = 'publish';
+            } elseif ('restore' === $operation) {
+                $rows = Thrive_Page::revision_rows($post_id, (string) ($args['path'] ?? ''));
+            } elseif ('add' === $operation && is_array($element) && array_key_exists('template', $element)) {
+                if (1 !== count($element) || ! is_scalar($element['template'])) {
+                    throw new \InvalidArgumentException(esc_html('element {template} takes only a template id.'));
+                }
+                $index = isset($args['index']) ? (int) $args['index'] : null;
+                [$content, $css, $path] = Thrive_Page::insert_template($old, Thrive_Content::get_css($post_id), (string) ($args['to'] ?? ''), $index, (string) $element['template']);
+            } elseif ('' === $operation) {
                 $content = $args['content'] ?? null;
                 if (! is_string($content)) {
                     throw new \InvalidArgumentException(esc_html('Thrive content must be the layout HTML as a string, or pass an operation.'));
                 }
                 Thrive_Html::assert_balanced($content);
                 Thrive_Html::tree($content);
-            } else {
+            } elseif (in_array($operation, ['update', 'add', 'remove', 'move'], true)) {
                 [$content, $path] = $this->apply_operation(Thrive_Html::class, $old, $operation, $args);
+            } else {
+                throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move, publish, restore or save_template."));
             }
-            $before_more = Thrive_Content::before_more($post_id, $old, $content);
+            if (null === $status && null === $rows) {
+                $before_more = Thrive_Content::before_more($post_id, $old, $content);
+            }
         } catch (\InvalidArgumentException $e) {
             return new \WP_Error('invalid_thrive_request', $e->getMessage());
         }
@@ -667,13 +714,24 @@ class Update_Builder_Content
                 'tool_name'   => 'update-builder-content',
                 'args'        => $args,
             ],
-            function () use ($post_id, $content, $before_more) {
-                Thrive_Content::save($post_id, $content, $before_more);
+            function () use ($post_id, $content, $before_more, $css, $rows, $status) {
+                if (null !== $status) {
+                    Save_Filters::set_post_status($post_id, $status);
+                } elseif (null !== $rows) {
+                    Thrive_Content::restore_rows($post_id, $rows);
+                } else {
+                    Thrive_Content::save($post_id, $content, $before_more, $css);
+                }
                 return true;
             }
         );
 
-        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'thrive'];
+        $result = [
+            'operation_id' => $out['operation_id'],
+            'post_id'      => $post_id,
+            'builder'      => 'thrive',
+            'hash'         => Thrive_Page::hash(Thrive_Content::get_content($post_id)),
+        ];
         if (null !== $path) {
             $result['path'] = $path;
         }

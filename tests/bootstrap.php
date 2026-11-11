@@ -155,6 +155,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'js_composer/js_composer.php' );
     }
 
+    // The live Thrive Architect job (issue #640, WPMCP_LIVE_THRIVE=1) runs
+    // the Thrive adapter against a real Thrive Architect, copied in from
+    // WPMCP_THRIVE_ARCHITECT_SRC. Loaded only on request: the other Thrive
+    // tests stand in for its rows and toggle its presence.
+    if ( getenv( 'WPMCP_LIVE_THRIVE' ) ) {
+        wpmcp_maybe_require_plugin( 'thrive-visual-editor/thrive-visual-editor.php' );
+    }
+
     // The live Divi job (issue #636, WPMCP_LIVE_DIVI=1) runs the Divi 5
     // adapter against the real Divi 5 theme, copied into the themes
     // directory from WPMCP_DIVI_SRC. Divi is a theme, so it is made the
