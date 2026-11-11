@@ -219,6 +219,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'elementor-pro/elementor-pro.php' );
     }
 
+    // The live WS Form job (issue #676, WPMCP_LIVE_WS_FORM=1) runs the WS
+    // Form ops against a real WS Form PRO, copied in from WPMCP_WS_FORM_SRC.
+    // Loaded only on request: the stub-backed tests build its tables from a
+    // fixture.
+    if ( getenv( 'WPMCP_LIVE_WS_FORM' ) ) {
+        wpmcp_maybe_require_plugin( 'ws-form-pro/ws-form.php' );
+    }
+
     // The live JetElements job (issue #653, WPMCP_LIVE_JET_ELEMENTS=1) runs
     // the JetElements addon pack ops against a real JetElements, copied in
     // from WPMCP_JET_ELEMENTS_SRC, beside the Elementor loaded above. Loaded
@@ -486,6 +494,15 @@ tests_add_filter( 'init', function () {
     if ( getenv( 'WPMCP_LIVE_ELEMENTOR_PRO' ) && class_exists( '\\ElementorPro\\Modules\\Forms\\Submissions\\Database\\Migration' ) ) {
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         \ElementorPro\Modules\Forms\Submissions\Database\Migration::install();
+    }
+}, 1 );
+
+// The live WS Form job's tables and capabilities, set up by WS Form's own
+// activation routine once per run, before any test transaction starts (the
+// harness activates no plugin). A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_WS_FORM' ) && class_exists( 'WS_Form_Activator' ) ) {
+        \WS_Form_Activator::activate();
     }
 }, 1 );
 

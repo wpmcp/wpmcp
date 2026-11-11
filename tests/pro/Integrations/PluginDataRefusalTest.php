@@ -25,6 +25,7 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
         'wpmcp_elementor_pro_active', 'wpmcp_fluentcrm_active', 'wpmcp_jetengine_active', 'wpmcp_learndash_active',
         'wpmcp_lifterlms_active', 'wpmcp_mailpoet_active', 'wpmcp_memberpress_active', 'wpmcp_multilingual_active',
         'wpmcp_pods_active', 'wpmcp_tablepress_active', 'wpmcp_translatepress_active', 'wpmcp_tutor_active',
+        'wpmcp_ws_form_active',
     ];
 
     private Registrar $original;
@@ -106,7 +107,7 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
         foreach ([ ['operation' => 'list-memberships'], [] ] as $arguments) {
             $message = self::call('wpmcp/plugin-data-read', $arguments)->get_error_message();
             $this->assertStringStartsWith('None of the plugins wpmcp/plugin-data-read works with is active on this site (', $message);
-            foreach ([ 'MemberPress', 'Amelia', 'Polylang', 'WPML', 'Elementor Pro' ] as $plugin) {
+            foreach ([ 'MemberPress', 'Amelia', 'Polylang', 'WPML', 'Elementor Pro', 'WS Form' ] as $plugin) {
                 $this->assertStringContainsString($plugin, $message);
             }
         }
