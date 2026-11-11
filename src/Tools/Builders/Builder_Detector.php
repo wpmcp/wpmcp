@@ -32,6 +32,8 @@ if (! defined('ABSPATH')) {
  * with elements, or a non-empty `_ct_builder_shortcodes` /
  * `ct_builder_shortcodes`, Oxygen's own test for a page it renders; checked
  * before block markers, since Oxygen leaves post_content as it was),
+ * a BeTheme BeBuilder layout (a non-empty `mfn-page-items` row, issue #643;
+ * also before block markers, since BeTheme renders it beside post_content),
  * Divi 5's `<!-- wp:divi/ -->` blocks (a Divi 5 layout whose flags were
  * never written, as on imported content), Gutenberg's `<!-- wp: -->` block
  * comment markers in post_content, then a WPBakery `[vc_row]` or
@@ -89,6 +91,13 @@ class Builder_Detector
 
         if (self::has_classic_oxygen_layout($post_id)) {
             return 'oxygen-classic';
+        }
+
+        // BeTheme renders its BeBuilder sections from postmeta, beside
+        // whatever post_content holds, so this comes before block markers.
+        $mfn = get_post_meta($post_id, 'mfn-page-items', true);
+        if ((is_array($mfn) && [] !== $mfn) || (is_string($mfn) && '' !== trim($mfn))) {
+            return 'betheme';
         }
 
         $post = get_post($post_id);

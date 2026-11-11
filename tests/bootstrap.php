@@ -173,6 +173,15 @@ tests_add_filter( 'muplugins_loaded', function () {
         add_filter( 'pre_option_stylesheet', static fn () => 'Divi' );
     }
 
+    // The live BeTheme job (issue #643, WPMCP_LIVE_BETHEME=1) runs the
+    // BeBuilder adapter against the real BeTheme, copied into the themes
+    // directory from WPMCP_BETHEME_SRC, made the active theme here. Only on
+    // request: the other BeTheme tests stand in for its rows.
+    if ( getenv( 'WPMCP_LIVE_BETHEME' ) && is_dir( WP_CONTENT_DIR . '/themes/betheme' ) ) {
+        add_filter( 'pre_option_template', static fn () => 'betheme' );
+        add_filter( 'pre_option_stylesheet', static fn () => 'betheme' );
+    }
+
     // The live theme add-on job (issue #656, WPMCP_LIVE_THEME_PRO=astra,
     // kadence or generatepress) runs the theme layout ops against one real
     // premium add-on, copied in from WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC

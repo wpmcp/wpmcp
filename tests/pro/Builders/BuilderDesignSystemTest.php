@@ -404,6 +404,7 @@ namespace WPMCP\Tests\Pro\Builders {
         {
             $expected = [
                 'avada'      => 'Install and activate the Avada theme with its Avada Core and Avada Builder plugins, then try again.',
+                'betheme'    => 'Install and activate the BeTheme theme, then try again.',
                 'breakdance' => 'Install and activate the Breakdance plugin, then try again.',
                 'bricks'     => 'Install and activate the Bricks theme, then try again.',
                 'divi'       => 'Install and activate the Divi theme (Divi 5), then try again.',

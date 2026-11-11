@@ -71,6 +71,12 @@
 #      here), installed as a theme and made the active one: Divi 5 layouts
 #      are detected, read, edited element by element and rolled back, and
 #      Divi still parses and renders them.
+#  17b. Runs the live BeTheme group (issue #643) when WPMCP_BETHEME_SRC
+#      names a local copy of the BeTheme theme (commercial, so not
+#      downloadable here), installed as a theme and made the active one:
+#      BeBuilder pages are read and edited by uid, still render through
+#      BeTheme's own builder with their local styles rebuilt, its item
+#      catalog is read, and every write rolls back.
 #  18. Runs the live WPBakery group (issue #639) when WPMCP_WPBAKERY_SRC names
 #      a local copy of WPBakery Page Builder (commercial too): its element
 #      catalog, templates and design options are read from the real plugin,
@@ -217,6 +223,7 @@
 #   bin/test-local.sh --live-wpbakery only the live WPBakery group (needs WPMCP_WPBAKERY_SRC)
 #   bin/test-local.sh --live-thrive   only the live Thrive Architect group (needs WPMCP_THRIVE_ARCHITECT_SRC)
 #   bin/test-local.sh --live-divi     only the live Divi group (needs WPMCP_DIVI_SRC)
+#   bin/test-local.sh --live-betheme  only the live BeTheme group (needs WPMCP_BETHEME_SRC)
 #   bin/test-local.sh --live-memberpress only the live MemberPress group (needs WPMCP_MEMBERPRESS_SRC)
 #   bin/test-local.sh --live-elementor-pro only the live Elementor Pro group (needs WPMCP_ELEMENTOR_PRO_SRC)
 #   bin/test-local.sh --live-cache-settings only the live cache settings groups (needs at least one of WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC, WPMCP_FLYING_PRESS_SRC)
@@ -282,6 +289,9 @@
 #                        (thrive-visual-editor) for the live Thrive group;
 #                        without it that group is not run, except under
 #                        --live-thrive, where it is an error
+#   WPMCP_BETHEME_SRC    a local BeTheme theme directory for the live
+#                        BeTheme group; without it that group is not run,
+#                        except under --live-betheme, where it is an error
 #   WPMCP_DIVI_SRC       a local Divi 5 theme directory for the live Divi
 #                        group; without it that group is not run, except
 #                        under --live-divi, where it is an error
@@ -381,6 +391,7 @@ only_live_wpbakery=false
 only_live_thrive=false
 only_live_oxygen=false
 only_live_divi=false
+only_live_betheme=false
 only_live_memberpress=false
 only_live_amelia=false
 only_live_wc_subscriptions=false
@@ -418,6 +429,7 @@ while [ $# -gt 0 ]; do
 		--live-thrive) only_live_thrive=true ;;
 		--live-oxygen) only_live_oxygen=true ;;
 		--live-divi) only_live_divi=true ;;
+		--live-betheme) only_live_betheme=true ;;
 		--live-memberpress) only_live_memberpress=true ;;
 		--live-amelia) only_live_amelia=true ;;
 		--live-wc-subscriptions) only_live_wc_subscriptions=true ;;
@@ -476,7 +488,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_betheme" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -493,6 +505,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_thrive" = false ] || LEGS+=("live-thrive ${only_wp:-$default_wp}")
 	[ "$only_live_oxygen" = false ] || LEGS+=("live-oxygen ${only_wp:-$default_wp}")
 	[ "$only_live_divi" = false ] || LEGS+=("live-divi ${only_wp:-$default_wp}")
+	[ "$only_live_betheme" = false ] || LEGS+=("live-betheme ${only_wp:-$default_wp}")
 	[ "$only_live_memberpress" = false ] || LEGS+=("live-memberpress ${only_wp:-$default_wp}")
 	[ "$only_live_amelia" = false ] || LEGS+=("live-amelia ${only_wp:-$default_wp}")
 	[ "$only_live_wc_subscriptions" = false ] || LEGS+=("live-wc-subscriptions ${only_wp:-$default_wp}")
@@ -551,6 +564,9 @@ else
 		fi
 		if [ -n "${WPMCP_DIVI_SRC:-}" ]; then
 			LEGS+=("live-divi $default_wp")
+		fi
+		if [ -n "${WPMCP_BETHEME_SRC:-}" ]; then
+			LEGS+=("live-betheme $default_wp")
 		fi
 		if [ -n "${WPMCP_MEMBERPRESS_SRC:-}" ]; then
 			LEGS+=("live-memberpress $default_wp")
@@ -715,6 +731,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_OXYGEN:-}" = 1 ] && flavor="-oxygen-live"
 	# And WPMCP_LIVE_DIVI=1 and the local Divi theme copy.
 	[ "${WPMCP_LIVE_DIVI:-}" = 1 ] && flavor="-divi-live"
+	# And WPMCP_LIVE_BETHEME=1 and the local BeTheme copy.
+	[ "${WPMCP_LIVE_BETHEME:-}" = 1 ] && flavor="-betheme-live"
 	# And WPMCP_LIVE_MEMBERPRESS=1 and the local MemberPress copy.
 	[ "${WPMCP_LIVE_MEMBERPRESS:-}" = 1 ] && flavor="-memberpress-live"
 	# And WPMCP_LIVE_WC_SUBSCRIPTIONS=1, WooCommerce and the local Subscriptions copy.
@@ -1575,6 +1593,24 @@ run_live_divi() {
 	unset WPMCP_LIVE_DIVI
 }
 
+# The live BeTheme group (issue #643), the same way, with the BeTheme copy
+# from WPMCP_BETHEME_SRC: its own install, its own database and
+# --fail-on-skipped. tests/bootstrap.php switches to the theme.
+run_live_betheme() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_BETHEME_SRC:-}/style.css" ] || die "the live BeTheme group needs WPMCP_BETHEME_SRC, a directory holding the BeTheme theme"
+	export WPMCP_LIVE_BETHEME=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-betheme-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live BeTheme group on WordPress $version (real BeTheme from $WPMCP_BETHEME_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group betheme-live --fail-on-skipped
+	unset WPMCP_LIVE_BETHEME
+}
+
 # The live MemberPress group (issue #668), the same way, with the MemberPress
 # copy from WPMCP_MEMBERPRESS_SRC: its own install, its own database and
 # --fail-on-skipped.
@@ -1878,6 +1914,7 @@ run_leg_body() {
 		live-thrive) run_live_thrive "$wp" ;;
 		live-oxygen) run_live_oxygen "$wp" ;;
 		live-divi) run_live_divi "$wp" ;;
+		live-betheme) run_live_betheme "$wp" ;;
 		live-memberpress) run_live_memberpress "$wp" ;;
 		live-elementor-pro) run_live_elementor_pro "$wp" ;;
 		live-cache-settings) run_live_cache_settings "$wp" ;;

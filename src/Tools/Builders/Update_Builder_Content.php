@@ -63,6 +63,13 @@ if (! defined('ABSPATH')) {
  * id} (one Component instance), and save_template, which saves a node or
  * the whole page as a new Component recorded for undo (see Oxygen_Page).
  *
+ * BeTheme pages (issue #643) need BeTheme active (plugin_missing
+ * otherwise) and expected_hash, the read's hash of the stored layout row, on
+ * any write to a page that has a layout. Content is the whole layout as a
+ * JSON array of sections; operations address elements by uid (update,
+ * add, remove, move; add also takes element {template: id}) and publish
+ * sets the page live (see BeTheme_Content and BeTheme_Tree).
+ *
  * With `scope` 'design_system' the call edits one entry of the builder's
  * global design data instead of a post (issue #391): Bricks classes,
  * variables and palettes, Breakdance classes and palette colors, Avada
@@ -139,13 +146,17 @@ class Update_Builder_Content
             return $this->update_oxygen_classic($post_id, $args);
         }
 
+        if ('betheme' === $builder) {
+            return $this->update_betheme($post_id, $args);
+        }
+
         if ('breakdance' === $builder || 'oxygen' === $builder) {
             return $this->update_breakdance($post_id, $args, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic' and 'thrive'; got '{$builder}'."
+            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive' and 'betheme'; got '{$builder}'."
         );
     }
 
@@ -737,6 +748,139 @@ class Update_Builder_Content
         }
 
         return $result;
+    }
+
+    /**
+     * BeTheme pages (issue #643): a whole layout as a JSON array of
+     * sections, or one operation by uid, on a page detected as BeTheme or a
+     * blank classic page (its first layout), while BeTheme is active and the
+     * page still has the hash the caller read.
+     */
+    private function update_betheme(int $post_id, array $args)
+    {
+        $operation = (string) ($args['operation'] ?? '');
+        $detected  = Builder_Detector::detect($post_id);
+        $blank     = 'classic' === $detected && '' === trim((string) get_post($post_id)->post_content);
+        if ('betheme' !== $detected && ! $blank) {
+            return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not a BeTheme page.");
+        }
+        if (! BeTheme_Cache::plugin_active()) {
+            return BeTheme_Content::unavailable();
+        }
+
+        if (BeTheme_Content::has_layout($post_id)) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a BeTheme page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(BeTheme_Content::hash($post_id), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+            }
+        }
+
+        $status   = null;
+        $path     = null;
+        $sections = null;
+        try {
+            if ('publish' === $operation) {
+                $refusal = $this->publish_refusal($post_id, 'invalid_betheme_request');
+                if (null !== $refusal) {
+                    return $refusal;
+                }
+                $status = 'publish';
+            } else {
+                [$sections, $path] = $this->apply_betheme_operation($post_id, $operation, $args);
+            }
+        } catch (\InvalidArgumentException $e) {
+            return new \WP_Error('invalid_betheme_request', $e->getMessage());
+        }
+
+        $out = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $post_id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-builder-content',
+                'args'        => $args,
+            ],
+            function () use ($post_id, $sections, $status) {
+                if (null !== $status) {
+                    Save_Filters::set_post_status($post_id, $status);
+                } else {
+                    BeTheme_Content::save($post_id, (array) $sections);
+                }
+                return true;
+            }
+        );
+
+        $result = [
+            'operation_id' => $out['operation_id'],
+            'post_id'      => $post_id,
+            'builder'      => 'betheme',
+            'hash'         => BeTheme_Content::hash($post_id),
+        ];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * The new layout for one BeTheme operation, and the uid it names when
+     * it has one.
+     *
+     * @return array{0:array<int|string,mixed>,1:?string}
+     * @throws \InvalidArgumentException
+     */
+    private function apply_betheme_operation(int $post_id, string $operation, array $args): array
+    {
+        if ('' === $operation) {
+            $content = $args['content'] ?? null;
+            $decoded = is_string($content) ? json_decode($content, true) : null;
+            if (! is_array($decoded)) {
+                throw new \InvalidArgumentException(esc_html('BeTheme content must be a JSON array of sections, or pass an operation.'));
+            }
+            return [BeTheme_Tree::validate($decoded), null];
+        }
+
+        $sections = BeTheme_Content::sections($post_id);
+        $sections = BeTheme_Tree::validate($sections);
+        $uid   = (string) ($args['path'] ?? '');
+        $to    = (string) ($args['to'] ?? '');
+        $index = isset($args['index']) ? (int) $args['index'] : null;
+
+        switch ($operation) {
+            case 'update':
+                $attrs   = $args['attrs'] ?? [];
+                $element = $args['element'] ?? [];
+                if (! is_array($attrs) || ! is_array($element) || ([] === $attrs && [] === $element)) {
+                    throw new \InvalidArgumentException(esc_html('update needs attrs (fields to merge into attr; null removes one) or element (size fields).'));
+                }
+                return [BeTheme_Tree::update($sections, $uid, $attrs, $element, BeTheme_Content::css_def()), $uid];
+
+            case 'add':
+                $element = $args['element'] ?? null;
+                if (! is_array($element)) {
+                    throw new \InvalidArgumentException(esc_html('add needs an element: {attr, wraps} for a section, {size, attr, items} for a wrap, {type, size, attr} for an item, or {template: id}.'));
+                }
+                if (array_key_exists('template', $element)) {
+                    if (1 !== count($element) || ! is_scalar($element['template'])) {
+                        throw new \InvalidArgumentException(esc_html('element {template} takes only a template id.'));
+                    }
+                    $nodes = BeTheme_Content::template_nodes($sections, $to, (string) $element['template']);
+                    return [BeTheme_Tree::insert_many($sections, $to, $index, $nodes), (string) $nodes[0]['uid']];
+                }
+                return BeTheme_Tree::add($sections, $to, $index, $element, BeTheme_Content::item_defaults(), BeTheme_Content::css_def());
+
+            case 'remove':
+                return [BeTheme_Tree::remove($sections, $uid), null];
+
+            case 'move':
+                return [BeTheme_Tree::move($sections, $uid, $to, $index), $uid];
+        }
+
+        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move or publish."));
     }
 
     /**

@@ -347,6 +347,16 @@ class Get_Page_Snapshot
             ];
         }
 
+        if ('betheme' === $builder) {
+            return [
+                'source'             => 'post_content',
+                'complete'           => false,
+                'unmeasured'         => self::CONTENT_SECTIONS,
+                'stale_post_content' => false,
+                'note'               => 'BeTheme renders this page\'s BeBuilder sections from postmeta beside post_content; the element inventory covers post_content only (get-builder-content reads the sections).',
+            ];
+        }
+
         if ('thrive' === $builder) {
             return [
                 'source'             => 'post_content',
