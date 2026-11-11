@@ -94,6 +94,7 @@ final class Builder_Design_Data
         'bricks'     => 'the Bricks theme',
         'divi'       => 'the Divi theme (Divi 5)',
         'oxygen'     => 'the Oxygen 6 plugin',
+        'thrive'     => 'the Thrive Architect plugin',
         'wpbakery'   => 'the WPBakery Page Builder plugin',
     ];
 
