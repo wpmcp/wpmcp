@@ -105,6 +105,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new course, section or lesson post.',
         ],
+        'Integrations/BetterDocs_Pack.php'            => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new BetterDocs doc post.',
+        ],
         'Integrations/MemberPress_Pack.php'           => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new MemberPress membership or rule post.',

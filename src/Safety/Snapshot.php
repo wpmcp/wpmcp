@@ -91,6 +91,9 @@ class Snapshot
         if (Crm_Rows_Snapshot::TYPE === $object_type) {
             return Crm_Rows_Snapshot::capture((string) $object_id);
         }
+        if (Helpdesk_Ticket_Snapshot::TYPE === $object_type) {
+            return Helpdesk_Ticket_Snapshot::capture((string) $object_id);
+        }
         if (FunnelKit_Funnel_Snapshot::TYPE === $object_type) {
             return FunnelKit_Funnel_Snapshot::capture((int) $object_id);
         }

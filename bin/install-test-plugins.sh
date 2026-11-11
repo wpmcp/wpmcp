@@ -14,7 +14,9 @@
 # with WPMCP_LIVE_CODE_SNIPPETS=1, Code Snippets only (bin/test-local.sh
 # --live-code-snippets), or,
 # with WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
-# --live-crm), or, with WPMCP_LIVE_AMELIA=1, Amelia Lite only
+# --live-crm), or, with WPMCP_LIVE_HELPDESK=1, BetterDocs, Fluent Support
+# and Awesome Support only (bin/test-local.sh --live-helpdesk), or, with
+# WPMCP_LIVE_AMELIA=1, Amelia Lite only
 # (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
 # WooCommerce and FunnelKit Funnel Builder only (bin/test-local.sh
 # --live-funnelkit), or, with WPMCP_LIVE_WC_SUBSCRIPTIONS=1, WooCommerce plus
@@ -190,6 +192,20 @@ if [ "${WPMCP_LIVE_CRM:-}" = "1" ]; then
 	PLUGINS=(
 		"fluent-crm:fluent-crm.php"
 		"mailpoet:mailpoet.php"
+	)
+fi
+
+# The live knowledge base and support desk job (issue #708) runs the
+# BetterDocs, Fluent Support and Awesome Support ops through the real
+# plugins, so their own services, hooks and caps run. All three on one
+# install: they share no tables, post types or hooks. Exclusive too: the
+# stub-backed tests register their post types and build Fluent Support's
+# tables from a fixture.
+if [ "${WPMCP_LIVE_HELPDESK:-}" = "1" ]; then
+	PLUGINS=(
+		"betterdocs:betterdocs.php"
+		"fluent-support:fluent-support.php"
+		"awesome-support:awesome-support.php"
 	)
 fi
 

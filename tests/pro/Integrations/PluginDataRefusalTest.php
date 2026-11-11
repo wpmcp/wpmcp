@@ -21,8 +21,8 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
 {
     /** Every plugin-data presence filter, all forced off so the pair is held, not registered. */
     private const PRESENCE = [
-        'wpmcp_amelia_active', 'wpmcp_bbpress_active', 'wpmcp_buddypress_active', 'wpmcp_code_snippets_active',
-        'wpmcp_elementor_pro_active', 'wpmcp_fluentcrm_active', 'wpmcp_jetengine_active', 'wpmcp_learndash_active',
+        'wpmcp_amelia_active', 'wpmcp_awesome_support_active', 'wpmcp_bbpress_active', 'wpmcp_betterdocs_active', 'wpmcp_buddypress_active', 'wpmcp_code_snippets_active',
+        'wpmcp_elementor_pro_active', 'wpmcp_fluent_support_active', 'wpmcp_fluentcrm_active', 'wpmcp_jetengine_active', 'wpmcp_learndash_active',
         'wpmcp_lifterlms_active', 'wpmcp_mailpoet_active', 'wpmcp_memberpress_active', 'wpmcp_multilingual_active',
         'wpmcp_pods_active', 'wpmcp_tablepress_active', 'wpmcp_translatepress_active', 'wpmcp_tutor_active',
     ];

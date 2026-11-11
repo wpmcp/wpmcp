@@ -53,6 +53,12 @@ if (! defined('ABSPATH')) {
  *    (Elementor_Pro_Forms_Pack): forms found in pages, and form submissions
  *    read, exported, marked read or trashed, and deleted, each write under
  *    a db_rows before-image.
+ *  - Issue #708 adds the paid-tier knowledge base and support desk ops:
+ *    BetterDocs docs read, created and edited (BetterDocs_Pack), and
+ *    Fluent Support and Awesome Support tickets read with customer emails
+ *    masked in lists, replied to, noted and set to a status, each ticket
+ *    write off until wpmcp_enable_helpdesk_write and snapshotted as a
+ *    'helpdesk_ticket' image (Helpdesk_Pack).
  *
  * The pair registers only while at least one of them is loaded (the LMS
  * and TablePress ops only on an install that may run the paid tier), and
@@ -86,7 +92,9 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             || Amelia_Pack::active()
             || I18n_Pack::active()
             || MemberPress_Pack::active()
-            || Elementor_Pro_Forms_Pack::active();
+            || Elementor_Pro_Forms_Pack::active()
+            || BetterDocs_Pack::active()
+            || Helpdesk_Pack::active();
     }
 
     public function registers_only_when_available(): bool
@@ -99,7 +107,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
         return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', FluentCRM and MailPoet'
-            . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms';
+            . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
+            . ', BetterDocs docs, Fluent Support and Awesome Support tickets';
     }
 
     /**
@@ -131,6 +140,10 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
         $groups[] = [ 'Polylang, WPML', true, I18n_Pack::operations() ];
         $groups[] = [ 'MemberPress', false, MemberPress_Pack::operations() ];
         $groups[] = [ 'Elementor Pro', false, Elementor_Pro_Forms_Pack::operations() ];
+        $groups[] = [ 'BetterDocs', false, BetterDocs_Pack::operations() ];
+        foreach (Helpdesk_Pack::adapters() as $adapter) {
+            $groups[] = [ $adapter->label(), false, $adapter->operations() ];
+        }
 
         $hosts = [];
         foreach ($groups as [ $plugin, $several, $ops ]) {
@@ -158,7 +171,9 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Amelia_Pack::operations(),
             I18n_Pack::operations(),
             MemberPress_Pack::operations(),
-            Elementor_Pro_Forms_Pack::operations()
+            Elementor_Pro_Forms_Pack::operations(),
+            BetterDocs_Pack::operations(),
+            Helpdesk_Pack::operations()
         );
     }
 
