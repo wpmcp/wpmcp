@@ -34,7 +34,9 @@
 # only (bin/test-local.sh --live-wp-mail-smtp), or, with
 # WPMCP_LIVE_CACHE_SETTINGS=1, local copies of WP Rocket, Perfmatters and
 # FlyingPress (WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC,
-# WPMCP_FLYING_PRESS_SRC) only (bin/test-local.sh --live-cache-settings).
+# WPMCP_FLYING_PRESS_SRC) only (bin/test-local.sh --live-cache-settings), or,
+# with WPMCP_LIVE_WS_FORM=1, a local copy of WS Form PRO (WPMCP_WS_FORM_SRC)
+# only (bin/test-local.sh --live-ws-form).
 # The script is idempotent: plugins already present are left untouched, so it
 # is safe to run repeatedly both locally and from CI.
 #
@@ -478,6 +480,26 @@ if [ "${WPMCP_LIVE_JET_ELEMENTS:-}" = "1" ]; then
 		rm -rf "$PLUGINS_DIR/jet-elements"
 		cp -R "$src" "$PLUGINS_DIR/jet-elements"
 		echo "Copied JetElements $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/jet-elements.php" | head -n 1) from $src."
+	fi
+fi
+
+# The live WS Form job (issue #676) runs the WS Form ops on the plugin-data
+# pair against a real WS Form PRO. WS Form PRO is a commercial plugin and not
+# on wordpress.org, so it is copied from a local directory holding it
+# (WPMCP_WS_FORM_SRC) instead of downloaded. Exclusive too: the stub-backed
+# tests build its tables from a fixture and fake its presence.
+if [ "${WPMCP_LIVE_WS_FORM:-}" = "1" ]; then
+	PLUGINS=()
+	if [ "$list_only" = false ]; then
+		src=${WPMCP_WS_FORM_SRC:-}
+		if [ -z "$src" ] || [ ! -f "$src/ws-form.php" ]; then
+			echo "WPMCP_LIVE_WS_FORM=1 needs WPMCP_WS_FORM_SRC, a directory holding the WS Form PRO plugin (ws-form.php)." >&2
+			exit 1
+		fi
+		mkdir -p "$PLUGINS_DIR"
+		rm -rf "$PLUGINS_DIR/ws-form-pro"
+		cp -R "$src" "$PLUGINS_DIR/ws-form-pro"
+		echo "Copied WS Form PRO $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/ws-form.php" | head -n 1) from $src."
 	fi
 fi
 
