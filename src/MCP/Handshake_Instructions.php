@@ -164,7 +164,7 @@ class Handshake_Instructions
      * tools check: Elementor's plugin class, then the Bricks and Divi theme
      * constants/templates, then the WPBakery, Beaver Builder, Breakdance
      * engine (Breakdance or Oxygen 6), classic Oxygen, Avada builder and
-     * Thrive Architect plugin constants, falling back to gutenberg (the WP default).
+     * Thrive Architect plugin constants, then the BeTheme theme, falling back to gutenberg (the WP default).
      */
     public function active_builder(): string
     {
@@ -198,6 +198,9 @@ class Handshake_Instructions
         }
         if (defined('TVE_VERSION')) {
             return 'thrive';
+        }
+        if ('betheme' === $template && defined('MFN_THEME_VERSION')) {
+            return 'betheme';
         }
 
         return 'gutenberg';

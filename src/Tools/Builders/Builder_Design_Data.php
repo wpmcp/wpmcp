@@ -90,6 +90,7 @@ final class Builder_Design_Data
      */
     public const HOSTS = [
         'avada'      => 'the Avada theme with its Avada Core and Avada Builder plugins',
+        'betheme'    => 'the BeTheme theme',
         'breakdance' => 'the Breakdance plugin',
         'bricks'     => 'the Bricks theme',
         'cornerstone' => 'Cornerstone (Themeco), or the X or Pro theme that bundles it',

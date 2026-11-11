@@ -24,7 +24,10 @@ if (! defined('ABSPATH')) {
  * the path tree parsed from it, which of the two it is, whether it can be
  * written now and whether the plugin is loaded; Cornerstone returns its
  * element list, the path tree over it, its hash, revisions and custom CSS
- * and JS, and whether the plugin is loaded.
+ * and JS, and whether the plugin is loaded; BeTheme returns its
+ * BeBuilder sections, an outline of them by uid (what operations address),
+ * the storage format, the hash writes are pinned to and whether the theme
+ * is active.
  * With `scope` set (design_system, templates or catalog) it reads a
  * builder's site-wide design data instead of one post; see Builder_Design.
  * Elementor/Gutenberg/classic posts are out of scope for this tool (use
@@ -96,13 +99,17 @@ class Get_Builder_Content
             return Oxygen_Classic_Content::read($post_id);
         }
 
+        if ('betheme' === $builder) {
+            return BeTheme_Content::read($post_id);
+        }
+
         if ('breakdance' === $builder || 'oxygen' === $builder) {
             return Breakdance_Content::read($post_id, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive' and 'cornerstone'; this post was detected as '{$builder}'."
+            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone' and 'betheme'; this post was detected as '{$builder}'."
         );
     }
 }
