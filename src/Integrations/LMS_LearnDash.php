@@ -57,8 +57,6 @@ if (! defined('ABSPATH')) {
  */
 final class LMS_LearnDash extends LMS_Adapter
 {
-    public const ENABLE_HINT = 'A site enables LearnDash enroll, unenroll and reset-progress with the wpmcp_enable_learndash_learner_write filter.';
-
     private const PROGRESS_META = '_sfwd-course_progress';
 
     private const QUIZZES_META = '_sfwd-quizzes';
@@ -310,7 +308,7 @@ final class LMS_LearnDash extends LMS_Adapter
         $write    = $base + [
             'mode'               => 'write',
             'enabled_by_default' => (bool) apply_filters('wpmcp_enable_learndash_learner_write', false),
-            'enable_hint'        => self::ENABLE_HINT,
+            'opt_in_filter'      => 'wpmcp_enable_learndash_learner_write',
             'capability'         => 'edit_users',
             'objects'            => [
                 'user_id'   => [ 'type' => 'user' ],

@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Packages;
 
 use WPMCP\Governance\Governance_Audit_Log;
+use WPMCP\MCP\Opt_In_Required;
 use WPMCP\Safety\File_Backup;
 use WPMCP\Safety\Mutation_Failed;
 use WPMCP\Safety\Safe_Mutation;
@@ -66,7 +67,7 @@ class Install_Package_From_Zip
     {
         if (! Package_Guard::zip_install_enabled()) {
             $this->refuse(
-                new \RuntimeException('Installing packages from an uploaded ZIP is disabled. Enable it with the WPMCP_ENABLE_ZIP_INSTALL constant or the wpmcp_enable_zip_install filter.'),
+                new Opt_In_Required('Installing packages from an uploaded ZIP is disabled.', 'wpmcp_enable_zip_install', 'WPMCP_ENABLE_ZIP_INSTALL'),
                 self::REASON_GATE_CLOSED
             );
         }

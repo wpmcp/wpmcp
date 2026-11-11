@@ -48,7 +48,7 @@ class BridgeGuardEnabledTest extends \WP_UnitTestCase
     public function test_disabled_error_has_the_stable_code_every_bridge_tool_returns(): void
     {
         $error = Bridge_Guard::disabled_error();
-        $this->assertSame('wpmcp_bridge_disabled', $error->get_error_code());
+        $this->assertSame('opt_in_required', $error->get_error_code());
         $this->assertStringContainsString('wpmcp_enable_ability_bridge', $error->get_error_message());
     }
 

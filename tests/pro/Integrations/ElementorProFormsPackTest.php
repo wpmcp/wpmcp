@@ -203,10 +203,10 @@ class ElementorProFormsPackTest extends \WP_UnitTestCase
         $id = $this->submit('ada@example.org');
         remove_all_filters('wpmcp_enable_elementor_pro_write');
         $out = $this->write('elementor-update-submission-status', [ 'id' => $id, 'status' => 'trash' ]);
-        $this->assertSame('operation_disabled', $out['error']['code'] ?? null);
+        $this->assertSame('opt_in_required', $out['error']['code'] ?? null);
         $this->assertStringContainsString('wpmcp_enable_elementor_pro_write', $out['error']['message']);
         $out = $this->write('elementor-delete-submission', [ 'id' => $id ], true);
-        $this->assertSame('operation_disabled', $out['error']['code'] ?? null);
+        $this->assertSame('opt_in_required', $out['error']['code'] ?? null);
         $this->assertSame(1, $this->rows($id)['submissions']);
     }
 

@@ -137,7 +137,7 @@ class ThemeLayoutsPackTest extends \WP_UnitTestCase
         remove_filter('wpmcp_enable_theme_write', '__return_true');
         $this->activate('kadence');
         $out = $this->write('create-{f}-layout', [ 'title' => 'X', 'type' => 'default', 'hook' => 'kadence_before_header' ]);
-        $this->assertSame('operation_disabled', $out['error']['code']);
+        $this->assertSame('opt_in_required', $out['error']['code']);
         $this->assertStringContainsString('wpmcp_enable_theme_write', $out['error']['message']);
     }
 

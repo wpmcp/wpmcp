@@ -62,8 +62,6 @@ final class MemberPress_Pack
 
     public const MAX_PER_PAGE = 100;
 
-    public const ENABLE_HINT = 'A site enables MemberPress writes with the wpmcp_enable_memberpress_write filter.';
-
     /** MemberPress's "never expires" datetime (MeprUtils::db_lifetime()). */
     private const LIFETIME = '0000-00-00 00:00:00';
 
@@ -219,7 +217,7 @@ final class MemberPress_Pack
             'capability' => self::capability(),
             'requires'   => static fn () => Ops_Status_Packs::presence(self::active(), 'memberpress_inactive', 'MemberPress'),
         ];
-        $write   = $base + [ 'mode' => 'write', 'self_snapshotting' => true, 'enabled_by_default' => $writes, 'enable_hint' => self::ENABLE_HINT ];
+        $write   = $base + [ 'mode' => 'write', 'self_snapshotting' => true, 'enabled_by_default' => $writes, 'opt_in_filter' => 'wpmcp_enable_memberpress_write' ];
         $ms      = self::membership_schema();
         $rule    = self::rule_schema();
         $own     = static fn (string $key): array => [ $key => [ 'type' => 'post', 'own_type' => true ] ];

@@ -519,7 +519,7 @@ class WooSubscriptionsTest extends \WP_UnitTestCase
         $before = $this->state($sub->get_id());
 
         $off = $this->write('subscriptions.cancel', ['id' => $sub->get_id()], ['confirm' => true]);
-        $this->assertSame('operation_disabled', $off['error']['code'] ?? null);
+        $this->assertSame('opt_in_required', $off['error']['code'] ?? null);
 
         add_filter('wpmcp_woo_op_enabled', static fn ($on, $op) => 'subscriptions.cancel' === $op ? true : $on, 10, 2);
         $unconfirmed = $this->write('subscriptions.cancel', ['id' => $sub->get_id()]);

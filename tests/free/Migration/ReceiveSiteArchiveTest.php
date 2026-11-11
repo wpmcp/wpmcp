@@ -113,7 +113,7 @@ class ReceiveSiteArchiveTest extends \WP_UnitTestCase
         $out = $this->tool()->handle(['action' => 'status', 'upload_id' => str_repeat('a', 20)]);
 
         $this->assertWPError($out);
-        $this->assertSame('wpmcp_migration_receive_disabled', $out->get_error_code());
+        $this->assertSame('opt_in_required', $out->get_error_code());
     }
 
     public function test_an_incompatible_manifest_is_refused_before_any_upload(): void

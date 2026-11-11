@@ -67,7 +67,7 @@ class MemoryToolsTest extends \WP_UnitTestCase
         foreach ([new Memory_Recall(), new Memory_Propose(), new Memory_Save_Summary()] as $tool) {
             $result = $tool->handle(['text' => 'x', 'session_id' => 's']);
             $this->assertWPError($result);
-            $this->assertSame('wpmcp_memory_disabled', $result->get_error_code());
+            $this->assertSame('opt_in_required', $result->get_error_code());
         }
     }
 

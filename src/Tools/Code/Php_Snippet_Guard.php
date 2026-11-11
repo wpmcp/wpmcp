@@ -5,6 +5,7 @@ namespace WPMCP\Tools\Code;
 use WPMCP\Governance\Code_Exec_Network_Gate;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
+use WPMCP\MCP\Opt_In_Required;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -69,8 +70,11 @@ class Php_Snippet_Guard
     public static function assert_execution_allowed(): void
     {
         if (! self::is_enabled()) {
-            throw new \RuntimeException(
-                'PHP execution is disabled. Enable it with the WPMCP_ALLOW_PHP_EXEC constant or the wpmcp_allow_php_exec filter. This grants remote code execution to any manage_options caller; only enable it on a development or staging environment you control.'
+            throw new Opt_In_Required(
+                'PHP execution is disabled.',
+                'wpmcp_allow_php_exec',
+                'WPMCP_ALLOW_PHP_EXEC',
+                'This grants remote code execution to any manage_options caller; only enable it on a development or staging environment you control.'
             );
         }
 

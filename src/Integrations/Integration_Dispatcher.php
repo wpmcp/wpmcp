@@ -6,6 +6,7 @@ use WPMCP\Governance\Governance;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
 use WPMCP\MCP\Ability;
+use WPMCP\MCP\Opt_In_Required;
 use WPMCP\MCP\Registrar;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Snapshot_Store;
@@ -39,8 +40,10 @@ if (! defined('ABSPATH')) {
  *      'enabled_by_default' bool (default true); a default-off op is refused
  *                           until the site opts in via the
  *                           wpmcp_integration_op_enabled filter
- *      'enable_hint'        how a site turns a default-off op on, when it
- *                           has a switch of its own; shown in the refusal
+ *      'opt_in_filter'      the pack's own switch for a default-off op
+ *                           (such as wpmcp_enable_memberpress_write),
+ *                           named in its opt_in_required refusal next to
+ *                           the per-op filter
  *      'confirm_preview'    destructive ops only: callable(array $args)
  *                           returning ['message' => ..., 'data' => [...]],
  *                           what the op would do. An unconfirmed call then
@@ -459,11 +462,7 @@ abstract class Integration_Dispatcher
         $def = $ops[ $op ];
 
         if (! $this->is_op_enabled($op, $def)) {
-            return $this->error('operation_disabled', sprintf(
-                'Operation "%s" is disabled by default. %s',
-                $op,
-                (string) ($def['enable_hint'] ?? 'Enable it with the wpmcp_integration_op_enabled filter.')
-            ));
+            return $this->disabled_refusal($op, $def);
         }
 
         if (! $this->passes_op_governance($op, $def)) {
@@ -716,6 +715,56 @@ abstract class Integration_Dispatcher
     {
         $default = (bool) ($def['enabled_by_default'] ?? true);
         return (bool) apply_filters('wpmcp_integration_op_enabled', $default, $this->integration(), $op);
+    }
+
+    /**
+     * The refusal for an op is_op_enabled() turned down. A default-off op
+     * the site has not opted into answers opt_in_required, naming the pack's
+     * own switch (its 'opt_in_filter', when it has one) and the per-op
+     * filter with the exact integration and op to pass. A default-on op a
+     * site switched off with wpmcp_integration_op_enabled answers
+     * operation_disabled: opting in is not the fix there.
+     *
+     * @param array<string, mixed> $def
+     * @return array<string, mixed>
+     */
+    private function disabled_refusal(string $op, array $def): array
+    {
+        $integration = $this->integration();
+        $per_op      = sprintf(
+            "add_filter('wpmcp_integration_op_enabled', fn (\$on, \$integration, \$op) => ('%s' === \$integration && '%s' === \$op) ? true : \$on, 10, 3);",
+            $integration,
+            $op
+        );
+
+        if ((bool) ($def['enabled_by_default'] ?? true)) {
+            return $this->error('operation_disabled', sprintf(
+                'Operation "%s" of the %s integration is switched off on this site by a wpmcp_integration_op_enabled filter. It is on by default; remove that filter to restore it.',
+                $op,
+                $integration
+            ), [ 'operation' => $op, 'filter' => 'wpmcp_integration_op_enabled' ]);
+        }
+
+        $pack_filter = (string) ($def['opt_in_filter'] ?? '');
+        $disabled    = sprintf('Operation "%s" of the %s integration is disabled.', $op, $integration);
+        if ('' === $pack_filter) {
+            return $this->error(
+                Opt_In_Required::CODE,
+                Opt_In_Required::message($disabled, 'wpmcp_integration_op_enabled', '', '', $per_op),
+                [ 'operation' => $op, 'filter' => 'wpmcp_integration_op_enabled' ]
+            );
+        }
+
+        return $this->error(
+            Opt_In_Required::CODE,
+            Opt_In_Required::message(
+                $disabled,
+                $pack_filter,
+                '',
+                sprintf('To switch on this operation alone instead, use %s', $per_op)
+            ),
+            [ 'operation' => $op, 'filter' => $pack_filter, 'per_operation_filter' => 'wpmcp_integration_op_enabled' ]
+        );
     }
 
     /**

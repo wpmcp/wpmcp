@@ -381,7 +381,7 @@ class WooWriteTest extends \WP_UnitTestCase
         $id  = $this->simple_product();
         $out = (new Woo_Write())->handle(['op' => 'products.delete', 'params' => ['id' => $id], 'confirm' => true]);
 
-        $this->assertSame('operation_disabled', $out['error']['code']);
+        $this->assertSame('opt_in_required', $out['error']['code']);
         $this->assertSame('publish', get_post_status($id));
     }
 

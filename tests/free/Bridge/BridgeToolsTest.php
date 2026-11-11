@@ -190,9 +190,9 @@ class BridgeToolsTest extends \WP_UnitTestCase
 
     public function test_every_bridge_tool_refuses_while_the_gate_is_closed(): void
     {
-        $this->assertBridgeError($this->list(), 'wpmcp_bridge_disabled', 'list');
-        $this->assertBridgeError($this->get(self::ECHO), 'wpmcp_bridge_disabled', 'get');
-        $this->assertBridgeError($this->execute(['name' => self::ECHO]), 'wpmcp_bridge_disabled', 'execute');
+        $this->assertBridgeError($this->list(), 'opt_in_required', 'list');
+        $this->assertBridgeError($this->get(self::ECHO), 'opt_in_required', 'get');
+        $this->assertBridgeError($this->execute(['name' => self::ECHO]), 'opt_in_required', 'execute');
 
         // The gate is checked before anything else: even the permitted,
         // exposed fixture never ran.

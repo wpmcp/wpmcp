@@ -2,6 +2,7 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\MCP\Opt_In_Required;
 use WPMCP\Tools\Code\Php_Snippet_Guard;
 
 if (! defined('ABSPATH')) {
@@ -63,7 +64,8 @@ final class Code_Snippets_Activation
             Php_Snippet_Guard::assert_execution_allowed();
         } catch (\RuntimeException $e) {
             Php_Snippet_Guard::audit(self::AUDIT_NAME, false, Php_Snippet_Guard::refusal_class($e));
-            return [ 'code' => 'php_execution_disabled', 'message' => $e->getMessage(), 'data' => [] ];
+            $code = $e instanceof Opt_In_Required ? Opt_In_Required::CODE : 'php_execution_disabled';
+            return [ 'code' => $code, 'message' => $e->getMessage(), 'data' => [] ];
         }
         $refusal = Code_Snippets_Pack::access_refusal()
             ?? Code_Snippets_Pack::missing_refusal($id)

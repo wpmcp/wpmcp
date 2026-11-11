@@ -353,7 +353,7 @@ class BridgeGovernanceTest extends \WP_UnitTestCase
         remove_all_filters('wpmcp_enable_ability_bridge');
         add_filter('wpmcp_ability_bridge_allowlist', static fn () => [self::ECHO]);
 
-        $this->assertSame('wpmcp_bridge_disabled', $this->execute(self::ECHO)->get_error_code());
+        $this->assertSame('opt_in_required', $this->execute(self::ECHO)->get_error_code());
     }
 
     public function test_the_allowlist_never_admits_a_wpmcp_ability_or_an_unexposed_one(): void
