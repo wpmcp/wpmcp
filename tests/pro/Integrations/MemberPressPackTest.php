@@ -497,6 +497,29 @@ class MemberPressPackTest extends \WP_UnitTestCase
         $this->assertSame(0, (int) wp_count_posts('memberpressrule')->draft);
     }
 
+    /** Issue #821: access conditions in the shape list-rules returns them, operator included, are accepted as they are. */
+    public function test_rule_writes_accept_access_conditions_as_list_rules_returns_them(): void
+    {
+        $gold   = $this->membership('Gold');
+        $page   = self::factory()->post->create([ 'post_type' => 'page' ]);
+        $source = $this->rule('single_page', (string) $page, [ [ 'membership', $gold ], [ 'role', 'editor' ] ]);
+        $read   = array_column($this->ok($this->read('memberpress-list-rules'))['result']['rules'], null, 'id')[ $source ]['access'];
+        $this->assertSame('is', $read[0]['operator']);
+
+        $out = $this->ok($this->write('memberpress-create-rule', [ 'type' => 'all_pages', 'access' => $read ]));
+        $id  = $out['result']['rule']['id'];
+        $this->assertSame($read, $out['result']['rule']['access']);
+        $this->assertSame(wpmcp_test_memberpress_conditions($source), wpmcp_test_memberpress_conditions($id));
+
+        $this->ok($this->write('memberpress-update-rule', [ 'id' => $id, 'access' => [ $read[1] ] ]));
+        $this->assertSame([ [ 'access_type' => 'role', 'access_operator' => 'is', 'access_condition' => 'editor' ] ], wpmcp_test_memberpress_conditions($id));
+
+        $before = Snapshot_Store::row_count();
+        $not    = $this->write('memberpress-create-rule', [ 'type' => 'all', 'access' => [ [ 'type' => 'membership', 'operator' => 'is_not', 'condition' => (string) $gold ] ] ]);
+        $this->assertSame('invalid_args', $not['error']['code'] ?? null, 'MemberPress has no operator but "is"');
+        $this->assertSame($before, Snapshot_Store::row_count());
+    }
+
     public function test_a_member_condition_names_a_user_login(): void
     {
         $ada = self::factory()->user->create([ 'user_login' => 'ada' ]);
