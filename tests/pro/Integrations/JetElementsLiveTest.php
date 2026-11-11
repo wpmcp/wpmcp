@@ -105,9 +105,9 @@ class JetElementsLiveTest extends \WP_UnitTestCase
         // weather API key is saved, which Elementor reports as incorrect usage
         // the first time that widget's controls are built.
         $this->setExpectedIncorrectUsage('Elementor\\Controls_Manager::add_control_to_stack');
-        $summary = strlen((string) wp_json_encode($out['result']));
-        $all     = strlen((string) wp_json_encode($this->read('list-jet-elements-widgets', [ 'include_controls' => true ])['result']));
-        $this->assertLessThan($all, $summary, 'Controls only on request');
+        $plain = strlen((string) wp_json_encode($out['result']));
+        $named = strlen((string) wp_json_encode($this->read('list-jet-elements-widgets', [ 'widgets' => [ 'jet-banner', 'jet-button' ] ])['result']));
+        $this->assertLessThan($named, $plain, 'Controls only for named widgets');
     }
 
     /**
@@ -117,7 +117,7 @@ class JetElementsLiveTest extends \WP_UnitTestCase
      * request it keeps them all. So the stacks are rebuilt in REST mode for
      * this test, and the sizes are printed for the record.
      */
-    public function test_controls_come_as_a_summary_and_full_detail_only_for_one_widget(): void
+    public function test_controls_come_for_named_widgets_as_a_summary_and_full_for_one(): void
     {
         $this->setExpectedIncorrectUsage('Elementor\\Controls_Manager::add_control_to_stack');
         $frontend = new \ReflectionProperty(\Elementor\Core\Frontend\Performance::class, 'is_frontend');
@@ -129,7 +129,12 @@ class JetElementsLiveTest extends \WP_UnitTestCase
 
         try {
             $size   = static fn (array $out): int => strlen((string) wp_json_encode($out['result'] ?? $out));
-            $list   = $this->read('list-jet-elements-widgets', [ 'include_controls' => true ]);
+            $plain  = $this->read('list-jet-elements-widgets');
+            $others = array_values(array_diff(array_column($plain['result']['widgets'], 'name'), [ 'jet-banner', 'jet-button' ]));
+            $five   = array_merge([ 'jet-banner', 'jet-button' ], array_slice($others, 0, 3));
+            $list   = $this->read('list-jet-elements-widgets', [ 'widgets' => $five ]);
+            $all    = $this->read('list-jet-elements-widgets', [ 'include_controls' => true ]);
+            $six    = $this->read('list-jet-elements-widgets', [ 'widget' => $others[3], 'widgets' => $five ]);
             $one    = $this->read('list-jet-elements-widgets', [ 'widget' => 'jet-banner' ]);
             $full   = $this->read('list-jet-elements-widgets', [ 'widget' => 'jet-banner', 'detail' => 'full' ]);
             $refuse = $this->read('list-jet-elements-widgets', [ 'detail' => 'full' ]);
@@ -146,6 +151,12 @@ class JetElementsLiveTest extends \WP_UnitTestCase
             };
 
             $this->assertSame('summary', $list['result']['detail']);
+            $sorted = $five;
+            sort($sorted);
+            $this->assertSame($sorted, array_column($list['result']['widgets'], 'name'), 'Exactly the five named widgets');
+            $this->assertArrayNotHasKey('controls', $plain['result']['widgets'][0], 'The plain list carries no controls');
+            $this->assertSame('controls_need_widget', $all['error']['code'], 'No controls for the whole list');
+            $this->assertSame('too_many_widgets', $six['error']['code']);
             $controls = $one['result']['widgets'][0]['controls'];
             $this->assertNotEmpty($controls);
             $selects = array_filter($controls, static fn (array $c): bool => 'select' === $c['type']);
@@ -162,11 +173,13 @@ class JetElementsLiveTest extends \WP_UnitTestCase
             $this->assertLessThan($size($full), $size($one));
 
             fwrite(STDERR, sprintf(
-                "\n[jet-elements controls, REST mode] jet-banner: before %d, summary %d, full %d bytes. All %d widgets with controls: before %d, summary %d bytes. Full list refused.\n",
+                "\n[jet-elements controls, REST mode] plain list of %d widgets: %d bytes. jet-banner: before %d, summary %d, full %d bytes. 5 named widgets (%s): before %d, summary %d bytes. Controls for the whole list and full detail for more than one widget refused.\n",
+                $plain['result']['count'],
+                $size($plain),
                 $old($one['result']),
                 $size($one),
                 $size($full),
-                $list['result']['count'],
+                implode(', ', $five),
                 $old($list['result']),
                 $size($list)
             ));
