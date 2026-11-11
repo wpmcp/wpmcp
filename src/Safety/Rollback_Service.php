@@ -11,6 +11,7 @@ use WPMCP\Tools\Content\Content_Guard;
 use WPMCP\Tools\Database\Database_Guard;
 use WPMCP\Tools\Builders\Avada_Cache;
 use WPMCP\Tools\Builders\Beaver_Builder_Cache;
+use WPMCP\Tools\Builders\BeTheme_Cache;
 use WPMCP\Tools\Builders\Breakdance_Cache;
 use WPMCP\Tools\Builders\Builder_Design_Refresh;
 use WPMCP\Tools\Builders\Oxygen_Classic_Cache;
@@ -2310,6 +2311,12 @@ class Rollback_Service
                     break;
                 }
             }
+        }
+
+        // BeTheme's local style file is rebuilt from the restored layout
+        // (issue #643); its rows came back with the post's meta.
+        if (isset($snapshotted_meta[ BeTheme_Cache::META_KEY ]) || isset($current_meta[ BeTheme_Cache::META_KEY ])) {
+            BeTheme_Cache::refresh($object_id);
         }
 
         foreach (Oxygen_Classic_Cache::LAYOUT_KEYS as $classic_key) {
