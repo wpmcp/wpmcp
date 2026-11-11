@@ -161,6 +161,46 @@ class MemberPressLiveTest extends \WP_UnitTestCase
         $this->assertSame([], (new \MeprRule($id))->mgm_mepr_access('get'));
     }
 
+    /**
+     * Issue #821: a rule read through list-rules gives access conditions a
+     * new rule can be created from as they are, and the new rule's auto
+     * title names the protected item the way the rule screen does.
+     */
+    public function test_a_rule_created_from_a_read_rules_access_gets_memberpress_s_title_for_its_item(): void
+    {
+        $gold = $this->call('write', 'memberpress-create-membership', [ 'title' => 'Gold', 'status' => 'publish' ])['result']['membership']['id'];
+        $page = self::factory()->post->create([ 'post_type' => 'page', 'post_title' => 'GB 794' ]);
+        $cat  = self::factory()->category->create([ 'name' => 'Recipes' ]);
+
+        $source              = new \MeprRule();
+        $source->post_title  = 'Everything';
+        $source->post_status = 'publish';
+        $source->mepr_type   = 'all';
+        $source_id           = (int) $source->store();
+        $condition                   = new \MeprRuleAccessCondition();
+        $condition->rule_id          = $source_id;
+        $condition->access_type      = 'membership';
+        $condition->access_operator  = 'is';
+        $condition->access_condition = (string) $gold;
+        $condition->store();
+
+        $rules  = array_column($this->call('read', 'memberpress-list-rules', [])['result']['rules'], null, 'id');
+        $access = $rules[ $source_id ]['access'];
+        $this->assertSame([ [ 'type' => 'membership', 'operator' => 'is', 'condition' => (string) $gold ] ], $access);
+
+        $out = $this->call('write', 'memberpress-create-rule', [ 'type' => 'single_page', 'content' => (string) $page, 'status' => 'publish', 'access' => $access ]);
+        $id  = $out['result']['rule']['id'];
+        $this->assertSame(\MeprRule::get_types()['single_page'] . ': GB 794', get_the_title($id));
+        $this->assertSame([ 'membership' => [ (string) $gold ] ], (new \MeprRule($id))->mgm_mepr_access('get'));
+        $this->assertTrue((bool) (new \MeprRule($id))->auto_gen_title);
+
+        $by_cat = $this->call('write', 'memberpress-create-rule', [ 'type' => 'category', 'content' => (string) $cat, 'access' => $access ])['result']['rule'];
+        $this->assertSame(\MeprRule::get_types()['category'] . ': Recipes', $by_cat['title']);
+
+        $this->call('write', 'memberpress-update-rule', [ 'id' => $id, 'access' => $access ]);
+        $this->assertSame([ 'membership' => [ (string) $gold ] ], (new \MeprRule($id))->mgm_mepr_access('get'));
+    }
+
     public function test_members_and_transactions_written_by_memberpress_are_listed_without_gateway_data(): void
     {
         $gold = $this->call('write', 'memberpress-create-membership', [ 'title' => 'Gold', 'status' => 'publish', 'price' => 5 ])['result']['membership']['id'];
