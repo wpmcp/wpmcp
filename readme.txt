@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.8.180
+Stable tag: 0.9.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -119,6 +119,34 @@ OAuth is off by default. Clients configured with an application password (Claude
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.9.0 =
+This release roughly triples the plugins WP MCP can drive and makes every change reversible across all of them.
+
+New page builders, each read and edited element by element, every write snapshotted and undone from the Mutations tab, and writes guarded by the page's content hash:
+* Divi 5, Avada, WPBakery, Oxygen 6, Cornerstone, BeTheme (BeBuilder) and Thrive Architect.
+
+New integrations and operations:
+* WooCommerce Subscriptions, WooCommerce Bookings and WooCommerce Memberships.
+* MemberPress memberships, rules, members and transactions.
+* LearnDash courses and the Elementor addon pack JetElements.
+* Elementor Pro form submissions; WS Form forms and submissions.
+* bbPress, Code Snippets, Wordfence and WP Mail SMTP.
+* Cache and performance settings for WP Rocket, Perfmatters and FlyingPress, with API keys never returned.
+* Knowledge base and support: BetterDocs, Fluent Support and Awesome Support.
+* Theme Pro layouts, elements and hooks for Astra Pro, Kadence Pro and GP Premium.
+* Core site identity, homepage and permalink operations.
+
+Safety and reversibility:
+* File writes, term, menu, user and trash changes, and plugin-data creates are now undoable.
+* A database restore keeps the audit and request logs and holds the maintenance page through the whole import.
+* Governance writes are undoable and can never lock the last administrator out.
+* Every feature that is off until you opt in now refuses with a single clear code that names the setting to turn on, and a refusal for a missing plugin names exactly what to install and activate.
+
+Admin and tooling:
+* Audit Log gains per-domain filtering, paging and CSV export.
+* Tool search across names, descriptions and operation names.
+* Pro upgrade prompts carry the upgrade link and launch coupon; staging copies keep Pro without using a license site.
 
 = 0.8.180 =
 * Free installs now see a dismissible WP MCP Pro notice on the Dashboard, the Plugins screen and WP MCP's own screens, with a launch coupon and a link to the pricing page. Dismissing hides it for 30 days; the third dismissal hides it for good. It never appears while a Pro licence is active.
