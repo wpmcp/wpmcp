@@ -55,6 +55,14 @@ if (! defined('ABSPATH')) {
  * restore (path: a revision id from the read), add with element
  * {template: id} (a user template) and save_template (see Thrive_Page).
  *
+ * Cornerstone (Themeco) pages (issue #646): a whole element list as a
+ * JSON string or one element operation addressed by the dotted paths
+ * get-builder-content returns, plus publish, restore (path: a revision id)
+ * and add with element {template: id} (a section or page template), saved
+ * through Cornerstone itself so it renders the page (see
+ * Cornerstone_Engine). They need Cornerstone loaded and, once the page
+ * holds a layout, the read's expected_hash.
+ *
  * Oxygen 6 pages need (issue #635) Oxygen loaded (plugin_missing
  * otherwise) and expected_hash, the read's hash of the stored data row, on
  * any write to a page that has a layout; they take publish, restore (path: a
@@ -139,13 +147,17 @@ class Update_Builder_Content
             return $this->update_oxygen_classic($post_id, $args);
         }
 
+        if ('cornerstone' === $builder) {
+            return $this->update_cornerstone($post_id, $args);
+        }
+
         if ('breakdance' === $builder || 'oxygen' === $builder) {
             return $this->update_breakdance($post_id, $args, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic' and 'thrive'; got '{$builder}'."
+            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive' and 'cornerstone'; got '{$builder}'."
         );
     }
 
@@ -737,6 +749,152 @@ class Update_Builder_Content
         }
 
         return $result;
+    }
+
+    /**
+     * Cornerstone pages (issue #646): only on a page detected as Cornerstone
+     * or a blank one (a first layout replaces nothing), only while
+     * Cornerstone is loaded (it renders the page on save), only against the
+     * hash the page was read with once it holds a layout, and only where
+     * Cornerstone's own permissions let this user edit the page.
+     */
+    private function update_cornerstone(int $post_id, array $args)
+    {
+        $operation = (string) ($args['operation'] ?? '');
+        $detected  = Builder_Detector::detect($post_id);
+        $blank     = 'classic' === $detected && '' === trim((string) get_post($post_id)->post_content);
+        if ('cornerstone' !== $detected && ! $blank) {
+            return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not a Cornerstone page.");
+        }
+
+        $engine = Cornerstone_Content::plugin_active() ? Cornerstone_Engine::get() : null;
+        if (null === $engine) {
+            return Cornerstone_Content::unavailable();
+        }
+
+        if (Cornerstone_Content::has_layout($post_id)) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a Cornerstone page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(Cornerstone_Content::hash($post_id), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+            }
+        }
+
+        if (! $engine->allowed($post_id)) {
+            return new \WP_Error('forbidden', 'Cornerstone\'s permissions do not let you edit this page.');
+        }
+
+        $status = null;
+        $path   = null;
+        try {
+            [$elements, $path, $status] = $this->apply_cornerstone_operation($post_id, $operation, $args, Cornerstone_Content::placement($engine));
+        } catch (\InvalidArgumentException $e) {
+            return new \WP_Error('invalid_cornerstone_request', $e->getMessage());
+        }
+        if ('publish' === $status) {
+            $refusal = $this->publish_refusal($post_id, 'invalid_cornerstone_request');
+            if (null !== $refusal) {
+                return $refusal;
+            }
+        }
+
+        try {
+            $out = Safe_Mutation::run(
+                [
+                    'object_type' => 'post',
+                    'object_id'   => $post_id,
+                    'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                    'tool_name'   => 'update-builder-content',
+                    'args'        => $args,
+                    'state_probe' => static function () use ($post_id) {
+                        clean_post_cache($post_id);
+                        return [Cornerstone_Content::raw($post_id), (string) get_post_field('post_content', $post_id), get_post_status($post_id)];
+                    },
+                ],
+                function () use ($post_id, $elements, $status, $engine) {
+                    if (null !== $status) {
+                        Save_Filters::set_post_status($post_id, $status);
+                        return true;
+                    }
+                    $engine->save($post_id, $elements);
+                    return true;
+                }
+            );
+        } catch (\Exception $e) {
+            return new \WP_Error('cornerstone_save_failed', 'Cornerstone could not save the page: ' . $e->getMessage());
+        }
+
+        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'cornerstone', 'hash' => Cornerstone_Content::hash($post_id)];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * The element list a Cornerstone write saves.
+     *
+     * @return array{0:array<int,array<string,mixed>>,1:?string,2:?string} elements, the element's path when the operation knows it, and 'publish' for a publish
+     */
+    private function apply_cornerstone_operation(int $post_id, string $operation, array $args, callable $placement): array
+    {
+        $elements = Cornerstone_Content::elements($post_id);
+        $path     = (string) ($args['path'] ?? '');
+        $to       = (string) ($args['to'] ?? '');
+        $index    = isset($args['index']) ? (int) $args['index'] : null;
+        $element  = $args['element'] ?? null;
+
+        switch ($operation) {
+            case '':
+                $content = $args['content'] ?? null;
+                $list    = is_string($content) ? Cornerstone_Tree::decode($content) : null;
+                if (null === $list) {
+                    throw new \InvalidArgumentException(esc_html('Cornerstone content must be the whole element list as a JSON array, or pass an operation.'));
+                }
+                $list = array_map([Cornerstone_Tree::class, 'from_spec'], $list);
+                Cornerstone_Tree::validate($list, $placement);
+                return [$list, null, null];
+
+            case 'publish':
+                return [$elements, null, 'publish'];
+
+            case 'restore':
+                return [Cornerstone_Content::revision_elements($post_id, $path), null, null];
+
+            case 'update':
+                if (array_key_exists('text', $args)) {
+                    throw new \InvalidArgumentException(esc_html('Cornerstone elements keep their text in values: pass attrs, such as {text_content} for a headline or text element (scope catalog with element lists the keys).'));
+                }
+                $attrs = $args['attrs'] ?? null;
+                if (! is_array($attrs)) {
+                    throw new \InvalidArgumentException(esc_html('update needs attrs: an object of the values to set (null removes a key).'));
+                }
+                return [Cornerstone_Tree::update($elements, $path, $attrs), $path, null];
+
+            case 'add':
+                if (is_array($element) && array_key_exists('template', $element)) {
+                    if (1 !== count($element) || ! (is_int($element['template']) || (is_string($element['template']) && ctype_digit($element['template'])))) {
+                        throw new \InvalidArgumentException(esc_html('element {template} takes only a template id (see scope templates).'));
+                    }
+                    $new = Cornerstone_Design::template_elements((int) $element['template']);
+                } else {
+                    $new = [Cornerstone_Tree::from_spec($element)];
+                }
+                [$elements, $path] = Cornerstone_Tree::insert($elements, $to, $index, $new, $placement);
+                return [$elements, $path, null];
+
+            case 'remove':
+                return [Cornerstone_Tree::remove($elements, $path), null, null];
+
+            case 'move':
+                [$elements, $path] = Cornerstone_Tree::move($elements, $path, $to, $index, $placement);
+                return [$elements, $path, null];
+        }
+
+        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move, publish or restore."));
     }
 
     /**

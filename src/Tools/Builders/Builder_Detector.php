@@ -27,7 +27,9 @@ if (! defined('ABSPATH')) {
  * `fusion_builder_status` = 'active' flag, Thrive Architect's
  * `tcb_editor_enabled` flag or `tve_landing_page` template (checked before
  * block markers, since the plain-text copy Thrive keeps in post_content
- * preserves them), a classic Oxygen (4.x and earlier) layout row under
+ * preserves them), a Cornerstone page (post_content it rendered between
+ * `<!-- cs-content -->` comments, or a `_cornerstone_data` row with
+ * elements not overridden by `_cornerstone_override`), a classic Oxygen (4.x and earlier) layout row under
  * either key layout (`_ct_builder_json` / `ct_builder_json` holding a tree
  * with elements, or a non-empty `_ct_builder_shortcodes` /
  * `ct_builder_shortcodes`, Oxygen's own test for a page it renders; checked
@@ -87,6 +89,10 @@ class Builder_Detector
             return 'thrive';
         }
 
+        if (self::has_cornerstone_layout($post_id)) {
+            return 'cornerstone';
+        }
+
         if (self::has_classic_oxygen_layout($post_id)) {
             return 'oxygen-classic';
         }
@@ -112,6 +118,31 @@ class Builder_Detector
         }
 
         return 'classic';
+    }
+
+    /**
+     * Whether Cornerstone renders this page, its own cs_uses_cornerstone()
+     * test: post_content it rendered (between `<!-- cs-content -->`
+     * comments), or a `_cornerstone_data` row with elements on a page whose
+     * owner has not gone back to the WordPress editor
+     * (`_cornerstone_override`).
+     */
+    private static function has_cornerstone_layout(int $post_id): bool
+    {
+        $post = get_post($post_id);
+        if ($post && false !== strpos((string) $post->post_content, '<!-- cs-content -->')) {
+            return true;
+        }
+        $raw = get_post_meta($post_id, '_cornerstone_data', true);
+        if (! is_string($raw) || '' === $raw || ! empty(get_post_meta($post_id, '_cornerstone_override', true))) {
+            return false;
+        }
+        $data = json_decode($raw, true) ?? json_decode(wp_unslash($raw), true);
+        if (is_array($data) && isset($data['data'])) {
+            $data = $data['data'];
+        }
+
+        return is_array($data) && [] !== $data;
     }
 
     /**
