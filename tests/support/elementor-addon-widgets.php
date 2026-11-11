@@ -23,15 +23,71 @@ namespace WPMCP\Tests\Support\ElementorAddons {
             return 'eicon-code';
         }
 
-        protected function register_controls()
+        /**
+         * The control stack as Elementor holds it on a REST request, where it
+         * keeps the editor keys (label, options, selectors) that it strips on
+         * a front-end request such as a PHPUnit run. Shaped after the
+         * JetElements Banner widget's stack read in that mode: a layout
+         * section and heading, a text control, a select, a responsive slider
+         * with its tablet copy, a repeater and an empty default.
+         *
+         * @param string|null $control_id
+         * @return mixed
+         */
+        public function get_controls($control_id = null)
         {
-            $this->start_controls_section('content_section', [ 'label' => 'Content' ]);
-            $this->add_control('fixture_title', [
-                'label'   => 'Title',
-                'type'    => \Elementor\Controls_Manager::TEXT,
-                'default' => 'Hello',
-            ]);
-            $this->end_controls_section();
+            $stack = [
+                'content_section'     => [ 'name' => 'content_section', 'type' => 'section', 'tab' => 'content', 'label' => 'Content' ],
+                'fixture_heading'     => [ 'name' => 'fixture_heading', 'type' => 'heading', 'tab' => 'content', 'section' => 'content_section', 'label' => 'Text' ],
+                'fixture_title'       => [ 'name' => 'fixture_title', 'type' => 'text', 'tab' => 'content', 'section' => 'content_section', 'label' => 'Title', 'default' => 'Hello', 'dynamic' => [ 'active' => true ] ],
+                'fixture_link'        => [ 'name' => 'fixture_link', 'type' => 'text', 'tab' => 'content', 'section' => 'content_section', 'label' => 'Link', 'default' => '' ],
+                'fixture_tag'         => [
+                    'name'      => 'fixture_tag',
+                    'type'      => 'select',
+                    'tab'       => 'content',
+                    'section'   => 'content_section',
+                    'label'     => 'Title HTML Tag',
+                    'default'   => 'h5',
+                    'options'   => [ 'h1' => 'H1', 'h2' => 'H2', 'h5' => 'H5', 'div' => 'div' ],
+                    'condition' => [ 'fixture_title!' => '' ],
+                ],
+                'fixture_height'      => [
+                    'name'       => 'fixture_height',
+                    'type'       => 'slider',
+                    'tab'        => 'style',
+                    'section'    => 'content_section',
+                    'label'      => 'Height',
+                    'default'    => [ 'unit' => 'px', 'size' => 300 ],
+                    'size_units' => [ 'px', 'vh' ],
+                    'range'      => [ 'px' => [ 'min' => 0, 'max' => 1000 ] ],
+                    'selectors'  => [ '{{WRAPPER}} .fixture-banner' => 'height: {{SIZE}}{{UNIT}};' ],
+                    'responsive' => [ 'max' => 'desktop' ],
+                ],
+                'fixture_height_tablet' => [
+                    'name'       => 'fixture_height_tablet',
+                    'type'       => 'slider',
+                    'tab'        => 'style',
+                    'section'    => 'content_section',
+                    'label'      => 'Height',
+                    'parent'     => 'fixture_height',
+                    'selectors'  => [ '{{WRAPPER}} .fixture-banner' => 'height: {{SIZE}}{{UNIT}};' ],
+                    'responsive' => [ 'max' => 'tablet' ],
+                ],
+                'fixture_items'       => [
+                    'name'        => 'fixture_items',
+                    'type'        => 'repeater',
+                    'tab'         => 'content',
+                    'section'     => 'content_section',
+                    'label'       => 'Items',
+                    'fields'      => [ 'item_text' => [ 'name' => 'item_text', 'type' => 'text', 'label' => 'Text' ] ],
+                    'title_field' => '{{{ item_text }}}',
+                    'default'     => [],
+                ],
+            ];
+            if (null === $control_id) {
+                return $stack;
+            }
+            return $stack[ $control_id ] ?? null;
         }
     }
 

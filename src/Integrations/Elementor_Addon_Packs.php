@@ -17,8 +17,13 @@ if (! defined('ABSPATH')) {
  * Per suite, three ops:
  *  - list-{suite}-widgets reads the suite's widgets as Elementor's own widgets
  *    manager has them registered (so only modules the suite switched on),
- *    recognized by the suite's widget category or class namespace. Controls
- *    come on request, or always for one named widget.
+ *    recognized by the suite's widget category or class namespace. The
+ *    list carries no controls. Named widgets (one, or up to five) come with
+ *    a summary per control (type, label, default, option keys). One
+ *    widget's control stack runs to hundreds of KB on a real request and
+ *    the whole suite's to megabytes, so controls for the whole list are
+ *    refused and the complete definitions (detail:"full") come for exactly
+ *    one named widget.
  *  - get-{suite}-modules reads every module's on/off state from the suite's
  *    own settings option, resolved exactly as the suite resolves it.
  *  - set-{suite}-modules switches modules on or off by rewriting that option
@@ -67,6 +72,9 @@ final class Elementor_Addon_Packs
 
     /** Upper bound on one toggle batch. */
     private const MAX_MODULES = 200;
+
+    /** Upper bound on the widgets one control read names. */
+    private const MAX_NAMED_WIDGETS = 5;
 
     private const SUITES = [
         'essential-addons' => [
@@ -122,12 +130,19 @@ final class Elementor_Addon_Packs
             $ops[ "list-{$suite}-widgets" ] = [
                 'mode'         => 'read',
                 'tier'         => 'pro',
-                'description'  => sprintf('List the %s widgets registered in Elementor (name, title, categories, control count). include_controls:true adds each control stack; naming one widget returns just it with its controls', $label),
+                'description'  => sprintf('List the %1$s widgets registered in Elementor (name, title, categories, control count; no controls). Name one widget (widget) or up to %2$d (widgets) to get just those with a control summary each (type, label, default, option keys of select-like controls). detail:"full" with exactly one named widget returns its complete control definitions (conditions, selectors, repeater fields). Controls for the whole list are refused', $label, self::MAX_NAMED_WIDGETS),
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
                         'widget'           => [ 'type' => 'string' ],
+                        'widgets'          => [
+                            'type'     => 'array',
+                            'items'    => [ 'type' => 'string' ],
+                            'minItems' => 1,
+                            'maxItems' => self::MAX_NAMED_WIDGETS,
+                        ],
                         'include_controls' => [ 'type' => 'boolean' ],
+                        'detail'           => [ 'type' => 'string', 'enum' => [ 'summary', 'full' ] ],
                     ],
                 ],
                 'requires'     => static fn () => self::requirement($suite, true),
@@ -229,39 +244,81 @@ final class Elementor_Addon_Packs
     /** @return array<string,mixed> */
     private static function widgets(string $suite, array $args): array
     {
-        $only    = (string) ($args['widget'] ?? '');
-        $include = '' !== $only || ! empty($args['include_controls']);
-        $rows    = [];
+        $detail = (string) ($args['detail'] ?? 'summary');
+        $label  = self::SUITES[ $suite ]['label'];
+        $named  = self::named_widgets($args);
+        $ask    = sprintf('Name one widget with {"widget": "<name>"} or up to %d with {"widgets": ["<name>", ...]}; the list without controls gives every %s widget name.', self::MAX_NAMED_WIDGETS, $label);
 
+        if (! in_array($detail, [ 'summary', 'full' ], true)) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
+            throw new Operation_Refused('invalid_detail', sprintf('detail is "summary" (the default) or "full", not "%s".', $detail), [ 'detail' => $detail ]);
+        }
+        if (count($named) > self::MAX_NAMED_WIDGETS) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
+            throw new Operation_Refused('too_many_widgets', sprintf('Controls come for at most %d named widgets per call, not %d. Split the names over several calls.', self::MAX_NAMED_WIDGETS, count($named)), [ 'max' => self::MAX_NAMED_WIDGETS ]);
+        }
+        if ('full' === $detail && 1 !== count($named)) {
+            $message = sprintf('Full control definitions run to hundreds of KB per widget, so they come for exactly one named widget: {"widget": "<name>", "detail": "full"}. Without detail, up to %d named widgets come with a control summary.', self::MAX_NAMED_WIDGETS);
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
+            throw new Operation_Refused('full_detail_needs_widget', $message, [ 'detail' => 'full' ]);
+        }
+        if ([] === $named && ! empty($args['include_controls'])) {
+            $message = sprintf('Controls for every %s widget run to megabytes, so they come for named widgets only. %s', $label, $ask);
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
+            throw new Operation_Refused('controls_need_widget', $message, [ 'max' => self::MAX_NAMED_WIDGETS ]);
+        }
+
+        $include = [] !== $named;
+        $rows    = [];
         foreach ((array) \Elementor\Plugin::instance()->widgets_manager->get_widget_types() as $widget) {
             if (! $widget instanceof \Elementor\Widget_Base || ! self::owns($suite, $widget)) {
                 continue;
             }
             $name = (string) $widget->get_name();
-            if ('' !== $only && $name !== $only) {
+            if ($include && ! in_array($name, $named, true)) {
                 continue;
             }
-            $controls = Widget_View::controls($widget);
-            $row      = [
+            $row = [
                 'name'          => $name,
                 'title'         => (string) $widget->get_title(),
                 'categories'    => array_values((array) $widget->get_categories()),
                 'icon'          => (string) $widget->get_icon(),
-                'control_count' => count($controls),
+                'control_count' => count((array) $widget->get_controls()),
             ];
             if ($include) {
-                $row['controls'] = $controls;
+                $row['controls'] = 'full' === $detail ? Widget_View::control_definitions($widget) : Widget_View::control_summary($widget);
             }
             $rows[ $name ] = $row;
         }
 
-        if ('' !== $only && [] === $rows) {
+        $missing = array_values(array_diff($named, array_keys($rows)));
+        if ([] !== $missing) {
             // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-            throw new Operation_Refused('unknown_widget', sprintf('No %s widget is registered as "%s".', self::SUITES[ $suite ]['label'], $only), [ 'widget' => $only ]);
+            throw new Operation_Refused('unknown_widget', sprintf('No %s widget is registered as "%s".', $label, implode('", "', $missing)), [ 'widget' => $missing[0], 'widgets' => $missing ]);
         }
         ksort($rows);
 
-        return [ 'suite' => $suite, 'count' => count($rows), 'widgets' => array_values($rows) ];
+        $out = [ 'suite' => $suite, 'count' => count($rows), 'widgets' => array_values($rows) ];
+        if ($include) {
+            $out['detail'] = $detail;
+        }
+        return $out;
+    }
+
+    /**
+     * The widget names a read asks for, from widget and widgets together,
+     * each once.
+     *
+     * @return string[]
+     */
+    private static function named_widgets(array $args): array
+    {
+        $names = isset($args['widgets']) && is_array($args['widgets']) ? $args['widgets'] : [];
+        if (isset($args['widget']) && '' !== (string) $args['widget']) {
+            array_unshift($names, $args['widget']);
+        }
+        $names = array_map('strval', array_filter($names, 'is_scalar'));
+        return array_values(array_unique(array_filter($names, static fn (string $name): bool => '' !== $name)));
     }
 
     /** Whether a registered widget belongs to the suite, by category or class namespace. */

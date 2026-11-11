@@ -71,4 +71,83 @@ class Widget_View
 
         return $controls;
     }
+
+    /**
+     * Control types that only lay out the editor panel and hold no setting.
+     */
+    private const LAYOUT_TYPES = [ 'section', 'tabs', 'tab', 'heading', 'raw_html', 'divider', 'alert', 'notice', 'deprecated_notice', 'button' ];
+
+    /** Control types whose options are the values the setting accepts. */
+    private const CHOICE_TYPES = [ 'select', 'select2', 'choose', 'visual_choice' ];
+
+    /**
+     * A compact summary of a widget's settings, keyed by control name: type,
+     * then label and default when the control has them, and for select-like
+     * controls the option keys (the values the setting accepts). Controls
+     * that only lay out the editor panel are left out, as are empty labels
+     * and defaults.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public static function control_summary(\Elementor\Widget_Base $widget): array
+    {
+        $summary = [];
+
+        foreach ($widget->get_controls() as $name => $control) {
+            $type = (string) ($control['type'] ?? '');
+            if (in_array($type, self::LAYOUT_TYPES, true)) {
+                continue;
+            }
+            $row = [ 'type' => $type ];
+            if (isset($control['label']) && '' !== $control['label']) {
+                $row['label'] = $control['label'];
+            }
+            if (isset($control['default']) && '' !== $control['default'] && [] !== $control['default']) {
+                $row['default'] = $control['default'];
+            }
+            if (in_array($type, self::CHOICE_TYPES, true) && isset($control['options']) && is_array($control['options'])) {
+                $row['options'] = array_map('strval', array_keys($control['options']));
+            }
+            $summary[ (string) $name ] = $row;
+        }
+
+        return $summary;
+    }
+
+    /**
+     * A widget's complete control definitions as Elementor holds them,
+     * keyed by control name, with anything that is not plain data (such as
+     * a callback) dropped so the result encodes as JSON.
+     *
+     * @return array<string, mixed>
+     */
+    public static function control_definitions(\Elementor\Widget_Base $widget): array
+    {
+        $definitions = [];
+
+        foreach ($widget->get_controls() as $name => $control) {
+            $definitions[ (string) $name ] = self::plain($control);
+        }
+
+        return $definitions;
+    }
+
+    /**
+     * @param mixed $value
+     * @return mixed
+     */
+    private static function plain($value)
+    {
+        if (is_array($value)) {
+            $out = [];
+            foreach ($value as $key => $item) {
+                if (! is_object($item)) {
+                    $out[ $key ] = self::plain($item);
+                }
+            }
+            return $out;
+        }
+
+        return is_object($value) ? null : $value;
+    }
 }

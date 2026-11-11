@@ -219,9 +219,10 @@ class ElementorAddonPacksTest extends \WP_UnitTestCase
         $this->assertArrayNotHasKey('controls', $row, 'Controls only on request, so a large suite stays a small payload');
         $this->assertGreaterThanOrEqual(1, $row['control_count']);
 
-        $with = $this->read('list-essential-addons-widgets', [ 'include_controls' => true ])['result']['widgets'];
-        $this->assertSame('text', $with[0]['controls']['fixture_title']['type']);
-        $this->assertSame('Hello', $with[0]['controls']['fixture_title']['default']);
+        $with = $this->read('list-essential-addons-widgets', [ 'widgets' => [ 'eael-fixture-namespaced', 'eael-fixture-card' ] ])['result'];
+        $this->assertSame([ 'eael-fixture-card', 'eael-fixture-namespaced' ], array_column($with['widgets'], 'name'), 'Several named widgets, each with its controls');
+        $this->assertSame('text', $with['widgets'][0]['controls']['fixture_title']['type']);
+        $this->assertSame('Hello', $with['widgets'][0]['controls']['fixture_title']['default']);
 
         $one = $this->read('list-premium-addons-widgets', [ 'widget' => 'premium-addon-fixture-banner' ])['result'];
         $this->assertSame([ 'premium-addon-fixture-banner' ], array_column($one['widgets'], 'name'));
@@ -526,5 +527,78 @@ class ElementorAddonPacksTest extends \WP_UnitTestCase
         $this->assertSame([], $noop['result']['changed']);
         $this->assertFalse(get_option('jet-elements-settings'));
         $this->assertSame($before, Snapshot_Store::row_count());
+    }
+
+    /**
+     * The same in every suite: the list carries no controls and refuses
+     * them; up to five named widgets come with a control summary; complete
+     * definitions (detail:"full") come for exactly one named widget.
+     */
+    public function test_controls_come_for_named_widgets_only_as_a_summary_or_full_for_one(): void
+    {
+        $this->register_widgets(
+            \WPMCP\Tests\Support\ElementorAddons\Essential_Card::class,
+            \WPMCP\Tests\Support\ElementorAddons\Premium_Banner::class,
+            \WPMCP\Tests\Support\ElementorAddons\Ultimate_Retina::class,
+            \Elementor\Jet_Elements_Fixture_Banner::class
+        );
+        $this->activate(...self::SUITES);
+        $fixtures = [
+            'essential-addons' => 'eael-fixture-card',
+            'premium-addons'   => 'premium-addon-fixture-banner',
+            'ultimate-addons'  => 'fixture-retina',
+            'jet-elements'     => 'jet-fixture-banner',
+        ];
+        $expected = [
+            'fixture_title'         => [ 'type' => 'text', 'label' => 'Title', 'default' => 'Hello' ],
+            'fixture_link'          => [ 'type' => 'text', 'label' => 'Link' ],
+            'fixture_tag'           => [ 'type' => 'select', 'label' => 'Title HTML Tag', 'default' => 'h5', 'options' => [ 'h1', 'h2', 'h5', 'div' ] ],
+            'fixture_height'        => [ 'type' => 'slider', 'label' => 'Height', 'default' => [ 'unit' => 'px', 'size' => 300 ] ],
+            'fixture_height_tablet' => [ 'type' => 'slider', 'label' => 'Height' ],
+            'fixture_items'         => [ 'type' => 'repeater', 'label' => 'Items' ],
+        ];
+
+        foreach ($fixtures as $suite => $widget) {
+            $op = "list-{$suite}-widgets";
+
+            $plain = $this->read($op)['result'];
+            $this->assertArrayNotHasKey('controls', $plain['widgets'][0], "{$suite}: the plain list carries no controls");
+            $this->assertArrayNotHasKey('detail', $plain);
+            $this->assertSame(8, $plain['widgets'][0]['control_count'], "{$suite}: the count is still every control");
+
+            $refused = $this->read($op, [ 'include_controls' => true ]);
+            $this->assertSame('controls_need_widget', $refused['error']['code'], "{$suite}: no controls for the whole list");
+            $this->assertStringContainsString('"widgets"', $refused['error']['message'], 'The refusal says how to name widgets');
+            $this->assertStringContainsString('up to 5', $refused['error']['message']);
+
+            $one = $this->read($op, [ 'widget' => $widget ])['result'];
+            $this->assertSame('summary', $one['detail'], "{$suite}: a named widget defaults to the summary");
+            $this->assertSame($expected, $one['widgets'][0]['controls'], "{$suite}: type, label, default, option keys; no layout controls, empty values or editor internals");
+            $this->assertSame($one, $this->read($op, [ 'widgets' => [ $widget ], 'include_controls' => true ])['result'], "{$suite}: widgets and widget name the same thing");
+            $this->assertSame($one, $this->read($op, [ 'widget' => $widget, 'widgets' => [ $widget ] ])['result'], "{$suite}: a name given twice counts once");
+
+            $six = $this->read($op, [ 'widgets' => [ $widget, 'b', 'c', 'd', 'e', 'f' ] ]);
+            $this->assertSame('invalid_args', $six['error']['code'], "{$suite}: the schema allows five names in widgets");
+            $this->assertStringContainsString('5', $six['error']['message']);
+            $split = $this->read($op, [ 'widget' => $widget, 'widgets' => [ 'b', 'c', 'd', 'e', 'f' ] ]);
+            $this->assertSame('too_many_widgets', $split['error']['code'], "{$suite}: at most five per call, widget and widgets together");
+            $this->assertSame('unknown_widget', $this->read($op, [ 'widgets' => [ $widget, 'no-such-widget' ] ])['error']['code'], "{$suite}: every name must be registered");
+
+            $full = $this->read($op, [ 'widget' => $widget, 'detail' => 'full' ])['result'];
+            $this->assertSame('full', $full['detail']);
+            $controls = $full['widgets'][0]['controls'];
+            $this->assertSame(array_keys((new \ReflectionClass(\WPMCP\Tests\Support\ElementorAddons\Essential_Card::class))->newInstanceWithoutConstructor()->get_controls()), array_keys($controls), "{$suite}: full detail keeps every control, layout ones too");
+            $this->assertSame([ 'fixture_title!' => '' ], $controls['fixture_tag']['condition']);
+            $this->assertSame([ 'h1' => 'H1', 'h2' => 'H2', 'h5' => 'H5', 'div' => 'div' ], $controls['fixture_tag']['options']);
+            $this->assertSame('fixture_height', $controls['fixture_height_tablet']['parent']);
+            $this->assertArrayHasKey('item_text', $controls['fixture_items']['fields']);
+
+            foreach ([ [ 'detail' => 'full' ], [ 'detail' => 'full', 'include_controls' => true ], [ 'widgets' => [ $widget, 'other' ], 'detail' => 'full' ] ] as $args) {
+                $out = $this->read($op, $args);
+                $this->assertSame('full_detail_needs_widget', $out['error']['code'], "{$suite}: full detail for exactly one widget");
+                $this->assertStringContainsString('"widget"', $out['error']['message'], 'The refusal says how to ask for one widget');
+            }
+            $this->assertArrayHasKey('error', $this->read($op, [ 'widget' => $widget, 'detail' => 'everything' ]), 'An unknown detail is refused');
+        }
     }
 }
