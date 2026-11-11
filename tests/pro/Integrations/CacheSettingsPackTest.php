@@ -197,7 +197,7 @@ class CacheSettingsPackTest extends \WP_UnitTestCase
         remove_all_filters('wpmcp_enable_cache_settings_write');
         foreach ([ 'set-wp-rocket-settings' => [ 'values' => [ 'cdn' => true ] ], 'preload-flyingpress-cache' => [] ] as $op => $args) {
             $out = $this->write($op, $args);
-            $this->assertSame('operation_disabled', $out['error']['code'] ?? null, $op);
+            $this->assertSame('opt_in_required', $out['error']['code'] ?? null, $op);
             $this->assertStringContainsString('wpmcp_enable_cache_settings_write', $out['error']['message']);
         }
         $this->assertSame(0, get_option('wp_rocket_settings')['cdn']);
