@@ -22,7 +22,9 @@ if (! defined('ABSPATH')) {
  * and whether the plugin is loaded; classic Oxygen (4.x and earlier) returns
  * its stored JSON tree (or the shortcodes of a page in the pre-4.0 format),
  * the path tree parsed from it, which of the two it is, whether it can be
- * written now and whether the plugin is loaded; BeTheme returns its
+ * written now and whether the plugin is loaded; Cornerstone returns its
+ * element list, the path tree over it, its hash, revisions and custom CSS
+ * and JS, and whether the plugin is loaded; BeTheme returns its
  * BeBuilder sections, an outline of them by uid (what operations address),
  * the storage format, the hash writes are pinned to and whether the theme
  * is active.
@@ -89,6 +91,10 @@ class Get_Builder_Content
             return Thrive_Content::read($post_id);
         }
 
+        if ('cornerstone' === $builder) {
+            return Cornerstone_Content::read($post_id);
+        }
+
         if ('oxygen-classic' === $builder) {
             return Oxygen_Classic_Content::read($post_id);
         }
@@ -103,7 +109,7 @@ class Get_Builder_Content
 
         return new \WP_Error(
             'unsupported_builder',
-            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive' and 'betheme'; this post was detected as '{$builder}'."
+            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone' and 'betheme'; this post was detected as '{$builder}'."
         );
     }
 }

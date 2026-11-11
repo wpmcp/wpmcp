@@ -9491,7 +9491,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/detect-builder',
             'pro',
-            'Post builder: elementor|bricks|divi|wpbakery|avada|beaver-builder|breakdance|oxygen|oxygen-classic|thrive|gutenberg|classic',
+            'Post builder: elementor|bricks|divi|wpbakery|avada|beaver-builder|breakdance|oxygen|oxygen-classic|thrive|cornerstone|gutenberg|classic',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9510,7 +9510,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-builder-content',
             'pro',
-            'Bricks elements; Divi|WPBakery|Avada shortcodes, Thrive HTML, oxygen-classic JSON, Divi 5 blocks (last 5 with paths); Beaver Builder|Breakdance|Oxygen nodes; BeTheme sections by uid. Or scope design_system|templates|catalog (element: its controls) for builder bricks|breakdance|oxygen|divi|wpbakery|avada|thrive|betheme',
+            'Bricks elements; Divi|WPBakery|Avada shortcodes, Thrive HTML, oxygen-classic JSON, Divi 5 blocks, Cornerstone elements (last 6 with paths); Beaver Builder|Breakdance|Oxygen nodes; BeTheme sections by uid. Or scope design_system|templates|catalog (element: its controls) for builder bricks|breakdance|oxygen|divi|wpbakery|avada|thrive|cornerstone|betheme',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9531,7 +9531,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-builder-content',
             'pro',
-            'Bricks JSON; Divi|WPBakery|Avada shortcodes, Thrive HTML; oxygen-classic|Beaver Builder|Breakdance|Oxygen JSON tree. All but Bricks|Divi 4: operation update(path,attrs,text), add(to,index,element), remove(path), move(path,to,index); to \'\'=top. WPBakery|Oxygen|Thrive: also publish, restore(path: revision id). WPBakery|Avada|Oxygen|Thrive: element {template}; need expected_hash. Avada|Oxygen|Thrive: save_template(path,element {title}). Oxygen: element {component}. BeTheme: JSON sections; path/to are uids, update element {size}, element {template}, publish; needs expected_hash. scope design_system (bricks|breakdance|avada): add/update/remove at classes|variables|palettes|typography|options/<id>[/<color id>]; scope templates (wpbakery): at <id>. expected_hash: read\'s hash (Divi 5, WPBakery, Avada, Oxygen, Thrive), hashes.<list>. Undo: rollback-operation',
+            'Bricks JSON; Divi|WPBakery|Avada shortcodes, Thrive HTML; oxygen-classic|Beaver Builder|Breakdance|Oxygen|Cornerstone JSON tree. All but Bricks|Divi 4: operation update(path,attrs,text), add(to,index,element), remove(path), move(path,to,index); to \'\'=top. WPBakery|Oxygen|Thrive|Cornerstone: also publish, restore(path: revision id). WPBakery|Avada|Oxygen|Thrive|Cornerstone: element {template}; need expected_hash. Avada|Oxygen|Thrive: save_template(path,element {title}). Oxygen: element {component}. BeTheme: JSON sections; path/to are uids, update element {size}, element {template}, publish; needs expected_hash. scope design_system (bricks|breakdance|avada): add/update/remove at classes|variables|palettes|typography|options/<id>[/<color id>]; scope templates (wpbakery): at <id>. expected_hash: read\'s hash (Divi 5, WPBakery, Avada, Oxygen, Thrive, Cornerstone), hashes.<list>. Undo: rollback-operation',
             [
                 'type'       => 'object',
                 'properties' => [

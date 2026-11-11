@@ -275,7 +275,10 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  element-level editing (#635) added no tool: publish, restore,
      *  templates, Components and save_template on the builder pair, the
      *  WPBakery and Avada notes merged with Oxygen's: 209095 -> 209122
-     *  bytes over 407 tools. */
+     *  bytes over 407 tools. Cornerstone (#646) added no tool: its read,
+     *  scope reads and element operations, publish, restore and template
+     *  inserts on the builder pair, by naming it in the three builder
+     *  descriptions: 209444 -> 209539 bytes over 407 tools. */
     // Raised 209000 -> 215000 on 2026-11-09 for five integration PRs (#784, #786, #787, #788, WPBakery) that together exceed 209000; owner approved.
     private const TOOLS_LIST_BYTE_BUDGET = 215000;
 

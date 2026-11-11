@@ -15,8 +15,9 @@ if (! defined('ABSPATH')) {
  * Bricks, Breakdance and Oxygen 6 are supported, Avada (issue #637, see
  * Avada_Design and Avada_Library), and Divi 5 for templates
  * and catalog (see Divi5_Design) and WPBakery (issue #639, see
- * WPBakery_Design) and Thrive Architect (issue #640, see
- * Thrive_Design) and BeTheme (issue #643, see BeTheme_Design); the builder comes from the
+ * WPBakery_Design), Thrive Architect (issue #640, see
+ * Thrive_Design), Cornerstone (issue #646, see Cornerstone_Design) and
+ * BeTheme (issue #643, see BeTheme_Design); the builder comes from the
  * `builder` argument, or is detected from `post_id` when that is given
  * instead. Reads only: writes to global design data are a later phase.
  */
@@ -24,7 +25,7 @@ class Builder_Design
 {
     public const SCOPES = ['design_system', 'templates', 'catalog'];
 
-    public const BUILDERS = ['bricks', 'breakdance', 'oxygen', 'divi', 'wpbakery', 'avada', 'thrive', 'betheme'];
+    public const BUILDERS = ['bricks', 'breakdance', 'oxygen', 'divi', 'wpbakery', 'avada', 'thrive', 'cornerstone', 'betheme'];
 
     /**
      * @param array<string,mixed> $args
@@ -48,11 +49,11 @@ class Builder_Design
         }
 
         if ('' === $builder) {
-            return new \WP_Error('missing_builder', 'A scope read needs builder (bricks, breakdance, oxygen, divi, wpbakery, avada, thrive or betheme) or a post_id to detect it from.');
+            return new \WP_Error('missing_builder', 'A scope read needs builder (bricks, breakdance, oxygen, divi, wpbakery, avada, thrive, cornerstone or betheme) or a post_id to detect it from.');
         }
 
         if (! in_array($builder, self::BUILDERS, true)) {
-            return new \WP_Error('unsupported_builder', "scope reads support 'bricks', 'breakdance', 'oxygen', 'divi', 'wpbakery', 'avada', 'thrive' and 'betheme'; got '{$builder}'.");
+            return new \WP_Error('unsupported_builder', "scope reads support 'bricks', 'breakdance', 'oxygen', 'divi', 'wpbakery', 'avada', 'thrive', 'cornerstone' and 'betheme'; got '{$builder}'.");
         }
 
         $element = (string) ($args['element'] ?? '');
@@ -71,6 +72,10 @@ class Builder_Design
 
         if ('thrive' === $builder) {
             return Thrive_Design::read($scope, $element);
+        }
+
+        if ('cornerstone' === $builder) {
+            return Cornerstone_Design::read($scope, $element);
         }
 
         if ('betheme' === $builder) {

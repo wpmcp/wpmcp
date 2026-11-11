@@ -93,6 +93,7 @@ final class Builder_Design_Data
         'betheme'    => 'the BeTheme theme',
         'breakdance' => 'the Breakdance plugin',
         'bricks'     => 'the Bricks theme',
+        'cornerstone' => 'Cornerstone (Themeco), or the X or Pro theme that bundles it',
         'divi'       => 'the Divi theme (Divi 5)',
         'oxygen'     => 'the Oxygen 6 plugin',
         'thrive'     => 'the Thrive Architect plugin',
