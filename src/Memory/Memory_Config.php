@@ -2,6 +2,8 @@
 
 namespace WPMCP\Memory;
 
+use WPMCP\MCP\Opt_In_Required;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -41,9 +43,11 @@ class Memory_Config
     /** The WP_Error every memory tool returns while the opt-in gate is closed. */
     public static function disabled_error(): \WP_Error
     {
-        return new \WP_Error(
-            'wpmcp_memory_disabled',
-            'Agent project memory is disabled. Enable it with the wpmcp_enable_memory filter.',
+        return Opt_In_Required::error(
+            'Agent project memory is disabled.',
+            'wpmcp_enable_memory',
+            '',
+            '',
             ['status' => 403]
         );
     }

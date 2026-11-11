@@ -463,7 +463,7 @@ class CrmLiveTest extends \WP_UnitTestCase
         $this->assertStringContainsString('cannot be unsent', self::warnings());
 
         // Sending is off until the site enables it, then asks with the count.
-        $this->assertSame('operation_disabled', $this->refused('fluentcrm-send-campaign', [ 'id' => $id ]));
+        $this->assertSame('opt_in_required', $this->refused('fluentcrm-send-campaign', [ 'id' => $id ]));
         add_filter('wpmcp_enable_crm_send', '__return_true');
         $ask = (new Plugin_Data_Integration())->handle_write([ 'operation' => 'fluentcrm-send-campaign', 'args' => [ 'id' => $id ] ]);
         $this->assertSame([ 'confirmation_required', 1 ], [ $ask['error']['code'], $ask['error']['data']['recipients'] ]);
@@ -535,7 +535,7 @@ class CrmLiveTest extends \WP_UnitTestCase
         $this->assertStringContainsString('cannot be unsent', self::warnings());
 
         // Sending: off, then asked with the count, then queued by MailPoet and sent by its worker.
-        $this->assertSame('operation_disabled', $this->refused('mailpoet-send-campaign', [ 'id' => $id ]));
+        $this->assertSame('opt_in_required', $this->refused('mailpoet-send-campaign', [ 'id' => $id ]));
         add_filter('wpmcp_enable_crm_send', '__return_true');
         $ask = (new Plugin_Data_Integration())->handle_write([ 'operation' => 'mailpoet-send-campaign', 'args' => [ 'id' => $id ] ]);
         $this->assertSame([ 'confirmation_required', 1 ], [ $ask['error']['code'], $ask['error']['data']['recipients'] ]);

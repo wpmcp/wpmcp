@@ -138,7 +138,7 @@ class CodeSnippetScriptGateTest extends \WP_UnitTestCase
         $out = (new Create_Code_Snippet())->handle(['code' => self::SCRIPT, 'location' => 'wp_head']);
 
         $this->assertInstanceOf(\WP_Error::class, $out, 'create-code-snippet stored script with the default-off JS gate closed.');
-        $this->assertSame('js_gate_closed', $out->get_error_code());
+        $this->assertSame('opt_in_required', $out->get_error_code());
         $this->assertSame($before, $this->snippet_count(), 'A refused call must create no elementor_snippet post.');
 
         $rows = $this->audit_rows();
@@ -155,7 +155,7 @@ class CodeSnippetScriptGateTest extends \WP_UnitTestCase
         $out = (new Create_Code_Snippet())->handle(['title' => 'x']);
 
         $this->assertInstanceOf(\WP_Error::class, $out);
-        $this->assertSame('js_gate_closed', $out->get_error_code());
+        $this->assertSame('opt_in_required', $out->get_error_code());
     }
 
     public function test_create_code_snippet_refuses_a_caller_without_unfiltered_html(): void

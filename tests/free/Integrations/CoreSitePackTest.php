@@ -137,7 +137,7 @@ class CoreSitePackTest extends \WP_UnitTestCase
         }
 
         $out = $this->write('set-site-icon', [ 'attachment_id' => $this->image() ]);
-        $this->assertSame('operation_disabled', $this->error_code($out));
+        $this->assertSame('opt_in_required', $this->error_code($out));
         $this->assertStringContainsString(Core_Site_Pack::ENABLE_FILTER, $out['error']['message']);
         $this->assertSame(0, (int) get_option('site_icon'), 'a refused write changes nothing');
         $this->assertSame([], Snapshot_Store::list_by_session('default'), 'a refused write snapshots nothing');

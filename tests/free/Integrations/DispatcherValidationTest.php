@@ -79,9 +79,25 @@ class DispatcherValidationTest extends \WP_UnitTestCase
         $this->assertCount(1, Fixture_Integration::$calls);
     }
 
-    public function test_default_off_op_returns_operation_disabled(): void
+    public function test_default_off_op_returns_opt_in_required_naming_the_per_op_filter(): void
     {
         $out = $this->integration->handle_write([ 'operation' => 'default-off-op' ]);
+
+        $this->assertSame('opt_in_required', $out['error']['code']);
+        $this->assertSame('wpmcp_integration_op_enabled', $out['error']['data']['filter']);
+        $this->assertStringContainsString("'testint' === \$integration && 'default-off-op' === \$op", $out['error']['message']);
+        $this->assertSame([], Fixture_Integration::$calls);
+    }
+
+    public function test_a_default_on_op_a_site_switched_off_keeps_operation_disabled(): void
+    {
+        $off = fn ($enabled, $integration, $op) => ('testint' === $integration && 'ping' === $op) ? false : $enabled;
+        add_filter('wpmcp_integration_op_enabled', $off, 10, 3);
+        try {
+            $out = $this->integration->handle_read([ 'operation' => 'ping', 'args' => [ 'value' => 'x' ] ]);
+        } finally {
+            remove_filter('wpmcp_integration_op_enabled', $off, 10);
+        }
 
         $this->assertSame('operation_disabled', $out['error']['code']);
         $this->assertSame([], Fixture_Integration::$calls);

@@ -309,7 +309,7 @@ class MetFormIntegrationTest extends \WP_UnitTestCase
             'confirm'   => true,
         ]);
 
-        $this->assertSame('operation_disabled', $out['error']['code']);
+        $this->assertSame('opt_in_required', $out['error']['code']);
     }
 
     /** @return array<string, int> the args a valid delete-entry call takes here. */

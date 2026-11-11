@@ -4,7 +4,9 @@
  * addon pack tests (issue #286), shaped like each suite's own widgets: the
  * suite's category (Essential Addons 'essential-addons-elementor', Premium
  * Addons 'premium-elements', Ultimate Addons 'hfe-widgets') or the suite's
- * class namespace. Requires Elementor to be loaded.
+ * class namespace. JetElements (issue #653) is recognized by class name
+ * only, Elementor\Jet_Elements_*, because its 'cherry' category is shared
+ * with the other Crocoblock plugins. Requires Elementor to be loaded.
  */
 
 namespace WPMCP\Tests\Support\ElementorAddons {
@@ -86,6 +88,37 @@ namespace Essential_Addons_Elementor\Elements {
         public function get_categories()
         {
             return [ 'general' ];
+        }
+    }
+}
+
+namespace Elementor {
+
+    /** Shaped like a JetElements widget: Elementor\Jet_Elements_*, category 'cherry'. */
+    class Jet_Elements_Fixture_Banner extends \WPMCP\Tests\Support\ElementorAddons\Fixture_Widget
+    {
+        public function get_name()
+        {
+            return 'jet-fixture-banner';
+        }
+
+        public function get_categories()
+        {
+            return [ 'cherry' ];
+        }
+    }
+
+    /** Another Crocoblock plugin's widget in the shared 'cherry' category: not JetElements. */
+    class Jet_Fixture_Unfold extends \WPMCP\Tests\Support\ElementorAddons\Fixture_Widget
+    {
+        public function get_name()
+        {
+            return 'jet-fixture-unfold';
+        }
+
+        public function get_categories()
+        {
+            return [ 'cherry' ];
         }
     }
 }

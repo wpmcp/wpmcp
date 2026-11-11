@@ -153,6 +153,7 @@ final class Pods_Pack
                 'objects'            => [ 'post_id' => 'post' ],
                 'description'        => 'Set simple Pods field values (text, number, date, boolean and the like) on a post, in meta or the pod table. Snapshotted; restorable with rollback-operation. Off until the site opts in via the wpmcp_enable_pods_write filter',
                 'enabled_by_default' => (bool) apply_filters('wpmcp_enable_pods_write', false),
+                'opt_in_filter'      => 'wpmcp_enable_pods_write',
                 'input_schema'       => Plugin_Data_Integration::update_fields_schema(),
                 'requires'           => $requires,
                 'validate'           => static fn (array $args): ?array => self::refusal($args, true),

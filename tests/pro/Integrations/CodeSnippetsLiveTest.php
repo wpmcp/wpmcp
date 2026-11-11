@@ -191,7 +191,7 @@ class CodeSnippetsLiveTest extends \WP_UnitTestCase
         remove_all_filters('wpmcp_allow_php_exec');
         add_filter('wpmcp_allow_php_exec', '__return_false');
         $out = (new Plugin_Data_Integration())->handle_write([ 'operation' => 'code-snippets-activate-snippet', 'args' => [ 'id' => $id ] ]);
-        $this->assertSame('php_execution_disabled', $out['error']['code'] ?? null);
+        $this->assertSame('opt_in_required', $out['error']['code'] ?? null);
         $this->assertFalse((bool) $this->snippet($id)->active);
     }
 }

@@ -309,7 +309,7 @@ class WooShippingWritesTest extends \WP_UnitTestCase
         $before = $this->state($id);
 
         $off = $this->write('shipping.delete-zone', ['id' => $id], ['confirm' => true]);
-        $this->assertSame('operation_disabled', $off['error']['code'] ?? null);
+        $this->assertSame('opt_in_required', $off['error']['code'] ?? null);
 
         $this->enable_destructive();
         $unconfirmed = $this->write('shipping.delete-zone', ['id' => $id]);

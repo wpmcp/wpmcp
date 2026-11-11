@@ -342,6 +342,82 @@ SH);
         $this->assertFileDoesNotExist($this->tmp . '/db.log', 'a run without a slot starts nothing');
     }
 
+    /** A live gate holds the only run slot. */
+    private function hold_the_slot(): void
+    {
+        mkdir($this->cache . '/locks/run-1', 0777, true);
+        file_put_contents($this->cache . '/locks/run-1/pid', (string) getmypid());
+    }
+
+    public function test_a_targeted_run_does_not_wait_behind_a_gate(): void
+    {
+        $this->hold_the_slot();
+
+        [$status, $out] = $this->run_gate(['--', '--filter', 'Foo'], ['WPMCP_TEST_SLOT_TIMEOUT' => '2']);
+
+        $this->assertNotSame(0, $status, 'the stand-in database never starts');
+        $this->assertStringNotContainsString('Waiting', $out);
+        $this->assertStringNotContainsString('timed out', $out);
+        $this->assertStringContainsString('Targeted run', $out);
+        $this->assertFileExists($this->tmp . '/db.log', 'the targeted run went on to the database');
+        $this->assertSame((string) getmypid(), file_get_contents($this->cache . '/locks/run-1/pid'), 'the gate keeps its slot');
+        $this->assertDirectoryDoesNotExist($this->cache . '/locks/run-2', 'the targeted run took no slot');
+    }
+
+    public function test_a_targeted_multisite_run_does_not_wait_either(): void
+    {
+        $this->hold_the_slot();
+
+        [, $out] = $this->run_gate(['--multisite', '--', '--filter', 'Foo'], ['WPMCP_TEST_SLOT_TIMEOUT' => '2']);
+
+        $this->assertStringNotContainsString('Waiting', $out);
+        $this->assertFileExists($this->tmp . '/db.log', 'the targeted run went on to the database');
+    }
+
+    public function test_a_live_group_alone_still_queues_for_the_slot(): void
+    {
+        $this->hold_the_slot();
+
+        [$status, $out] = $this->run_gate(['--live-forms'], ['WPMCP_TEST_SLOT_TIMEOUT' => '2']);
+
+        $this->assertNotSame(0, $status, $out);
+        $this->assertStringContainsString('Waiting', $out);
+        $this->assertFileDoesNotExist($this->tmp . '/db.log', 'a run without a slot starts nothing');
+    }
+
+    public function test_a_targeted_run_still_stops_on_a_nearly_full_disk(): void
+    {
+        $this->hold_the_slot();
+        $this->installs(5);
+
+        [$status, $out] = $this->run_gate(['--', '--filter', 'Foo'], [
+            'STUB_DF_FREE_KB'              => (string) (5 * 1048576),
+            'WPMCP_TEST_INSTALL_TTL_HOURS' => '100',
+        ]);
+
+        $this->assertNotSame(0, $status, $out);
+        $this->assertStringContainsString('WPMCP_TEST_HARD_MIN_FREE_GB', $out);
+        $this->assertSame($this->names([1, 2]), $this->left(), $out);
+        $this->assertFileDoesNotExist($this->tmp . '/db.log', 'no database is started on a full disk');
+    }
+
+    public function test_a_targeted_run_prunes_to_the_budget_on_exit_but_spares_the_gates_installs(): void
+    {
+        $this->hold_the_slot();
+        $this->installs(5);
+        // The gate (this process) has claimed the oldest install.
+        mkdir($this->cache . '/' . $this->name(5) . '/.users', 0777, true);
+        touch($this->cache . '/' . $this->name(5) . '/.users/' . getmypid());
+
+        [, $out] = $this->run_gate(['--', '--filter', 'Foo'], [
+            'WPMCP_TEST_KEEP_INSTALLS'     => '2',
+            'WPMCP_TEST_INSTALL_TTL_HOURS' => '100',
+        ]);
+
+        $this->assertStringNotContainsString('Waiting', $out);
+        $this->assertSame($this->names([1, 2, 5]), $this->left(), $out);
+    }
+
     public function test_a_slot_held_by_a_dead_run_is_reclaimed_and_released_on_exit(): void
     {
         mkdir($this->cache . '/locks/run-1', 0777, true);

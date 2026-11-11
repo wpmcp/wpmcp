@@ -325,7 +325,7 @@ class WooWebhookWritesTest extends \WP_UnitTestCase
         $before = $this->state($hook);
 
         $off = $this->write('webhooks.delete', ['id' => $hook], ['confirm' => true]);
-        $this->assertSame('operation_disabled', $off['error']['code'] ?? null);
+        $this->assertSame('opt_in_required', $off['error']['code'] ?? null);
 
         $this->enable_delete();
         $unconfirmed = $this->write('webhooks.delete', ['id' => $hook]);

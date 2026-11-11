@@ -207,7 +207,7 @@ class ThemeFrameworkPacksTest extends \WP_UnitTestCase
         remove_filter('wpmcp_enable_theme_write', '__return_true');
         $off = $this->write([ 'content_width' => 1200 ]);
         add_filter('wpmcp_enable_theme_write', '__return_true');
-        $this->assertSame('operation_disabled', $off['error']['code']);
+        $this->assertSame('opt_in_required', $off['error']['code']);
 
         wp_set_current_user(self::factory()->user->create([ 'role' => 'author' ]));
         $read = (new Theme_Integration())->handle_read([ 'operation' => 'get-kadence-settings' ]);

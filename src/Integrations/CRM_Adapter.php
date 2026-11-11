@@ -618,7 +618,7 @@ abstract class CRM_Adapter
                 'mode'               => 'destructive',
                 'undoable'           => false,
                 'enabled_by_default' => $this->send_enabled(),
-                'enable_hint'        => 'A site enables sending to real recipients with the wpmcp_enable_crm_send filter.',
+                'opt_in_filter'      => 'wpmcp_enable_crm_send',
                 'description'        => "Send a {$label} campaign draft to its lists' subscribed contacts now, or at send_at (Y-m-d H:i:s, site time). Off unless wpmcp_enable_crm_send; asks for confirmation with the recipient count. Mail cannot be unsent",
                 'input_schema'       => [
                     'type'       => 'object',

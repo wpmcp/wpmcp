@@ -161,7 +161,7 @@ class PushSiteArchiveTest extends \WP_UnitTestCase
         $out = (new Push_Site_Archive())->handle($this->args($this->source_archive()));
 
         $this->assertWPError($out);
-        $this->assertSame('wpmcp_migration_send_disabled', $out->get_error_code());
+        $this->assertSame('opt_in_required', $out->get_error_code());
         $this->assertSame([], $this->requests);
     }
 
