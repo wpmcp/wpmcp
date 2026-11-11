@@ -44,7 +44,6 @@ final class Cache_Settings_Pack
 {
     public const ENABLE_FILTER = 'wpmcp_enable_cache_settings_write';
 
-    private const ENABLE_HINT = 'The site opts in with add_filter("wpmcp_enable_cache_settings_write", "__return_true"), or per operation with the wpmcp_integration_op_enabled filter.';
 
     private const CHECK_NOTE = 'Cache and optimization settings can change how pages look and behave. Load a few pages on the front end while logged out (layout, menus, sliders, forms, scripts) and undo with rollback-operation if anything broke.';
 
@@ -74,7 +73,7 @@ final class Cache_Settings_Pack
             ];
             $write = $base + [
                 'enabled_by_default' => $enabled,
-                'enable_hint'        => self::ENABLE_HINT,
+                'opt_in_filter'      => self::ENABLE_FILTER,
             ];
 
             $ops[ "get-{$slug}-settings" ] = $base + [
