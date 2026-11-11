@@ -34,7 +34,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * Elementor: widgets, templates, theme builder, popups, global styles, custom widget building
 * Bricks and Divi structural editing
 * WooCommerce, ACF, Meta Box, JetEngine, Pods, TranslatePress, Yoast, Rank Math, SEOPress, The SEO Framework, SureRank, Slim SEO, Redirection; with Pro, All in One SEO
-* Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm; with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
+* Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm, WS Form (forms, fields, actions and notifications, submissions listed with values masked and read one at a time, undoable status changes and deletes off until the site turns them on); with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
 * Events, donations, memberships (read)
 * BuddyPress: groups, group members, activity moderation and extended profile fields
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge

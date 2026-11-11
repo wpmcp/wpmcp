@@ -82,6 +82,12 @@
 #      edited element by element, restored from Thrive's revisions and still
 #      render through Thrive, its element catalog is read, templates saved
 #      here load through its own model, and every write rolls back.
+#  18c. Runs the live Cornerstone group (issue #646) when
+#      WPMCP_CORNERSTONE_SRC names a local copy of Cornerstone (commercial
+#      too): pages saved by Cornerstone's own document pipeline are read,
+#      edited element by element through it, restored from its revisions,
+#      filled from its templates and still render through it, its element
+#      catalog is read, and every write rolls back.
 #  19. Runs the live Avada group (issue #637) when WPMCP_AVADA_SRC names a
 #      local directory holding the Avada theme and the fusion-builder and
 #      fusion-core plugins (commercial, so not downloadable here): pages
@@ -112,6 +118,11 @@
 #      names a local copy of WP Rocket, Perfmatters or FlyingPress
 #      (commercial, so not downloadable here): each plugin's settings read,
 #      changed and rolled back through its own save path, and its preload.
+#  23c. Runs the live WS Form group (issue #676) when WPMCP_WS_FORM_SRC
+#      names a local copy of WS Form PRO (commercial, so not downloadable
+#      here): a form built from WS Form's own template and submissions it
+#      stores are listed, read, masked, moved between statuses and deleted
+#      through the ops, and every write rolls back.
 #  24. Runs the live JetElements group (issue #653) when
 #      WPMCP_JET_ELEMENTS_SRC names a local copy of JetElements (commercial,
 #      so not downloadable here), beside the pinned free Elementor: its
@@ -218,11 +229,13 @@
 #   bin/test-local.sh --live-oxygen   only the live Oxygen group (needs WPMCP_OXYGEN_SRC)
 #   bin/test-local.sh --live-wpbakery only the live WPBakery group (needs WPMCP_WPBAKERY_SRC)
 #   bin/test-local.sh --live-thrive   only the live Thrive Architect group (needs WPMCP_THRIVE_ARCHITECT_SRC)
+#   bin/test-local.sh --live-cornerstone only the live Cornerstone group (needs WPMCP_CORNERSTONE_SRC)
 #   bin/test-local.sh --live-divi     only the live Divi group (needs WPMCP_DIVI_SRC)
 #   bin/test-local.sh --live-memberpress only the live MemberPress group (needs WPMCP_MEMBERPRESS_SRC)
 #   bin/test-local.sh --live-elementor-pro only the live Elementor Pro group (needs WPMCP_ELEMENTOR_PRO_SRC)
 #   bin/test-local.sh --live-cache-settings only the live cache settings groups (needs at least one of WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC, WPMCP_FLYING_PRESS_SRC)
 #   bin/test-local.sh --live-jet-elements only the live JetElements group (needs WPMCP_JET_ELEMENTS_SRC)
+#   bin/test-local.sh --live-ws-form  only the live WS Form group (needs WPMCP_WS_FORM_SRC)
 #   bin/test-local.sh --live-wc-subscriptions only the live WooCommerce Subscriptions group (needs WPMCP_WC_SUBSCRIPTIONS_SRC)
 #   bin/test-local.sh --live-theme-pro only the live theme add-on group (needs at least one of
 #                                     WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC, WPMCP_GP_PREMIUM_SRC)
@@ -284,6 +297,9 @@
 #                        (thrive-visual-editor) for the live Thrive group;
 #                        without it that group is not run, except under
 #                        --live-thrive, where it is an error
+#   WPMCP_CORNERSTONE_SRC a local Cornerstone plugin directory for the live
+#                        Cornerstone group; without it that group is not run,
+#                        except under --live-cornerstone, where it is an error
 #   WPMCP_DIVI_SRC       a local Divi 5 theme directory for the live Divi
 #                        group; without it that group is not run, except
 #                        under --live-divi, where it is an error
@@ -298,6 +314,9 @@
 #                        directories for the live cache settings groups; each
 #                        plugin's group runs only when its directory is set,
 #                        and --live-cache-settings without any is an error
+#   WPMCP_WS_FORM_SRC    a local WS Form PRO plugin directory for the live
+#                        WS Form group; without it that group is not run,
+#                        except under --live-ws-form, where it is an error
 #   WPMCP_JET_ELEMENTS_SRC a local JetElements plugin directory for the live
 #                        JetElements group; without it that group is not run,
 #                        except under --live-jet-elements, where it is an error
@@ -382,6 +401,7 @@ only_live_breakdance=false
 only_live_avada=false
 only_live_wpbakery=false
 only_live_thrive=false
+only_live_cornerstone=false
 only_live_oxygen=false
 only_live_divi=false
 only_live_memberpress=false
@@ -391,6 +411,7 @@ only_live_wc_bookings=false
 only_live_elementor_pro=false
 only_live_cache_settings=false
 only_live_jet_elements=false
+only_live_ws_form=false
 only_live_wp_mail_smtp=false
 only_live_adapter=false
 only_live_theme_pro=false
@@ -420,6 +441,7 @@ while [ $# -gt 0 ]; do
 		--live-avada) only_live_avada=true ;;
 		--live-wpbakery) only_live_wpbakery=true ;;
 		--live-thrive) only_live_thrive=true ;;
+		--live-cornerstone) only_live_cornerstone=true ;;
 		--live-oxygen) only_live_oxygen=true ;;
 		--live-divi) only_live_divi=true ;;
 		--live-memberpress) only_live_memberpress=true ;;
@@ -429,6 +451,7 @@ while [ $# -gt 0 ]; do
 		--live-elementor-pro) only_live_elementor_pro=true ;;
 		--live-cache-settings) only_live_cache_settings=true ;;
 		--live-jet-elements) only_live_jet_elements=true ;;
+		--live-ws-form) only_live_ws_form=true ;;
 		--live-wp-mail-smtp) only_live_wp_mail_smtp=true ;;
 		--live-adapter) only_live_adapter=true ;;
 		--live-theme-pro) only_live_theme_pro=true ;;
@@ -480,7 +503,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_helpdesk" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_helpdesk" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_cornerstone" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ] || [ "$only_live_ws_form" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -496,6 +519,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_avada" = false ] || LEGS+=("live-avada ${only_wp:-$default_wp}")
 	[ "$only_live_wpbakery" = false ] || LEGS+=("live-wpbakery ${only_wp:-$default_wp}")
 	[ "$only_live_thrive" = false ] || LEGS+=("live-thrive ${only_wp:-$default_wp}")
+	[ "$only_live_cornerstone" = false ] || LEGS+=("live-cornerstone ${only_wp:-$default_wp}")
 	[ "$only_live_oxygen" = false ] || LEGS+=("live-oxygen ${only_wp:-$default_wp}")
 	[ "$only_live_divi" = false ] || LEGS+=("live-divi ${only_wp:-$default_wp}")
 	[ "$only_live_memberpress" = false ] || LEGS+=("live-memberpress ${only_wp:-$default_wp}")
@@ -505,6 +529,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_wc_bookings" = false ] || LEGS+=("live-wc-bookings ${only_wp:-$default_wp}")
 	[ "$only_live_elementor_pro" = false ] || LEGS+=("live-elementor-pro ${only_wp:-$default_wp}")
 	[ "$only_live_cache_settings" = false ] || LEGS+=("live-cache-settings ${only_wp:-$default_wp}")
+	[ "$only_live_ws_form" = false ] || LEGS+=("live-ws-form ${only_wp:-$default_wp}")
 	[ "$only_live_jet_elements" = false ] || LEGS+=("live-jet-elements ${only_wp:-$default_wp}")
 	[ "$only_live_wp_mail_smtp" = false ] || LEGS+=("live-wp-mail-smtp ${only_wp:-$default_wp}")
 	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
@@ -551,6 +576,9 @@ else
 		if [ -n "${WPMCP_THRIVE_ARCHITECT_SRC:-}" ]; then
 			LEGS+=("live-thrive $default_wp")
 		fi
+		if [ -n "${WPMCP_CORNERSTONE_SRC:-}" ]; then
+			LEGS+=("live-cornerstone $default_wp")
+		fi
 		if [ -n "${WPMCP_OXYGEN_SRC:-}" ]; then
 			LEGS+=("live-oxygen $default_wp")
 		fi
@@ -577,6 +605,9 @@ else
 		fi
 		if [ -n "${WPMCP_JET_ELEMENTS_SRC:-}" ]; then
 			LEGS+=("live-jet-elements $default_wp")
+		fi
+		if [ -n "${WPMCP_WS_FORM_SRC:-}" ]; then
+			LEGS+=("live-ws-form $default_wp")
 		fi
 		# The adapter leg (issue #501) under --all only; see the header.
 		if [ "$run_all" = true ]; then
@@ -718,6 +749,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_WPBAKERY:-}" = 1 ] && flavor="-wpbakery-live"
 	# And WPMCP_LIVE_THRIVE=1 and the local Thrive Architect copy.
 	[ "${WPMCP_LIVE_THRIVE:-}" = 1 ] && flavor="-thrive-live"
+	# And WPMCP_LIVE_CORNERSTONE=1 and the local Cornerstone copy.
+	[ "${WPMCP_LIVE_CORNERSTONE:-}" = 1 ] && flavor="-cornerstone-live"
 	# And WPMCP_LIVE_OXYGEN=1 and the local Oxygen copy.
 	[ "${WPMCP_LIVE_OXYGEN:-}" = 1 ] && flavor="-oxygen-live"
 	# And WPMCP_LIVE_DIVI=1 and the local Divi theme copy.
@@ -735,6 +768,8 @@ install_flavor() {
 	# And WPMCP_LIVE_CACHE_SETTINGS=1 and the local cache plugin copies.
 	# The copies present are part of the name, so adding one gets a fresh install.
 	[ "${WPMCP_LIVE_CACHE_SETTINGS:-}" = 1 ] && flavor="-cache${WPMCP_WP_ROCKET_SRC:+-rocket}${WPMCP_PERFMATTERS_SRC:+-perfmatters}${WPMCP_FLYING_PRESS_SRC:+-flyingpress}-live"
+	# And WPMCP_LIVE_WS_FORM=1 and the local WS Form PRO copy.
+	[ "${WPMCP_LIVE_WS_FORM:-}" = 1 ] && flavor="-ws-form-live"
 	# And WPMCP_LIVE_JET_ELEMENTS=1, Elementor and the local JetElements copy.
 	[ "${WPMCP_LIVE_JET_ELEMENTS:-}" = 1 ] && flavor="-jet-elements-live"
 	# And WPMCP_LIVE_WP_MAIL_SMTP=1 and WP Mail SMTP.
@@ -1563,6 +1598,24 @@ run_live_thrive() {
 	unset WPMCP_LIVE_THRIVE
 }
 
+# The live Cornerstone group (issue #646), the same way, with the
+# Cornerstone copy from WPMCP_CORNERSTONE_SRC: its own install, its own
+# database and --fail-on-skipped.
+run_live_cornerstone() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_CORNERSTONE_SRC:-}/cornerstone.php" ] || die "the live Cornerstone group needs WPMCP_CORNERSTONE_SRC, a directory holding the Cornerstone plugin (cornerstone.php)"
+	export WPMCP_LIVE_CORNERSTONE=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-cornerstone-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Cornerstone group on WordPress $version (real Cornerstone from $WPMCP_CORNERSTONE_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group cornerstone-live --fail-on-skipped
+	unset WPMCP_LIVE_CORNERSTONE
+}
+
 # The live Oxygen group (issue #635), the same way, with the Oxygen 6 copy
 # from WPMCP_OXYGEN_SRC: its own install, its own database and
 # --fail-on-skipped.
@@ -1655,6 +1708,24 @@ run_live_cache_settings() {
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
 		"$PHP" vendor/bin/phpunit --group "$(IFS=,; echo "${groups[*]}")" --fail-on-skipped
 	unset WPMCP_LIVE_CACHE_SETTINGS
+}
+
+# The live WS Form group (issue #676), the same way, with WS Form PRO copied
+# from WPMCP_WS_FORM_SRC: its own install, its own database and
+# --fail-on-skipped.
+run_live_ws_form() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_WS_FORM_SRC:-}/ws-form.php" ] || die "the live WS Form group needs WPMCP_WS_FORM_SRC, a directory holding the WS Form PRO plugin"
+	export WPMCP_LIVE_WS_FORM=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-ws-form-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live WS Form group on WordPress $version (real WS Form PRO from $WPMCP_WS_FORM_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group ws-form-live --fail-on-skipped
+	unset WPMCP_LIVE_WS_FORM
 }
 
 # The live JetElements group (issue #653), the same way, with JetElements
@@ -1901,12 +1972,14 @@ run_leg_body() {
 		live-avada) run_live_avada "$wp" ;;
 		live-wpbakery) run_live_wpbakery "$wp" ;;
 		live-thrive) run_live_thrive "$wp" ;;
+		live-cornerstone) run_live_cornerstone "$wp" ;;
 		live-oxygen) run_live_oxygen "$wp" ;;
 		live-divi) run_live_divi "$wp" ;;
 		live-memberpress) run_live_memberpress "$wp" ;;
 		live-elementor-pro) run_live_elementor_pro "$wp" ;;
 		live-cache-settings) run_live_cache_settings "$wp" ;;
 		live-jet-elements) run_live_jet_elements "$wp" ;;
+		live-ws-form) run_live_ws_form "$wp" ;;
 		live-amelia) run_live_amelia "$wp" ;;
 		live-wc-subscriptions) run_live_wc_subscriptions "$wp" ;;
 		live-theme-pro) run_live_theme_pro "$wp" ;;
