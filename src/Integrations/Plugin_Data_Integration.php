@@ -27,6 +27,10 @@ if (! defined('ABSPATH')) {
  *    inactive and edited behind the static check, and deactivated, with
  *    'code_snippet' row snapshots (Code_Snippets_Pack, presence through
  *    wpmcp_code_snippets_active).
+ *  - Issue #676 adds the WS Form ops (WS_Form_Pack): forms, fields,
+ *    actions and email notifications, submissions listed with every value
+ *    masked and read one at a time in full, and status changes and deletes
+ *    (off until a site opts in), each under a db_rows before-image.
  *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS,
  *    LifterLMS and LearnDash course, section, lesson and quiz trees with
  *    snapshotted writes, and read-only enrollments (LearnDash also enrolls,
@@ -79,7 +83,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || TablePress_Pack::active()
             || CRM_Pack::active()
@@ -96,7 +100,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms';
@@ -119,6 +123,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             [ 'TranslatePress', false, TranslatePress_Pack::operations() ],
             [ 'Code Snippets', false, Code_Snippets_Pack::operations() ],
             [ 'BuddyPress', false, BuddyPress_Pack::operations() ],
+            [ 'WS Form', false, WS_Form_Pack::operations() ],
         ];
         foreach (LMS_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
@@ -151,6 +156,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Pods_Pack::operations(),
             TranslatePress_Pack::operations(),
             Code_Snippets_Pack::operations(),
+            WS_Form_Pack::operations(),
             BuddyPress_Pack::operations(),
             LMS_Pack::operations(),
             TablePress_Pack::operations(),
