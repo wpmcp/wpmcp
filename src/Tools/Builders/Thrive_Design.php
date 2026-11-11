@@ -45,19 +45,25 @@ final class Thrive_Design
     public static function design_system(): array
     {
         $styles = [];
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- applying Thrive Architect's own option-name filter, as it does when reading the option; wpmcp adds no callback to it.
         $names  = apply_filters('tcb_global_styles_option_name', self::STYLE_OPTIONS);
         foreach (is_array($names) ? $names : self::STYLE_OPTIONS as $kind => $option) {
             $value            = get_option((string) $option, []);
             $styles[ $kind ] = is_array($value) ? $value : [];
         }
 
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- applying Thrive Architect's own option-name filter, as it does when reading the option; wpmcp adds no callback to it.
+        $colors = (string) apply_filters('tcb_global_colors_option_name', 'thrv_global_colours');
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- applying Thrive Architect's own option-name filter, as it does when reading the option; wpmcp adds no callback to it.
+        $gradients = (string) apply_filters('tcb_global_gradients_option_name', 'thrv_global_gradients');
+
         return [
             'builder'        => 'thrive',
             'scope'          => 'design_system',
             'plugin_active'  => Thrive_Content::plugin_active(),
             'plugin_version' => Thrive_Page::plugin_version(),
-            'colors'         => self::option_list((string) apply_filters('tcb_global_colors_option_name', 'thrv_global_colours')),
-            'gradients'      => self::option_list((string) apply_filters('tcb_global_gradients_option_name', 'thrv_global_gradients')),
+            'colors'         => self::option_list($colors),
+            'gradients'      => self::option_list($gradients),
             'favorite_colors'    => self::option_list('thrv_custom_colours'),
             'favorite_gradients' => self::option_list('thrv_custom_gradients'),
             'global_styles'  => $styles,
