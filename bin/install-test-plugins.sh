@@ -323,6 +323,26 @@ elif [ "${WPMCP_LIVE_THRIVE:-}" = "1" ]; then
 	echo "Copied Thrive Architect $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/thrive-visual-editor.php" | head -n 1) from $src."
 fi
 
+# The live Cornerstone job (issue #646) runs the Cornerstone adapter against
+# a real Cornerstone. It is a commercial plugin and not on wordpress.org, so
+# it is copied from a local directory holding it (WPMCP_CORNERSTONE_SRC)
+# instead of downloaded. Exclusive too: the other Cornerstone tests stand in
+# for its engine and toggle its presence.
+if [ "${WPMCP_LIVE_CORNERSTONE:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_CORNERSTONE:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_CORNERSTONE_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/cornerstone.php" ]; then
+		echo "WPMCP_LIVE_CORNERSTONE=1 needs WPMCP_CORNERSTONE_SRC, a directory holding the Cornerstone plugin (cornerstone.php)." >&2
+		exit 1
+	fi
+	mkdir -p "$PLUGINS_DIR"
+	rm -rf "$PLUGINS_DIR/cornerstone"
+	cp -R "$src" "$PLUGINS_DIR/cornerstone"
+	echo "Copied Cornerstone $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/cornerstone.php" | head -n 1) from $src."
+fi
+
 # The live Divi job (issue #636) runs the Divi 5 adapter against a real
 # Divi 5. Divi is a commercial theme, not a plugin, and not on
 # wordpress.org, so it is copied from a local directory holding it
