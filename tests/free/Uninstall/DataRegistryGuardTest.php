@@ -98,6 +98,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // the LMS pack's LearnDash learner ops (issue #575).
             '_sfwd-course_progress',
             '_sfwd-quizzes',
+            // Awesome Support's per-agent open ticket counter, put back by
+            // a ticket close's rollback (issue #708).
+            'wpas_open_tickets',
         ],
     ];
 

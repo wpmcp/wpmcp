@@ -112,6 +112,9 @@ class TestPluginRefreshTest extends TestCase
 
         [, $crm] = $this->run_script('bin/install-test-plugins.sh', ['--list'], ['WP_CORE_DIR' => $core, 'WPMCP_LIVE_CRM' => '1']);
         $this->assertSame(['fluent-crm fluent-crm.php latest', 'mailpoet mailpoet.php latest'], explode("\n", trim($crm)));
+
+        [, $helpdesk] = $this->run_script('bin/install-test-plugins.sh', ['--list'], ['WP_CORE_DIR' => $core, 'WPMCP_LIVE_HELPDESK' => '1']);
+        $this->assertSame(['betterdocs betterdocs.php latest', 'fluent-support fluent-support.php latest', 'awesome-support awesome-support.php latest'], explode("\n", trim($helpdesk)));
     }
 
     public function test_a_new_release_of_an_unpinned_plugin_keys_a_new_install(): void

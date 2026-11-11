@@ -235,6 +235,16 @@ return [
         // and count the pack towards availability. The dispatcher's
         // forwarding of a requirement's data stays: it is generic.
         'src/Integrations/Elementor_Pro_Forms_Pack.php',
+        // Knowledge base and support desk (issue #708), paid-tier. strip.php
+        // takes out the lines in Plugin_Data_Integration that merge the ops
+        // and count the packs towards availability. The helpdesk_ticket
+        // snapshot type stays: it needs no support plugin class, so an undo
+        // recorded before a downgrade still restores.
+        'src/Integrations/BetterDocs_Pack.php',
+        'src/Integrations/Helpdesk_Pack.php',
+        'src/Integrations/Helpdesk_Adapter.php',
+        'src/Integrations/Helpdesk_Fluent_Support.php',
+        'src/Integrations/Helpdesk_Awesome_Support.php',
         // Cache and performance plugin settings (issue #692), paid-tier.
         // strip.php takes out the line in Theme_Integration that merges the
         // ops and the rollback refresher in Plugin.

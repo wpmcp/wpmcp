@@ -225,6 +225,8 @@
 #   bin/test-local.sh --live-tablepress only the live TablePress group (real TablePress)
 #   bin/test-local.sh --live-code-snippets only the live Code Snippets group (real Code Snippets)
 #   bin/test-local.sh --live-crm      only the live CRM group (real FluentCRM and MailPoet)
+#   bin/test-local.sh --live-helpdesk only the live knowledge base and support desk group
+#                                     (real BetterDocs, Fluent Support and Awesome Support)
 #   bin/test-local.sh --live-funnelkit only the live FunnelKit group (real Funnel Builder + WooCommerce)
 #   bin/test-local.sh --live-amelia   only the live Amelia group (real Amelia Lite)
 #   bin/test-local.sh --live-polylang only the live Polylang group (real Polylang and Elementor)
@@ -402,6 +404,7 @@ only_live_lms=false
 only_live_tablepress=false
 only_live_code_snippets=false
 only_live_crm=false
+only_live_helpdesk=false
 only_live_funnelkit=false
 only_live_polylang=false
 only_live_breakdance=false
@@ -442,6 +445,7 @@ while [ $# -gt 0 ]; do
 		--live-tablepress) only_live_tablepress=true ;;
 		--live-code-snippets) only_live_code_snippets=true ;;
 		--live-crm) only_live_crm=true ;;
+		--live-helpdesk) only_live_helpdesk=true ;;
 		--live-funnelkit) only_live_funnelkit=true ;;
 		--live-polylang) only_live_polylang=true ;;
 		--live-breakdance) only_live_breakdance=true ;;
@@ -511,7 +515,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_betheme" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_cornerstone" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ] || [ "$only_live_ws_form" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_helpdesk" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_betheme" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_cornerstone" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ] || [ "$only_live_ws_form" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -520,6 +524,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_tablepress" = false ] || LEGS+=("live-tablepress ${only_wp:-$default_wp}")
 	[ "$only_live_code_snippets" = false ] || LEGS+=("live-code-snippets ${only_wp:-$default_wp}")
 	[ "$only_live_crm" = false ] || LEGS+=("live-crm ${only_wp:-$default_wp}")
+	[ "$only_live_helpdesk" = false ] || LEGS+=("live-helpdesk ${only_wp:-$default_wp}")
 	[ "$only_live_funnelkit" = false ] || LEGS+=("live-funnelkit ${only_wp:-$default_wp}")
 	[ "$only_live_polylang" = false ] || LEGS+=("live-polylang ${only_wp:-$default_wp}")
 	[ "$only_live_breakdance" = false ] || LEGS+=("live-breakdance ${only_wp:-$default_wp}")
@@ -571,7 +576,7 @@ else
 		LEGS+=("multisite $default_wp none")
 	fi
 	if [ "$targeted" = false ]; then
-		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-bbpress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp" "live-wp-mail-smtp $default_wp")
+		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-bbpress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-helpdesk $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp" "live-wp-mail-smtp $default_wp")
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			LEGS+=("live-breakdance $default_wp")
 		fi
@@ -746,6 +751,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_CODE_SNIPPETS:-}" = 1 ] && flavor="-code-snippets-live"
 	# And WPMCP_LIVE_CRM=1 and FluentCRM and MailPoet.
 	[ "${WPMCP_LIVE_CRM:-}" = 1 ] && flavor="-crm-live"
+	# And WPMCP_LIVE_HELPDESK=1 and BetterDocs, Fluent Support and Awesome Support.
+	[ "${WPMCP_LIVE_HELPDESK:-}" = 1 ] && flavor="-helpdesk-live"
 	# And WPMCP_LIVE_FUNNELKIT=1 and Funnel Builder with WooCommerce.
 	[ "${WPMCP_LIVE_FUNNELKIT:-}" = 1 ] && flavor="-funnelkit-live"
 	# And WPMCP_LIVE_AMELIA=1 and Amelia Lite.
@@ -1443,6 +1450,23 @@ run_live_crm() {
 	unset WPMCP_LIVE_CRM
 }
 
+# The live knowledge base and support desk group (issue #708), the same
+# way: its own install with the real BetterDocs, Fluent Support and Awesome
+# Support from wordpress.org, its own database, and --fail-on-skipped.
+run_live_helpdesk() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_HELPDESK=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-helpdesk-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live knowledge base and support desk group on WordPress $version (real BetterDocs, Fluent Support and Awesome Support)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group helpdesk-live --fail-on-skipped
+	unset WPMCP_LIVE_HELPDESK
+}
+
 # The live FunnelKit group (issue #500), the same way: its own install with
 # the real Funnel Builder and WooCommerce, its own database, and
 # --fail-on-skipped.
@@ -1977,6 +2001,7 @@ run_leg_body() {
 		live-tablepress) run_live_tablepress "$wp" ;;
 		live-code-snippets) run_live_code_snippets "$wp" ;;
 		live-crm) run_live_crm "$wp" ;;
+		live-helpdesk) run_live_helpdesk "$wp" ;;
 		live-funnelkit) run_live_funnelkit "$wp" ;;
 		live-polylang) run_live_polylang "$wp" ;;
 		live-breakdance) run_live_breakdance "$wp" ;;

@@ -1470,14 +1470,46 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
             . "        \$groups[] = [ 'Amelia', false, Amelia_Pack::operations() ];\n"
             . "        \$groups[] = [ 'Polylang, WPML', true, I18n_Pack::operations() ];\n"
             . "        \$groups[] = [ 'MemberPress', false, MemberPress_Pack::operations() ];\n"
-            . "        \$groups[] = [ 'Elementor Pro', false, Elementor_Pro_Forms_Pack::operations() ];\n",
+            . "        \$groups[] = [ 'Elementor Pro', false, Elementor_Pro_Forms_Pack::operations() ];\n"
+            . "        \$groups[] = [ 'BetterDocs', false, BetterDocs_Pack::operations() ];\n"
+            . "        foreach (Helpdesk_Pack::adapters() as \$adapter) {\n"
+            . "            \$groups[] = [ \$adapter->label(), false, \$adapter->operations() ];\n"
+            . "        }\n",
         '',
         1,
     ],
     [
         "            . ', FluentCRM and MailPoet'\n"
-            . "            . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms';\n",
+            . "            . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'\n"
+            . "            . ', BetterDocs docs, Fluent Support and Awesome Support tickets';\n",
         "            . ', FluentCRM and MailPoet';\n",
+        1,
+    ],
+    // The knowledge base and support desk ops (issue #708) are the paid
+    // add-on's too, removed by policy.php; their lines go first, so the
+    // Elementor Pro edits below still match.
+    [
+        " *  - Issue #708 adds the paid-tier knowledge base and support desk ops:\n"
+            . " *    BetterDocs docs read, created and edited (BetterDocs_Pack), and\n"
+            . " *    Fluent Support and Awesome Support tickets read with customer emails\n"
+            . " *    masked in lists, replied to, noted and set to a status, each ticket\n"
+            . " *    write off until wpmcp_enable_helpdesk_write and snapshotted as a\n"
+            . " *    'helpdesk_ticket' image (Helpdesk_Pack).\n",
+        '',
+        1,
+    ],
+    [
+        "            || Elementor_Pro_Forms_Pack::active()\n"
+            . "            || BetterDocs_Pack::active()\n"
+            . "            || Helpdesk_Pack::active();\n",
+        "            || Elementor_Pro_Forms_Pack::active();\n",
+        1,
+    ],
+    [
+        "            Elementor_Pro_Forms_Pack::operations(),\n"
+            . "            BetterDocs_Pack::operations(),\n"
+            . "            Helpdesk_Pack::operations()\n",
+        "            Elementor_Pro_Forms_Pack::operations()\n",
         1,
     ],
     // The Elementor Pro submissions ops (issue #654) are the paid add-on's

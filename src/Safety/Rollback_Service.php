@@ -492,6 +492,12 @@ class Rollback_Service
         // subscription consent (issue #477); restoring one takes the
         // plugin's own permission, which Crm_Rows_Snapshot::restore()
         // checks. MailPoet's are WordPress capabilities, named here too.
+        // A help desk ticket image holds the customer's messages (issue
+        // #708); restoring one takes the plugin's own ticket permission,
+        // which Helpdesk_Ticket_Snapshot::restore() checks, on top of this.
+        if (Helpdesk_Ticket_Snapshot::TYPE === $type) {
+            return [ [ Helpdesk_Ticket_Snapshot::capability((string) ($snapshot['data']['kind'] ?? '')) ] ];
+        }
         if ('crm_rows' === $type) {
             $kind = (string) ($snapshot['data']['kind'] ?? '');
             if ('mailpoet' === Crm_Rows_Snapshot::plugin($kind)) {
@@ -999,7 +1005,7 @@ class Rollback_Service
      */
     private static function is_session_reverse_snapshot(array $snapshot): bool
     {
-        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'bbpress_posts', 'crm_rows', 'amelia_rows', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
+        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'bbpress_posts', 'crm_rows', 'amelia_rows', 'helpdesk_ticket', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
             || self::is_compiled_widget_snapshot($snapshot);
     }
 
@@ -1803,6 +1809,7 @@ class Rollback_Service
             'buddypress_rows',
             'bbpress_posts',
             'crm_rows',
+            'helpdesk_ticket',
             'funnelkit_funnel',
             'funnelkit_funnel_create',
             'amelia_rows',
@@ -2089,6 +2096,12 @@ class Rollback_Service
         // BbPress_Posts_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('bbpress_posts' === $snapshot['object_type']) {
             self::warn_if(BbPress_Posts_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // Helpdesk_Ticket_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('helpdesk_ticket' === $snapshot['object_type']) {
+            self::warn_if(Helpdesk_Ticket_Snapshot::restore($snapshot));
             return;
         }
 

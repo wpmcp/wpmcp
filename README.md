@@ -397,6 +397,7 @@ bin/test-local.sh --live-buddypress     # only the BuddyPress live group
 bin/test-local.sh --live-bbpress        # only the bbPress live group
 bin/test-local.sh --live-lms            # only the Tutor LMS and LifterLMS live groups
 bin/test-local.sh --live-crm            # only the FluentCRM and MailPoet live group
+bin/test-local.sh --live-helpdesk       # only the BetterDocs, Fluent Support and Awesome Support live group
 bin/test-local.sh --live-amelia         # only the Amelia Lite live group
 bin/test-local.sh --live-wp-mail-smtp   # only the WP Mail SMTP live group
 WPMCP_MEMBERPRESS_SRC=/path/to/memberpress bin/test-local.sh --live-memberpress   # only the MemberPress live group, against a local MemberPress copy

@@ -304,6 +304,38 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'mailpoet/mailpoet.php' );
     }
 
+    // The live knowledge base and support desk job (issue #708,
+    // WPMCP_LIVE_HELPDESK=1) runs the BetterDocs, Fluent Support and
+    // Awesome Support ops through the real plugins. Loaded only on request:
+    // the stub-backed tests register their post types and build Fluent
+    // Support's tables from a fixture.
+    if ( getenv( 'WPMCP_LIVE_HELPDESK' ) ) {
+        // Awesome Support's bundled session manager builds its table through
+        // wp-admin/install-helper.php, which loads wp-load.php and so ends
+        // the test run before any test. The tests use no sessions: report
+        // the table as current.
+        add_filter( 'pre_option_sm_session_db_version', static fn () => '0.2' );
+        wpmcp_maybe_require_plugin( 'betterdocs/betterdocs.php' );
+        wpmcp_maybe_require_plugin( 'fluent-support/fluent-support.php' );
+        // Fluent Support reads its own tables from plugins_loaded, so they
+        // are built by its migrator here, before that.
+        if ( class_exists( '\\FluentSupport\\Database\\DBMigrator' ) ) {
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            \FluentSupport\Database\DBMigrator::run( false );
+        }
+        wpmcp_maybe_require_plugin( 'awesome-support/awesome-support.php' );
+        // Awesome Support and BetterDocs ship Composer classmaps that still
+        // list development packages they do not ship (PHPUnit, PHP-Parser)
+        // and prepend their loaders, so those classes would resolve to
+        // missing files. Their loaders go behind ours instead.
+        foreach ( \Composer\Autoload\ClassLoader::getRegisteredLoaders() as $vendor => $loader ) {
+            if ( 1 === preg_match( '#/plugins/(awesome-support|betterdocs|fluent-support)/#', (string) $vendor ) ) {
+                $loader->unregister();
+                $loader->register( false );
+            }
+        }
+    }
+
     // The live FunnelKit job (issue #500, WPMCP_LIVE_FUNNELKIT=1) runs the
     // FunnelKit funnel writes through the free Funnel Builder's own REST
     // controllers, beside the WooCommerce loaded above. Loaded only on
@@ -464,6 +496,20 @@ tests_add_filter( 'init', function () {
         \MailPoet\DI\ContainerWrapper::getInstance()->get( \MailPoet\Config\Activator::class )->activate();
     }
 }, 20 );
+
+// The live knowledge base and support desk job's Awesome Support roles and
+// capabilities, granted by its own activation once per run, before any test
+// transaction starts (Fluent Support's tables are built when it loads). A
+// no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( ! getenv( 'WPMCP_LIVE_HELPDESK' ) ) {
+        return;
+    }
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    if ( function_exists( 'wpas_single_activate' ) ) {
+        wpas_single_activate();
+    }
+}, 1 );
 
 // The live Amelia job's tables, roles and settings, built by Amelia's own
 // activation routines once per run, before any test transaction starts. A
