@@ -31,7 +31,7 @@ class Get_Connection_Info
         $endpoint          = Client_Config_Generator::endpoint();
         $auth_header_value = 'Basic BASE64_OF_username:application-password';
 
-        $passwords = \WPMCP\Auth\App_Passwords_Status::state();
+        $passwords = \WPMCP\Auth\App_Passwords_Status::state(current_user_can('manage_options'));
 
         return [
             'endpoint' => $endpoint,

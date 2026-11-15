@@ -28,9 +28,13 @@ final class App_Passwords_Status
      * (https_required, disabled_by_plugin), the plugin when known, and one
      * message with the fix.
      *
+     * $detail adds the plugin's name and its setting path; only authenticated
+     * admin contexts ask for it, so an anonymous caller cannot fingerprint the
+     * site's security plugins.
+     *
      * @return array{available: bool, reason?: string, disabled_by?: string, message?: string}
      */
-    public static function state(): array
+    public static function state(bool $detail = false): array
     {
         if (self::available()) {
             return [ 'available' => true ];
@@ -46,7 +50,16 @@ final class App_Passwords_Status
             ];
         }
 
-        if (defined('WORDFENCE_VERSION') || class_exists('wfConfig', false)) {
+        if (! $detail) {
+            return [
+                'available' => false,
+                'reason'    => 'disabled',
+                'message'   => 'Application Passwords are disabled on this site. The site administrator can check the Connection screen in wp-admin (wpmcp > Connection).',
+            ];
+        }
+
+        // Blame Wordfence only when its own setting is what turns them off.
+        if (class_exists('wfConfig', false) && (bool) \wfConfig::get('loginSec_disableApplicationPasswords')) {
             return [
                 'available'   => false,
                 'reason'      => 'disabled_by_plugin',
@@ -58,7 +71,7 @@ final class App_Passwords_Status
         return [
             'available' => false,
             'reason'    => 'disabled_by_plugin',
-            'message'   => 'Application Passwords are disabled on this site by another plugin or by code (the wp_is_application_passwords_available filter returns false). Turn that setting off, or remove the filter. ' . $oauth,
+            'message'   => 'Application Passwords are disabled on this site by another plugin or a filter (wp_is_application_passwords_available returns false). Turn that setting off, or remove the filter. ' . $oauth,
         ];
     }
 
@@ -90,10 +103,8 @@ final class App_Passwords_Status
             return $response;
         }
 
-        $extra = [ 'application_passwords_available' => false, 'reason' => $state['reason'] ?? 'disabled' ];
-        if (isset($state['disabled_by'])) {
-            $extra['disabled_by'] = $state['disabled_by'];
-        }
+        // Anonymous callers get the public wording and no plugin name.
+        $extra = [ 'application_passwords_available' => false, 'reason' => 'disabled' ];
 
         $data = $response->get_data();
         if (! is_array($data)) {

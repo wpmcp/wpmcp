@@ -221,7 +221,8 @@ class Registrar
 
         $tool  = str_replace('/', '-', $a->name);
         $roles = [];
-        foreach (wp_roles()->roles as $role) {
+        // Role names only for a logged-in caller, never an anonymous one.
+        foreach (is_user_logged_in() ? wp_roles()->roles : [] as $role) {
             if (! empty($role['capabilities'][ $capability ])) {
                 $roles[] = translate_user_role($role['name']);
             }
