@@ -111,7 +111,8 @@ class Connection_Page
         }
 
         if (! wp_is_application_passwords_available_for_user($user)) {
-            return ['error' => __('Application Passwords are not available for that user on this site. They require HTTPS (or a local environment) and must not be disabled by another plugin.', 'wpmcp')];
+            $state = \WPMCP\Auth\App_Passwords_Status::state();
+            return ['error' => $state['message'] ?? __('Application Passwords are not available for that user on this site. They require HTTPS (or a local environment) and must not be disabled by another plugin.', 'wpmcp')];
         }
 
         $name = sanitize_text_field(self::str($post['name'] ?? ''));
@@ -330,6 +331,11 @@ class Connection_Page
                 <div class="notice notice-success"><p><?php echo esc_html__('Application password revoked. The client it was issued to is disconnected.', 'wpmcp'); ?></p></div>
             <?php elseif (isset($result['action']) && 'management_access' === $result['action']) : ?>
                 <div class="notice notice-success"><p><?php echo esc_html__('Management access saved.', 'wpmcp'); ?></p></div>
+            <?php endif; ?>
+
+            <?php $passwords = \WPMCP\Auth\App_Passwords_Status::state(); ?>
+            <?php if (! $passwords['available']) : ?>
+                <div class="notice notice-warning"><p><strong><?php echo esc_html__('Application Passwords are unavailable.', 'wpmcp'); ?></strong> <?php echo esc_html($passwords['message'] ?? ''); ?></p></div>
             <?php endif; ?>
 
             <h2><?php echo esc_html__('1. MCP surface', 'wpmcp'); ?></h2>

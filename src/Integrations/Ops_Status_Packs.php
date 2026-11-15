@@ -88,10 +88,7 @@ final class Ops_Status_Packs
         if ($active) {
             return true;
         }
-        return [
-            'code'    => $code,
-            'message' => sprintf('The %s plugin is not active on this site.', $plugin),
-        ];
+        return Plugin_Refusal::make($code, $plugin);
     }
 
     /**

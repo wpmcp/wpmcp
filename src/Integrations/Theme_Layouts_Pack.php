@@ -182,6 +182,7 @@ final class Theme_Layouts_Pack
                     $installed ? 'installed but not active' : 'not installed',
                     admin_url('plugins.php')
                 ),
+                'data'    => [ 'plugin' => sanitize_title($a->product()), 'plugin_name' => $a->product(), 'state' => $installed ? 'inactive' : 'missing', 'plugins_url' => admin_url('plugins.php') ],
             ];
         }
         if (! post_type_exists($a->post_type())) {

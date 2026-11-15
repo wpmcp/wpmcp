@@ -43,10 +43,7 @@ final class TranslatePress_Pack
     /** @return true|array{code: string, message: string} */
     public static function requirement()
     {
-        return self::active() ? true : [
-            'code'    => 'translatepress_inactive',
-            'message' => 'TranslatePress is not active on this site.',
-        ];
+        return self::active() ? true : Plugin_Refusal::make('translatepress_inactive', 'TranslatePress');
     }
 
     /** @return array{default: string, languages: string[]} the default language and the translation languages. */

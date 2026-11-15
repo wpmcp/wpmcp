@@ -4,6 +4,7 @@ namespace WPMCP\MCP;
 
 use WPMCP\Auth\Client_Access;
 use WPMCP\Governance\Governance;
+use WPMCP\Integrations\Plugin_Refusal;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
 use WPMCP\Memory\Memory_Guard;
@@ -187,7 +188,56 @@ class Registrar
 
         // An input naming an agent memory entry is told to use the memory
         // tools (issue #517) rather than handed a bare permission denial.
-        return Client_Access::denial($a) ?? self::plugin_missing($a) ?? Content_Guard::input_refusal($a, $input) ?? false;
+        return Client_Access::denial($a) ?? self::plugin_missing($a) ?? Content_Guard::input_refusal($a, $input) ?? self::capability_refusal($a, $input) ?? false;
+    }
+
+    /**
+     * The refusal for a caller who lacks the capability a tool (or, for a
+     * dispatcher pair, the op the input names) needs (issue #875): the
+     * adapter shows only a WP_Error's message, so without this the client
+     * sees a bare "Permission denied". Null when the capability is held, so
+     * every other denial (governance, scope, tier) stays as it was. Names
+     * the capability and the roles that carry it, nothing about the user.
+     *
+     * @param array<string, mixed> $input
+     */
+    private static function capability_refusal(Ability $a, array $input): ?\WP_Error
+    {
+        if (! self::tier_permitted($a->tier)) {
+            return null;
+        }
+        $capability = $a->capability;
+        $operation  = '';
+        if (null !== $a->op_capability && is_string($input['operation'] ?? null)) {
+            $op_cap = ($a->op_capability)($input);
+            if (null !== $op_cap && ! current_user_can($op_cap)) {
+                $capability = $op_cap;
+                $operation  = $input['operation'];
+            }
+        }
+        if ('' === $operation && current_user_can($capability)) {
+            return null;
+        }
+
+        $tool  = str_replace('/', '-', $a->name);
+        $roles = [];
+        foreach (wp_roles()->roles as $role) {
+            if (! empty($role['capabilities'][ $capability ])) {
+                $roles[] = translate_user_role($role['name']);
+            }
+        }
+        $shown = [] === $roles ? '' : sprintf(' (roles with it: %s)', implode(', ', array_slice($roles, 0, 4)));
+
+        $message = '' === $operation
+            ? sprintf('%1$s requires the "%2$s" capability%3$s. Ask a site administrator for a role that has it.', $tool, $capability, $shown)
+            : sprintf('Operation "%1$s" of %2$s requires the "%3$s" capability%4$s. Ask a site administrator for a role that has it.', $operation, $tool, $capability, $shown);
+
+        $data = [ 'status' => 403, 'reason' => 'capability', 'capability' => $capability, 'tool' => $tool ];
+        if ('' !== $operation) {
+            $data['operation'] = $operation;
+        }
+
+        return new \WP_Error('operation_denied', $message, $data);
     }
 
     /**
@@ -481,39 +531,77 @@ class Registrar
             return null;
         }
 
-        $operation = is_string($arguments['operation'] ?? null) ? $arguments['operation'] : '';
-        $host      = '' === $operation ? null : ( $held['operations'][ $operation ] ?? null );
+        $plugins_url = admin_url('plugins.php');
+        $operation   = is_string($arguments['operation'] ?? null) ? $arguments['operation'] : '';
+        $host        = '' === $operation ? null : ( $held['operations'][ $operation ] ?? null );
         if (null !== $host) {
             $message = $host['several']
                 ? sprintf(
-                    'Op "%1$s" of %2$s works with %3$s, and none of them is active on this site, so it cannot run. Install and activate one of them, then try again.',
+                    'Op "%1$s" of %2$s works with %3$s, and none of them is active on this site, so it cannot run. Install and activate one of them (%4$s), then try again.',
                     $operation,
                     $name,
-                    $host['name']
+                    $host['name'],
+                    $plugins_url
                 )
                 : sprintf(
-                    '%1$s is not active on this site, so op "%2$s" of %3$s cannot run. Install and activate %1$s, then try again.',
+                    '%1$s is not active on this site, so op "%2$s" of %3$s cannot run. Install and activate %1$s (%4$s), then try again.',
                     $host['name'],
                     $operation,
-                    $name
+                    $name,
+                    $plugins_url
                 );
 
-            return new \WP_Error('plugin_missing', $message, [ 'plugin' => $host['name'], 'operation' => $operation ]);
+            return new \WP_Error('plugin_missing', $message, [ 'plugin' => $host['name'], 'operation' => $operation, 'plugins_url' => $plugins_url ] + self::install_data($host));
         }
 
         $message = $held['several']
             ? sprintf(
-                'None of the plugins %1$s works with is active on this site (%2$s), so %1$s cannot run. Install and activate one of them, then try again.',
+                'None of the plugins %1$s works with is active on this site (%2$s), so %1$s cannot run. Install and activate one of them (%3$s), then try again.',
                 $name,
-                $held['plugin']
+                $held['plugin'],
+                $plugins_url
             )
             : sprintf(
-                '%1$s is not active on this site, so %2$s cannot run. Install and activate %1$s, then try again.',
+                '%1$s is not active on this site, so %2$s cannot run. Install and activate %1$s (%3$s), then try again.',
                 $held['plugin'],
-                $name
+                $name,
+                $plugins_url
             );
 
-        return new \WP_Error('plugin_missing', $message, [ 'plugin' => $held['plugin'] ]);
+        return new \WP_Error('plugin_missing', $message, [ 'plugin' => $held['plugin'], 'plugins_url' => $plugins_url ] + self::install_data($held + [ 'name' => $held['plugin'] ]));
+    }
+
+    /**
+     * Where to get a single named plugin, for a refusal's data: its
+     * install_url, or nothing for a plugin of several or an unknown one.
+     *
+     * @param array{name?: string, several?: bool} $host
+     * @return array<string, string>
+     */
+    private static function install_data(array $host): array
+    {
+        if (! empty($host['several']) || ! isset($host['name']) || ! class_exists(Plugin_Refusal::class)) {
+            return [];
+        }
+        $url = Plugin_Refusal::install_url((string) $host['name']);
+        return null === $url ? [] : [ 'install_url' => $url ];
+    }
+
+    /**
+     * plugin_inactive() for an advertised MCP tool name (wpmcp-plugin-data-write)
+     * rather than an ability name, for the transports that see only the
+     * tool name (issue #876). Null when no held pair has that tool name.
+     *
+     * @param array<string, mixed> $arguments the call's arguments, if any
+     */
+    public function plugin_inactive_for_tool(string $tool_name, array $arguments = []): ?\WP_Error
+    {
+        foreach (array_keys($this->held_for_plugin) as $name) {
+            if (Stdio_Transport::tool_name($name) === $tool_name) {
+                return $this->plugin_inactive($name, $arguments);
+            }
+        }
+        return null;
     }
 
     /**

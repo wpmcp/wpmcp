@@ -45,10 +45,7 @@ final class Pods_Pack
     /** @return true|array{code: string, message: string} */
     public static function requirement()
     {
-        return self::active() ? true : [
-            'code'    => 'pods_inactive',
-            'message' => 'Pods is not active on this site.',
-        ];
+        return self::active() ? true : Plugin_Refusal::make('pods_inactive', 'Pods');
     }
 
     /**
