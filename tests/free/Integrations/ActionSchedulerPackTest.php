@@ -253,6 +253,71 @@ class ActionSchedulerPackTest extends \WP_UnitTestCase
         $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T/', (string) $get['logs'][0]['date']);
     }
 
+    /** @return array<string, array{0: array<string, mixed>, 1: string[]}> */
+    public static function leak_forms(): array
+    {
+        return [
+            'key=value text'        => [ [ 'q' => 'client_secret=abc123XYZ&my_api_key=def456UVW&ok=1' ], [ 'abc123XYZ', 'def456UVW' ] ],
+            'JSON string'           => [ [ 'payload' => '{"password":"hunter2","api_key":"abcDEF","nested":{"license":"LIC-9999","name":"x"}}' ], [ 'hunter2', 'abcDEF', 'LIC-9999' ] ],
+            'JSON in JSON'          => [ [ 'payload' => '{"inner":"{\\"auth_token\\":\\"deepsecret1\\"}"}' ], [ 'deepsecret1' ] ],
+            'serialized string'     => [ [ 'payload' => serialize([ 'password' => 'hunter2', 'user' => [ 'nonce' => 'n0nce77', 'name' => 'x' ] ]) ], [ 'hunter2', 'n0nce77' ] ],
+            'broken serialized'     => [ [ 'payload' => 's:8:"password";s:7:"hunter2";' ], [ 'hunter2' ] ],
+            'nested secret key'     => [ [ 'a' => [ 'b' => [ 'client_secret' => 'zzz-top-secret', 'my_license_key' => 'LK-1234' ] ] ], [ 'zzz-top-secret', 'LK-1234' ] ],
+        ];
+    }
+
+    /**
+     * @dataProvider leak_forms
+     * @param array<string, mixed> $args
+     * @param string[]             $secrets
+     */
+    public function test_no_secret_form_leaks_through_list_or_get(array $args, array $secrets): void
+    {
+        $id   = $this->queue(100, $args);
+        $list = (string) wp_json_encode($this->read('actionscheduler-list-actions', [ 'hook' => self::HOOK ]));
+        $get  = (string) wp_json_encode($this->ok($this->read('actionscheduler-get-action', [ 'action_id' => $id ])));
+        foreach ($secrets as $secret) {
+            $this->assertStringNotContainsString($secret, $list, 'list: ' . $secret);
+            $this->assertStringNotContainsString($secret, $get, 'get: ' . $secret);
+        }
+    }
+
+    public function test_masking_keeps_the_shape_of_json_and_serialized_args_and_never_builds_objects(): void
+    {
+        $this->assertSame('{"user":"jane","password":"[redacted]"}', Action_Scheduler_Pack::hide_secrets([ 'p' => '{"user":"jane","password":"x"}' ])['p']);
+        $ser = Action_Scheduler_Pack::hide_secrets([ 'p' => serialize([ 'user' => 'jane', 'token' => 'x' ]) ])['p'];
+        $this->assertSame([ 'user' => 'jane', 'token' => '[redacted]' ], unserialize($ser));
+        $this->assertSame('j***@example.com', json_decode(Action_Scheduler_Pack::mask_args([ 'p' => '{"e":"jane@example.com"}' ])['p'], true)['e']);
+
+        $object = 'O:8:"stdClass":1:{s:8:"password";s:7:"hunter2";}';
+        $out    = Action_Scheduler_Pack::hide_secrets([ 'p' => $object ])['p'];
+        $this->assertStringNotContainsString('hunter2', $out);
+        $this->assertSame('O:8:"stdClass"', substr($out, 0, 14), 'an object payload is masked as text, not opened and rewritten');
+    }
+
+    public function test_list_args_are_cut_at_2kb_with_a_flag_and_get_returns_them_whole(): void
+    {
+        $big = str_repeat('payload-', 600);
+        $id  = $this->queue(100, [ 'blob' => $big, 'order_id' => 1 ]);
+        $this->queue(200, [ 'order_id' => 2 ]);
+
+        $rows = array_column($this->read('actionscheduler-list-actions', [ 'hook' => self::HOOK ])['actions'], null, 'id');
+        $this->assertTrue($rows[ $id ]['args_truncated']);
+        $this->assertLessThanOrEqual(Action_Scheduler_Pack::MAX_LIST_ARGS_BYTES, strlen($rows[ $id ]['args']['preview']));
+        $this->assertGreaterThan(Action_Scheduler_Pack::MAX_LIST_ARGS_BYTES, $rows[ $id ]['args_bytes']);
+        $small = array_values(array_filter($rows, static fn (array $r): bool => $r['id'] !== $id))[0];
+        $this->assertFalse($small['args_truncated']);
+        $this->assertSame($big, $this->read('actionscheduler-get-action', [ 'action_id' => $id ])['action']['args']['blob']);
+    }
+
+    public function test_page_and_per_page_have_maximums(): void
+    {
+        $out = $this->read('actionscheduler-list-actions', [ 'per_page' => 101 ]);
+        $this->assertArrayHasKey('error', $out);
+        $out = $this->read('actionscheduler-list-actions', [ 'page' => Action_Scheduler_Pack::MAX_PAGE + 1 ]);
+        $this->assertArrayHasKey('error', $out);
+    }
+
     public function test_get_refuses_an_unknown_action(): void
     {
         $this->assertSame('action_not_found', $this->code($this->read('actionscheduler-get-action', [ 'action_id' => 999999 ])));

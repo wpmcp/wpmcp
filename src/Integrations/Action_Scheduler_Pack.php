@@ -57,6 +57,12 @@ final class Action_Scheduler_Pack
 
     public const MAX_PER_PAGE = 100;
 
+    /** The highest page a list answers, so the offset stays bounded on a store with millions of rows. */
+    public const MAX_PAGE = 1000;
+
+    /** The most bytes of masked args one list row carries; get-action returns them whole. */
+    public const MAX_LIST_ARGS_BYTES = 2048;
+
     /** The most log entries one get-action returns (the newest). */
     public const MAX_LOG_ENTRIES = 100;
 
@@ -133,7 +139,7 @@ final class Action_Scheduler_Pack
         return [
             'actionscheduler-list-actions'  => $base + [
                 'mode'         => 'read',
-                'description'  => 'List Action Scheduler queue actions (WooCommerce and many plugins use it): id, hook, status, group, schedule, scheduled time (UTC; for a finished action the last attempt) and args with emails, IPs and tokens MASKED. Filters: hook, group, status (pending, complete, failed, canceled, running), date with date_compare (< <= > >= =, default <=); order asc or desc by date (default desc); page and per_page (default 20, max 100). Personal data',
+                'description'  => 'List Action Scheduler queue actions (WooCommerce and many plugins use it): id, hook, status, group, schedule, scheduled time (UTC; for a finished action the last attempt) and args with emails, IPs and tokens MASKED. Filters: hook, group, status (pending, complete, failed, canceled, running), date with date_compare (< <= > >= =, default <=); order asc or desc by date (default desc); page (max 1000) and per_page (default 20, max 100); args over 2 KB are cut to a preview (args_truncated), get-action returns them whole; total is an exact count. Masks emails and IPv4 only. Personal data',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -143,7 +149,7 @@ final class Action_Scheduler_Pack
                         'date'         => [ 'type' => 'string', 'minLength' => 1, 'maxLength' => 40 ],
                         'date_compare' => [ 'type' => 'string', 'enum' => self::DATE_COMPARES ],
                         'order'        => [ 'type' => 'string', 'enum' => [ 'asc', 'desc' ] ],
-                        'page'         => [ 'type' => 'integer', 'minimum' => 1 ],
+                        'page'         => [ 'type' => 'integer', 'minimum' => 1, 'maximum' => self::MAX_PAGE ],
                         'per_page'     => [ 'type' => 'integer', 'minimum' => 1, 'maximum' => self::MAX_PER_PAGE ],
                     ],
                 ],
@@ -311,7 +317,7 @@ final class Action_Scheduler_Pack
     private static function list_actions(array $args): array
     {
         $per_page = max(1, min(self::MAX_PER_PAGE, (int) ($args['per_page'] ?? self::DEFAULT_PER_PAGE)));
-        $page     = max(1, (int) ($args['page'] ?? 1));
+        $page     = max(1, min(self::MAX_PAGE, (int) ($args['page'] ?? 1)));
         $query    = [];
         foreach ([ 'hook', 'group' ] as $key) {
             if (isset($args[ $key ])) {
@@ -336,7 +342,7 @@ final class Action_Scheduler_Pack
         ]);
         $rows  = [];
         foreach ($ids as $id) {
-            $rows[] = self::view((int) $id, true);
+            $rows[] = self::cap_args(self::view((int) $id, true));
         }
         return [
             'actions'     => $rows,
@@ -346,6 +352,25 @@ final class Action_Scheduler_Pack
             'args_masked' => true,
             'store'       => get_class($store),
         ];
+    }
+
+    /**
+     * A list row with its args cut to MAX_LIST_ARGS_BYTES: a larger payload
+     * becomes its first bytes as a preview, with args_truncated and the size.
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private static function cap_args(array $row): array
+    {
+        $json = (string) wp_json_encode($row['args']);
+        $row['args_truncated'] = false;
+        if (strlen($json) > self::MAX_LIST_ARGS_BYTES) {
+            $row['args']           = [ 'preview' => mb_strcut($json, 0, self::MAX_LIST_ARGS_BYTES, 'UTF-8') ];
+            $row['args_truncated'] = true;
+            $row['args_bytes']     = strlen($json);
+        }
+        return $row;
     }
 
     /** @return array<string, mixed> */
@@ -424,50 +449,103 @@ final class Action_Scheduler_Pack
     // Masking
     // ------------------------------------------------------------------
 
+    /** Words that mark a key as naming a secret, found anywhere in the key. */
+    private const SECRET_WORDS = 'secret|token|passw|pwd|api[_\-]?key|apikey|auth|nonce|licen[sc]e|signature|credential|private[_\-]?key|bearer|cookie|salt';
+
+    /** What a hidden value reads as. */
+    public const HIDDEN = '[redacted]';
+
+    /** The deepest nesting of JSON or serialized strings inside strings that is opened. */
+    private const MAX_DEPTH = 6;
+
+    /** Whether a key names a secret: secret, token, password, api key, auth, nonce, license and the like, or a bare "key". */
+    public static function is_secret_key(string $key): bool
+    {
+        $spaced = (string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', $key);
+        $norm   = strtolower((string) preg_replace('/[^A-Za-z0-9]+/', '_', $spaced));
+        return 1 === preg_match('/(' . self::SECRET_WORDS . ')/', $norm) || 1 === preg_match('/(^|_)key($|_)/', $norm);
+    }
+
     /**
      * A text with its secrets hidden and, when $personal, every email and IP
-     * address masked (j***@example.com, 203.0.*.*).
+     * address masked (j***@example.com, 203.0.*.*). Works on free text:
+     * "client_secret=abc", "Bearer ...", token-looking values and the
+     * serialized form s:8:"password";s:7:"hunter2";.
      */
     public static function mask_text(string $text, bool $personal = true): string
     {
         if ($personal) {
             $text = Activity_Log_Pack::mask_text($text);
         }
-        $text = (string) preg_replace('/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=\-]{8,}/i', '$1 ***', $text);
-        $text = (string) preg_replace('/\b((?:api[_-]?key|access[_-]?token|token|secret|password|passwd|signature)\s*[=:]\s*)[^\s&"\',;]+/i', '$1***', $text);
+        $words = self::SECRET_WORDS;
+        $text  = (string) preg_replace('/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=\-]{8,}/i', '$1 ***', $text);
+        // s:8:"password";s:7:"hunter2"; : the value of a secret-named key.
+        $text = (string) preg_replace('/(s:\d+:"[^"]*(?:' . $words . ')[^"]*";)s:\d+:"[^"]*";/i', '$1s:3:"***";', $text);
+        // key=value, key: value, "key":"value", with the key containing a secret word.
+        $text = (string) preg_replace('/([A-Za-z0-9_\-]*(?:' . $words . ')[A-Za-z0-9_\-]*["\']?\s*[=:]\s*["\']?)[^\s&"\',;}\]]+/i', '$1***', $text);
         $text = (string) preg_replace('/\b(?:sk|pk|rk|ghp|gho|ghs|xox[abp])[_-][A-Za-z0-9_\-]{12,}/', '***', $text);
         $text = (string) preg_replace('/(?<![A-Za-z0-9_\-])(?=[A-Za-z0-9_\-]*\d)(?=[A-Za-z0-9_\-]*[A-Za-z])[A-Za-z0-9_\-]{32,}(?![A-Za-z0-9_\-])/', '***', $text);
         return $text;
     }
 
     /**
-     * Args for a list: secret-shaped keys hidden, and every string with its
-     * emails, IPs and token-looking values masked, at any depth.
+     * Args for a list: secret-named keys hidden, and every string, JSON or
+     * serialized string included, with its emails, IPs and token-looking
+     * values masked, at any depth.
      */
     public static function mask_args(array $args): array
     {
-        return self::walk(Ops_Status_Packs::redact($args), true);
+        return self::walk($args, true, 0);
     }
 
-    /** Args for a single read: secret-shaped keys and token-looking values hidden, the rest as stored. */
+    /** Args for a single read: secrets hidden the same way, emails and the rest as stored. */
     public static function hide_secrets(array $args): array
     {
-        return self::walk(Ops_Status_Packs::redact($args), false);
+        return self::walk($args, false, 0);
     }
 
     /**
      * @param array<mixed> $value
      * @return array<mixed>
      */
-    private static function walk(array $value, bool $personal): array
+    private static function walk(array $value, bool $personal, int $depth): array
     {
         foreach ($value as $key => $item) {
-            if (is_array($item)) {
-                $value[ $key ] = self::walk($item, $personal);
+            if (is_string($key) && self::is_secret_key($key)) {
+                $value[ $key ] = self::HIDDEN;
+            } elseif (is_array($item)) {
+                $value[ $key ] = self::walk($item, $personal, $depth);
             } elseif (is_string($item)) {
-                $value[ $key ] = self::mask_text($item, $personal);
+                $value[ $key ] = self::mask_string($item, $personal, $depth);
             }
         }
         return $value;
+    }
+
+    /**
+     * One string: a JSON or serialized payload is opened, masked by key and
+     * written back in the same form; anything else is masked as text. A
+     * serialized object is never built (allowed_classes false), and a
+     * payload that does not open is masked as text.
+     */
+    private static function mask_string(string $text, bool $personal, int $depth): string
+    {
+        $trim = ltrim($text);
+        if ($depth < self::MAX_DEPTH && '' !== $trim) {
+            if (in_array($trim[0], [ '{', '[' ], true)) {
+                $decoded = json_decode($trim, true);
+                if (is_array($decoded)) {
+                    return (string) wp_json_encode(self::walk($decoded, $personal, $depth + 1));
+                }
+            } elseif (1 === preg_match('/^(?:a|O|C|s|i|b|d):/', $trim) && 1 !== preg_match('/(?:^|[;{}])[OC]:\d+:"/', $trim)) {
+                // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize -- reads a stored arg to mask it; allowed_classes false builds no object.
+                $decoded = @unserialize($trim, [ 'allowed_classes' => false ]);
+                if (is_array($decoded)) {
+                    // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- writes the masked copy back in the form it was stored.
+                    return serialize(self::walk($decoded, $personal, $depth + 1));
+                }
+            }
+        }
+        return self::mask_text($text, $personal);
     }
 }
