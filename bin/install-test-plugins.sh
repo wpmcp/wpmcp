@@ -27,6 +27,8 @@
 # plugin and the Divi 5 theme copied from WPMCP_DIVI_SRC (bin/test-local.sh
 # --live-divi), or, with WPMCP_LIVE_BETHEME=1, no plugin and the BeTheme
 # theme copied from WPMCP_BETHEME_SRC (bin/test-local.sh --live-betheme), or,
+# with WPMCP_LIVE_BRICKS=1, no plugin and the Bricks theme copied from
+# WPMCP_BRICKS_SRC (bin/test-local.sh --live-bricks), or,
 # with WPMCP_LIVE_THEME_PRO=astra|kadence|generatepress, no
 # plugin but that theme's premium add-on copied from a local directory and
 # the free theme from wordpress.org (bin/test-local.sh --live-theme-pro), or,
@@ -414,6 +416,27 @@ elif [ "${WPMCP_LIVE_BETHEME:-}" = "1" ]; then
 	rm -rf "$WP_CORE_DIR/wp-content/themes/betheme"
 	cp -R "$src" "$WP_CORE_DIR/wp-content/themes/betheme"
 	echo "Copied BeTheme $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/style.css" | head -n 1) from $src."
+fi
+
+# The live Bricks job (issue #914) runs the Bricks page write against the real
+# Bricks theme. Bricks is a commercial theme, not on wordpress.org, so it is
+# copied from a local directory holding it (WPMCP_BRICKS_SRC) into the themes
+# directory, and tests/bootstrap.php makes it the active theme. Exclusive too:
+# the stub-backed Bricks tests stand in for its generator and toggle its
+# presence.
+if [ "${WPMCP_LIVE_BRICKS:-}" = "1" ] && [ "$list_only" = true ]; then
+	PLUGINS=()
+elif [ "${WPMCP_LIVE_BRICKS:-}" = "1" ]; then
+	PLUGINS=()
+	src=${WPMCP_BRICKS_SRC:-}
+	if [ -z "$src" ] || [ ! -f "$src/style.css" ] || [ ! -f "$src/functions.php" ]; then
+		echo "WPMCP_LIVE_BRICKS=1 needs WPMCP_BRICKS_SRC, a directory holding the Bricks theme (style.css and functions.php)." >&2
+		exit 1
+	fi
+	mkdir -p "$WP_CORE_DIR/wp-content/themes"
+	rm -rf "$WP_CORE_DIR/wp-content/themes/bricks"
+	cp -R "$src" "$WP_CORE_DIR/wp-content/themes/bricks"
+	echo "Copied Bricks $(sed -n 's/^[[:space:]*]*Version:[[:space:]]*//p' "$src/style.css" | head -n 1) from $src."
 fi
 
 # The live MemberPress job (issue #668) runs the MemberPress ops against a real

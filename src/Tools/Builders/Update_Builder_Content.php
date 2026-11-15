@@ -1217,6 +1217,15 @@ class Update_Builder_Content
             return new \WP_Error('invalid_bricks_json', 'Bricks content must be well-formed JSON decoding to an array.');
         }
 
+        if (! Bricks_Cache::is_editable($post_id)) {
+            $type = (string) get_post_type($post_id);
+
+            return new \WP_Error(
+                'not_a_bricks_page',
+                sprintf('Post %d (type "%s") is not a Bricks page: Bricks edits only a Bricks template, a post type enabled under Bricks > Settings > General > Post types, or a post that already holds Bricks content. Enable the post type in Bricks first.', $post_id, $type)
+            );
+        }
+
         $out = Safe_Mutation::run(
             [
                 'object_type' => 'post',

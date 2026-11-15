@@ -190,6 +190,15 @@ tests_add_filter( 'muplugins_loaded', function () {
         add_filter( 'pre_option_stylesheet', static fn () => 'betheme' );
     }
 
+    // The live Bricks job (issue #914, WPMCP_LIVE_BRICKS=1) runs the Bricks
+    // page write against the real Bricks theme, copied into the themes
+    // directory from WPMCP_BRICKS_SRC, made the active theme here. Only on
+    // request: the other Bricks tests stand in for the theme.
+    if ( getenv( 'WPMCP_LIVE_BRICKS' ) && is_dir( WP_CONTENT_DIR . '/themes/bricks' ) ) {
+        add_filter( 'pre_option_template', static fn () => 'bricks' );
+        add_filter( 'pre_option_stylesheet', static fn () => 'bricks' );
+    }
+
     // The live theme add-on job (issue #656, WPMCP_LIVE_THEME_PRO=astra,
     // kadence or generatepress) runs the theme layout ops against one real
     // premium add-on, copied in from WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC

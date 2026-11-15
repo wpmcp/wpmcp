@@ -50,5 +50,10 @@ class Bricks_Content
         // wp_slash keeps clean (unslashed) data byte-accurate through
         // update_post_meta's internal wp_unslash.
         update_post_meta($post_id, self::META_KEY, wp_slash($elements));
+
+        // What Bricks' own save does after the layout row (issue #914): the
+        // editor mode that makes Bricks render the page, then the CSS file.
+        Bricks_Cache::sync_editor_mode($post_id);
+        Bricks_Cache::regenerate($post_id);
     }
 }
