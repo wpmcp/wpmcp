@@ -41,13 +41,18 @@ jobs:
         options: >-
           --health-cmd="healthcheck.sh --connect --innodb_initialized"
           --health-interval=5s --health-timeout=5s --health-retries=20
-    env:
-      WP_TESTS_DIR: ${{ github.workspace }}/../wp/wordpress-tests-lib
-      WP_CORE_DIR: ${{ github.workspace }}/../wp/wordpress
-      TMPDIR: ${{ github.workspace }}/../wp/tmp
-      WPMCP_DOWNLOAD_CACHE: ${{ github.workspace }}/../wp/downloads
     steps:
       - uses: actions/checkout@v5
+
+      # Absolute, normalised paths: a ".." in ABSPATH breaks the test library.
+      - name: Paths
+        run: |
+          {
+            echo "WP_TESTS_DIR=$RUNNER_TEMP/wp/wordpress-tests-lib"
+            echo "WP_CORE_DIR=$RUNNER_TEMP/wp/wordpress"
+            echo "TMPDIR=$RUNNER_TEMP/wp/tmp"
+            echo "WPMCP_DOWNLOAD_CACHE=$RUNNER_TEMP/wp/downloads"
+          } >> "$GITHUB_ENV"
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -70,7 +75,7 @@ jobs:
       # version inside the download cache (bin/download-cache.sh).
       - uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/../wp/downloads
+          path: ${{ runner.temp }}/wp/downloads
           key: wp-downloads-${{ matrix.wp }}-${{ hashFiles('bin/install-wp-tests.sh', 'bin/install-test-plugins.sh', 'bin/download-cache.sh') }}
           restore-keys: wp-downloads-${{ matrix.wp }}-
 
@@ -85,6 +90,7 @@ jobs:
           mkdir -p "$TMPDIR" "$WPMCP_DOWNLOAD_CACHE"
           bash bin/install-wp-tests.sh wpmcp_test root root 127.0.0.1:3306 "${{ matrix.wp }}" true
           bash bin/install-test-plugins.sh
+          mkdir -p "$WP_CORE_DIR/wp-content/uploads"
 
       - name: PHPUnit
         env:
