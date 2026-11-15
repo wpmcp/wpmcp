@@ -69,7 +69,7 @@ final class Post_SMTP_Status
             'get-post-smtp-log'    => Ops_Status_Packs::read_op(
                 'Post SMTP email log: the last N sends (status, masked recipients, subject, transport, time, error); never the body or session transcript. Optional status filter',
                 $requires,
-                static fn (array $args): array => self::scrub(self::log((int) ($args['limit'] ?? 20), (string) ($args['status'] ?? ''))),
+                static fn (array $args): array => self::scrub(self::log(self::secrets(), (int) ($args['limit'] ?? 20), (string) ($args['status'] ?? ''))),
                 [
                     'limit'  => [ 'type' => 'integer', 'minimum' => 1, 'maximum' => 100 ],
                     'status' => [ 'type' => 'string', 'enum' => [ 'sent', 'failed', 'queued' ] ],
@@ -179,7 +179,7 @@ final class Post_SMTP_Status
     }
 
     /** @return array<string,mixed> */
-    private static function log(int $limit, string $status): array
+    private static function log(array $scrub, int $limit, string $status): array
     {
         global $wpdb;
 
@@ -216,9 +216,9 @@ final class Post_SMTP_Status
                 'status'    => $label,
                 'to'        => SMTP_Pack_Support::masked_addresses($row['to_header']),
                 'from'      => SMTP_Pack_Support::masked_addresses($row['from_header']),
-                'subject'   => SMTP_Pack_Support::text($row['original_subject']),
-                'transport' => SMTP_Pack_Support::text($row['transport_uri']),
-                'error'     => 'failed' === $label ? SMTP_Pack_Support::text($success) : '',
+                'subject'   => SMTP_Pack_Support::text($row['original_subject'], $scrub),
+                'transport' => SMTP_Pack_Support::text($row['transport_uri'], $scrub),
+                'error'     => 'failed' === $label ? SMTP_Pack_Support::text($success, $scrub) : '',
                 // current_time('timestamp'): the site's wall clock, as stored.
                 'time'      => $time > 0 ? gmdate('Y-m-d H:i:s', $time) : null,
             ];
@@ -273,23 +273,35 @@ final class Post_SMTP_Status
     }
 
     /**
-     * Scrub by value: every credential and account identifier Post SMTP holds
-     * (stored, base64 decoded, in the OAuth token option or a constant) is
-     * replaced wherever it appears in $data.
+     * Scrub by value: every credential Post SMTP holds is replaced wherever it
+     * appears in $data.
      *
      * @param array<mixed> $data
      * @return array<mixed>
      */
     private static function scrub(array $data): array
     {
+        return SMTP_Pack_Support::scrub($data, self::secrets());
+    }
+
+    /**
+     * Every credential value Post SMTP holds (stored, base64 decoded, in the
+     * OAuth token option or a constant). Account identifiers such as the SMTP
+     * user name are hidden by key, not scrubbed by value: that would also blank
+     * a sender address that equals the user name.
+     *
+     * @return string[]
+     */
+    private static function secrets(): array
+    {
         $stored  = self::stored();
-        $keys    = array_merge(self::secret_keys($stored), self::IDENT_KEYS);
+        $keys    = self::secret_keys($stored);
         $secrets = [];
         SMTP_Pack_Support::collect($stored, $keys, $secrets);
         $token = get_option(self::TOKEN_OPTION, []);
         SMTP_Pack_Support::collect(is_array($token) ? $token : [], $keys, $secrets);
         SMTP_Pack_Support::constants('POST_SMTP_', self::SKIP_CONSTANTS, $secrets);
 
-        return SMTP_Pack_Support::scrub($data, $secrets);
+        return $secrets;
     }
 }

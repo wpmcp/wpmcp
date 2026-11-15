@@ -60,12 +60,12 @@ final class Fluent_SMTP_Status
             'get-fluent-smtp-config' => Ops_Status_Packs::read_op(
                 'FluentSMTP: connections (provider, sender, host, port, where credentials live, last health check), additional sender routing, misc settings and defined constants; credentials are never returned, only which are set',
                 $requires,
-                static fn (): array => self::scrub(self::config())
+                static fn (): array => self::scrub(self::config(self::secrets()))
             ),
             'get-fluent-smtp-log'    => Ops_Status_Packs::read_op(
                 'FluentSMTP email log: the last N sends (status, masked recipients, subject, time, error); never the body. Optional status filter',
                 $requires,
-                static fn (array $args): array => self::scrub(self::log((int) ($args['limit'] ?? 20), (string) ($args['status'] ?? ''))),
+                static fn (array $args): array => self::scrub(self::log(self::secrets(), (int) ($args['limit'] ?? 20), (string) ($args['status'] ?? ''))),
                 [
                     'limit'  => [ 'type' => 'integer', 'minimum' => 1, 'maximum' => 100 ],
                     'status' => [ 'type' => 'string', 'enum' => [ 'pending', 'failed', 'sent' ] ],
@@ -139,7 +139,7 @@ final class Fluent_SMTP_Status
     }
 
     /** @return array<string,mixed> */
-    private static function config(): array
+    private static function config(array $scrub): array
     {
         $settings = self::settings();
         $masked   = (array) Secret_Options::mask_registered(self::OPTION, $settings);
@@ -177,7 +177,7 @@ final class Fluent_SMTP_Status
                 'secrets_set'       => $set,
                 'health'            => null === $check ? null : [
                     'status'     => (string) ($check['status'] ?? ''),
-                    'message'    => SMTP_Pack_Support::text($check['message'] ?? ''),
+                    'message'    => SMTP_Pack_Support::text($check['message'] ?? '', $scrub),
                     'checked_at' => Ops_Status_Packs::iso_datetime((string) ($check['checked_at'] ?? '')),
                 ],
                 'provider_settings' => self::shown($shown),
@@ -224,7 +224,7 @@ final class Fluent_SMTP_Status
     }
 
     /** @return array<string,mixed> */
-    private static function log(int $limit, string $status): array
+    private static function log(array $scrub, int $limit, string $status): array
     {
         global $wpdb;
 
@@ -254,10 +254,10 @@ final class Fluent_SMTP_Status
             $out['emails'][] = [
                 'id'      => (int) $row['id'],
                 'status'  => (string) $row['status'],
-                'to'      => SMTP_Pack_Support::masked_addresses($row['to']),
+                'to'      => SMTP_Pack_Support::masked_addresses($row['to'], true),
                 'from'    => SMTP_Pack_Support::masked_addresses($row['from']),
-                'subject' => SMTP_Pack_Support::text($row['subject']),
-                'error'   => $failed ? SMTP_Pack_Support::text($row['response']) : '',
+                'subject' => SMTP_Pack_Support::text($row['subject'], $scrub),
+                'error'   => $failed ? SMTP_Pack_Support::text($row['response'], $scrub, true) : '',
                 'time'    => (string) $row['created_at'],
             ];
         }
@@ -323,22 +323,34 @@ final class Fluent_SMTP_Status
     }
 
     /**
-     * Scrub by value: every credential and account identifier FluentSMTP holds,
-     * as stored (ciphertext), as it reads them (decrypted) and from constants,
-     * is replaced wherever it appears in $data.
+     * Scrub by value: every credential FluentSMTP holds is replaced wherever it
+     * appears in $data.
      *
      * @param array<mixed> $data
      * @return array<mixed>
      */
     private static function scrub(array $data): array
     {
-        $keys    = array_merge(self::secret_keys(), self::IDENT_KEYS);
+        return SMTP_Pack_Support::scrub($data, self::secrets());
+    }
+
+    /**
+     * Every credential value FluentSMTP holds (stored as ciphertext, decrypted
+     * and from constants). Account identifiers such as the SMTP user name are
+     * hidden by key where they are returned, but not scrubbed by value: that
+     * would also blank a sender address that equals the user name.
+     *
+     * @return string[]
+     */
+    private static function secrets(): array
+    {
+        $keys    = self::secret_keys();
         $secrets = [];
         $stored  = get_option(self::OPTION, []);
         SMTP_Pack_Support::collect(is_array($stored) ? $stored : [], $keys, $secrets);
         SMTP_Pack_Support::collect(self::settings(), $keys, $secrets);
         SMTP_Pack_Support::constants('FLUENTMAIL_', self::SKIP_CONSTANTS, $secrets);
 
-        return SMTP_Pack_Support::scrub($data, $secrets);
+        return $secrets;
     }
 }

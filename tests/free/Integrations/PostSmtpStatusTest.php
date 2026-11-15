@@ -12,6 +12,18 @@ use WPMCP\Tools\Meta\Secret_Options;
 
 require_once __DIR__ . '/../../support/post-smtp-double.php';
 
+/** A class whose unserialization would be visible: the log tests prove it is never instantiated. */
+class Post_Smtp_Injection_Probe
+{
+    public static bool $woken = false;
+
+    public function __wakeup(): void
+    {
+        self::$woken = true;
+    }
+}
+
+
 /**
  * Post SMTP config, log, test send and from identity (Post_SMTP_Status): ops
  * on the theme dispatcher pair, through Ops_Status_Packs (issue #696).
@@ -137,7 +149,7 @@ class PostSmtpStatusTest extends \WP_UnitTestCase
     private function assertLeaksNothing($payload): void
     {
         $json = (string) wp_json_encode($payload);
-        foreach ([ self::PASSWORD, base64_encode(self::PASSWORD), self::USERNAME, self::API_KEY, base64_encode(self::API_KEY), self::SECRET, self::CLIENT, self::MJ_KEY, self::MJ_SEC, self::TOKEN, self::REFRESH ] as $needle) {
+        foreach ([ self::PASSWORD, base64_encode(self::PASSWORD), self::API_KEY, base64_encode(self::API_KEY), self::SECRET, self::CLIENT, self::MJ_KEY, self::MJ_SEC, self::TOKEN, self::REFRESH ] as $needle) {
             $this->assertStringNotContainsString($needle, $json, "the answer must not carry {$needle}");
         }
     }
@@ -485,6 +497,41 @@ class PostSmtpStatusTest extends \WP_UnitTestCase
         $this->assertSame('post_smtp_not_configured', $this->write('set-post-smtp-from', [ 'from_name' => 'X' ])['error']['code'] ?? null);
         $this->assertFalse(get_option('postman_options'), 'nothing is created for an unconfigured plugin');
         $this->assertSame($rows, Snapshot_Store::row_count(), 'a refused write leaves no undo point');
+    }
+
+    public function test_a_serialized_object_in_a_visitor_controlled_subject_is_never_unserialized(): void
+    {
+        Post_Smtp_Injection_Probe::$woken = false;
+        $this->log_row([ 'original_subject' => serialize(new Post_Smtp_Injection_Probe()) ]);
+
+        $out = $this->read('get-post-smtp-log');
+
+        $this->assertFalse(Post_Smtp_Injection_Probe::$woken);
+        $this->assertStringContainsString('Post_Smtp_Injection_Probe', $out['result']['emails'][0]['subject'], 'the subject is returned as the literal string');
+    }
+
+    public function test_a_secret_straddling_the_text_cut_cannot_leak_as_a_prefix(): void
+    {
+        $this->log_row([ 'success' => str_repeat('x', 290) . self::PASSWORD ]);
+
+        $json = (string) wp_json_encode($this->read('get-post-smtp-log'));
+
+        $this->assertStringNotContainsString(substr(self::PASSWORD, 0, 6), $json, 'not even a prefix of the secret');
+    }
+
+    public function test_a_sender_address_equal_to_the_smtp_username_is_not_redacted(): void
+    {
+        $options = get_option('postman_options');
+        $options['basic_auth_username'] = 'hello@example.test';
+        update_option('postman_options', $options);
+        $this->log_row([ 'original_subject' => 'From hello@example.test' ]);
+
+        $config = $this->read('get-post-smtp-config')['result'];
+        $log    = $this->read('get-post-smtp-log')['result'];
+
+        $this->assertSame('hello@example.test', $config['from_email']);
+        $this->assertSame('[redacted]', $config['settings']['basic_auth_username']);
+        $this->assertSame('From hello@example.test', $log['emails'][0]['subject']);
     }
 
     public function test_the_pack_class_exposes_the_four_ops(): void

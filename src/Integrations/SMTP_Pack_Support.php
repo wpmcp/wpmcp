@@ -112,7 +112,7 @@ final class SMTP_Pack_Support
                 continue;
             }
             $names[] = $name;
-            if (1 === preg_match('/(KEY|SECRET|PASSWORD|USERNAME|CLIENT_ID|TOKEN|SALT|ACCOUNT_ID)/', $name)) {
+            if (1 === preg_match('/(KEY|SECRET|PASSWORD|TOKEN|SALT)/', $name)) {
                 self::add_secret($value, $secrets);
             }
         }
@@ -120,11 +120,28 @@ final class SMTP_Pack_Support
         return $names;
     }
 
-    /** Every email address inside a value (string, serialized or nested array), masked as j***@example.com. @param mixed $value @return string[] */
-    public static function masked_addresses($value): array
+    /**
+     * A log field the plugin itself serialized (a recipient list, a response),
+     * decoded without instantiating any class. Never call it on a field a
+     * visitor controls, such as a subject.
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    public static function decode($value)
+    {
+        if (is_string($value) && is_serialized($value)) {
+            $decoded = @unserialize(trim($value), [ 'allowed_classes' => false ]); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize, WordPress.PHP.NoSilencedErrors.Discouraged -- a plugin-written log field, no class is instantiated.
+            return false === $decoded && 'b:0;' !== trim($value) ? $value : $decoded;
+        }
+        return $value;
+    }
+
+    /** Every email address inside a value (a string or a nested array), masked as j***@example.com. Pass $serialized for a field the plugin serialized. @param mixed $value @return string[] */
+    public static function masked_addresses($value, bool $serialized = false): array
     {
         $found = [];
-        self::addresses(is_string($value) ? maybe_unserialize($value) : $value, $found);
+        self::addresses($serialized ? self::decode($value) : $value, $found);
         return array_values(array_unique(array_map([ self::class, 'mask_email' ], $found)));
     }
 
@@ -155,10 +172,17 @@ final class SMTP_Pack_Support
         }
     }
 
-    /** Free text from a log row, flattened, trimmed and cut to TEXT_MAX. @param mixed $value */
-    public static function text($value): string
+    /**
+     * Free text from a log row, flattened, scrubbed of $secrets and only then
+     * cut to TEXT_MAX, so a secret straddling the cut cannot leak as a prefix.
+     * Pass $serialized for a field the plugin serialized (never for a subject).
+     *
+     * @param mixed    $value
+     * @param string[] $secrets
+     */
+    public static function text($value, array $secrets = [], bool $serialized = false): string
     {
-        $value = is_string($value) ? maybe_unserialize($value) : $value;
+        $value = $serialized ? self::decode($value) : $value;
         if (is_array($value)) {
             $parts = [];
             array_walk_recursive($value, static function ($item) use (&$parts): void {
@@ -168,7 +192,8 @@ final class SMTP_Pack_Support
             });
             $value = implode(' | ', $parts);
         }
-        $text = trim(wp_strip_all_tags((string) $value));
+        $text = trim(wp_strip_all_tags(is_scalar($value) ? (string) $value : ''));
+        $text = (string) self::scrub([ $text ], $secrets)[0];
         return function_exists('mb_substr') && mb_strlen($text) > self::TEXT_MAX ? mb_substr($text, 0, self::TEXT_MAX) . '...' : $text;
     }
 

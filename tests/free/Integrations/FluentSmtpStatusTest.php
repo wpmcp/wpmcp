@@ -12,6 +12,18 @@ use WPMCP\Tools\Meta\Secret_Options;
 
 require_once __DIR__ . '/../../support/fluent-smtp-double.php';
 
+/** A class whose unserialization would be visible: the log tests prove it is never instantiated. */
+class Smtp_Injection_Probe
+{
+    public static bool $woken = false;
+
+    public function __wakeup(): void
+    {
+        self::$woken = true;
+    }
+}
+
+
 /**
  * FluentSMTP config, log, test send and sender name (Fluent_SMTP_Status): ops
  * on the theme dispatcher pair, through Ops_Status_Packs (issue #696).
@@ -131,7 +143,7 @@ class FluentSmtpStatusTest extends \WP_UnitTestCase
     {
         $json = (string) wp_json_encode($payload);
         $raw  = (array) get_option('fluentmail-settings');
-        $needles = [ self::PASSWORD, self::USERNAME, self::SES_SECRET, self::SES_ACCESS, self::TOKEN, 'gmail-client-secret-value', 'gmail-access-token-value', 'gmail-client-id-value' ];
+        $needles = [ self::PASSWORD, self::SES_SECRET, self::SES_ACCESS, self::TOKEN, 'gmail-client-secret-value', 'gmail-access-token-value', 'gmail-client-id-value' ];
         foreach ($raw['connections'] as $connection) {
             foreach ([ 'password', 'secret_key', 'access_key', 'client_secret', 'access_token', 'refresh_token' ] as $field) {
                 if (! empty($connection['provider_settings'][ $field ])) {
@@ -496,6 +508,54 @@ class FluentSmtpStatusTest extends \WP_UnitTestCase
         $this->assertSame('invalid_args', $this->write('set-fluent-smtp-from', [ 'from_email' => 'not-an-email', 'sender_name' => 'X' ])['error']['code'] ?? null);
         $this->assertSame('invalid_args', $this->write('set-fluent-smtp-from', [ 'from_email' => 'hello@example.test', 'sender_name' => '<b></b>' ])['error']['code'] ?? null);
         $this->assertSame($before, get_option('fluentmail-settings'));
+    }
+
+    public function test_a_serialized_object_in_a_visitor_controlled_subject_is_never_unserialized(): void
+    {
+        Smtp_Injection_Probe::$woken = false;
+        $this->log_row([ 'subject' => serialize(new Smtp_Injection_Probe()) ]);
+
+        $out = $this->read('get-fluent-smtp-log');
+
+        $this->assertFalse(Smtp_Injection_Probe::$woken);
+        $this->assertStringContainsString('Smtp_Injection_Probe', $out['result']['emails'][0]['subject'], 'the subject is returned as the literal string');
+    }
+
+    public function test_a_serialized_object_in_a_plugin_serialized_field_is_not_instantiated(): void
+    {
+        Smtp_Injection_Probe::$woken = false;
+        $this->log_row([ 'status' => 'failed', 'response' => serialize([ 'message' => 'x', 'obj' => new Smtp_Injection_Probe() ]), 'to' => serialize([ new Smtp_Injection_Probe(), [ 'email' => 'a.b@example.org' ] ]) ]);
+
+        $out = $this->read('get-fluent-smtp-log');
+
+        $this->assertFalse(Smtp_Injection_Probe::$woken);
+        $this->assertSame([ 'a***@example.org' ], $out['result']['emails'][0]['to']);
+    }
+
+    public function test_a_secret_straddling_the_text_cut_cannot_leak_as_a_prefix(): void
+    {
+        $pad = str_repeat('x', 290);
+        $this->log_row([ 'status' => 'failed', 'response' => serialize([ 'message' => $pad . self::PASSWORD ]) ]);
+
+        $json = (string) wp_json_encode($this->read('get-fluent-smtp-log'));
+
+        $this->assertStringNotContainsString(substr(self::PASSWORD, 0, 6), $json, 'not even a prefix of the secret');
+    }
+
+    public function test_a_sender_address_equal_to_the_smtp_username_is_not_redacted(): void
+    {
+        $settings = fluentMailGetSettings([], false);
+        $settings['connections']['k-smtp']['provider_settings']['username'] = 'hello@example.test';
+        fluentMailSetSettings($settings);
+        $this->log_row([ 'status' => 'failed', 'subject' => 'From hello@example.test' ]);
+
+        $config = $this->read('get-fluent-smtp-config')['result'];
+        $log    = $this->read('get-fluent-smtp-log')['result'];
+
+        $smtp = array_column($config['connections'], null, 'id')['k-smtp'];
+        $this->assertSame('hello@example.test', $smtp['sender_email']);
+        $this->assertSame('[redacted]', $smtp['provider_settings']['username'], 'the user name itself stays hidden by key');
+        $this->assertSame('From hello@example.test', $log['emails'][0]['subject']);
     }
 
     public function test_the_pack_class_exposes_the_four_ops(): void
