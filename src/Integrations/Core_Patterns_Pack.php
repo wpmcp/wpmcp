@@ -3,6 +3,7 @@
 namespace WPMCP\Integrations;
 
 use WPMCP\Safety\Post_Creation_Snapshot;
+use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Save_Filters;
 use WPMCP\Tools\Content\Readable_Posts;
@@ -44,6 +45,9 @@ final class Core_Patterns_Pack
     private const POST_TYPE = 'wp_block';
     private const SYNC_META = 'wp_pattern_sync_status';
     private const MAX_POSTS = 50;
+
+    /** Most candidate posts one usage lookup scans; beyond it the result says truncated. */
+    private const USAGE_LIMIT = 500;
 
     /** @return array<string, array<string, mixed>> op name => definition for the theme pair. */
     public static function operations(): array
@@ -93,10 +97,10 @@ final class Core_Patterns_Pack
                 'mode'         => 'read',
                 'capability'   => 'edit_posts',
                 'objects'      => [ 'id' => [ 'type' => 'post', 'access' => 'read' ] ],
-                'description'  => 'Find the posts, templates and patterns that place a synced pattern, with the number of placements in each',
+                'description'  => 'Find the posts, templates and patterns that place a synced pattern (those you can read), with the placements in each. total is every placing post, readable the ones listed; truncated:true means the scan stopped at 500 candidates and total is a lower bound',
                 'input_schema' => [ 'type' => 'object', 'properties' => [ 'id' => $id ], 'required' => [ 'id' ] ],
                 'validate'     => static fn (array $args): ?array => self::readable_refusal((int) $args['id']),
-                'handler'      => static fn (array $args): array => [ 'pattern_id' => (int) $args['id'], 'usage' => self::usage((int) $args['id']) ],
+                'handler'      => static fn (array $args): array => [ 'pattern_id' => (int) $args['id'] ] + self::usage_report((int) $args['id']),
             ],
             'create-synced-pattern'  => $write + [
                 'self_snapshotting' => true,
@@ -120,14 +124,15 @@ final class Core_Patterns_Pack
             'detach-pattern-instance' => $write + [
                 'self_snapshotting' => true,
                 'objects'           => [ 'pattern_id' => [ 'type' => 'post', 'access' => 'read' ], 'post_ids.*' => 'post', 'post_ids' => 'post' ],
-                'description'       => 'Replace every placement of a synced pattern in the given posts with the pattern\'s own blocks, so later pattern edits no longer reach them. Each post is snapshotted under one session_id; rollback-session undoes the call. Posts without a placement are skipped. Disabled by default (wpmcp_enable_core_patterns_write filter)',
+                'description'       => 'Replace every placement of a synced pattern in the posts named in post_ids (at most 50; only those posts are snapshotted and changed) with the pattern\'s own blocks, so later pattern edits no longer reach them. all:true takes every placing post instead and refuses over 50 or when the scan is truncated. Block attributes beyond ref (overrides, bindings) are dropped. Each post is snapshotted under one session_id; rollback-session undoes the call, and a failure part way undoes the earlier posts. Posts without a placement are skipped. Disabled by default (wpmcp_enable_core_patterns_write filter)',
                 'input_schema'      => [
                     'type'       => 'object',
                     'properties' => [
                         'pattern_id' => $id,
                         'post_ids'   => [ 'type' => 'array', 'minItems' => 1, 'maxItems' => self::MAX_POSTS, 'items' => $id ],
+                        'all'        => [ 'type' => 'boolean' ],
                     ],
-                    'required'   => [ 'pattern_id', 'post_ids' ],
+                    'required'   => [ 'pattern_id' ],
                 ],
                 'validate'          => static fn (array $args): ?array => self::detach_refusal($args),
                 'handler'           => static fn (array $args, array $context): array => self::detach($args, $context),
@@ -213,49 +218,96 @@ final class Core_Patterns_Pack
             'content'      => (string) $post->post_content,
             'content_hash' => hash('sha256', (string) $post->post_content),
             'used_in'      => count(self::usage($id)),
+            'placed_in_total' => self::placing($id)['total'],
+            'usage_truncated' => self::placing($id)['truncated'],
         ];
+    }
+
+    /**
+     * Every post that places a pattern, whatever its status, the readable or
+     * not: the candidates are matched on the "ref" attribute in SQL, then
+     * checked exactly against the parsed blocks.
+     *
+     * @return array{ids: int[], counts: array<int, int>, total: int, truncated: bool}
+     */
+    private static function placing(int $pattern_id): array
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a content scan of every post type, including ones the caller cannot read, so a write can be refused on the full set.
+        $ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_status NOT IN ('auto-draft', 'inherit') AND post_type <> 'revision' AND post_content LIKE %s ORDER BY ID ASC LIMIT %d",
+            '%' . $wpdb->esc_like('"ref":' . $pattern_id) . '%',
+            self::USAGE_LIMIT + 1
+        )));
+        $truncated = count($ids) > self::USAGE_LIMIT;
+        $ids       = array_slice($ids, 0, self::USAGE_LIMIT);
+
+        $counts = [];
+        foreach ($ids as $post_id) {
+            $post = get_post($post_id);
+            $n    = $post ? self::count_placements(parse_blocks((string) $post->post_content), $pattern_id) : 0;
+            if ($n > 0) {
+                $counts[ $post_id ] = $n;
+            }
+        }
+
+        return [ 'ids' => array_keys($counts), 'counts' => $counts, 'total' => count($counts), 'truncated' => $truncated ];
+    }
+
+    /** @return array{usage: array, readable: int, total: int, truncated: bool} */
+    private static function usage_report(int $pattern_id): array
+    {
+        $placing = self::placing($pattern_id);
+        $usage   = [];
+        foreach ($placing['counts'] as $post_id => $n) {
+            $post = get_post((int) $post_id);
+            if (! $post || ! current_user_can('read_post', (int) $post_id)) {
+                continue;
+            }
+            $usage[] = [ 'id' => (int) $post->ID, 'title' => (string) $post->post_title, 'type' => (string) $post->post_type, 'status' => (string) $post->post_status, 'placements' => $n ];
+        }
+
+        return [ 'usage' => $usage, 'readable' => count($usage), 'total' => $placing['total'], 'truncated' => $placing['truncated'] ];
     }
 
     /** @return array<int, array{id: int, title: string, type: string, status: string, placements: int}> */
     private static function usage(int $pattern_id): array
     {
-        $types = array_values(array_unique(array_merge(
-            array_values(get_post_types([ 'public' => true ])),
-            [ 'wp_block', 'wp_template', 'wp_template_part', 'wp_navigation' ]
-        )));
-        $types = array_values(array_filter($types, 'post_type_exists'));
-        $like  = static function ($where, $q) use ($pattern_id) {
-            global $wpdb;
-            if (! $q->get('wpmcp_ref')) {
-                return $where;
-            }
-            return $where . $wpdb->prepare(" AND {$wpdb->posts}.post_content LIKE %s", '%' . $wpdb->esc_like('"ref":' . $pattern_id) . '%');
-        };
-        add_filter('posts_where', $like, 10, 2);
-        try {
-            $ids = Readable_Posts::query([
-                'post_type'      => $types,
-                'post_status'    => 'any',
-                'posts_per_page' => 500,
-                'fields'         => 'ids',
-                'orderby'        => 'ID',
-                'order'          => 'ASC',
-                'wpmcp_ref'      => 1,
-                'no_found_rows'  => true,
-            ])->posts;
-        } finally {
-            remove_filter('posts_where', $like, 10);
-        }
+        return self::usage_report($pattern_id)['usage'];
+    }
 
-        $out = [];
-        foreach ($ids as $post_id) {
-            $post = get_post((int) $post_id);
-            $n    = $post ? self::count_placements(parse_blocks((string) $post->post_content), $pattern_id) : 0;
-            if ($n > 0) {
-                $out[] = [ 'id' => (int) $post->ID, 'title' => (string) $post->post_title, 'type' => (string) $post->post_type, 'status' => (string) $post->post_status, 'placements' => $n ];
+    /**
+     * Why the current user may not change or remove a pattern that other
+     * people's posts place, or null. A synced pattern edit changes every
+     * placing post, so it takes edit rights on each of them or the type's
+     * edit_others_posts; a scan that stopped at the limit cannot prove the
+     * first, so it takes the second. Also asked when a restore would put an
+     * edit back or trash a creation (Rollback_Service::refused_post).
+     */
+    public static function placed_elsewhere_refusal(int $pattern_id): ?string
+    {
+        $post = self::pattern($pattern_id);
+        if (null === $post || ! self::is_synced($pattern_id)) {
+            return null;
+        }
+        $object = get_post_type_object(self::POST_TYPE);
+        if ($object instanceof \WP_Post_Type && current_user_can((string) $object->cap->edit_others_posts)) {
+            return null;
+        }
+        $placing = self::placing($pattern_id);
+        if ($placing['truncated']) {
+            return sprintf('pattern %d is placed in more than %d posts, so only a user who can edit others\' posts may change it.', $pattern_id, self::USAGE_LIMIT);
+        }
+        $blocked = [];
+        foreach ($placing['ids'] as $post_id) {
+            if (! current_user_can('edit_post', $post_id)) {
+                $blocked[] = $post_id;
             }
         }
-        return $out;
+        if ([] === $blocked) {
+            return null;
+        }
+        return sprintf('pattern %d is placed in %d post(s) you cannot edit (first: %d); changing it would change them. Ask someone who can edit others\' posts.', $pattern_id, count($blocked), $blocked[0]);
     }
 
     private static function is_placement(array $block, int $pattern_id): bool
@@ -332,6 +384,10 @@ final class Core_Patterns_Pack
         if (isset($args['expected_hash']) && ! hash_equals(hash('sha256', (string) $post->post_content), (string) $args['expected_hash'])) {
             return self::refusal('stale_hash', 'The pattern changed since it was read. Re-read it with get-synced-pattern and retry.');
         }
+        $elsewhere = self::placed_elsewhere_refusal($id);
+        if (null !== $elsewhere) {
+            return self::refusal('pattern_in_use_elsewhere', ucfirst($elsewhere));
+        }
         return null;
     }
 
@@ -370,8 +426,12 @@ final class Core_Patterns_Pack
         if (null !== $refused) {
             return $refused;
         }
+        $targets = self::detach_targets($args);
+        if (isset($targets['error'])) {
+            return $targets['error'];
+        }
         $with = 0;
-        foreach (array_values(array_unique(array_map('intval', (array) $args['post_ids']))) as $post_id) {
+        foreach ($targets['ids'] as $post_id) {
             $post = get_post($post_id);
             if (! $post instanceof \WP_Post) {
                 return self::refusal('post_not_found', sprintf('Post %d does not exist; nothing was written.', $post_id));
@@ -393,6 +453,29 @@ final class Core_Patterns_Pack
             return self::refusal('no_placements', 'None of the posts places this pattern; nothing to detach.');
         }
         return null;
+    }
+
+    /** @return array{ids: int[]}|array{error: array} the posts a detach call covers. */
+    private static function detach_targets(array $args): array
+    {
+        $pattern_id = (int) $args['pattern_id'];
+        if (! empty($args['all'])) {
+            $placing = self::placing($pattern_id);
+            if ($placing['truncated'] || $placing['total'] > self::MAX_POSTS) {
+                return [ 'error' => self::refusal('too_many_posts', sprintf(
+                    'The pattern is placed in %s%d posts, over the limit of %d for one call; nothing was written. Pass post_ids in batches of at most %d (find-pattern-usage lists them).',
+                    $placing['truncated'] ? 'at least ' : '',
+                    $placing['total'],
+                    self::MAX_POSTS,
+                    self::MAX_POSTS
+                ), [ 'total' => $placing['total'], 'truncated' => $placing['truncated'] ]) ];
+            }
+            return [ 'ids' => $placing['ids'] ];
+        }
+        if (empty($args['post_ids'])) {
+            return [ 'error' => self::refusal('no_posts', 'Pass post_ids or all:true.') ];
+        }
+        return [ 'ids' => array_values(array_unique(array_map('intval', (array) $args['post_ids']))) ];
     }
 
     /** Replace each placement in a block list with the pattern's blocks, innerContent kept in step. */
@@ -437,7 +520,9 @@ final class Core_Patterns_Pack
         $skipped        = [];
         $ids            = [];
 
-        foreach (array_values(array_unique(array_map('intval', (array) $args['post_ids']))) as $post_id) {
+        $targets = self::detach_targets($args);
+
+        foreach ($targets['ids'] as $post_id) {
             $content = (string) get_post($post_id)->post_content;
             $blocks  = parse_blocks($content);
             $n       = self::count_placements($blocks, $pattern_id);
@@ -446,23 +531,39 @@ final class Core_Patterns_Pack
                 continue;
             }
             $new = serialize_blocks(self::replace_placements($blocks, $pattern_id, $pattern_blocks));
-            $out = Safe_Mutation::run(
-                [
-                    'object_type' => 'post',
-                    'object_id'   => $post_id,
-                    'session_id'  => (string) $context['session_id'],
-                    'tool_name'   => (string) $context['tool_name'],
-                    'args'        => [ 'operation' => (string) $context['operation'], 'args' => [ 'pattern_id' => $pattern_id, 'post_id' => $post_id ] ],
-                ],
-                static function () use ($post_id, $new): bool {
-                    Save_Filters::update_post([ 'ID' => $post_id, 'post_content' => wp_slash($new) ]);
-                    return true;
-                },
-                static function () use ($post_id, $new): bool {
-                    clean_post_cache($post_id);
-                    return (string) get_post($post_id)->post_content === $new;
+            try {
+                $out = Safe_Mutation::run(
+                    [
+                        'object_type' => 'post',
+                        'object_id'   => $post_id,
+                        'session_id'  => (string) $context['session_id'],
+                        'tool_name'   => (string) $context['tool_name'],
+                        'args'        => [ 'operation' => (string) $context['operation'], 'args' => [ 'pattern_id' => $pattern_id, 'post_id' => $post_id ] ],
+                    ],
+                    static function () use ($post_id, $new): bool {
+                        Save_Filters::update_post([ 'ID' => $post_id, 'post_content' => wp_slash($new) ]);
+                        return true;
+                    },
+                    static function () use ($post_id, $new): bool {
+                        clean_post_cache($post_id);
+                        return (string) get_post($post_id)->post_content === $new;
+                    }
+                );
+            } catch (\Throwable $e) {
+                // Put the posts already rewritten back, newest first, so the call is all or nothing.
+                $left = [];
+                foreach (array_reverse($ids) as $done) {
+                    if (! Rollback_Service::restore_operation($done)) {
+                        $left[] = $done;
+                    }
                 }
-            );
+                throw new Operation_Refused('detach_failed', sprintf(
+                    'Detaching failed at post %d (%s); %s',
+                    $post_id,
+                    $e->getMessage(),
+                    [] === $left ? 'the posts already rewritten were put back.' : 'could not put back every earlier post, undo them with rollback-session.'
+                ), [ 'failed_post_id' => $post_id, 'session_id' => (string) $context['session_id'], 'operation_ids' => $left ]);
+            }
             $ids[]      = $out['operation_id'];
             $detached[] = [ 'post_id' => $post_id, 'placements' => $n, 'operation_id' => $out['operation_id'], 'content_hash' => hash('sha256', $new) ];
         }

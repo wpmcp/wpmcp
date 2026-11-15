@@ -252,7 +252,7 @@ class Rollback_Service
                 return $store;
             }
             if ($post instanceof \WP_Post) {
-                return self::refused_post_capability('edit_post', $post);
+                return self::refused_post_capability('edit_post', $post) ?? self::refused_pattern($post);
             }
             $row    = (array) ($snapshot['data']['post'] ?? []);
             $object = get_post_type_object((string) ($row['post_type'] ?? ''));
@@ -272,7 +272,8 @@ class Rollback_Service
                 $post = $post_id > 0 ? get_post($post_id) : null;
                 if ($post instanceof \WP_Post) {
                     $refused = self::refused_store((string) $post->post_type, $post_id)
-                        ?? self::refused_post_capability('delete_post', $post);
+                        ?? self::refused_post_capability('delete_post', $post)
+                        ?? self::refused_pattern($post);
                     if (null !== $refused) {
                         return $refused;
                     }
@@ -281,6 +282,20 @@ class Rollback_Service
         }
 
         return null;
+    }
+
+    /**
+     * A synced pattern (wp_block) other people's posts place: putting an
+     * edit back or trashing a creation changes those posts, so it takes what
+     * the write took (Core_Patterns_Pack::placed_elsewhere_refusal).
+     */
+    private static function refused_pattern(\WP_Post $post): ?string
+    {
+        if ('wp_block' !== $post->post_type) {
+            return null;
+        }
+        $why = \WPMCP\Integrations\Core_Patterns_Pack::placed_elsewhere_refusal((int) $post->ID);
+        return null === $why ? null : $why;
     }
 
     /**

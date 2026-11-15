@@ -285,4 +285,198 @@ class CorePatternsPackTest extends \WP_UnitTestCase
         $this->assertArrayHasKey('error', $out);
         $this->assertStringContainsString($this->ref($id), get_post($page)->post_content);
     }
+
+    private function as_role(string $role): int
+    {
+        $user = self::factory()->user->create([ 'role' => $role ]);
+        wp_set_current_user($user);
+        return $user;
+    }
+
+    private function admin_page_placing(int $pattern_id): int
+    {
+        $admin = self::factory()->user->create([ 'role' => 'administrator' ]);
+        return self::factory()->post->create([ 'post_type' => 'page', 'post_author' => $admin, 'post_status' => 'publish', 'post_content' => $this->ref($pattern_id) ]);
+    }
+
+    public function test_author_can_create_and_update_a_pattern_nobody_else_places(): void
+    {
+        $this->enable_writes();
+        $this->as_role('author');
+        $out = $this->write('create-synced-pattern', [ 'title' => 'Mine', 'content' => '<!-- wp:paragraph --><p>a</p><!-- /wp:paragraph -->' ]);
+        $this->assertArrayNotHasKey('error', $out);
+        $id = $out['result']['pattern']['id'];
+
+        $this->assertArrayNotHasKey('error', $this->write('update-synced-pattern', [ 'id' => $id, 'title' => 'Mine 2' ]));
+        $own = self::factory()->post->create([ 'post_type' => 'post', 'post_author' => get_current_user_id(), 'post_status' => 'publish', 'post_content' => $this->ref($id) ]);
+        $r = $this->write('update-synced-pattern', [ 'id' => $id, 'title' => 'Mine 3' ]);
+        $this->assertArrayNotHasKey('error', $r, 'a pattern placed only in posts the author can edit: ' . wp_json_encode($r));
+        $this->assertGreaterThan(0, $own);
+    }
+
+    public function test_author_cannot_update_a_pattern_an_admin_placed_in_a_page_and_nothing_changes(): void
+    {
+        $this->enable_writes();
+        $this->as_role('author');
+        $id   = $this->write('create-synced-pattern', [ 'title' => 'Mine', 'content' => '<!-- wp:paragraph --><p>a</p><!-- /wp:paragraph -->' ])['result']['pattern']['id'];
+        $page = $this->admin_page_placing($id);
+
+        $out = $this->write('update-synced-pattern', [ 'id' => $id, 'content' => '<!-- wp:paragraph --><p>defaced</p><!-- /wp:paragraph -->' ]);
+
+        $this->assertSame('pattern_in_use_elsewhere', $this->code($out));
+        $this->assertStringContainsString((string) $page, $out['error']['message']);
+        $this->assertStringContainsString('>a<', get_post($id)->post_content);
+        $this->assertSame([], Snapshot_Store::list_by_session('default'), 'a refused write snapshots nothing');
+    }
+
+    public function test_an_editor_may_update_a_pattern_placed_in_posts_they_cannot_edit_one_by_one(): void
+    {
+        $this->enable_writes();
+        $id = $this->pattern();
+        $this->admin_page_placing($id);
+        $this->as_role('editor');
+
+        $this->assertArrayNotHasKey('error', $this->write('update-synced-pattern', [ 'id' => $id, 'title' => 'Editor edit' ]), 'edit_others_posts covers every placing post');
+    }
+
+    public function test_contributor_cannot_create_or_update_a_pattern(): void
+    {
+        $this->enable_writes();
+        $this->as_role('contributor');
+        $this->assertSame('forbidden', $this->code($this->write('create-synced-pattern', [ 'title' => 'Pub' ])), 'core gives contributors no create_posts on patterns');
+        $this->assertSame('forbidden', $this->code($this->write('create-synced-pattern', [ 'title' => 'Draft', 'status' => 'draft' ])));
+        $published = $this->pattern();
+        $this->assertArrayHasKey('error', $this->write('update-synced-pattern', [ 'id' => $published, 'title' => 'x' ]));
+        $this->assertSame('Promo', get_post($published)->post_title);
+    }
+
+    public function test_author_cannot_roll_back_an_update_once_an_admin_placed_the_pattern(): void
+    {
+        $this->enable_writes();
+        $this->as_role('author');
+        $id  = $this->write('create-synced-pattern', [ 'title' => 'Mine', 'content' => '<!-- wp:paragraph --><p>a</p><!-- /wp:paragraph -->' ])['result']['pattern']['id'];
+        $out = $this->write('update-synced-pattern', [ 'id' => $id, 'title' => 'Changed' ]);
+        $this->assertArrayNotHasKey('error', $out);
+        $this->admin_page_placing($id);
+
+        (new Rollback_Operation())->handle([ 'operation_id' => $out['operation_id'] ]);
+
+        clean_post_cache($id);
+        $this->assertSame('Changed', get_post($id)->post_title, 'the restore was refused');
+    }
+
+    public function test_author_cannot_undo_a_create_once_an_admin_placed_the_pattern(): void
+    {
+        $this->enable_writes();
+        $this->as_role('author');
+        $made = $this->write('create-synced-pattern', [ 'title' => 'Mine' ]);
+        $id   = $made['result']['pattern']['id'];
+        $this->admin_page_placing($id);
+
+        (new Rollback_Session())->handle([ 'session_id' => $made['session_id'] ]);
+
+        $this->assertSame('publish', get_post_status($id), 'trashing it would blank the admin\'s page');
+    }
+
+    public function test_an_admin_can_roll_back_the_update_even_when_the_pattern_is_placed_elsewhere(): void
+    {
+        $this->enable_writes();
+        $id = $this->pattern();
+        $this->admin_page_placing($id);
+        $out = $this->write('update-synced-pattern', [ 'id' => $id, 'title' => 'Changed' ]);
+
+        (new Rollback_Operation())->handle([ 'operation_id' => $out['operation_id'] ]);
+        clean_post_cache($id);
+        $this->assertSame('Promo', get_post($id)->post_title);
+    }
+
+    public function test_author_detaches_in_their_own_post_but_not_in_an_admins_and_a_contributor_in_neither(): void
+    {
+        $this->enable_writes();
+        $id    = $this->pattern();
+        $admin = $this->admin_page_placing($id);
+        $this->as_role('author');
+        $mine = self::factory()->post->create([ 'post_type' => 'post', 'post_author' => get_current_user_id(), 'post_status' => 'publish', 'post_content' => $this->ref($id) ]);
+
+        $this->assertSame('forbidden', $this->code($this->write('detach-pattern-instance', [ 'pattern_id' => $id, 'post_ids' => [ $mine, $admin ] ])));
+        $this->assertStringContainsString($this->ref($id), get_post($mine)->post_content, 'a refused call writes nothing');
+        $r = $this->write('detach-pattern-instance', [ 'pattern_id' => $id, 'post_ids' => [ $mine ] ]);
+        $this->assertArrayNotHasKey('error', $r, wp_json_encode($r));
+        $this->assertStringNotContainsString('wp:block', get_post($mine)->post_content);
+
+        $this->as_role('contributor');
+        $this->assertArrayHasKey('error', $this->write('detach-pattern-instance', [ 'pattern_id' => $id, 'post_ids' => [ $admin ] ]));
+    }
+
+    public function test_a_detach_that_fails_part_way_puts_the_earlier_posts_back(): void
+    {
+        $this->enable_writes();
+        $id     = $this->pattern();
+        $first  = $this->page($this->ref($id));
+        $second = $this->page($this->ref($id));
+        $before = get_post($first)->post_content;
+        $once   = true;
+        $tamper = static function (array $data, array $post) use ($second, &$once): array {
+            if ($once && (int) ($post['ID'] ?? 0) === $second) {
+                $once = false;
+                return array_merge($data, [ 'post_content' => 'tampered' ]);
+            }
+            return $data;
+        };
+        add_filter('wp_insert_post_data', $tamper, 10, 2);
+
+        $out = $this->write('detach-pattern-instance', [ 'pattern_id' => $id, 'post_ids' => [ $first, $second ] ]);
+        remove_filter('wp_insert_post_data', $tamper, 10);
+
+        $this->assertSame('detach_failed', $this->code($out));
+        $this->assertArrayHasKey('session_id', $out['error']['data']);
+        clean_post_cache($first);
+        clean_post_cache($second);
+        $this->assertSame($before, get_post($first)->post_content, 'the earlier post was put back');
+        $this->assertStringContainsString($this->ref($id), get_post($second)->post_content);
+    }
+
+    public function test_usage_reports_totals_and_hides_unreadable_posts_from_the_readable_count(): void
+    {
+        $id = $this->pattern();
+        $this->page($this->ref($id));
+        $this->page($this->ref($id), 'draft');
+        $this->as_role('author');
+
+        $out = $this->read('find-pattern-usage', [ 'id' => $id ])['result'];
+        $this->assertSame(2, $out['total']);
+        $this->assertSame(1, $out['readable']);
+        $this->assertFalse($out['truncated']);
+    }
+
+    public function test_usage_is_flagged_truncated_past_the_scan_limit_and_detach_all_refuses_over_fifty(): void
+    {
+        $this->enable_writes();
+        $id = $this->pattern();
+        foreach (range(1, 52) as $i) {
+            $this->page($this->ref($id));
+        }
+        $out = $this->read('find-pattern-usage', [ 'id' => $id ])['result'];
+        $this->assertSame(52, $out['total']);
+        $this->assertFalse($out['truncated']);
+
+        $refused = $this->write('detach-pattern-instance', [ 'pattern_id' => $id, 'all' => true ]);
+        $this->assertSame('too_many_posts', $this->code($refused));
+        $this->assertStringContainsString('52', $refused['error']['message']);
+        $this->assertCount(52, $this->read('find-pattern-usage', [ 'id' => $id ])['result']['usage'], 'nothing was written');
+    }
+
+    public function test_detach_all_covers_every_placing_post_when_under_the_limit(): void
+    {
+        $this->enable_writes();
+        $id = $this->pattern();
+        $a  = $this->page($this->ref($id));
+        $b  = $this->page($this->ref($id));
+
+        $out = $this->write('detach-pattern-instance', [ 'pattern_id' => $id, 'all' => true ]);
+        $this->assertArrayNotHasKey('error', $out);
+        $this->assertCount(2, $out['operation_ids']);
+        $this->assertStringNotContainsString('wp:block', get_post($a)->post_content . get_post($b)->post_content);
+        $this->assertSame('no_posts', $this->code($this->write('detach-pattern-instance', [ 'pattern_id' => $id ])));
+    }
 }
