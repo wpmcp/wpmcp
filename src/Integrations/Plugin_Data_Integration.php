@@ -57,6 +57,9 @@ if (! defined('ABSPATH')) {
  *    (Elementor_Pro_Forms_Pack): forms found in pages, and form submissions
  *    read, exported, marked read or trashed, and deleted, each write under
  *    a db_rows before-image.
+ *  - Issue #698 adds the read-only activity log ops (Activity_Log_Pack):
+ *    WP Activity Log and Simple History events listed, with IPs and emails
+ *    masked, and read one at a time in full.
  *  - Issue #708 adds the paid-tier knowledge base and support desk ops:
  *    BetterDocs docs read, created and edited (BetterDocs_Pack), and
  *    Fluent Support and Awesome Support tickets read with customer emails
@@ -89,7 +92,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || TablePress_Pack::active()
             || CRM_Pack::active()
@@ -108,7 +111,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
@@ -133,6 +136,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             [ 'Code Snippets', false, Code_Snippets_Pack::operations() ],
             [ 'BuddyPress', false, BuddyPress_Pack::operations() ],
             [ 'WS Form', false, WS_Form_Pack::operations() ],
+            [ 'WP Activity Log, Simple History', true, Activity_Log_Pack::operations() ],
         ];
         foreach (LMS_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
@@ -170,6 +174,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             TranslatePress_Pack::operations(),
             Code_Snippets_Pack::operations(),
             WS_Form_Pack::operations(),
+            Activity_Log_Pack::operations(),
             BuddyPress_Pack::operations(),
             LMS_Pack::operations(),
             TablePress_Pack::operations(),

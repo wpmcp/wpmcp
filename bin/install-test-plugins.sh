@@ -16,6 +16,8 @@
 # with WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
 # --live-crm), or, with WPMCP_LIVE_HELPDESK=1, BetterDocs, Fluent Support
 # and Awesome Support only (bin/test-local.sh --live-helpdesk), or, with
+# WPMCP_LIVE_ACTIVITY_LOG=1, WP Activity Log and Simple History only
+# (bin/test-local.sh --live-activity-log), or, with
 # WPMCP_LIVE_AMELIA=1, Amelia Lite only
 # (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
 # WooCommerce and FunnelKit Funnel Builder only (bin/test-local.sh
@@ -210,6 +212,17 @@ if [ "${WPMCP_LIVE_HELPDESK:-}" = "1" ]; then
 		"betterdocs:betterdocs.php"
 		"fluent-support:fluent-support.php"
 		"awesome-support:awesome-support.php"
+	)
+fi
+
+# The live activity log job (issue #698) runs the activity log ops against the
+# real WP Activity Log and Simple History, both free on wordpress.org, on one
+# install: they share no tables or hooks. Exclusive too: the stub-backed tests
+# build both plugins' tables from a fixture.
+if [ "${WPMCP_LIVE_ACTIVITY_LOG:-}" = "1" ]; then
+	PLUGINS=(
+		"wp-security-audit-log:wp-security-audit-log.php"
+		"simple-history:index.php"
 	)
 fi
 
