@@ -498,6 +498,11 @@ class Rollback_Service
         if (Helpdesk_Ticket_Snapshot::TYPE === $type) {
             return [ [ Helpdesk_Ticket_Snapshot::capability((string) ($snapshot['data']['kind'] ?? '')) ] ];
         }
+        // A queued action's args can hold personal data (issue #702); the
+        // cancel took manage_options, so its undo does.
+        if (Action_Scheduler_Snapshot::TYPE === $type) {
+            return [ [ 'manage_options' ] ];
+        }
         if ('crm_rows' === $type) {
             $kind = (string) ($snapshot['data']['kind'] ?? '');
             if ('mailpoet' === Crm_Rows_Snapshot::plugin($kind)) {
@@ -1005,7 +1010,7 @@ class Rollback_Service
      */
     private static function is_session_reverse_snapshot(array $snapshot): bool
     {
-        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'bbpress_posts', 'crm_rows', 'amelia_rows', 'helpdesk_ticket', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
+        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'bbpress_posts', 'crm_rows', 'amelia_rows', 'helpdesk_ticket', 'action_scheduler', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
             || self::is_compiled_widget_snapshot($snapshot);
     }
 
@@ -1810,6 +1815,7 @@ class Rollback_Service
             'bbpress_posts',
             'crm_rows',
             'helpdesk_ticket',
+            'action_scheduler',
             'funnelkit_funnel',
             'funnelkit_funnel_create',
             'amelia_rows',
@@ -2102,6 +2108,12 @@ class Rollback_Service
         // Helpdesk_Ticket_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('helpdesk_ticket' === $snapshot['object_type']) {
             self::warn_if(Helpdesk_Ticket_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // Action_Scheduler_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('action_scheduler' === $snapshot['object_type']) {
+            self::warn_if(Action_Scheduler_Snapshot::restore($snapshot));
             return;
         }
 

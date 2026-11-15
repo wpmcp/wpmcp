@@ -345,6 +345,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'simple-history/index.php' );
     }
 
+    // The live Action Scheduler job (issue #702, WPMCP_LIVE_ACTION_SCHEDULER=1)
+    // runs the Action Scheduler ops against the standalone plugin from
+    // wordpress.org. Loaded only on request, and WooCommerce is not installed
+    // in that job, so the copy that loads is the standalone one.
+    if ( getenv( 'WPMCP_LIVE_ACTION_SCHEDULER' ) ) {
+        wpmcp_maybe_require_plugin( 'action-scheduler/action-scheduler.php' );
+    }
+
     // The live FunnelKit job (issue #500, WPMCP_LIVE_FUNNELKIT=1) runs the
     // FunnelKit funnel writes through the free Funnel Builder's own REST
     // controllers, beside the WooCommerce loaded above. Loaded only on

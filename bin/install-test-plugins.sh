@@ -19,7 +19,9 @@
 # --live-crm), or, with WPMCP_LIVE_HELPDESK=1, BetterDocs, Fluent Support
 # and Awesome Support only (bin/test-local.sh --live-helpdesk), or, with
 # WPMCP_LIVE_ACTIVITY_LOG=1, WP Activity Log and Simple History only
-# (bin/test-local.sh --live-activity-log), or, with
+# (bin/test-local.sh --live-activity-log), or, with WPMCP_LIVE_ACTION_SCHEDULER=1,
+# the standalone Action Scheduler only (bin/test-local.sh
+# --live-action-scheduler), or, with
 # WPMCP_LIVE_AMELIA=1, Amelia Lite only
 # (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
 # WooCommerce and FunnelKit Funnel Builder only (bin/test-local.sh
@@ -244,6 +246,16 @@ if [ "${WPMCP_LIVE_ACTIVITY_LOG:-}" = "1" ]; then
 	PLUGINS=(
 		"wp-security-audit-log:wp-security-audit-log.php"
 		"simple-history:index.php"
+	)
+fi
+
+# The live Action Scheduler job (issue #702) runs the Action Scheduler ops
+# against the standalone plugin from wordpress.org, which WooCommerce is not
+# part of, so the copy that loads is the standalone one. Exclusive too: the
+# normal run uses the copy WooCommerce bundles.
+if [ "${WPMCP_LIVE_ACTION_SCHEDULER:-}" = "1" ]; then
+	PLUGINS=(
+		"action-scheduler:action-scheduler.php"
 	)
 fi
 
