@@ -20,7 +20,7 @@ class MaskingTest extends \WP_UnitTestCase
     {
         $this->assertSame('J***', Masking::value('Jane Doe'));
         $this->assertSame('2***', Masking::value('203.0.113.7'));
-        $this->assertSame('é***', Masking::value('Émile'));
+        $this->assertSame('É***', Masking::value('Émile'));
     }
 
     public function test_arrays_mask_item_by_item_and_empty_values_stay(): void
