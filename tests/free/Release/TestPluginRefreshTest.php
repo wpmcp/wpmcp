@@ -115,6 +115,9 @@ class TestPluginRefreshTest extends TestCase
 
         [, $helpdesk] = $this->run_script('bin/install-test-plugins.sh', ['--list'], ['WP_CORE_DIR' => $core, 'WPMCP_LIVE_HELPDESK' => '1']);
         $this->assertSame(['betterdocs betterdocs.php latest', 'fluent-support fluent-support.php latest', 'awesome-support awesome-support.php latest'], explode("\n", trim($helpdesk)));
+
+        [, $logs] = $this->run_script('bin/install-test-plugins.sh', ['--list'], ['WP_CORE_DIR' => $core, 'WPMCP_LIVE_ACTIVITY_LOG' => '1']);
+        $this->assertSame(['wp-security-audit-log wp-security-audit-log.php latest', 'simple-history index.php latest'], explode("\n", trim($logs)));
     }
 
     public function test_a_new_release_of_an_unpinned_plugin_keys_a_new_install(): void
