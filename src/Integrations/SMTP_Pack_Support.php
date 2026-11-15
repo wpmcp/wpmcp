@@ -125,7 +125,18 @@ final class SMTP_Pack_Support
     {
         $found = [];
         self::addresses(is_string($value) ? maybe_unserialize($value) : $value, $found);
-        return array_values(array_unique(array_map([ \WPMCP\Integrations\Helpdesk_Adapter::class, 'mask_email' ], $found)));
+        return array_values(array_unique(array_map([ self::class, 'mask_email' ], $found)));
+    }
+
+    /** An address with all but the first character of its local part hidden: jane.doe@example.com reads j***@example.com. */
+    public static function mask_email(string $email): string
+    {
+        $email = trim($email);
+        $at    = strrpos($email, '@');
+        if (false === $at || 0 === $at) {
+            return '' === $email ? '' : '***';
+        }
+        return substr($email, 0, 1) . '***' . substr($email, $at);
     }
 
     /**
