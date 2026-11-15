@@ -47,7 +47,10 @@ if (! defined('ABSPATH')) {
  *
  * Every op takes manage_options, the capability Elementor Pro's own
  * submissions screen and REST controller require. Submissions are personal
- * data (names, emails, IP addresses).
+ * data (names, emails, IP addresses): list-submissions and
+ * export-submissions mask every field value, the IP address and the user
+ * agent with WS_Form_Pack::mask() (as wsform-list-entries does), and
+ * get-submission returns one submission in full (as wsform-get-entry does).
  *
  * Presence is filterable (wpmcp_elementor_pro_active, default:
  * ELEMENTOR_PRO_VERSION is defined). Without Elementor Pro the ops stay
@@ -215,20 +218,20 @@ final class Elementor_Pro_Forms_Pack
             ] + $base,
             'elementor-list-submissions'         => $base + [
                 'mode'         => 'read',
-                'description'  => 'List Elementor Pro form submissions newest first: id, form key and name, page, status, read flag, main field value, referer and dates, plus counts (all, unread, read, trash). status: all (default, not trashed), unread, read or trash; form ({post_id}_{element_id}); search matches any field value; after and before are dates (YYYY-MM-DD); page and per_page (max 100). Personal data',
+                'description'  => 'List Elementor Pro form submissions newest first: id, form key and name, page, status, read flag, main field value (MASKED), referer and dates, plus counts (all, unread, read, trash). status: all (default, not trashed), unread, read or trash; form ({post_id}_{element_id}); search matches any field value; after and before are dates (YYYY-MM-DD); page and per_page (max 100). Personal data',
                 'input_schema' => [ 'type' => 'object', 'properties' => $filter + $paging ],
                 'handler'      => static fn (array $args): array => self::list_submissions($args),
             ],
             'elementor-get-submission'           => $base + [
                 'mode'         => 'read',
-                'description'  => 'One Elementor Pro form submission with every field value (key, label, type, value), the actions that ran after submit and their result, user, IP, user agent, referer and dates. Personal data',
+                'description'  => 'One Elementor Pro form submission in full, with every field value (key, label, type, value), the actions that ran after submit and their result, user, IP, user agent, referer and dates. Personal data',
                 'input_schema' => [ 'type' => 'object', 'properties' => [ 'id' => $id ], 'required' => [ 'id' ] ],
                 'validate'     => static fn (array $args): ?array => self::missing_refusal((int) $args['id']),
                 'handler'      => static fn (array $args): array => [ 'submission' => self::submission((int) $args['id']) ],
             ],
             'elementor-export-submissions'       => $base + [
                 'mode'         => 'read',
-                'description'  => 'Export one Elementor Pro form\'s submissions as CSV (default) or JSON rows, one column per field (labels from the form) then Elementor\'s own columns (form, id, created at, user id, user agent, IP, referrer). Same status filter as list-submissions; ids picks submissions; offset and limit (default 500, max 1000) page through; next_offset says where to continue. CSV cells that start with = + - @ are prefixed with \' so a spreadsheet does not run them. Personal data',
+                'description'  => 'Export one Elementor Pro form\'s submissions as CSV (default) or JSON rows, one column per field (labels from the form) then Elementor\'s own columns (form, id, created at, user id, user agent, IP, referrer); values, user agent and IP are MASKED. Same status filter as list-submissions; ids picks submissions; offset and limit (default 500, max 1000) page through; next_offset says where to continue. CSV cells that start with = + - @ are prefixed with \' so a spreadsheet does not run them. Personal data',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -538,9 +541,10 @@ final class Elementor_Pro_Forms_Pack
         $main = self::values_by_id(array_values(array_filter(array_map('intval', array_column($rows, 'main_meta_id')))));
 
         return [
-            'submissions' => array_map(static fn (array $row): array => self::summary($row, $main[ (int) $row['main_meta_id'] ] ?? null), $rows),
+            'submissions' => array_map(static fn (array $row): array => self::summary($row, self::masked_main($main[ (int) $row['main_meta_id'] ] ?? null)), $rows),
             'counts'      => array_map('intval', array_merge([ 'all' => 0, 'unread' => 0, 'read' => 0, 'trash' => 0 ], array_filter($count, static fn ($v): bool => null !== $v))),
             'total'       => $total,
+            'masked'      => true,
             'page'        => $page,
             'per_page'    => $per_page,
             'has_more'    => $page * $per_page < $total,
@@ -568,6 +572,19 @@ final class Elementor_Pro_Forms_Pack
             $out[ (int) $row['id'] ] = [ 'key' => (string) $row['key'], 'value' => $row['value'] ];
         }
         return $out;
+    }
+
+    /**
+     * The main field with its value masked the way the WS Form pack masks list
+     * reads (WS_Form_Pack::mask(): an email keeps its first character and its
+     * domain, anything else its first character).
+     *
+     * @param array{key: string, value: mixed}|null $main
+     * @return array{key: string, value: mixed}|null
+     */
+    private static function masked_main(?array $main): ?array
+    {
+        return null === $main ? null : [ 'key' => $main['key'], 'value' => WS_Form_Pack::mask($main['value']) ];
     }
 
     /** One submissions row as list-submissions returns it. */
@@ -706,7 +723,7 @@ final class Elementor_Pro_Forms_Pack
             $id    = (int) $row['id'];
             $cells = [];
             foreach ($keys as $key) {
-                $cells[ $key ] = $values[ $id ][ $key ] ?? '';
+                $cells[ $key ] = WS_Form_Pack::mask($values[ $id ][ $key ] ?? '');
             }
             $out[] = [
                 'fields'     => $cells,
@@ -714,8 +731,8 @@ final class Elementor_Pro_Forms_Pack
                 'id'         => $id,
                 'created_at' => get_date_from_gmt((string) $row['created_at_gmt']),
                 'user_id'    => (int) $row['user_id'],
-                'user_agent' => (string) $row['user_agent'],
-                'user_ip'    => (string) $row['user_ip'],
+                'user_agent' => WS_Form_Pack::mask((string) $row['user_agent']),
+                'user_ip'    => WS_Form_Pack::mask((string) $row['user_ip']),
                 'referrer'   => (string) $row['referer'],
             ];
         }
@@ -727,6 +744,7 @@ final class Elementor_Pro_Forms_Pack
             'columns'     => $columns,
             'count'       => count($out),
             'total'       => $total,
+            'masked'      => true,
             'next_offset' => $next,
         ];
         if ('json' === ($args['format'] ?? 'csv')) {

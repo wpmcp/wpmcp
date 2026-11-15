@@ -273,7 +273,7 @@ class ElementorProFormsPackTest extends \WP_UnitTestCase
         $all = $this->ok($this->read('elementor-list-submissions'))['result'];
         $this->assertSame([ $b, $a ], array_column($all['submissions'], 'id'), 'newest first, trash left out');
         $this->assertSame([ 'all' => 2, 'unread' => 1, 'read' => 1, 'trash' => 1 ], $all['counts']);
-        $this->assertSame([ 'key' => 'email', 'value' => 'bob@example.org' ], $all['submissions'][0]['main']);
+        $this->assertSame([ 'key' => 'email', 'value' => 'b***@example.org' ], $all['submissions'][0]['main'], 'list reads mask the main value (issue #866)');
         $this->assertSame($this->page . '_a1b2c3d', $all['submissions'][0]['form']);
 
         $ids = fn (array $args): array => array_column($this->ok($this->read('elementor-list-submissions', $args))['result']['submissions'], 'id');
@@ -319,13 +319,61 @@ class ElementorProFormsPackTest extends \WP_UnitTestCase
         $lines = explode("\r\n", trim($out['csv']));
         $this->assertCount(3, $lines);
         $this->assertStringStartsWith('"Your name","Your email","Message"', $lines[0]);
-        $this->assertStringContainsString('"\'=HYPERLINK(""x"")"', $out['csv']);
-        $this->assertStringContainsString('"ada@example.org"', $out['csv']);
+        $this->assertStringContainsString('"\'=***"', $out['csv'], 'a masked formula is still neutralized');
+        $this->assertStringContainsString('"a***@example.org"', $out['csv']);
+        $this->assertStringNotContainsString('ada@example.org', $out['csv'], 'export masks personal data (issue #866)');
         $this->assertStringContainsString('"Contact form (a1b2c3d)"', $out['csv']);
 
         $json = $this->ok($this->read('elementor-export-submissions', [ 'form' => $this->page . '_a1b2c3d', 'format' => 'json', 'limit' => 1 ]))['result'];
         $this->assertSame(1, $json['next_offset']);
-        $this->assertSame('=HYPERLINK("x")', $json['rows'][0]['fields']['name'], 'JSON keeps the raw value');
+        $this->assertSame('=***', $json['rows'][0]['fields']['name'], 'JSON masks the value too');
+    }
+
+    public function test_list_and_export_mask_email_name_ip_and_user_agent_but_keep_structure(): void
+    {
+        $id   = $this->submit('ada@example.org', [ 'user_ip' => '203.0.113.7', 'user_agent' => 'Mozilla/5.0 Secret' ]);
+        $form = $this->page . '_a1b2c3d';
+
+        $list = $this->ok($this->read('elementor-list-submissions'))['result'];
+        $this->assertSame('a***@example.org', $list['submissions'][0]['main']['value']);
+        $this->assertSame('email', $list['submissions'][0]['main']['key'], 'keys stay readable');
+        $this->assertSame(1, $list['counts']['all'], 'counts stay readable');
+        $this->assertNotEmpty($list['submissions'][0]['created_at']);
+        $this->assertStringNotContainsString('ada@example.org', (string) wp_json_encode($list));
+
+        $json = $this->ok($this->read('elementor-export-submissions', [ 'form' => $form, 'format' => 'json' ]))['result'];
+        $row  = $json['rows'][0];
+        $this->assertSame('a***@example.org', $row['fields']['email']);
+        $this->assertSame('A***', $row['fields']['name']);
+        $this->assertSame('2***', $row['user_ip']);
+        $this->assertSame('M***', $row['user_agent']);
+        $this->assertSame($id, $row['id']);
+        $this->assertTrue($json['masked']);
+        $this->assertSame([ 'Your name', 'Your email', 'Message' ], array_slice($json['columns'], 0, 3));
+        $encoded = (string) wp_json_encode($json);
+        foreach ([ 'ada@example.org', '203.0.113.7', 'Mozilla/5.0 Secret', 'Hello there' ] as $secret) {
+            $this->assertStringNotContainsString($secret, $encoded);
+        }
+
+        $csv = $this->ok($this->read('elementor-export-submissions', [ 'form' => $form ]))['result']['csv'];
+        foreach ([ 'ada@example.org', '203.0.113.7', 'Mozilla/5.0 Secret' ] as $secret) {
+            $this->assertStringNotContainsString($secret, $csv);
+        }
+        $this->assertStringContainsString('"2***"', $csv);
+    }
+
+    public function test_single_read_stays_full_for_manage_options_and_denied_without_it(): void
+    {
+        $id  = $this->submit('ada@example.org', [ 'user_ip' => '203.0.113.7', 'user_agent' => 'Mozilla/5.0 Secret' ]);
+        $one = $this->ok($this->read('elementor-get-submission', [ 'id' => $id ]))['result']['submission'];
+        $this->assertSame('ada@example.org', $one['values'][1]['value']);
+        $this->assertSame('203.0.113.7', $one['user_ip']);
+        $this->assertSame('Mozilla/5.0 Secret', $one['user_agent']);
+
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'editor' ]));
+        $out = $this->read('elementor-get-submission', [ 'id' => $id ]);
+        $this->assertSame('operation_denied', $out['error']['code'] ?? null);
+        $this->assertStringNotContainsString('ada@example.org', (string) wp_json_encode($out));
     }
 
     // ---------------------------------------------------------------

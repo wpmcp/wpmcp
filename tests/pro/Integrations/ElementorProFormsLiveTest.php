@@ -161,7 +161,8 @@ class ElementorProFormsLiveTest extends \WP_UnitTestCase
         $own  = Query::get_instance()->get_submission($id)['data'];
         $list = $this->call('read', 'elementor-list-submissions', [ 'form' => $this->page . '_a1b2c3d' ]);
         $this->assertSame([ $id ], array_column($list['submissions'], 'id'));
-        $this->assertSame($own['main']['value'], $list['submissions'][0]['main']['value']);
+        $this->assertSame('a***@example.org', $list['submissions'][0]['main']['value'], 'list reads mask the main value');
+        $this->assertSame('email', $list['submissions'][0]['main']['key']);
 
         $read = $this->call('read', 'elementor-get-submission', [ 'id' => $id ])['submission'];
         $this->assertSame(array_column($own['values'], 'value', 'key'), array_column($read['values'], 'value', 'key'));
@@ -172,7 +173,8 @@ class ElementorProFormsLiveTest extends \WP_UnitTestCase
 
         $csv = $this->call('read', 'elementor-export-submissions', [ 'form' => $this->page . '_a1b2c3d' ])['csv'];
         $this->assertStringStartsWith('"Your name","Your email","Form Name (ID)"', $csv);
-        $this->assertStringContainsString('"ada@example.org"', $csv);
+        $this->assertStringContainsString('"a***@example.org"', $csv);
+        $this->assertStringNotContainsString('ada@example.org', $csv, 'export masks personal data');
     }
 
     public function test_a_status_change_is_what_elementor_pro_reads_and_rolls_back(): void
