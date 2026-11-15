@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Rest;
 
+use WPMCP\Tools\Meta\Secret_Options;
 use WPMCP\Tools\WooCommerce\Gateway_Secrets;
 
 if (! defined('ABSPATH')) {
@@ -91,7 +92,7 @@ class Call_Rest
         // A payment gateway write that sends a credential back masked, as
         // a read showed it, leaves the stored one alone (issue #507).
         if (! in_array($method, self::READ_METHODS, true)) {
-            $params = Gateway_Secrets::unmask_rest_params($route, $params);
+            $params = Secret_Options::unmask_rest_params($route, Gateway_Secrets::unmask_rest_params($route, $params));
         }
         if (! empty($params)) {
             if (in_array($method, self::READ_METHODS, true)) {
@@ -113,6 +114,10 @@ class Call_Rest
         if (Gateway_Secrets::is_gateway_route('' !== $matched ? $matched : $route)) {
             $body = Gateway_Secrets::mask_rest_body($body);
         }
+
+        // Registered credential options (and anything under /wp/v2/settings)
+        // come back masked by the same registry get-option uses (issue #865).
+        $body = Secret_Options::mask_rest_body('' !== $matched ? $matched : $route, $body);
 
         return [
             'status' => $response->get_status(),

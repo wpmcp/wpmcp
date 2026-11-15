@@ -96,6 +96,13 @@ class Query
         // (issues #507, #528).
         $rows = Database_Guard::mask_gateway_secrets($rows);
 
+        // A select of the value column alone has no option_name to match the
+        // secret registry against, so its cells get the key-name heuristic
+        // (issue #865). Registered options were refused before the query ran.
+        if (Database_Guard::reads_option_value($sql)) {
+            $rows = Database_Guard::mask_option_value_cells($rows);
+        }
+
         return [
             'rows'      => $rows,
             'row_count' => count($rows),

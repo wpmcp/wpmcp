@@ -341,27 +341,30 @@ class SecretOptionsTest extends \WP_UnitTestCase
 
     // ---- The database query tool.
 
-    public function test_the_query_tool_masks_a_registered_option_row(): void
+    /** The query tool steers a registered option to get-option, even when option_name is selected. */
+    public function test_the_query_tool_refuses_to_read_a_registered_option_row(): void
     {
         global $wpdb;
         update_option('wp_rocket_settings', [ 'secret_cache_key' => 'sql-secret', 'lazyload' => 1 ]);
 
-        $out = (new Query())->handle([ 'sql' => "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name = 'wp_rocket_settings'" ]);
-
-        $this->assertStringNotContainsString('sql-secret', wp_json_encode($out));
-        $row = maybe_unserialize($out['rows'][0]['option_value']);
-        $this->assertSame(self::MASK, $row['secret_cache_key']);
-        $this->assertSame(1, $row['lazyload']);
+        try {
+            (new Query())->handle([ 'sql' => "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name = 'wp_rocket_settings'" ]);
+            $this->fail('query returned a registered credential option.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('get-option', $e->getMessage());
+            $this->assertStringNotContainsString('sql-secret', $e->getMessage());
+        }
     }
 
-    public function test_the_query_tool_masks_a_whole_secret_option_row(): void
+    /** Write tools' before-images still mask a row that carries its option name. */
+    public function test_a_before_image_row_of_a_registered_option_is_masked(): void
     {
-        global $wpdb;
-        update_option('sib_token_store', 'brevo-sql');
+        $rows = \WPMCP\Tools\Database\Database_Guard::mask_gateway_secrets([
+            [ 'option_name' => 'wp_rocket_settings', 'option_value' => serialize([ 'secret_cache_key' => 'img-secret', 'lazyload' => 1 ]) ], // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- fixture.
+        ]);
 
-        $out = (new Query())->handle([ 'sql' => "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name = 'sib_token_store'" ]);
-
-        $this->assertSame(self::MASK, $out['rows'][0]['option_value']);
+        $this->assertStringNotContainsString('img-secret', wp_json_encode($rows));
+        $this->assertSame(1, unserialize($rows[0]['option_value'])['lazyload']); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize -- reads back the masked fixture.
     }
 
     public function test_the_query_tool_masks_a_heuristic_key_in_an_unregistered_row(): void
@@ -381,6 +384,116 @@ class SecretOptionsTest extends \WP_UnitTestCase
         update_option('wordpress_api_key', 'akismet-live');
 
         $this->assertSame(self::MASK, (new Get_Option())->handle([ 'name' => 'wordpress_api_key' ])['value']);
+    }
+
+    // ---- Review fixes (PR #917).
+
+    /** A value-only select of a registered option must not return the credential. */
+    public function test_a_value_only_select_of_a_registered_option_is_refused(): void
+    {
+        global $wpdb;
+        update_option('wp_mail_smtp', [ 'smtp' => [ 'pass' => 'LEAKPASS' ] ]);
+
+        foreach ([
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = 'wp_mail_smtp'",
+            "SELECT option_value AS v FROM {$wpdb->options} WHERE option_name = 'WP_MAIL_SMTP'",
+            "SELECT * FROM {$wpdb->options} WHERE option_name = 'wp_mail_smtp'",
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name IN ('siteurl', 'wp_mail_smtp')",
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE 'wp_mail%'",
+            "SELECT o.option_value FROM {$wpdb->options} o JOIN {$wpdb->options} p ON p.option_id = o.option_id WHERE o.option_name = 'wp_mail_smtp'",
+            "SELECT REVERSE(option_value) FROM {$wpdb->options} WHERE option_name = 'wp_mail_smtp'",
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = 'wp_mail_smtp' UNION SELECT 1",
+            "SELECT option_value FROM wp_999_options WHERE option_name = 'wp_mail_smtp'",
+        ] as $sql) {
+            try {
+                $out = (new Query())->handle([ 'sql' => $sql ]);
+                $this->assertStringNotContainsString('LEAKPASS', wp_json_encode($out), $sql);
+            } catch (\RuntimeException $e) {
+                $this->assertStringNotContainsString('LEAKPASS', $e->getMessage());
+            }
+        }
+    }
+
+    public function test_a_value_only_select_of_a_whole_secret_option_is_refused(): void
+    {
+        global $wpdb;
+        update_option('sib_token_store', 'LEAKTOKEN');
+
+        $this->expectException(\RuntimeException::class);
+        (new Query())->handle([ 'sql' => "SELECT option_value FROM {$wpdb->options} WHERE option_name = 'sib_token_store'" ]);
+    }
+
+    public function test_a_value_only_select_masks_a_heuristic_key_and_refuses_a_transform(): void
+    {
+        global $wpdb;
+        update_option('wpmcp_test_unregistered', [ 'client_secret' => 'LEAKHEUR', 'label' => 'x' ]);
+
+        $out = (new Query())->handle([ 'sql' => "SELECT option_value FROM {$wpdb->options} WHERE option_name = 'wpmcp_test_unregistered'" ]);
+        $this->assertStringNotContainsString('LEAKHEUR', wp_json_encode($out));
+        $this->assertSame('x', maybe_unserialize($out['rows'][0]['option_value'])['label']);
+
+        $this->expectException(\RuntimeException::class);
+        (new Query())->handle([ 'sql' => "SELECT REVERSE(option_value) FROM {$wpdb->options} WHERE option_name = 'wpmcp_test_unregistered'" ]);
+    }
+
+    public function test_the_query_tool_cannot_read_a_registered_site_option_from_sitemeta(): void
+    {
+        global $wpdb;
+        $this->expectException(\RuntimeException::class);
+        (new Query())->handle([ 'sql' => "SELECT meta_value FROM {$wpdb->base_prefix}sitemeta WHERE meta_key = 'backwpup_jobs'" ]);
+    }
+
+    public function test_nested_json_and_serialized_strings_are_masked(): void
+    {
+        update_option('wpmcp_test_unregistered', [
+            'cfg' => '{"api_key":"NESTJSON","label":"keep"}',
+            'ser' => serialize([ 'password' => 'NESTSER', 'host' => 'h' ]), // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- fixture.
+        ]);
+
+        $value = (new Get_Option())->handle([ 'name' => 'wpmcp_test_unregistered' ])['value'];
+
+        $this->assertStringNotContainsString('NESTJSON', wp_json_encode($value));
+        $this->assertStringNotContainsString('NESTSER', wp_json_encode($value));
+        $this->assertSame('keep', json_decode($value['cfg'], true)['label']);
+        $this->assertSame('h', unserialize($value['ser'])['host']); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize -- reads back the masked fixture.
+    }
+
+    public function test_the_heuristic_leaves_numbers_and_booleans_readable(): void
+    {
+        update_option('wpmcp_test_unregistered', [ 'max_tokens' => 4096, 'password_min_length' => 8, 'token_ttl' => 3600.5, 'secret_enabled' => true, 'api_key' => 'live' ]);
+
+        $value = (new Get_Option())->handle([ 'name' => 'wpmcp_test_unregistered' ])['value'];
+
+        $this->assertSame(4096, $value['max_tokens']);
+        $this->assertSame(8, $value['password_min_length']);
+        $this->assertSame(3600.5, $value['token_ttl']);
+        $this->assertTrue($value['secret_enabled']);
+        $this->assertSame(self::MASK, $value['api_key']);
+    }
+
+    public function test_a_masked_value_in_a_reshaped_list_is_never_restored_into_another_entry(): void
+    {
+        add_filter('wpmcp_enable_option_write', '__return_true');
+        update_option('wpmcp_test_unregistered', [ 'accounts' => [ [ 'id' => 'a', 'api_key' => 'KEY-A' ], [ 'id' => 'b', 'api_key' => 'KEY-B' ] ] ]);
+
+        // The caller deletes entry "a" and sends back entry "b" with its mask, now at index 0.
+        try {
+            (new Update_Option())->handle([ 'name' => 'wpmcp_test_unregistered', 'value' => [ 'accounts' => [ [ 'id' => 'b', 'api_key' => self::MASK ] ] ] ]);
+            $this->fail('an ambiguous restore must be refused');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('list', $e->getMessage());
+        }
+        $this->assertSame('KEY-A', get_option('wpmcp_test_unregistered')['accounts'][0]['api_key'], 'nothing was written');
+    }
+
+    public function test_a_masked_value_in_an_unchanged_list_is_still_restored(): void
+    {
+        add_filter('wpmcp_enable_option_write', '__return_true');
+        update_option('wpmcp_test_unregistered', [ 'accounts' => [ [ 'id' => 'a', 'api_key' => 'KEY-A' ], [ 'id' => 'b', 'api_key' => 'KEY-B' ] ] ]);
+
+        (new Update_Option())->handle([ 'name' => 'wpmcp_test_unregistered', 'value' => [ 'accounts' => [ [ 'id' => 'a', 'api_key' => self::MASK ], [ 'id' => 'b', 'api_key' => self::MASK ] ] ] ]);
+
+        $this->assertSame([ 'KEY-A', 'KEY-B' ], array_column(get_option('wpmcp_test_unregistered')['accounts'], 'api_key'));
     }
 
     /** Walks "a.b.c" through nested arrays; null when absent. */
