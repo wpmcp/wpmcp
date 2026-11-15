@@ -2078,6 +2078,12 @@ class Rollback_Service
         // Plugin_Table_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('plugin_table_rows' === $snapshot['object_type']) {
             Plugin_Table_Rows_Snapshot::restore($snapshot);
+            /**
+             * Action: a plugin table's rows were put back by a rollback
+             * (issue #867), so an integration that caches what it derives
+             * from them can rebuild it. Passes the rows' kind.
+             */
+            do_action('wpmcp_rollback_table_rows_restored', (string) ($snapshot['data']['kind'] ?? ''));
             return;
         }
 

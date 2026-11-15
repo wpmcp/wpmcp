@@ -493,6 +493,13 @@ final class Plugin
         // A block suite write dropped the suite's cached per-post CSS; its
         // rollback does too (issue #287). Hooked on the post restore action.
         [\WPMCP\Integrations\Block_Suite::class, 'refresh_after_restore', 'wpmcp_rollback_post_restored'],
+        // MemberPress rebuilds its cached rule and membership lists only on a
+        // wp-admin save, so an undo that restores or trashes a rule or
+        // membership post, or puts a rule's access rows back, rebuilds them
+        // as the write did (issue #867).
+        [\WPMCP\Integrations\MemberPress_Pack::class, 'after_post_change', 'wpmcp_rollback_post_restored'],
+        [\WPMCP\Integrations\MemberPress_Pack::class, 'after_post_change', 'trashed_post'],
+        [\WPMCP\Integrations\MemberPress_Pack::class, 'after_rows_restored', 'wpmcp_rollback_table_rows_restored'],
         // A TablePress write dropped the table's render cache, and TablePress
         // keeps its table id map in memory; a rollback of either drops the
         // cache and refreshes the map (issue #481).

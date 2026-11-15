@@ -161,6 +161,56 @@ class MemberPressLiveTest extends \WP_UnitTestCase
         $this->assertSame([], (new \MeprRule($id))->mgm_mepr_access('get'));
     }
 
+    /** MemberPress keeps the rule objects of a request in a static; a new request starts without them. */
+    private function new_request(): void
+    {
+        \MeprRule::$all_rules = null;
+    }
+
+    private function locked_for_a_guest(int $page): bool
+    {
+        $this->new_request();
+        return \MeprRule::is_locked_for_user(new \MeprUser(), get_post($page));
+    }
+
+    /**
+     * Issue #867: MemberPress rebuilds its cached rule list
+     * (mepr_all_models_for_class_meprrule) only on a wp-admin save, so a rule
+     * written over MCP protected nothing until Save Rule was pressed. Asked
+     * the way the front end asks: MeprRule::is_locked_for_user() for a guest.
+     */
+    public function test_a_rule_written_over_mcp_locks_the_content_for_a_guest_at_once_and_its_undo_unlocks_it(): void
+    {
+        $this->assertFalse(is_admin(), 'an MCP request is not an admin request');
+        $other = self::factory()->post->create([ 'post_type' => 'page', 'post_title' => 'Other' ]);
+        $page  = self::factory()->post->create([ 'post_type' => 'page', 'post_title' => 'Lounge' ]);
+        $gold  = $this->call('write', 'memberpress-create-membership', [ 'title' => 'Gold', 'status' => 'publish' ])['result']['membership']['id'];
+
+        // An earlier rule fills the cache, as a site with rules always has.
+        $first = $this->call('write', 'memberpress-create-rule', [ 'type' => 'single_page', 'content' => (string) $other, 'status' => 'publish', 'access' => [ [ 'type' => 'membership', 'condition' => (string) $gold ] ] ]);
+        $this->assertNotEmpty(get_transient('mepr_all_models_for_class_meprrule'));
+        $this->assertFalse($this->locked_for_a_guest($page));
+
+        $out  = $this->call('write', 'memberpress-create-rule', [ 'type' => 'single_page', 'content' => (string) $page, 'status' => 'publish', 'access' => [ [ 'type' => 'membership', 'condition' => (string) $gold ] ] ]);
+        $rule = $out['result']['rule']['id'];
+        $this->assertTrue($this->locked_for_a_guest($page), 'a created rule is enforced without a wp-admin save');
+
+        $move = $this->call('write', 'memberpress-update-rule', [ 'id' => $rule, 'content' => (string) $other ]);
+        $this->assertFalse($this->locked_for_a_guest($page), 'an update that moves the rule is enforced at once');
+        Rollback_Service::restore_session($move['session_id']);
+        $this->assertTrue($this->locked_for_a_guest($page));
+
+        $draft = $this->call('write', 'memberpress-update-rule', [ 'id' => $rule, 'status' => 'draft' ]);
+        $this->assertFalse($this->locked_for_a_guest($page), 'a rule taken to draft stops applying');
+        Rollback_Service::restore_session($draft['session_id']);
+        $this->assertTrue($this->locked_for_a_guest($page));
+
+        Rollback_Service::restore_session($out['session_id']);
+        $this->assertFalse($this->locked_for_a_guest($page), 'undoing the create lifts the protection');
+        Rollback_Service::restore_session($first['session_id']);
+        $this->assertFalse($this->locked_for_a_guest($other));
+    }
+
     /**
      * Issue #821: a rule read through list-rules gives access conditions a
      * new rule can be created from as they are, and the new rule's auto
