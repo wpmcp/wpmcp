@@ -12,6 +12,10 @@ namespace Bricks {
             /** @param int $post_id @param string $content_type @param array $elements */
             public static function generate_post_css_file($post_id, $content_type, $elements) // phpcs:ignore
             {
+                // Bricks returns early unless CSS loading is set to external files (files.php:507).
+                if ('inline' === ($GLOBALS['wpmcp_bricks_css_loading'] ?? 'file')) {
+                    return;
+                }
                 $GLOBALS['wpmcp_bricks_css_calls'][] = [(int) $post_id, (string) $content_type, count((array) $elements)];
             }
         }
@@ -43,6 +47,7 @@ namespace WPMCP\Tests\Pro\Builders {
             Gate::set_pro_for_tests(true);
             Snapshot_Store::install();
             $GLOBALS['wpmcp_bricks_css_calls'] = [];
+            unset($GLOBALS['wpmcp_bricks_css_loading']);
         }
 
         protected function tearDown(): void
@@ -212,6 +217,90 @@ namespace WPMCP\Tests\Pro\Builders {
             $id = self::factory()->post->create(['post_type' => 'bricks_template']);
 
             $this->assertIsArray($this->write($id));
+        }
+
+        public function test_header_template_writes_the_header_row_and_builds_css_from_it(): void
+        {
+            add_filter('wpmcp_bricks_active', '__return_true');
+            $id = self::factory()->post->create(['post_type' => 'bricks_template']);
+            update_post_meta($id, '_bricks_template_type', 'header');
+
+            $this->assertIsArray($this->write($id));
+
+            $this->assertSame(self::ELEMENTS, get_post_meta($id, '_bricks_page_header_2', true));
+            $this->assertFalse(metadata_exists('post', $id, '_bricks_page_content_2'));
+            $this->assertSame([[$id, 'header', 1]], $GLOBALS['wpmcp_bricks_css_calls']);
+        }
+
+        public function test_footer_template_writes_the_footer_row(): void
+        {
+            $id = self::factory()->post->create(['post_type' => 'bricks_template']);
+            update_post_meta($id, '_bricks_template_type', 'footer');
+
+            $this->assertIsArray($this->write($id));
+
+            $this->assertSame(self::ELEMENTS, get_post_meta($id, '_bricks_page_footer_2', true));
+            $this->assertFalse(metadata_exists('post', $id, '_bricks_page_content_2'));
+        }
+
+        public function test_header_template_undo_restores_the_header_row_and_mode(): void
+        {
+            add_filter('wpmcp_bricks_active', '__return_true');
+            $id  = self::factory()->post->create(['post_type' => 'bricks_template']);
+            $old = [['id' => 'old111', 'name' => 'section', 'parent' => 0, 'children' => [], 'settings' => []]];
+            update_post_meta($id, '_bricks_template_type', 'header');
+            update_post_meta($id, '_bricks_page_header_2', $old);
+
+            $out = $this->write($id);
+            $GLOBALS['wpmcp_bricks_css_calls'] = [];
+            Rollback_Service::restore_operation($out['operation_id']);
+
+            $this->assertSame($old, get_post_meta($id, '_bricks_page_header_2', true));
+            $this->assertSame([[$id, 'header', 1]], $GLOBALS['wpmcp_bricks_css_calls']);
+        }
+
+        public function test_undo_of_a_first_write_with_bricks_active_clears_the_rows_and_rebuilds_css(): void
+        {
+            add_filter('wpmcp_bricks_active', '__return_true');
+            $id = self::factory()->post->create(['post_type' => 'page']);
+
+            $out = $this->write($id);
+            $GLOBALS['wpmcp_bricks_css_calls'] = [];
+            Rollback_Service::restore_operation($out['operation_id']);
+
+            $this->assertFalse(metadata_exists('post', $id, '_bricks_page_content_2'));
+            $this->assertFalse(metadata_exists('post', $id, '_bricks_editor_mode'));
+            // Rebuilt from the now empty layout, so the stale file is replaced.
+            $this->assertSame([[$id, 'content', 0]], $GLOBALS['wpmcp_bricks_css_calls']);
+        }
+
+        public function test_undo_to_an_empty_layout_restores_wordpress_mode_without_css(): void
+        {
+            add_filter('wpmcp_bricks_active', '__return_true');
+            $id = self::factory()->post->create(['post_type' => 'page']);
+            update_post_meta($id, '_bricks_page_content_2', []);
+            update_post_meta($id, '_bricks_editor_mode', 'wordpress');
+
+            $out = $this->write($id);
+            $this->assertSame('bricks', get_post_meta($id, '_bricks_editor_mode', true));
+            $GLOBALS['wpmcp_bricks_css_calls'] = [];
+            Rollback_Service::restore_operation($out['operation_id']);
+
+            $this->assertSame([], get_post_meta($id, '_bricks_page_content_2', true));
+            $this->assertSame('wordpress', get_post_meta($id, '_bricks_editor_mode', true));
+            $this->assertSame([], $GLOBALS['wpmcp_bricks_css_calls']);
+        }
+
+        public function test_nothing_is_generated_when_bricks_css_loading_is_inline(): void
+        {
+            add_filter('wpmcp_bricks_active', '__return_true');
+            $GLOBALS['wpmcp_bricks_css_loading'] = 'inline';
+            $id = self::factory()->post->create(['post_type' => 'page']);
+
+            $this->assertIsArray($this->write($id));
+
+            $this->assertSame([], $GLOBALS['wpmcp_bricks_css_calls']);
+            $this->assertSame('bricks', get_post_meta($id, '_bricks_editor_mode', true));
         }
     }
 }
