@@ -398,6 +398,7 @@ bin/test-local.sh --live-bbpress        # only the bbPress live group
 bin/test-local.sh --live-lms            # only the Tutor LMS and LifterLMS live groups
 bin/test-local.sh --live-crm            # only the FluentCRM and MailPoet live group
 bin/test-local.sh --live-helpdesk       # only the BetterDocs, Fluent Support and Awesome Support live group
+bin/test-local.sh --live-activity-log   # only the WP Activity Log and Simple History live group (both downloaded from WordPress.org)
 bin/test-local.sh --live-amelia         # only the Amelia Lite live group
 bin/test-local.sh --live-wp-mail-smtp   # only the WP Mail SMTP live group
 WPMCP_MEMBERPRESS_SRC=/path/to/memberpress bin/test-local.sh --live-memberpress   # only the MemberPress live group, against a local MemberPress copy
@@ -405,6 +406,7 @@ WPMCP_ELEMENTOR_PRO_SRC=/path/to/elementor-pro bin/test-local.sh --live-elemento
 WPMCP_WP_ROCKET_SRC=/path/to/wp-rocket WPMCP_PERFMATTERS_SRC=/path/to/perfmatters WPMCP_FLYING_PRESS_SRC=/path/to/flying-press bin/test-local.sh --live-cache-settings   # only the cache settings live groups, against local copies (any one is enough)
 WPMCP_JET_ELEMENTS_SRC=/path/to/jet-elements bin/test-local.sh --live-jet-elements   # only the JetElements live group, against a local JetElements copy
 WPMCP_WS_FORM_SRC=/path/to/ws-form-pro bin/test-local.sh --live-ws-form   # only the WS Form live group, against a local WS Form PRO copy
+bin/test-local.sh --live-links          # only the live Pretty Links and ThirstyAffiliates group, against the real free plugins
 bin/test-local.sh --live-adapter        # only both suites on the latest MCP Adapter plugin released on WordPress.org (WPMCP_ADAPTER_VERSION pins one)
 bin/test-local.sh --prune               # prune the test cache to its budget now (--prune --all: every install no run is using)
 ```

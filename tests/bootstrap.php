@@ -336,6 +336,15 @@ tests_add_filter( 'muplugins_loaded', function () {
         }
     }
 
+    // The live activity log job (issue #698, WPMCP_LIVE_ACTIVITY_LOG=1) runs
+    // the activity log ops against the real WP Activity Log and Simple
+    // History. Loaded only on request: the stub-backed tests build both
+    // plugins' tables from a fixture.
+    if ( getenv( 'WPMCP_LIVE_ACTIVITY_LOG' ) ) {
+        wpmcp_maybe_require_plugin( 'wp-security-audit-log/wp-security-audit-log.php' );
+        wpmcp_maybe_require_plugin( 'simple-history/index.php' );
+    }
+
     // The live FunnelKit job (issue #500, WPMCP_LIVE_FUNNELKIT=1) runs the
     // FunnelKit funnel writes through the free Funnel Builder's own REST
     // controllers, beside the WooCommerce loaded above. Loaded only on
@@ -378,6 +387,14 @@ tests_add_filter( 'muplugins_loaded', function () {
     // request: the stub-backed tests create stand-in tables.
     if ( getenv( 'WPMCP_LIVE_RANK_MATH' ) ) {
         wpmcp_maybe_require_plugin( 'seo-by-rank-math/rank-math.php' );
+    }
+
+    // The live links job (issue #682, WPMCP_LIVE_LINKS=1) runs the Pretty
+    // Links and ThirstyAffiliates ops through the real free plugins. Loaded
+    // only on request: the stub-backed tests build their tables from fixtures.
+    if ( getenv( 'WPMCP_LIVE_LINKS' ) ) {
+        wpmcp_maybe_require_plugin( 'pretty-link/pretty-link.php' );
+        wpmcp_maybe_require_plugin( 'thirstyaffiliates/thirstyaffiliates.php' );
     }
 
     // The live WP Mail SMTP job (WPMCP_LIVE_WP_MAIL_SMTP=1) runs the WP Mail
@@ -518,6 +535,16 @@ tests_add_filter( 'init', function () {
     }
 }, 1 );
 
+// The live activity log job's WP Activity Log tables, built by the plugin's
+// own entities once per run, before any test transaction starts (Simple
+// History builds its own on after_setup_theme). A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_ACTIVITY_LOG' ) && class_exists( '\\WSAL\\Entities\\Occurrences_Entity' ) ) {
+        \WSAL\Entities\Occurrences_Entity::create_table();
+        \WSAL\Entities\Metadata_Entity::create_table();
+    }
+}, 1 );
+
 // The live Amelia job's tables, roles and settings, built by Amelia's own
 // activation routines once per run, before any test transaction starts. A
 // no-op everywhere else.
@@ -565,6 +592,16 @@ tests_add_filter( 'init', function () {
 tests_add_filter( 'init', function () {
     if ( getenv( 'WPMCP_LIVE_WS_FORM' ) && class_exists( 'WS_Form_Activator' ) ) {
         \WS_Form_Activator::activate();
+    }
+}, 1 );
+
+// The live links job's ThirstyAffiliates tables, created by its own
+// activation routine once per run, before any test transaction starts (the
+// harness activates no plugin). Pretty Links migrates its schema itself on
+// after_setup_theme. A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_LINKS' ) && function_exists( 'ThirstyAffiliates' ) ) {
+        do_action( 'activate_thirstyaffiliates/thirstyaffiliates.php', false );
     }
 }, 1 );
 

@@ -11,11 +11,15 @@
 # BuddyPress only (bin/test-local.sh --live-buddypress), or, with
 # WPMCP_LIVE_BBPRESS=1, bbPress only (bin/test-local.sh --live-bbpress), or, with
 # WPMCP_LIVE_TABLEPRESS=1, TablePress only (bin/test-local.sh --live-tablepress), or,
+# with WPMCP_LIVE_LINKS=1, Pretty Links and ThirstyAffiliates only (bin/test-local.sh
+# --live-links), or,
 # with WPMCP_LIVE_CODE_SNIPPETS=1, Code Snippets only (bin/test-local.sh
 # --live-code-snippets), or,
 # with WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
 # --live-crm), or, with WPMCP_LIVE_HELPDESK=1, BetterDocs, Fluent Support
 # and Awesome Support only (bin/test-local.sh --live-helpdesk), or, with
+# WPMCP_LIVE_ACTIVITY_LOG=1, WP Activity Log and Simple History only
+# (bin/test-local.sh --live-activity-log), or, with
 # WPMCP_LIVE_AMELIA=1, Amelia Lite only
 # (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
 # WooCommerce and FunnelKit Funnel Builder only (bin/test-local.sh
@@ -177,6 +181,16 @@ if [ "${WPMCP_LIVE_RANK_MATH:-}" = "1" ]; then
 	)
 fi
 
+# The live links job (issue #682) runs the Pretty Links and ThirstyAffiliates
+# ops through the real free plugins. Exclusive too: the stub-backed tests
+# build the tables of both from fixtures and fake their presence.
+if [ "${WPMCP_LIVE_LINKS:-}" = "1" ]; then
+	PLUGINS=(
+		"pretty-link:pretty-link.php"
+		"thirstyaffiliates:thirstyaffiliates.php"
+	)
+fi
+
 # The live WP Mail SMTP job runs the WP Mail SMTP ops on the theme pair
 # through the real plugin, its Options class, encryption and constants.
 # Exclusive too: the stub-backed WP Mail SMTP tests define a stand-in for its
@@ -219,6 +233,17 @@ if [ "${WPMCP_LIVE_HELPDESK:-}" = "1" ]; then
 		"betterdocs:betterdocs.php"
 		"fluent-support:fluent-support.php"
 		"awesome-support:awesome-support.php"
+	)
+fi
+
+# The live activity log job (issue #698) runs the activity log ops against the
+# real WP Activity Log and Simple History, both free on wordpress.org, on one
+# install: they share no tables or hooks. Exclusive too: the stub-backed tests
+# build both plugins' tables from a fixture.
+if [ "${WPMCP_LIVE_ACTIVITY_LOG:-}" = "1" ]; then
+	PLUGINS=(
+		"wp-security-audit-log:wp-security-audit-log.php"
+		"simple-history:index.php"
 	)
 fi
 

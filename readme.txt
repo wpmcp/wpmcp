@@ -37,6 +37,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm, WS Form (forms, fields, actions and notifications, submissions listed with values masked and read one at a time, undoable status changes and deletes off until the site turns them on); with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
 * Events, donations, memberships (read)
 * BuddyPress: groups, group members, activity moderation and extended profile fields
+* Activity logs (read): WP Activity Log and Simple History events listed with IP addresses and emails masked and read one at a time in full
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
 * WP Mail SMTP: the active mailer and from identity with credentials never returned, the Pro email log, a test send to your own address, and an undoable from name and address change
 * With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
