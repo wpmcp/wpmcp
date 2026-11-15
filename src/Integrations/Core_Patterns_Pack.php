@@ -97,7 +97,7 @@ final class Core_Patterns_Pack
                 'mode'         => 'read',
                 'capability'   => 'edit_posts',
                 'objects'      => [ 'id' => [ 'type' => 'post', 'access' => 'read' ] ],
-                'description'  => 'Find the posts, templates and patterns that place a synced pattern (those you can read), with the placements in each. total is every placing post, readable the ones listed; truncated:true means the scan stopped at 500 candidates and total is a lower bound',
+                'description'  => 'Find the posts, templates and patterns that place a synced pattern (those you can read), with the placements in each. total is every placing post, readable the ones listed, widget_placements the block widgets that place it; truncated:true means the scan stopped at 500 candidates and total is a lower bound',
                 'input_schema' => [ 'type' => 'object', 'properties' => [ 'id' => $id ], 'required' => [ 'id' ] ],
                 'validate'     => static fn (array $args): ?array => self::readable_refusal((int) $args['id']),
                 'handler'      => static fn (array $args): array => [ 'pattern_id' => (int) $args['id'] ] + self::usage_report((int) $args['id']),
@@ -141,6 +141,21 @@ final class Core_Patterns_Pack
     }
 
     // ------------------------------------------------------------ helpers
+
+    /**
+     * The wpmcp_rollback_post_refusal guard: a restore that would write a
+     * pattern other people's posts place takes what the write took.
+     *
+     * @param mixed $reason Another guard's reason, kept when set.
+     * @return mixed
+     */
+    public static function restore_refusal($reason, $post)
+    {
+        if (null !== $reason || ! $post instanceof \WP_Post || self::POST_TYPE !== $post->post_type) {
+            return $reason;
+        }
+        return self::placed_elsewhere_refusal((int) $post->ID);
+    }
 
     private static function refusal(string $code, string $message, array $data = []): array
     {
@@ -228,7 +243,7 @@ final class Core_Patterns_Pack
      * not: the candidates are matched on the "ref" attribute in SQL, then
      * checked exactly against the parsed blocks.
      *
-     * @return array{ids: int[], counts: array<int, int>, total: int, truncated: bool}
+     * @return array{ids: int[], counts: array<int, int>, total: int, truncated: bool, widgets: int}
      */
     private static function placing(int $pattern_id): array
     {
@@ -251,10 +266,23 @@ final class Core_Patterns_Pack
             }
         }
 
-        return [ 'ids' => array_keys($counts), 'counts' => $counts, 'total' => count($counts), 'truncated' => $truncated ];
+        return [ 'ids' => array_keys($counts), 'counts' => $counts, 'total' => count($counts), 'truncated' => $truncated, 'widgets' => self::widget_placements($pattern_id) ];
     }
 
-    /** @return array{usage: array, readable: int, total: int, truncated: bool} */
+    /** How many block widgets (the widget_block option, not posts) place the pattern. */
+    private static function widget_placements(int $pattern_id): int
+    {
+        $n = 0;
+        foreach ((array) get_option('widget_block', []) as $widget) {
+            $content = is_array($widget) ? (string) ($widget['content'] ?? '') : '';
+            if (false !== strpos($content, '"ref":' . $pattern_id)) {
+                $n += self::count_placements(parse_blocks($content), $pattern_id);
+            }
+        }
+        return $n;
+    }
+
+    /** @return array{usage: array, readable: int, total: int, truncated: bool, widget_placements: int} */
     private static function usage_report(int $pattern_id): array
     {
         $placing = self::placing($pattern_id);
@@ -267,7 +295,7 @@ final class Core_Patterns_Pack
             $usage[] = [ 'id' => (int) $post->ID, 'title' => (string) $post->post_title, 'type' => (string) $post->post_type, 'status' => (string) $post->post_status, 'placements' => $n ];
         }
 
-        return [ 'usage' => $usage, 'readable' => count($usage), 'total' => $placing['total'], 'truncated' => $placing['truncated'] ];
+        return [ 'usage' => $usage, 'readable' => count($usage), 'total' => $placing['total'], 'truncated' => $placing['truncated'], 'widget_placements' => $placing['widgets'] ];
     }
 
     /** @return array<int, array{id: int, title: string, type: string, status: string, placements: int}> */
@@ -290,11 +318,14 @@ final class Core_Patterns_Pack
         if (null === $post || ! self::is_synced($pattern_id)) {
             return null;
         }
+        $placing = self::placing($pattern_id);
+        if ($placing['widgets'] > 0 && ! current_user_can('edit_theme_options')) {
+            return sprintf('pattern %d is placed in %d block widget(s), which take edit_theme_options to change.', $pattern_id, $placing['widgets']);
+        }
         $object = get_post_type_object(self::POST_TYPE);
         if ($object instanceof \WP_Post_Type && current_user_can((string) $object->cap->edit_others_posts)) {
             return null;
         }
-        $placing = self::placing($pattern_id);
         if ($placing['truncated']) {
             return sprintf('pattern %d is placed in more than %d posts, so only a user who can edit others\' posts may change it.', $pattern_id, self::USAGE_LIMIT);
         }
@@ -553,7 +584,12 @@ final class Core_Patterns_Pack
                 // Put the posts already rewritten back, newest first, so the call is all or nothing.
                 $left = [];
                 foreach (array_reverse($ids) as $done) {
-                    if (! Rollback_Service::restore_operation($done)) {
+                    try {
+                        $restored = Rollback_Service::restore_operation($done);
+                    } catch (\Throwable $undo_error) {
+                        $restored = false;
+                    }
+                    if (! $restored) {
                         $left[] = $done;
                     }
                 }

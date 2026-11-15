@@ -252,7 +252,7 @@ class Rollback_Service
                 return $store;
             }
             if ($post instanceof \WP_Post) {
-                return self::refused_post_capability('edit_post', $post) ?? self::refused_pattern($post);
+                return self::refused_post_capability('edit_post', $post) ?? self::refused_by_integration($post);
             }
             $row    = (array) ($snapshot['data']['post'] ?? []);
             $object = get_post_type_object((string) ($row['post_type'] ?? ''));
@@ -273,7 +273,7 @@ class Rollback_Service
                 if ($post instanceof \WP_Post) {
                     $refused = self::refused_store((string) $post->post_type, $post_id)
                         ?? self::refused_post_capability('delete_post', $post)
-                        ?? self::refused_pattern($post);
+                        ?? self::refused_by_integration($post);
                     if (null !== $refused) {
                         return $refused;
                     }
@@ -285,17 +285,15 @@ class Rollback_Service
     }
 
     /**
-     * A synced pattern (wp_block) other people's posts place: putting an
-     * edit back or trashing a creation changes those posts, so it takes what
-     * the write took (Core_Patterns_Pack::placed_elsewhere_refusal).
+     * Lets an integration refuse a restore that would write a post it guards
+     * (wpmcp_rollback_post_refusal): the filter gets null and the post, and
+     * returns a reason string to refuse. A synced pattern other people's
+     * posts place is guarded this way.
      */
-    private static function refused_pattern(\WP_Post $post): ?string
+    private static function refused_by_integration(\WP_Post $post): ?string
     {
-        if ('wp_block' !== $post->post_type) {
-            return null;
-        }
-        $why = \WPMCP\Integrations\Core_Patterns_Pack::placed_elsewhere_refusal((int) $post->ID);
-        return null === $why ? null : $why;
+        $why = apply_filters('wpmcp_rollback_post_refusal', null, $post);
+        return is_string($why) && '' !== $why ? $why : null;
     }
 
     /**

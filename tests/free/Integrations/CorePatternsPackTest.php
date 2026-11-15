@@ -479,4 +479,21 @@ class CorePatternsPackTest extends \WP_UnitTestCase
         $this->assertStringNotContainsString('wp:block', get_post($a)->post_content . get_post($b)->post_content);
         $this->assertSame('no_posts', $this->code($this->write('detach-pattern-instance', [ 'pattern_id' => $id ])));
     }
+
+    public function test_a_pattern_placed_in_a_block_widget_needs_edit_theme_options_to_change(): void
+    {
+        $this->enable_writes();
+        $this->as_role('author');
+        $id = $this->write('create-synced-pattern', [ 'title' => 'Mine' ])['result']['pattern']['id'];
+        update_option('widget_block', [ 2 => [ 'content' => $this->ref($id) ], '_multiwidget' => 1 ]);
+
+        $this->assertSame('pattern_in_use_elsewhere', $this->code($this->write('update-synced-pattern', [ 'id' => $id, 'title' => 'x' ])));
+        $this->assertSame(1, $this->read('find-pattern-usage', [ 'id' => $id ])['result']['widget_placements']);
+
+        $this->as_role('editor');
+        $this->assertSame('pattern_in_use_elsewhere', $this->code($this->write('update-synced-pattern', [ 'id' => $id, 'title' => 'x' ])), 'an editor has no edit_theme_options');
+        $this->as_role('administrator');
+        $this->assertArrayNotHasKey('error', $this->write('update-synced-pattern', [ 'id' => $id, 'title' => 'x' ]));
+        delete_option('widget_block');
+    }
 }
