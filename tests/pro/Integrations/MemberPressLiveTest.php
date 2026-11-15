@@ -188,6 +188,7 @@ class MemberPressLiveTest extends \WP_UnitTestCase
 
         // An earlier rule fills the cache, as a site with rules always has.
         $first = $this->call('write', 'memberpress-create-rule', [ 'type' => 'single_page', 'content' => (string) $other, 'status' => 'publish', 'access' => [ [ 'type' => 'membership', 'condition' => (string) $gold ] ] ]);
+        \MeprCptModel::all('MeprRule'); // the front end's first read fills the cache again
         $this->assertNotEmpty(get_transient('mepr_all_models_for_class_meprrule'));
         $this->assertFalse($this->locked_for_a_guest($page));
 
