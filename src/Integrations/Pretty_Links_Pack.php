@@ -329,9 +329,9 @@ final class Pretty_Links_Pack
         $sql   = [] === $where ? '' : ' WHERE ' . implode(' AND ', $where);
         $size  = max(1, min(self::MAX_PAGE_SIZE, (int) ($args['page_size'] ?? self::DEFAULT_PAGE_SIZE)));
         $skip  = max(0, (int) ($args['offset'] ?? 0));
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $sql holds only column names fixed above and placeholders.
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $sql holds only column names fixed above and placeholders.
         $total = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i' . $sql, self::table(), ...$params));
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- same.
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, WordPress.DB.PreparedSQL.NotPrepared -- same.
         $rows  = (array) $wpdb->get_results($wpdb->prepare('SELECT * FROM %i' . $sql . ' ORDER BY created_at DESC, id DESC LIMIT %d OFFSET %d', self::table(), ...array_merge($params, [ $size, $skip ])), ARRAY_A);
 
         return [
@@ -365,7 +365,7 @@ final class Pretty_Links_Pack
         $total  = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE {$where}", self::table('clicks'), ...$params));
         $uniq   = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE {$where} AND first_click = 1", self::table('clicks'), ...$params));
         $rows   = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE {$where} ORDER BY created_at DESC, id DESC LIMIT %d OFFSET %d", self::table('clicks'), ...array_merge($params, [ $size, $skip ])), ARRAY_A);
-        // phpcs:enable
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 
         $clicks = [];
         foreach ($rows as $row) {
@@ -423,6 +423,7 @@ final class Pretty_Links_Pack
 
     private static function valid_url(string $url): bool
     {
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Pretty Links' own hook, run so its extensions see the write.
         return (bool) apply_filters('prli_is_valid_url', 1 === preg_match('%^https?://%i', $url), $url);
     }
 
@@ -487,6 +488,7 @@ final class Pretty_Links_Pack
         if (! empty($row['deleted_at'])) {
             return self::refusal('already_trashed', sprintf('Link %d is already in the trash.', $id), [ 'link_id' => $id ]);
         }
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Pretty Links' own hook, run so its extensions see the write.
         $reason = (string) apply_filters('prli_pre_link_trash', '', $id);
         if ('' !== $reason) {
             return self::refusal('trash_blocked', $reason, [ 'link_id' => $id ]);
@@ -580,6 +582,7 @@ final class Pretty_Links_Pack
             }
             throw new Operation_Refused('insert_failed', 'Could not create the link: ' . $wpdb->last_error);
         }
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Pretty Links' own hook, run so its extensions see the write.
         do_action('prli-create-link', $id, $row);
 
         return [ 'link' => self::view((array) self::row($id)) ];
@@ -598,6 +601,7 @@ final class Pretty_Links_Pack
         if (false === $wpdb->update(self::table(), $set, [ 'id' => $id ])) {
             throw new Operation_Refused('update_failed', sprintf('Could not update link %d: %s', $id, $wpdb->last_error));
         }
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Pretty Links' own hook, run so its extensions see the write.
         do_action('prli_update_link', $id, $set);
 
         return [ 'link' => self::view((array) self::row($id)) ];
@@ -610,6 +614,7 @@ final class Pretty_Links_Pack
         if (false === $wpdb->update(self::table(), [ 'deleted_at' => current_time('mysql', true) ], [ 'id' => $id ])) {
             throw new Operation_Refused('delete_failed', sprintf('Could not trash link %d: %s', $id, $wpdb->last_error));
         }
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Pretty Links' own hook, run so its extensions see the write.
         do_action('prli_delete_link', $id, [ 'soft' => true ]);
 
         return [ 'link' => self::view((array) self::row($id)) ];

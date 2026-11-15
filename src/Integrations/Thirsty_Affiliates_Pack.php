@@ -317,14 +317,16 @@ final class Thirsty_Affiliates_Pack
         // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $where holds only fixed column conditions and placeholders.
         $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE {$where}", self::table('clicks'), ...$params));
         $rows  = (array) $wpdb->get_results($wpdb->prepare("SELECT id, date_clicked FROM %i WHERE {$where} ORDER BY date_clicked DESC, id DESC LIMIT %d OFFSET %d", self::table('clicks'), ...array_merge($params, [ $size, $skip ])), ARRAY_A);
-        // phpcs:enable
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 
         $metas = [];
         $ids   = array_map('intval', array_column($rows, 'id'));
         if ([] !== $ids) {
             $in = implode(',', array_fill(0, count($ids), '%d'));
-            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $in holds only %d placeholders.
-            foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT click_id, meta_key, meta_value FROM %i WHERE click_id IN ($in)", self::table('clicks_meta'), ...$ids), ARRAY_A) as $meta) {
+            // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $in holds only %d placeholders.
+            $meta_rows = (array) $wpdb->get_results($wpdb->prepare("SELECT click_id, meta_key, meta_value FROM %i WHERE click_id IN ($in)", self::table('clicks_meta'), ...$ids), ARRAY_A);
+            // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+            foreach ($meta_rows as $meta) {
                 $metas[ (int) $meta['click_id'] ][ (string) $meta['meta_key'] ] = (string) $meta['meta_value'];
             }
         }
