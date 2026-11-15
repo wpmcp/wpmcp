@@ -28,7 +28,7 @@ if (! defined('ABSPATH')) {
  * admin read and delete submissions Flamingo's own UI denies them.
  *
  * Deletion is destructive (confirm:true), default-off until the site opts in
- * via wpmcp_integration_op_enabled, and reversible: a Flamingo entry is an
+ * via wpmcp_enable_forms_write, and reversible: a Flamingo entry is an
  * ordinary flamingo_inbound post, so it is snapshotted (row, meta, terms)
  * before deletion and can be resurrected at its original id with
  * rollback-operation, exactly like the MetForm adapter's entry delete. Note
@@ -174,7 +174,7 @@ class Contact_Form_7_Integration extends Forms_Integration
 
     protected function operations(): array
     {
-        return [
+        $ops = [
             'list-forms' => [
                 'mode'         => 'read',
                 'description'  => 'List Contact Form 7 forms with id, title, and slug',
@@ -421,10 +421,9 @@ class Contact_Form_7_Integration extends Forms_Integration
             'delete-entry' => [
                 'mode'               => 'destructive',
                 'objects'            => [ 'entry_id' => 'entry' ],
-                'enabled_by_default' => false,
                 'capability'         => self::ENTRY_CAPABILITY,
                 'requires'           => static fn () => self::requires_flamingo(),
-                'description'        => 'Delete one Flamingo-stored submission. Default-off (opt in via the wpmcp_integration_op_enabled filter), requires confirm:true, the Flamingo plugin, and the edit_users capability. Reversible: a Flamingo entry is a flamingo_inbound post, so it is snapshotted (row, postmeta, channel terms) before deletion and can be resurrected at its original id with rollback-operation using the returned operation_id. Deletion is therefore NOT erasure: the snapshot keeps a verbatim plaintext copy of the submission (name, email, remote IP, message body) until Snapshot_Store prunes it. Restoring it is held to the same edit_users bar as deleting it (rollback-operation is otherwise an edit_posts ability), but the plaintext copy still exists, so use a real erasure tool if the goal is to destroy the data',
+                'description'        => 'Delete one Flamingo-stored submission. Default-off (opt in with wpmcp_enable_forms_write), requires confirm:true, the Flamingo plugin, and the edit_users capability. Reversible: a Flamingo entry is a flamingo_inbound post, so it is snapshotted (row, postmeta, channel terms) before deletion and can be resurrected at its original id with rollback-operation using the returned operation_id. Deletion is therefore NOT erasure: the snapshot keeps a verbatim plaintext copy of the submission (name, email, remote IP, message body) until Snapshot_Store prunes it. Restoring it is held to the same edit_users bar as deleting it (rollback-operation is otherwise an edit_posts ability), but the plaintext copy still exists, so use a real erasure tool if the goal is to destroy the data',
                 'input_schema'       => [
                     'type'       => 'object',
                     'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
@@ -456,7 +455,320 @@ class Contact_Form_7_Integration extends Forms_Integration
                     }
                     return [ 'object_type' => 'post', 'object_id' => $entry_id ];
                 },
+            ] + self::write_flags(),
+        ];
+
+        return $ops + self::config_operations();
+    }
+
+    // ------------------------------------------------------------------
+    // Mail and message edits (issue #674)
+    // ------------------------------------------------------------------
+
+    private const MAIL_KEYS = [ 'mail', 'mail_2' ];
+
+    /** The form's post type, from CF7 itself when it is loaded. */
+    private static function form_post_type(): string
+    {
+        return defined('WPCF7_ContactForm::post_type') ? (string) \WPCF7_ContactForm::post_type : 'wpcf7_contact_form';
+    }
+
+    /** @return array<string, mixed>|null a refusal when no such form exists */
+    private static function form_refusal(int $form_id): ?array
+    {
+        $form = \WPCF7_ContactForm::get_instance($form_id);
+        if ($form instanceof \WPCF7_ContactForm) {
+            return null;
+        }
+
+        return [ 'code' => 'form_not_found', 'message' => 'No Contact Form 7 form has that id.', 'data' => [ 'form_id' => $form_id ] ];
+    }
+
+    /** The value of one header line ("Cc", "Bcc", "Reply-To") in CF7's additional_headers text. */
+    private static function header_value(string $headers, string $name): string
+    {
+        foreach (preg_split('/\r\n|\r|\n/', $headers) ?: [] as $line) {
+            if (0 === stripos($line, $name . ':')) {
+                return trim(substr($line, strlen($name) + 1));
+            }
+        }
+
+        return '';
+    }
+
+    /** additional_headers with one header set (or removed when the value is empty), the others kept. */
+    private static function with_header(string $headers, string $name, string $value): string
+    {
+        $lines = [];
+        $done  = false;
+        foreach (preg_split('/\r\n|\r|\n/', $headers) ?: [] as $line) {
+            if ('' === trim($line)) {
+                continue;
+            }
+            if (0 === stripos($line, $name . ':')) {
+                if (! $done && '' !== $value) {
+                    $lines[] = $name . ': ' . $value;
+                }
+                $done = true;
+                continue;
+            }
+            $lines[] = $line;
+        }
+        if (! $done && '' !== $value) {
+            $lines[] = $name . ': ' . $value;
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /** @return array<string, mixed> the editable view of one mail template */
+    private static function mail_view(array $mail): array
+    {
+        $headers = (string) ($mail['additional_headers'] ?? '');
+
+        return [
+            'to'       => (string) ($mail['recipient'] ?? ''),
+            'cc'       => self::header_value($headers, 'Cc'),
+            'bcc'      => self::header_value($headers, 'Bcc'),
+            'reply_to' => self::header_value($headers, 'Reply-To'),
+            'sender'   => (string) ($mail['sender'] ?? ''),
+            'subject'  => (string) ($mail['subject'] ?? ''),
+            'body'     => (string) ($mail['body'] ?? ''),
+        ];
+    }
+
+    /** Save new mail properties through CF7's own model; throws when CF7 does not save. */
+    private static function save_mail(\WPCF7_ContactForm $form, string $key, array $mail, int $form_id): void
+    {
+        $form->set_properties([ $key => $mail ]);
+        if (! $form->save()) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- caught by the dispatcher and returned as a JSON error, never rendered.
+            throw new Operation_Error('update_failed', 'Contact Form 7 did not save the form.', [ 'form_id' => $form_id ]);
+        }
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private static function config_operations(): array
+    {
+        $write = [
+            'capability' => 'manage_options',
+            'objects'    => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
+            'snapshot'   => static fn (array $args): ?array => self::post_snapshot((int) $args['form_id'], self::form_post_type()),
+        ] + self::write_flags();
+        $id    = [ 'type' => 'integer', 'minimum' => 1 ];
+        $mail  = [ 'type' => 'string', 'enum' => self::MAIL_KEYS ];
+
+        return [
+            'list-messages'              => [
+                'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
+                'description'  => 'List a form\'s system messages (mail_sent_ok, validation_error and the rest) with the key of each, which update-messages takes',
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'form_id' => $id ], 'required' => [ 'form_id' ] ],
+                'handler'      => static function (array $args): array {
+                    $form = \WPCF7_ContactForm::get_instance((int) $args['form_id']);
+                    return [
+                        'form_id'  => (int) $args['form_id'],
+                        'messages' => $form instanceof \WPCF7_ContactForm ? array_map('strval', (array) $form->prop('messages')) : null,
+                    ];
+                },
+            ],
+            'update-notification'        => $write + [
+                'mode'         => 'write',
+                'description'  => 'Edit one mail template of a form (mail or mail_2): enabled (mail_2 only), subject, body, sender and reply_to. Recipients are changed with set-notification-recipients. Off by default (opt in with wpmcp_enable_forms_write). Returns before and after of every changed field. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'          => 'object',
+                    'properties'    => [
+                        'form_id'         => $id,
+                        'notification_id' => $mail,
+                        'enabled'         => [ 'type' => 'boolean' ],
+                        'subject'         => [ 'type' => 'string', 'maxLength' => 998 ],
+                        'body'            => [ 'type' => 'string', 'maxLength' => 100000 ],
+                        'sender'          => [ 'type' => 'string', 'maxLength' => 320 ],
+                        'reply_to'        => [ 'type' => 'string', 'maxLength' => 320 ],
+                    ],
+                    'required'      => [ 'form_id', 'notification_id' ],
+                    'minProperties' => 3,
+                ],
+                'validate'     => static function (array $args): ?array {
+                    $refusal = self::form_refusal((int) $args['form_id']);
+                    if (null !== $refusal) {
+                        return $refusal;
+                    }
+                    $bad = static fn (string $message): array => [ 'code' => 'invalid_notification', 'message' => $message, 'data' => [ 'form_id' => (int) $args['form_id'] ] ];
+                    if (isset($args['enabled']) && 'mail' === $args['notification_id']) {
+                        return $bad('The primary Mail template cannot be switched off; only mail_2 can.');
+                    }
+                    foreach ([ 'subject', 'body' ] as $field) {
+                        if (isset($args[ $field ]) && '' === trim((string) $args[ $field ])) {
+                            return $bad(sprintf('%s must not be empty.', ucfirst($field)));
+                        }
+                    }
+                    foreach ([ 'sender' => 'Sender', 'reply_to' => 'Reply-to' ] as $field => $label) {
+                        if (isset($args[ $field ])) {
+                            $problem = self::address_problem((string) $args[ $field ], $label, 'reply_to' === $field, true);
+                            if (null !== $problem) {
+                                return $bad($problem);
+                            }
+                        }
+                    }
+                    return null;
+                },
+                'handler'      => static function (array $args): array {
+                    $form_id = (int) $args['form_id'];
+                    $key     = (string) $args['notification_id'];
+                    $form    = \WPCF7_ContactForm::get_instance($form_id);
+                    $current = (array) $form->prop($key);
+                    $before  = self::mail_view($current) + [ 'enabled' => 'mail' === $key || ! empty($current['active']) ];
+                    $next    = $current;
+                    if (isset($args['enabled'])) {
+                        $next['active'] = (bool) $args['enabled'];
+                    }
+                    foreach ([ 'subject' => 'subject', 'body' => 'body', 'sender' => 'sender' ] as $field => $prop) {
+                        if (isset($args[ $field ])) {
+                            $next[ $prop ] = (string) $args[ $field ];
+                        }
+                    }
+                    if (isset($args['reply_to'])) {
+                        $next['additional_headers'] = self::with_header((string) ($current['additional_headers'] ?? ''), 'Reply-To', trim((string) $args['reply_to']));
+                    }
+                    $after   = self::mail_view($next) + [ 'enabled' => 'mail' === $key || ! empty($next['active']) ];
+                    $changes = self::diff_fields($before, $after);
+                    if ([] !== $changes) {
+                        self::save_mail($form, $key, $next, $form_id);
+                    }
+                    return [ 'form_id' => $form_id, 'notification_id' => $key, 'changed' => [] !== $changes, 'changes' => $changes ];
+                },
+            ],
+            'set-notification-recipients' => $write + [
+                'mode'            => 'destructive',
+                'description'     => 'Change who a mail template is sent to: to (the recipient), cc and bcc (kept in the template\'s additional headers; an empty string removes one). This redirects personal data, so it needs confirm:true, and the confirmation shows the recipients before and after. Off by default (opt in with wpmcp_enable_forms_write). Undo: rollback-operation',
+                'input_schema'    => [
+                    'type'          => 'object',
+                    'properties'    => [
+                        'form_id'         => $id,
+                        'notification_id' => $mail,
+                        'to'              => [ 'type' => 'string', 'maxLength' => 2000 ],
+                        'cc'              => [ 'type' => 'string', 'maxLength' => 2000 ],
+                        'bcc'             => [ 'type' => 'string', 'maxLength' => 2000 ],
+                    ],
+                    'required'      => [ 'form_id', 'notification_id' ],
+                    'minProperties' => 3,
+                ],
+                'validate'        => static function (array $args): ?array {
+                    $refusal = self::form_refusal((int) $args['form_id']);
+                    if (null !== $refusal) {
+                        return $refusal;
+                    }
+                    foreach ([ 'to' => 'To', 'cc' => 'Cc', 'bcc' => 'Bcc' ] as $field => $label) {
+                        if (isset($args[ $field ])) {
+                            $problem = self::address_problem((string) $args[ $field ], $label, 'to' !== $field);
+                            if (null !== $problem) {
+                                return [ 'code' => 'invalid_recipients', 'message' => $problem, 'data' => [ 'form_id' => (int) $args['form_id'] ] ];
+                            }
+                        }
+                    }
+                    return null;
+                },
+                'confirm_preview' => static function (array $args): array {
+                    [ $before, $after ] = self::recipient_views($args);
+                    return [
+                        'message' => sprintf('It changes who mail template %s of form %d is sent to. Undo: rollback-operation.', (string) $args['notification_id'], (int) $args['form_id']),
+                        'data'    => [ 'form_id' => (int) $args['form_id'], 'before' => $before, 'after' => $after ],
+                    ];
+                },
+                'handler'         => static function (array $args): array {
+                    $form_id            = (int) $args['form_id'];
+                    $key                = (string) $args['notification_id'];
+                    $form               = \WPCF7_ContactForm::get_instance($form_id);
+                    $next               = self::recipient_mail($form, $args);
+                    [ $before, $after ] = self::recipient_views($args);
+                    if ($before !== $after) {
+                        self::save_mail($form, $key, $next, $form_id);
+                    }
+                    return [ 'form_id' => $form_id, 'notification_id' => $key, 'changed' => $before !== $after, 'recipient_changed' => $before !== $after, 'before' => $before, 'after' => $after ];
+                },
+            ],
+            'update-messages'            => $write + [
+                'mode'         => 'write',
+                'description'  => 'Set some of a form\'s system messages (mail_sent_ok, validation_error and the rest; keys from list-messages). Values are plain text up to 400 characters. Off by default (opt in with wpmcp_enable_forms_write). Returns before and after. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'form_id'  => $id,
+                        'messages' => [ 'type' => 'object', 'minProperties' => 1, 'additionalProperties' => [ 'type' => 'string', 'maxLength' => 400 ] ],
+                    ],
+                    'required'   => [ 'form_id', 'messages' ],
+                ],
+                'validate'     => static function (array $args): ?array {
+                    $refusal = self::form_refusal((int) $args['form_id']);
+                    if (null !== $refusal) {
+                        return $refusal;
+                    }
+                    $form  = \WPCF7_ContactForm::get_instance((int) $args['form_id']);
+                    $known = function_exists('wpcf7_messages') ? array_keys((array) wpcf7_messages()) : array_keys((array) $form->prop('messages'));
+                    foreach (array_keys((array) $args['messages']) as $key) {
+                        if (! in_array((string) $key, $known, true)) {
+                            return [ 'code' => 'unknown_message', 'message' => sprintf('"%s" is not a Contact Form 7 message key.', (string) $key), 'data' => [ 'known' => $known ] ];
+                        }
+                    }
+                    return null;
+                },
+                'handler'      => static function (array $args): array {
+                    $form_id = (int) $args['form_id'];
+                    $form    = \WPCF7_ContactForm::get_instance($form_id);
+                    $current = array_map('strval', (array) $form->prop('messages'));
+                    $next    = $current;
+                    foreach ((array) $args['messages'] as $key => $text) {
+                        $next[ (string) $key ] = trim(wp_strip_all_tags((string) $text));
+                    }
+                    $changes = self::diff_fields($current, $next);
+                    if ([] !== $changes) {
+                        $form->set_properties([ 'messages' => $next ]);
+                        if (! $form->save()) {
+                            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- caught by the dispatcher and returned as a JSON error, never rendered.
+                            throw new Operation_Error('update_failed', 'Contact Form 7 did not save the form.', [ 'form_id' => $form_id ]);
+                        }
+                    }
+                    return [ 'form_id' => $form_id, 'changed' => [] !== $changes, 'changes' => $changes ];
+                },
             ],
         ];
+    }
+
+    /**
+     * The mail template as set-notification-recipients would leave it.
+     *
+     * @param array<string, mixed> $args
+     * @return array<string, mixed>
+     */
+    private static function recipient_mail(\WPCF7_ContactForm $form, array $args): array
+    {
+        $mail = (array) $form->prop((string) $args['notification_id']);
+        if (isset($args['to'])) {
+            $mail['recipient'] = trim((string) $args['to']);
+        }
+        $headers = (string) ($mail['additional_headers'] ?? '');
+        foreach ([ 'cc' => 'Cc', 'bcc' => 'Bcc' ] as $field => $name) {
+            if (isset($args[ $field ])) {
+                $headers = self::with_header($headers, $name, trim((string) $args[ $field ]));
+            }
+        }
+        $mail['additional_headers'] = $headers;
+
+        return $mail;
+    }
+
+    /**
+     * Recipients before and after, for the preview and the result.
+     *
+     * @param array<string, mixed> $args
+     * @return array{0: array<string, string>, 1: array<string, string>}
+     */
+    private static function recipient_views(array $args): array
+    {
+        $form   = \WPCF7_ContactForm::get_instance((int) $args['form_id']);
+        $pick   = static fn (array $mail): array => array_intersect_key(self::mail_view($mail), [ 'to' => 1, 'cc' => 1, 'bcc' => 1 ]);
+
+        return [ $pick((array) $form->prop((string) $args['notification_id'])), $pick(self::recipient_mail($form, $args)) ];
     }
 }

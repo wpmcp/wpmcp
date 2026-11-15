@@ -180,4 +180,57 @@ class NinjaFormsIntegrationTest extends \WP_UnitTestCase
 
         $this->assertSame('trash', get_post_status($this->old));
     }
+
+    // ---- #675: delete-entry ----------------------------------------------
+
+    private function delete(int $entry, bool $confirm = true): array
+    {
+        $payload = [ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $entry ] ];
+        if ($confirm) {
+            $payload['confirm'] = true;
+        }
+        return ( new Ninja_Forms_Integration() )->handle_write($payload);
+    }
+
+    public function test_delete_entry_is_off_until_opted_in_then_needs_confirm(): void
+    {
+        $out = $this->delete($this->old);
+        $this->assertSame('opt_in_required', $out['error']['code']);
+        $this->assertStringContainsString('wpmcp_enable_forms_write', $out['error']['message']);
+
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $preview = $this->delete($this->old, false);
+        $this->assertSame('confirmation_required', $preview['error']['code']);
+        $this->assertSame(8, $preview['error']['data']['form_id']);
+        $this->assertStringNotContainsString('old@example.test', wp_json_encode($preview));
+        $this->assertNotNull(get_post($this->old));
+        remove_all_filters('wpmcp_enable_forms_write');
+    }
+
+    public function test_delete_entry_deletes_the_post_and_rollback_brings_it_back_with_its_values(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $out = $this->delete($this->old);
+
+        $this->assertTrue($out['result']['deleted']);
+        $this->assertTrue($out['recoverable']);
+        $this->assertNull(get_post($this->old));
+        $this->assertNotNull(get_post($this->new), 'Another submission stays');
+
+        ( new Rollback_Operation() )->handle([ 'operation_id' => $out['operation_id'] ]);
+        $this->assertSame('nf_sub', get_post($this->old)->post_type);
+        $this->assertSame('old@example.test', get_post_meta($this->old, '_field_80', true));
+        remove_all_filters('wpmcp_enable_forms_write');
+    }
+
+    public function test_delete_entry_refuses_a_post_that_is_not_a_submission_and_snapshots_nothing(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $page = self::factory()->post->create([ 'post_type' => 'page' ]);
+
+        $this->assertSame('entry_not_found', $this->delete($page)['error']['code']);
+        $this->assertSame('entry_not_found', $this->delete(999999)['error']['code']);
+        $this->assertNotNull(get_post($page));
+        remove_all_filters('wpmcp_enable_forms_write');
+    }
 }

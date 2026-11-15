@@ -2,6 +2,8 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Tools\Database\Database_Guard;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -15,6 +17,13 @@ if (! defined('ABSPATH')) {
  *
  * Entries are user data, so the entry operations sit behind manage_options on
  * top of the pair's own capability.
+ *
+ * Issue #674: the email actions (notifications) and the on_submit actions
+ * (confirmations) are editable, off by default, each write snapshotting the
+ * action post.
+ *
+ * Issue #675: delete-entry removes the entry's rows directly in one session
+ * of db_rows snapshots, so rollback-session restores them.
  *
  * No entry-status write: Formidable has no spam or trash state for an entry
  * (an entry is either a draft or submitted, and a deleted entry is gone), so
@@ -60,6 +69,11 @@ class Formidable_Integration extends Forms_Integration
     }
 
     protected function operations(): array
+    {
+        return $this->read_operations() + self::config_operations();
+    }
+
+    protected function read_operations(): array
     {
         $form_only = [
             'type'       => 'object',
@@ -186,6 +200,409 @@ class Formidable_Integration extends Forms_Integration
                 'handler'      => function (array $args): array {
                     $entry = \FrmEntry::getOne((int) $args['entry_id'], true);
                     return [ 'entry' => is_object($entry) ? self::shape_entry($entry, true) : null ];
+                },
+            ],
+            'delete-entry' => [
+                'mode'              => 'destructive',
+                'self_snapshotting' => true,
+                'objects'           => [ 'entry_id' => 'entry' ],
+                'capability'        => self::ENTRY_CAPABILITY,
+                'description'       => 'Permanently delete one Formidable entry with its values and, for a repeater or embedded form, its child entries (the rows of frm_items and frm_item_metas, removed directly: Formidable\'s own delete hooks do not run and uploaded files stay on disk). Off by default (opt in with wpmcp_enable_forms_write); needs confirm:true and manage_options. Reversible: every row is snapshotted first and rollback-session puts them back. ' . self::NOT_ERASURE,
+                'input_schema'      => [
+                    'type'       => 'object',
+                    'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
+                    'required'   => [ 'entry_id' ],
+                ],
+                'validate'          => static fn (array $args): ?array => is_object(\FrmEntry::getOne((int) $args['entry_id']))
+                    ? null
+                    : [ 'code' => 'entry_not_found', 'message' => 'Formidable has no entry with that id.', 'data' => [ 'entry_id' => (int) $args['entry_id'] ] ],
+                'confirm_preview'   => static function (array $args): array {
+                    $entry_id = (int) $args['entry_id'];
+                    $entry    = \FrmEntry::getOne($entry_id);
+                    $children = self::child_entry_ids($entry_id);
+                    $values   = self::count_rows('frm_item_metas', 'item_id', $entry_id);
+                    return [
+                        'message' => sprintf('It permanently deletes Formidable entry %d of form %d (%d stored values, %d child entries). Uploaded files stay on disk. Undo: rollback-session.', $entry_id, (int) ($entry->form_id ?? 0), $values, count($children)),
+                        'data'    => [ 'entry_id' => $entry_id, 'form_id' => (int) ($entry->form_id ?? 0), 'date' => (string) ($entry->created_at ?? ''), 'values' => $values, 'child_entries' => count($children), 'files_stay_on_disk' => true ],
+                    ];
+                },
+                'handler'           => static function (array $args, array $context): array {
+                    $entry_id = (int) $args['entry_id'];
+                    $steps    = [];
+                    foreach (array_merge(self::child_entry_ids($entry_id), [ $entry_id ]) as $item) {
+                        $steps[] = [ 'table' => 'frm_item_metas', 'primary_key' => [ 'id' ], 'where' => [ 'item_id' => $item ], 'optional' => true ];
+                        $steps[] = [ 'table' => 'frm_items', 'primary_key' => [ 'id' ], 'where' => [ 'id' => $item ] ];
+                    }
+                    $done = self::delete_rows_in_session($steps, $args, $context);
+                    if (class_exists('FrmEntry') && method_exists('FrmEntry', 'clear_cache')) {
+                        \FrmEntry::clear_cache();
+                    }
+                    return [
+                        'result'        => [ 'entry_id' => $entry_id, 'deleted' => ($done['result']['frm_items'] ?? 0) > 0, 'rows' => $done['result'] ],
+                        'operation_ids' => $done['operation_ids'],
+                    ];
+                },
+            ] + self::write_flags(),
+        ];
+    }
+
+    /**
+     * Ids of the child entries of an entry (repeater and embedded forms keep
+     * theirs in frm_items.parent_item_id; the column exists on Formidable
+     * installs that have those, and the lookup answers [] where it does not).
+     *
+     * @return int[]
+     */
+    private static function child_entry_ids(int $entry_id): array
+    {
+        global $wpdb;
+
+        $table = Database_Guard::valid_table($wpdb->prefix . 'frm_items');
+        if (is_wp_error($table)) {
+            return [];
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a schema probe of the host plugin's own table.
+        $has = $wpdb->get_var($wpdb->prepare('SHOW COLUMNS FROM %i LIKE %s', $table, 'parent_item_id'));
+        if (! $has) {
+            return [];
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- reads the child entry ids of the host plugin's own table fresh, so the delete covers every row.
+        return array_map('intval', (array) $wpdb->get_col($wpdb->prepare('SELECT id FROM %i WHERE parent_item_id = %d ORDER BY id', $table, $entry_id)));
+    }
+
+    // ------------------------------------------------------------------
+    // Notification and confirmation edits (issue #674)
+    // ------------------------------------------------------------------
+
+    private const ACTION_POST_TYPE = 'frm_form_actions';
+
+    /** @return array<string, mixed>|null a refusal when no Formidable form has that id */
+    private static function form_refusal(int $form_id): ?array
+    {
+        if (! empty(\FrmForm::getOne($form_id))) {
+            return null;
+        }
+
+        return [ 'code' => 'form_not_found', 'message' => 'No Formidable form has that id.', 'data' => [ 'form_id' => $form_id ] ];
+    }
+
+    /**
+     * One action post of a form, as stored: its post and decoded settings.
+     * Null when the id is not an action of that type on that form.
+     *
+     * @return array{post: \WP_Post, settings: array<string, mixed>}|null
+     */
+    private static function action_of(int $form_id, int $action_id, string $type): ?array
+    {
+        $post = get_post($action_id);
+        if (! $post instanceof \WP_Post || self::ACTION_POST_TYPE !== $post->post_type || (int) $post->menu_order !== $form_id || sanitize_title($post->post_excerpt) !== $type) {
+            return null;
+        }
+        $settings = json_decode((string) $post->post_content, true);
+
+        return [ 'post' => $post, 'settings' => is_array($settings) ? $settings : [] ];
+    }
+
+    /** Save an action through Formidable's own save (FrmDb::save_settings) when it is loaded. */
+    private static function save_action(\WP_Post $post, array $settings, ?string $status = null, ?string $title = null): void
+    {
+        $record = [
+            'ID'           => $post->ID,
+            'post_type'    => $post->post_type,
+            'post_title'   => $title ?? $post->post_title,
+            'post_excerpt' => $post->post_excerpt,
+            'post_status'  => $status ?? $post->post_status,
+            'menu_order'   => $post->menu_order,
+            'post_content' => $settings,
+        ];
+        if (class_exists('FrmDb') && method_exists('FrmDb', 'save_settings')) {
+            $result = \FrmDb::save_settings($record, 'frm_actions');
+        } else {
+            $record['post_content'] = wp_slash(wp_json_encode($settings));
+            $result                 = wp_update_post($record, true);
+        }
+        if (is_wp_error($result) || ! $result) {
+            throw new Operation_Error('update_failed', 'Formidable did not save the action.', [ 'action_id' => (int) $post->ID ]);
+        }
+        clean_post_cache($post->ID);
+        if (class_exists('FrmFormAction') && method_exists('FrmFormAction', 'clear_cache')) {
+            \FrmFormAction::clear_cache();
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private static function email_view(\WP_Post $post, array $s): array
+    {
+        return [
+            'enabled'  => 'publish' === $post->post_status,
+            'name'     => (string) $post->post_title,
+            'to'       => (string) ($s['email_to'] ?? ''),
+            'cc'       => (string) ($s['cc'] ?? ''),
+            'bcc'      => (string) ($s['bcc'] ?? ''),
+            'from'     => (string) ($s['from'] ?? ''),
+            'reply_to' => (string) ($s['reply_to'] ?? ''),
+            'subject'  => (string) ($s['email_subject'] ?? ''),
+            'message'  => (string) ($s['email_message'] ?? ''),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private static function confirmation_view(\WP_Post $post, array $s): array
+    {
+        $type = (string) ($s['success_action'] ?? 'message');
+
+        return [
+            'id'       => (int) $post->ID,
+            'name'     => (string) $post->post_title,
+            'enabled'  => 'publish' === $post->post_status,
+            'type'     => '' === $type ? 'message' : $type,
+            'message'  => (string) ($s['success_msg'] ?? ''),
+            'page'     => (string) ($s['success_page_id'] ?? ''),
+            'redirect' => (string) ($s['success_url'] ?? ''),
+        ];
+    }
+
+    /**
+     * Plan an email action edit.
+     *
+     * @return array{0: ?array, 1: ?array} [refusal, plan]
+     */
+    private static function email_plan(array $args): array
+    {
+        $form_id = (int) $args['form_id'];
+        if (null !== ($refusal = self::form_refusal($form_id))) {
+            return [ $refusal, null ];
+        }
+        $action = self::action_of($form_id, (int) $args['notification_id'], 'email');
+        if (null === $action) {
+            return [ [ 'code' => 'notification_not_found', 'message' => 'This form has no email action with that id (see list-notifications).', 'data' => [ 'form_id' => $form_id, 'notification_id' => (int) $args['notification_id'] ] ], null ];
+        }
+        $before   = self::email_view($action['post'], $action['settings']);
+        $settings = $action['settings'];
+        $map      = [ 'to' => 'email_to', 'cc' => 'cc', 'bcc' => 'bcc', 'from' => 'from', 'reply_to' => 'reply_to', 'subject' => 'email_subject', 'message' => 'email_message' ];
+        foreach ($map as $arg => $key) {
+            if (isset($args[ $arg ])) {
+                $settings[ $key ] = trim((string) $args[ $arg ]);
+            }
+        }
+        $status = isset($args['enabled']) ? ($args['enabled'] ? 'publish' : 'draft') : $action['post']->post_status;
+        $title  = isset($args['name']) ? (string) $args['name'] : $action['post']->post_title;
+        $shadow = clone $action['post'];
+        $shadow->post_status = $status;
+        $shadow->post_title  = $title;
+
+        return [ null, [ 'form_id' => $form_id, 'post' => $action['post'], 'settings' => $settings, 'status' => $status, 'title' => $title, 'before' => $before, 'after' => self::email_view($shadow, $settings) ] ];
+    }
+
+    /**
+     * Plan an on_submit action edit.
+     *
+     * @return array{0: ?array, 1: ?array} [refusal, plan]
+     */
+    private static function confirmation_plan(array $args): array
+    {
+        $form_id = (int) $args['form_id'];
+        if (null !== ($refusal = self::form_refusal($form_id))) {
+            return [ $refusal, null ];
+        }
+        $action = self::action_of($form_id, (int) $args['confirmation_id'], 'on_submit');
+        if (null === $action) {
+            return [ [ 'code' => 'confirmation_not_found', 'message' => 'This form has no confirmation action with that id (see list-confirmations). A confirmation kept only in the form\'s own options cannot be edited here.', 'data' => [ 'form_id' => $form_id, 'confirmation_id' => (int) $args['confirmation_id'] ] ], null ];
+        }
+        $before   = self::confirmation_view($action['post'], $action['settings']);
+        $settings = $action['settings'];
+        if (isset($args['type'])) {
+            $settings['success_action'] = (string) $args['type'];
+        }
+        if (isset($args['message'])) {
+            $settings['success_msg'] = wp_kses_post((string) $args['message']);
+        }
+        if (isset($args['page'])) {
+            $settings['success_page_id'] = (string) (int) $args['page'];
+        }
+        if (isset($args['redirect'])) {
+            if (! preg_match('#^https?://[^\s]+$#i', (string) $args['redirect'])) {
+                return [ [ 'code' => 'invalid_confirmation', 'message' => 'A redirect confirmation needs an http or https url.', 'data' => [ 'form_id' => $form_id, 'confirmation_id' => (int) $args['confirmation_id'] ] ], null ];
+            }
+            $settings['success_url'] = esc_url_raw((string) $args['redirect']);
+        }
+        $status = isset($args['enabled']) ? ($args['enabled'] ? 'publish' : 'draft') : $action['post']->post_status;
+        $title  = isset($args['name']) ? (string) $args['name'] : $action['post']->post_title;
+        $shadow = clone $action['post'];
+        $shadow->post_status = $status;
+        $shadow->post_title  = $title;
+        $after   = self::confirmation_view($shadow, $settings);
+        $problem = self::confirmation_problem([ 'type' => $after['type'], 'message' => $after['message'], 'page' => $after['page'], 'url' => $after['redirect'] ]);
+        if (null !== $problem) {
+            return [ [ 'code' => 'invalid_confirmation', 'message' => $problem, 'data' => [ 'form_id' => $form_id, 'confirmation_id' => (int) $args['confirmation_id'] ] ], null ];
+        }
+
+        return [ null, [ 'form_id' => $form_id, 'post' => $action['post'], 'settings' => $settings, 'status' => $status, 'title' => $title, 'before' => $before, 'after' => $after ] ];
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private static function config_operations(): array
+    {
+        $id    = [ 'type' => 'integer', 'minimum' => 1 ];
+        $write = [
+            'capability' => 'manage_options',
+            'snapshot'   => static function (array $args): ?array {
+                $action_id = (int) ($args['notification_id'] ?? $args['confirmation_id'] ?? 0);
+                $post      = get_post($action_id);
+                return $post instanceof \WP_Post && self::ACTION_POST_TYPE === $post->post_type && (int) $post->menu_order === (int) $args['form_id']
+                    ? [ 'object_type' => 'post', 'object_id' => $action_id ]
+                    : null;
+            },
+        ] + self::write_flags();
+
+        return [
+            'list-confirmations'          => [
+                'mode'         => 'read',
+                'description'  => 'List one form\'s confirmations (Formidable "on_submit" form actions): id, name, enabled, type (message, page, redirect), message, page id and redirect url. A form that still keeps its confirmation in its own options is reported as legacy, read-only',
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'form_id' => $id ], 'required' => [ 'form_id' ] ],
+                'handler'      => static function (array $args): array {
+                    $form_id = (int) $args['form_id'];
+                    $form    = \FrmForm::getOne($form_id);
+                    if (empty($form)) {
+                        return [ 'form_id' => $form_id, 'confirmations' => null ];
+                    }
+                    $out = [];
+                    foreach ((array) \FrmFormAction::get_action_for_form($form_id, 'on_submit') as $action) {
+                        $post = get_post((int) ($action->ID ?? 0));
+                        if ($post instanceof \WP_Post) {
+                            $out[] = self::confirmation_view($post, (array) (self::action_of($form_id, (int) $post->ID, 'on_submit')['settings'] ?? []));
+                        }
+                    }
+                    $options = is_object($form) ? (array) ($form->options ?? []) : [];
+                    if ([] === $out && ! empty($options['success_msg'])) {
+                        $out[] = [ 'id' => null, 'legacy' => true, 'name' => 'Form options', 'enabled' => true, 'type' => (string) ($options['success_action'] ?? 'message'), 'message' => (string) $options['success_msg'], 'page' => (string) ($options['success_page_id'] ?? ''), 'redirect' => (string) ($options['success_url'] ?? '') ];
+                    }
+                    return [ 'form_id' => $form_id, 'confirmations' => $out ];
+                },
+            ],
+            'update-notification'         => $write + [
+                'mode'         => 'write',
+                'description'  => 'Edit one email action (notification) of a form: enabled, name, subject, message, from and reply_to. Recipients are changed with set-notification-recipients. Off by default (opt in with wpmcp_enable_forms_write). Returns before and after of every changed field. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'          => 'object',
+                    'properties'    => [
+                        'form_id'         => $id,
+                        'notification_id' => $id,
+                        'enabled'         => [ 'type' => 'boolean' ],
+                        'name'            => [ 'type' => 'string', 'maxLength' => 200 ],
+                        'subject'         => [ 'type' => 'string', 'maxLength' => 998 ],
+                        'message'         => [ 'type' => 'string', 'maxLength' => 100000 ],
+                        'from'            => [ 'type' => 'string', 'maxLength' => 320 ],
+                        'reply_to'        => [ 'type' => 'string', 'maxLength' => 320 ],
+                    ],
+                    'required'      => [ 'form_id', 'notification_id' ],
+                    'minProperties' => 3,
+                ],
+                'validate'     => static function (array $args): ?array {
+                    [ $refusal ] = self::email_plan($args);
+                    if (null !== $refusal) {
+                        return $refusal;
+                    }
+                    $bad = static fn (string $message): array => [ 'code' => 'invalid_notification', 'message' => $message, 'data' => [ 'form_id' => (int) $args['form_id'] ] ];
+                    foreach ([ 'subject', 'message' ] as $field) {
+                        if (isset($args[ $field ]) && '' === trim((string) $args[ $field ])) {
+                            return $bad(sprintf('%s must not be empty.', ucfirst($field)));
+                        }
+                    }
+                    foreach ([ 'from' => 'From', 'reply_to' => 'Reply-to' ] as $field => $label) {
+                        if (isset($args[ $field ])) {
+                            $problem = self::address_problem((string) $args[ $field ], $label, 'reply_to' === $field, true);
+                            if (null !== $problem) {
+                                return $bad($problem);
+                            }
+                        }
+                    }
+                    return null;
+                },
+                'handler'      => static function (array $args): array {
+                    [ , $plan ] = self::email_plan($args);
+                    $changes    = self::diff_fields($plan['before'], $plan['after']);
+                    if ([] !== $changes) {
+                        self::save_action($plan['post'], $plan['settings'], $plan['status'], $plan['title']);
+                    }
+                    return [ 'form_id' => $plan['form_id'], 'notification_id' => (int) $plan['post']->ID, 'changed' => [] !== $changes, 'changes' => $changes ];
+                },
+            ],
+            'set-notification-recipients' => $write + [
+                'mode'            => 'destructive',
+                'description'     => 'Change who an email action is sent to: to, cc and bcc (addresses or field shortcodes such as [admin_email]; an empty cc or bcc clears it). This redirects personal data, so it needs confirm:true, and the confirmation shows the recipients before and after. Off by default (opt in with wpmcp_enable_forms_write). Undo: rollback-operation',
+                'input_schema'    => [
+                    'type'          => 'object',
+                    'properties'    => [
+                        'form_id'         => $id,
+                        'notification_id' => $id,
+                        'to'              => [ 'type' => 'string', 'maxLength' => 2000 ],
+                        'cc'              => [ 'type' => 'string', 'maxLength' => 2000 ],
+                        'bcc'             => [ 'type' => 'string', 'maxLength' => 2000 ],
+                    ],
+                    'required'      => [ 'form_id', 'notification_id' ],
+                    'minProperties' => 3,
+                ],
+                'validate'        => static function (array $args): ?array {
+                    [ $refusal ] = self::email_plan($args);
+                    if (null !== $refusal) {
+                        return $refusal;
+                    }
+                    foreach ([ 'to' => 'To', 'cc' => 'Cc', 'bcc' => 'Bcc' ] as $field => $label) {
+                        if (isset($args[ $field ])) {
+                            $problem = self::address_problem((string) $args[ $field ], $label, 'to' !== $field);
+                            if (null !== $problem) {
+                                return [ 'code' => 'invalid_recipients', 'message' => $problem, 'data' => [ 'form_id' => (int) $args['form_id'] ] ];
+                            }
+                        }
+                    }
+                    return null;
+                },
+                'confirm_preview' => static function (array $args): array {
+                    [ , $plan ] = self::email_plan($args);
+                    $pick       = static fn (array $v): array => array_intersect_key($v, [ 'to' => 1, 'cc' => 1, 'bcc' => 1 ]);
+                    return [
+                        'message' => sprintf('It changes who email action %d of form %d is sent to. Undo: rollback-operation.', (int) $plan['post']->ID, $plan['form_id']),
+                        'data'    => [ 'form_id' => $plan['form_id'], 'before' => $pick($plan['before']), 'after' => $pick($plan['after']) ],
+                    ];
+                },
+                'handler'         => static function (array $args): array {
+                    [ , $plan ] = self::email_plan($args);
+                    $pick       = static fn (array $v): array => array_intersect_key($v, [ 'to' => 1, 'cc' => 1, 'bcc' => 1 ]);
+                    $changed    = $pick($plan['before']) !== $pick($plan['after']);
+                    if ($changed) {
+                        self::save_action($plan['post'], $plan['settings']);
+                    }
+                    return [ 'form_id' => $plan['form_id'], 'notification_id' => (int) $plan['post']->ID, 'changed' => $changed, 'recipient_changed' => $changed, 'before' => $pick($plan['before']), 'after' => $pick($plan['after']) ];
+                },
+            ],
+            'update-confirmation'         => $write + [
+                'mode'         => 'write',
+                'description'  => 'Edit one confirmation (on_submit action) of a form: enabled, name, type (message, page, redirect), message (post HTML only), page (id of a published page) and redirect (an http or https url). The result must be coherent for its type. Off by default (opt in with wpmcp_enable_forms_write). Returns before and after. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'          => 'object',
+                    'properties'    => [
+                        'form_id'         => $id,
+                        'confirmation_id' => $id,
+                        'enabled'         => [ 'type' => 'boolean' ],
+                        'name'            => [ 'type' => 'string', 'maxLength' => 200 ],
+                        'type'            => [ 'type' => 'string', 'enum' => [ 'message', 'page', 'redirect' ] ],
+                        'message'         => [ 'type' => 'string', 'maxLength' => 100000 ],
+                        'page'            => $id,
+                        'redirect'        => [ 'type' => 'string', 'maxLength' => 2000 ],
+                    ],
+                    'required'      => [ 'form_id', 'confirmation_id' ],
+                    'minProperties' => 3,
+                ],
+                'validate'     => static fn (array $args): ?array => self::confirmation_plan($args)[0],
+                'handler'      => static function (array $args): array {
+                    [ , $plan ] = self::confirmation_plan($args);
+                    $changes    = self::diff_fields($plan['before'], $plan['after']);
+                    if ([] !== $changes) {
+                        self::save_action($plan['post'], $plan['settings'], $plan['status'], $plan['title']);
+                    }
+                    return [ 'form_id' => $plan['form_id'], 'confirmation_id' => (int) $plan['post']->ID, 'changed' => [] !== $changes, 'changes' => $changes ];
                 },
             ],
         ];

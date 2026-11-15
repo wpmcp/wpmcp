@@ -55,7 +55,59 @@ if (! class_exists('FrmEntry')) {
 
         public static function getOne($id, $meta = false)
         {
-            return self::$entries[(int) $id] ?? false;
+            $entry = self::$entries[(int) $id] ?? false;
+            // With the real tables installed (install_tables()), an entry is
+            // found only while its frm_items row exists, as in Formidable.
+            if ($entry && self::tables_installed()) {
+                global $wpdb;
+                if (! $wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}frm_items WHERE id = %d", (int) $id))) {
+                    return false;
+                }
+            }
+            return $entry;
+        }
+
+        /** DDL (call from set_up_before_class): frm_items and frm_item_metas, columns trimmed to what a delete touches. */
+        public static function install_tables(): void
+        {
+            global $wpdb;
+            $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}frm_items (
+                id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+                form_id bigint(20) unsigned NULL,
+                parent_item_id bigint(20) unsigned NULL,
+                item_key varchar(100) NULL,
+                PRIMARY KEY  (id)
+            )");
+            $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}frm_item_metas (
+                id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+                meta_value longtext NULL,
+                field_id bigint(20) unsigned NOT NULL,
+                item_id bigint(20) unsigned NOT NULL,
+                PRIMARY KEY  (id)
+            )");
+        }
+
+        public static function uninstall_tables(): void
+        {
+            global $wpdb;
+            $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}frm_item_metas");
+            $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}frm_items");
+        }
+
+        public static function tables_installed(): bool
+        {
+            global $wpdb;
+            return $wpdb->prefix . 'frm_items' === $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->prefix . 'frm_items'));
+        }
+
+        /** Write an entry's rows (one meta row per value) into the real tables. */
+        public static function seed_rows(int $id, int $form_id, array $values, int $parent = 0): void
+        {
+            global $wpdb;
+            $wpdb->insert($wpdb->prefix . 'frm_items', [ 'id' => $id, 'form_id' => $form_id, 'parent_item_id' => $parent ?: null, 'item_key' => 'e' . $id ]);
+            foreach ($values as $field => $value) {
+                $wpdb->insert($wpdb->prefix . 'frm_item_metas', [ 'item_id' => $id, 'field_id' => (int) $field, 'meta_value' => (string) $value ]);
+            }
         }
 
         /** Formidable counts frm_items by form when handed a numeric form id. */
@@ -92,6 +144,20 @@ if (! class_exists('FrmFormAction')) {
         public static function get_action_for_form($form_id, $type = 'all', $atts = [])
         {
             $all = self::$actions[(int) $form_id] ?? [];
+            // Like the real model, an action that exists as a real
+            // frm_form_actions post answers from that post, so a write is seen.
+            foreach ($all as $i => $action) {
+                $post = get_post((int) ($action->ID ?? 0));
+                if ($post instanceof \WP_Post && 'frm_form_actions' === $post->post_type) {
+                    $all[$i] = (object) [
+                        'ID'           => $post->ID,
+                        'post_title'   => $post->post_title,
+                        'post_status'  => $post->post_status,
+                        'post_excerpt' => $post->post_excerpt,
+                        'post_content' => (array) json_decode($post->post_content, true),
+                    ];
+                }
+            }
             if ('all' === $type) {
                 return $all;
             }
@@ -104,6 +170,8 @@ if (! class_exists('FrmFormAction')) {
 if (! class_exists('WPCF7_ContactForm')) {
     class WPCF7_ContactForm
     {
+        public const post_type = 'wpcf7_contact_form';
+
         /** @var array<int,\WPCF7_ContactForm> */
         public static array $registry = [];
 
@@ -147,9 +215,36 @@ if (! class_exists('WPCF7_ContactForm')) {
             return $this->_name;
         }
 
+        /**
+         * Like the real model, properties live in post meta (_mail, _messages
+         * and so on) once a form has been saved; a seeded form that was never
+         * saved answers from its seed.
+         */
         public function prop($name)
         {
+            if ($this->_id && metadata_exists('post', $this->_id, '_' . $name)) {
+                return get_post_meta($this->_id, '_' . $name, true);
+            }
             return $this->_props[$name] ?? '';
+        }
+
+        public function set_properties($properties)
+        {
+            foreach ((array) $properties as $name => $value) {
+                $this->_props[$name] = $value;
+            }
+        }
+
+        /** The real save() wp_update_posts the form and writes every property to post meta. */
+        public function save()
+        {
+            if (! $this->_id || ! get_post($this->_id)) {
+                return false;
+            }
+            foreach ($this->_props as $name => $value) {
+                update_post_meta($this->_id, '_' . $name, $value);
+            }
+            return $this->_id;
         }
 
         /**
@@ -176,6 +271,14 @@ if (! class_exists('WPCF7_ContactForm')) {
     }
 }
 
+if (! function_exists('wpcf7_messages')) {
+    /** The keys of the real wpcf7_messages() (values are the defaults, unused here). */
+    function wpcf7_messages()
+    {
+        return array_fill_keys([ 'mail_sent_ok', 'mail_sent_ng', 'validation_error', 'spam', 'accept_terms', 'invalid_required', 'invalid_too_long', 'invalid_too_short' ], [ 'description' => '', 'default' => '' ]);
+    }
+}
+
 // ---- WPForms: wpforms()->form->get() ---------------------------------------
 if (! function_exists('wpforms')) {
     class WPMCP_WPForms_Form_Stub
@@ -188,7 +291,11 @@ if (! function_exists('wpforms')) {
             if ('' === $id || null === $id) {
                 return array_values($this->forms);
             }
-            return $this->forms[(int) $id] ?? null;
+            $form = $this->forms[(int) $id] ?? null;
+            // The real handler reads the post fresh, so a form that exists as a
+            // real post answers with its current row, not the seeded one.
+            $live = $form instanceof \WP_Post ? get_post((int) $id) : null;
+            return $live instanceof \WP_Post && 'wpforms' === $live->post_type ? $live : $form;
         }
     }
 

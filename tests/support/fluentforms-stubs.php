@@ -142,12 +142,41 @@ class FF_Test_DB
             created_at timestamp NULL,
             PRIMARY KEY  (id)
         )");
+        $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}fluentform_submission_meta (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            response_id bigint(20) unsigned NULL,
+            form_id int(10) unsigned NULL,
+            meta_key varchar(255) NULL,
+            value longtext NULL,
+            PRIMARY KEY  (id)
+        )");
+        $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}fluentform_logs (
+            id int(10) unsigned NOT NULL AUTO_INCREMENT,
+            source_id int(10) unsigned NULL,
+            source_type varchar(255) NULL,
+            message longtext NULL,
+            PRIMARY KEY  (id)
+        )");
+        $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}fluentform_entry_details (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            form_id int(10) unsigned NULL,
+            submission_id bigint(20) unsigned NULL,
+            field_name varchar(255) NULL,
+            field_value longtext NULL,
+            PRIMARY KEY  (id)
+        )");
+        // Fluent Forms Pro's payment table (only the column the integration reads).
+        $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}fluentform_transactions (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            submission_id bigint(20) unsigned NULL,
+            PRIMARY KEY  (id)
+        )");
     }
 
     public static function uninstall(): void
     {
         global $wpdb;
-        foreach ([ 'fluentform_forms', 'fluentform_form_meta', 'fluentform_submissions' ] as $table) {
+        foreach ([ 'fluentform_forms', 'fluentform_form_meta', 'fluentform_submissions', 'fluentform_submission_meta', 'fluentform_logs', 'fluentform_entry_details', 'fluentform_transactions' ] as $table) {
             $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}{$table}");
         }
     }

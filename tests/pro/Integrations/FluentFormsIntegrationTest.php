@@ -5,6 +5,7 @@ namespace WPMCP\Tests\Pro\Integrations;
 use WPMCP\Integrations\Fluent_Forms_Integration;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Rollback_Operation;
+use WPMCP\Tools\Rollback_Session;
 
 require_once __DIR__ . '/../../support/fluentforms-stubs.php';
 
@@ -141,5 +142,70 @@ class FluentFormsIntegrationTest extends \WP_UnitTestCase
     {
         $out = $this->integration->handle_write([ 'operation' => 'update-entry-status', 'args' => [ 'entry_id' => 999, 'status' => 'read' ] ]);
         $this->assertSame('entry_not_found', $out['error']['code']);
+    }
+
+    // ---- #675: delete-entry ----------------------------------------------
+
+    private function rows(string $table, string $column, int $id): int
+    {
+        global $wpdb;
+        return (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE %i = %d', $wpdb->prefix . $table, $column, $id));
+    }
+
+    private function seed_children(int $entry): void
+    {
+        \FF_Test_DB::seed('fluentform_submission_meta', [ 'response_id' => $entry, 'form_id' => $this->form_id, 'meta_key' => 'is_favourite', 'value' => '1' ]); // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- a column of Fluent Forms' own table.
+        \FF_Test_DB::seed('fluentform_logs', [ 'source_id' => $entry, 'source_type' => 'submission_item', 'message' => 'Email sent' ]);
+        \FF_Test_DB::seed('fluentform_logs', [ 'source_id' => $entry, 'source_type' => 'forms', 'message' => 'Not this entry\'s log' ]);
+        \FF_Test_DB::seed('fluentform_entry_details', [ 'form_id' => $this->form_id, 'submission_id' => $entry, 'field_name' => 'email', 'field_value' => 'ada@example.test' ]);
+        \FF_Test_DB::seed('fluentform_entry_details', [ 'form_id' => $this->form_id, 'submission_id' => $entry, 'field_name' => 'name', 'field_value' => 'Ada' ]);
+    }
+
+    public function test_delete_entry_is_off_until_opted_in_then_needs_confirm_and_previews_without_values(): void
+    {
+        $this->seed_children($this->unread);
+        $this->assertSame('opt_in_required', $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->unread ], 'confirm' => true ])['error']['code']);
+
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $preview = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->unread ] ]);
+        $this->assertSame('confirmation_required', $preview['error']['code']);
+        $this->assertSame(2, $preview['error']['data']['values']);
+        $this->assertStringNotContainsString('ada@example.test', wp_json_encode($preview));
+        $this->assertSame(1, $this->rows('fluentform_submissions', 'id', $this->unread));
+        remove_all_filters('wpmcp_enable_forms_write');
+    }
+
+    public function test_delete_entry_removes_every_row_of_the_entry_and_one_session_restores_them(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $this->seed_children($this->unread);
+        $out = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->unread ], 'confirm' => true ]);
+
+        $this->assertTrue($out['result']['deleted']);
+        $this->assertTrue($out['recoverable']);
+        $this->assertSame(0, $this->rows('fluentform_submissions', 'id', $this->unread));
+        $this->assertSame(0, $this->rows('fluentform_submission_meta', 'response_id', $this->unread));
+        $this->assertSame(0, $this->rows('fluentform_entry_details', 'submission_id', $this->unread));
+        $this->assertSame(1, $this->rows('fluentform_logs', 'source_id', $this->unread), 'Only the submission_item log goes, a form log with the same id stays');
+        $this->assertSame(1, $this->rows('fluentform_submissions', 'id', $this->trashed), 'Another entry stays');
+
+        ( new Rollback_Session() )->handle([ 'session_id' => $out['session_id'] ]);
+        $this->assertSame(1, $this->rows('fluentform_submissions', 'id', $this->unread));
+        $this->assertSame(1, $this->rows('fluentform_submission_meta', 'response_id', $this->unread));
+        $this->assertSame(2, $this->rows('fluentform_entry_details', 'submission_id', $this->unread));
+        $this->assertSame(2, $this->rows('fluentform_logs', 'source_id', $this->unread));
+        remove_all_filters('wpmcp_enable_forms_write');
+    }
+
+    public function test_delete_entry_refuses_an_unknown_entry_and_one_with_payments(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $this->assertSame('entry_not_found', $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => 999 ], 'confirm' => true ])['error']['code']);
+
+        \FF_Test_DB::seed('fluentform_transactions', [ 'submission_id' => $this->unread ]);
+        $out = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->unread ], 'confirm' => true ]);
+        $this->assertSame('entry_has_payments', $out['error']['code']);
+        $this->assertSame(1, $this->rows('fluentform_submissions', 'id', $this->unread));
+        remove_all_filters('wpmcp_enable_forms_write');
     }
 }
