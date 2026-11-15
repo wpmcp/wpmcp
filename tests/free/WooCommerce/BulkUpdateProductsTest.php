@@ -37,9 +37,17 @@ class BulkUpdateProductsTest extends \WP_UnitTestCase
         Snapshot_Store::install();
         Governance::reset_for_tests();
         // The test install does not run WooCommerce's role setup, so the
-        // administrator role lacks the store capability the tools require.
+        // administrator role lacks the store capabilities the tools require.
+        // Grant the whole set WooCommerce's role setup would: rollback-session
+        // re-checks edit_post on every product it restores, and that maps to
+        // edit_published_products, so manage_woocommerce alone gets each
+        // product's restore refused.
         $user = self::factory()->user->create_and_get(['role' => 'administrator']);
-        $user->add_cap('manage_woocommerce');
+        foreach (\WC_Install::get_core_capabilities() as $group) {
+            foreach ($group as $cap) {
+                $user->add_cap($cap);
+            }
+        }
         wp_set_current_user($user->ID);
     }
 
