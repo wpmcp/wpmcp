@@ -147,6 +147,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             [ 'BuddyPress', false, BuddyPress_Pack::operations() ],
             [ 'WS Form', false, WS_Form_Pack::operations() ],
             [ 'WP Activity Log, Simple History', true, Activity_Log_Pack::operations() ],
+            [ 'WP Mail Logging, Check and Log Email, Email Log', true, Email_Log_Pack::operations() ],
             [ 'Pretty Links', false, Pretty_Links_Pack::operations() ],
             [ 'ThirstyAffiliates', false, Thirsty_Affiliates_Pack::operations() ],
         ];
@@ -187,6 +188,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Code_Snippets_Pack::operations(),
             WS_Form_Pack::operations(),
             Activity_Log_Pack::operations(),
+            Email_Log_Pack::operations(),
             Pretty_Links_Pack::operations(),
             Thirsty_Affiliates_Pack::operations(),
             BuddyPress_Pack::operations(),
