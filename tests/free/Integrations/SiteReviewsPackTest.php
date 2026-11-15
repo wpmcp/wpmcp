@@ -254,6 +254,24 @@ class SiteReviewsPackTest extends \WP_UnitTestCase
         $this->assertSame('review_not_found', $this->read('sitereviews-get-review', [ 'id' => self::factory()->post->create() ])['error']['code'] ?? null);
     }
 
+    public function test_get_review_keeps_the_reviewer_email_and_ip_masked_for_an_author_and_a_contributor(): void
+    {
+        $id = $this->review();
+        foreach ([ 'author', 'contributor' ] as $role) {
+            wp_set_current_user(self::factory()->user->create([ 'role' => $role ]));
+            $out = $this->read('sitereviews-get-review', [ 'id' => $id ]);
+            if (isset($out['error'])) {
+                $this->assertSame('operation_denied', $out['error']['code'], $role);
+                continue;
+            }
+            $this->assertSame('j***@example.com', $out['review']['email'], $role);
+            $this->assertSame('203.0.*.*', $out['review']['ip_address'], $role);
+            $json = (string) wp_json_encode($out);
+            $this->assertStringNotContainsString('jane.doe@example.com', $json, $role);
+            $this->assertStringNotContainsString('203.0.113.7', $json, $role);
+        }
+    }
+
     public function test_review_summary_counts_statuses_ratings_and_the_average_of_the_approved(): void
     {
         $page = self::factory()->post->create([ 'post_type' => 'page' ]);

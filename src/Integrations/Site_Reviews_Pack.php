@@ -286,6 +286,8 @@ final class Site_Reviews_Pack
         $email  = (string) ($rating['email'] ?? '');
         $ip     = (string) ($rating['ip_address'] ?? '');
         $reply  = (string) get_post_meta($id, '_response', true);
+        // read_post on a published review needs only `read`, so the reviewer's contact details stay masked unless the caller may edit the review (the people who moderate it).
+        $private = $full && current_user_can('edit_post', $id);
         $view   = [
             'id'            => $id,
             'title'         => (string) $post->post_title,
@@ -293,8 +295,8 @@ final class Site_Reviews_Pack
             'rating'        => (int) ($rating['rating'] ?? 0),
             'type'          => (string) ($rating['type'] ?? 'local'),
             'name'          => (string) ($rating['name'] ?? ''),
-            'email'         => $full ? $email : self::mask_email($email),
-            'ip_address'    => $full ? $ip : self::mask_ip($ip),
+            'email'         => $private ? $email : self::mask_email($email),
+            'ip_address'    => $private ? $ip : self::mask_ip($ip),
             'pinned'        => 1 === (int) ($rating['is_pinned'] ?? 0),
             'verified'      => 1 === (int) ($rating['is_verified'] ?? 0),
             'date'          => (string) $post->post_date,
