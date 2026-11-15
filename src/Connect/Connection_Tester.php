@@ -75,7 +75,7 @@ class Connection_Tester
         $checks = $this->transport_checks($response);
         // Application Passwords switched off by another plugin make every
         // Basic-auth client fail with a bare 401 (issue #883).
-        $passwords = \WPMCP\Auth\App_Passwords_Status::state();
+        $passwords = \WPMCP\Auth\App_Passwords_Status::state(current_user_can('manage_options'));
         $checks[]  = [
             'id'     => 'application_passwords',
             'label'  => __('Application Passwords are available', 'wpmcp'),

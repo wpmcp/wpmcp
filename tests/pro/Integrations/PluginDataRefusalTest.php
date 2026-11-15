@@ -177,6 +177,33 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
         $this->assertSame($miss, $filter->filter_response(new \WP_REST_Response($miss, 200), null, $request)->get_data());
     }
 
+    /** Issue #876: a batch with a notification in the middle is matched by id, not position. */
+    public function test_a_batch_with_a_notification_is_matched_by_id(): void
+    {
+        self::register(new Plugin_Data_Integration());
+        $filter = new Hidden_Tool_Refusal();
+
+        $batch = [
+            [ 'jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/call', 'params' => [ 'name' => 'wpmcp-nope', 'arguments' => [] ] ],
+            [ 'jsonrpc' => '2.0', 'method' => 'notifications/initialized' ],
+            [ 'jsonrpc' => '2.0', 'id' => 3, 'method' => 'tools/call', 'params' => [ 'name' => 'wpmcp-plugin-data-read', 'arguments' => [ 'operation' => 'betterdocs-list-docs' ] ] ],
+        ];
+        $answers = [
+            [ 'jsonrpc' => '2.0', 'id' => 1, 'error' => [ 'code' => -32003, 'message' => 'Tool not found: wpmcp-nope' ] ],
+            [ 'jsonrpc' => '2.0', 'id' => 3, 'error' => [ 'code' => -32003, 'message' => 'Tool not found: wpmcp-plugin-data-read' ] ],
+        ];
+        $request = new \WP_REST_Request('POST', '/mcp/wpmcp-server');
+        $request->set_header('content-type', 'application/json');
+        $request->set_body((string) wp_json_encode($batch));
+
+        $out = $filter->filter_response(new \WP_REST_Response($answers, 200), null, $request)->get_data();
+
+        $this->assertSame($answers[0], $out[0]);
+        $this->assertSame(3, $out[1]['id']);
+        $this->assertTrue($out[1]['result']['isError']);
+        $this->assertStringContainsString('BetterDocs', $out[1]['result']['content'][0]['text']);
+    }
+
     /** Every op the pair merges has a plugin, and that plugin is named in the pair's own refusal list. */
     public function test_every_op_has_a_host_named_in_the_pair_summary(): void
     {

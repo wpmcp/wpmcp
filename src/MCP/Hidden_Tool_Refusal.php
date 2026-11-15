@@ -70,9 +70,17 @@ class Hidden_Tool_Refusal
         }
 
         if (array_is_list($body) && array_is_list($data)) {
+            // The adapter drops notification answers, so match by JSON-RPC id, not position.
+            $by_id = [];
+            foreach ($body as $message) {
+                if (is_array($message) && isset($message['id']) && (is_int($message['id']) || is_string($message['id']))) {
+                    $by_id[ $message['id'] ] = $message;
+                }
+            }
             foreach ($data as $i => $item) {
-                if (is_array($body[ $i ] ?? null) && is_array($item)) {
-                    $data[ $i ] = self::rewrite($body[ $i ], $item);
+                $id = is_array($item) ? ($item['id'] ?? null) : null;
+                if ((is_int($id) || is_string($id)) && isset($by_id[ $id ])) {
+                    $data[ $i ] = self::rewrite($by_id[ $id ], $item);
                 }
             }
         } elseif (! array_is_list($body) && ! array_is_list($data)) {

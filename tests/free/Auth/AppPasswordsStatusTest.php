@@ -51,8 +51,10 @@ class AppPasswordsStatusTest extends \WP_UnitTestCase
     {
         add_filter('wp_is_application_passwords_available', '__return_false');
 
-        $state = App_Passwords_Status::state();
+        $state = App_Passwords_Status::state(true);
         $this->assertFalse($state['available']);
+        $this->assertArrayNotHasKey('disabled_by', $state);
+        $this->assertStringContainsString('another plugin or a filter', $state['message']);
         $this->assertSame('disabled_by_plugin', $state['reason']);
         $this->assertStringContainsString('Application Passwords are disabled on this site', $state['message']);
         $this->assertStringContainsString('OAuth', $state['message']);
@@ -69,6 +71,9 @@ class AppPasswordsStatusTest extends \WP_UnitTestCase
         $data = $out->get_data();
         $this->assertSame('rest_forbidden', $data['code']);
         $this->assertStringContainsString('Application Passwords are disabled on this site', $data['message']);
+        $this->assertStringContainsString('Connection screen', $data['message']);
+        $this->assertStringNotContainsString('Wordfence', $data['message']);
+        $this->assertArrayNotHasKey('disabled_by', $data['data']);
         $this->assertFalse($data['data']['application_passwords_available']);
         $this->assertSame(401, $data['data']['status']);
         $this->assertStringNotContainsString($secret, wp_json_encode($data));

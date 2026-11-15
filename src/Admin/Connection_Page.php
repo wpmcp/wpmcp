@@ -111,7 +111,7 @@ class Connection_Page
         }
 
         if (! wp_is_application_passwords_available_for_user($user)) {
-            $state = \WPMCP\Auth\App_Passwords_Status::state();
+            $state = \WPMCP\Auth\App_Passwords_Status::state(true);
             return ['error' => $state['message'] ?? __('Application Passwords are not available for that user on this site. They require HTTPS (or a local environment) and must not be disabled by another plugin.', 'wpmcp')];
         }
 
@@ -333,7 +333,7 @@ class Connection_Page
                 <div class="notice notice-success"><p><?php echo esc_html__('Management access saved.', 'wpmcp'); ?></p></div>
             <?php endif; ?>
 
-            <?php $passwords = \WPMCP\Auth\App_Passwords_Status::state(); ?>
+            <?php $passwords = \WPMCP\Auth\App_Passwords_Status::state(true); ?>
             <?php if (! $passwords['available']) : ?>
                 <div class="notice notice-warning"><p><strong><?php echo esc_html__('Application Passwords are unavailable.', 'wpmcp'); ?></strong> <?php echo esc_html($passwords['message'] ?? ''); ?></p></div>
             <?php endif; ?>
