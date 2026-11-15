@@ -44,6 +44,25 @@ class Theme_Switch_Snapshot
     }
 
     /**
+     * The refusal for a rollback-session over these ledger rows (newest
+     * first), or null. A session ends on its OLDEST before-image of each
+     * option, so the pair is checked as that final state.
+     *
+     * @param array[] $rows Ledger rows, newest first.
+     */
+    public static function session_refusal(array $rows): ?string
+    {
+        $final = [];
+        foreach ($rows as $row) {
+            $snapshot = isset($row['snapshot']) ? (array) $row['snapshot'] : (array) Snapshot::unserialize((string) ( $row['before_blob'] ?? '' ));
+            if (self::is_theme_option($snapshot)) {
+                $final[ (string) $snapshot['data']['name'] ] = $snapshot;
+            }
+        }
+        return [] === $final ? null : self::refusal(array_values($final));
+    }
+
+    /**
      * Why putting these before-images back would leave the site with a broken
      * template and stylesheet pair, or null when the pair would be sound.
      *
@@ -75,7 +94,7 @@ class Theme_Switch_Snapshot
         }
         if ($stylesheet->get_template() !== $target['template']) {
             return sprintf(
-                'it would leave the stylesheet "%s" (whose parent theme is "%s") with the template "%s", a pair that breaks the whole site.',
+                'it would leave the stylesheet "%s" (whose parent theme is "%s") with the template "%s", a pair that breaks the whole site. Use rollback-session for the switch\'s session to undo the whole switch.',
                 $target['stylesheet'],
                 $stylesheet->get_template(),
                 $target['template']

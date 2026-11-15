@@ -166,28 +166,49 @@ class Rollback_Service
         // Claimed before it is applied, atomically, so two undos racing for
         // the same operation cannot both apply it. Released again when the
         // restore throws, or when a file restore is refused by its own site
-        // check (issue #602), so a failed undo stays retryable.
+        // check (issue #602), so a failed undo stays retryable. A theme
+        // switch claims BOTH halves in one write: if either is taken, nothing
+        // is written, so the pair is never half applied (issue #869).
+        if ($partner) {
+            if (! Snapshot_Store::claim_rows([ (int) $row['id'], (int) $partner['id'] ])) {
+                self::warn(sprintf(
+                    'operation %s refused: it or its paired theme switch operation %s was undone by another request while this undo ran. Nothing was changed.',
+                    $operation_id,
+                    $partner['operation_id']
+                ));
+                return false;
+            }
+            $before = [
+                'template'   => get_option('template'),
+                'stylesheet' => get_option('stylesheet'),
+            ];
+            try {
+                self::apply_for_caller($row['snapshot']);
+                self::apply_for_caller($partner['snapshot']);
+            } catch (\Throwable $e) {
+                // Put the pair back as it was, so it is never left mixed.
+                foreach ($before as $name => $value) {
+                    update_option($name, $value);
+                }
+                Snapshot_Store::release_rollback('', [ (int) $row['id'], (int) $partner['id'] ]);
+                throw $e;
+            }
+            self::warn(sprintf(
+                'operation %s was one half of a theme switch: its paired operation %s was undone with it, so the template and stylesheet are back together.',
+                $operation_id,
+                $partner['operation_id']
+            ));
+            return true;
+        }
         if (! Snapshot_Store::claim_rollback($operation_id)) {
             $row = Snapshot_Store::get_by_operation($operation_id);
             self::warn(self::already_undone($operation_id, $row ? (string) Snapshot_Store::rolled_back_at($row) : ''));
             return false;
         }
-        $partner_claimed = $partner && Snapshot_Store::claim_rollback((string) $partner['operation_id']);
         try {
             self::apply_for_caller($row['snapshot']);
-            if ($partner_claimed) {
-                self::apply_for_caller($partner['snapshot']);
-                self::warn(sprintf(
-                    'operation %s was one half of a theme switch: its paired operation %s was undone with it, so the template and stylesheet are back together.',
-                    $operation_id,
-                    $partner['operation_id']
-                ));
-            }
         } catch (\Throwable $e) {
             Snapshot_Store::release_rollback($operation_id);
-            if ($partner_claimed) {
-                Snapshot_Store::release_rollback((string) $partner['operation_id']);
-            }
             throw $e;
         }
         if (self::restore_failed($row['snapshot'])) {
@@ -724,6 +745,17 @@ class Rollback_Service
         // All or nothing: while another user is editing a post the session
         // changed, nothing is restored (issue #452).
         Edit_Lock::assert_restorable($live);
+
+        // The theme options a session puts back must leave a sound template
+        // and stylesheet pair, or nothing is restored (issue #869).
+        $theme_refusal = Theme_Switch_Snapshot::session_refusal($live);
+        if (null !== $theme_refusal) {
+            throw new Mutation_Failed(sprintf(
+                'Session "%s" cannot be rolled back: %s Nothing was restored.',
+                esc_html($session_id),
+                esc_html($theme_refusal)
+            ));
+        }
 
         // No rows left: either the run was pruned long enough ago to have
         // left the exact per-session counts (issue #442), or nothing was ever

@@ -178,4 +178,75 @@ class SwitchThemeTest extends \WP_UnitTestCase
         $this->assertSame('wpmcp869-child', get_option('stylesheet'));
         $this->assertStringContainsString('not installed any more', implode(' ', Rollback_Service::take_warnings()));
     }
+
+    private function remove_base_theme(): void
+    {
+        $base = get_theme_root() . '/wpmcp869-base';
+        rename($base, $base . '-gone');
+        $this->made[] = $base . '-gone';
+        clearstatcache(true);
+        wp_cache_flush();
+        wp_clean_themes_cache(true);
+    }
+
+    public function test_a_failed_partner_claim_refuses_and_writes_nothing(): void
+    {
+        global $wpdb;
+        $ids     = $this->switch_to_child();
+        $partner = Snapshot_Store::get_by_operation($ids[0]);
+        $fired   = false;
+        // Another request takes the partner between the lookup and the claim.
+        add_filter('query', static function ($sql) use (&$fired, $wpdb, $partner) {
+            if (! $fired && false !== strpos($sql, 'SET rolled_back_at') && false !== strpos($sql, 'WHERE id IN')) {
+                $fired = true;
+                $wpdb->query($wpdb->prepare('UPDATE %i SET rolled_back_at = %s WHERE id = %d', Snapshot_Store::table_name(), '2000-01-01 00:00:00', (int) $partner['id']));
+            }
+            return $sql;
+        });
+
+        $this->assertFalse(Rollback_Service::restore_operation($ids[1]));
+        remove_all_filters('query');
+        $this->assertSame('wpmcp869-parent', get_option('template'));
+        $this->assertSame('wpmcp869-child', get_option('stylesheet'));
+        $this->assertStringContainsString('Nothing was changed', implode(' ', Rollback_Service::take_warnings()));
+        $this->assertNull(Snapshot_Store::rolled_back_at(Snapshot_Store::get_by_operation($ids[1])), 'The claimed half is released again.');
+    }
+
+    public function test_a_throw_on_the_second_half_puts_the_first_back(): void
+    {
+        $ids   = $this->switch_to_child();
+        $calls = 0;
+        add_filter('wpmcp_rollback_option_snapshot', static function ($snapshot) use (&$calls) {
+            if (2 === ++$calls) {
+                throw new \RuntimeException('second half failed');
+            }
+            return $snapshot;
+        });
+
+        try {
+            Rollback_Service::restore_operation($ids[0]);
+            $this->fail('Expected the second half to throw.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('second half failed', $e->getMessage());
+        }
+        $this->assertSame('wpmcp869-parent', get_option('template'));
+        $this->assertSame('wpmcp869-child', get_option('stylesheet'));
+        $this->assertNull(Snapshot_Store::rolled_back_at(Snapshot_Store::get_by_operation($ids[0])));
+        $this->assertNull(Snapshot_Store::rolled_back_at(Snapshot_Store::get_by_operation($ids[1])));
+    }
+
+    public function test_a_session_restore_that_would_break_the_pair_is_refused(): void
+    {
+        $this->switch_to_child();
+        $this->remove_base_theme();
+
+        try {
+            Rollback_Service::restore_session('s869');
+            $this->fail('Expected the session restore to be refused.');
+        } catch (\WPMCP\Safety\Mutation_Failed $e) {
+            $this->assertStringContainsString('not installed any more', $e->getMessage());
+        }
+        $this->assertSame('wpmcp869-parent', get_option('template'));
+        $this->assertSame('wpmcp869-child', get_option('stylesheet'));
+    }
 }
