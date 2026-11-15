@@ -336,6 +336,15 @@ tests_add_filter( 'muplugins_loaded', function () {
         }
     }
 
+    // The live activity log job (issue #698, WPMCP_LIVE_ACTIVITY_LOG=1) runs
+    // the activity log ops against the real WP Activity Log and Simple
+    // History. Loaded only on request: the stub-backed tests build both
+    // plugins' tables from a fixture.
+    if ( getenv( 'WPMCP_LIVE_ACTIVITY_LOG' ) ) {
+        wpmcp_maybe_require_plugin( 'wp-security-audit-log/wp-security-audit-log.php' );
+        wpmcp_maybe_require_plugin( 'simple-history/index.php' );
+    }
+
     // The live FunnelKit job (issue #500, WPMCP_LIVE_FUNNELKIT=1) runs the
     // FunnelKit funnel writes through the free Funnel Builder's own REST
     // controllers, beside the WooCommerce loaded above. Loaded only on
@@ -508,6 +517,16 @@ tests_add_filter( 'init', function () {
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     if ( function_exists( 'wpas_single_activate' ) ) {
         wpas_single_activate();
+    }
+}, 1 );
+
+// The live activity log job's WP Activity Log tables, built by the plugin's
+// own entities once per run, before any test transaction starts (Simple
+// History builds its own on after_setup_theme). A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_ACTIVITY_LOG' ) && class_exists( '\\WSAL\\Entities\\Occurrences_Entity' ) ) {
+        \WSAL\Entities\Occurrences_Entity::create_table();
+        \WSAL\Entities\Metadata_Entity::create_table();
     }
 }, 1 );
 
