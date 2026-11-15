@@ -1104,8 +1104,8 @@ final class MemberPress_Pack
         return [ 'result' => [ 'rule' => self::rule($id) ], 'operation_ids' => $ops ];
     }
     /**
-     * Rebuild MemberPress's cached rule and membership lists, as its own
-     * save_post handler does in wp-admin (MeprCptCtrl::
+     * Drop MemberPress's cached rule and membership lists so it rebuilds them
+     * on next use; its own save_post handler rebuilds them in wp-admin (MeprCptCtrl::
      * update_all_models_for_class_transient()), which skips an MCP request.
      * Without it a rule written here reads back right but protects nothing
      * until someone presses Save Rule (issue #867). A no-op while MemberPress
@@ -1113,20 +1113,21 @@ final class MemberPress_Pack
      */
     public static function refresh_caches(): void
     {
-        if (! class_exists('MeprCptModel')) {
-            return;
-        }
-        foreach ([ 'MeprRule' => self::RULE_TYPE, 'MeprProduct' => self::MEMBERSHIP_TYPE ] as $model => $post_type) {
-            // MemberPress's own switch on mepr_cpt_all_use_transient_cache.
-            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- MemberPress's own filter, applied the way it does.
-            if (true !== apply_filters('mepr_cpt_all_use_transient_cache', true, $post_type, $model)) {
-                continue;
+        // The data is already saved: a failure here must never abort a write or an undo.
+        try {
+            if (! class_exists('MeprCptModel')) {
+                return;
             }
-            \MeprCptModel::all($model, true);
-        }
-        // MeprRule::get_rules() also keeps its rule objects in a static for the request.
-        if (class_exists('MeprRule') && property_exists('MeprRule', 'all_rules')) {
-            \MeprRule::$all_rules = null;
+            // MeprCptModel::all() keeps each list in this transient and rebuilds it when it is gone.
+            foreach ([ 'MeprRule', 'MeprProduct' ] as $model) {
+                delete_transient('mepr_all_models_for_class_' . strtolower($model));
+            }
+            // MeprRule::get_rules() also keeps its rule objects in a static for the request (public in 1.14.3).
+            if (class_exists('MeprRule') && property_exists('MeprRule', 'all_rules') && (new \ReflectionProperty('MeprRule', 'all_rules'))->isPublic()) {
+                \MeprRule::$all_rules = null;
+            }
+        } catch (\Throwable $e) {
+            error_log('WP MCP: could not refresh MemberPress rule caches: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- a failed cache refresh must be visible without failing the write.
         }
     }
 
