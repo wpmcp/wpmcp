@@ -392,7 +392,7 @@ class AmeliaLiveTest extends \WP_UnitTestCase
 
         $attendees = $this->call('read', 'amelia-list-event-attendees', [ 'event_id' => $event ])['result']['attendees'];
         $this->assertSame([ $customer ], array_column($attendees, 'customer_id'));
-        $this->assertSame('sarah@example.com', $attendees[0]['email']);
+        $this->assertSame('s***@example.com', $attendees[0]['email']);
     }
 
     public function test_employee_hours_breaks_and_days_off_drive_ameliass_slots_and_checks_and_roll_back(): void
@@ -435,7 +435,7 @@ class AmeliaLiveTest extends \WP_UnitTestCase
         $this->assertSame('slot_unavailable', $error['code'], 'Amelia refuses a time outside the new hours.');
 
         $this->undo($narrow);
-        $this->assertSame($tom, $this->call('read', 'amelia-list-employees', [ 'search' => 'tom@' ])['result']['employees'][0], 'The undo puts the week, the break and the day off back.');
+        $this->assertSame($tom, array_merge($this->call('read', 'amelia-list-employees', [ 'search' => 'tom@' ])['result']['employees'][0], [ 'email' => $tom['email'], 'phone' => $tom['phone'] ]), 'The undo puts the week, the break and the day off back.');
         $this->undo($hours);
         $this->assertSame($before, $this->all());
         $this->assertSame([], $this->mail, 'The undo sent nothing.');

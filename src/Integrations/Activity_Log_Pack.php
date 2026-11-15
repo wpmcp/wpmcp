@@ -2,6 +2,7 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\Plugin_Table_Rows_Snapshot;
 
 if (! defined('ABSPATH')) {
@@ -156,7 +157,7 @@ final class Activity_Log_Pack
 
         return [
             'activitylog-list-activity' => $base + [
-                'description'  => 'List WP Activity Log or Simple History events newest first: id, time (UTC), user, severity, event, object, message, IP. Filters: user_id, username, object_id (post id), event (WP Activity Log alert id, Simple History logger), since and until (dates), page_size (default 20, max 100), offset. source when both plugins are active. IPs and emails MASKED, activitylog-get-activity returns one in full. Personal data',
+                'description'  => 'List WP Activity Log or Simple History events newest first: id, time (UTC), user, severity, event, object, message, IP. Filters: user_id, username, object_id (post id), event (WP Activity Log alert id, Simple History logger), since and until (dates), page_size (default 20, max 100), offset. source when both plugins are active. IPs, usernames and emails MASKED, activitylog-get-activity returns one in full. Personal data',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -374,8 +375,11 @@ final class Activity_Log_Pack
         foreach ($rows as $row) {
             $event = self::event($source, $row, $meta[ (int) $row['id'] ] ?? []);
             unset($event['user_agent'], $event['user_roles'], $event['details']);
-            $event['ip']      = self::mask_ip((string) $event['ip']);
-            $event['message'] = self::mask_text((string) $event['message']);
+            $name              = (string) $event['username'];
+            $event['username'] = Masking::value($name);
+            $event['ip']       = self::mask_ip((string) $event['ip']);
+            $message           = '' === $name ? (string) $event['message'] : str_replace($name, (string) $event['username'], (string) $event['message']);
+            $event['message']  = self::mask_text($message);
             $events[]         = $event;
         }
 

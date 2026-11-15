@@ -269,7 +269,7 @@ class TutorLmsPackTest extends \WP_UnitTestCase
         $this->assertSame(2, $out['total']);
         $this->assertSame('enrolled', $rows[ $alice ]['status']);
         $this->assertSame('cancelled', $rows[ $bob ]['status']);
-        $this->assertSame('alice@example.com', $rows[ $alice ]['email']);
+        $this->assertSame('a***@example.com', $rows[ $alice ]['email']);
         $this->assertSame([ 'user_id', 'display_name', 'email', 'status', 'enrolled_at' ], array_keys($rows[ $alice ]));
 
         $only = $this->ok($this->read('tutor-list-enrollments', [ 'course_id' => $course, 'status' => 'enrolled' ]))['result'];

@@ -219,7 +219,7 @@ class AmeliaViewerScopeTest extends \WP_UnitTestCase
 
         $attendees = $this->ok($this->read('amelia-list-event-attendees', [ 'event_id' => $this->tom_event ]))['attendees'];
         $this->assertSame([ $this->kim ], array_column($attendees, 'customer_id'));
-        $this->assertSame([ 'kim@example.com' ], array_column($attendees, 'email'));
+        $this->assertSame([ 'k***@example.com' ], array_column($attendees, 'email'));
 
         $out = $this->read('amelia-list-event-attendees', [ 'event_id' => $this->mia_event ]);
         $this->assertSame('capability', (string) ($out['error']['data']['reason'] ?? ''), (string) wp_json_encode($out));

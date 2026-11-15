@@ -2,6 +2,7 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\Helpdesk_Ticket_Snapshot;
 use WPMCP\Safety\Snapshot_Store;
 
@@ -147,7 +148,7 @@ abstract class Helpdesk_Adapter
         $ops = [
             "{$p}-list-tickets"      => $base + [
                 'mode'         => 'read',
-                'description'  => "List {$label} tickets newest first, as the plugin lets you see them: id, title, status, priority, customer (name, email masked), agent, reply count and dates. status: " . implode(', ', $this->status_filters()) . '; search matches the title and content. Personal data',
+                'description'  => "List {$label} tickets newest first, as the plugin lets you see them: id, title, status, priority, customer (name and email MASKED), title with any email or IP in it MASKED, agent, reply count and dates. status: " . implode(', ', $this->status_filters()) . '; search matches the title and content. Personal data',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -215,9 +216,15 @@ abstract class Helpdesk_Adapter
             if (isset($row['customer']['email'])) {
                 $row['customer']['email'] = self::mask_email((string) $row['customer']['email']);
             }
+            if (isset($row['customer']['name'])) {
+                $row['customer']['name'] = Masking::value((string) $row['customer']['name']);
+            }
+            if (isset($row['title'])) {
+                $row['title'] = Activity_Log_Pack::mask_text((string) $row['title']);
+            }
             $rows[] = $row;
         }
-        return [ 'tickets' => $rows, 'total' => (int) $page['total'], 'emails_masked' => true ];
+        return [ 'tickets' => $rows, 'total' => (int) $page['total'], 'emails_masked' => true, 'masked' => true ];
     }
 
     // ------------------------------------------------------------ checks

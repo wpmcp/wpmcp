@@ -3,6 +3,7 @@
 namespace WPMCP\Integrations;
 
 use WPMCP\MCP\Registrar;
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\Amelia_Rows_Snapshot;
 use WPMCP\Safety\Snapshot_Store;
 
@@ -269,17 +270,17 @@ final class Amelia_Pack
             'amelia-list-employees'     => $base + [
                 'mode'         => 'read',
                 'capability'   => 'amelia_read_employees',
-                'description'  => 'Amelia employees with their services, working week, breaks and days off (site-local times)',
+                'description'  => 'Amelia employees with their services, working week, breaks and days off (site-local times); email and phone MASKED, names stay',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'search' => [ 'type' => 'string' ] ],
                 ],
-                'handler'      => static fn (array $args): array => [ 'employees' => self::employees($args) ],
+                'handler'      => static fn (array $args): array => [ 'employees' => self::employees($args), 'masked' => true ],
             ],
             'amelia-list-customers'     => $base + [
                 'mode'         => 'read',
                 'capability'   => 'amelia_read_customers',
-                'description'  => 'Amelia customers with their booking counts. search matches name, email or phone; page, per_page (max 100)',
+                'description'  => 'Amelia customers with their booking counts; names, email, phone and note MASKED. search matches name, email or phone; page, per_page (max 100)',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'search' => [ 'type' => 'string' ] ] + $page,
@@ -289,7 +290,7 @@ final class Amelia_Pack
             'amelia-list-appointments'  => $base + [
                 'mode'         => 'read',
                 'capability'   => 'amelia_read_appointments',
-                'description'  => 'Amelia appointments starting from..to (site-local dates, default the next 30 days) with their customers. Filter by employee_id, service_id, customer_id, status; page, per_page (max 100)',
+                'description'  => 'Amelia appointments starting from..to (site-local dates, default the next 30 days) with their customers (names and internal notes MASKED). Filter by employee_id, service_id, customer_id, status; page, per_page (max 100)',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -339,7 +340,7 @@ final class Amelia_Pack
             'amelia-list-event-attendees' => $base + [
                 'mode'         => 'read',
                 'capability'   => 'amelia_read_events',
-                'description'  => 'The customers booked on an Amelia event, with status and persons',
+                'description'  => 'The customers booked on an Amelia event, with status and persons; names and email MASKED',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'event_id' => $id ],
@@ -1115,7 +1116,7 @@ final class Amelia_Pack
         // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $where holds only placeholders and literals.
         $rows = (array) $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE ' . $where . ' ORDER BY id ASC', ...$vars), ARRAY_A);
 
-        return array_map(static fn (array $row): array => self::employee_shape($row), $rows);
+        return array_map(static fn (array $row): array => Masking::keys(self::employee_shape($row), [ 'email', 'phone' ]), $rows);
     }
 
     private static function employee_row(int $id): ?array
@@ -1182,7 +1183,8 @@ final class Amelia_Pack
         return [
             'total'     => $total,
             'page'      => $page,
-            'customers' => array_map(static fn (array $row): array => self::customer_shape($row), $rows),
+            'customers' => array_map(static fn (array $row): array => Masking::keys(self::customer_shape($row), [ 'first_name', 'last_name', 'email', 'phone', 'note' ]), $rows),
+            'masked'    => true,
         ];
     }
 
@@ -1254,8 +1256,23 @@ final class Amelia_Pack
             'timezone'     => wp_timezone_string(),
             'total'        => $total,
             'page'         => $page,
-            'appointments' => array_map(static fn (array $row): array => self::appointment_shape($row), $rows),
+            'appointments' => array_map(static fn (array $row): array => self::mask_appointment(self::appointment_shape($row)), $rows),
+            'masked'       => true,
         ];
+    }
+
+    /**
+     * A listed appointment with the customers' names and the internal notes
+     * (free text that can hold anything) masked.
+     *
+     * @param array<string, mixed> $appointment
+     * @return array<string, mixed>
+     */
+    private static function mask_appointment(array $appointment): array
+    {
+        $appointment['notes']     = Masking::value((string) ($appointment['notes'] ?? ''));
+        $appointment['customers'] = array_map(static fn (array $c): array => Masking::keys($c, [ 'name' ]), (array) ($appointment['customers'] ?? []));
+        return $appointment;
     }
 
     private static function appointment_row(int $id): ?array
@@ -1442,7 +1459,8 @@ final class Amelia_Pack
         }
         return [
             'event_id'  => $event_id,
-            'attendees' => array_values(array_map(static fn (array $b): array => self::attendee_shape($b), $bookings)),
+            'attendees' => array_values(array_map(static fn (array $b): array => Masking::keys(self::attendee_shape($b), [ 'name', 'email' ]), $bookings)),
+            'masked'    => true,
         ];
     }
 
