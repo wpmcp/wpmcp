@@ -183,17 +183,26 @@ final class Secret_Options
             // The key that encrypts the stored credentials (Helpers\Crypto).
             'wp_mail_smtp_mail_key' => true,
 
-            // FluentSMTP: one option holds every connection's provider settings.
+            // FluentSMTP 2.4 (read from the wordpress.org release). One option holds every
+            // connection's provider settings (connections.<key>.provider_settings) and is
+            // read through fluentMailGetSettings(), which decrypts. The names are the
+            // plugin's own SecretMasker::SECRET_FIELDS (password, api_key, secret_key,
+            // access_key, client_secret), its WITHHELD_FIELDS (access_token, refresh_token)
+            // and the auth_token one-time code, plus names the heuristic would miss.
             'fluentmail-settings'   => [ 'password', 'api_key', 'access_key', 'secret_key', 'client_secret', 'access_token', 'refresh_token', 'auth_token', 'auth_key', 'private_key', 'token' ],
-            // UNVERIFIED shape: the notification settings carry the Telegram token and
-            // Slack/Discord webhook URLs (names seen in Settings code, option layout not read).
-            '_fluent_smtp_notify_settings' => [ 'telegram_notify_token', 'slack_webhook', 'webhook_url' ],
-            // UNVERIFIED content: stores the Outlook intended-connection info, which may hold tokens.
+            // The alert channels (Settings::notificationSettings): telegram.token, slack.token,
+            // slack.webhook_url and discord.webhook_url. A webhook URL is a bearer credential.
+            '_fluent_smtp_notify_settings' => [ 'token', 'site_token', 'webhook_url', 'api_token', 'user_key' ],
+            // Retired: current releases delete it on the next admin or cron request (it held the
+            // Outlook client id, secret and tenant in plain text). Older installs may still hold it.
             '_fluentsmtp_intended_outlook_info' => true,
 
-            // Post SMTP. "postman_options" holds every transport's credential (PostmanOptions consts).
+            // Post SMTP 4.0 (read from the wordpress.org release). "postman_options" holds
+            // every transport's credential (the PostmanOptions consts); the API keys and the
+            // basic auth password are stored base64 encoded, not encrypted. The email log is
+            // the post_smtp_logs table, not an option. "postman_state" holds only counters.
             'postman_options'       => [ 'basic_auth_password', 'fallback_smtp_password', 'oauth_client_secret', 'mandrill_api_key', 'sendgrid_api_key', 'mailersend_api_key', 'sendinblue_api_key', 'mailtrap_api_key', 'resend_api_key', 'cloudflare_api_token', 'smtpcom_api_key', 'mailjet_api_key', 'mailjet_secret_key', 'sendpulse_api_key', 'sendpulse_secret_key', 'postmark_api_key', 'sparkpost_api_key', 'mailgun_api_key', 'elasticemail_api_key', 'emailit_api_key', 'maileroo_api_key', 'sweego_api_key', 'smtp2go_api_key' ],
-            // OAuth token pairs (PostmanOAuthToken, the Office 365 wizard).
+            // OAuth token pairs (PostmanOAuthToken::OPTIONS_NAME, the Office 365 wizard).
             'postman_auth_token'    => true,
             'postman_office365_oauth' => true,
             // Keyed by each paired device's auth (FCM) token, so the keys are the secret.
