@@ -45,9 +45,13 @@ if (! defined('ABSPATH')) {
  * and after an issue restore its scan notice is recounted, the way its own
  * screens do after the same change.
  *
+ * Pretty Links links (issue #682, the `prli_links` table, the one suffix
+ * "links") are keyed by their own id. A create reserves its id before the
+ * snapshot, so the restore removes the row the write inserted.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
- * for a dictionary row, and Wordfence's own admin capability (manage_options,
+ * for a dictionary row or a Pretty Links link, and Wordfence's own admin capability (manage_options,
  * manage_network on a multisite network) for a Wordfence row.
  */
 final class Plugin_Table_Rows_Snapshot
@@ -59,6 +63,7 @@ final class Plugin_Table_Rows_Snapshot
         'pods'             => 'pods_',
         'trp_dictionary'   => 'trp_dictionary_',
         'mepr_rule_access' => 'mepr_rule_access_',
+        'prli'             => 'prli_',
     ];
 
     /**
@@ -79,6 +84,7 @@ final class Plugin_Table_Rows_Snapshot
     /** kind => the only suffixes it allows, for a kind with a fixed table. */
     private const SUFFIXES = [
         'mepr_rule_access' => [ 'conditions' ],
+        'prli'             => [ 'links' ],
     ];
 
     /** kind => its binary columns, carried as lowercase hex in the snapshot and in the key. */
@@ -418,6 +424,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('trp_dictionary' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring TranslatePress translations requires the manage_options capability.');
+            }
+            return;
+        }
+        if ('prli' === $kind) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring Pretty Links links requires the manage_options capability.');
             }
             return;
         }

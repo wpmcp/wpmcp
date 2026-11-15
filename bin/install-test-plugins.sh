@@ -11,6 +11,8 @@
 # BuddyPress only (bin/test-local.sh --live-buddypress), or, with
 # WPMCP_LIVE_BBPRESS=1, bbPress only (bin/test-local.sh --live-bbpress), or, with
 # WPMCP_LIVE_TABLEPRESS=1, TablePress only (bin/test-local.sh --live-tablepress), or,
+# with WPMCP_LIVE_LINKS=1, Pretty Links and ThirstyAffiliates only (bin/test-local.sh
+# --live-links), or,
 # with WPMCP_LIVE_CODE_SNIPPETS=1, Code Snippets only (bin/test-local.sh
 # --live-code-snippets), or,
 # with WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
@@ -167,6 +169,16 @@ fi
 if [ "${WPMCP_LIVE_TABLEPRESS:-}" = "1" ]; then
 	PLUGINS=(
 		"tablepress:tablepress.php"
+	)
+fi
+
+# The live links job (issue #682) runs the Pretty Links and ThirstyAffiliates
+# ops through the real free plugins. Exclusive too: the stub-backed tests
+# build the tables of both from fixtures and fake their presence.
+if [ "${WPMCP_LIVE_LINKS:-}" = "1" ]; then
+	PLUGINS=(
+		"pretty-link:pretty-link.php"
+		"thirstyaffiliates:thirstyaffiliates.php"
 	)
 fi
 
