@@ -42,6 +42,8 @@
 #      through the real plugins, one install each.
 #   9. Runs the live TablePress group (issue #481): the TablePress ops
 #      through the real TablePress, on its own install too.
+#   9b. Runs the live links group (issue #682): the Pretty Links and
+#      ThirstyAffiliates ops through the real free plugins, on its own install.
 #   9b. Runs the live Code Snippets group (issue #576): the Code Snippets
 #      ops through the real Code Snippets, every write rolled back and only
 #      a no-op snippet ever activated, on its own install too.
@@ -225,6 +227,8 @@
 #   bin/test-local.sh --live-bbpress  only the live bbPress group (real bbPress)
 #   bin/test-local.sh --live-lms      only the live LMS groups (real Tutor LMS, then real LifterLMS)
 #   bin/test-local.sh --live-tablepress only the live TablePress group (real TablePress)
+#   bin/test-local.sh --live-rank-math  only the live Rank Math group (real Rank Math SEO)
+#   bin/test-local.sh --live-links    only the live Pretty Links and ThirstyAffiliates group (real plugins)
 #   bin/test-local.sh --live-code-snippets only the live Code Snippets group (real Code Snippets)
 #   bin/test-local.sh --live-crm      only the live CRM group (real FluentCRM and MailPoet)
 #   bin/test-local.sh --live-helpdesk only the live knowledge base and support desk group
@@ -406,6 +410,8 @@ only_live_buddypress=false
 only_live_bbpress=false
 only_live_lms=false
 only_live_tablepress=false
+only_live_rank_math=false
+only_live_links=false
 only_live_code_snippets=false
 only_live_crm=false
 only_live_helpdesk=false
@@ -448,6 +454,8 @@ while [ $# -gt 0 ]; do
 		--live-bbpress) only_live_bbpress=true ;;
 		--live-lms) only_live_lms=true ;;
 		--live-tablepress) only_live_tablepress=true ;;
+		--live-rank-math) only_live_rank_math=true ;;
+		--live-links) only_live_links=true ;;
 		--live-code-snippets) only_live_code_snippets=true ;;
 		--live-crm) only_live_crm=true ;;
 		--live-helpdesk) only_live_helpdesk=true ;;
@@ -521,13 +529,15 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_helpdesk" = true ] || [ "$only_live_activity_log" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_betheme" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_cornerstone" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ] || [ "$only_live_ws_form" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_rank_math" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_helpdesk" = true ] || [ "$only_live_activity_log" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_betheme" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_cornerstone" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ] || [ "$only_live_ws_form" = true ] || [ "$only_live_links" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
 	[ "$only_live_bbpress" = false ] || LEGS+=("live-bbpress ${only_wp:-$default_wp}")
 	[ "$only_live_lms" = false ] || LEGS+=("live-lms ${only_wp:-$default_wp}")
 	[ "$only_live_tablepress" = false ] || LEGS+=("live-tablepress ${only_wp:-$default_wp}")
+	[ "$only_live_rank_math" = false ] || LEGS+=("live-rank-math ${only_wp:-$default_wp}")
+	[ "$only_live_links" = false ] || LEGS+=("live-links ${only_wp:-$default_wp}")
 	[ "$only_live_code_snippets" = false ] || LEGS+=("live-code-snippets ${only_wp:-$default_wp}")
 	[ "$only_live_crm" = false ] || LEGS+=("live-crm ${only_wp:-$default_wp}")
 	[ "$only_live_helpdesk" = false ] || LEGS+=("live-helpdesk ${only_wp:-$default_wp}")
@@ -583,7 +593,7 @@ else
 		LEGS+=("multisite $default_wp none")
 	fi
 	if [ "$targeted" = false ]; then
-		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-bbpress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-helpdesk $default_wp" "live-activity-log $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp" "live-wp-mail-smtp $default_wp")
+		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-bbpress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-rank-math $default_wp" "live-links $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-helpdesk $default_wp" "live-activity-log $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp" "live-wp-mail-smtp $default_wp")
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			LEGS+=("live-breakdance $default_wp")
 		fi
@@ -754,6 +764,9 @@ install_flavor() {
 	[ -n "${WPMCP_LIVE_LMS:-}" ] && flavor="-${WPMCP_LIVE_LMS}-live"
 	# And WPMCP_LIVE_TABLEPRESS=1 and TablePress.
 	[ "${WPMCP_LIVE_TABLEPRESS:-}" = 1 ] && flavor="-tablepress-live"
+	[ "${WPMCP_LIVE_RANK_MATH:-}" = 1 ] && flavor="-rank-math-live"
+	# And WPMCP_LIVE_LINKS=1 and Pretty Links with ThirstyAffiliates.
+	[ "${WPMCP_LIVE_LINKS:-}" = 1 ] && flavor="-links-live"
 	# And WPMCP_LIVE_CODE_SNIPPETS=1 and Code Snippets.
 	[ "${WPMCP_LIVE_CODE_SNIPPETS:-}" = 1 ] && flavor="-code-snippets-live"
 	# And WPMCP_LIVE_CRM=1 and FluentCRM and MailPoet.
@@ -1411,6 +1424,22 @@ run_live_tablepress() {
 	unset WPMCP_LIVE_TABLEPRESS
 }
 
+# The live Rank Math group (issue #681), the same way: its own install with
+# the real Rank Math SEO, its own database, and --fail-on-skipped.
+run_live_rank_math() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_RANK_MATH=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-rank-math-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Rank Math group on WordPress $version (real Rank Math SEO)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group rank-math-live --fail-on-skipped
+	unset WPMCP_LIVE_RANK_MATH
+}
+
 # The live WP Mail SMTP group, the same way: its own install with the real
 # WP Mail SMTP, its own database, and --fail-on-skipped.
 run_live_wp_mail_smtp() {
@@ -1772,6 +1801,22 @@ run_live_cache_settings() {
 	unset WPMCP_LIVE_CACHE_SETTINGS
 }
 
+# The live links group (issue #682), the same way: its own install with the
+# real Pretty Links and ThirstyAffiliates, its own database, --fail-on-skipped.
+run_live_links() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_LINKS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-links-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live links group on WordPress $version (real Pretty Links and ThirstyAffiliates)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group links-live --fail-on-skipped
+	unset WPMCP_LIVE_LINKS
+}
+
 # The live WS Form group (issue #676), the same way, with WS Form PRO copied
 # from WPMCP_WS_FORM_SRC: its own install, its own database and
 # --fail-on-skipped.
@@ -2025,6 +2070,8 @@ run_leg_body() {
 		live-bbpress) run_live_bbpress "$wp" ;;
 		live-lms) run_live_lms "$wp" ;;
 		live-tablepress) run_live_tablepress "$wp" ;;
+		live-rank-math) run_live_rank_math "$wp" ;;
+		live-links) run_live_links "$wp" ;;
 		live-code-snippets) run_live_code_snippets "$wp" ;;
 		live-crm) run_live_crm "$wp" ;;
 		live-helpdesk) run_live_helpdesk "$wp" ;;
