@@ -73,6 +73,17 @@ class SecretOptionsTest extends \WP_UnitTestCase
         $this->assertTrue($value['lazy_load']);
     }
 
+    /** The registry's literal lists must not drift from the settings reads' lists. */
+    public function test_the_registry_matches_the_cache_adapters_secret_keys(): void
+    {
+        $registry = Secret_Options::registry();
+        $rocket   = new \WPMCP\Integrations\Cache_Settings_WP_Rocket();
+        $fly      = new \WPMCP\Integrations\Cache_Settings_FlyingPress();
+
+        $this->assertEqualsCanonicalizing($rocket->secret_keys(), $registry[ $rocket->option() ]);
+        $this->assertEqualsCanonicalizing($fly->secret_keys(), $registry[ $fly->option() ]);
+    }
+
     public function test_an_unset_credential_stays_empty_so_not_set_is_visible(): void
     {
         update_option('wp_rocket_settings', [ 'cloudflare_api_key' => '', 'secret_cache_key' => 'abc' ]);
@@ -494,6 +505,86 @@ class SecretOptionsTest extends \WP_UnitTestCase
         (new Update_Option())->handle([ 'name' => 'wpmcp_test_unregistered', 'value' => [ 'accounts' => [ [ 'id' => 'a', 'api_key' => self::MASK ], [ 'id' => 'b', 'api_key' => self::MASK ] ] ] ]);
 
         $this->assertSame([ 'KEY-A', 'KEY-B' ], array_column(get_option('wpmcp_test_unregistered')['accounts'], 'api_key'));
+    }
+
+    // ---- Re-review fixes (PR #917).
+
+    public function test_a_transform_over_the_value_column_is_refused_on_another_site_or_on_sitemeta(): void
+    {
+        global $wpdb;
+        $this->expectException(\RuntimeException::class);
+        (new Query())->handle([ 'sql' => "SELECT REVERSE(option_value) FROM {$wpdb->base_prefix}7_options WHERE option_name = 'wpmcp_test_unregistered'" ]);
+    }
+
+    public function test_a_transform_over_sitemeta_value_is_refused(): void
+    {
+        global $wpdb;
+        $this->expectException(\RuntimeException::class);
+        (new Query())->handle([ 'sql' => "SELECT REVERSE(meta_value) FROM {$wpdb->base_prefix}sitemeta WHERE meta_key = 'wpmcp_test_unregistered'" ]);
+    }
+
+    public function test_a_transform_checks_the_stored_row_not_the_filtered_option(): void
+    {
+        global $wpdb;
+        update_option('wpmcp_test_unregistered', [ 'client_secret' => 'FILTERED-LEAK' ]);
+        add_filter('option_wpmcp_test_unregistered', static fn () => [ 'harmless' => 1 ]);
+
+        try {
+            $this->expectException(\RuntimeException::class);
+            (new Query())->handle([ 'sql' => "SELECT REVERSE(option_value) FROM {$wpdb->options} WHERE option_name = 'wpmcp_test_unregistered'" ]);
+        } finally {
+            remove_all_filters('option_wpmcp_test_unregistered');
+        }
+    }
+
+    public function test_arrays_and_integers_under_a_secret_named_key_are_masked(): void
+    {
+        update_option('wpmcp_test_unregistered', [
+            'api_keys' => [ 'sk-1', 'sk-2' ],
+            'secrets'  => [ 'a' => 'v', 'deep' => [ 'b' => 'w' ], 'flag' => true ],
+            'password' => 12345678,
+        ]);
+
+        $value = (new Get_Option())->handle([ 'name' => 'wpmcp_test_unregistered' ])['value'];
+
+        $this->assertStringNotContainsString('sk-1', wp_json_encode($value));
+        $this->assertStringNotContainsString('"v"', wp_json_encode($value));
+        $this->assertStringNotContainsString('"w"', wp_json_encode($value));
+        $this->assertStringNotContainsString('12345678', wp_json_encode($value));
+        $this->assertTrue($value['secrets']['flag'], 'a boolean leaf stays readable');
+    }
+
+    public function test_numeric_strings_under_non_secret_numeric_names_stay_readable(): void
+    {
+        update_option('wpmcp_test_unregistered', [ 'max_tokens' => '4096', 'token_ttl' => '3600', 'password_min_length' => '8', 'token_count' => '12', 'api_key' => '123456' ]);
+
+        $value = (new Get_Option())->handle([ 'name' => 'wpmcp_test_unregistered' ])['value'];
+
+        $this->assertSame('4096', $value['max_tokens']);
+        $this->assertSame('3600', $value['token_ttl']);
+        $this->assertSame('8', $value['password_min_length']);
+        $this->assertSame('12', $value['token_count']);
+        $this->assertSame(self::MASK, $value['api_key'], 'a numeric credential is still a credential');
+    }
+
+    public function test_an_identity_less_list_reordered_at_the_same_length_is_refused(): void
+    {
+        add_filter('wpmcp_enable_option_write', '__return_true');
+        update_option('wpmcp_test_unregistered', [ 'hosts' => [ [ 'api_key' => 'K1', 'url' => 'u1' ], [ 'api_key' => 'K2', 'url' => 'u2' ] ] ]);
+
+        $this->expectException(\RuntimeException::class);
+        (new Update_Option())->handle([ 'name' => 'wpmcp_test_unregistered', 'value' => [ 'hosts' => [ [ 'api_key' => self::MASK, 'url' => 'u2' ], [ 'api_key' => self::MASK, 'url' => 'u1' ] ] ] ]);
+    }
+
+    public function test_an_identity_less_list_written_back_as_read_is_restored(): void
+    {
+        add_filter('wpmcp_enable_option_write', '__return_true');
+        update_option('wpmcp_test_unregistered', [ 'hosts' => [ [ 'api_key' => 'K1', 'url' => 'u1' ], [ 'api_key' => 'K2', 'url' => 'u2' ] ] ]);
+
+        $read = (new Get_Option())->handle([ 'name' => 'wpmcp_test_unregistered' ])['value'];
+        (new Update_Option())->handle([ 'name' => 'wpmcp_test_unregistered', 'value' => $read ]);
+
+        $this->assertSame([ 'K1', 'K2' ], array_column(get_option('wpmcp_test_unregistered')['hosts'], 'api_key'));
     }
 
     /** Walks "a.b.c" through nested arrays; null when absent. */
