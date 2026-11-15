@@ -2,6 +2,7 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\Plugin_Table_Rows_Snapshot;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Tools\Database\Database_Guard;
@@ -731,17 +732,7 @@ final class WS_Form_Pack
      */
     public static function mask($value)
     {
-        if (is_array($value)) {
-            return array_map([ self::class, 'mask' ], $value);
-        }
-        if (null === $value || is_bool($value) || '' === $value) {
-            return $value;
-        }
-        $text = (string) $value;
-        if (1 === preg_match('/^([^@\s])[^@\s]*@([^@\s]+)$/u', $text, $m)) {
-            return $m[1] . '***@' . $m[2];
-        }
-        return mb_substr($text, 0, 1) . '***';
+        return Masking::value($value);
     }
 
     /** @return array<string, mixed> */
