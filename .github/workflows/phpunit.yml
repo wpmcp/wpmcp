@@ -76,6 +76,10 @@ jobs:
 
       - run: composer install --no-interaction --prefer-dist
 
+      # The WordPress test library is exported from develop.svn.wordpress.org.
+      - name: Install subversion
+        run: command -v svn >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq subversion)
+
       - name: Install WordPress, the test library and the test plugins
         run: |
           mkdir -p "$TMPDIR" "$WPMCP_DOWNLOAD_CACHE"
