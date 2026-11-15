@@ -434,8 +434,8 @@ final class BuddyPress_Pack
         $sql                 = implode(' AND ', $where);
 
         // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; $sql holds only literals and placeholders, matched by the spread values.
-        $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE {$sql}", $table, ...$vals));
-        $rows  = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE {$sql} ORDER BY date_created DESC, id DESC LIMIT %d OFFSET %d", $table, ...array_merge($vals, [ $per_page, $offset ])), ARRAY_A);
+        $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i a WHERE {$sql}", $table, ...$vals));
+        $rows  = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i a WHERE {$sql} ORDER BY date_created DESC, id DESC LIMIT %d OFFSET %d", $table, ...array_merge($vals, [ $per_page, $offset ])), ARRAY_A);
         // phpcs:enable
 
         return [
@@ -469,7 +469,7 @@ final class BuddyPress_Pack
 
         // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; $sql holds only literals and placeholders, matched by the spread values.
         $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE {$sql}", $table, $group));
-        $rows  = $offset < $total ? (array) $wpdb->get_results($wpdb->prepare("SELECT id, user_id, is_admin, is_mod, user_title, date_modified, is_confirmed, is_banned FROM %i WHERE {$sql} ORDER BY id ASC LIMIT %d OFFSET %d", $table, $group, $per_page, $offset), ARRAY_A) : [];
+        $rows  = $offset < $total ? (array) $wpdb->get_results($wpdb->prepare("SELECT id, user_id, is_admin, is_mod, user_title, date_modified, is_confirmed, is_banned FROM %i a WHERE {$sql} ORDER BY id ASC LIMIT %d OFFSET %d", $table, $group, $per_page, $offset), ARRAY_A) : [];
         // phpcs:enable
 
         // Current membership requests follow the member rows, as pending.
@@ -855,6 +855,89 @@ final class BuddyPress_Pack
         ];
     }
 
+    /** Whether a column or table of BuddyPress's own schema exists (BuddyBoss Platform adds some). */
+    private static function has_schema(string $table, ?string $column = null): bool
+    {
+        global $wpdb;
+        $suppress = $wpdb->suppress_errors(true);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- probing a third-party table's live shape; nothing to cache.
+        $columns = (array) $wpdb->get_col($wpdb->prepare('SHOW COLUMNS FROM %i', $table));
+        $wpdb->suppress_errors($suppress);
+        return null === $column ? [] !== $columns : in_array($column, $columns, true);
+    }
+
+    /**
+     * The extra read rules BuddyBoss Platform puts on the activity table, as
+     * SQL conditions for a caller who is not a moderator: per-item privacy
+     * (public, loggedin, their own onlyme, friends only for friends), the
+     * published status and bp_suspend moderation. BuddyBoss's own queries
+     * enforce these (bp-activity-filters.php, BP_Suspend_Activity), and the
+     * pack reads the table directly, so it must apply them itself. Each rule is
+     * added only when its column or table exists, so stock BuddyPress, which
+     * has neither, is unchanged. Replies follow the item they sit under.
+     *
+     * @param array<int, mixed> $vals placeholder values, appended in order
+     * @return string[]
+     */
+    private static function platform_activity_conditions(string $activity_table, array &$vals): array
+    {
+        $own = static function (string $alias) use ($activity_table, &$vals): ?string {
+            $rules = [];
+            if (self::has_schema($activity_table, 'status')) {
+                $rules[] = "{$alias}.status = 'published'";
+            }
+            if (self::has_schema($activity_table, 'privacy')) {
+                $user    = get_current_user_id();
+                $friends = [ $user ];
+                if (function_exists('friends_get_friend_user_ids') && $user > 0) {
+                    $friends = array_merge($friends, array_map('intval', (array) friends_get_friend_user_ids($user)));
+                }
+                $friends = array_values(array_unique(array_filter($friends)));
+                $levels  = $user > 0 ? "'public', 'loggedin', 'grouponly'" : "'public'";
+                $rule    = "( {$alias}.privacy IN ({$levels})";
+                if ($user > 0) {
+                    $rule .= " OR ( {$alias}.privacy = 'onlyme' AND {$alias}.user_id = %d )";
+                    $vals[] = $user;
+                    if ([] !== $friends) {
+                        $rule .= " OR ( {$alias}.privacy = 'friends' AND {$alias}.user_id IN (" . implode(', ', array_fill(0, count($friends), '%d')) . ') )';
+                        array_push($vals, ...$friends);
+                    }
+                }
+                $rules[] = $rule . ' )';
+            }
+            $suspend = self::prefix_table('bp_suspend');
+            if (self::has_schema($suspend)) {
+                $rules[] = "NOT EXISTS ( SELECT 1 FROM %i s WHERE s.item_id = {$alias}.id AND s.item_type = ( CASE WHEN {$alias}.type = 'activity_comment' THEN 'activity_comment' ELSE 'activity' END ) AND ( s.hide_sitewide = 1 OR s.hide_parent = 1 OR s.user_suspended = 1 ) )";
+                $vals[]  = $suspend;
+            }
+            return [] === $rules ? null : implode(' AND ', $rules);
+        };
+
+        $item = $own('a');
+        if (null === $item) {
+            return [];
+        }
+        // $own() pushed the values for 'a'; build the parent rule against alias 'r'
+        // into its own value list so the placeholders stay in SQL order.
+        $outer = $vals;
+        $vals  = [];
+        $root  = $own('r');
+        $root_vals = $vals;
+        $vals  = $outer;
+        $out   = [ $item ];
+        if (null !== $root) {
+            $out[] = "NOT ( a.type = 'activity_comment' AND a.item_id IN ( SELECT r.id FROM %i r WHERE NOT ( {$root} ) ) )";
+            $vals[] = $activity_table;
+            array_push($vals, ...$root_vals);
+        }
+        return $out;
+    }
+
+    private static function prefix_table(string $name): string
+    {
+        return BuddyPress_Rows_Snapshot::prefix() . $name;
+    }
+
     private static function list_activity(array $args): array
     {
         global $wpdb;
@@ -870,6 +953,7 @@ final class BuddyPress_Pack
         $table = BuddyPress_Rows_Snapshot::table('bp_activity');
         if (! self::is_moderator()) {
             $where[] = 'hide_sitewide = 0 AND is_spam = 0';
+            array_push($where, ...self::platform_activity_conditions($table, $vals));
             if (true === self::requirement('groups')) {
                 // Activity in a group the caller cannot access, and replies
                 // under it, as bp_activity_user_can_read() decides: an item
@@ -889,8 +973,8 @@ final class BuddyPress_Pack
         $sql                 = implode(' AND ', $where);
 
         // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; $sql holds only literals and placeholders, matched by the spread values.
-        $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE {$sql}", $table, ...$vals));
-        $rows  = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE {$sql} ORDER BY date_recorded DESC, id DESC LIMIT %d OFFSET %d", $table, ...array_merge($vals, [ $per_page, $offset ])), ARRAY_A);
+        $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i a WHERE {$sql}", $table, ...$vals));
+        $rows  = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i a WHERE {$sql} ORDER BY date_recorded DESC, id DESC LIMIT %d OFFSET %d", $table, ...array_merge($vals, [ $per_page, $offset ])), ARRAY_A);
         // phpcs:enable
 
         $users = [];

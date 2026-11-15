@@ -184,6 +184,84 @@ if ( ! function_exists( 'wpmcp_test_drop_buddypress_tables' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wpmcp_test_make_buddyboss_schema' ) ) {
+	/**
+	 * Turn the stock BuddyPress fixture into a BuddyBoss Platform shaped one:
+	 * bp_activity gains post_title, date_updated, privacy and status, and the
+	 * bp_suspend moderation table exists.
+	 *
+	 * Copied from BuddyBoss Platform 3.7.2, bp-core/admin/bp-core-admin-schema.php
+	 * (bp_core_install_activity_streams() and bp_core_install_suspend()).
+	 * Call after wpmcp_test_create_buddypress_tables(), and
+	 * wpmcp_test_drop_buddyboss_schema() before the next create.
+	 */
+	function wpmcp_test_make_buddyboss_schema(): void {
+		global $wpdb;
+
+		$p       = $wpdb->base_prefix;
+		$charset = $wpdb->get_charset_collate();
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- test fixture DDL built from literals.
+		$wpdb->query( "ALTER TABLE {$p}bp_activity
+			ADD post_title text DEFAULT NULL,
+			ADD date_updated datetime DEFAULT NULL,
+			ADD privacy varchar(75) NOT NULL DEFAULT 'public',
+			ADD status varchar(20) NOT NULL DEFAULT 'published'" );
+		$wpdb->query( "DROP TABLE IF EXISTS {$p}bp_suspend" );
+		$wpdb->query( "CREATE TABLE {$p}bp_suspend (
+			id bigint(20) NOT NULL AUTO_INCREMENT,
+			item_id bigint(20) NOT NULL,
+			item_type varchar(20) NOT NULL,
+			hide_sitewide tinyint(1) NOT NULL,
+			hide_parent tinyint(1) NOT NULL,
+			user_suspended tinyint(1) NOT NULL,
+			reported tinyint(1) NOT NULL,
+			user_report tinyint DEFAULT '0',
+			last_updated datetime NULL DEFAULT '0000-00-00 00:00:00',
+			blog_id bigint(20) NOT NULL,
+			PRIMARY KEY  (id),
+			KEY suspend_item_id (item_id,item_type,blog_id)
+		) {$charset}" );
+		// phpcs:enable
+	}
+
+	function wpmcp_test_drop_buddyboss_schema(): void {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- test fixture DDL built from literals.
+		$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->base_prefix}bp_suspend" );
+	}
+
+	/** Mark an activity item (or comment) as moderated in bp_suspend. */
+	function wpmcp_test_bp_suspend( int $item_id, array $columns = [], string $type = 'activity' ): int {
+		return wpmcp_test_bp_insert(
+			'bp_suspend',
+			array_merge(
+				[
+					'item_id'        => $item_id,
+					'item_type'      => $type,
+					'hide_sitewide'  => 0,
+					'hide_parent'    => 0,
+					'user_suspended' => 0,
+					'reported'       => 0,
+					'blog_id'        => 1,
+				],
+				$columns
+			)
+		);
+	}
+}
+
+if ( ! function_exists( 'friends_get_friend_user_ids' ) ) {
+	/**
+	 * Stand-in for BuddyBoss's friends_get_friend_user_ids(), driven by
+	 * $GLOBALS['wpmcp_test_bp_friends'] (user id => friend ids). Only defined
+	 * when the friends component is not loaded.
+	 */
+	function friends_get_friend_user_ids( $user_id ) {
+		return array_map( 'intval', $GLOBALS['wpmcp_test_bp_friends'][ (int) $user_id ] ?? [] );
+	}
+}
+
 if ( ! function_exists( 'wpmcp_test_bp_insert' ) ) {
 	/** Insert one row into a BuddyPress table (unprefixed name) and return its id. */
 	function wpmcp_test_bp_insert( string $table, array $row ): int {
