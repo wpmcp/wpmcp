@@ -382,6 +382,13 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'tablepress/tablepress.php' );
     }
 
+    // The live Rank Math job (issue #681, WPMCP_LIVE_RANK_MATH=1) runs the
+    // Rank Math redirects ops against the real plugin's tables. Loaded only on
+    // request: the stub-backed tests create stand-in tables.
+    if ( getenv( 'WPMCP_LIVE_RANK_MATH' ) ) {
+        wpmcp_maybe_require_plugin( 'seo-by-rank-math/rank-math.php' );
+    }
+
     // The live links job (issue #682, WPMCP_LIVE_LINKS=1) runs the Pretty
     // Links and ThirstyAffiliates ops through the real free plugins. Loaded
     // only on request: the stub-backed tests build their tables from fixtures.
