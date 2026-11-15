@@ -74,6 +74,10 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             'show_on_front',
             'page_on_front',
             'page_for_posts',
+            // The SeedProd and Under Construction gate settings, toggled by
+            // the Site_Gate_Pack ops on the theme pair (issue #903).
+            'seedprod_settings',
+            'ucp_options',
             // Avada's global options, written by the Avada design_system
             // scope on the builder pair (issue #637).
             'fusion_options',

@@ -249,7 +249,7 @@ class Theme_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'the active theme (context, mods), site identity, permalinks, Redirection, backup, security, analytics, cache, mail status';
+        return 'the active theme (context, mods), site identity, permalinks, Redirection, backup, security, analytics, cache, mail status, site gates';
     }
 
     protected function operations(): array
@@ -278,6 +278,8 @@ class Theme_Integration extends Integration_Dispatcher
      * UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total
      * Cache status plus the W3 Total Cache purge, each skipped cleanly while
      * its plugin is not loaded.
+     * Issue #903 adds the site gate status read and the SeedProd and Under
+     * Construction toggles (Site_Gate_Pack).
      * Issues #713 and #717 add WordPress core's own site identity, homepage
      * and permalink settings (Core_Site_Pack): logo, icon, front page and
      * posts page, the permalink structure with its bases, a URL resolver
@@ -293,6 +295,7 @@ class Theme_Integration extends Integration_Dispatcher
             Theme_Framework_Pack::operations($this->detect_framework()),
             Core_Site_Pack::operations(),
             Ops_Status_Packs::operations(),
+            Site_Gate_Pack::operations(),
             Cache_Settings_Pack::operations(),
             Redirection_Pack::operations(),
             Elementor_Addon_Packs::operations(),
